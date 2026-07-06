@@ -1,0 +1,21 @@
+# Exclude from the Docker build context (keeps images small & builds fast).
+.git
+.venv
+**/__pycache__
+**/*.pyc
+node_modules
+frontend/node_modules
+frontend/dist
+ava-data
+data
+logs
+media
+models
+bin/piper
+gpusvc/user
+searxng
+*.log
+.env
+ava.yaml
+secrets
+enroll

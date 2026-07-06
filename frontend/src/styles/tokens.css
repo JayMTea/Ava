@@ -1,0 +1,84 @@
+/* =========================================================================
+   AVA DESIGN TOKENS — Single Source of Truth (SSOT)
+   Every design value for Ava lives here ONCE. All CSS and the dashboard's
+   Recharts theme read these variables; no other file declares token *values*.
+   To re-theme Ava (or add a light theme via [data-theme="…"]), edit ONLY this
+   file. Theme = Ava terracotta. (No external brand.)
+   ========================================================================= */
+:root {
+  color-scheme: dark;
+
+  /* ---- Color · surfaces ---- */
+  --bg:#262624;          /* main canvas */
+  --panel:#1f1e1d;       /* sidebar / raised surfaces */
+  --panel2:#30302e;      /* cards, chips, user bubble */
+  --line:#3b3a36;        /* hairline borders */
+  --sidebar:#1f1e1d;
+  --userbubble:#30302e;
+  --input:#30302e;
+  --inputline:#46443f;
+
+  /* ---- Color · text ---- */
+  --txt:#f4f3ee;         /* primary (warm off-white) */
+  --muted:#9a968c;       /* secondary */
+
+  /* ---- Color · accent (Ava terracotta) ---- */
+  --accent:#c96442;
+  --accent-hover:#b45739;
+
+  /* ---- Color · semantic ---- */
+  --ok:#3fb27f;          /* success / online / good */
+  --warn:#e0a93b;        /* warning / degraded / fallback */
+  --err:#e0364d;         /* error / critical */
+  --rec:#e0364d;         /* legacy alias (recording dot) */
+  --info:#7ea6c9;        /* informational */
+
+  /* ---- Chart palette (categorical cycle, accent-led) ---- */
+  --chart-1:#c96442;
+  --chart-2:#3fb27f;
+  --chart-3:#e0a93b;
+  --chart-4:#7ea6c9;
+  --chart-5:#b79cff;
+  --chart-6:#9a968c;
+  --chart-grid:#3b3a36;  /* = --line */
+  --chart-axis:#9a968c;  /* = --muted */
+
+  /* ---- Radius ---- */
+  --r-sm:8px;
+  --r-md:12px;
+  --r-lg:16px;
+  --r-pill:999px;
+
+  /* ---- Spacing scale ---- */
+  --sp-1:4px;
+  --sp-2:8px;
+  --sp-3:12px;
+  --sp-4:16px;
+  --sp-5:24px;
+  --sp-6:32px;
+
+  /* ---- Typography ---- */
+  --font-ui:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+  --font-mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --serif:ui-serif, Georgia, "Times New Roman", serif;
+  --fs-xs:11px;
+  --fs-sm:13px;
+  --fs-md:15px;
+  --fs-lg:20px;
+  --fs-xl:28px;
+  --fw-normal:400;
+  --fw-medium:600;
+  --fw-bold:700;
+
+  /* ---- Elevation / motion / z-index ---- */
+  --shadow-1:0 1px 2px rgba(0,0,0,.25);
+  --shadow-2:0 6px 20px rgba(0,0,0,.35);
+  --dur-fast:.12s;
+  --dur-slow:.3s;
+  --z-drawer:40;
+  --z-modal:50;
+  --z-toast:60;
+
+  /* ---- Layout ---- */
+  --col:768px;           /* centered content column width */
+}

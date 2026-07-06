@@ -1,0 +1,28 @@
+# Egress policy for Ava's logging/debugging tool (read_logs) to reach the HOST's
+# phone bridge and query systemd journals and application logs.
+# The bridge (phone_bridge.py) listens on 127.0.0.1:8096 and exposes /internal/logs
+# via the guard proxy. Calls are gated by X-Ava-Internal-Token (bearer token).
+# Applied by ../install.sh via: nemoclaw my-assistant policy-add --from-file <this> --yes
+preset:
+  name: ava-logs
+  description: "Host phone-bridge log queries for Ava's read_logs tool"
+
+network_policies:
+  ava-logs:
+    name: ava-logs
+    endpoints:
+      - host: host.openshell.internal
+        port: 8096
+        protocol: rest
+        enforcement: enforce
+        allowed_ips:
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
+        rules:
+          - allow: { method: POST, path: "/internal/logs" }
+          - allow: { method: POST, path: "/internal/perf" }
+    binaries:
+      - { path: /usr/local/bin/node }
+      - { path: /usr/bin/node }
+      - { path: /usr/bin/curl }

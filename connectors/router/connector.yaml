@@ -1,0 +1,7 @@
+id: router
+label: Inference Router
+kind: core
+service:
+  name: Router
+  unit: ava-router.service
+  probe: "http://127.0.0.1:8010/healthz"

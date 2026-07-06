@@ -1,0 +1,30 @@
+# Egress policy for Ava's policy management tools (list_policies, read_policy,
+# update_policy) to reach the HOST's phone bridge and manage egress policies.
+# The bridge listens on 127.0.0.1:8096 and exposes /internal/policies via the
+# guard proxy. Calls are gated by X-Ava-Internal-Token (bearer token).
+# Protected policies are read-only and cannot be modified by Ava.
+# Applied by ../install.sh via: nemoclaw my-assistant policy-add --from-file <this> --yes
+preset:
+  name: ava-policies
+  description: "Host phone-bridge policy management for Ava's policy tools"
+
+network_policies:
+  ava-policies:
+    name: ava-policies
+    endpoints:
+      - host: host.openshell.internal
+        port: 8096
+        protocol: rest
+        enforcement: enforce
+        allowed_ips:
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
+        rules:
+          - allow: { method: GET, path: "/internal/policies" }
+          - allow: { method: GET, path: "/internal/policies/**" }
+          - allow: { method: POST, path: "/internal/policies" }
+    binaries:
+      - { path: /usr/local/bin/node }
+      - { path: /usr/bin/node }
+      - { path: /usr/bin/curl }

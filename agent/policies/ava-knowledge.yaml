@@ -1,0 +1,41 @@
+# Egress policy for Ava's knowledge tools (list_documents / read_document) to
+# reach the HOST's phone bridge and read the text of files the user uploaded.
+# The bridge (phone_bridge.py / ava-bridge.service) listens on the host at
+# 127.0.0.1:8096; from the sandbox it's reached via the built-in host-gateway
+# alias host.openshell.internal, routed THROUGH the guard proxy as plain-HTTP
+# `rest` on port 8096. Calls are additionally gated by a scoped
+# X-Ava-Internal-Token. Routes are enumerated here so future /internal endpoints
+# are NOT reachable until deliberately added.
+# allowed_ips is REQUIRED: the SSRF guard rejects private host-gateway IPs unless
+# the resolved address is explicitly allowlisted.
+# Applied by ../install.sh via: nemoclaw my-assistant policy-add --from-file <this> --yes
+preset:
+  name: ava-knowledge
+  description: "Host phone-bridge document read-back for Ava's list_documents / read_document tools"
+
+network_policies:
+  ava-knowledge:
+    name: ava-knowledge
+    endpoints:
+      - host: host.openshell.internal
+        port: 8096
+        protocol: rest
+        enforcement: enforce
+        allowed_ips:
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
+        rules:
+          - allow: { method: GET, path: "/internal/documents" }
+          - allow: { method: POST, path: "/internal/extract" }
+          - allow: { method: POST, path: "/internal/run-gpu-job" }
+          - allow: { method: GET, path: "/internal/model" }
+          - allow: { method: GET, path: "/internal/studio/today" }
+          - allow: { method: GET, path: "/internal/studio/content" }
+          - allow: { method: POST, path: "/internal/web/search" }
+          - allow: { method: POST, path: "/internal/web/fetch" }
+          - allow: { method: GET, path: "/internal/devices/events" }
+    binaries:
+      - { path: /usr/local/bin/node }
+      - { path: /usr/bin/node }
+      - { path: /usr/bin/curl }

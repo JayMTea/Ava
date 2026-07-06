@@ -1,0 +1,49 @@
+import { useState } from 'react';
+import type { CotStep } from '../../lib/types';
+import { Icon } from '../../lib/icons';
+
+interface Props {
+  label: string;
+  steps: CotStep[];
+  status: 'running' | 'done' | 'error';
+  secs?: number;
+  error?: string;
+}
+
+export function ChainOfThought({ label, steps, status, secs, error }: Props) {
+  const [open, setOpen] = useState(true);
+  const cls =
+    'cot' + (open && status === 'running' ? ' open' : '') + (status === 'done' ? ' cot-done' : '') + (status === 'error' ? ' cot-fail' : '');
+
+  let headText: string;
+  if (status === 'done') headText = `Thought for ${secs}s` + (steps.length ? ` · ${steps.length} steps` : '');
+  else if (status === 'error') headText = `Failed: ${error || 'failed'}`;
+  else headText = `${label}…`;
+
+  return (
+    <div className={cls}>
+      <div className="cot-head" onClick={() => setOpen((o) => !o)}>
+        <span className="cot-spin" />
+        <span className="cot-lab">{headText}</span>
+      </div>
+      <div className="cot-body">
+        {steps.map((s, i) =>
+          s.kind === 'tool' ? (
+            <div className="cstep tool" key={i}>
+              <Icon name="image" />
+              <span>{'Using ' + (s.name || 'tool').replace(/^.*__/, '').replace(/_/g, ' ')}</span>
+            </div>
+          ) : s.kind === 'thinking' ? (
+            <div className="cstep think" key={i}>
+              {s.text}
+            </div>
+          ) : (
+            <div className="cstep say" key={i}>
+              {s.text}
+            </div>
+          ),
+        )}
+      </div>
+    </div>
+  );
+}

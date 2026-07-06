@@ -1,0 +1,6 @@
+id: vllm-open
+label: vLLM Omni
+kind: core
+service:
+  name: vLLM open-model 30B
+  probe: "http://127.0.0.1:8002/v1/models"

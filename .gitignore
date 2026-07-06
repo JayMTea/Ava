@@ -1,0 +1,81 @@
+# ── Ava — version control ignore list ───────────────────────────────────────
+# Track: source (*.py, *.sh), the agent config kit (agent/), docs, configs.
+# Ignore: the venv, large model weights, biometric/voice data, runtime state,
+# generated media, vendored binaries, and anything secret.
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Local secrets & env overrides (see .env.example)
+.env
+*.secret
+
+# Runtime state / personal data (dirs kept via .gitkeep)
+data/*
+!data/.gitkeep
+logs/*
+!logs/.gitkeep
+
+# Log files anywhere (e.g. gpusvc/gpusvc.log)
+*.log
+
+# Generated images + uploads (dirs kept via .gitkeep)
+media/out/*
+!media/out/.gitkeep
+media/uploads/*
+!media/uploads/.gitkeep
+
+# Large model weights & the biometric voiceprint (re-downloadable / re-enrollable)
+models/
+
+# Vendored Piper/espeak binaries (large, platform-specific)
+bin/
+
+# the GPU service runtime user dir (keep gpusvc/extra_model_paths.yaml at the root)
+gpusvc/user/
+
+# SearXNG local config holds a secret_key — keep the run script, not the secret
+searxng/settings.yml
+
+# Personal voice recordings used for enrollment
+enroll/*.m4a
+enroll/*.wav
+enroll/*.mp3
+enroll/*.opus
+enroll/*.ogg
+
+# OS / editor noise
+.DS_Store
+*.swp
+
+# User config + secrets (portable install)
+ava.yaml
+/secrets/
+config.local.yaml
+
+# Private, deployment-specific (not shipped publicly)
+DEV_NOTES.md
+docs/dev/
+frontend/src/overlay/
+connectors/note-keeper/
+connectors/ledger/
+
+# Real architecture SSOT + generated diagrams (deployment-specific; public README
+# uses docs/assets/architecture.svg instead). Kept on disk for local drift-check.
+agent/docs/architecture.yaml
+agent/docs/diagrams/system.d2
+agent/docs/diagrams/system.svg
+agent/docs/diagrams/network.d2
+agent/docs/diagrams/network.svg
+agent/docs/diagrams/policy.d2
+agent/docs/diagrams/policy.svg
+
+gpusvc/extra_model_paths.yaml
+
+# Personal-app overlay (backend MCP servers/skills/policies + facade)
+/overlay/
+frontend/src/components/ledger/
+frontend/src/components/studio/

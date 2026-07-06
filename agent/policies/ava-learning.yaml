@@ -1,0 +1,34 @@
+# Egress policy for Ava's learning management tools (update_learning_digest, read_learning_state, etc.)
+# to reach the HOST's phone bridge and manage learning digest scripts and access learning state.
+#
+# The bridge (phone_bridge.py / ava-bridge.service) listens on the host at
+# 127.0.0.1:8096; from the sandbox it's reached via the built-in host-gateway
+# alias host.openshell.internal, routed THROUGH the guard proxy as plain-HTTP
+# `rest` on port 8096. Calls are additionally gated by the X-Ava-Internal-Token
+# bearer the tools are handed at launch, and scoped to the /internal/learning/** surface.
+#
+# Applied by ../install.sh via: nemoclaw my-assistant policy-add --from-file <this> --yes
+
+preset:
+  name: ava-learning
+  description: "Host phone-bridge learning management for Ava's update_learning_digest and read_learning_state tools"
+
+network_policies:
+  ava-learning:
+    name: ava-learning
+    endpoints:
+      - host: host.openshell.internal
+        port: 8096
+        protocol: rest
+        enforcement: enforce
+        allowed_ips:
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
+        rules:
+          - allow: { method: GET, path: "/internal/learning/**" }
+          - allow: { method: POST, path: "/internal/learning/**" }
+    binaries:
+      - { path: /usr/local/bin/node }
+      - { path: /usr/bin/node }
+      - { path: /usr/bin/curl }

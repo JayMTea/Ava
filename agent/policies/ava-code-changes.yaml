@@ -1,0 +1,34 @@
+# Egress policy for Ava's code_change_request tool — hands off code modifications
+# to Claude via the bridge's /internal/code-change endpoint.
+# The bridge (phone_bridge.py) receives the request, calls the Anthropic API with your
+# ANTHROPIC_API_KEY, and returns results (files changed, status, errors, git commit).
+# Calls are gated by X-Ava-Internal-Token (bearer token).
+# Applied by ../install.sh via: nemoclaw my-assistant policy-add --from-file <this> --yes
+preset:
+  name: ava-code-changes
+  description: "Hand off code modifications to Claude for implementation and fixes"
+
+network_policies:
+  ava-code-changes:
+    name: ava-code-changes
+    endpoints:
+      - host: host.openshell.internal
+        port: 8096
+        protocol: rest
+        enforcement: enforce
+        allowed_ips:
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
+        rules:
+          - allow: { method: POST, path: "/internal/code-change" }
+      - host: api.anthropic.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow: { method: POST, path: "/v1/messages" }
+    binaries:
+      - { path: /usr/local/bin/node }
+      - { path: /usr/bin/node }
+      - { path: /usr/bin/curl }

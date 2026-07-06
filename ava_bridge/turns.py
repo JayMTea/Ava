@@ -1,0 +1,213 @@
+"""Live "chain of thought" turns.
+
+The `openclaw agent` CLI is non-streaming (one JSON blob at the end) and the
+Nemotron model only supports thinking=off, so we can't stream reasoning tokens.
+BUT the agent persists every step to its session jsonl as it works — including
+{type:"thinking"} reasoning, intermediate {type:"text"} and {type:"toolCall"}
+events. We run the (blocking) turn in a worker thread and concurrently poll the
+tail of that session file, so the UI can show Ava's REAL reasoning + actions
+live, then attach the final reply / image when she finishes.
+"""
+import json
+import os
+import shlex
+import threading
+import time
+import uuid
+
+import requests
+
+from . import config, state, runtime
+from .agent import (ask_openclaw, which_model, _sbx_read, _session_file,
+                    chat_direct)
+from .artifacts import build_turn_artifact
+from .chat_store import _chat_append, history_for
+from .gpu_jobs import (_pickup_image_since, start_agent_image_watch,
+                         _latest_image_job_since)
+
+
+def _pickup_previews_since(t0: float, tools: list[str]) -> list[dict]:
+    """Deterministic action data for chat quick-buttons.
+
+    When a turn used persona_preview, read the connected persona app's render log
+    (append-only genlog) for preview renders produced since the turn started and
+    return {persona, url, seed, theme} for each. No LLM / trajectory parsing —
+    the app is the single source of truth, so the UI can offer a deterministic
+    "Lock this face" button tied to a real preview image.
+    """
+    if not any("persona_preview" in (t or "") for t in tools):
+        return []
+    try:
+        r = requests.get(f"{os.environ.get('STUDIO_BASE', 'http://127.0.0.1:8097')}/api/log",
+                         params={"kind": "preview", "limit": 12}, timeout=8)
+        rows = (r.json() or {}).get("log", [])
+    except Exception:  # noqa: BLE001 — buttons are best-effort
+        return []
+    out: list[dict] = []
+    for rec in rows:  # genlog returns newest-first
+        if float(rec.get("ts") or 0) < t0 - 2:
+            continue
+        url = rec.get("url")
+        if not url:
+            continue
+        out.append({"persona": rec.get("persona"), "url": url,
+                    "seed": rec.get("seed"), "theme": rec.get("theme")})
+    return out
+
+
+def _session_line_count(sid: str) -> int:
+    path = _session_file(sid)
+    try:
+        out = _sbx_read(f"wc -l < {shlex.quote(path)} 2>/dev/null || echo 0")
+        return int((out.strip() or "0").split()[0])
+    except Exception:  # noqa: BLE001
+        return 0
+
+
+def _parse_turn_steps(text: str) -> list[dict]:
+    """Turn appended session-jsonl lines into an ordered list of CoT steps."""
+    steps: list[dict] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            o = json.loads(line)
+        except Exception:  # noqa: BLE001 — last line may be mid-write
+            continue
+        if o.get("type") != "message":
+            continue
+        msg = o.get("message") or {}
+        if msg.get("role") != "assistant":
+            continue
+        for b in msg.get("content") or []:
+            if not isinstance(b, dict):
+                continue
+            bt = b.get("type")
+            if bt == "thinking":
+                tx = (b.get("thinking") or "").strip()
+                if tx:
+                    steps.append({"kind": "thinking", "text": tx})
+            elif bt == "text":
+                tx = (b.get("text") or "").strip()
+                if tx:
+                    steps.append({"kind": "text", "text": tx})
+            elif bt == "toolCall":
+                steps.append({"kind": "tool", "name": b.get("name") or "tool"})
+    return steps
+
+
+def _poll_turn_steps(tid: str, sid: str, after: int):
+    path = _session_file(sid)
+    cmd = f"tail -n +{after} {shlex.quote(path)} 2>/dev/null | head -c 400000"
+    while True:
+        with state.turns_lock:
+            running = state.turns.get(tid, {}).get("status") == "running"
+        if not running:
+            break
+        try:
+            steps = _parse_turn_steps(_sbx_read(cmd))
+            with state.turns_lock:
+                if tid in state.turns and steps:
+                    state.turns[tid]["steps"] = steps
+        except Exception:  # noqa: BLE001
+            pass
+        time.sleep(1.1)
+    # One last read so the final reasoning step isn't missed.
+    try:
+        steps = _parse_turn_steps(_sbx_read(cmd))
+        with state.turns_lock:
+            if tid in state.turns and steps:
+                state.turns[tid]["steps"] = steps
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _prune_turns(max_age: float = 3600.0):
+    now = time.time()
+    with state.turns_lock:
+        for k in [k for k, v in state.turns.items() if now - v.get("created", now) > max_age]:
+            state.turns.pop(k, None)
+
+
+def _run_turn_direct(tid: str, agent_text: str, chat_id: str):
+    """Degraded path: no agent runtime — talk to the inference router directly.
+    No sandbox, so no live chain-of-thought polling; just the reply."""
+    try:
+        reply, tools = chat_direct(agent_text, history=history_for(chat_id))
+    except Exception as e:  # noqa: BLE001
+        with state.turns_lock:
+            if tid in state.turns:
+                state.turns[tid].update(status="error", error=str(e))
+        return
+    m = which_model()
+    if chat_id:
+        _chat_append(chat_id, "assistant", reply, model=m)
+    with state.turns_lock:
+        if tid in state.turns:
+            state.turns[tid].update(status="done", reply=reply, model=m,
+                                    ctx_tokens=(m or {}).get("prompt_tokens"),
+                                    tools_used=[])
+
+
+def _run_turn(tid: str, agent_text: str, sid: str, chat_id: str):
+    rt, err = runtime.gate()
+    if err:  # agent.required is on but the runtime is missing — don't fake it
+        with state.turns_lock:
+            if tid in state.turns:
+                state.turns[tid].update(status="error", error=err)
+        return
+    if not rt.supports_tools:  # direct floor (no sandbox, no live CoT)
+        _run_turn_direct(tid, agent_text, chat_id)
+        return
+    after = _session_line_count(sid) + 1
+    threading.Thread(target=_poll_turn_steps, args=(tid, sid, after), daemon=True).start()
+    t0 = time.time()
+    tools: list[str] = []
+    try:
+        reply, tools = ask_openclaw(agent_text, session_id=sid)
+    except Exception as e:  # noqa: BLE001
+        job = _pickup_image_since(t0, wait=120)
+        if job and chat_id:
+            _chat_append(chat_id, "assistant", "Here's the image you asked for.")
+        m = which_model()
+        with state.turns_lock:
+            state.turns[tid].update(
+                status="done" if job else "error",
+                reply="Here's the image you asked for." if job else None,
+                job=job, model=m, ctx_tokens=(m or {}).get("prompt_tokens"),
+                tools_used=tools,
+                error=None if job else str(e))
+        return
+    job = None
+    if any("run_gpu_job" in t for t in tools):
+        # run_gpu_job renders THROUGH the bridge now (real the GPU service progress),
+        # so grab that live job; fall back to a file-watch if it isn't found.
+        job = _latest_image_job_since(t0) or start_agent_image_watch(t0)
+    previews = _pickup_previews_since(t0, tools)
+    artifact = None
+    try:
+        artifact = build_turn_artifact(tools, sid, after)
+    except Exception:  # noqa: BLE001 — the side panel is best-effort
+        artifact = None
+    m = which_model()
+    if chat_id:
+        _chat_append(chat_id, "assistant", reply, model=m, tools_used=tools)
+    with state.turns_lock:
+        state.turns[tid].update(status="done", reply=reply, job=job,
+                                previews=previews, artifact=artifact,
+                                model=m, ctx_tokens=(m or {}).get("prompt_tokens"),
+                                tools_used=tools)
+
+
+def start_turn(agent_text: str, sid: str, chat_id: str) -> str:
+    _prune_turns()
+    tid = uuid.uuid4().hex[:12]
+    with state.turns_lock:
+        state.turns[tid] = {"id": tid, "status": "running", "steps": [], "reply": None,
+                            "job": None, "previews": [], "artifact": None, "model": None,
+                            "ctx_tokens": None, "tools_used": [],
+                            "error": None, "created": time.time()}
+    threading.Thread(target=_run_turn, args=(tid, agent_text, sid, chat_id),
+                     daemon=True).start()
+    return tid

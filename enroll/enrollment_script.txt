@@ -1,0 +1,46 @@
+================================================================
+ VOICE ENROLLMENT — READING SCRIPT
+================================================================
+
+HOW TO RECORD (for the strongest voiceprint):
+  • Quiet room. Turn off fans, TV, music, AC if you can.
+  • Hold the mic a steady hand-width away (~15–20 cm). Don't lean in/out.
+  • Speak at your NORMAL, relaxed pace — not slow, not performed.
+  • Read straight through. If you stumble, just keep going.
+  • Aim for the whole script in one take (~75–90 seconds).
+  • Save as .m4a / .wav / .mp3, then copy it over with:
+
+      scp "C:\path\to\YourRecording.m4a" you@your-host:~/path/to/Ava/enroll/
+
+----------------------------------------------------------------
+ READ EVERYTHING BELOW THIS LINE, NATURALLY:
+----------------------------------------------------------------
+
+Hi, I'm setting up my private assistant, and I'd like it
+to learn the sound of my voice so it only answers to me.
+
+Let me just talk for a little while so you get a good, clear sample.
+Today is an ordinary day. The quick brown fox jumps over the lazy dog,
+and the bright blue sky is calm and quiet this morning.
+
+I might ask you about all sorts of things. What's the weather looking
+like? Could you set a timer for thirty minutes? Please add eggs, bread,
+oranges, and coffee to my shopping list. Remind me to call the office
+at five.
+
+Here are a few numbers, spoken plainly: one, two, three, four, five,
+six, seven, eight, nine, and ten. Forty-two. One hundred and sixteen.
+The year is twenty twenty-six.
+
+Now a few trickier sounds, so you hear my full range. She sells
+seashells by the shore. The thirty-three thieves thought they thrilled
+the throne. Red leather, yellow leather. Unique New York.
+
+When I speak, I want you to recognize me whether I'm asking a calm
+question or giving a quick command. Turn on the lights. Play some music.
+What's on my calendar tomorrow? Thank you — that should be plenty
+for you to learn my voice. Let's get to work.
+
+----------------------------------------------------------------
+ (Stop recording here.)
+----------------------------------------------------------------

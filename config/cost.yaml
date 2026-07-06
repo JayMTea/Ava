@@ -1,0 +1,18 @@
+# Cost & energy estimation for the Ava dashboard.
+#
+# Local vLLM models cost $0 in API fees (only electricity). Cloud models (e.g. a
+# connected app routing to Anthropic/OpenAI) have real per-token prices below.
+# Prices are USD per 1,000,000 tokens. Keys are matched as substrings against the
+# served model name, longest match wins.
+electricity_rate_per_kwh: 0.15   # your $/kWh; set 0 to hide the $-energy figure
+
+# Nominal GPU package power (watts) used to estimate energy for a generation when
+# a live power sample isn't available in the hardware history window.
+nominal_gpu_watts: 180
+
+prices:
+  "claude-opus":   { input: 15.0, output: 75.0 }
+  "claude-sonnet": { input: 3.0,  output: 15.0 }
+  "claude-haiku":  { input: 0.80, output: 4.0 }
+  "gpt-4o-mini":   { input: 0.15, output: 0.60 }
+  "gpt-4o":        { input: 2.50, output: 10.0 }

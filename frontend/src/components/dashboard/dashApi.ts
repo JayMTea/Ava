@@ -1,0 +1,129 @@
+// Typed client + types for the Ava Command Center dashboard endpoints.
+// Same-origin (session cookie sent automatically); 401 -> /login.
+
+async function get<T>(path: string): Promise<T> {
+  const r = await fetch(path, { credentials: 'same-origin', cache: 'no-store' });
+  if (r.status === 401) {
+    window.location.href = '/login';
+    throw new Error('unauthorized');
+  }
+  if (!r.ok) throw new Error(`${path} -> ${r.status}`);
+  return (await r.json()) as T;
+}
+
+// ---- types ----------------------------------------------------------------
+export interface Stat { n: number; avg: number; p50: number; min: number; max: number }
+export interface LlmStat {
+  count: number;
+  tokens_per_sec: Stat | null;
+  ttft_ms: Stat | null;
+  completion_tokens: Stat | null;
+  failovers: number;
+}
+export interface PerfSummary {
+  ok: boolean;
+  apps: string[];
+  total: number;
+  sources_present: Record<string, boolean>;
+  summary: {
+    records: number;
+    llm?: Record<string, LlmStat>;
+    image?: { count: number; render_seconds: Stat | null; steps_per_sec: Stat | null };
+    video?: { count: number; render_seconds: Stat | null; steps_per_sec: Stat | null };
+    upscale?: { count: number; seconds: Stat | null };
+  };
+}
+export interface SeriesPoint { t: number; [series: string]: number }
+export interface PerfSeries {
+  ok: boolean;
+  metric: string;
+  bucket: number;
+  series: string[];
+  points: SeriesPoint[];
+}
+export interface CostBreak { spend_usd: number; energy_kwh: number; n: number }
+export interface PerfCost {
+  ok: boolean;
+  since: string;
+  spend_usd: number;
+  energy_kwh: number;
+  energy_usd: number | null;
+  avg_gpu_watts: number;
+  by: Record<string, CostBreak>;
+}
+export interface HwSample {
+  ts: number;
+  gpu_util: number | null;
+  gpu_temp: number | null;
+  gpu_power: number | null;
+  mem_used_pct: number | null;
+  mem_used_gb: number | null;
+  cpu: number | null;
+}
+export interface JobRow {
+  id: string; kind?: string; status?: string; progress?: number;
+  stage?: string; source?: string; url?: string; created?: number; updated?: number;
+  prompt?: string; error?: string;
+}
+export interface TurnRow {
+  id: string; status?: string; created?: number; step_count: number;
+  last_step?: { kind?: string; name?: string; text?: string } | null;
+  tools_used: string[];
+  model?: { label?: string; id?: string } | null;
+  ctx_tokens?: number | null; has_job?: boolean; error?: string | null;
+  reply_preview?: string | null;
+}
+export interface OpsSummary {
+  ok: boolean;
+  jobs: { running: number; total: number; by_status: Record<string, number> };
+  turns: { running: number; total: number; by_status: Record<string, number> };
+  generations_24h: number;
+  learning: {
+    code: { last_cycle: string | null; cycles: number; pending: number };
+    chat: { last_cycle: string | null; cycles: number; pending: number };
+  };
+  ts: number;
+}
+export interface Service { name: string; unit?: string; systemd?: string | null; probe_ok?: boolean | null; status: string }
+export interface Timer { unit?: string; activates?: string; description?: string; next_time?: string | null; next_rel?: string | null; last_time?: string | null; last_rel?: string | null }
+export interface ToolRow { tool: string; count: number }
+export interface Alert {
+  id: string; severity: string; metric: string; value: number | null;
+  threshold: number; op: string; message: string; since: number | null;
+}
+export interface ConnectorRow {
+  id: string; label: string; kind: string; has_service: boolean;
+  has_perf: boolean; egress_routes: number; actions: string[];
+}
+
+// ---- client ---------------------------------------------------------------
+const qs = (o: Record<string, string | number | boolean | undefined>) => {
+  const p = Object.entries(o)
+    .filter(([, v]) => v !== undefined && v !== '')
+    .map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`)
+    .join('&');
+  return p ? `?${p}` : '';
+};
+
+export const dash = {
+  perfSummary: (app?: string, category?: string, since?: string) =>
+    get<PerfSummary>('/api/perf/summary' + qs({ app, category, since })),
+  perfSeries: (metric: string, bucket = '1h', since = '24h', app?: string, category?: string) =>
+    get<PerfSeries>('/api/perf/series' + qs({ metric, bucket, since, app, category })),
+  perfRecent: (limit = 50, app?: string, category?: string) =>
+    get<{ ok: boolean; recent: Record<string, unknown>[] }>('/api/perf/recent' + qs({ limit, app, category })),
+  perfCost: (since = '7d', group = 'model') =>
+    get<PerfCost>('/api/perf/cost' + qs({ since, group })),
+  hwHistory: (since?: number) =>
+    get<{ ok: boolean; samples: HwSample[] }>('/api/hardware/history' + qs({ since })),
+  jobs: (status?: string, kind?: string, limit = 100) =>
+    get<{ ok: boolean; jobs: JobRow[] }>('/api/jobs' + qs({ status, kind, limit })),
+  turns: (active = false, limit = 50) =>
+    get<{ ok: boolean; turns: TurnRow[] }>('/api/turns' + qs({ active, limit })),
+  opsSummary: () => get<OpsSummary>('/api/ops/summary'),
+  services: () => get<{ ok: boolean; services: Service[]; down: number }>('/api/ops/services'),
+  schedule: () => get<{ ok: boolean; timers: Timer[] }>('/api/ops/schedule'),
+  tools: (limit = 15) => get<{ ok: boolean; tools: ToolRow[]; total_calls: number }>('/api/ops/tools' + qs({ limit })),
+  alerts: () => get<{ ok: boolean; active: Alert[]; metrics: Record<string, number> }>('/api/ops/alerts'),
+  connectors: () => get<{ ok: boolean; connectors: ConnectorRow[]; action_count: number }>('/api/ops/connectors'),
+};

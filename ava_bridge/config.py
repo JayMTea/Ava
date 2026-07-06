@@ -1,0 +1,246 @@
+"""Shared configuration: paths, env knobs, constants.
+
+Resolution order for user-facing knobs is env var -> $AVA_HOME/ava.yaml -> default
+(via ``settings``), so a forker who edits ava.yaml actually reconfigures the
+running bridge. ``settings`` imports nothing from this module, so there is no
+import cycle.
+"""
+import os
+import secrets
+import shutil
+
+from . import settings
+
+# Repo root = parent of this package directory (phone_bridge.py lives there).
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
+
+# Data root: all runtime state (data/logs/media) lives here. Override with
+# AVA_HOME for portable/packaged installs; defaults to the repo root so the
+# original single-user layout is unchanged. See docs/PACKAGING_PLAN.md.
+DATA_HOME = os.path.expanduser(os.environ.get("AVA_HOME", ROOT))
+
+RATE = 16000
+
+MEDIA_DIR = os.path.join(DATA_HOME, "media", "gen")
+UPLOAD_DIR = os.path.join(DATA_HOME, "media", "uploads")
+CHATS_DIR = os.path.join(DATA_HOME, "data")
+CHATS_FILE = os.path.join(CHATS_DIR, "chats.json")
+LOGS_DIR = os.path.join(DATA_HOME, "logs")
+for _d in (MEDIA_DIR, UPLOAD_DIR, CHATS_DIR, LOGS_DIR):
+    os.makedirs(_d, exist_ok=True)
+
+MAX_UPLOAD_BYTES = int(os.environ.get("AVA_MAX_UPLOAD_MB", "25")) * 1024 * 1024
+MAX_DOC_CHARS = int(os.environ.get("AVA_MAX_DOC_CHARS", "24000"))
+
+# ---- Branding ----------------------------------------------------------------
+# The assistant's display name. Forks re-brand via ava.yaml (brand.name) or the
+# AVA_NAME env var; also served to the frontend at /api/brand (see phone_bridge).
+AVA_NAME = settings.get("brand.name", "Ava", env="AVA_NAME")
+AVA_TAGLINE = settings.get("brand.tagline", "your private, self-hosted assistant",
+                           env="AVA_TAGLINE")
+
+# ---- Ava-the-agent (runtime: NemoClaw by default) ---------------------------
+# NemoClaw (runs OpenClaw in an OpenShell sandbox) is the default, recommended
+# runtime and gives Ava her tools, skills, sandboxed execution, egress policies
+# and persistent memory. It's hardware-portable (sandbox from a container image).
+#
+#   agent.runtime  = which runtime adapter (nemoclaw | direct)
+#   agent.required = if true, refuse to fall back to tool-less direct chat when
+#                    the runtime is missing (fail loud instead) — the "MUST".
+#   agent.enabled  = master switch; false forces the Direct floor (explicit opt-out)
+AGENT_RUNTIME = settings.get("agent.runtime", "nemoclaw", env="AVA_AGENT_RUNTIME")
+AGENT_REQUIRED = settings.get_bool("agent.required", False, env="AVA_AGENT_REQUIRED")
+AGENT_ENABLED = settings.get_bool("agent.enabled", True, env="AVA_AGENT_ENABLED")
+OC_SANDBOX = settings.get("agent.sandbox", "my-assistant", env="AVA_OC_SANDBOX")
+OC_AGENT = settings.get("agent.agent_id", "main", env="AVA_OC_AGENT")
+OC_SESSION = os.environ.get("AVA_OC_SESSION", "ava-phone")
+OC_THINKING = os.environ.get("AVA_OC_THINKING", "off")
+
+# Context-window sizing for the chat token counter. CTX_MAX is the model's usable
+# context length (the open-model brain is served at --max-model-len 65536); CTX_BASE
+# is a rough fixed overhead (system prompt + persona + tool schemas) the UI adds to
+# its per-message estimate so the counter tracks OpenClaw's fuller number.
+CTX_MAX = settings.get_int("inference.ctx_max", 65536, env="AVA_CTX_MAX")
+CTX_BASE = settings.get_int("inference.ctx_base", 2200, env="AVA_CTX_BASE")
+# Agentic turns (e.g. character ideation: read recipe -> reason -> preview -> ...)
+# can fan out into a dozen+ model round-trips, so allow generous headroom. The UI
+# streams Ava's live chain-of-thought during the wait, so a long cap is fine.
+OC_TIMEOUT = int(os.environ.get("AVA_OC_TIMEOUT", "600"))
+# systemd user services don't inherit ~/.local/bin on PATH, so resolve the CLI.
+OC_NEMOCLAW = (
+    os.environ.get("AVA_NEMOCLAW")
+    or shutil.which("nemoclaw")
+    or os.path.expanduser("~/.local/bin/nemoclaw")
+)
+
+# ---- Speaker gate ------------------------------------------------------------
+# Phone mics differ from the PC enrollment mic, so the gate is a touch more
+# lenient here than the live USB-mic loop. Tune with AVA_PHONE_THRESHOLD.
+PHONE_THRESHOLD = float(os.environ.get("AVA_PHONE_THRESHOLD", "0.40"))
+
+# ---- Inference router --------------------------------------------------------
+# ava_router.py fronts Ava's single always-on brain (open-model 30B) plus any
+# declared cloud fallback. After a turn we ask it which backend actually answered
+# so the UI can show a "which model" pill. Best-effort: if unreachable, omitted.
+ROUTER_WHICH_URL = os.environ.get("AVA_ROUTER_WHICH", "http://127.0.0.1:8010/which")
+# Get/set which backend the router prefers as primary — backs the chat's
+# model-picker dropdown (usually just the Omni brain).
+ROUTER_ROUTE_URL = os.environ.get("AVA_ROUTER_ROUTE", "http://127.0.0.1:8010/route")
+# OpenAI-compatible chat endpoint — used by the DEGRADED chat path (no agent
+# runtime): the bridge posts here directly so a fresh fork can chat tool-lessly.
+ROUTER_CHAT_URL = settings.get("inference.chat_url",
+                               "http://127.0.0.1:8010/v1/chat/completions",
+                               env="AVA_ROUTER_CHAT")
+# Optional bearer key for the direct chat endpoint (e.g. a cloud provider key when
+# ROUTER_CHAT_URL points straight at OpenAI/OpenRouter instead of the local router).
+INFERENCE_KEY = settings.get("inference.api_key", "", env="AVA_INFERENCE_KEY")
+
+# ---- Server (entrypoint reads these; ava.yaml server.* takes effect) ---------
+SERVER_HOST = settings.get("server.host", "127.0.0.1", env="AVA_HOST")
+SERVER_PORT = settings.get_int("server.port", 8096, env="AVA_PORT")
+PUBLIC_URL = settings.get("server.public_url", f"http://localhost:{SERVER_PORT}",
+                          env="AVA_PUBLIC_URL")
+
+# ---- Code mode (Ava edits her own source via Claude) -------------------------
+# Code-mode turns run HOST-side (the repo lives here, not in the sandbox) against
+# the Anthropic Messages API, scoped to this repo (config.ROOT). Put your key in
+# ~/projects/Ava/.env as ANTHROPIC_API_KEY=... (chmod 600); the service loads it.
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+ANTHROPIC_BASE = os.environ.get("ANTHROPIC_BASE", "https://api.anthropic.com")
+ANTHROPIC_VERSION = os.environ.get("ANTHROPIC_VERSION", "2023-06-01")
+# Fallback model list for the UI dropdown if the live /v1/models call fails.
+# NOTE: this deployment's key uses short aliases (claude-sonnet-4-6, …), not the
+# public dated ids (claude-sonnet-4-20250514). Verified working on this key.
+CODE_MODELS_FALLBACK = [
+    "claude-sonnet-4-6",
+    "claude-opus-4-8",
+    "claude-haiku-4-5",
+]
+# Default model for autonomous code-change requests (code_agent). Sonnet is the
+# best speed/capability balance for edits; override with AVA_CODE_MODEL in .env.
+CODE_MODEL = os.environ.get("AVA_CODE_MODEL", "claude-sonnet-4-6")
+CODE_MAX_TOKENS = int(os.environ.get("AVA_CODE_MAX_TOKENS", "8192"))
+CODE_MAX_ITERS = int(os.environ.get("AVA_CODE_MAX_ITERS", "18"))
+CODE_MAX_FILE_BYTES = int(os.environ.get("AVA_CODE_MAX_FILE_BYTES", str(400 * 1024)))
+
+# ---- Multi-repo code changes -------------------------------------------------
+# Ava's code-change engine normally edits her OWN repo (ROOT), auto-applying safe
+# edits. It can ALSO edit additional "connected" projects under far stricter rules
+# (approval-only, on a throw-away branch, test-gated). Those projects + their
+# connector env vars are registered by the optional overlay (see the import guard
+# after PROJECTS), so the public core names no specific app.
+
+# ---- Web access (self-hosted SearXNG + host-side reader) ---------------------
+# Ava's web layer is HOST-MEDIATED: her sandbox tools only ever call the bridge's
+# token-gated /internal/web/* routes (reusing the ava-knowledge egress policy),
+# and the HOST does the actual search/fetch. Search hits a PRIVATE, loopback-only
+# SearXNG (no third party, no API key); fetch is SSRF-guarded (public IPs only).
+# Nothing here is ever exposed to the sandbox — keys/endpoints stay host-side.
+WEB_SEARXNG_URL = os.environ.get("AVA_WEB_SEARXNG_URL", "http://127.0.0.1:8888").rstrip("/")
+WEB_MAX_RESULTS = int(os.environ.get("AVA_WEB_MAX_RESULTS", "8"))
+WEB_TIMEOUT = int(os.environ.get("AVA_WEB_TIMEOUT", "15"))
+# Hard ceiling on bytes read from a fetched page (defence against huge/hostile
+# responses). Content is streamed and aborted past this.
+WEB_FETCH_MAX_BYTES = int(os.environ.get("AVA_WEB_FETCH_MAX_BYTES", str(2 * 1024 * 1024)))
+# Cleaned article text is truncated to this many chars before returning to Ava.
+WEB_FETCH_MAX_CHARS = int(os.environ.get("AVA_WEB_FETCH_MAX_CHARS", "20000"))
+# Max redirect hops fetch will follow (each hop is re-validated against the SSRF
+# guard so a redirect can't bounce into a private address).
+WEB_FETCH_MAX_REDIRECTS = int(os.environ.get("AVA_WEB_FETCH_MAX_REDIRECTS", "4"))
+# Comma-separated substrings; any fetched/searched hostname containing one is
+# refused outright (belt-and-braces on top of the public-IP-only guard).
+WEB_DOMAIN_DENYLIST = [
+    d.strip().lower() for d in os.environ.get("AVA_WEB_DOMAIN_DENYLIST", "").split(",") if d.strip()
+]
+# Anonymity: route the host-side page fetch through Tor (SOCKS5h) so pages see a
+# Tor exit IP, never your real one. FAIL-CLOSED — if Tor is unreachable the fetch
+# errors instead of leaking your IP over clearnet. SearXNG egresses via Tor too
+# (searxng/settings.yml outgoing.proxies). Set AVA_WEB_TOR=0 to disable (not
+# recommended). socks5h => DNS is resolved inside Tor (no DNS leak to your ISP).
+WEB_TOR = os.environ.get("AVA_WEB_TOR", "1").strip().lower() not in ("0", "false", "no", "off")
+WEB_TOR_SOCKS = os.environ.get("AVA_WEB_TOR_SOCKS", "socks5h://127.0.0.1:9050")
+# Generic browser UA so requests blend in (a unique UA is itself a fingerprint).
+WEB_USER_AGENT = os.environ.get(
+    "AVA_WEB_USER_AGENT",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
+
+# Human operator name — shown as "Completed by <name>" when a code-change
+# proposal is applied after approval (vs "Ava" for her autonomous auto-applies).
+OPERATOR_NAME = settings.get("brand.operator", "Admin", env="AVA_OPERATOR_NAME")
+
+# Registry consumed by ava_bridge.code_agent / access_policy. `ava` keeps the
+# original self-edit behaviour; connected projects are added by the optional
+# overlay ONLY when their checkout exists — so a fresh fork gets just `ava`.
+PROJECTS = {
+    "ava": {
+        "root": ROOT,
+        "label": "Ava (self)",
+        "approval_only": False,   # safe edits auto-apply + commit
+        "branch": False,          # commit straight to the working branch
+        "test_cmd": None,
+    },
+}
+
+# Optional connected-app projects + their connector env
+# vars are registered by the gitignored overlay ONLY when their checkout exists;
+# a fork simply skips them and gets `ava`-only self-editing.
+try:
+    from overlay.ava_bridge import personal_config as _personal_config
+    _personal_config.apply(PROJECTS, ROOT)
+except Exception:  # noqa: BLE001 — no overlay (fork) or a broken overlay
+    pass
+
+
+# ---- Authentication ----------------------------------------------------------
+COOKIE_NAME = "ava_session"
+SESSION_TTL = int(os.environ.get("AVA_SESSION_TTL_DAYS", "30")) * 86400
+# TLS is terminated by Tailscale (https://...:8445), so the browser sees a secure
+# origin -> Secure cookie is correct. Set AVA_COOKIE_SECURE=0 only for http debug.
+COOKIE_SECURE = os.environ.get("AVA_COOKIE_SECURE", "1") != "0"
+LOGIN_MAX = 8
+LOGIN_WINDOW = 60
+
+
+# ---- Internal capability endpoints (sandbox MCP tools -> bridge) -------------
+# Ava's MCP tools run INSIDE the OpenClaw sandbox and can't see this host's
+# upload dir or extraction binaries, so document-reading is exposed as a
+# token-gated host service they call back into (same host-callback pattern the
+# image tool uses for the GPU service). agent/install.sh hands the tools this same token
+# at launch; only callers presenting it may hit /internal/*.
+def _internal_token() -> str:
+    env = os.environ.get("AVA_INTERNAL_TOKEN")
+    if env:
+        return env
+    path = os.path.join(CHATS_DIR, ".internal_token")
+    try:
+        with open(path, encoding="utf-8") as f:
+            tok = f.read().strip()
+            if tok:
+                return tok
+    except FileNotFoundError:
+        pass
+    tok = secrets.token_hex(32)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(tok + "\n")
+    os.chmod(path, 0o600)
+    return tok
+
+
+INTERNAL_TOKEN = _internal_token()
+
+# Shared secret the bridge sends to the inference router's control endpoints
+# (/which, /route) so a random client on the host/tailnet can't flip Ava's brain
+# or read her telemetry. Reuses the internal token unless explicitly overridden.
+ROUTER_TOKEN = os.environ.get("AVA_ROUTER_TOKEN") or INTERNAL_TOKEN
+
+# ---- Upload file types -------------------------------------------------------
+TEXT_EXTS = {".txt", ".md", ".markdown", ".csv", ".tsv", ".json", ".yaml", ".yml",
+             ".xml", ".html", ".htm", ".log", ".ini", ".cfg", ".conf", ".toml",
+             ".env", ".py", ".js", ".ts", ".mjs", ".cjs", ".sh", ".bash", ".c",
+             ".h", ".cpp", ".hpp", ".java", ".go", ".rs", ".rb", ".php", ".sql",
+             ".css", ".tsx", ".jsx"}
+IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".tif"}
+OFFICE_EXTS = {".doc", ".docx", ".odt", ".rtf", ".ppt", ".pptx", ".xls", ".xlsx",
+               ".ods", ".odp"}

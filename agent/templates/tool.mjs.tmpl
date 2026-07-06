@@ -1,0 +1,29 @@
+// __TOOL_NAME__ — TODO: one-line description of what this tool does.
+//
+// Egress: if this tool reaches the network, add a narrow policy in
+// ../policies/__TOOL_NAME__.yaml (least privilege — only the hosts it needs) and
+// re-run ../install.sh. If it reaches a HOST-LOCAL service, also add an
+// /etc/hosts alias via `nemoclaw my-assistant hosts-add <name> <ip>` and call
+// ctx.http.postJson(url, body) / getJson(url, { direct: true }).
+
+export default {
+  name: '__TOOL_NAME__',
+  description: "TODO: describe WHEN Ava should call this tool, in plain language. "
+    + "Be explicit so the model reliably picks it for the right requests.",
+  inputSchema: {
+    type: 'object',
+    properties: {
+      // TODO: declare each argument the tool accepts.
+      query: { type: 'string', description: 'TODO: describe this argument.' },
+    },
+    required: ['query'],
+  },
+  // handler(args, ctx) -> string shown back to Ava. ctx = { http, proxy, caBundle }.
+  handler: async (args, { http }) => {
+    const query = args && args.query && String(args.query).trim();
+    if (!query) throw new Error('a non-empty query is required');
+    // TODO: implement. Example network call:
+    //   const data = await http.getJson(`https://example.com/api?q=${encodeURIComponent(query)}`);
+    return `TODO: result for "${query}".`;
+  },
+};

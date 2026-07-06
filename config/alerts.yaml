@@ -1,0 +1,81 @@
+# Alert rules for the Ava dashboard. Evaluated server-side on each hardware
+# sample / perf tick. Fields:
+#   metric   — a key from dashboard.build_alert_metrics()
+#   op       — one of >  <  >=  <=  ==
+#   value    — threshold
+#   for      — seconds a breach must persist before the alert RAISES (debounce)
+#   cooldown — seconds to suppress re-raising after it clears (anti-flap)
+#   severity — info | warn | critical
+rules:
+  - id: gpu_temp
+    metric: gpu_temp
+    op: ">"
+    value: 85
+    for: 30
+    cooldown: 120
+    severity: critical
+    message: "GPU temperature high"
+  - id: gpu_mem
+    metric: mem_used_pct
+    op: ">"
+    value: 95
+    for: 30
+    cooldown: 120
+    severity: critical
+    message: "Unified memory nearly full"
+  - id: gpu_power
+    metric: gpu_power
+    op: ">"
+    value: 320
+    for: 60
+    cooldown: 120
+    severity: warn
+    message: "GPU power draw sustained high"
+  - id: disk_low
+    metric: disk_free_pct
+    op: "<"
+    value: 10
+    for: 0
+    cooldown: 300
+    severity: critical
+    message: "SSD free space low"
+  - id: tok_s_low
+    metric: tokens_per_sec
+    op: "<"
+    value: 15
+    for: 0
+    cooldown: 300
+    severity: warn
+    message: "LLM throughput below expected"
+  - id: failover_rate
+    metric: failover_rate_1h
+    op: ">"
+    value: 0.20
+    for: 0
+    cooldown: 300
+    severity: warn
+    message: "High inference failover rate"
+  - id: error_rate
+    metric: error_rate_1h
+    op: ">"
+    value: 0.10
+    for: 0
+    cooldown: 300
+    severity: critical
+    message: "High generation error rate"
+  - id: job_stuck
+    metric: job_stuck_count
+    op: ">"
+    value: 0
+    for: 0
+    cooldown: 120
+    severity: warn
+    message: "A render job is stuck (no progress)"
+  - id: service_down
+    metric: service_down_count
+    op: ">"
+    value: 0
+    for: 0
+    cooldown: 60
+    severity: critical
+    message: "A monitored service is down"

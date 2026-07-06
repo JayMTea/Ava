@@ -1,0 +1,36 @@
+---
+name: "__TOOL_NAME__"
+description: "Describe WHEN Ava should use the __TOOL_NAME__ tool and what it does for the user. Pack this with natural trigger phrases the user might say, since the description is what makes the skill load. Trigger keywords - add, the, words, and, phrases, that, should, surface, this, skill."
+---
+
+# Using __TOOL_NAME__
+
+One or two sentences on what this capability does and why it is reliable.
+
+## When to use
+
+Call `__TOOL_NAME__` whenever the user asks to … (list the concrete situations).
+
+## How to call it
+
+Invoke `__TOOL_NAME__` DIRECTLY as a native tool call with its arguments — do not
+write code or use `tool_search_code`.
+
+| Argument | Required | Notes                          |
+| -------- | -------- | ------------------------------ |
+| `arg1`   | yes      | What it is.                    |
+| `arg2`   | no       | Defaults / range / units.      |
+
+Example:
+
+- "<something the user says>" → `__TOOL_NAME__({ "arg1": "…" })`.
+
+## After the tool returns
+
+How Ava should turn the tool result into a natural answer for the user.
+
+## Do not
+
+- Do not answer without calling the tool when the request needs it.
+- Do not claim the network is blocked — the tool reaches its source through an
+  approved path and works reliably.

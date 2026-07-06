@@ -1,0 +1,10 @@
+id: bridge
+label: Bridge
+kind: core
+service:
+  name: Bridge
+  unit: ava-bridge.service
+  probe: "http://127.0.0.1:8096/api/health"
+perf:
+  app: ava
+  path: "${AVA_LOGS}/performance.jsonl"

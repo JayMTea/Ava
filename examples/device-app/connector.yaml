@@ -1,0 +1,37 @@
+# Example DEVICE connector. Copy this folder into your Ava data root:
+#   cp -r examples/device-app "$AVA_HOME/connectors/device-demo"
+# start the app (python examples/device-app/server.py), restart Ava, and it
+# appears in the Devices view — no edits to Ava's code. See docs/DEVICE_CONNECTORS.md.
+id: device-demo
+label: Device Demo
+kind: app
+role: device                 # groups it under Ava's Devices view
+
+# Health probe -> Ops dashboard service matrix.
+service:
+  name: Device Demo
+  probe: "http://127.0.0.1:8479/health"
+
+# PULL — Ava reads/commands the app's devices on demand. `discover` bridges the
+# app's whole MCP-style tool set live (GET /tools, POST /call {name, arguments}).
+actions:
+  discover:
+    base: "http://127.0.0.1:8479"
+    list: "/tools"
+    call: "/call"
+
+# PUSH — the app hands Ava events when IT decides. Get the bearer token with
+#   ava device token device-demo
+# then the app POSTs to /api/connectors/device-demo/events with it.
+ingest:
+  enabled: true
+  channels:
+    - { name: temperature, unit: "C" }
+    - { name: motion, kind: event }
+
+# What Ava's sandboxed agent may reach for the PULL path. Auto-rendered into an
+# OpenClaw egress policy:  ava connector policies device-demo --write
+egress:
+  routes:
+    - "GET /internal/connector/device-demo/__tools"
+    - "POST /internal/connector/device-demo/__call"

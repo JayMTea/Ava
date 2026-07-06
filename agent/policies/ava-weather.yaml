@@ -1,0 +1,27 @@
+# Egress policy for Ava's weather tool (Open-Meteo, read-only, no key).
+# Least privilege: only the two Open-Meteo hosts on :443, GET only.
+# Applied by ../install.sh via: nemoclaw my-assistant policy-add --from-file <this> --yes
+preset:
+  name: ava-weather
+  description: "Open-Meteo weather + geocoding API (read-only) for Ava's get_weather tool"
+
+network_policies:
+  ava-weather:
+    name: ava-weather
+    endpoints:
+      - host: api.open-meteo.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow: { method: GET, path: "/**" }
+      - host: geocoding-api.open-meteo.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow: { method: GET, path: "/**" }
+    binaries:
+      - { path: /usr/local/bin/node }
+      - { path: /usr/bin/node }
+      - { path: /usr/bin/curl }

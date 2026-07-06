@@ -1,0 +1,231 @@
+"""Device event ingest + store — the inbound "app → Ava" channel.
+
+This is the one capability the Connector SDK was missing: a way for a user's own
+device/sensor app to *proactively hand Ava an event* ("motion detected"), rather
+than only being polled by Ava's agent. The device logic and the decision to notify
+both stay in the user's app; Ava just receives, stores, and surfaces.
+
+A connector that declares ``ingest: {enabled: true}`` may POST to
+``/api/connectors/<id>/events`` authenticated with its per-connector ingest token
+(see :func:`ava_bridge.internal.ingest_token`). Each accepted event is:
+
+  * **normalised + appended** to ``${AVA_LOGS}/devices/<cid>.jsonl`` — a bounded,
+    self-managing hot log using the same rotation pattern as ``perf_log.py`` (no
+    external TSDB), so Ava can answer "did anything happen?" across restarts, and
+  * **pushed to an in-process ring buffer** with a monotonic sequence so the ops
+    SSE stream can surface it live (``event: device.event``) to the dashboard, and
+  * for ``notify``/``warn``/``critical`` events, **raised as a short-lived alert**
+    via :func:`ava_bridge.alerts.push_external` so it also lands in the alerts UI.
+
+Read-only, single-user, in-process — consistent with the rest of the bridge.
+"""
+from __future__ import annotations
+
+import json
+import os
+import threading
+import time
+from collections import deque
+from typing import Any, Dict, List
+
+try:
+    import fcntl  # POSIX advisory locking for cross-process-safe appends
+except ImportError:  # pragma: no cover — non-POSIX fallback
+    fcntl = None  # type: ignore[assignment]
+
+from . import alerts, config
+
+_DIR = os.path.join(config.LOGS_DIR, "devices")
+MAX_BYTES = int(os.environ.get("AVA_DEVICES_LOG_MAX_BYTES", str(8 * 1024 * 1024)))
+KEEP = max(1, int(os.environ.get("AVA_DEVICES_LOG_KEEP", "3")))
+
+_SEVERITIES = ("info", "warn", "critical")
+_NAME_MAX = 64
+_MSG_MAX = 500
+
+# In-memory ring of the most recent events across all connectors, each tagged with
+# a process-monotonic sequence so an SSE generator can emit only what's new to it.
+_lock = threading.Lock()
+_recent: "deque[dict]" = deque(maxlen=500)
+_seq = 0
+_last_ts: Dict[str, float] = {}   # cid -> ts of its last event (for `ava device list`)
+
+
+def _path(cid: str) -> str:
+    return os.path.join(_DIR, f"{_clean_id(cid)}.jsonl")
+
+
+def _clean_id(cid: str) -> str:
+    """A filesystem-safe connector id (defensive — cids come from route params)."""
+    return "".join(c for c in str(cid) if c.isalnum() or c in ("-", "_")) or "_"
+
+
+def _rotate_if_needed(path: str) -> None:
+    """Bounded, non-destructive rotation identical to perf_log's scheme."""
+    try:
+        if os.path.getsize(path) < MAX_BYTES:
+            return
+    except OSError:
+        return
+    try:
+        oldest = f"{path}.{KEEP}"
+        if os.path.exists(oldest):
+            os.remove(oldest)
+    except OSError:
+        pass
+    for i in range(KEEP - 1, 0, -1):
+        try:
+            if os.path.exists(f"{path}.{i}"):
+                os.replace(f"{path}.{i}", f"{path}.{i + 1}")
+        except OSError:
+            pass
+    try:
+        os.replace(path, f"{path}.1")
+    except OSError:
+        pass
+
+
+def normalize(cid: str, payload: dict) -> dict:
+    """Coerce a raw ingest payload into a compact, safe event record.
+
+    Raises ValueError on a payload we won't accept (bad type / unusable name).
+    Free-form strings are length-capped so a chatty or hostile app can't bloat the
+    log or the notification surface.
+    """
+    if not isinstance(payload, dict):
+        raise ValueError("event body must be a JSON object")
+    etype = str(payload.get("type") or "event").strip().lower()
+    if etype not in ("event", "reading"):
+        raise ValueError("type must be 'event' or 'reading'")
+    name = str(payload.get("name") or "").strip()[:_NAME_MAX]
+    if not name:
+        raise ValueError("name is required")
+
+    rec: Dict[str, Any] = {
+        "ts": round(float(payload.get("ts") or time.time()), 3),
+        "cid": cid,
+        "type": etype,
+        "name": name,
+    }
+    if payload.get("value") is not None:
+        try:
+            rec["value"] = float(payload["value"])
+        except (TypeError, ValueError):
+            rec["value"] = str(payload["value"])[:_NAME_MAX]
+    if payload.get("unit"):
+        rec["unit"] = str(payload["unit"])[:16]
+    if payload.get("message"):
+        rec["message"] = str(payload["message"])[:_MSG_MAX]
+    sev = str(payload.get("severity") or "").strip().lower()
+    if sev in _SEVERITIES:
+        rec["severity"] = sev
+    if payload.get("notify"):
+        rec["notify"] = True
+    return rec
+
+
+def record_event(cid: str, payload: dict) -> dict:
+    """Validate, persist, buffer, and (if flagged) alert on one pushed event.
+
+    Returns the normalised record. Raises ValueError if the payload is rejected.
+    """
+    global _seq
+    rec = normalize(cid, payload)
+
+    # Persist (best-effort; a full disk must not 500 the app's push).
+    try:
+        os.makedirs(_DIR, exist_ok=True)
+        path = _path(cid)
+        _rotate_if_needed(path)
+        line = json.dumps(rec, ensure_ascii=False, separators=(",", ":")) + "\n"
+        with open(path, "a", encoding="utf-8") as f:
+            if fcntl is not None:
+                try:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+                except OSError:
+                    pass
+            f.write(line)
+            f.flush()
+            if fcntl is not None:
+                try:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                except OSError:
+                    pass
+    except Exception:  # noqa: BLE001 — never fail the push on a storage hiccup
+        pass
+
+    # Buffer for the live SSE stream.
+    with _lock:
+        _seq += 1
+        out = dict(rec, seq=_seq)
+        _recent.append(out)
+        _last_ts[cid] = rec["ts"]
+
+    # Surface urgent/opt-in events in the dashboard alerts panel too. The event
+    # already rides the device.event SSE frame for a toast; this additionally gives
+    # it a place in the persistent active-alerts list (and future paging).
+    if rec.get("notify") or rec.get("severity") in ("warn", "critical"):
+        msg = rec.get("message") or f"{cid}: {rec['name']}"
+        alerts.push_external(f"device:{cid}:{out['seq']}", msg,
+                             severity=rec.get("severity", "warn"),
+                             metric=f"{cid}.{rec['name']}", value=rec.get("value"))
+    return out
+
+
+def live_since(seq: int) -> tuple:
+    """(new_seq, events) — buffered events with seq > `seq`, for the SSE producer."""
+    with _lock:
+        if _seq <= seq:
+            return _seq, []
+        return _seq, [e for e in _recent if e["seq"] > seq]
+
+
+def current_seq() -> int:
+    with _lock:
+        return _seq
+
+
+def recent(cid: str | None = None, limit: int = 50) -> List[dict]:
+    """Most-recent persisted events (newest first), across all device connectors or
+    one. Reads the JSONL so it survives restarts — used by the agent tool + CLI."""
+    files: List[str]
+    if cid:
+        files = [_path(cid)]
+    else:
+        try:
+            files = [os.path.join(_DIR, n) for n in os.listdir(_DIR)
+                     if n.endswith(".jsonl")]
+        except OSError:
+            files = []
+    rows: List[dict] = []
+    for path in files:
+        # The log is append-ordered (chronological); reverse the tail so it's
+        # newest-first, then a stable sort by ts keeps that order for equal-ts ties.
+        rows.extend(reversed(_tail_jsonl(path, limit)))
+    rows.sort(key=lambda r: r.get("ts", 0), reverse=True)
+    return rows[:limit]
+
+
+def last_event_ts(cid: str) -> float | None:
+    with _lock:
+        if cid in _last_ts:
+            return _last_ts[cid]
+    rows = _tail_jsonl(_path(cid), 1)
+    return rows[-1]["ts"] if rows else None
+
+
+def _tail_jsonl(path: str, limit: int) -> List[dict]:
+    rows: List[dict] = []
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rows.append(json.loads(line))
+                except Exception:  # noqa: BLE001
+                    continue
+    except OSError:
+        return []
+    return rows[-limit:] if limit else rows

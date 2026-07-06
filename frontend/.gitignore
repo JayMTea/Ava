@@ -1,0 +1,15 @@
+# Dependencies
+node_modules/
+
+# Local env / caches
+.vite/
+*.local
+.DS_Store
+npm-debug.log*
+yarn-error.log*
+
+# Note: dist/ is intentionally tracked — the FastAPI bridge serves the
+# prebuilt output (no Node runtime in production).
+
+# TypeScript incremental build cache
+*.tsbuildinfo

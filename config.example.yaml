@@ -1,0 +1,165 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Ava configuration.  Copy this to  $AVA_HOME/ava.yaml  and edit.
+#   - AVA_HOME defaults to this repo (personal install) or /data (Docker).
+#   - Anything here can be overridden by an environment variable (shown in [ ]).
+#   - `ava setup` writes a starter version of this file for you.
+# ─────────────────────────────────────────────────────────────────────────────
+
+brand:                     # re-brand the whole app (name shown in UI + /api/brand)
+  name: Ava               # [AVA_NAME]  the assistant's name
+  tagline: your private, self-hosted assistant   # [AVA_TAGLINE]
+
+owner:                     # who the assistant serves (drives the persona + tools)
+  name: ""                # [AVA_OWNER_NAME]      e.g. "Sam" — blank = a neutral "the user"
+  location: ""            # [AVA_OWNER_LOCATION]  default place for weather/"near me" — blank = ask
+  hardware: ""            # [AVA_OWNER_HARDWARE]  e.g. "an NVIDIA DGX Spark" — blank = "your local hardware"
+
+persona:                   # assistant character (agent/persona.txt.tmpl is rendered from this)
+  adult: false            # [AVA_PERSONA_ADULT]  true = allow explicit/NSFW conversation for the owner
+
+server:
+  host: 0.0.0.0            # [AVA_HOST]
+  port: 8096              # [AVA_PORT]
+  public_url: http://localhost:8096   # external URL users reach Ava at
+
+auth:
+  mode: password          # password | none  (none = local dev only)
+  # The password + signing secret are NOT stored here — they live in
+  # $AVA_HOME/secrets/ (auto-generated on first run) or env AVA_PASSWORD / AVA_SECRET.
+
+paths:                     # all default under AVA_HOME; override only if needed
+  data: null              # [AVA_DATA_DIR]
+  logs: null              # [AVA_LOGS_DIR]
+  media: null             # [AVA_MEDIA_DIR]
+  models: null            # [AVA_MODELS_DIR]  weights root (hf/ ollama/ gpusvc/)
+
+# ── Model store: what `ava models pull` fetches into $AVA_HOME/models/ ───────
+# Logical role -> a concrete model + engine. `ava models pull --auto` picks the
+# chat/fast model whose `tier` matches the memory `ava doctor` detects, so a fork
+# on a small GPU downloads something that actually fits. `ava setup` creates the
+# hf/ ollama/ gpusvc/ folders (and a gpusvc/extra_model_paths.yaml) for you.
+models:
+  chat:                    # everyday brain (served via inference.backends above)
+    engine: vllm           # vllm|ollama  (Hugging Face hub or Ollama registry)
+    id: nvidia/Nemotron-Open-30B-A3B-Reasoning-FP8
+    tier: large            # large|medium|small|tiny  (used by --auto)
+  fast:                    # smaller fallback for constrained hardware
+    engine: ollama
+    id: llama3.1:8b
+    tier: small
+  image:                   # a the GPU service checkpoint (dropped under models/gpusvc/<dest>)
+    engine: gpu-service
+    id: gpu_model_base
+    dest: checkpoints
+    url: https://huggingface.co/example/gpu-model
+
+# ── Inference: Ava's single always-on brain. ────────────────────────────────
+# Ava keeps ONE model resident at all times — Nemotron open-model 30B-A3B (FP8),
+# a multimodal MoE (3B active) that's her everyday chat brain AND backs her
+# background capabilities (vision/audio understanding). No scaling models up and
+# down. The router (ava_router.py) fronts it for perf logging + the `/fit` view;
+# add a second backend below only if you want an automatic cloud fallback.
+inference:
+  primary: local-omni
+  # Direct chat endpoint used when the agent runtime is absent (degraded mode —
+  # a working, tool-less assistant). Point straight at any OpenAI-compatible
+  # engine (vLLM/Ollama) or a cloud provider; add api_key for the latter.
+  # chat_url: http://127.0.0.1:8010/v1/chat/completions   # [AVA_ROUTER_CHAT]
+  # api_key: ""                                            # [AVA_INFERENCE_KEY]
+  # ctx_max: 65536                                         # [AVA_CTX_MAX]
+  backends:
+    local-omni:
+      engine: vllm
+      base_url: http://127.0.0.1:8002/v1
+      model: nvidia/Nemotron-Open-30B-A3B-Reasoning-FP8
+      fit:
+        weight_gb: 35           # resident footprint in the unified memory pool
+        tier: large             # large | small | tiny  (quality/size class)
+        min_free_gb: 10         # headroom to keep free while it serves
+        workloads: [chat, reasoning, code, vision, audio]   # omni: handles all
+    # Optional cloud fallback — kept warm-less; only used if the local engine is
+    # down / still loading. Remote backends are never memory-gated.
+    # cloud-fallback:
+    #   engine: openai
+    #   base_url: https://openrouter.ai/api/v1
+    #   model: <a chat model id>
+    #   api_key_env: OPENROUTER_API_KEY
+    #   fit: { tier: large, workloads: [chat, reasoning, code] }
+
+    # ── Apple Silicon (Mac mini / Studio) example ────────────────────────────
+    # Macs have unified memory and no nvidia-smi; the fit layer reads the shared
+    # RAM pool (via psutil) and sheds to the smaller model under pressure exactly
+    # like the Spark. Ollama serves an OpenAI-compatible API at :11434. Size the
+    # fit numbers to YOUR model + Mac (a 24 GB Mac mini has far less headroom than
+    # a 128 GB Studio). Engine `ollama` (or llamacpp / mlx / lmstudio) is detected
+    # as local automatically.
+    # mac-mid:
+    #   engine: ollama
+    #   base_url: http://127.0.0.1:11434/v1
+    #   model: llama3.1:70b
+    #   fit: { weight_gb: 42, tier: large, min_free_gb: 6, workloads: [chat, reasoning, code] }
+    # mac-fast:
+    #   engine: ollama
+    #   base_url: http://127.0.0.1:11434/v1
+    #   model: llama3.1:8b
+    #   fit: { weight_gb: 6, tier: small, min_free_gb: 3, workloads: [fast, cheap, utility, chat] }
+
+# ── Agent runtime (the MCP host that gives Ava tools + memory) ──────────────
+agent:
+  runtime: nemoclaw        # [AVA_AGENT_RUNTIME] nemoclaw (default) | direct
+  required: false          # [AVA_AGENT_REQUIRED] true = MUST have the runtime;
+                           #   refuse to fall back to tool-less chat (fail loud).
+  enabled: true            # [AVA_AGENT_ENABLED] false -> force the direct floor
+  sandbox: my-assistant    # [AVA_OC_SANDBOX]
+  agent_id: main           # [AVA_OC_AGENT]
+  # NemoClaw (github.com/NVIDIA/NemoClaw, Apache-2.0) is the default runtime — it
+  # runs OpenClaw in an OpenShell sandbox and gives Ava her tools, skills,
+  # sandboxed execution, egress policies and persistent memory. Set it up with
+  #   ava agent provision --install      (installs the CLI, guides `nemoclaw onboard`)
+  # It's hardware-portable (sandbox from a container image). If it's absent and
+  # required=false, Ava falls back to DIRECT tool-less chat so a fresh install
+  # still works; set required=true to make the full runtime mandatory.
+
+# ── Optional capabilities (default OFF so a fresh install is minimal) ────────
+features:
+  voice: false             # push-to-talk STT/TTS
+  voiceprint: false        # speaker verification (personal; requires enrollment)
+  web_search: false        # self-hosted SearXNG + guarded fetch
+  image: true              # GPU workloads via the gpu-service connector
+
+# ── Connectors: the apps Ava monitors & drives (see docs/PACKAGING_PLAN.md §5.3)
+connectors:
+  - gpu-service                # image/video (the GPU service)
+  # - my-app               # your own connector (see docs/CONNECTOR_SDK.md)
+  # - my-device            # your own device/sensor app (see docs/DEVICE_CONNECTORS.md)
+
+# ── Devices: wire your OWN hardware/sensor apps to Ava ───────────────────────
+# Nothing to configure here — a device is just a connector whose connector.yaml
+# declares an `ingest:` block (and usually `actions.discover`). YOUR app owns all
+# device I/O (Arduino/Nicla/Portenta/ESP32/smart-home/…); Ava reads/commands it on
+# demand (pull) and receives events it pushes (push).
+#   ava device new <name>     # scaffold $AVA_HOME/connectors/<name>/connector.yaml
+#   ava device token <name>   # the inbound bearer token your app POSTs with
+#   ava device events <name>  # watch pushed events arrive
+# Push endpoint:  POST {server.public_url}/api/connectors/<name>/events
+#                 Authorization: Bearer <token from `ava device token`>
+
+# ── Cost / energy estimate for the dashboard (optional) ─────────────────────
+cost:
+  electricity_rate_per_kwh: 0.15
+  nominal_gpu_watts: 180
+
+# ── Performance-log storage (self-managing; no external TSDB) ────────────────
+# Ava keeps a compact append-only performance.jsonl (one line per generation) and,
+# in-process (a daemon thread — no cron/systemd), rolls records older than the hot
+# window into hourly/daily buckets under $AVA_HOME/logs/rollups so month-range
+# charts stay fast. Raw segments are pruned only AFTER they're rolled up, so history
+# is bounded but never lost. Sensible defaults — tune only if you generate a lot.
+perf:
+  hot_window: 48h          # [AVA_PERF_HOT_WINDOW] recent range served from raw JSONL
+  rollup_interval: 1h      # [AVA_PERF_ROLLUP_INTERVAL] how often the in-process rollup runs
+  hourly_retention: 90d    # [AVA_PERF_HOURLY_RETENTION] how long hourly buckets are kept
+  daily_retention: 0       # [AVA_PERF_DAILY_RETENTION] 0 = keep daily buckets forever
+  max_rotated_files: 5     # [AVA_PERF_LOG_KEEP] raw segments retained (.1..N) before rollup absorbs them
+  max_tok_s: 2000          # [AVA_PERF_MAX_TOK_S] clamp implausible tokens/sec (timing artefacts) to null
+  # Live-file rotation size is writer-only (stdlib), set via env: [AVA_PERF_LOG_MAX_BYTES] (default 32MiB)

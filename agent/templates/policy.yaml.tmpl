@@ -1,0 +1,21 @@
+# Egress policy for Ava's __TOOL_NAME__ tool.
+# Least privilege: list ONLY the hosts/ports/methods this tool actually needs.
+# Applied by ../install.sh via: nemoclaw my-assistant policy-add --from-file <this> --yes
+preset:
+  name: __TOOL_NAME__
+  description: "TODO: what this policy allows and why"
+
+network_policies:
+  __TOOL_NAME__:
+    name: __TOOL_NAME__
+    endpoints:
+      - host: example.com           # TODO: the host this tool calls
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow: { method: GET, path: "/**" }
+    binaries:
+      - { path: /usr/local/bin/node }
+      - { path: /usr/bin/node }
+      - { path: /usr/bin/curl }

@@ -1,0 +1,33 @@
+---
+# Ava Email Policy (Read-Only)
+# Allows Ava to read her own learning digest emails and summaries.
+# Strictly read-only: no send capability.
+
+preset:
+  name: ava-email-read-only
+  description: "Ava can read her own learning digest emails (daily and weekly reports). Read-only access."
+
+network_policies: {}
+icon: 📧
+
+tools:
+  - ava-tools__get_email_digest
+  - ava-tools__list_email_files
+  - ava-tools__get_emails
+
+constraints:
+  - read_only: true
+  - no_send: true
+  - digest_types_allowed:
+      - daily
+      - weekly
+  - rate_limit:
+      requests_per_minute: 10
+      burst: 3
+
+notes: |
+  - Ava uses get_email_digest to reference her own learning
+  - Daily digests: 4am PST, scheduled by ava-learning-digest.timer
+  - Weekly trends: Sunday 4am PST, scheduled by ava-learning-weekly.timer
+  - All digests are archived in logs/ for reference
+  - Future enhancement: integrate with knowledge base for trend analysis

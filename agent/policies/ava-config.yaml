@@ -1,0 +1,28 @@
+# Egress policy for Ava's configuration tools (read_config, update_config) to reach
+# the HOST's phone bridge and read/update .env, persona.txt, and learning settings.
+# The bridge listens on 127.0.0.1:8096 and exposes /internal/config via the guard
+# proxy. Calls are gated by X-Ava-Internal-Token (bearer token).
+# Applied by ../install.sh via: nemoclaw my-assistant policy-add --from-file <this> --yes
+preset:
+  name: ava-config
+  description: "Host phone-bridge configuration read/write for Ava's read_config / update_config tools"
+
+network_policies:
+  ava-config:
+    name: ava-config
+    endpoints:
+      - host: host.openshell.internal
+        port: 8096
+        protocol: rest
+        enforcement: enforce
+        allowed_ips:
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
+        rules:
+          - allow: { method: GET, path: "/internal/config" }
+          - allow: { method: POST, path: "/internal/config" }
+    binaries:
+      - { path: /usr/local/bin/node }
+      - { path: /usr/bin/node }
+      - { path: /usr/bin/curl }

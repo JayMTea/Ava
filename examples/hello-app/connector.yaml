@@ -1,0 +1,38 @@
+# Example third-party connector. Copy this folder into your Ava data root:
+#   cp -r examples/hello-app "$AVA_HOME/connectors/hello"
+# start the app (python examples/hello-app/server.py), restart Ava, and "Hello
+# App" appears in the left rail — no edits to Ava's code. See docs/CONNECTOR_SDK.md.
+id: hello
+label: Hello App (example)
+kind: app
+
+# Left-rail app surface. embed: iframe -> Ava reverse-proxies the app's own web
+# UI same-origin under /apps/hello/, so it inherits Ava's session cookie.
+ui:
+  label: Hello App
+  icon: sparkles
+  section: apps
+  order: 90
+  embed: iframe
+  url: "http://127.0.0.1:8477"      # the app's own web server (see server.py)
+
+# Health probe -> shows up/down in the Ops dashboard service matrix.
+service:
+  name: Hello App
+  probe: "http://127.0.0.1:8477/health"
+
+# Agent tools. discover bridges the app's whole MCP-style tool set live: Ava GETs
+# /tools for the schemas and POSTs /call {name, arguments} to invoke — so these
+# become real Ava tools with zero per-tool wiring.
+actions:
+  discover:
+    base: "http://127.0.0.1:8477"
+    list: "/tools"
+    call: "/call"
+
+# What Ava's sandboxed agent tools may reach for this connector. Auto-rendered
+# into an OpenClaw egress policy (ava connector policies hello --write).
+egress:
+  routes:
+    - "GET /internal/connector/hello/__tools"
+    - "POST /internal/connector/hello/__call"

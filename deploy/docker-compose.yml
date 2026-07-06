@@ -1,0 +1,87 @@
+# Ava — self-hosted, plug-and-play. Pick a profile that matches your hardware:
+#
+#   docker compose --profile cpu   up -d    # no GPU  -> Ollama for inference
+#   docker compose --profile gpu   up -d    # NVIDIA GPU -> vLLM
+#   docker compose --profile cloud up -d    # bring an API key, no local model
+#   docker compose --profile full  up -d    # GPU + the GPU service (image/video)
+#
+# All state lives in one folder (AVA_HOME, default ./ava-data). On first visit
+# the web UI walks you through setting an admin password (no secret to hunt for).
+#
+# Inference: the container runs Ava in DIRECT chat mode (AVA_AGENT_ENABLED=0) and
+# talks to an OpenAI-compatible endpoint set by AVA_INFERENCE_URL. Each profile
+# provides one; override it in a .env next to this file if needed:
+#   gpu/full -> http://vllm:8002/v1/chat/completions      (default)
+#   cpu      -> http://ollama:11434/v1/chat/completions
+#   cloud    -> https://api.openai.com/v1/chat/completions (+ set AVA_INFERENCE_KEY)
+# The full tool-using agent (self-coding, connectors) needs the OpenClaw runtime,
+# which is not bundled in this image — see deploy/README.md.
+name: ava
+
+services:
+  ava:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: ava/bridge:latest
+    environment:
+      AVA_HOME: /data
+      AVA_PORT: "8096"
+      AVA_PASSWORD: ${AVA_PASSWORD:-}
+      # No agent sandbox in the container -> direct (tool-less) chat, which works.
+      AVA_AGENT_ENABLED: ${AVA_AGENT_ENABLED:-0}
+      # Which OpenAI-compatible endpoint the direct chat path calls.
+      AVA_ROUTER_CHAT: ${AVA_INFERENCE_URL:-http://vllm:8002/v1/chat/completions}
+      AVA_INFERENCE_KEY: ${AVA_INFERENCE_KEY:-}
+    volumes:
+      - ${AVA_HOME:-./ava-data}:/data
+    ports:
+      - "127.0.0.1:8096:8096"
+    restart: unless-stopped
+
+  # --- inference: CPU / no-GPU users ---
+  # First run pulls a small model: `docker compose exec ollama ollama pull llama3.2`
+  # then set AVA_INFERENCE_URL=http://ollama:11434/v1/chat/completions in .env.
+  ollama:
+    profiles: ["cpu"]
+    image: ollama/ollama:latest
+    volumes:
+      - ${AVA_HOME:-./ava-data}/models/ollama:/root/.ollama
+    ports:
+      - "127.0.0.1:11434:11434"
+    restart: unless-stopped
+
+  # --- inference: NVIDIA GPU users ---
+  # Default brain is Nemotron open-model 30B-A3B (needs a big GPU / ~35GB VRAM).
+  # Override AVA_MODEL for a smaller model on constrained GPUs, e.g.
+  #   AVA_MODEL=Qwen/Qwen2.5-7B-Instruct
+  vllm:
+    profiles: ["gpu", "full"]
+    image: vllm/vllm-openai:latest
+    command: ["--model", "${AVA_MODEL:-nvidia/Nemotron-Open-30B-A3B-Reasoning-FP8}", "--trust-remote-code", "--port", "8002"]
+    volumes:
+      - ${AVA_HOME:-./ava-data}/models/hf:/root/.cache/huggingface
+    ports:
+      - "127.0.0.1:8002:8002"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: ["gpu"]
+    restart: unless-stopped
+
+  # --- image / video generation (optional) ---
+  # Uses the upstream the GPU service image; mount your checkpoints under
+  # $AVA_HOME/models/gpusvc. Enable the `gpu-service` connector in ava.yaml to wire it.
+  gpu-service:
+    profiles: ["full"]
+    image: ${AVA_GPU_SERVICEUI_IMAGE:-ghcr.io/ai-dock/gpu-service:latest}
+    ports:
+      - "127.0.0.1:8189:8188"
+    volumes:
+      - ${AVA_HOME:-./ava-data}/models/gpusvc:/opt/the GPU service/models
+    restart: unless-stopped
+# The `cloud` profile starts only the ava service; set AVA_INFERENCE_URL +
+# AVA_INFERENCE_KEY in .env to point at your provider (no local engine).

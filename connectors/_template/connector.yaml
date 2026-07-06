@@ -1,0 +1,76 @@
+# Reference template. Copy this folder to  <id>/  and edit — or run:
+#   ava connector new <id>
+# (Folders starting with "_" are ignored by the loader.)
+#
+# Drop this folder into  $AVA_HOME/connectors/<id>/  and restart Ava. Nothing in
+# Ava's core needs editing: the dashboard service row, perf source, agent egress
+# policy, agent tools, AND the left-rail app tile are all DERIVED from this file.
+# See docs/CONNECTOR_SDK.md for the full guide.
+id: myapp
+label: My App
+kind: app                 # core | inference | media | app
+enabled: true
+
+# --- Health / monitoring ----------------------------------------------------
+service:
+  name: My App
+  probe: "http://127.0.0.1:9000/health"   # optional HTTP health check
+  # unit: myapp.service                     # optional systemd user unit
+
+# --- Performance source (optional) ------------------------------------------
+# perf:
+#   app: myapp
+#   path: "${AVA_HOME}/connectors/myapp/performance.jsonl"
+
+# --- Left-rail app surface (optional) ---------------------------------------
+# Declare `ui:` and your app appears in Ava's left rail. `embed` picks how the
+# shell renders it. ${ENV_VAR} references resolve from Ava's environment/config.
+# ui:
+#   label: "My App"
+#   icon: panel            # a key in frontend/src/lib/icons.tsx (unknown = no icon)
+#   section: apps          # rail group: core | apps  (default apps)
+#   order: 50              # sort order within the section
+#   embed: iframe          # native | iframe | none
+#   # embed: native — a first-party React view compiled into Ava's bundle:
+#   # view: myapp          #   registry key in frontend App.tsx NATIVE_VIEWS
+#   # embed: iframe — your app serves its OWN web UI; Ava reverse-proxies it
+#   #   same-origin under /apps/myapp/ so it inherits Ava's session cookie:
+#   url: "http://127.0.0.1:9000"
+#   # embed: none — no UI; Ava renders a generic action console from `actions`.
+#   #
+#   # Optional browser data-proxy: the native/iframe UI can call Ava at
+#   # /apps/myapp/api/<path>, which Ava forwards to base+prefix+<path> with the
+#   # bearer token injected server-side (the browser never sees the token):
+#   api:
+#     base: "http://127.0.0.1:9000"
+#     prefix: "/api"
+#     token_env: MYAPP_API_TOKEN
+
+# --- Agent egress (optional) ------------------------------------------------
+# What Ava's sandboxed agent tools may reach for this connector. Rendered into
+# an OpenClaw egress policy automatically (ava connector egress <id>).
+# egress:
+#   routes: ["POST /internal/connector/myapp/do_thing"]  # bridge routes
+#   hosts:  ["127.0.0.1:9000"]                            # direct endpoints
+
+# --- Agent actions (optional) -----------------------------------------------
+# Two shapes are supported. LIST form (each becomes an agent tool that calls the
+# generic proxy /internal/connector/myapp/<id>, forwarded to base_url+path):
+# actions:
+#   - id: do_thing
+#     description: "Do the thing"
+#     method: POST
+#     path: "/api/do-thing"
+#     input: { name: { type: string } }
+#
+# Or DICT form — mix static actions with DYNAMIC discovery. `discover` bridges a
+# whole MCP-style tool set: Ava GETs `list` for the tool schemas and POSTs `call`
+# with {name, arguments}. Great for wrapping an existing tool/MCP server.
+# actions:
+#   static:
+#     - { id: do_thing, method: POST, path: "/api/do-thing" }
+#   discover:
+#     base: "http://127.0.0.1:9200"   # defaults to the connector base_url
+#     list: "/tools"
+#     call: "/call"
+#     token_env: MYAPP_MCP_TOKEN
