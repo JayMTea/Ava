@@ -66,6 +66,56 @@ export interface GenerateResult {
   error?: string;
 }
 
+// ---- Model store ------------------------------------------------------------
+export interface ModelRole {
+  role: string;
+  id: string;
+  engine: string;
+  tier?: string;
+  present: boolean;
+}
+export interface ModelStore {
+  roles: ModelRole[];
+  detected_tier: string;
+  available_gb: number | null;
+  store: string;
+}
+export interface PullStatus {
+  status: 'idle' | 'running' | 'done' | 'error';
+  role: string | null;
+  rc: number | null;
+  log: string[];
+}
+
+// ---- Voice ------------------------------------------------------------------
+export interface VoiceStatus {
+  enabled: boolean;
+  deps_ok: boolean;
+  deps_error: string;
+  enrolled: boolean;
+  threshold: number;
+}
+export interface EnrollResult {
+  ok: boolean;
+  error?: string;
+  seconds?: number;
+  windows?: number;
+  dropped?: number;
+  consistency?: { min: number; mean: number; max: number };
+  suggested_threshold?: number;
+  low_consistency?: boolean;
+}
+
+// ---- New connector form -------------------------------------------------------
+export interface NewConnectorBody {
+  id: string;
+  label?: string;
+  kind?: string;
+  probe?: string;
+  base_url?: string;
+  actions?: { id: string; method: string; path: string; description?: string }[];
+}
+
 // ---- System -----------------------------------------------------------------
 export interface SystemInfo {
   brand: string;
@@ -105,6 +155,34 @@ export const hub = {
     req<GenerateResult>(`/api/hub/connectors/${encodeURIComponent(id)}/generate?write=${write ? 1 : 0}`, {
       method: 'POST',
     }),
+  newConnector: (body: NewConnectorBody) =>
+    req<{ ok: boolean; path?: string; actions?: number; error?: string }>('/api/hub/connectors/new', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+
+  // Model store
+  models: () => req<ModelStore>('/api/hub/models'),
+  pull: (role: string) =>
+    req<{ ok: boolean; error?: string }>(`/api/hub/models/pull?role=${encodeURIComponent(role)}`, { method: 'POST' }),
+  pullStatus: () => req<PullStatus>('/api/hub/models/pull/status'),
+
+  // Voice — raw fetch: enroll/test return structured {ok:false,error} bodies on
+  // 4xx (deps missing, bad audio), which we surface instead of throwing.
+  voiceStatus: () => req<VoiceStatus>('/api/hub/voice/status'),
+  voiceEnroll: async (clips: Blob[]): Promise<EnrollResult> => {
+    const fd = new FormData();
+    clips.forEach((b, i) => fd.append('files', b, `clip${i}.webm`));
+    const r = await fetch('/api/hub/voice/enroll', { method: 'POST', body: fd, credentials: 'same-origin' });
+    return (await r.json()) as EnrollResult;
+  },
+  voiceTest: async (clip: Blob): Promise<{ ok: boolean; similarity?: number; windows?: number; error?: string }> => {
+    const fd = new FormData();
+    fd.append('file', clip, 'test.webm');
+    const r = await fetch('/api/hub/voice/test', { method: 'POST', body: fd, credentials: 'same-origin' });
+    return await r.json();
+  },
 
   // System
   system: () => req<SystemInfo>('/api/hub/system'),

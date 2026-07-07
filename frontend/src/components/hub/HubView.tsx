@@ -1,22 +1,24 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Icon } from '../../lib/icons';
 import { EmptyState, Panel } from '../dashboard/primitives';
 import { api } from '../../lib/api';
 import { hub } from './hubApi';
 import type {
-  AgentStatus, BackendProbe, GenerateResult, HardwareInfo, HubConnector, SystemInfo,
+  AgentStatus, BackendProbe, EnrollResult, GenerateResult, HardwareInfo, HubConnector,
+  ModelStore, PullStatus, SystemInfo, VoiceStatus,
 } from './hubApi';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared bits
 // ─────────────────────────────────────────────────────────────────────────────
-type TabId = 'overview' | 'models' | 'agent' | 'connectors' | 'system';
+type TabId = 'overview' | 'models' | 'agent' | 'connectors' | 'voice' | 'system';
 
 const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: 'overview', label: 'Overview', icon: 'gauge' },
   { id: 'models', label: 'Models', icon: 'cloud' },
   { id: 'agent', label: 'Agent', icon: 'bot' },
   { id: 'connectors', label: 'Connectors', icon: 'panel' },
+  { id: 'voice', label: 'Voice', icon: 'mic' },
   { id: 'system', label: 'System', icon: 'sliders' },
 ];
 
@@ -191,11 +193,88 @@ function ModelsPanel({ onRestart }: { onRestart: () => void }) {
           </button>
         </div>
         {msg && <div className="hub-msg err">{msg}</div>}
-        <div className="hub-note" style={{ marginTop: 14 }}>
-          To download a model sized to your hardware, run <b>ava models pull --auto</b> in a terminal.
-        </div>
       </Panel>
+
+      <div className="hub-section" />
+      <ModelStorePanel />
     </>
+  );
+}
+
+function ModelStorePanel() {
+  const [store, setStore] = useState<ModelStore | null>(null);
+  const [pull, setPull] = useState<PullStatus | null>(null);
+  const [msg, setMsg] = useState('');
+  const logRef = useRef<HTMLPreElement>(null);
+
+  const load = useCallback(() => { hub.models().then(setStore).catch(() => {}); }, []);
+  useEffect(() => { load(); hub.pullStatus().then(setPull).catch(() => {}); }, [load]);
+
+  // Poll while a pull runs; refresh the list when it finishes.
+  useEffect(() => {
+    if (pull?.status !== 'running') return;
+    const t = setInterval(async () => {
+      try {
+        const s = await hub.pullStatus();
+        setPull(s);
+        if (s.status !== 'running') load();
+      } catch { /* keep last state */ }
+    }, 1500);
+    return () => clearInterval(t);
+  }, [pull?.status, load]);
+
+  useEffect(() => { logRef.current?.scrollTo(0, logRef.current.scrollHeight); }, [pull?.log?.length]);
+
+  const start = useCallback(async (role: string) => {
+    setMsg('');
+    try {
+      const r = await hub.pull(role);
+      if (!r.ok) { setMsg(r.error || 'could not start'); return; }
+      setPull({ status: 'running', role: role || 'auto', rc: null, log: [] });
+    } catch (e) { setMsg((e as Error).message); }
+  }, []);
+
+  const running = pull?.status === 'running';
+
+  return (
+    <Panel
+      title="Model store"
+      subtitle={store ? `Downloads land in ${store.store} · detected tier: ${store.detected_tier}${store.available_gb ? ` · ${store.available_gb} GB` : ''}` : 'Download models sized to your hardware.'}
+      right={
+        <button className="hub-btn sm" onClick={() => start('auto')} disabled={running}>
+          <Icon name="sparkles" />{running ? 'Pulling…' : 'Pull recommended'}
+        </button>
+      }
+    >
+      {store == null ? <EmptyState text="Loading model store…" />
+        : store.roles.length === 0 ? <EmptyState text="No models declared in ava.yaml (models: …) — 'Pull recommended' picks one for your tier." />
+          : store.roles.map((m) => (
+            <div className="hub-row" key={m.role}>
+              <div className="hub-row-main">
+                <div className="hub-row-title">{m.role} <span style={{ color: 'var(--muted)', fontWeight: 400 }}>· {m.id}</span></div>
+                <div className="hub-row-sub">{m.engine}{m.tier ? ` · tier ${m.tier}` : ''}</div>
+              </div>
+              <div className="hub-row-actions">
+                {m.present ? <Badge tone="ok">downloaded</Badge> : (
+                  <button className="hub-btn ghost sm" onClick={() => start(m.role)} disabled={running}>
+                    <Icon name="cloud" />Pull
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+
+      {pull && pull.status !== 'idle' && (
+        <div className="hub-preview" style={{ marginTop: 12 }}>
+          <div className="hub-preview-head">
+            <Icon name={running ? 'refresh' : pull.status === 'done' ? 'check' : 'close'} />
+            pull {pull.role} · {pull.status}{pull.rc != null && pull.status === 'error' ? ` (exit ${pull.rc})` : ''}
+          </div>
+          <pre ref={logRef}>{pull.log.length ? pull.log.join('\n') : 'starting…'}</pre>
+        </div>
+      )}
+      {msg && <div className="hub-msg err">{msg}</div>}
+    </Panel>
   );
 }
 
@@ -340,22 +419,311 @@ function ConnectorRow({ c }: { c: HubConnector }) {
   );
 }
 
+interface ActionDraft { id: string; method: string; path: string; description: string }
+
+function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [id, setId] = useState('');
+  const [label, setLabel] = useState('');
+  const [probe, setProbe] = useState('');
+  const [baseUrl, setBaseUrl] = useState('');
+  const [actions, setActions] = useState<ActionDraft[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [done, setDone] = useState('');
+
+  const setAction = (i: number, patch: Partial<ActionDraft>) =>
+    setActions((a) => a.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+
+  const create = useCallback(async () => {
+    setBusy(true); setMsg(''); setDone('');
+    try {
+      const r = await hub.newConnector({
+        id: id.trim().toLowerCase(),
+        label: label.trim() || undefined,
+        probe: probe.trim() || undefined,
+        base_url: baseUrl.trim() || undefined,
+        actions: actions.filter((a) => a.id.trim() && a.path.trim()),
+      });
+      if (!r.ok) { setMsg(r.error || 'could not create connector'); }
+      else {
+        setDone(`Created ${r.path}. ${r.actions ? 'Now Preview / Generate & deploy its tools and policy below.' : 'Add actions to its connector.yaml any time.'}`);
+        setId(''); setLabel(''); setProbe(''); setBaseUrl(''); setActions([]);
+        onCreated();
+      }
+    } catch (e) { setMsg((e as Error).message); }
+    setBusy(false);
+  }, [id, label, probe, baseUrl, actions, onCreated]);
+
+  if (!open) {
+    return (
+      <div className="hub-btn-row" style={{ marginTop: 0 }}>
+        <button className="hub-btn" onClick={() => setOpen(true)}><Icon name="plus" />New connector</button>
+        {done && <span className="hub-msg ok" style={{ marginTop: 0, alignSelf: 'center' }}>{done}</span>}
+      </div>
+    );
+  }
+  return (
+    <Panel title="New connector" subtitle="Describe your app; Ava writes the manifest. Actions become agent tools with a matching egress policy — preview both before deploying." right={
+      <button className="hub-btn ghost sm" onClick={() => setOpen(false)}>Cancel</button>
+    }>
+      <div className="hub-fieldrow">
+        <div className="hub-field"><label>ID (a-z, 0-9, -, _)</label>
+          <input className="hub-input" value={id} onChange={(e) => setId(e.target.value)} placeholder="myapp" /></div>
+        <div className="hub-field"><label>Label</label>
+          <input className="hub-input" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="My App" /></div>
+      </div>
+      <div className="hub-fieldrow">
+        <div className="hub-field"><label>Health probe URL (optional)</label>
+          <input className="hub-input" value={probe} onChange={(e) => setProbe(e.target.value)} placeholder="http://127.0.0.1:9000/health" /></div>
+        <div className="hub-field"><label>App base URL (where actions are sent)</label>
+          <input className="hub-input" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="http://127.0.0.1:9000" /></div>
+      </div>
+
+      <div className="hub-field">
+        <label>Agent actions — each becomes a tool Ava can call (and an egress allow-rule)</label>
+        {actions.map((a, i) => (
+          <div className="hub-fieldrow" key={i} style={{ marginBottom: 8 }}>
+            <input className="hub-input" style={{ flex: 1 }} value={a.id} placeholder="action_id"
+              onChange={(e) => setAction(i, { id: e.target.value })} />
+            <select className="hub-select" style={{ flex: '0 0 90px' }} value={a.method}
+              onChange={(e) => setAction(i, { method: e.target.value })}>
+              <option>POST</option><option>GET</option>
+            </select>
+            <input className="hub-input" style={{ flex: 2 }} value={a.path} placeholder="/api/do-thing"
+              onChange={(e) => setAction(i, { path: e.target.value })} />
+            <input className="hub-input" style={{ flex: 2 }} value={a.description} placeholder="what it does (shown to the agent)"
+              onChange={(e) => setAction(i, { description: e.target.value })} />
+            <button className="hub-btn ghost sm" style={{ flex: '0 0 auto' }} aria-label="Remove action"
+              onClick={() => setActions((x) => x.filter((_, j) => j !== i))}><Icon name="trash" /></button>
+          </div>
+        ))}
+        <button className="hub-btn ghost sm" onClick={() => setActions((a) => [...a, { id: '', method: 'POST', path: '', description: '' }])}>
+          <Icon name="plus" />Add action
+        </button>
+      </div>
+
+      <div className="hub-btn-row">
+        <button className="hub-btn" onClick={create} disabled={busy || !id.trim()}>
+          <Icon name="check" />{busy ? 'Creating…' : 'Create connector'}
+        </button>
+      </div>
+      {msg && <div className="hub-msg err">{msg}</div>}
+    </Panel>
+  );
+}
+
 function ConnectorsPanel() {
   const [conns, setConns] = useState<HubConnector[] | null>(null);
-  useEffect(() => { hub.connectors().then((r) => setConns(r.connectors)).catch(() => setConns([])); }, []);
+  const load = useCallback(() => {
+    hub.connectors().then((r) => setConns(r.connectors)).catch(() => setConns([]));
+  }, []);
+  useEffect(() => { load(); }, [load]);
   return (
-    <Panel
-      title="Connectors"
-      subtitle="Each connector is one manifest that wires an app into Ava — its health, metrics, agent tools, and egress security policy."
-    >
-      {conns == null ? <EmptyState text="Loading connectors…" />
-        : conns.length === 0 ? <EmptyState text="No connectors yet." />
-          : conns.map((c) => <ConnectorRow key={c.id} c={c} />)}
-      <div className="hub-note" style={{ marginTop: 16 }}>
-        Add a new app with <b>ava connector new &lt;name&gt;</b>, edit its <b>connector.yaml</b>,
-        then use <b>Generate &amp; deploy</b> above. See <b>docs/CONNECTOR_SDK.md</b>.
-      </div>
-    </Panel>
+    <>
+      <NewConnectorForm onCreated={load} />
+      <div className="hub-section" />
+      <Panel
+        title="Connectors"
+        subtitle="Each connector is one manifest that wires an app into Ava — its health, metrics, agent tools, and egress security policy."
+      >
+        {conns == null ? <EmptyState text="Loading connectors…" />
+          : conns.length === 0 ? <EmptyState text="No connectors yet — create one above." />
+            : conns.map((c) => <ConnectorRow key={c.id} c={c} />)}
+        <div className="hub-note" style={{ marginTop: 16 }}>
+          After <b>Generate &amp; deploy</b>, run <b>cd agent &amp;&amp; ./install.sh</b> once to load the new
+          tools into the sandbox. Full schema: <b>docs/CONNECTOR_SDK.md</b>.
+        </div>
+      </Panel>
+    </>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Voice — enrollment recorder + similarity test
+// ─────────────────────────────────────────────────────────────────────────────
+function useRecorder() {
+  const [recording, setRecording] = useState(false);
+  const mrRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<BlobPart[]>([]);
+
+  const start = useCallback(async () => {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mr = new MediaRecorder(stream);
+    chunksRef.current = [];
+    mr.ondataavailable = (e) => chunksRef.current.push(e.data);
+    mr.start();
+    mrRef.current = mr;
+    setRecording(true);
+  }, []);
+
+  const stop = useCallback((): Promise<Blob> => new Promise((resolve) => {
+    const mr = mrRef.current;
+    if (!mr) return resolve(new Blob());
+    mr.onstop = () => {
+      mr.stream.getTracks().forEach((t) => t.stop());
+      resolve(new Blob(chunksRef.current, { type: mr.mimeType || 'audio/webm' }));
+    };
+    mr.stop();
+    setRecording(false);
+  }), []);
+
+  return { recording, start, stop };
+}
+
+const ENROLL_PHRASES = [
+  'Read a few sentences naturally, like you are talking to a friend.',
+  'Describe what you did today, or read a paragraph from any article.',
+  'Aim for 10–15 seconds per clip. Three clips give a solid voiceprint.',
+];
+
+function VoicePanel({ onRestart }: { onRestart: () => void }) {
+  const [st, setSt] = useState<VoiceStatus | null>(null);
+  const [clips, setClips] = useState<Blob[]>([]);
+  const [result, setResult] = useState<EnrollResult | null>(null);
+  const [testSim, setTestSim] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const rec = useRecorder();
+  const [mode, setMode] = useState<'enroll' | 'test' | null>(null);
+
+  const load = useCallback(() => { hub.voiceStatus().then(setSt).catch(() => {}); }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const toggleRecord = useCallback(async (m: 'enroll' | 'test') => {
+    setMsg('');
+    if (rec.recording) {
+      const blob = await rec.stop();
+      setMode(null);
+      if (blob.size < 1000) { setMsg('Recording too short — try again.'); return; }
+      if (m === 'enroll') setClips((c) => [...c, blob]);
+      else {
+        setBusy(true);
+        try {
+          const r = await hub.voiceTest(blob);
+          if (r.ok && r.similarity != null) setTestSim(r.similarity);
+          else setMsg(r.error || 'test failed');
+        } catch (e) { setMsg((e as Error).message); }
+        setBusy(false);
+      }
+    } else {
+      setTestSim(null);
+      try { setMode(m); await rec.start(); }
+      catch { setMode(null); setMsg('Microphone access denied — allow the mic for this site and retry.'); }
+    }
+  }, [rec]);
+
+  const enroll = useCallback(async () => {
+    setBusy(true); setMsg(''); setResult(null);
+    try {
+      const r = await hub.voiceEnroll(clips);
+      if (r.ok) { setResult(r); setClips([]); load(); }
+      else setMsg(r.error || 'enrollment failed');
+    } catch (e) { setMsg((e as Error).message); }
+    setBusy(false);
+  }, [clips, load]);
+
+  const enableVoice = useCallback(async () => {
+    setBusy(true);
+    try { await hub.save({ features: { voice: true } }); load(); onRestart(); }
+    catch (e) { setMsg((e as Error).message); }
+    setBusy(false);
+  }, [load, onRestart]);
+
+  return (
+    <>
+      <Panel
+        title="Voice & biometric gate"
+        subtitle="Everything runs on your machine: local speech-to-text, local TTS, and a speaker-verification gate so Ava answers your voice only."
+        right={st ? (st.enrolled ? <Badge tone="ok">voiceprint enrolled</Badge> : <Badge tone="warn">not enrolled</Badge>) : null}
+      >
+        {st == null ? <EmptyState text="Loading voice status…" /> : (
+          <dl className="hub-kv">
+            <dt>Voice feature</dt>
+            <dd>{st.enabled ? <Badge tone="ok">on</Badge> : (
+              <span>
+                <Badge tone="warn">off</Badge>{' '}
+                <button className="hub-btn ghost sm" style={{ marginLeft: 8 }} onClick={enableVoice} disabled={busy}>Enable</button>
+              </span>
+            )}</dd>
+            <dt>Dependencies</dt>
+            <dd>{st.deps_ok ? <Badge tone="ok">installed</Badge>
+              : <span style={{ color: 'var(--warn)' }}>{st.deps_error}</span>}</dd>
+            <dt>Gate threshold</dt>
+            <dd>{st.threshold} <span style={{ color: 'var(--muted)' }}>(cosine similarity — set via AVA_PHONE_THRESHOLD)</span></dd>
+          </dl>
+        )}
+      </Panel>
+
+      <div className="hub-section" />
+      <Panel title="Enroll your voice" subtitle="Record a few clips of natural speech; Ava builds an averaged voiceprint (nothing is uploaded anywhere — it stays on this machine).">
+        <div className="hub-note">
+          {ENROLL_PHRASES.map((p, i) => <div key={i}>· {p}</div>)}
+        </div>
+
+        <div className="hub-btn-row">
+          <button
+            className={'hub-btn' + (rec.recording && mode === 'enroll' ? '' : ' ghost')}
+            onClick={() => toggleRecord('enroll')}
+            disabled={busy || !st?.deps_ok || (rec.recording && mode !== 'enroll')}
+          >
+            <Icon name="mic" />{rec.recording && mode === 'enroll' ? 'Stop recording' : `Record clip ${clips.length + 1}`}
+          </button>
+          {clips.length > 0 && (
+            <button className="hub-btn" onClick={enroll} disabled={busy || rec.recording}>
+              <Icon name="check" />{busy ? 'Building voiceprint…' : `Build voiceprint from ${clips.length} clip${clips.length === 1 ? '' : 's'}`}
+            </button>
+          )}
+          {clips.length > 0 && !rec.recording && (
+            <button className="hub-btn ghost" onClick={() => setClips([])} disabled={busy}>
+              <Icon name="trash" />Discard clips
+            </button>
+          )}
+        </div>
+
+        {rec.recording && mode === 'enroll' && (
+          <div className="hub-msg" style={{ color: 'var(--err)' }}>● Recording — speak naturally, then Stop.</div>
+        )}
+        {clips.length > 0 && !rec.recording && (
+          <div className="hub-msg" style={{ color: 'var(--muted)' }}>
+            {clips.length} clip{clips.length === 1 ? '' : 's'} ready{clips.length < 3 ? ' — 3+ recommended' : ''}.
+          </div>
+        )}
+
+        {result && (
+          <div className="hub-note" style={{ marginTop: 12 }}>
+            <b>Voiceprint saved.</b> {result.seconds}s of audio → {result.windows} voice windows
+            {result.dropped ? ` (${result.dropped} outliers dropped)` : ''}.
+            Consistency {result.consistency?.mean}.{' '}
+            Suggested threshold: <b>{result.suggested_threshold}</b>
+            {result.low_consistency && <div style={{ color: 'var(--warn)', marginTop: 4 }}>Consistency is a bit low — re-record in a quieter room for a stronger gate.</div>}
+          </div>
+        )}
+      </Panel>
+
+      <div className="hub-section" />
+      <Panel title="Test the gate" subtitle="Record a short clip and see how it scores against the enrolled voiceprint.">
+        <div className="hub-btn-row" style={{ marginTop: 0 }}>
+          <button
+            className={'hub-btn' + (rec.recording && mode === 'test' ? '' : ' ghost')}
+            onClick={() => toggleRecord('test')}
+            disabled={busy || !st?.deps_ok || !st?.enrolled || (rec.recording && mode !== 'test')}
+          >
+            <Icon name="mic" />{rec.recording && mode === 'test' ? 'Stop & score' : 'Record test clip'}
+          </button>
+        </div>
+        {testSim != null && st && (
+          <div className="hub-msg" style={{ fontSize: 'var(--fs-md)' }}>
+            Similarity <b style={{ color: testSim >= st.threshold ? 'var(--ok)' : 'var(--err)' }}>{testSim}</b>
+            {' '}vs threshold {st.threshold} — {testSim >= st.threshold
+              ? <span style={{ color: 'var(--ok)' }}>Ava would answer this voice.</span>
+              : <span style={{ color: 'var(--err)' }}>Ava would ignore this voice.</span>}
+          </div>
+        )}
+        {!st?.enrolled && <div className="hub-msg" style={{ color: 'var(--muted)' }}>Enroll a voiceprint first.</div>}
+      </Panel>
+      {msg && <div className="hub-msg err">{msg}</div>}
+    </>
   );
 }
 
@@ -449,7 +817,7 @@ function SystemPanel({ onRestart }: { onRestart: () => void }) {
                   push-to-talk (needs requirements-voice.txt).{' '}
                   {sys.voice && (sys.voiceprint
                     ? <Badge tone="ok">voiceprint enrolled</Badge>
-                    : <Badge tone="warn">no voiceprint — run enroll_voice.py</Badge>)}
+                    : <Badge tone="warn">no voiceprint — enroll on the Voice tab</Badge>)}
                 </span>
               </span>
             </label>
@@ -503,6 +871,7 @@ export function HubView() {
         {tab === 'models' && <ModelsPanel onRestart={notifyRestart} />}
         {tab === 'agent' && <AgentPanel />}
         {tab === 'connectors' && <ConnectorsPanel />}
+        {tab === 'voice' && <VoicePanel onRestart={notifyRestart} />}
         {tab === 'system' && <SystemPanel onRestart={notifyRestart} />}
       </div>
     </div>

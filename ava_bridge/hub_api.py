@@ -10,9 +10,15 @@ no source edits, ever. Model configuration reuses the proven /api/setup/* routes
 from __future__ import annotations
 
 import os
+import re
+import subprocess
+import sys
+import threading
+from collections import deque
 
-from fastapi import APIRouter
+from fastapi import APIRouter, UploadFile
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 
 from . import config, connectors, runtime, settings
 from .version import __version__
@@ -110,6 +116,186 @@ def list_connectors():
             "enabled": (cid in enabled) if enabled else True,
         })
     return {"connectors": out}
+
+
+# --------------------------------------------------------------------------- #
+# Models — manifest listing + background pull with live log (wraps the CLI so
+# the download logic stays in ONE place: `ava models pull`)
+# --------------------------------------------------------------------------- #
+_pull_job: dict = {"status": "idle", "role": None, "log": deque(maxlen=200),
+                   "rc": None}
+_pull_lock = threading.Lock()
+
+
+def _cli_models():
+    """The CLI's model helpers (manifest/dirs/present/tier) — single source of
+    truth shared with `ava models`. Imported lazily to keep bridge boot lean."""
+    sys.path.insert(0, settings.CODE_ROOT) if settings.CODE_ROOT not in sys.path else None
+    import ava_cli
+    return ava_cli
+
+
+@router.get("/models")
+def models_list():
+    cli = _cli_models()
+    manifest = cli._models_manifest()
+    dirs = cli._model_dirs()
+    tier, avail = cli._detected_tier()
+    roles = []
+    for role, spec in manifest.items():
+        roles.append({"role": role, "id": spec.get("id"),
+                      "engine": spec.get("engine"), "tier": spec.get("tier"),
+                      "present": cli._model_present(spec, dirs)})
+    return {"roles": roles, "detected_tier": tier,
+            "available_gb": round(avail, 0) if avail else None,
+            "store": dirs["root"]}
+
+
+def _run_pull(args: list[str]) -> None:
+    """Worker: run `ava models pull …` as a subprocess, streaming stdout into
+    the job log so the UI can poll progress. One pull at a time."""
+    try:
+        proc = subprocess.Popen(
+            [sys.executable, os.path.join(settings.CODE_ROOT, "ava_cli.py"),
+             "models", "pull", *args],
+            cwd=settings.CODE_ROOT, stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT, text=True, bufsize=1)
+        assert proc.stdout is not None
+        ansi = re.compile(r"\x1b\[[0-9;]*m")
+        for line in proc.stdout:
+            line = ansi.sub("", line).rstrip()
+            if line:
+                _pull_job["log"].append(line)
+        rc = proc.wait()
+        _pull_job["rc"] = rc
+        _pull_job["status"] = "done" if rc == 0 else "error"
+    except Exception as e:  # noqa: BLE001
+        _pull_job["log"].append(f"pull failed: {e}")
+        _pull_job["rc"] = 1
+        _pull_job["status"] = "error"
+
+
+@router.post("/models/pull")
+def models_pull(role: str = ""):
+    """Start a model download in the background. role='' or 'auto' picks the
+    model that fits the detected hardware tier (same as `ava models pull --auto`)."""
+    with _pull_lock:
+        if _pull_job["status"] == "running":
+            return JSONResponse({"ok": False, "error": "a pull is already running"},
+                                status_code=409)
+        role = (role or "").strip().lower()
+        args = ["--auto"] if role in ("", "auto") else [role]
+        _pull_job.update(status="running", role=role or "auto", rc=None)
+        _pull_job["log"].clear()
+        threading.Thread(target=_run_pull, args=(args,), daemon=True,
+                         name="hub-model-pull").start()
+    return {"ok": True, "status": "running"}
+
+
+@router.get("/models/pull/status")
+def models_pull_status():
+    return {"status": _pull_job["status"], "role": _pull_job["role"],
+            "rc": _pull_job["rc"], "log": list(_pull_job["log"])}
+
+
+# --------------------------------------------------------------------------- #
+# Voice — status / enroll from browser recordings / test similarity
+# --------------------------------------------------------------------------- #
+@router.get("/voice/status")
+def voice_status():
+    from . import voice_enroll
+    st = voice_enroll.status()
+    st["enabled"] = settings.get_bool("features.voice", False, env="AVA_VOICE")
+    return st
+
+
+@router.post("/voice/enroll")
+async def voice_enroll_ep(files: list[UploadFile]):
+    """Build + save the voiceprint from uploaded recordings (any format the
+    browser produces — decoded via ffmpeg). Embedding runs in a worker thread."""
+    from . import voice_enroll
+    clips = [await f.read() for f in files]
+    if not clips or all(len(c) == 0 for c in clips):
+        return JSONResponse({"ok": False, "error": "no audio uploaded"}, status_code=400)
+    res = await run_in_threadpool(voice_enroll.enroll, clips)
+    return res if res.get("ok") else JSONResponse(res, status_code=422)
+
+
+@router.post("/voice/test")
+async def voice_test_ep(file: UploadFile):
+    """Similarity of one clip against the enrolled voiceprint (gate preview)."""
+    from . import voice_enroll
+    clip = await file.read()
+    if not clip:
+        return JSONResponse({"ok": False, "error": "no audio uploaded"}, status_code=400)
+    res = await run_in_threadpool(voice_enroll.test, clip)
+    return res if res.get("ok") else JSONResponse(res, status_code=422)
+
+
+# --------------------------------------------------------------------------- #
+# Connectors — scaffold a new manifest from the GUI form
+# --------------------------------------------------------------------------- #
+_ID_RE = re.compile(r"^[a-z][a-z0-9_-]{1,31}$")
+
+
+@router.post("/connectors/new")
+async def connector_new(body: dict):
+    """Write $AVA_HOME/connectors/<id>/connector.yaml from the Hub's form.
+    Refuses to overwrite an existing manifest. The generated file uses the same
+    schema as `ava connector new` + docs/CONNECTOR_SDK.md."""
+    import yaml as _yaml
+    cid = str(body.get("id", "")).strip().lower()
+    if not _ID_RE.match(cid):
+        return JSONResponse({"ok": False, "error":
+                             "id must be 2-32 chars: a-z 0-9 _ - (starting with a letter)"},
+                            status_code=400)
+    if any(m["id"] == cid for m in connectors.all()):
+        return JSONResponse({"ok": False, "error": f"connector '{cid}' already exists"},
+                            status_code=409)
+    label = str(body.get("label") or cid.title()).strip()
+    kind = body.get("kind") if body.get("kind") in ("core", "inference", "media", "app") else "app"
+    manifest: dict = {"id": cid, "label": label, "kind": kind, "enabled": True}
+
+    probe = str(body.get("probe") or "").strip()
+    base_url = str(body.get("base_url") or "").strip()
+    if probe:
+        manifest["service"] = {"name": label, "probe": probe}
+    if base_url:
+        manifest["base_url"] = base_url
+
+    actions = []
+    for a in (body.get("actions") or [])[:32]:
+        aid = str(a.get("id", "")).strip().lower()
+        path = str(a.get("path", "")).strip()
+        if not (_ID_RE.match(aid) and path.startswith("/")):
+            continue
+        act = {"id": aid,
+               "description": str(a.get("description") or aid.replace("_", " ")).strip(),
+               "method": "POST" if str(a.get("method", "POST")).upper() == "POST" else "GET",
+               "path": path}
+        actions.append(act)
+    if actions:
+        manifest["actions"] = actions
+        egress: dict = {}
+        if base_url:  # actions call base_url server-side; allow it for the agent
+            host = base_url.split("//", 1)[-1].split("/", 1)[0]
+            egress["hosts"] = [host]
+        manifest["egress"] = egress or {"routes": []}
+
+    d = os.path.join(settings.home("connectors"), cid)
+    path = os.path.join(d, "connector.yaml")
+    try:
+        os.makedirs(d, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("# Generated by the Setup Hub — edit freely.\n"
+                    "# Full schema: connectors/_template/connector.yaml + docs/CONNECTOR_SDK.md\n")
+            _yaml.safe_dump(manifest, f, sort_keys=False)
+    except OSError as e:
+        return JSONResponse({"ok": False, "error": f"could not write manifest: {e}"},
+                            status_code=500)
+    connectors.load(force=True)  # pick it up without a restart
+    return {"ok": True, "path": path, "manifest": manifest,
+            "actions": len(actions)}
 
 
 @router.post("/connectors/{cid}/generate")

@@ -20,8 +20,10 @@ to *your* apps, and answers only to you.
 - 🗣️ **Talk to it** — on-device voice (speech in, speech out), gated to *your* voice.
 - 🎨 **Create with it** — image **and** video generation, orchestrated by the agent.
 - 🧩 **Wire it to your apps** — drop-in connectors; Ava monitors *and* drives them.
-- 🛠️ **It edits its own code** — generates and applies source changes as git commits; edits to sensitive paths (auth, config, secrets) are held for your approval.
+- 🛠️ **It edits its own code** — generates and applies source changes as git commits; by default every change waits for your approval (`code.approval`).
+- 🧠 **It studies itself** — periodic local-first analysis of its own activity parks improvement proposals for your sign-off; nothing self-applies.
 - 📊 **See everything** — a live Command Center: throughput, cost/energy, jobs, alerts.
+- 🖱️ **Set up from the browser** — a guided Setup hub: pick a model, provision the agent, wire in apps, enroll your voice. No terminal required.
 - 🔒 **Private by default** — runs on your hardware; nothing leaves unless you say so.
 
 ## What is Ava?
@@ -44,9 +46,11 @@ hardware with the model of your choice (local **vLLM / Ollama / llama.cpp**, or 
 - **It watches itself.** A real operations dashboard — tokens/sec, time-to-first-token,
   render times, **cost & energy**, running jobs, alerts, service health. An assistant
   you can't observe is one you can't trust.
-- **It edits its own source.** Ava generates code changes via your Anthropic key and
-  commits them to git (every change one revert away); edits to protected paths — auth,
-  config, secrets, deploy — are held for your approval, not applied blind.
+- **It edits its own source, governed.** Ava generates code changes via your Anthropic
+  key and commits them to git (every change one revert away). `code.approval` picks the
+  gate: by default **every** change waits for you; secrets and models are never writable.
+  Separately, local-first learning cycles analyze her own activity and park improvement
+  proposals — review, approve, or reject them on the Learning page.
 - **Anyone can extend it.** Add your app with a small manifest — no core-code changes.
   Ava picks up its health, metrics, egress policy, and agent tools automatically.
 
@@ -103,7 +107,10 @@ cd deploy && docker compose --profile gpu up -d   # or: cpu | cloud | full
 # open http://localhost:8096 — the first visit sets your admin password
 ```
 
-Prefer bare metal? `ava setup && ava doctor && ava up`. Full guide →
+From there the **Setup hub** (in the app) walks you through the rest — detect
+hardware, download a fitting model, provision the agent, wire in your apps,
+enroll your voice. Prefer bare metal? `ava setup && ava doctor && ava up`;
+`ava verify` then proves every advertised capability end-to-end. Full guide →
 [deploy/README.md](../deploy/README.md).
 
 ## Under the hood
