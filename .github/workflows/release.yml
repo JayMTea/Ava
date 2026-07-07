@@ -14,9 +14,6 @@ permissions:
   packages: write   # push the image to ghcr.io
   id-token: write   # cosign keyless signing via the GitHub OIDC provider
 
-env:
-  IMAGE: ghcr.io/${{ github.repository_owner }}/ava-bridge
-
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -24,6 +21,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      # Container references must be lowercase; the owner may be mixed-case
+      # (e.g. JayMTea). Resolve it once and reuse it as $IMAGE / ${{ env.IMAGE }}.
+      - name: Resolve lowercase image name
+        run: echo "IMAGE=ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/ava-bridge" >> "$GITHUB_ENV"
 
       - name: Check the tag is signed (informational)
         run: |
