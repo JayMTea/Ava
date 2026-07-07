@@ -638,6 +638,10 @@ function VoicePanel({ onRestart }: { onRestart: () => void }) {
 
   const toggleRecord = useCallback(async (m: 'enroll' | 'test') => {
     setMsg('');
+    if (typeof MediaRecorder === 'undefined') {
+      setMsg('This browser cannot record audio in-page — enroll from a file with enroll_from_file.py instead.');
+      return;
+    }
     if (rec.recording) {
       const blob = await rec.stop();
       setMode(null);
@@ -655,9 +659,24 @@ function VoicePanel({ onRestart }: { onRestart: () => void }) {
     } else {
       setTestSim(null);
       try { setMode(m); await rec.start(); }
-      catch { setMode(null); setMsg('Microphone access denied — allow the mic for this site and retry.'); }
+      catch (e) {
+        setMode(null);
+        setMsg((e as Error)?.name === 'NotAllowedError'
+          ? 'Microphone access denied — allow the mic for this site and retry.'
+          : `Could not start recording: ${(e as Error).message}`);
+      }
     }
   }, [rec]);
+
+  const applyThreshold = useCallback(async (v: number) => {
+    setBusy(true); setMsg('');
+    try {
+      const r = await hub.voiceThreshold(v);
+      if (r.error) setMsg(r.error);
+      else { onRestart(); load(); }
+    } catch (e) { setMsg((e as Error).message); }
+    setBusy(false);
+  }, [onRestart, load]);
 
   const enroll = useCallback(async () => {
     setBusy(true); setMsg(''); setResult(null);
@@ -696,8 +715,15 @@ function VoicePanel({ onRestart }: { onRestart: () => void }) {
             <dd>{st.deps_ok ? <Badge tone="ok">installed</Badge>
               : <span style={{ color: 'var(--warn)' }}>{st.deps_error}</span>}</dd>
             <dt>Gate threshold</dt>
-            <dd>{st.threshold} <span style={{ color: 'var(--muted)' }}>(cosine similarity — set via AVA_PHONE_THRESHOLD)</span></dd>
+            <dd>{st.threshold} <span style={{ color: 'var(--muted)' }}>(cosine similarity — applied from enrollment below, or voice.threshold in ava.yaml)</span></dd>
           </dl>
+        )}
+        {st?.enabled && !st.enrolled && (
+          <div className="hub-restart" style={{ marginTop: 14, marginBottom: 0 }}>
+            <Icon name="alert" />
+            <span><b>The gate is open:</b> voice is on but no voiceprint is enrolled, so
+            {' '}<b>anyone</b> can talk to Ava. Enroll below to close it.</span>
+          </div>
         )}
       </Panel>
 
@@ -742,6 +768,12 @@ function VoicePanel({ onRestart }: { onRestart: () => void }) {
             {result.dropped ? ` (${result.dropped} outliers dropped)` : ''}.
             Consistency {result.consistency?.mean}.{' '}
             Suggested threshold: <b>{result.suggested_threshold}</b>
+            {result.suggested_threshold != null && (
+              <button className="hub-btn sm" style={{ marginLeft: 10 }} disabled={busy}
+                onClick={() => applyThreshold(result.suggested_threshold!)}>
+                <Icon name="check" />Apply threshold
+              </button>
+            )}
             {result.low_consistency && <div style={{ color: 'var(--warn)', marginTop: 4 }}>Consistency is a bit low — re-record in a quieter room for a stronger gate.</div>}
           </div>
         )}

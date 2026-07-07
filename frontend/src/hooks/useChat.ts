@@ -103,9 +103,26 @@ export function useChat() {
         cancelable: true,
       });
       const t0 = Date.now();
+      // Wall-clock deadline + error budget so a stuck server-side job can't
+      // spin the gen bar forever (the server reaper flips stalled jobs to
+      // error, but the client must also self-terminate if unreachable).
+      const JOB_DEADLINE_MS = 20 * 60 * 1000;
+      let pollFails = 0;
+      const giveUp = (why: string) =>
+        patch(gid, (it) =>
+          it.kind === 'gen'
+            ? { ...it, status: 'error', error: why, cancelable: false, stage: 'error',
+                elapsedSec: (Date.now() - t0) / 1000 }
+            : it,
+        );
       const tick = async () => {
+        if (Date.now() - t0 > JOB_DEADLINE_MS) {
+          giveUp('render timed out — check the the GPU service service on the Operations page');
+          return;
+        }
         try {
           const j = await api.job(job.id);
+          pollFails = 0;
           if (j.status === 'running') {
             const elapsedSec = (Date.now() - t0) / 1000;
             const pct = j.progress || 0;
@@ -147,6 +164,11 @@ export function useChat() {
             );
           }
         } catch {
+          pollFails += 1;
+          if (pollFails > 20) {
+            giveUp('lost contact with the server while rendering');
+            return;
+          }
           setTimeout(tick, 1500);
         }
       };

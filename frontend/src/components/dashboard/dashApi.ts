@@ -48,6 +48,7 @@ export interface PerfCost {
   spend_usd: number;
   energy_kwh: number;
   energy_usd: number | null;
+  power_measured: boolean;
   avg_gpu_watts: number;
   by: Record<string, CostBreak>;
 }

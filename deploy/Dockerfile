@@ -21,11 +21,19 @@ ENV PYTHONUNBUFFERED=1 \
     AVA_VERSION=${AVA_VERSION} \
     AVA_REVISION=${AVA_REVISION}
 WORKDIR /app
+# ffmpeg: decodes browser-mic recordings for voiceprint enrollment (Hub Voice
+# tab). The heavy voice ML extras (torch/whisper/speechbrain) stay opt-in via
+# AVA_VOICE_DEPS=1 to keep the default image slim.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
+    && apt-get install -y --no-install-recommends curl ffmpeg \
     && rm -rf /var/lib/apt/lists/*
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+ARG AVA_VOICE_DEPS=0
+COPY requirements.txt requirements-voice.txt ./
+RUN pip install --no-cache-dir -r requirements.txt \
+    && if [ "$AVA_VOICE_DEPS" = "1" ]; then \
+         pip install --no-cache-dir -r requirements-voice.txt \
+           --extra-index-url https://download.pytorch.org/whl/cpu; \
+       fi
 COPY . /app
 COPY --from=web /web/dist /app/frontend/dist
 VOLUME ["/data"]

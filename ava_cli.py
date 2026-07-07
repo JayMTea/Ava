@@ -620,8 +620,15 @@ _DEFAULT_MODELS = {
 
 
 def _models_manifest() -> dict:
+    """Default roles overlaid with the user's `models:` block. A partial
+    override (e.g. declaring only `image`) must NOT delete the default chat/
+    fast roles — that silently killed `pull --auto`. Set a role to null/false
+    in ava.yaml to genuinely remove it."""
     m = settings.get("models", None)
-    return m if isinstance(m, dict) and m else dict(_DEFAULT_MODELS)
+    if not isinstance(m, dict) or not m:
+        return dict(_DEFAULT_MODELS)
+    merged = {**_DEFAULT_MODELS, **m}
+    return {k: v for k, v in merged.items() if isinstance(v, dict)}
 
 
 def _model_dirs() -> dict:
@@ -740,6 +747,16 @@ def _download_url(url: str | None, target: str, label: str) -> int:
         with requests.get(url, stream=True, timeout=60) as r:
             r.raise_for_status()
             total = int(r.headers.get("content-length") or 0)
+            # Disk-space precheck: refuse a multi-GB pull that can't fit (+5%
+            # headroom) rather than fail mid-write with a cryptic errno.
+            if total:
+                free = shutil.disk_usage(os.path.dirname(target)).free
+                need = int(total * 1.05)
+                if free < need:
+                    print(f"  {BAD} not enough disk: need ~{need >> 20} MiB, "
+                          f"have {free >> 20} MiB free at {os.path.dirname(target)}")
+                    return 1
+                print(f"    ({total >> 20} MiB, {free >> 30} GiB free)")
             done = 0
             with open(tmp, "wb") as f:
                 for chunk in r.iter_content(chunk_size=1 << 20):
@@ -749,6 +766,12 @@ def _download_url(url: str | None, target: str, label: str) -> int:
                         print(f"\r    {done * 100 // total:3d}%  "
                               f"{done >> 20}/{total >> 20} MiB", end="", flush=True)
             print()
+        # Integrity: a truncated stream (server closed early without raising)
+        # must NOT be promoted to the final file and reported "present".
+        if total and done != total:
+            print(f"  {BAD} truncated download: got {done} of {total} bytes")
+            os.remove(tmp)
+            return 1
         os.replace(tmp, target)
         return 0
     except Exception as e:  # noqa: BLE001

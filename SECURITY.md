@@ -76,6 +76,14 @@ from env first, else a generated file under `$AVA_HOME` (default the repo root;
 - **Voiceprints** (`models/voiceprint.npy`) are biometric data. They never leave
   the host and are excluded from git. The speaker gate (ECAPA-TDNN) compares an
   embedding locally; raw enrollment audio is not retained in the repo.
+- **Voice gate limitations (honest scope):** the speaker gate is a privacy /
+  convenience **filter**, not an authentication factor. It is text-independent
+  cosine matching with **no liveness or anti-spoofing detection** — a recording
+  of the enrolled voice, or a good TTS clone of it, will pass. It also fails
+  **open** when voice is enabled with no voiceprint enrolled (anyone can talk to
+  the assistant until enrollment — the Setup hub warns about this state). Do not
+  gate sensitive *actions* on the voice gate alone; the web session cookie
+  remains the authentication boundary.
 - **Chat history** (`data/chats.json`) and **uploads** (`media/uploads/`) stay on
   the host. The knowledge tools can read uploads only through enumerated,
   scoped, token-gated `/internal/...` routes.

@@ -18,7 +18,7 @@ to *your* apps, and answers only to you.
 ---
 
 - 🗣️ **Talk to it** — on-device voice (speech in, speech out), gated to *your* voice.
-- 🎨 **Create with it** — image **and** video generation, orchestrated by the agent.
+- 🎨 **Create with it** — GPU workloads orchestrated by the agent (the GPU service); video via connector apps.
 - 🧩 **Wire it to your apps** — drop-in connectors; Ava monitors *and* drives them.
 - 🔌 **Wrap any MCP server in an egress policy** — plug into the whole MCP ecosystem; tools are discovered live, and the agent reaches them only through two policed routes.
 - 🛠️ **It edits its own code** — generates and applies source changes as git commits; by default every change waits for your approval (`code.approval`).
@@ -42,7 +42,7 @@ hardware with the model of your choice (local **vLLM / Ollama / llama.cpp**, or 
   files, and voiceprint never leave your box.
 - **Local Omni brain.** Ava's normal chat runs on the local Nemotron open-model 30B
   stack; Claude/Opus API access is reserved for governed code changes.
-- **It does more than talk.** It renders images and video, calls tools, remembers,
+- **It does more than talk.** It renders images, calls tools, remembers,
   and reaches into your other apps.
 - **It watches itself.** A real operations dashboard — tokens/sec, time-to-first-token,
   render times, **cost & energy**, running jobs, alerts, service health. An assistant
@@ -69,7 +69,7 @@ Strong ● · Partial ◐ · None ○ — honest, not marketing:
 | Model-agnostic (bring your own) | ● | ● | ● | ◐ | ◐ | ○ |
 | Chat | ● | ● | ● | ◐ | ◐ | ● |
 | Voice (+ biometric gate) | ● | ◐ | ○ | ○ | ● | ◐ |
-| Image / **video** generation | ● | ○ | ◐ | ○ | ○ | ◐ |
+| GPU workloads (**video** via connectors) | ● | ○ | ◐ | ○ | ○ | ◐ |
 | Agent tools / skills / memory | ● | ● | ◐ | ● | ◐ | ● |
 | **Self-editing** (governed code changes) | ● | ◐ | ○ | ◐ | ○ | ○ |
 | Drives your **other apps** (connectors) | ● | ◐ | ○ | ◐ | ● | ◐ |
@@ -123,7 +123,8 @@ enroll your voice. Prefer bare metal? `ava setup && ava doctor && ava up`;
 A FastAPI **bridge** (web app + API + dashboard) fronts a **pluggable agent
 runtime** (tools, skills, memory — [NemoClaw](AGENT_RUNTIME.md) by default,
 sandboxed with per-tool egress policies) and an OpenAI-compatible **inference
-router** for the local open-model model. Image/video runs on **the GPU service**.
+router** for the local open-model model. GPU workloads runs on **the GPU service**;
+video pipelines arrive as connector apps, not core.
 Everything else — the apps Ava monitors and drives — is a **connector** you can
 drop in. See the [architecture diagrams](../agent/docs/diagrams/system.svg) and
 the [productization plan](PACKAGING_PLAN.md).

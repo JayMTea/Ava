@@ -18,7 +18,7 @@ import subprocess
 import uuid
 from datetime import datetime, timezone
 
-from . import config, state, access_policy
+from . import audit, config, state, access_policy
 from .coder import (
     SYSTEM_PROMPT, _safe, _git,
     _tool_list_dir, _tool_read_file, _tool_search,
@@ -218,6 +218,9 @@ def _park_for_approval(edits: list[dict], request: str, reply: str,
         state.code_learning_state["cycles"] = state.code_learning_state["cycles"][:20]
         state.code_learning_state["last_cycle"] = cycle["timestamp"]
     state.save_learning_state()
+    audit.record("code_change", outcome="parked_for_approval", source=source,
+                 project=project, actor=actor, paths=paths,
+                 request=request.strip()[:200], proposal_id=proposal["id"])
     return proposal
 
 
@@ -264,6 +267,11 @@ def _record_completed(edits: list[dict], request: str, reply: str, source: str,
         state.code_learning_state["cycles"] = state.code_learning_state["cycles"][:20]
         state.code_learning_state["last_cycle"] = cycle["timestamp"]
     state.save_learning_state()
+    # Durable audit record — the Learning list keeps only 20 cycles, the ledger
+    # keeps this forever (auto-applied edits aren't otherwise recoverable).
+    audit.record("code_change", outcome="auto_applied", source=source,
+                 project=project, commit=commit, actor=actor, paths=paths,
+                 request=request.strip()[:200])
     return proposal
 
 
@@ -552,6 +560,10 @@ def apply_approved_proposal(proposal_id: str) -> dict:
         target["completed_at"] = _now_iso()
         target["applied_commit"] = applied.get("commit")
     state.save_learning_state()
+    audit.record("code_change", outcome="approved", project=project,
+                 commit=applied.get("commit"), actor=actor,
+                 approved_by=config.OPERATOR_NAME,
+                 paths=[e["path"] for e in safe], blocked=blocked)
 
     return {"ok": True, "files": applied.get("files", []),
             "commit": applied.get("commit"), "restart": needs_restart,

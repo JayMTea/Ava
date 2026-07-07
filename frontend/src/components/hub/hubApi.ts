@@ -185,6 +185,11 @@ export const hub = {
     const r = await fetch('/api/hub/voice/test', { method: 'POST', body: fd, credentials: 'same-origin' });
     return await r.json();
   },
+  voiceThreshold: (value: number) =>
+    req<{ ok: boolean; error?: string; restart_required?: boolean }>(
+      `/api/hub/voice/threshold?value=${encodeURIComponent(value)}`,
+      { method: 'POST' },
+    ),
 
   // System
   system: () => req<SystemInfo>('/api/hub/system'),

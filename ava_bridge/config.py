@@ -84,8 +84,10 @@ OC_NEMOCLAW = (
 
 # ---- Speaker gate ------------------------------------------------------------
 # Phone mics differ from the PC enrollment mic, so the gate is a touch more
-# lenient here than the live USB-mic loop. Tune with AVA_PHONE_THRESHOLD.
-PHONE_THRESHOLD = float(os.environ.get("AVA_PHONE_THRESHOLD", "0.40"))
+# lenient here than the live USB-mic loop. Tune from the Hub Voice tab (writes
+# voice.threshold in ava.yaml) or override with AVA_PHONE_THRESHOLD.
+PHONE_THRESHOLD = float(settings.get("voice.threshold", 0.40,
+                                     env="AVA_PHONE_THRESHOLD"))
 
 # ---- Inference router --------------------------------------------------------
 # The router (ava_bridge/router_app.py) fronts the declared inference backends.

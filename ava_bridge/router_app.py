@@ -301,6 +301,15 @@ class RouterState:
             primary = [b for b in self.backends if b["id"] == self.mode]
             rest = [b for b in self.backends if b["id"] != self.mode]
             cands = (primary + rest) if primary else list(self.backends)
+        # An EXPLICIT user pick (via POST /route → self.mode) is a hard
+        # preference: pin it to the front so a manual model swap actually
+        # takes effect, instead of being just the last tiebreaker inside
+        # model_fit's workload/tier ranking (where a chat workload could keep
+        # serving the large model despite the user choosing the small one).
+        if self.mode:
+            picked = [b for b in cands if b["id"] == self.mode]
+            if picked:
+                cands = picked + [b for b in cands if b["id"] != self.mode]
         if wants_tools:
             with_tools = [b for b in cands if b.get("tools", "native") != "none"]
             # Never brick a single-backend install: if nothing declares tool

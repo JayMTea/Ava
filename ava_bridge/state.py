@@ -65,9 +65,17 @@ heavy = {"whisper": None, "verifier": None, "voiceprint": None,
 
 
 # ===== Persistence for Learning State ========================================
-def _ensure_logs_dir():
-    """Ensure logs/ directory exists."""
-    Path("logs").mkdir(exist_ok=True)
+# This file is the approvals/audit record (staged diffs, who approved what) —
+# it gets the same treatment as chats.json: AVA_HOME-resolved path, atomic
+# temp+replace writes, and 0600 permissions (it contains source diffs and the
+# operator's identity).
+def _learning_state_path() -> str:
+    from . import settings
+    return os.path.join(settings.logs_dir(), "learning_state.json")
+
+
+def _secure_opener(path: str, flags: int) -> int:
+    return os.open(path, flags, 0o600)
 
 
 def save_learning_state():
@@ -75,27 +83,41 @@ def save_learning_state():
 
     Uses a dedicated _persist_lock (NOT the two state locks) so it can be
     called from handlers that already hold code_learning_state_lock or
-    chat_learning_state_lock without deadlocking.
+    chat_learning_state_lock without deadlocking. Atomic: a crash mid-write
+    leaves the previous file intact.
     """
     try:
-        _ensure_logs_dir()
+        path = _learning_state_path()
+        Path(os.path.dirname(path)).mkdir(parents=True, exist_ok=True)
         with _persist_lock:
             data = {
                 "code": code_learning_state,
                 "chat": chat_learning_state
             }
-            with open("logs/learning_state.json", "w") as f:
+            tmp = path + ".tmp"
+            with open(tmp, "w", encoding="utf-8", opener=_secure_opener) as f:
                 json.dump(data, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, path)
+            os.chmod(path, 0o600)
     except Exception as e:
         print(f"⚠️  Warning: Could not save learning state: {e}")
 
 
 def load_learning_state():
-    """Load learning state from disk (called on startup)."""
+    """Load learning state from disk (called on startup). Falls back to the
+    legacy CWD-relative logs/learning_state.json from before the path was
+    AVA_HOME-resolved, so an upgrade never loses the approvals record."""
     try:
-        if not os.path.exists("logs/learning_state.json"):
-            return
-        with open("logs/learning_state.json", "r") as f:
+        path = _learning_state_path()
+        if not os.path.exists(path):
+            legacy = os.path.join("logs", "learning_state.json")
+            if os.path.abspath(legacy) != os.path.abspath(path) and os.path.exists(legacy):
+                path = legacy
+            else:
+                return
+        with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
         with code_learning_state_lock, chat_learning_state_lock:
             if "code" in data:

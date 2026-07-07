@@ -56,9 +56,13 @@ export function VitalsView() {
         <StatCard label="Spend (7d)" tone="accent"
           value={cost.data ? `$${fmtNum(cost.data.spend_usd, 2)}` : '—'}
           hint={cost.data?.by ? `${Object.keys(cost.data.by).length} sources` : 'code API cost'} />
-        <StatCard label="Energy (7d)" tone="accent"
+        <StatCard label={cost.data && !cost.data.power_measured ? 'Energy (7d, est.)' : 'Energy (7d)'} tone="accent"
           value={cost.data ? fmtNum(cost.data.energy_kwh, 3) : '—'} unit="kWh"
-          hint={cost.data?.energy_usd != null ? `≈ $${fmtNum(cost.data.energy_usd, 2)}` : `~${fmtNum(cost.data?.avg_gpu_watts ?? null, 0)} W avg`} />
+          hint={cost.data
+            ? (cost.data.power_measured
+              ? (cost.data.energy_usd != null ? `≈ $${fmtNum(cost.data.energy_usd, 2)} · measured` : `${fmtNum(cost.data.avg_gpu_watts, 0)} W measured avg`)
+              : `estimate — no GPU power sensor (nominal ${fmtNum(cost.data.avg_gpu_watts, 0)} W)`)
+            : 'GPU energy'} />
         <StatCard label="Throughput" value={fmtNum(tokAvg, 1)} unit="tok/s"
           tone={tokAvg == null ? 'default' : tokAvg < 15 ? 'warn' : 'ok'}
           hint={`${fmtInt(tokN)} completions`} />

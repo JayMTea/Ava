@@ -16,7 +16,7 @@ import uuid
 
 import requests
 
-from . import connectors, state, runtime
+from . import audit, connectors, state, runtime
 from .agent import (ask_openclaw, which_model, _sbx_read, _session_file,
                     chat_direct)
 from .artifacts import build_turn_artifact
@@ -214,11 +214,16 @@ def _run_turn(tid: str, agent_text: str, sid: str, chat_id: str):
                     "out or hit a snag). Please try again.")
         if chat_id:
             _chat_append(chat_id, "assistant", fallback, model=m)
+        # Recover whatever tools DID run before the failure so the flight
+        # recorder shows the real actions, not an empty list (audit fidelity).
+        partial_tools = _tools_from_session(sid, after)
         with state.turns_lock:
             state.turns[tid].update(
                 status="done", reply=fallback, job=None, model=m,
                 ctx_tokens=(m or {}).get("prompt_tokens"),
-                tools_used=[], degraded=True, error=str(e))
+                tools_used=partial_tools, degraded=True, error=str(e))
+        audit.record("turn", chat_id=chat_id, status="degraded",
+                     tools=partial_tools, error=str(e)[:300], model=(m or {}).get("id"))
         return
     # `openclaw agent --json` doesn't reliably report tools; recover them from
     # the trajectory so tool chips AND the artifact panel (weather, etc.) work.
@@ -243,6 +248,8 @@ def _run_turn(tid: str, agent_text: str, sid: str, chat_id: str):
                                 previews=previews, artifact=artifact,
                                 model=m, ctx_tokens=(m or {}).get("prompt_tokens"),
                                 tools_used=tools)
+    audit.record("turn", chat_id=chat_id, status="done", tools=tools,
+                 model=(m or {}).get("id"), duration_s=round(time.time() - t0, 1))
 
 
 def start_turn(agent_text: str, sid: str, chat_id: str) -> str:

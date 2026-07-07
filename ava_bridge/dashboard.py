@@ -218,6 +218,10 @@ def perf_cost(since="7d", group="model") -> dict:
         "spend_usd": round(spend, 4),
         "energy_kwh": round(energy_kwh, 4),
         "energy_usd": round(energy_kwh * rate, 4) if rate else None,
+        # Honest-measurement flag: False = no GPU power samples (non-NVIDIA /
+        # CPU box), so energy figures are a nominal-wattage ESTIMATE. The UI
+        # must not present estimated energy as a measured dollar figure.
+        "power_measured": bool(powers),
         "avg_gpu_watts": round(avg_power, 1),
         "by": {k: {"spend_usd": round(v["spend_usd"], 4),
                    "energy_kwh": round(v["energy_wh"] / 1000, 4),
@@ -229,6 +233,8 @@ def perf_cost(since="7d", group="model") -> dict:
 # Work — jobs / turns / code turns
 # --------------------------------------------------------------------------- #
 def jobs_list(status=None, kind=None, limit=100) -> dict:
+    from . import gpu_jobs
+    gpu_jobs.reap_stale_jobs()  # flip stalled runners to error; drop old terminals
     with state.jobs_lock:
         js = list(state.jobs.values())
     if status:

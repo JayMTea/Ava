@@ -7,8 +7,23 @@ import os
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ECAPA_DIR = os.path.join(HERE, "models", "ecapa")
-VOICEPRINT = os.path.join(HERE, "models", "voiceprint.npy")
+
+
+def _models_dir() -> str:
+    """The persistent model store: $AVA_HOME/models (the Docker /data volume),
+    falling back to the repo's models/ for bare-metal installs where AVA_HOME
+    is the repo. Resolved via settings when importable so speaker.py stays
+    usable as a standalone script."""
+    try:
+        from ava_bridge import settings
+        return settings.models_dir()
+    except Exception:  # noqa: BLE001 — standalone script / minimal env
+        return os.path.join(os.environ.get("AVA_HOME", HERE), "models")
+
+
+_LEGACY_VOICEPRINT = os.path.join(HERE, "models", "voiceprint.npy")
+ECAPA_DIR = os.path.join(_models_dir(), "ecapa")
+VOICEPRINT = os.path.join(_models_dir(), "voiceprint.npy")
 RATE = 16000
 
 
@@ -41,8 +56,25 @@ def cosine(a: np.ndarray, b: np.ndarray) -> float:
 
 
 def load_voiceprint(path: str = VOICEPRINT):
-    return np.load(path) if os.path.exists(path) else None
+    """Load the enrolled voiceprint; migrates a pre-existing legacy repo-local
+    voiceprint (models/ under the CODE dir) into the persistent store so a
+    Docker rebuild or AVA_HOME move never silently loses the enrollment."""
+    if os.path.exists(path):
+        return np.load(path)
+    if path == VOICEPRINT and os.path.exists(_LEGACY_VOICEPRINT):
+        emb = np.load(_LEGACY_VOICEPRINT)
+        try:
+            save_voiceprint(emb)  # migrate forward; keep the legacy copy
+        except OSError:
+            pass
+        return emb
+    return None
 
 
 def save_voiceprint(emb: np.ndarray, path: str = VOICEPRINT):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     np.save(path, emb)
+    try:
+        os.chmod(path, 0o600)  # biometric — owner-only, same as secrets
+    except OSError:
+        pass
