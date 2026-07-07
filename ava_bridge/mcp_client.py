@@ -1,0 +1,265 @@
+"""Minimal MCP client — wrap any Model Context Protocol server as a connector.
+
+Speaks real MCP (JSON-RPC 2.0): `initialize` -> `notifications/initialized` ->
+`tools/list` / `tools/call`, over either transport:
+
+  http   Streamable HTTP — POST JSON-RPC to the server URL; handles both plain
+         JSON and text/event-stream responses, and echoes Mcp-Session-Id.
+  stdio  newline-delimited JSON-RPC over a spawned subprocess (how most public
+         MCP servers ship, e.g. `npx -y @modelcontextprotocol/server-*`).
+
+The security story (why this lives behind the bridge): Ava's sandboxed agent
+NEVER talks to the MCP server. It reaches only the policed bridge routes
+(`/internal/connector/<id>/__tools|__call`) that its auto-generated egress
+policy allow-lists; the bridge speaks MCP server-side. A stdio server runs as a
+host process the operator declared in the manifest — the same trust model as
+every MCP desktop client — but the agent's blast radius stays the two routes.
+
+Deliberately dependency-free (requests + subprocess). No streaming, resources,
+or prompts — tools only, which is what the connector SDK bridges.
+"""
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import threading
+import time
+
+from .version import __version__
+
+PROTOCOL_VERSION = "2025-03-26"
+_CLIENT_INFO = {"name": "ava-bridge", "version": __version__}
+
+_LIST_TTL_S = 60.0          # tools/list cache
+_HTTP_TIMEOUT = 30
+_CALL_TIMEOUT = 180
+_STDIO_START_TIMEOUT = 30
+
+
+class McpError(Exception):
+    pass
+
+
+# --------------------------------------------------------------------------- #
+# Sessions — one per connector id, lazily created, restart on failure
+# --------------------------------------------------------------------------- #
+_sessions: dict[str, "_Session"] = {}
+_sessions_lock = threading.Lock()
+
+
+def _session(cid: str, spec: dict) -> "_Session":
+    with _sessions_lock:
+        s = _sessions.get(cid)
+        if s is None or not s.alive() or s.spec != spec:
+            if s is not None:
+                s.close()
+            s = _StdioSession(spec) if spec["transport"] == "stdio" else _HttpSession(spec)
+            _sessions[cid] = s
+        return s
+
+
+def reset(cid: str | None = None) -> None:
+    """Drop cached session(s) — used by tests and connector reloads."""
+    with _sessions_lock:
+        for key in ([cid] if cid else list(_sessions)):
+            s = _sessions.pop(key, None)
+            if s:
+                s.close()
+
+
+class _Session:
+    """Shared shell: id counter, init handshake state, tools cache."""
+
+    def __init__(self, spec: dict):
+        self.spec = spec
+        self._id = 0
+        self._lock = threading.Lock()
+        self._initialized = False
+        self._tools: list | None = None
+        self._tools_ts = 0.0
+
+    def alive(self) -> bool:
+        return True
+
+    def close(self) -> None:
+        pass
+
+    def _next_id(self) -> int:
+        self._id += 1
+        return self._id
+
+    # transport hook: send one JSON-RPC message; return the response for `id`
+    # (None for notifications).
+    def _rpc(self, payload: dict, timeout: int) -> dict | None:
+        raise NotImplementedError
+
+    def _ensure_init(self) -> None:
+        if self._initialized:
+            return
+        res = self._rpc({"jsonrpc": "2.0", "id": self._next_id(),
+                         "method": "initialize",
+                         "params": {"protocolVersion": PROTOCOL_VERSION,
+                                    "capabilities": {},
+                                    "clientInfo": _CLIENT_INFO}},
+                        timeout=_STDIO_START_TIMEOUT)
+        if not res or "error" in res:
+            raise McpError(f"initialize failed: {(res or {}).get('error')}")
+        self._rpc({"jsonrpc": "2.0", "method": "notifications/initialized"},
+                  timeout=_HTTP_TIMEOUT)
+        self._initialized = True
+
+    def list_tools(self) -> list:
+        with self._lock:
+            now = time.time()
+            if self._tools is not None and now - self._tools_ts < _LIST_TTL_S:
+                return self._tools
+            self._ensure_init()
+            res = self._rpc({"jsonrpc": "2.0", "id": self._next_id(),
+                             "method": "tools/list", "params": {}},
+                            timeout=_HTTP_TIMEOUT)
+            if not res or "error" in res:
+                raise McpError(f"tools/list failed: {(res or {}).get('error')}")
+            self._tools = (res.get("result") or {}).get("tools") or []
+            self._tools_ts = now
+            return self._tools
+
+    def call_tool(self, name: str, arguments: dict) -> dict:
+        with self._lock:
+            self._ensure_init()
+            res = self._rpc({"jsonrpc": "2.0", "id": self._next_id(),
+                             "method": "tools/call",
+                             "params": {"name": name, "arguments": arguments}},
+                            timeout=_CALL_TIMEOUT)
+        if not res:
+            raise McpError("tools/call: no response")
+        if "error" in res:
+            raise McpError(f"tools/call failed: {res['error']}")
+        return res.get("result") or {}
+
+
+# --------------------------------------------------------------------------- #
+# HTTP transport (Streamable HTTP)
+# --------------------------------------------------------------------------- #
+class _HttpSession(_Session):
+    def __init__(self, spec: dict):
+        super().__init__(spec)
+        self._mcp_session_id: str | None = None
+
+    def _headers(self) -> dict:
+        h = {"Content-Type": "application/json",
+             "Accept": "application/json, text/event-stream"}
+        tenv = self.spec.get("token_env")
+        if tenv and os.environ.get(tenv):
+            h["Authorization"] = "Bearer " + os.environ[tenv]
+        if self._mcp_session_id:
+            h["Mcp-Session-Id"] = self._mcp_session_id
+        return h
+
+    def _rpc(self, payload: dict, timeout: int) -> dict | None:
+        import requests
+        r = requests.post(self.spec["url"], json=payload,
+                          headers=self._headers(), timeout=timeout)
+        sid = r.headers.get("Mcp-Session-Id") or r.headers.get("mcp-session-id")
+        if sid:
+            self._mcp_session_id = sid
+        if "id" not in payload:      # notification — 202/204, no body expected
+            return None
+        if r.status_code >= 400:
+            raise McpError(f"MCP server returned {r.status_code}: {r.text[:200]}")
+        ctype = (r.headers.get("Content-Type") or "").split(";")[0].strip()
+        if ctype == "text/event-stream":
+            return self._parse_sse(r.text, payload["id"])
+        try:
+            return r.json()
+        except ValueError:
+            raise McpError(f"MCP server returned non-JSON ({ctype})") from None
+
+    @staticmethod
+    def _parse_sse(text: str, want_id) -> dict | None:
+        """Extract the JSON-RPC response matching `want_id` from an SSE body."""
+        for chunk in text.split("\n\n"):
+            data = "\n".join(line[5:].strip() for line in chunk.splitlines()
+                             if line.startswith("data:"))
+            if not data:
+                continue
+            try:
+                msg = json.loads(data)
+            except ValueError:
+                continue
+            if isinstance(msg, dict) and msg.get("id") == want_id:
+                return msg
+        return None
+
+
+# --------------------------------------------------------------------------- #
+# stdio transport (newline-delimited JSON-RPC over a subprocess)
+# --------------------------------------------------------------------------- #
+class _StdioSession(_Session):
+    def __init__(self, spec: dict):
+        super().__init__(spec)
+        env = {**os.environ, **(spec.get("env") or {})}
+        self._proc = subprocess.Popen(
+            spec["command"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL, env=env, text=True, bufsize=1)
+
+    def alive(self) -> bool:
+        return self._proc.poll() is None
+
+    def close(self) -> None:
+        try:
+            self._proc.terminate()
+            self._proc.wait(timeout=5)
+        except Exception:  # noqa: BLE001
+            try:
+                self._proc.kill()
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _rpc(self, payload: dict, timeout: int) -> dict | None:
+        if not self.alive():
+            raise McpError("MCP stdio server exited "
+                           f"(rc={self._proc.returncode})")
+        assert self._proc.stdin and self._proc.stdout
+        self._proc.stdin.write(json.dumps(payload) + "\n")
+        self._proc.stdin.flush()
+        if "id" not in payload:  # notification
+            return None
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            line = self._proc.stdout.readline()
+            if not line:
+                raise McpError("MCP stdio server closed its pipe")
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                msg = json.loads(line)
+            except ValueError:
+                continue  # non-protocol noise on stdout
+            if isinstance(msg, dict) and msg.get("id") == payload["id"]:
+                return msg
+            # server-initiated requests/notifications are ignored (tools-only client)
+        raise McpError(f"MCP stdio server timed out after {timeout}s")
+
+
+# --------------------------------------------------------------------------- #
+# Public API — mirrors the discover facade so connectors.py routes cleanly
+# --------------------------------------------------------------------------- #
+def list_tools(cid: str, spec: dict) -> dict:
+    """-> {"tools": [{name, description, inputSchema}, ...]} or {"error": ...}."""
+    try:
+        return {"tools": _session(cid, spec).list_tools()}
+    except Exception as e:  # noqa: BLE001 — transport errors become {"error"}
+        reset(cid)
+        return {"error": f"{cid} mcp: {e}"}
+
+
+def call_tool(cid: str, spec: dict, name: str, arguments: dict | None) -> tuple:
+    """-> (result, status). MCP tool errors (isError) pass through as data —
+    they're the model's to read — transport failures return 502."""
+    try:
+        return _session(cid, spec).call_tool(name, arguments or {}), 200
+    except Exception as e:  # noqa: BLE001 — transport errors become 502
+        reset(cid)
+        return {"error": f"{cid} mcp: {e}"}, 502

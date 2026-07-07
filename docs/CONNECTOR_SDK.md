@@ -143,6 +143,29 @@ schemas and POSTs `call` `{name, arguments}` to invoke. Great for wrapping a
 FastMCP/tool server without re-declaring each tool. Reserved bridge actions
 `__tools` and `__call` serve this.
 
+### MCP servers (`mcp:`) — wrap any Model Context Protocol server
+The headline path into the ~20k-server MCP ecosystem. Point the manifest at any
+real MCP server and its tools are discovered and bridged live:
+
+```yaml
+mcp:
+  url: "http://127.0.0.1:9200/mcp"     # Streamable HTTP transport
+  token_env: MYAPP_TOKEN                # optional bearer
+  # or a stdio server (spawned by the bridge on the host):
+  # command: ["npx", "-y", "@modelcontextprotocol/server-github"]
+  # env: { GITHUB_TOKEN: "${GITHUB_TOKEN}" }
+```
+
+**The security pitch — an egress policy around every MCP server.** Ava's
+sandboxed agent never connects to the MCP server: the bridge speaks MCP
+(JSON-RPC over Streamable HTTP or stdio) server-side, and the agent can reach
+only the two policed bridge routes (`__tools`/`__call`) that the connector's
+auto-generated egress policy allow-lists — and nothing else. A malicious or
+compromised MCP server never gains a direct line into the sandbox, and the
+sandbox never gains a direct line out. (A `command:` server is a host process
+you chose — the same trust model as every MCP desktop client; the policy bounds
+what the *agent* can do with it, not what you install.)
+
 ### Egress
 `ava connector policies <id> --write` renders the connector's egress into
 `agent/policies/generated/<id>.yaml`; `cd agent && ./install.sh` deploys it into
@@ -158,8 +181,8 @@ From that one manifest, with nothing hand-maintained in Ava's core:
 - **Left-rail tile + embedded/native UI** ← `ui`
 - **Ops dashboard health row** ← `service.probe`
 - **Dashboard performance source** ← `perf`
-- **Agent tools** ← `actions` (declared or discovered)
-- **Agent egress policy** ← `egress` + `actions`
+- **Agent tools** ← `actions` (declared or discovered) or `mcp` (live from the server)
+- **Agent egress policy** ← `egress` + `actions` + `mcp`
 - **Browser data-proxy** ← `ui.api`
 - **Chat quick-cards** ← `chat_pickup` (after a turn used one of your tools,
   Ava reads your app's log for artifacts produced during the turn and attaches

@@ -300,8 +300,11 @@ def render_egress_policy(cid: str) -> dict | None:
             path = f"/internal/connector/{cid}/{a['id']}"
             rules.append({"allow": {"method": "GET", "path": path}})
             rules.append({"allow": {"method": "POST", "path": path}})
-    # Auto-allow the discovery bridge routes for a dynamic connector.
-    if _discover_spec(m):
+    # Auto-allow the discovery bridge routes for a dynamic connector — the
+    # HTTP list+call facade or a real MCP server (`mcp:` block) alike. For MCP
+    # this IS the whole agent-side surface: the server itself stays outside
+    # the sandbox; only these two policed routes are reachable.
+    if _discover_spec(m) or _mcp_spec(m):
         rules.append({"allow": {"method": "GET",
                                 "path": f"/internal/connector/{cid}/__tools"}})
         rules.append({"allow": {"method": "POST",
@@ -499,10 +502,39 @@ def app_api(cid: str) -> dict | None:
             "token": token}
 
 
+# --- MCP servers -------------------------------------------------------------
+# Wrap ANY Model Context Protocol server as a connector: the bridge speaks real
+# MCP (JSON-RPC over Streamable HTTP or stdio, see ava_bridge/mcp_client.py),
+# while the sandboxed agent reaches only the policed __tools/__call bridge
+# routes its auto-generated egress policy allow-lists. Manifest form:
+#   mcp:
+#     url: "http://127.0.0.1:9200/mcp"      # http transport
+#     token_env: MYMCP_TOKEN                 # optional bearer
+#     # or a stdio server (spawned by the bridge, host-side):
+#     command: ["npx", "-y", "@modelcontextprotocol/server-github"]
+#     env: { GITHUB_TOKEN: "${GITHUB_TOKEN}" }
+def _mcp_spec(m: dict) -> dict | None:
+    """A connector's MCP-server spec, or None."""
+    mcp = m.get("mcp")
+    if not isinstance(mcp, dict):
+        return None
+    url = _expand(mcp.get("url") or "") or None
+    command = mcp.get("command")
+    if isinstance(command, str):
+        command = command.split()
+    if not url and not command:
+        return None
+    transport = mcp.get("transport") or ("stdio" if command and not url else "http")
+    env = {k: _expand(str(v)) for k, v in (mcp.get("env") or {}).items()} or None
+    return {"transport": transport, "url": url, "command": command,
+            "env": env, "token_env": mcp.get("token_env")}
+
+
 # --- Dynamic tool discovery -------------------------------------------------
 # For apps that expose an MCP-style list+call API (e.g. a FastMCP facade). Ava's
 # bridge lists the app's tools and forwards calls, so a whole dynamic tool set is
-# bridged from a manifest with no per-tool wiring.
+# bridged from a manifest with no per-tool wiring. Real MCP servers use the
+# `mcp:` block above instead; both feed the same __tools/__call bridge routes.
 def _discover_base(cid: str, spec: dict) -> str | None:
     return (spec.get("base") or base_url(cid) or "").rstrip("/") or None
 
@@ -516,8 +548,15 @@ def _discover_headers(spec: dict) -> dict:
 
 
 def discover_tools(cid: str) -> dict:
-    """GET the connector's dynamic tool list -> {"tools": [...]} or {"error"}."""
-    spec = _discover_spec({x["id"]: x for x in load()}.get(cid) or {})
+    """The connector's dynamic tool list -> {"tools": [...]} or {"error"}.
+    Routes to the real-MCP client when the manifest declares `mcp:`, else the
+    HTTP list+call discover facade."""
+    m = {x["id"]: x for x in load()}.get(cid) or {}
+    mcp = _mcp_spec(m)
+    if mcp:
+        from . import mcp_client
+        return mcp_client.list_tools(cid, mcp)
+    spec = _discover_spec(m)
     if not spec:
         return {"error": f"connector {cid} declares no discover spec"}
     base = _discover_base(cid, spec)
@@ -536,7 +575,12 @@ def discover_tools(cid: str) -> dict:
 
 def call_discovered(cid: str, name: str, args: dict | None) -> tuple:
     """Invoke one dynamically-discovered tool by name. Returns (data, status)."""
-    spec = _discover_spec({x["id"]: x for x in load()}.get(cid) or {})
+    m = {x["id"]: x for x in load()}.get(cid) or {}
+    mcp = _mcp_spec(m)
+    if mcp:
+        from . import mcp_client
+        return mcp_client.call_tool(cid, mcp, name, args)
+    spec = _discover_spec(m)
     if not spec:
         return {"error": f"connector {cid} declares no discover spec"}, 400
     base = _discover_base(cid, spec)

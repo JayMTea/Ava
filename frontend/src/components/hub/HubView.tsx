@@ -381,12 +381,13 @@ function ConnectorRow({ c }: { c: HubConnector }) {
           </div>
           <div className="hub-row-sub" style={{ display: 'flex', gap: 6, marginTop: 5, flexWrap: 'wrap' }}>
             {c.enabled ? <Badge tone="ok">enabled</Badge> : <Badge>disabled</Badge>}
+            {c.mcp && <Badge tone="accent">MCP server</Badge>}
             {c.actions > 0 && <Badge tone="accent">{c.actions} action{c.actions === 1 ? '' : 's'}</Badge>}
             {c.actions > 0 && (c.has_tools ? <Badge tone="ok">tools ✓</Badge> : <Badge tone="warn">tools stale</Badge>)}
             {c.renders_policy && (c.has_policy ? <Badge tone="ok">policy ✓</Badge> : <Badge tone="warn">policy stale</Badge>)}
           </div>
         </div>
-        {c.actions > 0 && (
+        {(c.actions > 0 || (c.mcp && c.renders_policy)) && (
           <div className="hub-row-actions">
             <button className="hub-btn ghost sm" onClick={preview} disabled={busy}>
               <Icon name="code" />Preview
@@ -423,11 +424,15 @@ interface ActionDraft { id: string; method: string; path: string; description: s
 
 function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
   const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<'rest' | 'mcp'>('rest');
   const [id, setId] = useState('');
   const [label, setLabel] = useState('');
   const [probe, setProbe] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
   const [actions, setActions] = useState<ActionDraft[]>([]);
+  const [mcpUrl, setMcpUrl] = useState('');
+  const [mcpCommand, setMcpCommand] = useState('');
+  const [mcpToken, setMcpToken] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [done, setDone] = useState('');
@@ -442,18 +447,24 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
         id: id.trim().toLowerCase(),
         label: label.trim() || undefined,
         probe: probe.trim() || undefined,
-        base_url: baseUrl.trim() || undefined,
-        actions: actions.filter((a) => a.id.trim() && a.path.trim()),
+        base_url: mode === 'rest' ? baseUrl.trim() || undefined : undefined,
+        actions: mode === 'rest' ? actions.filter((a) => a.id.trim() && a.path.trim()) : undefined,
+        mcp: mode === 'mcp' ? {
+          url: mcpUrl.trim() || undefined,
+          command: mcpCommand.trim() || undefined,
+          token_env: mcpToken.trim() || undefined,
+        } : undefined,
       });
       if (!r.ok) { setMsg(r.error || 'could not create connector'); }
       else {
-        setDone(`Created ${r.path}. ${r.actions ? 'Now Preview / Generate & deploy its tools and policy below.' : 'Add actions to its connector.yaml any time.'}`);
+        setDone(`Created ${r.path}. Now Preview / Generate & deploy its policy below.`);
         setId(''); setLabel(''); setProbe(''); setBaseUrl(''); setActions([]);
+        setMcpUrl(''); setMcpCommand(''); setMcpToken('');
         onCreated();
       }
     } catch (e) { setMsg((e as Error).message); }
     setBusy(false);
-  }, [id, label, probe, baseUrl, actions, onCreated]);
+  }, [id, label, probe, baseUrl, actions, mode, mcpUrl, mcpCommand, mcpToken, onCreated]);
 
   if (!open) {
     return (
@@ -473,13 +484,46 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
         <div className="hub-field"><label>Label</label>
           <input className="hub-input" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="My App" /></div>
       </div>
+      <div className="hub-field">
+        <label>What kind of app is this?</label>
+        <div className="hub-opts">
+          <button className={'hub-opt' + (mode === 'rest' ? ' sel' : '')} onClick={() => setMode('rest')}>
+            <b>REST API</b><small>declare actions; each becomes an agent tool + egress rule</small>
+          </button>
+          <button className={'hub-opt' + (mode === 'mcp' ? ' sel' : '')} onClick={() => setMode('mcp')}>
+            <b>MCP server</b><small>wrap any Model Context Protocol server — tools discovered live, sandboxed behind an egress policy</small>
+          </button>
+        </div>
+      </div>
+
       <div className="hub-fieldrow">
         <div className="hub-field"><label>Health probe URL (optional)</label>
           <input className="hub-input" value={probe} onChange={(e) => setProbe(e.target.value)} placeholder="http://127.0.0.1:9000/health" /></div>
-        <div className="hub-field"><label>App base URL (where actions are sent)</label>
-          <input className="hub-input" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="http://127.0.0.1:9000" /></div>
+        {mode === 'rest' && (
+          <div className="hub-field"><label>App base URL (where actions are sent)</label>
+            <input className="hub-input" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="http://127.0.0.1:9000" /></div>
+        )}
       </div>
 
+      {mode === 'mcp' && (
+        <>
+          <div className="hub-fieldrow">
+            <div className="hub-field"><label>Server URL (HTTP transport)</label>
+              <input className="hub-input" value={mcpUrl} onChange={(e) => setMcpUrl(e.target.value)} placeholder="http://127.0.0.1:9200/mcp" /></div>
+            <div className="hub-field"><label>… or command (stdio transport)</label>
+              <input className="hub-input" value={mcpCommand} onChange={(e) => setMcpCommand(e.target.value)} placeholder="npx -y @modelcontextprotocol/server-github" /></div>
+          </div>
+          <div className="hub-field" style={{ maxWidth: 360 }}><label>Bearer token env var (optional)</label>
+            <input className="hub-input" value={mcpToken} onChange={(e) => setMcpToken(e.target.value)} placeholder="MYMCP_TOKEN" /></div>
+          <div className="hub-note">
+            The agent never talks to this server directly — it reaches two policed bridge routes,
+            and the generated egress policy allow-lists exactly those. A stdio command runs on this
+            machine as you, like any MCP desktop client — only add servers you trust.
+          </div>
+        </>
+      )}
+
+      {mode === 'rest' && (
       <div className="hub-field">
         <label>Agent actions — each becomes a tool Ava can call (and an egress allow-rule)</label>
         {actions.map((a, i) => (
@@ -502,9 +546,11 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
           <Icon name="plus" />Add action
         </button>
       </div>
+      )}
 
       <div className="hub-btn-row">
-        <button className="hub-btn" onClick={create} disabled={busy || !id.trim()}>
+        <button className="hub-btn" onClick={create}
+          disabled={busy || !id.trim() || (mode === 'mcp' && !mcpUrl.trim() && !mcpCommand.trim())}>
           <Icon name="check" />{busy ? 'Creating…' : 'Create connector'}
         </button>
       </div>

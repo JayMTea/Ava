@@ -104,3 +104,17 @@ service:
 #     list: "/tools"
 #     call: "/call"
 #     token_env: MYAPP_MCP_TOKEN
+
+# --- MCP server (optional) ----------------------------------------------------
+# Wrap ANY real Model Context Protocol server as this connector — its tools are
+# discovered live and bridged to the agent behind an auto-generated egress
+# policy. The sandboxed agent NEVER talks to the MCP server directly: it can
+# reach only the two policed bridge routes (__tools / __call); the bridge
+# speaks MCP (JSON-RPC over Streamable HTTP or stdio) server-side.
+# mcp:
+#   url: "http://127.0.0.1:9200/mcp"   # HTTP transport…
+#   token_env: MYAPP_TOKEN              # optional bearer for the server
+#   # …or a stdio server, spawned by the bridge on this machine (same trust
+#   # model as any MCP desktop client — only add servers you trust):
+#   # command: ["npx", "-y", "@modelcontextprotocol/server-github"]
+#   # env: { GITHUB_TOKEN: "${GITHUB_TOKEN}" }

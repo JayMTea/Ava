@@ -53,6 +53,7 @@ export interface HubConnector {
   kind: string;
   status: string; // up | down | unknown | n/a
   actions: number;
+  mcp: boolean;
   has_policy: boolean;
   has_tools: boolean;
   renders_policy: boolean;
@@ -114,6 +115,7 @@ export interface NewConnectorBody {
   probe?: string;
   base_url?: string;
   actions?: { id: string; method: string; path: string; description?: string }[];
+  mcp?: { url?: string; command?: string; token_env?: string };
 }
 
 // ---- System -----------------------------------------------------------------

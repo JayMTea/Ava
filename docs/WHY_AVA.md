@@ -20,6 +20,7 @@ to *your* apps, and answers only to you.
 - 🗣️ **Talk to it** — on-device voice (speech in, speech out), gated to *your* voice.
 - 🎨 **Create with it** — image **and** video generation, orchestrated by the agent.
 - 🧩 **Wire it to your apps** — drop-in connectors; Ava monitors *and* drives them.
+- 🔌 **Wrap any MCP server in an egress policy** — plug into the whole MCP ecosystem; tools are discovered live, and the agent reaches them only through two policed routes.
 - 🛠️ **It edits its own code** — generates and applies source changes as git commits; by default every change waits for your approval (`code.approval`).
 - 🧠 **It studies itself** — periodic local-first analysis of its own activity parks improvement proposals for your sign-off; nothing self-applies.
 - 📊 **See everything** — a live Command Center: throughput, cost/energy, jobs, alerts.
@@ -53,6 +54,10 @@ hardware with the model of your choice (local **vLLM / Ollama / llama.cpp**, or 
   proposals — review, approve, or reject them on the Learning page.
 - **Anyone can extend it.** Add your app with a small manifest — no core-code changes.
   Ava picks up its health, metrics, egress policy, and agent tools automatically.
+- **MCP, but governed.** Point a manifest at any Model Context Protocol server
+  (HTTP or stdio) and its tools go live — behind an auto-generated egress policy,
+  so the sandboxed agent reaches exactly two policed routes and nothing else.
+  Every other MCP client trusts the server; Ava contains it.
 
 ## How it compares
 

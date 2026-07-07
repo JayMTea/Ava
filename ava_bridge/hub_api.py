@@ -109,6 +109,7 @@ def list_connectors():
             "label": m.get("label", cid),
             "kind": m.get("kind", "app"),
             "actions": len(actions),
+            "mcp": connectors._mcp_spec(m) is not None,
             "has_policy": os.path.exists(os.path.join(pol_dir, f"{cid}.yaml")),
             "has_tools": has_tools,
             "renders_policy": connectors.render_egress_policy(cid) is not None,
@@ -263,8 +264,28 @@ async def connector_new(body: dict):
     if base_url:
         manifest["base_url"] = base_url
 
+    # MCP server mode — wrap a Model Context Protocol server (url or command).
+    # Mutually exclusive with REST actions for a scaffold; edit the YAML to mix.
+    mcp_in = body.get("mcp") if isinstance(body.get("mcp"), dict) else None
+    if mcp_in:
+        mcp: dict = {}
+        url = str(mcp_in.get("url") or "").strip()
+        command = str(mcp_in.get("command") or "").strip()
+        if url:
+            mcp["url"] = url
+        elif command:
+            mcp["command"] = command.split()
+        else:
+            return JSONResponse({"ok": False,
+                                 "error": "mcp needs a url (http) or a command (stdio)"},
+                                status_code=400)
+        tenv = str(mcp_in.get("token_env") or "").strip()
+        if tenv:
+            mcp["token_env"] = tenv
+        manifest["mcp"] = mcp
+
     actions = []
-    for a in (body.get("actions") or [])[:32]:
+    for a in ([] if mcp_in else (body.get("actions") or []))[:32]:
         aid = str(a.get("id", "")).strip().lower()
         path = str(a.get("path", "")).strip()
         if not (_ID_RE.match(aid) and path.startswith("/")):
