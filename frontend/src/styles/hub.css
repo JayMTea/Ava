@@ -1,0 +1,276 @@
+/* =========================================================================
+   HUB — setup & control portal. Uses ONLY design tokens (see tokens.css) so it
+   re-themes with the rest of the app. Layout mirrors the dashboard (db-panel,
+   db-grid) for a consistent feel; classes here cover the setup-specific forms,
+   option cards, status rows, and generated-code previews.
+   ========================================================================= */
+.hub {
+  height: 100%;
+  overflow-y: auto;
+}
+.hub-inner {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: var(--sp-5) var(--sp-5) 64px;
+}
+
+/* ---- header ---- */
+.hub-head {
+  margin-bottom: var(--sp-4);
+}
+.hub-head h2 {
+  margin: 0;
+  font-family: var(--serif);
+  font-weight: 500;
+  font-size: var(--fs-xl);
+  color: var(--txt);
+}
+.hub-head p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+}
+
+/* ---- internal tab bar ---- */
+.hub-tabs {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: var(--sp-5);
+}
+.hub-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 14px;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  font-family: inherit;
+  cursor: pointer;
+  margin-bottom: -1px;
+  transition: color var(--dur-fast), border-color var(--dur-fast);
+}
+.hub-tab:hover { color: var(--txt); }
+.hub-tab.active { color: var(--txt); border-bottom-color: var(--accent); }
+.hub-tab svg { width: 16px; height: 16px; }
+.hub-tab .hub-tab-badge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--r-pill);
+  background: var(--accent);
+  color: #fff;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ---- section spacing between panels ---- */
+.hub-section { margin-bottom: var(--sp-5); }
+.hub-section:last-child { margin-bottom: 0; }
+
+/* ---- key/value + status rows ---- */
+.hub-kv {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 6px var(--sp-4);
+  font-size: var(--fs-sm);
+}
+.hub-kv dt { color: var(--muted); }
+.hub-kv dd { margin: 0; color: var(--txt); }
+
+.hub-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-3) 0;
+  border-bottom: 1px solid var(--line);
+}
+.hub-row:last-child { border-bottom: 0; }
+.hub-row-main { min-width: 0; }
+.hub-row-title { color: var(--txt); font-size: var(--fs-sm); font-weight: var(--fw-medium); }
+.hub-row-sub { color: var(--muted); font-size: var(--fs-xs); margin-top: 2px; }
+.hub-row-actions { display: flex; gap: 8px; flex-shrink: 0; }
+
+/* ---- selectable option cards (engine / mode) ---- */
+.hub-opts { display: grid; gap: 10px; grid-template-columns: 1fr 1fr; }
+@media (max-width: 640px) { .hub-opts { grid-template-columns: 1fr; } }
+.hub-opt {
+  text-align: left;
+  border: 1px solid var(--inputline);
+  border-radius: var(--r-md);
+  padding: 14px;
+  background: var(--input);
+  color: var(--txt);
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color var(--dur-fast), background var(--dur-fast);
+}
+.hub-opt:hover { border-color: var(--muted); }
+.hub-opt.sel { border-color: var(--accent); background: rgba(201, 100, 66, 0.08); }
+.hub-opt b { display: block; font-size: var(--fs-sm); }
+.hub-opt small { color: var(--muted); font-size: var(--fs-xs); }
+
+/* ---- form fields ---- */
+.hub-field { margin: 12px 0; }
+.hub-field > label {
+  display: block;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  margin-bottom: 5px;
+}
+.hub-input,
+.hub-select {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--inputline);
+  background: var(--input);
+  color: var(--txt);
+  font-size: var(--fs-sm);
+  font-family: inherit;
+}
+.hub-input:focus,
+.hub-select:focus { outline: none; border-color: var(--accent); }
+.hub-fieldrow { display: flex; gap: 10px; }
+.hub-fieldrow > * { flex: 1; }
+
+/* ---- toggles / checks ---- */
+.hub-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 0;
+  cursor: pointer;
+  border-bottom: 1px solid var(--line);
+}
+.hub-check:last-child { border-bottom: 0; }
+.hub-check input { margin-top: 3px; width: 16px; height: 16px; accent-color: var(--accent); }
+.hub-check-main { min-width: 0; }
+.hub-check-title { color: var(--txt); font-size: var(--fs-sm); }
+.hub-check-sub { color: var(--muted); font-size: var(--fs-xs); margin-top: 2px; }
+
+/* ---- buttons ---- */
+.hub-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 16px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: var(--accent);
+  color: #fff;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  font-family: inherit;
+  cursor: pointer;
+  transition: background var(--dur-fast), opacity var(--dur-fast);
+}
+.hub-btn:hover { background: var(--accent-hover); }
+.hub-btn:disabled { opacity: 0.5; cursor: default; }
+.hub-btn.ghost { background: transparent; border: 1px solid var(--inputline); color: var(--txt); }
+.hub-btn.ghost:hover { background: var(--panel2); border-color: var(--muted); }
+.hub-btn.sm { padding: 6px 11px; font-size: var(--fs-xs); }
+.hub-btn svg { width: 15px; height: 15px; }
+.hub-btn-row { display: flex; gap: 10px; margin-top: var(--sp-4); flex-wrap: wrap; }
+
+/* ---- status badges ---- */
+.hub-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.hub-badge i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.hub-badge.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+.hub-badge.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
+.hub-badge.err { color: var(--err); border-color: color-mix(in srgb, var(--err) 40%, transparent); }
+.hub-badge.accent { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+
+/* ---- provision / step list ---- */
+.hub-steps { display: flex; flex-direction: column; gap: 8px; margin-top: var(--sp-3); }
+.hub-step {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: var(--fs-sm);
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  background: var(--panel2);
+}
+.hub-step .hub-step-mark { flex-shrink: 0; margin-top: 1px; }
+.hub-step .hub-step-mark.ok { color: var(--ok); }
+.hub-step .hub-step-mark.bad { color: var(--err); }
+.hub-step-detail { color: var(--muted); font-size: var(--fs-xs); margin-top: 2px; word-break: break-word; }
+
+/* ---- generated-code preview ---- */
+.hub-preview {
+  margin-top: var(--sp-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+.hub-preview-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--panel2);
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  font-family: var(--font-mono);
+  border-bottom: 1px solid var(--line);
+}
+.hub-preview pre {
+  margin: 0;
+  padding: 12px;
+  max-height: 320px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--txt);
+  white-space: pre;
+}
+
+/* ---- inline notices ---- */
+.hub-note {
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  background: var(--input);
+  border-radius: var(--r-sm);
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+}
+.hub-note b { color: var(--txt); }
+.hub-msg { font-size: var(--fs-sm); margin-top: 10px; min-height: 18px; }
+.hub-msg.ok { color: var(--ok); }
+.hub-msg.err { color: var(--err); }
+
+/* ---- restart banner ---- */
+.hub-restart {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--r-sm);
+  background: rgba(224, 169, 59, 0.10);
+  border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
+  color: var(--warn);
+  font-size: var(--fs-sm);
+  margin-bottom: var(--sp-4);
+}

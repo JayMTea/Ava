@@ -257,6 +257,10 @@ def legacy_index():
 from ava_bridge.setup_wizard import router as _wizard_router  # noqa: E402
 app.include_router(_wizard_router)
 
+# Setup & control Hub API (cookie-gated /api/hub/* — agent, connectors, system).
+from ava_bridge.hub_api import router as _hub_router  # noqa: E402
+app.include_router(_hub_router)
+
 # Mount the optional overlay personal-app routes now that `app` exists.
 try:
     from overlay.ava_bridge import personal_routes as _personal_routes

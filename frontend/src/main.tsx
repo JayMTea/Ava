@@ -5,6 +5,7 @@ import './styles/tokens.css';
 import './styles/global.css';
 import './styles/claude.css';
 import './styles/dashboard.css';
+import './styles/hub.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

@@ -39,6 +39,7 @@ export function Drawer({
   // Title for the panel header: built-in label or the active app's label.
   const titles: Record<string, string> = Object.fromEntries([
     ...BUILTIN.map((b) => [b.id, b.label]),
+    ['hub', 'Setup'],
     ...apps.map((a) => [a.id, a.label]),
   ]);
 
@@ -70,11 +71,14 @@ export function Drawer({
             .map((a) => railBtn(a.id, a.label, a.icon))}
         </div>
         <div className="rail-spacer" />
-        <form className="rail-foot" method="post" action="/logout">
-          <button type="submit" className="rail-btn" title="Sign out" aria-label="Sign out">
-            <Icon name="lock" />
-          </button>
-        </form>
+        <div className="rail-foot">
+          {railBtn('hub', 'Setup', 'sliders')}
+          <form method="post" action="/logout">
+            <button type="submit" className="rail-btn" title="Sign out" aria-label="Sign out">
+              <Icon name="lock" />
+            </button>
+          </form>
+        </div>
       </div>
 
       {/* Content panel — brand + (for the Assistant tab) the chat history. */}
