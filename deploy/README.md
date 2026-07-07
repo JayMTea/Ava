@@ -17,6 +17,7 @@ docker compose --profile cpu   up -d   # no GPU  -> Ollama for inference
 docker compose --profile gpu   up -d   # NVIDIA GPU -> vLLM
 docker compose --profile cloud up -d   # bring an API key, no local model
 docker compose --profile full  up -d   # everything, incl. image/video (the GPU service)
+docker compose --profile agent up -d   # + full tool-using agent (opt-in, see below)
 ```
 
 Then open **http://localhost:8096** — the first screen prompts you to create an
@@ -146,12 +147,19 @@ env vars — never in `ava.yaml`, never in the repo.
 
 ## 4. Connecting your own apps
 
-Ava discovers integrations from **connector manifests** (see
-[docs/PACKAGING_PLAN.md](../docs/PACKAGING_PLAN.md) §5.3). Each connector declares
+Ava discovers integrations from **connector manifests**. Each connector declares
 its health probe, metrics/perf source, egress policy, and agent actions — and the
 dashboard's service matrix, performance charts, and the agent's tools all update
-automatically. A connector SDK + `ava connector new <name>` scaffold are on the
-roadmap.
+automatically:
+
+```bash
+ava connector new myapp                 # scaffold a manifest
+# edit connector.yaml: health probe, perf log, actions
+ava connector tools    myapp --write    # generate the agent tools
+ava connector policies myapp --write    # generate its egress policy
+```
+
+Full guide → [docs/CONNECTOR_SDK.md](../docs/CONNECTOR_SDK.md).
 
 ---
 

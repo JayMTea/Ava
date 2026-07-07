@@ -66,20 +66,20 @@ Control Center).
 
 Strong ● · Partial ◐ · None ○ — honest, not marketing:
 
-| Capability | **Ava** | Open WebUI | OpenHands | Home Assistant | ChatGPT/Claude (cloud) |
-|---|:--:|:--:|:--:|:--:|:--:|
-| Self-hosted / private | ● | ● | ● | ● | ○ |
-| Model-agnostic (bring your own) | ● | ● | ◐ | ◐ | ○ |
-| Chat | ● | ● | ◐ | ◐ | ● |
-| Voice (+ biometric gate) | ● | ○ | ○ | ● | ◐ |
-| Image / **video** generation | ● | ◐ | ○ | ○ | ◐ |
-| Agent tools / skills / memory | ● | ◐ | ● | ◐ | ● |
-| **Self-improvement** (edits own code) | ● | ○ | ◐ | ○ | ○ |
-| Drives your **other apps** (connectors) | ● | ○ | ◐ | ● | ◐ |
-| Ops **dashboard** (perf / cost / alerts) | ● | ○ | ○ | ◐ | ○ |
-| Governance / approval gates | ● | ○ | ○ | ◐ | ◐ |
-| Raw model quality (IQ) | ◐\* | ◐\* | ◐\* | ◐\* | ● |
-| Polish / mobile / scale | ○ | ◐ | ◐ | ● | ● |
+| Capability | **Ava** | NemoClaw (OpenClaw) | Open WebUI | OpenHands | Home Assistant | ChatGPT/Claude (cloud) |
+|---|:--:|:--:|:--:|:--:|:--:|:--:|
+| Self-hosted / private | ● | ● | ● | ● | ● | ○ |
+| Model-agnostic (bring your own) | ● | ● | ● | ◐ | ◐ | ○ |
+| Chat | ● | ● | ● | ◐ | ◐ | ● |
+| Voice (+ biometric gate) | ● | ◐ | ○ | ○ | ● | ◐ |
+| Image / **video** generation | ● | ○ | ◐ | ○ | ○ | ◐ |
+| Agent tools / skills / memory | ● | ● | ◐ | ● | ◐ | ● |
+| **Self-improvement** (edits own code) | ● | ◐ | ○ | ◐ | ○ | ○ |
+| Drives your **other apps** (connectors) | ● | ◐ | ○ | ◐ | ● | ◐ |
+| Ops **dashboard** (perf / cost / alerts) | ● | ○ | ○ | ○ | ◐ | ○ |
+| Governance / approval gates | ● | ◐ | ○ | ○ | ◐ | ◐ |
+| Raw model quality (IQ) | ◐\* | ◐\* | ◐\* | ◐\* | ◐\* | ● |
+| Polish / mobile / scale | ○ | ◐ | ◐ | ◐ | ● | ● |
 
 \* inherited from whatever model you plug in.
 
@@ -87,6 +87,13 @@ Strong ● · Partial ◐ · None ○ — honest, not marketing:
 agent + self-improvement + connectors + observability *together*, self-hosted. It
 trails the cloud giants on raw model IQ and polish — because it's the **control
 layer, not the brain**. Its job is to put *their* models (or yours) to work, privately.
+
+**A note on NemoClaw:** it's less a competitor than a foundation — NemoClaw is
+Ava's **default agent runtime** (sandbox, tools, egress policies, memory), and
+Ava layers private on-device voice, GPU workloads, the connector SDK,
+the ops dashboard, and governed self-improvement on top. Use NemoClaw alone if
+you want a channel-based agent (Slack/Telegram/etc.); use Ava if you want the
+full private assistant stack. See [docs/AGENT_RUNTIME.md](docs/AGENT_RUNTIME.md).
 
 ## What Ava is *not*
 
@@ -126,12 +133,15 @@ its actions natively. See the [Connector SDK](docs/CONNECTOR_SDK.md).
 
 ## Under the hood
 
-A FastAPI **bridge** (web app + API + dashboard) fronts a sandboxed **agent
-runtime** (tools, skills, memory) and an OpenAI-compatible **inference router**
-for the local open-model model. Image/video runs on **the GPU service**. Everything else —
-the apps Ava monitors and drives — is a **connector** you can drop in.
+A FastAPI **bridge** (web app + API + dashboard) fronts a **pluggable agent
+runtime** (tools, skills, memory — [NemoClaw](docs/AGENT_RUNTIME.md) by default,
+sandboxed with per-tool egress policies) and an OpenAI-compatible **inference
+router** for the local open-model model. Image/video runs on **the GPU service**.
+Everything else — the apps Ava monitors and drives — is a **connector** you can
+drop in.
 
 - **Architecture** → [system overview](docs/assets/architecture.svg)
+- **Agent runtime** → [docs/AGENT_RUNTIME.md](docs/AGENT_RUNTIME.md)
 - **Productization roadmap** → [docs/PACKAGING_PLAN.md](docs/PACKAGING_PLAN.md)
 
 ## License
