@@ -53,9 +53,13 @@ echo "[omni-serve] Starting vllm-open ($MODEL, FP8, util $UTIL, ctx $CTX, eager)
 #  - vLLM auto-detects the FP8 quantization from the checkpoint's config; no
 #    --quantization flag needed. If a vLLM version complains, add:
 #    --quantization modelopt
-#  - --tool-call-parser / --reasoning-parser names are VERIFIED at cutover. If
-#    vLLM rejects them, drop those two flags (+ --enable-auto-tool-choice) —
-#    plain chat still works; reasoning then appears inline in the content.
+#  - --tool-call-parser / --reasoning-parser names come straight from the model
+#    card's vLLM section. Omni emits tool calls in the qwen3_coder XML format
+#    (<function=name><parameter=x>…). Using the wrong parser (e.g. `hermes`,
+#    which expects JSON) makes vLLM return NO tool_calls — the call falls through
+#    as plain text, the agent never sees it, and turns loop until they time out
+#    (looks like Ava "not responding"). If vLLM ever rejects these names, check
+#    the model card, don't just drop them.
 docker run -d --gpus all --shm-size=32g \
   --restart unless-stopped \
   -v "${HF_CACHE}:/root/.cache/huggingface" \
@@ -71,7 +75,7 @@ docker run -d --gpus all --shm-size=32g \
   --max-num-batched-tokens 4096 \
   --enable-prefix-caching \
   --enable-auto-tool-choice \
-  --tool-call-parser hermes \
+  --tool-call-parser qwen3_coder \
   --reasoning-parser nemotron_v3
 
 echo "[omni-serve] Waiting for readiness on :$PORT (bounded ~15 min) ..."

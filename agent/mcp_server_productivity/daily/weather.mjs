@@ -22,12 +22,35 @@ const WMO = {
 };
 
 async function geocode(name, http) {
-  const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(name)}&count=1&language=en&format=json`;
-  const j = await http.getJson(url);
-  const hit = j && j.results && j.results[0];
-  if (!hit) throw new Error(`couldn't find a place called "${name}"`);
-  const label = [hit.name, hit.admin1, hit.country_code].filter(Boolean).join(', ');
-  return { name: label, latitude: hit.latitude, longitude: hit.longitude };
+  // open-meteo's geocoder matches on the bare place NAME only: "Austin"
+  // resolves, but "Austin, Texas" / "Austin, TX" return ZERO results.
+  // Both the persona and users routinely pass "City, State[, Country]", so try
+  // the full string first, then fall back to just the city (the first
+  // comma-segment) and disambiguate the candidates using the remaining segments
+  // (state / country). Without this, common inputs fail and the agent loops
+  // retrying — which reads as Ava hanging on a simple weather question.
+  const parts = String(name).split(',').map((s) => s.trim()).filter(Boolean);
+  const attempts = parts.length > 1 ? [name, parts[0]] : [name];
+  const wanted = parts.slice(1).map((s) => s.toLowerCase());
+  for (const q of attempts) {
+    const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=10&language=en&format=json`;
+    const j = await http.getJson(url);
+    const results = (j && j.results) || [];
+    if (!results.length) continue;
+    // Prefer a candidate whose region/country matches the state/country given.
+    let hit = results[0];
+    if (wanted.length) {
+      const match = results.find((r) => {
+        const hay = [r.admin1, r.admin2, r.country, r.country_code]
+          .filter(Boolean).map((s) => String(s).toLowerCase());
+        return wanted.every((w) => hay.some((h) => h === w || h.includes(w) || w.includes(h)));
+      });
+      if (match) hit = match;
+    }
+    const label = [hit.name, hit.admin1, hit.country_code].filter(Boolean).join(', ');
+    return { name: label, latitude: hit.latitude, longitude: hit.longitude };
+  }
+  throw new Error(`couldn't find a place called "${name}"`);
 }
 
 export default {

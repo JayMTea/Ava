@@ -55,6 +55,32 @@ def _pickup_previews_since(t0: float, tools: list[str]) -> list[dict]:
     return out
 
 
+def _tools_from_session(sid: str, after: int) -> list[str]:
+    """Authoritative tool list for a finished turn, read from the session trajectory.
+
+    `openclaw agent --json` does not reliably surface a `toolSummary`, so tool
+    usage came back empty even when a tool clearly ran — which broke the tool
+    chips AND the artifact side-panel (weather etc.), since both key off this
+    list. The session jsonl DOES record every `toolCall` with its name, so we
+    parse that (same source the live chain-of-thought already reads) as the
+    source of truth."""
+    path = _session_file(sid)
+    if not path:
+        return []
+    cmd = f"tail -n +{after} {shlex.quote(path)} 2>/dev/null | head -c 400000"
+    try:
+        steps = _parse_turn_steps(_sbx_read(cmd))
+    except Exception:  # noqa: BLE001
+        return []
+    seen: list[str] = []
+    for s in steps:
+        if s.get("kind") == "tool":
+            name = s.get("name")
+            if name and name not in seen:
+                seen.append(name)
+    return seen
+
+
 def _session_line_count(sid: str) -> int:
     path = _session_file(sid)
     try:
@@ -171,14 +197,31 @@ def _run_turn(tid: str, agent_text: str, sid: str, chat_id: str):
         if job and chat_id:
             _chat_append(chat_id, "assistant", "Here's the image you asked for.")
         m = which_model()
+        if job:
+            with state.turns_lock:
+                state.turns[tid].update(
+                    status="done", reply="Here's the image you asked for.",
+                    job=job, model=m, ctx_tokens=(m or {}).get("prompt_tokens"),
+                    tools_used=tools, error=None)
+            return
+        # No image to salvage: never leave the user with a dangling question and
+        # an endless spinner. Give a plain, honest reply, persist it to the chat
+        # so reopening the conversation shows what happened, and flag it degraded
+        # so the UI can offer a one-tap retry.
+        fallback = ("Sorry — I couldn't finish that just now (my tools timed "
+                    "out or hit a snag). Please try again.")
+        if chat_id:
+            _chat_append(chat_id, "assistant", fallback, model=m)
         with state.turns_lock:
             state.turns[tid].update(
-                status="done" if job else "error",
-                reply="Here's the image you asked for." if job else None,
-                job=job, model=m, ctx_tokens=(m or {}).get("prompt_tokens"),
-                tools_used=tools,
-                error=None if job else str(e))
+                status="done", reply=fallback, job=None, model=m,
+                ctx_tokens=(m or {}).get("prompt_tokens"),
+                tools_used=[], degraded=True, error=str(e))
         return
+    # `openclaw agent --json` doesn't reliably report tools; recover them from
+    # the trajectory so tool chips AND the artifact panel (weather, etc.) work.
+    if not tools:
+        tools = _tools_from_session(sid, after)
     job = None
     if any("run_gpu_job" in t for t in tools):
         # run_gpu_job renders THROUGH the bridge now (real the GPU service progress),
@@ -206,7 +249,7 @@ def start_turn(agent_text: str, sid: str, chat_id: str) -> str:
     with state.turns_lock:
         state.turns[tid] = {"id": tid, "status": "running", "steps": [], "reply": None,
                             "job": None, "previews": [], "artifact": None, "model": None,
-                            "ctx_tokens": None, "tools_used": [],
+                            "ctx_tokens": None, "tools_used": [], "degraded": False,
                             "error": None, "created": time.time()}
     threading.Thread(target=_run_turn, args=(tid, agent_text, sid, chat_id),
                      daemon=True).start()

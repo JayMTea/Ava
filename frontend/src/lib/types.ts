@@ -165,6 +165,7 @@ export interface TurnStatus {
   model?: ModelInfo | null;
   ctx_tokens?: number | null;
   error?: string | null;
+  degraded?: boolean;
 }
 
 export interface ModelBackend {

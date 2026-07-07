@@ -42,13 +42,17 @@ curl -s localhost:8002/v1/chat/completions -H 'Content-Type: application/json' -
   "max_tokens": 40 }' | python3 -m json.tool
 ```
 
-**If vLLM errored on startup about `--tool-call-parser hermes` or
-`--reasoning-parser nemotron_v3`:** these parser names are the one thing I could
-not verify offline (the `NemotronH_Nano_Omni` architecture is newer than the
-Super's). Fix by checking the model card's "vLLM" section for the exact parser
-names, or simply **remove those two flags** in `deploy/omni-serve.sh` and re-run —
-plain chat + tool calls still work; reasoning then appears inline in the content.
-Then update the same two flags in `~/ai/models/REGISTRY.yaml` (the omni entry).
+**Tool-call parser — CORRECTED 2026-07-06.** The parser MUST be
+`--tool-call-parser qwen3_coder` (per the model card's vLLM section), NOT
+`hermes`. Omni emits tool calls in the qwen3_coder XML format
+(`<function=name><parameter=x>…`); `hermes` expects JSON, so with `hermes` vLLM
+returns **no `tool_calls`** — the call leaks through as plain text, the OpenClaw
+agent never sees a tool call, and every tool-using turn (e.g. weather) loops on
+reasoning until it times out. Symptom: Ava "never responds" to simple questions.
+`--reasoning-parser nemotron_v3` is correct. Both `deploy/omni-serve.sh` and the
+`~/ai/models/REGISTRY.yaml` omni entry now use `qwen3_coder`. Do NOT "just drop
+the flags" as a fix — without a tool-call parser, tool calls are never parsed and
+the same loop happens. If vLLM ever rejects the name, re-check the model card.
 
 **If it OOMs under a concurrent the GPU service render:** lower `OMNI_GPU_UTIL` (e.g.
 `OMNI_GPU_UTIL=0.55 bash deploy/omni-serve.sh`) or `OMNI_MAX_LEN=16384`.

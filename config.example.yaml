@@ -61,6 +61,18 @@ models:
 # add a second backend below only if you want an automatic cloud fallback.
 inference:
   primary: local-omni
+  # Reasoning control for a *reasoning* local model (e.g. Nemotron open-model).
+  # The router injects this as the default vLLM `chat_template_kwargs` on every
+  # chat completion. Left unbounded, a reasoning model emits hundreds–~1000
+  # internal reasoning tokens per agent step (30–75s weather turns on Omni).
+  #   budget:128  (default) — cap reasoning ~128 tokens: keeps correct tool
+  #                            decisions but stays snappy. Recommended.
+  #   off                   — enable_thinking=false: fastest, but the model
+  #                            stops reasoning about WHICH tool to use and
+  #                            mis-fires tools on questions that need none.
+  #   on                    — full model-default reasoning (slowest).
+  #   budget:N              — custom cap. Raise for harder reasoning workloads.
+  # reasoning: budget:128                                    # [AVA_REASONING]
   # Direct chat endpoint used when the agent runtime is absent (degraded mode —
   # a working, tool-less assistant). Point straight at any OpenAI-compatible
   # engine (vLLM/Ollama) or a cloud provider; add api_key for the latter.

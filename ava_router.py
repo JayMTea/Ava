@@ -50,6 +50,55 @@ OMNI_MODEL = os.environ.get(
     "AVA_OMNI_MODEL", "nvidia/Nemotron-Open-30B-A3B-Reasoning-FP8")
 OMNI_LABEL = os.environ.get("AVA_OMNI_LABEL", "open-model 30B")
 
+# --- reasoning (thinking) control -------------------------------------------
+# The Omni brain is a *reasoning* model: left to its defaults it emits hundreds
+# to ~1000 internal reasoning tokens PER agent step, and at ~34 tok/s that turns
+# a simple weather turn into 30-75s. Measured on this box, turning thinking off
+# keeps answer quality (math still correct, plans still complete) while making
+# each step ~2-4x faster — so a multi-step tool turn drops from ~75s to ~15s.
+#
+# `inference.reasoning` (ava.yaml) / AVA_REASONING (env) picks the default the
+# router injects as `chat_template_kwargs` on every vLLM chat completion:
+#   "budget:128" (default) -> reasoning_budget=128  (BEST: see below)
+#   "off"                  -> enable_thinking=false (fastest, but degrades quality)
+#   "on"                   -> inject nothing         (full model-default reasoning)
+#   <int> / "budget:N"     -> reasoning_budget=N     (some reasoning, capped)
+# A caller that sets its own `chat_template_kwargs` always wins (e.g. force
+# thinking on for a genuinely hard task), so this is only the default.
+#
+# Why a budget and not "off": measured on this box, "off" makes the model ~4x
+# faster BUT it stops reasoning about WHICH tool to use — it then fires a tool
+# for questions that need none (mental math -> run_gpu_job, chit-chat ->
+# get_weather). Full thinking decides correctly but runs away (900 reasoning
+# tokens / 26s on trivial chit-chat). A small budget (~128) is the sweet spot:
+# correct tool decisions like full thinking, but capped so a turn stays snappy.
+def _resolve_reasoning() -> str:
+    val = os.environ.get("AVA_REASONING")
+    if val is None:
+        try:
+            from ava_bridge import settings
+            val = settings.get("inference.reasoning")
+        except Exception:  # noqa: BLE001 — never let config break the router
+            val = None
+    return str(val if val is not None else "budget:128").strip().lower()
+
+
+_REASONING = _resolve_reasoning()
+
+
+def _reasoning_kwargs() -> dict | None:
+    """The chat_template_kwargs the router injects by default, or None for 'on'."""
+    r = _REASONING
+    if r in ("on", "", "default", "none"):
+        return None
+    if r in ("off", "false", "no", "0"):
+        return {"enable_thinking": False}
+    budget = r.split(":", 1)[1] if r.startswith("budget:") else r
+    try:
+        return {"reasoning_budget": max(0, int(budget))}
+    except (ValueError, TypeError):
+        return {"enable_thinking": False}  # unrecognised -> the snappy default
+
 # Statuses that mean "this backend can't serve right now, try the next one".
 # vLLM returns these fast (503 = engine dead / not ready, 404 = model not loaded).
 _FAILOVER_STATUS = {404, 500, 502, 503, 504}
@@ -354,22 +403,36 @@ async def healthz():
     return {"ok": True, "backends": [b["id"] for b in BACKENDS]}
 
 
-def _rewrite_body(raw: bytes, is_json: bool, backend: dict) -> bytes:
-    """Force the request's model id to match the backend we're forwarding to."""
+def _rewrite_body(raw: bytes, is_json: bool, backend: dict,
+                  is_comp: bool = False) -> bytes:
+    """Force the request's model id to match the backend we're forwarding to, and
+    inject the default reasoning control for local vLLM chat completions."""
     if not is_json or not raw:
         return raw
     try:
         obj = json.loads(raw)
     except Exception:  # noqa: BLE001 — not JSON we understand; pass through
         return raw
+    if not isinstance(obj, dict):
+        return raw
+    changed = False
     # Drop Ava-private routing hints so the upstream OpenAI API never sees them.
-    hint = obj.pop("workload", None) if isinstance(obj, dict) else None
-    hint = obj.pop("ava_workload", None) or hint if isinstance(obj, dict) else hint
-    if isinstance(obj, dict) and ("model" in obj or hint is not None):
-        if "model" in obj:
-            obj["model"] = backend["model"]
-        return json.dumps(obj).encode("utf-8")
-    return raw
+    hint = obj.pop("workload", None)
+    hint = obj.pop("ava_workload", None) or hint
+    if hint is not None:
+        changed = True
+    if "model" in obj:
+        obj["model"] = backend["model"]
+        changed = True
+    # Default reasoning control — only for local vLLM chat completions (the
+    # `chat_template_kwargs` field is a vLLM extension; a cloud OpenAI endpoint
+    # would reject it). Never override a caller that set its own.
+    if is_comp and backend.get("engine") == "vllm" and "chat_template_kwargs" not in obj:
+        kw = _reasoning_kwargs()
+        if kw:
+            obj["chat_template_kwargs"] = kw
+            changed = True
+    return json.dumps(obj).encode("utf-8") if changed else raw
 
 
 @app.api_route("/v1/{path:path}",
@@ -406,7 +469,7 @@ async def proxy(path: str, request: Request):
     ordered = _ordered_backends(workload)
     for backend in ordered:
         url = f"{backend['url']}/{path}"
-        body = _rewrite_body(raw, is_json, backend)
+        body = _rewrite_body(raw, is_json, backend, is_comp)
         # Per-backend headers: inject a Bearer token for cloud backends that
         # declared an api_key_env (local vLLM / Ollama need none).
         b_headers = dict(fwd_headers)

@@ -204,15 +204,45 @@ export function useChat() {
           failUser();
           return;
         }
+        // Bound the poll loop so a stuck turn can never spin forever (the old
+        // `for(;;)` would leave "Ava is thinking" up indefinitely on a hang, which
+        // read as "no response"). Show honest elapsed-time hints while we wait,
+        // and after DEADLINE_MS give up cleanly with a retryable error.
+        const DEADLINE_MS = 200_000;
+        let pollFails = 0;
         for (;;) {
           await sleep(750);
+          const waited = Date.now() - t0;
+          if (waited > DEADLINE_MS) {
+            patch(cotId, (it) =>
+              it.kind === 'cot'
+                ? { ...it, status: 'error', error: 'Ava took too long to respond — please try again.' }
+                : it,
+            );
+            failUser();
+            return;
+          }
           let s;
           try {
             s = await api.turn(start.turn_id);
+            pollFails = 0;
           } catch {
+            // Tolerate transient network blips, but don't poll a dead server forever.
+            if (++pollFails > 20) {
+              patch(cotId, (it) => (it.kind === 'cot' ? { ...it, status: 'error', error: 'lost connection to Ava' } : it));
+              failUser();
+              return;
+            }
             continue;
           }
           if (s.steps) patch(cotId, (it) => (it.kind === 'cot' ? { ...it, steps: s.steps! } : it));
+          // Keep the user informed while a slow turn is still working.
+          if (s.status === 'running') {
+            const secs = Math.round(waited / 1000);
+            const label =
+              secs >= 45 ? `Still working… (${secs}s)` : secs >= 20 ? 'Working on it…' : atts.length ? 'Ava is reading & thinking' : 'Ava is thinking';
+            patch(cotId, (it) => (it.kind === 'cot' ? { ...it, label } : it));
+          }
           if (s.status === 'done') {
             const secs = Math.round((Date.now() - t0) / 1000);
             patch(cotId, (it) => (it.kind === 'cot' ? { ...it, status: 'done', secs } : it));

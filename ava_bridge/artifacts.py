@@ -101,14 +101,32 @@ def _extract_weather_args(sid: str, after: int) -> tuple[str | None, int]:
 
 
 def _geocode(name: str) -> dict:
-    r = requests.get(GEO_URL, params={"name": name, "count": 1, "language": "en",
-                                      "format": "json"}, timeout=10)
-    hit = ((r.json() or {}).get("results") or [None])[0]
-    if not hit:
-        raise ValueError(f"no place called {name!r}")
-    label = ", ".join(x for x in (hit.get("name"), hit.get("admin1"),
-                                  hit.get("country_code")) if x)
-    return {"name": label, "latitude": hit["latitude"], "longitude": hit["longitude"]}
+    # open-meteo's geocoder matches the bare place NAME only, so "Austin,
+    # Texas" returns nothing while "Austin" resolves. Mirror the get_weather
+    # tool: try the full string, then fall back to the city (first comma-segment),
+    # disambiguating with the remaining state/country segments. Keeps the weather
+    # side-panel in lock-step with the tool's answer for "City, State" inputs.
+    parts = [p.strip() for p in str(name).split(",") if p.strip()]
+    attempts = [name, parts[0]] if len(parts) > 1 else [name]
+    wanted = [p.lower() for p in parts[1:]]
+    for q in attempts:
+        r = requests.get(GEO_URL, params={"name": q, "count": 10, "language": "en",
+                                          "format": "json"}, timeout=10)
+        results = (r.json() or {}).get("results") or []
+        if not results:
+            continue
+        hit = results[0]
+        if wanted:
+            for cand in results:
+                hay = [str(x).lower() for x in (cand.get("admin1"), cand.get("admin2"),
+                       cand.get("country"), cand.get("country_code")) if x]
+                if all(any(w == h or w in h or h in w for h in hay) for w in wanted):
+                    hit = cand
+                    break
+        label = ", ".join(x for x in (hit.get("name"), hit.get("admin1"),
+                                      hit.get("country_code")) if x)
+        return {"name": label, "latitude": hit["latitude"], "longitude": hit["longitude"]}
+    raise ValueError(f"no place called {name!r}")
 
 
 def build_weather_artifact(location: str | None, days: int = 7) -> dict | None:
