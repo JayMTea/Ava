@@ -21,6 +21,7 @@ class LogManager:
 
     VALID_SERVICES = [
         'ava-bridge',
+        'ava-router',
         'ava-gpusvc',
         'vllm',
         'ava-snapshot',
@@ -36,6 +37,43 @@ class LogManager:
         'gpusvc': Path(config.ROOT) / 'gpusvc' / 'logs',
         'learning': Path(config.LOGS_DIR) / 'learning.log',
     }
+
+    # Friendly short/component names -> the real systemd unit, so callers (and the
+    # model) can say "bridge" or "router" instead of the exact "ava-bridge" unit.
+    SERVICE_ALIASES = {
+        'bridge': 'ava-bridge', 'ava': 'ava-bridge',
+        'router': 'ava-router', 'gpusvc': 'ava-gpusvc',
+        'learning': 'ava-learning-digest',
+    }
+
+    @staticmethod
+    def _journalctl_since(since: str) -> str:
+        """Convert the tool's compact window ('5m','1h','2d') to a form journalctl
+        parses ('5 minutes ago'). today/yesterday/now pass through unchanged."""
+        s = (since or '1h').strip()
+        if s in ('today', 'yesterday', 'now'):
+            return s
+        m = re.fullmatch(r'(\d+)([smhdw])', s)
+        if not m:
+            return s
+        n, unit = m.group(1), m.group(2)
+        word = {'s': 'seconds', 'm': 'minutes', 'h': 'hours',
+                'd': 'days', 'w': 'weeks'}[unit]
+        return f'{n} {word} ago'
+
+    @staticmethod
+    def resolve_service(name: Optional[str]) -> Optional[str]:
+        """Map an alias/short name ('bridge') or bare unit to a VALID_SERVICES id."""
+        if not name:
+            return None
+        n = name.strip().removesuffix('.service')
+        if n in LogManager.VALID_SERVICES:
+            return n
+        if n in LogManager.SERVICE_ALIASES:
+            return LogManager.SERVICE_ALIASES[n]
+        if f'ava-{n}' in LogManager.VALID_SERVICES:
+            return f'ava-{n}'
+        return n  # let read_journalctl reject it with the valid-list message
 
     @staticmethod
     def read_journalctl(
@@ -86,11 +124,16 @@ class LogManager:
             'CRITICAL': '2'
         }
 
+        # journalctl can't parse the compact "1h"/"5m" form the tool accepts
+        # ("Failed to parse timestamp: 1h") — convert it to the "N unit ago" form
+        # journalctl understands. Keyword forms (today/yesterday/now) pass through.
+        since_arg = LogManager._journalctl_since(since)
+
         try:
             cmd = [
                 'journalctl',
                 '--user-unit', f'{service}.service',
-                f'--since={since}',
+                f'--since={since_arg}',
                 '-n', str(lines),
                 '--no-pager',
                 '-o', 'short-iso'
@@ -258,9 +301,12 @@ def read_logs(
         Log data dict
     """
     if source == 'systemd':
-        if not service:
-            return {'ok': False, 'error': 'service required for systemd source'}
-        return LogManager.read_journalctl(service, lines, level, since)
+        # Be forgiving about how the caller names the unit: accept an explicit
+        # `service`, fall back to a `component` name, and if neither is given
+        # default to Ava's own bridge (the usual intent of "check your logs").
+        # Aliases/short names ("bridge", "router") resolve to the real unit.
+        svc = LogManager.resolve_service(service or component) or 'ava-bridge'
+        return LogManager.read_journalctl(svc, lines, level, since)
 
     elif source == 'app':
         if not component:

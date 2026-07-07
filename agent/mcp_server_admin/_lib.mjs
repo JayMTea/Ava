@@ -28,12 +28,29 @@ export const INTERNAL_TOKEN = resolveArg('--internal-token') || process.env.AVA_
 export const CA_BUNDLE =
   process.env.CURL_CA_BUNDLE || process.env.SSL_CERT_FILE || '/etc/openshell-tls/ca-bundle.pem';
 
-function run(args, timeout) {
+// curl exit codes that mean the request didn't complete for a TRANSIENT reason
+// (DNS, connect, TLS handshake, reset, empty reply, timeout) — safe to retry.
+// The guard proxy + Tor path is occasionally flaky, so one blip shouldn't fail
+// an otherwise-fine bridge/web call. HTTP errors (22, via --fail) are NOT here.
+const RETRYABLE_CURL = new Set([6, 7, 28, 35, 52, 56]);
+
+function run(args, timeout, tries = 3) {
   return new Promise((resolve, reject) => {
-    execFile('/usr/bin/curl', args, { maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
-      if (err) { reject(new Error(`request failed: ${(stderr || err.message).trim()}`)); return; }
-      resolve(stdout);
-    });
+    const attempt = (n) => {
+      execFile('/usr/bin/curl', args, { maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
+        if (err) {
+          const code = typeof err.code === 'number' ? err.code : null;
+          if (n < tries && code !== null && RETRYABLE_CURL.has(code)) {
+            setTimeout(() => attempt(n + 1), 500 * n);   // brief backoff, fresh circuit
+            return;
+          }
+          reject(new Error(`request failed: ${(stderr || err.message).trim()}`));
+          return;
+        }
+        resolve(stdout);
+      });
+    };
+    attempt(1);
   });
 }
 

@@ -148,6 +148,10 @@ WEB_FETCH_MAX_CHARS = int(os.environ.get("AVA_WEB_FETCH_MAX_CHARS", "20000"))
 # Max redirect hops fetch will follow (each hop is re-validated against the SSRF
 # guard so a redirect can't bounce into a private address).
 WEB_FETCH_MAX_REDIRECTS = int(os.environ.get("AVA_WEB_FETCH_MAX_REDIRECTS", "4"))
+# Retry a fetch on transient TRANSPORT errors (Tor circuits are flaky, so a single
+# ReadTimeout/ProxyError shouldn't fail an otherwise-fine page). SSRF/policy/HTTP
+# status errors are never retried.
+WEB_FETCH_RETRIES = int(os.environ.get("AVA_WEB_FETCH_RETRIES", "3"))
 # Comma-separated substrings; any fetched/searched hostname containing one is
 # refused outright (belt-and-braces on top of the public-IP-only guard).
 WEB_DOMAIN_DENYLIST = [

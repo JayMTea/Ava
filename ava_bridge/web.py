@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import ipaddress
 import socket
+import time
 from urllib.parse import urlparse, urljoin
 
 import httpx
@@ -162,6 +163,26 @@ def search(query: str, count: int | None = None) -> dict:
             "snippet": (item.get("content") or "").strip(),
             "engine": item.get("engine") or "",
         })
+    # Fall back to SearXNG infoboxes (e.g. Wikipedia) when the general engines
+    # return nothing — common when egress is routed through Tor and Google/Bing
+    # block the exit nodes. Better a real encyclopedic summary than an empty hand.
+    if not results:
+        for box in (data.get("infoboxes") or [])[:limit]:
+            content = (box.get("content") or "").strip()
+            if not content:
+                continue
+            url = (box.get("id") or "").strip()
+            if not url:
+                for u in (box.get("urls") or []):
+                    if u.get("url"):
+                        url = u["url"].strip()
+                        break
+            results.append({
+                "title": (box.get("infobox") or "").strip(),
+                "url": url,
+                "snippet": content,
+                "engine": "infobox",
+            })
     answers = [a for a in (data.get("answers") or []) if a]
     return {"query": query, "count": len(results), "results": results, "answers": answers}
 
@@ -205,51 +226,63 @@ def fetch(url: str) -> dict:
     if config.WEB_TOR:
         client_kwargs["proxy"] = config.WEB_TOR_SOCKS
 
-    current = url
-    hops = 0
-    try:
-        with httpx.Client(**client_kwargs) as client:
-            while True:
-                _validate_fetch_url(current)          # re-validate EVERY hop
-                with client.stream("GET", current) as resp:
-                    # Manual redirect handling so each Location is SSRF-checked.
-                    if resp.is_redirect:
-                        hops += 1
-                        if hops > config.WEB_FETCH_MAX_REDIRECTS:
-                            raise WebAccessError("too many redirects")
-                        loc = resp.headers.get("location", "")
-                        if not loc:
-                            raise WebAccessError("redirect without location")
-                        current = urljoin(current, loc)
-                        continue
+    # Retry transient transport errors (Tor flakiness); never retry deterministic
+    # SSRF/policy/HTTP-status failures.
+    attempts = max(1, int(getattr(config, "WEB_FETCH_RETRIES", 3)))
+    raw = None
+    final_url = url
+    for attempt in range(attempts):
+        current = url
+        hops = 0
+        try:
+            with httpx.Client(**client_kwargs) as client:
+                while True:
+                    _validate_fetch_url(current)          # re-validate EVERY hop
+                    with client.stream("GET", current) as resp:
+                        # Manual redirect handling so each Location is SSRF-checked.
+                        if resp.is_redirect:
+                            hops += 1
+                            if hops > config.WEB_FETCH_MAX_REDIRECTS:
+                                raise WebAccessError("too many redirects")
+                            loc = resp.headers.get("location", "")
+                            if not loc:
+                                raise WebAccessError("redirect without location")
+                            current = urljoin(current, loc)
+                            continue
 
-                    resp.raise_for_status()
-                    ctype = resp.headers.get("content-type", "")
-                    if ctype and not any(t in ctype.lower()
-                                         for t in ("text/html", "text/plain",
-                                                   "application/xhtml", "application/xml",
-                                                   "text/xml")):
-                        raise WebAccessError(f"unsupported content-type: {ctype}")
+                        resp.raise_for_status()
+                        ctype = resp.headers.get("content-type", "")
+                        if ctype and not any(t in ctype.lower()
+                                             for t in ("text/html", "text/plain",
+                                                       "application/xhtml", "application/xml",
+                                                       "text/xml")):
+                            raise WebAccessError(f"unsupported content-type: {ctype}")
 
-                    chunks: list[bytes] = []
-                    total = 0
-                    for chunk in resp.iter_bytes():
-                        total += len(chunk)
-                        if total > config.WEB_FETCH_MAX_BYTES:
-                            break
-                        chunks.append(chunk)
-                    raw = b"".join(chunks)
-                    final_url = str(resp.url)
-                    break
-    except (httpx.ProxyError, httpx.ConnectError) as e:
-        if config.WEB_TOR:
-            # Do NOT fall back to clearnet — that would leak the real IP.
-            raise WebAccessError(
-                "Tor proxy unreachable — refusing to fetch over clearnet "
-                f"(fail-closed to protect your IP). Is ava-tor running? [{e}]") from e
-        raise WebAccessError(f"connection failed: {e}") from e
-    except httpx.HTTPError as e:
-        raise WebAccessError(f"fetch failed: {e}") from e
+                        chunks: list[bytes] = []
+                        total = 0
+                        for chunk in resp.iter_bytes():
+                            total += len(chunk)
+                            if total > config.WEB_FETCH_MAX_BYTES:
+                                break
+                            chunks.append(chunk)
+                        raw = b"".join(chunks)
+                        final_url = str(resp.url)
+                        break
+            break  # fetched OK — leave the retry loop
+        except WebAccessError:
+            raise                                     # deterministic — don't retry
+        except httpx.TransportError as e:             # timeout/proxy/connect/read
+            if attempt + 1 < attempts:
+                time.sleep(0.6 * (attempt + 1))       # brief backoff, fresh circuit
+                continue
+            if config.WEB_TOR and isinstance(e, (httpx.ProxyError, httpx.ConnectError)):
+                # Do NOT fall back to clearnet — that would leak the real IP.
+                raise WebAccessError(
+                    "Tor proxy unreachable — refusing to fetch over clearnet "
+                    f"(fail-closed to protect your IP). Is ava-tor running? [{e}]") from e
+            raise WebAccessError(f"fetch failed after {attempts} tries: {e}") from e
+        except httpx.HTTPError as e:                  # HTTP status etc — not transient
+            raise WebAccessError(f"fetch failed: {e}") from e
 
     html = raw.decode("utf-8", errors="replace")
     text = _extract_text(html, final_url)

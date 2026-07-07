@@ -15,6 +15,26 @@ from typing import Any, Dict, List, Optional
 
 from . import config, connectors
 
+# Physically-impossible throughput ceiling. When gen_seconds rounds to ~0 (a
+# 1-token or cached reply) the logged tokens_per_sec can be thousands-to-millions;
+# left in, those outliers blow up avg/max so the summary reads e.g. "556k tok/s".
+# Mirror perf_store's MAX_TOK_S clamp so the tool's numbers match the dashboard.
+try:
+    from . import settings as _settings
+    MAX_TOK_S = float(_settings.get("perf.max_tok_s", 2000, env="AVA_PERF_MAX_TOK_S") or 2000)
+except Exception:  # noqa: BLE001 — never let config break the reader
+    MAX_TOK_S = 2000.0
+
+
+def _sane_tps(recs: List[dict]) -> List[float]:
+    """tokens_per_sec values with impossible outliers dropped (see MAX_TOK_S)."""
+    out: List[float] = []
+    for r in recs:
+        v = r.get("tokens_per_sec")
+        if isinstance(v, (int, float)) and not isinstance(v, bool) and 0 < v <= MAX_TOK_S:
+            out.append(v)
+    return out
+
 # app-key -> the on-disk performance.jsonl each project appends to. Derived from
 # the connector registry (each connector may declare a `perf.path`); the literal
 # dict below is a safety fallback if no connectors are present.
@@ -88,7 +108,7 @@ def _summarize(rows: List[dict]) -> dict:
         out["llm"] = {
             label: {
                 "count": len(recs),
-                "tokens_per_sec": _stats([r.get("tokens_per_sec") for r in recs]),
+                "tokens_per_sec": _stats(_sane_tps(recs)),
                 "ttft_ms": _stats([r.get("ttft_ms") for r in recs]),
                 "completion_tokens": _stats([r.get("completion_tokens") for r in recs]),
                 "failovers": sum(1 for r in recs if r.get("failover")),

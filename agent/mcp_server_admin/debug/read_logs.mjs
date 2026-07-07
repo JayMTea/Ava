@@ -41,19 +41,16 @@ export default {
 
   async handler(args, ctx) {
     try {
-      const response = await fetch(`${BRIDGE}/internal/logs`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Ava-Internal-Token": ctx.internalToken || "",
-        },
-        body: JSON.stringify(args),
+      // Use the sandbox http helper (curl-based, proxy/CA aware), NOT Node's
+      // built-in fetch, which the deny-by-default network guard blocks/hangs —
+      // that was the real "fetch failed" the model kept reporting.
+      const data = await ctx.http.postJson(`${BRIDGE}/internal/logs`, args, {
+        direct: false, timeout: 20,
+        headers: { "X-Ava-Internal-Token": ctx.internalToken || "" },
       });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        return `Error reading logs: ${data.error || response.statusText}`;
+      if (!data || (data.ok === false && data.error)) {
+        return `Error reading logs: ${(data && data.error) || "bridge unreachable"}`;
       }
 
       // Format output nicely
