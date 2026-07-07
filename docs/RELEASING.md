@@ -13,7 +13,7 @@ SBOM + checksums, and creates the GitHub Release. Pre-1.0 tags (`v0.x.y`) signal
 - Ensure your commit/tag signing key is set up (`git config user.signingkey`,
   `commit.gpgsign` or SSH signing). Add the public key to your GitHub account so
   tags show "Verified".
-- The release workflow pushes to `ghcr.io/<owner>/ava-bridge` automatically using
+- The release workflow pushes to `ghcr.io/jaymtea/ava-bridge` automatically using
   the built-in `GITHUB_TOKEN` — no secrets to configure. First push may require
   making the package public (repo → Packages → package settings).
 
@@ -35,7 +35,7 @@ SBOM + checksums, and creates the GitHub Release. Pre-1.0 tags (`v0.x.y`) signal
    git push origin vX.Y.Z
    ```
 5. The release workflow runs. When it finishes, the GitHub Release is created and
-   `ghcr.io/<owner>/ava-bridge:vX.Y.Z` (+ `X.Y`, `latest`) is published and signed.
+   `ghcr.io/jaymtea/ava-bridge:vX.Y.Z` (+ `X.Y`, `latest`) is published and signed.
 
 ## Verifying (anyone)
 

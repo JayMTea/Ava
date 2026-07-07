@@ -129,17 +129,18 @@ identity is the GitHub Actions release workflow, so you can prove an image came
 from this repo's CI and wasn't tampered with. Verify before running:
 
 ```bash
-# Replace <owner> with the repository owner and vX.Y.Z with the release tag.
-cosign verify ghcr.io/<owner>/ava-bridge:vX.Y.Z \
-  --certificate-identity-regexp "https://github.com/<owner>/.+/.github/workflows/release.yml@refs/tags/vX.Y.Z" \
+# vX.Y.Z = the release tag. (For a fork, swap in your own owner/repo — note the
+# registry path is lowercased, while the cert-identity keeps the repo's case.)
+cosign verify ghcr.io/jaymtea/ava-bridge:vX.Y.Z \
+  --certificate-identity-regexp "https://github.com/JayMTea/.+/.github/workflows/release.yml@refs/tags/vX.Y.Z" \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
 The build also attaches an **SBOM** and **SLSA provenance** attestation:
 
 ```bash
-cosign verify-attestation --type spdxjson ghcr.io/<owner>/ava-bridge:vX.Y.Z ...
-docker buildx imagetools inspect ghcr.io/<owner>/ava-bridge:vX.Y.Z   # shows arches + attestations
+cosign verify-attestation --type spdxjson ghcr.io/jaymtea/ava-bridge:vX.Y.Z ...
+docker buildx imagetools inspect ghcr.io/jaymtea/ava-bridge:vX.Y.Z   # shows arches + attestations
 ```
 
 Each GitHub Release additionally ships a source SBOM (`ava-sbom.cyclonedx.json`)

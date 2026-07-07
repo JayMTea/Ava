@@ -29,7 +29,7 @@ services:
         AVA_VERSION: ${AVA_VERSION:-}
         AVA_REVISION: ${AVA_REVISION:-}
     # Local build tag by default. To run the SIGNED published image instead:
-    #   AVA_IMAGE=ghcr.io/<owner>/ava-bridge:v0.1.0  (then `docker compose pull`)
+    #   AVA_IMAGE=ghcr.io/jaymtea/ava-bridge:v0.1.0  (then `docker compose pull`)
     # Verify it first — see deploy/README.md "Verified install".
     image: ${AVA_IMAGE:-ava/bridge:latest}
     environment:
