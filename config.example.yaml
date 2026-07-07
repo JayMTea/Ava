@@ -153,12 +153,29 @@ agent:
   # required=false, Ava falls back to DIRECT tool-less chat so a fresh install
   # still works; set required=true to make the full runtime mandatory.
 
+# ── Self-editing: how Ava's code-change agent applies edits to its OWN repo ──
+# (secrets, models/ and .git are ALWAYS hard-denied regardless of this setting)
+code:
+  approval: all            # [AVA_CODE_APPROVAL]
+                           #   all    = every non-denied edit waits for your
+                           #            approval (safe default for a fork)
+                           #   policy = only sensitive paths (auth/config/deploy)
+                           #            are gated; other edits auto-commit to git
+                           #   none   = auto-apply all non-denied edits (trusted box)
+
 # ── Optional capabilities (default OFF so a fresh install is minimal) ────────
 features:
   voice: false             # push-to-talk STT/TTS
   voiceprint: false        # speaker verification (personal; requires enrollment)
   web_search: false        # self-hosted SearXNG + guarded fetch
   image: true              # GPU workloads via the gpu-service connector
+  learning: true           # [AVA_LEARNING] periodic local-first self-analysis:
+                           #   parks code/chat improvement proposals for approval
+
+# ── Self-analysis cadence (only used when features.learning is true) ─────────
+learning:
+  interval_hours: 24       # [AVA_LEARNING_INTERVAL_H] how often a cycle runs
+                           #   (also runnable on demand from the Learning page)
 
 # ── Connectors: the apps Ava monitors & drives (see docs/PACKAGING_PLAN.md §5.3)
 connectors:

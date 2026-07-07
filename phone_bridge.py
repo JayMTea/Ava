@@ -60,6 +60,7 @@ from ava_bridge import dashboard, connectors, perf_store, devices
 from ava_bridge import code_agent
 from ava_bridge import hardware
 from ava_bridge import web as web_access
+from ava_bridge import learning
 from ava_bridge.learning import CodeLearner, ChatLearner
 _AVA_VERSION = _ava_version()
 # Shared-state aliases so the route bodies below read naturally (same objects).
@@ -221,6 +222,9 @@ def _startup():
     # Start the in-process perf-log rollup (bounds raw storage + serves cold history
     # for month-range charts). Portable — no systemd timer. See ava_bridge/perf_store.
     perf_store.start_scheduler()
+    # Start the in-process self-analysis/learning scheduler (local-first; parks
+    # improvement proposals for approval). No-op if features.learning is false.
+    learning.start_scheduler()
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -1551,6 +1555,14 @@ def code_models():
 
 
 # ---- Learning system endpoints (code improvement proposals + feedback) --------
+
+@app.post("/api/learning/run")
+async def learning_run():
+    """Manually trigger a learning cycle now (the Learning page 'Run now' button).
+    Analyzes recent code + chat activity locally and parks any proposals."""
+    summary = await learning.run_all_cycles()
+    return {"ok": True, **summary}
+
 
 @app.get("/api/learning/code/state")
 def learning_code_state():

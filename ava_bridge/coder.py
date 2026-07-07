@@ -350,24 +350,21 @@ def _apply_inline_fix(error_msg: str, context: dict) -> tuple[bool, str, bool]:
         learning.code_learner.record_inline_fix(error_msg, description, False, critical=True)
         return False, description, True
     
-    # File too large: reduce batch size for search/read
+    # For the recoverable cases below the actual mechanism is the same: return
+    # fixed=True so the turn loop retries with the error text in context and the
+    # model adapts. We record an honest description of that — no hidden "fix".
     if "file" in error_lower and ("large" in error_lower or "size" in error_lower):
-        context["reduce_file_size"] = True
-        description = "Reduced file read batch size for large files"
+        description = "Large-file error — retrying so the model reads a narrower range"
         learning.code_learner.record_inline_fix(error_msg, description, True, critical=False)
         return True, description, False
-    
-    # Timeout on operation: add caching hint
+
     if "timeout" in error_lower or "timed out" in error_lower:
-        context["add_caching"] = True
-        description = "Added caching hint for slow queries"
+        description = "Timed out — retrying the operation"
         learning.code_learner.record_inline_fix(error_msg, description, True, critical=False)
         return True, description, False
-    
-    # Search pattern error: simplify regex
+
     if "search" in error_lower and ("pattern" in error_lower or "regex" in error_lower):
-        context["simplify_search"] = True
-        description = "Simplified search pattern for robustness"
+        description = "Search pattern error — retrying with a simpler query"
         learning.code_learner.record_inline_fix(error_msg, description, True, critical=False)
         return True, description, False
     

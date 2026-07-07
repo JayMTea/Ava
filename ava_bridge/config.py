@@ -144,6 +144,23 @@ CODE_MAX_TOKENS = int(os.environ.get("AVA_CODE_MAX_TOKENS", "8192"))
 CODE_MAX_ITERS = int(os.environ.get("AVA_CODE_MAX_ITERS", "18"))
 CODE_MAX_FILE_BYTES = int(os.environ.get("AVA_CODE_MAX_FILE_BYTES", str(400 * 1024)))
 
+# Approval mode for edits to Ava's OWN repo (secrets/models/.git are hard-denied
+# regardless). "all" = every non-denied edit parks for your approval (safe
+# default so a fork never silently self-commits); "policy" = only sensitive
+# globs (auth/config/deploy) are gated, other edits auto-commit; "none" =
+# auto-apply all non-denied edits (trusted single-owner box).
+CODE_APPROVAL = settings.get(
+    "code.approval", "all", env="AVA_CODE_APPROVAL").strip().lower()
+if CODE_APPROVAL not in ("all", "policy", "none"):
+    CODE_APPROVAL = "all"
+
+# --- Self-analysis / learning cycles ---------------------------------------- #
+# Ava periodically analyzes her own code activity + chat history (local-first)
+# and parks improvement proposals for approval. See ava_bridge/learning.py.
+LEARNING_ENABLED = settings.get_bool("features.learning", True, env="AVA_LEARNING")
+LEARNING_INTERVAL_H = settings.get_int("learning.interval_hours", 24,
+                                       env="AVA_LEARNING_INTERVAL_H")
+
 # ---- Multi-repo code changes -------------------------------------------------
 # Ava's code-change engine normally edits her OWN repo (ROOT), auto-applying safe
 # edits. It can ALSO edit additional "connected" projects under far stricter rules

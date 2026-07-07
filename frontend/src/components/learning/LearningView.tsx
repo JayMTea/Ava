@@ -338,6 +338,8 @@ export function LearningView({ embedded = false }: { embedded?: boolean } = {}) 
   const [error, setError] = useState('');
   const [selApp, setSelApp] = useState<string | null>(null);
   const [appTab, setAppTab] = useState<LearnContext>('code');
+  const [running, setRunning] = useState(false);
+  const [runNote, setRunNote] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -357,6 +359,21 @@ export function LearningView({ embedded = false }: { embedded?: boolean } = {}) 
 
   useEffect(() => {
     load();
+  }, [load]);
+
+  // Trigger a learning cycle now (local-first analysis of recent activity).
+  const runNow = useCallback(async () => {
+    setRunning(true);
+    setRunNote('');
+    try {
+      const r = await learning.run();
+      const n = (r.code_proposals || 0) + (r.chat_proposals || 0);
+      setRunNote(n > 0 ? `Added ${n} proposal${n === 1 ? '' : 's'}` : 'Analyzed — no new proposals');
+      await load();
+    } catch (e) {
+      setRunNote((e as Error).message);
+    }
+    setRunning(false);
   }, [load]);
 
   // Flatten every proposal, tagged with its context + app.
@@ -432,9 +449,24 @@ export function LearningView({ embedded = false }: { embedded?: boolean } = {}) 
                 : 'Review and approve the changes Ava proposes across every connected app.'}
             </p>
           </div>
-          <button className="lv-refresh" onClick={load} title="Refresh" aria-label="Refresh">
-            <Icon name="refresh" />
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {runNote && <span className="lv-run-note" style={{ fontSize: 12, opacity: 0.7 }}>{runNote}</span>}
+            {!selApp && (
+              <button
+                className="lv-refresh"
+                onClick={runNow}
+                disabled={running}
+                title="Run a learning cycle now — analyze recent activity locally"
+                style={{ width: 'auto', padding: '0 12px', gap: 6, display: 'inline-flex', alignItems: 'center' }}
+              >
+                <Icon name={running ? 'refresh' : 'bot'} />
+                <span style={{ fontSize: 13 }}>{running ? 'Analyzing…' : 'Run now'}</span>
+              </button>
+            )}
+            <button className="lv-refresh" onClick={load} title="Refresh" aria-label="Refresh">
+              <Icon name="refresh" />
+            </button>
+          </div>
         </div>
 
         {loading ? (

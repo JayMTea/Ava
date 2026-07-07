@@ -173,8 +173,12 @@ def _park_for_approval(edits: list[dict], request: str, reply: str,
     removed = sum(e.get("removed", 0) for e in edits)
     label = _project_cfg(project).get("label", project)
     if project == "ava":
-        why = ("Touches a protected file (auth / config / policy / deploy) — "
-               "needs your approval before it is applied.")
+        if config.CODE_APPROVAL == "all":
+            why = ("code.approval is 'all' — every code change waits for your "
+                   "approval before it is applied.")
+        else:
+            why = ("Touches a protected file (auth / config / policy / deploy) — "
+                   "needs your approval before it is applied.")
     else:
         why = (f"Change to the external '{label}' project — every edit there needs "
                "your approval, lands on a review branch (never the mainline), and "
@@ -307,6 +311,18 @@ def run_change_request(request: str, context: str = "", files: list[str] | None 
                 "files_changed": [], "errors": []}
 
     buckets = access_policy.classify_edits(edits, project)
+
+    # Honor code.approval for edits to Ava's OWN repo. Denied paths are never
+    # promoted; external projects are always approval-only (classify_edits
+    # already routes them), so this only re-buckets project == "ava".
+    if project == "ava":
+        if config.CODE_APPROVAL == "all":       # safe fork default: gate everything
+            buckets["approval"] = buckets["auto"] + buckets["approval"]
+            buckets["auto"] = []
+        elif config.CODE_APPROVAL == "none":     # trusted box: auto-apply non-denied
+            buckets["auto"] = buckets["auto"] + buckets["approval"]
+            buckets["approval"] = []
+
     result = {"summary": reply, "files_changed": [], "errors": [],
               "git_commit": None, "pending_approval": [], "project": project}
 

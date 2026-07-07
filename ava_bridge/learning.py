@@ -1,4 +1,4 @@
-"""Recursive learning engine — separate contexts for code-mode vs chat.
+"""Self-analysis / learning engine — separate contexts for code vs chat.
 
 Code Learning: Analyzes Ava's code edits, commits, inline fixes. Proposes
   optimizations, new features, refactoring. ALL proposals require user approval.
@@ -10,14 +10,116 @@ Chat Learning: Analyzes user-Ava conversations, common topics, questions,
 Inline Error Fixes: Automatic (no approval) unless marked critical.
   Critical errors (permission denied, path escapes, destructive ops) are
   flagged for manual review instead.
+
+LOCAL-FIRST: cycle analysis is a summarization task, so it runs on Ava's own
+router (the local Omni brain) and only falls back to the Anthropic key when the
+router is unreachable — the learner is not cloud-dependent. Cycles run on an
+in-process schedule (`start_scheduler`, see config `features.learning` /
+`learning.interval_hours`) and on demand via `run_all_cycles()`.
 """
+import asyncio
 import json
 import re
+import threading
+import time
 import uuid
 from collections import Counter
 from datetime import datetime
 
+import httpx
+
 from . import state, config
+
+
+# --------------------------------------------------------------------------- #
+# LLM access — local-first. Every path is best-effort: a learning cycle must
+# NEVER raise into the scheduler or an API handler, so all failures return
+# None/[] rather than propagating.
+# --------------------------------------------------------------------------- #
+async def _complete_local(prompt: str, max_tokens: int) -> str | None:
+    """Ask Ava's own router (local Omni brain). Returns the reply text or None."""
+    try:
+        headers = {}
+        if config.ROUTER_TOKEN:
+            headers["X-Ava-Router-Token"] = config.ROUTER_TOKEN
+        if config.INFERENCE_KEY:  # cloud-backed router auth, if configured
+            headers["Authorization"] = "Bearer " + config.INFERENCE_KEY
+        async with httpx.AsyncClient(timeout=45) as client:
+            r = await client.post(
+                config.ROUTER_CHAT_URL, headers=headers,
+                json={"messages": [{"role": "user", "content": prompt}],
+                      "max_tokens": max_tokens, "stream": False},
+            )
+        if r.status_code != 200:
+            return None
+        data = r.json()
+        text = (((data.get("choices") or [{}])[0].get("message") or {})
+                .get("content") or "").strip()
+        return text or None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+async def _complete_anthropic(prompt: str, max_tokens: int) -> str | None:
+    """Fallback to the Anthropic key when the local router can't answer."""
+    if not config.ANTHROPIC_API_KEY:
+        return None
+    try:
+        headers = {
+            "x-api-key": config.ANTHROPIC_API_KEY,
+            "anthropic-version": config.ANTHROPIC_VERSION,
+            "content-type": "application/json",
+        }
+        body = {"model": config.CODE_MODEL, "max_tokens": max_tokens,
+                "messages": [{"role": "user", "content": prompt}]}
+        async with httpx.AsyncClient(timeout=45) as client:
+            r = await client.post(f"{config.ANTHROPIC_BASE}/v1/messages",
+                                  headers=headers, json=body)
+        if r.status_code != 200:
+            return None
+        resp = r.json()
+        return next((b["text"] for b in resp.get("content", [])
+                     if b.get("type") == "text"), "") or None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _parse_proposals(text: str, ptype: str) -> list[dict]:
+    """Extract a JSON list of proposals from a model reply and normalize them."""
+    match = re.search(r"\[.*\]", text, re.DOTALL)
+    if not match:
+        return []
+    try:
+        raw = json.loads(match.group())
+    except (ValueError, TypeError):
+        return []
+    proposals = []
+    for p in (raw if isinstance(raw, list) else [])[:3]:
+        if not isinstance(p, dict):
+            continue
+        proposals.append({
+            "id": f"prop_{uuid.uuid4().hex[:8]}",
+            "title": p.get("title") or p.get("what") or "Untitled",
+            "description": p.get("description") or p.get("what") or "",
+            "why": p.get("why") or p.get("reason") or "",
+            "risk": str(p.get("risk", "medium")).lower(),
+            "effort": p.get("effort", ""),
+            "type": ptype,
+            "status": "pending",
+            "requires_approval": True,
+            "source": "learning",  # vs the code_agent audit log (source absent)
+        })
+    return proposals
+
+
+async def _llm_propose(prompt: str, ptype: str, max_tokens: int = 1200) -> list[dict]:
+    """Local-first proposal generation: router → Anthropic fallback → parse."""
+    text = await _complete_local(prompt, max_tokens)
+    if not text:
+        text = await _complete_anthropic(prompt, max_tokens)
+    if not text:
+        return []
+    return _parse_proposals(text, ptype)
 
 
 class BaseLearner:
@@ -142,68 +244,16 @@ Applied changes: {patterns.get('changes_applied')}
 Rejected changes: {patterns.get('changes_rejected')}
 Recent errors: {json.dumps(patterns.get('recent_errors', []), indent=2)}
 
-Based on these patterns, suggest 2-3 code improvements:
-1. What to improve (file, function, architecture)
-2. Why (performance, maintainability, testing)
-3. Risk level: low/medium/high
-4. Estimated effort: minutes/hours
+Based on these patterns, suggest 2-3 code improvements. For each give:
+1. "title": short name
+2. "description": what to improve (file, function, architecture)
+3. "why": performance, maintainability, testing
+4. "risk": low/medium/high
+5. "effort": minutes/hours
 
-Format as JSON list. Keep descriptions concise."""
+Reply with ONLY a JSON list of objects with those keys. Keep it concise."""
 
-        try:
-            if not config.ANTHROPIC_API_KEY:
-                return []
-
-            import httpx
-
-            headers = {
-                "x-api-key": config.ANTHROPIC_API_KEY,
-                "anthropic-version": config.ANTHROPIC_VERSION,
-                "content-type": "application/json",
-            }
-            body = {
-                "model": config.CODE_MODEL,
-                "max_tokens": 1500,
-                "messages": [{"role": "user", "content": prompt}],
-            }
-            async with httpx.AsyncClient(timeout=30) as client:
-                r = await client.post(
-                    f"{config.ANTHROPIC_BASE}/v1/messages",
-                    headers=headers,
-                    json=body,
-                )
-                if r.status_code != 200:
-                    return []
-                resp = r.json()
-
-            text = next(
-                (block["text"] for block in resp.get("content", []) if block.get("type") == "text"),
-                "",
-            )
-            match = re.search(r"\[.*\]", text, re.DOTALL)
-            if not match:
-                return []
-            proposals_raw = json.loads(match.group())
-
-            proposals = []
-            for p in proposals_raw[:3]:
-                proposals.append(
-                    {
-                        "id": f"prop_{uuid.uuid4().hex[:8]}",
-                        "title": p.get("title", "Untitled"),
-                        "description": p.get("description", ""),
-                        "why": p.get("why", ""),
-                        "risk": p.get("risk", "medium").lower(),
-                        "effort": p.get("effort", ""),
-                        "type": "code_improvement",
-                        "code_turn_id": None,
-                        "status": "pending",
-                        "requires_approval": True,
-                    }
-                )
-            return proposals
-        except Exception:
-            return []
+        return await _llm_propose(prompt, "code_improvement")
 
     async def run_learning_cycle(self, code_turns: list[dict]) -> dict:
         """Full cycle: analyze code patterns, propose improvements."""
@@ -294,15 +344,16 @@ Recent errors: {json.dumps(patterns.get('errors', []), indent=2)}
 Tool usage: {json.dumps(patterns.get('tools_usage', {}), indent=2)}
 Capability gaps: {json.dumps(patterns.get('capability_gaps', []), indent=2)}
 
-Suggest 2-3 improvements to help me better serve users:
-1. What to add (skill, tool, documentation, config change)
-2. Why this matters (UX, capability, performance)
-3. Risk level: low/medium/high
-4. Estimated effort: minutes/hours
+Suggest 2-3 improvements to help me better serve users. For each give:
+1. "title": short name
+2. "description": what to add (skill, tool, documentation, config change)
+3. "why": UX, capability, performance
+4. "risk": low/medium/high
+5. "effort": minutes/hours
 
-Format as JSON list."""
+Reply with ONLY a JSON list of objects with those keys."""
 
-        return []
+        return await _llm_propose(prompt, "chat_improvement")
 
     async def run_learning_cycle(self, turns: list[dict]) -> dict:
         """Full cycle: analyze chat patterns, propose improvements."""
@@ -315,3 +366,56 @@ Format as JSON list."""
 # Singleton learner instances
 code_learner = CodeLearner()
 chat_learner = ChatLearner()
+
+
+# --------------------------------------------------------------------------- #
+# Orchestration + in-process scheduler
+# --------------------------------------------------------------------------- #
+async def run_all_cycles() -> dict:
+    """Run one code + one chat learning cycle from live in-memory activity.
+
+    Best-effort and self-contained — safe to call from the scheduler or an API
+    handler. Reads chat turns from state.turns and code turns from
+    state.code_turns, persists any proposals, and returns a small summary."""
+    with state.turns_lock:
+        chat_turns = list(state.turns.values())
+    with state.code_turns_lock:
+        code_activity = list(state.code_turns.values())
+
+    summary = {"ran": True, "code_proposals": 0, "chat_proposals": 0,
+               "chat_turns": len(chat_turns), "code_turns": len(code_activity)}
+    try:
+        cyc = await code_learner.run_learning_cycle(code_activity)
+        summary["code_proposals"] = len(cyc.get("proposals", []))
+    except Exception:  # noqa: BLE001
+        summary["code_error"] = True
+    try:
+        cyc = await chat_learner.run_learning_cycle(chat_turns)
+        summary["chat_proposals"] = len(cyc.get("proposals", []))
+    except Exception:  # noqa: BLE001
+        summary["chat_error"] = True
+    return summary
+
+
+_SCHED_STARTED = False
+
+
+def _scheduler_loop() -> None:
+    interval = max(3600.0, config.LEARNING_INTERVAL_H * 3600.0)
+    while True:
+        time.sleep(interval)  # first cycle after one interval — no LLM call at boot
+        try:
+            asyncio.run(run_all_cycles())
+        except Exception:  # noqa: BLE001 — a learning failure must never take the bridge down
+            pass
+
+
+def start_scheduler() -> None:
+    """Start the in-process learning scheduler once (idempotent). No-op when
+    learning is disabled (`features.learning: false`). Portable — no systemd
+    timer; runs the same on a host, in Docker, or on a Mac."""
+    global _SCHED_STARTED
+    if _SCHED_STARTED or not config.LEARNING_ENABLED:
+        return
+    _SCHED_STARTED = True
+    threading.Thread(target=_scheduler_loop, daemon=True, name="ava-learning").start()

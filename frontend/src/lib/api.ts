@@ -116,6 +116,11 @@ export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // ---- Learning ---------------------------------------------------------------
 export const learning = {
   state: (ctx: LearnContext) => req<LearningState>(`/api/learning/${ctx}/state`),
+  run: () =>
+    req<{ ok: boolean; code_proposals?: number; chat_proposals?: number; chat_turns?: number; code_turns?: number }>(
+      '/api/learning/run',
+      { method: 'POST' },
+    ),
   apply: (ctx: LearnContext, id: string) =>
     req<LearningActionResult>(`/api/learning/${ctx}/apply?proposal_id=${encodeURIComponent(id)}`, { method: 'POST' }),
   reject: (ctx: LearnContext, id: string) =>
