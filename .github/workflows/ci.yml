@@ -74,6 +74,14 @@ jobs:
           echo "::error::bridge did not become healthy in time"
           kill $SERVER_PID 2>/dev/null || true
           exit 1
+      - name: Verify claims end-to-end (connectors, learning, governance)
+        # Fails the build on generator drift, tool<->policy gaps, a secret path
+        # that isn't denied, missing learning wiring, or the digest '?' bug.
+        # Optional capabilities (voice) and down services only warn.
+        env:
+          AVA_HOME: ${{ runner.temp }}/ava-home
+          AVA_AGENT_ENABLED: "0"
+        run: python ava_cli.py verify
 
   secrets-scan:
     runs-on: ubuntu-latest

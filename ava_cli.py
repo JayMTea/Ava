@@ -227,6 +227,122 @@ def cmd_up(args) -> int:
     return subprocess.call(cmd, cwd=settings.CODE_ROOT)
 
 
+def cmd_verify(_args) -> int:
+    """End-to-end claim check: exercise the golden path and confirm each
+    advertised capability is actually wired. Prints ✓ / ● / ✗ per check and
+    exits non-zero if any HARD check (✗) fails. ● (warn) never fails the run —
+    it flags an optional capability that isn't set up, not a broken claim."""
+    import yaml as _yaml
+    from ava_bridge import connectors, config, access_policy, learning
+    import ava_learning_digest as _dig
+
+    print(f"\n{B}Ava verify{X}  (AVA_HOME = {settings.AVA_HOME})\n")
+    fails = 0
+
+    # 1. Connector SDK — one manifest generates tools + egress policy, in lockstep
+    print("Connector SDK  (manifest → tools + egress policy)")
+    pol_dir = os.path.join(settings.CODE_ROOT, "agent", "policies", "generated")
+    tool_root = os.path.join(settings.CODE_ROOT, "agent", "mcp_server_content", "connectors")
+    pol_drift, tool_drift, lockstep_gap = [], [], []
+    if os.path.isdir(pol_dir):
+        for name in sorted(os.listdir(pol_dir)):
+            if not name.endswith(".yaml"):
+                continue
+            pol = connectors.render_egress_policy(name[:-5])
+            with open(os.path.join(pol_dir, name), encoding="utf-8") as f:
+                committed = f.read()
+            if pol is None or _yaml.safe_dump(pol, sort_keys=False) != committed:
+                pol_drift.append(name)
+    for cid, m in {x["id"]: x for x in connectors.all()}.items():
+        pol = connectors.render_egress_policy(cid) or {}
+        allowed = {(r.get("allow", {}).get("method"), r.get("allow", {}).get("path"))
+                   for np in pol.get("network_policies", {}).values()
+                   for ep in np.get("endpoints", []) for r in ep.get("rules", [])}
+        for a in connectors._static_actions(m):
+            if not (a.get("id") and a.get("path")):
+                continue
+            tp = os.path.join(tool_root, cid, f"{cid}_{a['id']}.mjs")
+            if not os.path.exists(tp):
+                tool_drift.append(f"{cid}_{a['id']} (missing)")
+            else:
+                with open(tp, encoding="utf-8") as f:
+                    if connectors.render_tool(cid, a) != f.read():
+                        tool_drift.append(f"{cid}_{a['id']}")
+            route = f"/internal/connector/{cid}/{a['id']}"
+            if ("GET", route) not in allowed or ("POST", route) not in allowed:
+                lockstep_gap.append(f"{cid}_{a['id']}")
+    _row(BAD if pol_drift else OK, "egress policies",
+         f"{len(pol_drift)} stale — `ava connector policies --write`" if pol_drift
+         else "match committed (regen clean)")
+    _row(BAD if tool_drift else OK, "agent tools",
+         f"{len(tool_drift)} stale — `ava connector tools --write`" if tool_drift
+         else "match committed (regen clean)")
+    _row(BAD if lockstep_gap else OK, "tool <-> policy",
+         f"{len(lockstep_gap)} route(s) not allow-listed" if lockstep_gap
+         else "every action route allow-listed")
+    fails += bool(pol_drift) + bool(tool_drift) + bool(lockstep_gap)
+
+    # 2. Self-editing governance
+    print("\nSelf-editing governance")
+    _row(OK if config.CODE_APPROVAL in ("all", "policy", "none") else BAD,
+         "code.approval", config.CODE_APPROVAL)
+    denied_ok = (access_policy.classify(".env") == "denied"
+                 and access_policy.classify("models/voiceprint.npy") == "denied")
+    _row(OK if denied_ok else BAD, "secrets hard-denied",
+         ".env / models/** never writable" if denied_ok else "A SECRET PATH IS NOT DENIED")
+    gated_ok = access_policy.classify("ava_bridge/auth.py") == "approval"
+    _row(OK if gated_ok else WARN, "sensitive gated",
+         "auth/config -> approval" if gated_ok else "auth.py not gated?")
+    _row(OK if config.ANTHROPIC_API_KEY else WARN, "code model key",
+         "ANTHROPIC_API_KEY present" if config.ANTHROPIC_API_KEY
+         else "absent — self-edit disabled until set")
+    fails += (not denied_ok)
+
+    # 3. Learning (self-analysis)
+    print("\nLearning (self-analysis)")
+    _row(OK if config.LEARNING_ENABLED else WARN, "features.learning",
+         f"on · every {config.LEARNING_INTERVAL_H}h" if config.LEARNING_ENABLED else "off")
+    has_sched = callable(getattr(learning, "start_scheduler", None)) and \
+        callable(getattr(learning, "run_all_cycles", None))
+    _row(OK if has_sched else BAD, "cycle wiring",
+         "scheduler + run_all_cycles present" if has_sched else "MISSING")
+    html, _ = _dig.format_digest_html(
+        {"cycles": [{"id": "c", "proposals": []}],
+         "inline_fixes": [{"fix_applied": "raised timeout", "critical": False}]}, {})
+    digest_ok = "raised timeout" in html and "<li>?" not in html
+    _row(OK if digest_ok else BAD, "digest content",
+         "renders real data" if digest_ok else "placeholder '?' bug")
+    fails += (not has_sched) + (not digest_ok)
+
+    # 4. Voice / biometric (optional capability)
+    print("\nVoice / biometric")
+    voice_on = settings.get_bool("features.voice", False, env="AVA_VOICE")
+    enrolled = any(os.path.exists(os.path.join(base, "models", "voiceprint.npy"))
+                   for base in (settings.AVA_HOME, settings.CODE_ROOT))
+    if not voice_on:
+        _row(WARN, "features.voice", "off (enable + enroll for voiceprint gate)")
+    else:
+        _row(OK if enrolled else WARN, "voiceprint",
+             "enrolled" if enrolled else "voice on but no voiceprint — run enrollment")
+
+    # 5. Inference + health (best-effort; needs services up)
+    print("\nInference / health  (best-effort — needs `ava up`)")
+    port = settings.get_int("server.port", 8096, env="AVA_PORT")
+    _row(OK if _probe(config.ROUTER_CHAT_URL.replace("/v1/chat/completions", "/healthz")) else WARN,
+         "router", "up" if _probe(config.ROUTER_CHAT_URL.replace("/v1/chat/completions", "/healthz"))
+         else "not reachable (start with `ava up`)")
+    _row(OK if _probe(f"http://127.0.0.1:{port}/api/health") else WARN,
+         "bridge health", "serving" if _probe(f"http://127.0.0.1:{port}/api/health")
+         else "not serving (start with `ava up`)")
+
+    print()
+    if fails:
+        print(f"{BAD} verify: {fails} hard check(s) failed — fix the ✗ rows above.\n")
+        return 1
+    print(f"{OK} verify: all hard checks passed. (● rows are optional capabilities.)\n")
+    return 0
+
+
 def cmd_version(_args) -> int:
     rev = revision()
     print(f"ava {__version__}" + (f" ({rev})" if rev else ""))
@@ -766,6 +882,7 @@ def main() -> int:
     p = argparse.ArgumentParser(prog="ava", description="Ava control CLI")
     sub = p.add_subparsers(dest="cmd")
     sub.add_parser("doctor", help="check the environment").set_defaults(func=cmd_doctor)
+    sub.add_parser("verify", help="end-to-end claim check (connectors, learning, governance, health)").set_defaults(func=cmd_verify)
     sp = sub.add_parser("setup", help="first-run setup (dirs, secrets, password, ava.yaml)")
     sp.add_argument("--password", help="set the admin password (else one is generated)")
     sp.add_argument("--force", action="store_true", help="overwrite an existing password")
