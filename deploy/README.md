@@ -27,12 +27,33 @@ admin password (nothing to hunt for in logs).
 - Pin the admin password ahead of time with `AVA_PASSWORD=...` in `deploy/.env`
   (otherwise the first-run screen sets it).
 - Choose a model with `AVA_MODEL=...` (gpu profile) or via `ava.yaml`.
-- **Inference endpoint**: the container chats in direct mode against
-  `AVA_INFERENCE_URL`. Each profile sets a default (gpu→vllm, cpu→ollama); for
-  `cloud`, set `AVA_INFERENCE_URL` + `AVA_INFERENCE_KEY` in `deploy/.env`.
-- The full **tool-using agent** (self-coding, connectors) needs the OpenClaw
-  runtime, which isn't bundled in this image; the container runs the tool-less
-  assistant. See the agent-runtime notes in the main docs.
+- **Inference backend**: chat flows bridge → embedded router (`:8010` in-container)
+  → the profile's engine. Each profile sets `AVA_BACKEND_URL`/`ENGINE`/`MODEL`
+  defaults (gpu→vllm, cpu→ollama); for `cloud`, set them + `AVA_INFERENCE_KEY` in
+  `deploy/.env` (see the compose header).
+- The container runs the tool-less assistant by default. For the **full
+  tool-using agent** (self-coding, connectors, memory) in Docker, opt into the
+  `agent` profile (`AVA_AGENT_ENABLED=1 AVA_AGENT_RUNTIME=remote
+  AVA_ROUTER_HOST=0.0.0.0`, then `docker compose --profile agent up -d`). It runs
+  a separate agent container that mounts the host Docker socket
+  (**root-equivalent** — opt-in for that reason). Full setup + security caveat:
+  [AGENT_RUNTIME.md → Full agent in Docker](../docs/AGENT_RUNTIME.md).
+
+### Verified install (recommended)
+
+Published images are **cosign-signed** (Sigstore keyless — the signature proves
+the image came from this repo's release CI). Pull the signed image instead of
+building locally by setting `AVA_IMAGE` in `deploy/.env`, and verify it first:
+
+```bash
+# Verify the release image (see SECURITY.md §9 for the exact identity regex):
+cosign verify ghcr.io/<owner>/ava-bridge:v0.1.0 \
+  --certificate-identity-regexp "https://github.com/<owner>/.+/release.yml@refs/tags/v0.1.0" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+
+echo "AVA_IMAGE=ghcr.io/<owner>/ava-bridge:v0.1.0" >> deploy/.env
+docker compose --profile gpu pull && docker compose --profile gpu up -d
+```
 
 One-line install on a fresh box (auto-detects GPU/CPU). Run it from inside your
 clone, or point `AVA_REPO` at your fork:
@@ -44,8 +65,9 @@ AVA_REPO=https://github.com/<you>/ava.git bash -c "$(curl -fsSL https://raw.gith
 ```
 
 > Note: `ollama`/`vllm`/`gpu-service` are upstream images (override `gpu-service` with
-> `AVA_GPU_SERVICEUI_IMAGE`). The `ava/bridge` image is built locally from this repo.
-> Model weights download on first run and carry their own licenses (surfaced at setup).
+> `AVA_GPU_SERVICEUI_IMAGE`). The `ava/bridge` image is built locally by default, or set
+> `AVA_IMAGE` to the signed published image (above). Model weights download on
+> first run and carry their own licenses (surfaced at setup).
 
 ---
 
@@ -64,6 +86,42 @@ cd frontend && npm install && npm run build && cd ..
 ```
 
 `ava setup` prints your generated admin password (or pass `--password`).
+
+### Inference on bare metal
+
+Chat flows **bridge → router → your engine**. The OpenAI-compatible router
+starts **inside `ava up` automatically** (embedded, `127.0.0.1:8010`) — you
+never need a second service. An always-on standalone unit
+(`uvicorn ava_router:app --host 127.0.0.1 --port 8010`) is detected at startup
+and used instead. Declare your engine in `ava.yaml`:
+
+```yaml
+inference:
+  primary: local
+  backends:
+    local:
+      engine: ollama                      # vllm | ollama | llamacpp | openai
+      base_url: http://127.0.0.1:11434/v1
+      model: llama3.2
+```
+
+`ava models pull --auto` downloads a model sized to your hardware and prints
+this stanza for you. `ava doctor` checks the route chat *actually* uses.
+
+**Tool calling per engine** (matters for the full agent; plain chat works
+regardless):
+
+| Engine | Tool calls | Launch requirement |
+|---|---|---|
+| vLLM | native | `--tool-call-parser <parser for your model>` (wrong parser = tools silently return as prose) |
+| Ollama | native | none (tool-capable models only) |
+| llama.cpp | opt-in | `llama-server --jinja` with a tool-call chat template; otherwise declare `tools: none` on the backend |
+| cloud (openai) | native | none |
+
+**Exposing the router beyond localhost**: set `inference.router.host: 0.0.0.0`
+— every `/v1/*` call then requires the router token
+(`$AVA_HOME/secrets/router_token`) as a `Bearer` / `X-Ava-Router-Token`
+header. Loopback (the default) needs no token for `/v1/*`.
 
 ---
 

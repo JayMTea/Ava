@@ -31,8 +31,9 @@ media/uploads/*
 # Large model weights & the biometric voiceprint (re-downloadable / re-enrollable)
 models/
 
-# Vendored Piper/espeak binaries (large, platform-specific)
-bin/
+# Vendored Piper/espeak binaries (large, platform-specific).
+# bin/ava (the portable CLI wrapper) IS tracked.
+bin/piper/
 
 # the GPU service runtime user dir (keep gpusvc/extra_model_paths.yaml at the root)
 gpusvc/user/
@@ -54,14 +55,18 @@ enroll/*.ogg
 # User config + secrets (portable install)
 ava.yaml
 /secrets/
-config.local.yaml
 
-# Private, deployment-specific (not shipped publicly)
+# Private, deployment-specific (not shipped publicly). Entries for specific
+# private apps live in .git/info/exclude (local-only) so their names aren't
+# published either.
 DEV_NOTES.md
 docs/dev/
 frontend/src/overlay/
-connectors/note-keeper/
-connectors/ledger/
+
+# Generated connector artifacts (derived from a connector.yaml by
+# `ava connector tools|policies` — regenerated at setup, not source).
+agent/mcp_server_content/connectors/
+agent/policies/generated/
 
 # Real architecture SSOT + generated diagrams (deployment-specific; public README
 # uses docs/assets/architecture.svg instead). Kept on disk for local drift-check.
@@ -77,5 +82,7 @@ gpusvc/extra_model_paths.yaml
 
 # Personal-app overlay (backend MCP servers/skills/policies + facade)
 /overlay/
-frontend/src/components/ledger/
-frontend/src/components/studio/
+
+# Docs site — generated staging + build output
+docs-site/docs/
+docs-site/site/

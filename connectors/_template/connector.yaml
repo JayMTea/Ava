@@ -46,6 +46,36 @@ service:
 #     prefix: "/api"
 #     token_env: MYAPP_API_TOKEN
 
+# --- Chat pickup (optional) ---------------------------------------------------
+# After a turn used one of the named tools, Ava polls your app's log for
+# artifacts produced during the turn and attaches them as chat quick-cards
+# (deterministic — your app's log is the source of truth, no LLM parsing).
+# App-relative artifact URLs are rewritten through the same-origin /apps/<id>
+# proxy automatically for iframe apps.
+# chat_pickup:
+#   after_actions: [render]        # this connector's generated tools (myapp_render)
+#   # after_tools: [my_raw_tool]   # optional extra raw tool names
+#   path: "/api/log"               # GET base_url + path
+#   params: { kind: render, limit: 12 }
+#   list_key: log                  # JSON key holding rows (newest-first)
+#   ts_key: ts                     # row field compared against the turn start
+#   fields: { title: title, url: url, seed: seed }   # card fields <- row fields
+
+# --- Live jobs (optional) -----------------------------------------------------
+# Lets Ava's ops dashboard attribute GPU spikes to named tasks your app runs.
+# jobs:
+#   path: "/api/jobs"              # GET base_url + path; rows carry kind/stage/progress
+#   params: { active: 1 }
+#   list_key: jobs
+#   engine: the GPU service                # shown next to the job name
+#   labels:                        # kind -> human label (unknown kinds Title-Case)
+#     render: "Content render"
+
+# --- Model attribution (optional) ---------------------------------------------
+# Label what a loaded model is FOR on the hardware dashboard.
+# model_hints:
+#   - { match: [mymodel], role: "Image rendering" }
+
 # --- Agent egress (optional) ------------------------------------------------
 # What Ava's sandboxed agent tools may reach for this connector. Rendered into
 # an OpenClaw egress policy automatically (ava connector egress <id>).

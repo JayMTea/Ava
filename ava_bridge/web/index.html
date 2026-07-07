@@ -1488,7 +1488,7 @@ async function loadCodeModels(){
     const saved = localStorage.getItem('ava.codemodel');
     if (saved && (j.models||[]).includes(saved)) codeModelEl.value = saved;
     codeModelsLoaded = true;
-    if (!j.key) addSys('Code mode needs ANTHROPIC_API_KEY in ~/projects/Ava/.env','alert');
+    if (!j.key) addSys('Code mode needs ANTHROPIC_API_KEY — set it in the repo .env (auto-loaded) or the service environment','alert');
   }catch(e){ addSys('Could not load Claude models: '+e.message,'alert'); }
 }
 

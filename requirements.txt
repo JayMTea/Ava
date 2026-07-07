@@ -1,7 +1,8 @@
 # Ava core runtime — bridge (web app + API + dashboard) + inference router.
-# Pinned to the versions this project runs on. Voice (STT/TTS), image/video
-# (the GPU service is a separate service), and other capabilities have OPTIONAL extras —
-# see deploy/README.md. Install:  pip install -r requirements.txt
+# Pinned to the versions this project runs on. Install:  pip install -r requirements.txt
+# Optional extras: voice/STT -> requirements-voice.txt (Piper TTS is a vendored
+# binary under bin/piper/); dev/tests -> requirements-dev.txt; image/video runs
+# in a separate the GPU service service. See deploy/README.md.
 fastapi==0.138.1
 uvicorn[standard]==0.49.0
 starlette==1.3.1

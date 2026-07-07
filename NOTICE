@@ -13,12 +13,15 @@ Third-party components
 Ava integrates with and can bundle third-party software and models that carry
 their OWN licenses, which apply to those components. Notable examples:
 
+  - Agent runtime: NVIDIA NemoClaw / OpenClaw (Apache-2.0,
+    https://github.com/NVIDIA/NemoClaw), run in an OpenShell sandbox. Installed
+    on demand (npm) and not redistributed in this repository.
   - Inference engines (e.g. vLLM, Ollama, llama.cpp) — their respective licenses.
   - Models / checkpoints you download (LLMs, the GPU model, upscalers, video models) —
     each has its own license and acceptable-use terms. Review before use.
   - the GPU service and its custom nodes — their respective licenses.
-  - Python/Node dependencies — see requirements.txt / package.json and their
-    upstream licenses.
+  - Python dependencies — see requirements*.txt; Node dependencies for the web
+    app — see frontend/package.json — and their upstream licenses.
 
 The installer/first-run flow surfaces model license terms where applicable. It
 is the operator's responsibility to comply with the terms of any model or

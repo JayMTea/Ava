@@ -26,9 +26,12 @@ class ConfigMutationPolicyTests(unittest.TestCase):
         self.assertIsNone(ConfigManager._validate_env_updates({"AVA_SESSION_TTL_DAYS": "14"}))
 
     def test_sensitive_or_unknown_env_keys_are_blocked(self):
+        # secret-looking key -> refused as protected
         self.assertIn("protected", ConfigManager._validate_env_updates({"AVA_INTERNAL_TOKEN": "x"}))
-        self.assertIn("protected", ConfigManager._validate_env_updates({"STUDIO_BASE": "http://127.0.0.1:8097"}))
-        self.assertIn("allowlisted", ConfigManager._validate_env_updates({"AVA_COOKIE_SECURE": "0"}))
+        # unknown key -> deny-by-default (not on the allowlist)
+        self.assertIn("allowlisted", ConfigManager._validate_env_updates({"MYAPP_BASE": "http://127.0.0.1:8097"}))
+        # an explicitly allowlisted key IS mutable
+        self.assertIsNone(ConfigManager._validate_env_updates({"AVA_COOKIE_SECURE": "0"}))
 
     def test_env_values_cannot_inject_new_lines(self):
         err = ConfigManager._validate_env_updates({"LOG_LEVEL": "INFO\nAVA_PASSWORD=oops"})

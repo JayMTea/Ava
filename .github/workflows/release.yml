@@ -1,0 +1,104 @@
+name: Release
+
+# Cut a release by pushing a SemVer tag:  git tag -s v0.1.0 && git push origin v0.1.0
+# (see docs/RELEASING.md). Builds a multi-arch image, pushes it to GHCR, signs it
+# keylessly with cosign (GitHub OIDC — no keys to manage), attaches an SBOM +
+# checksums, and creates the GitHub Release from the matching CHANGELOG section.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write   # create the GitHub Release, read the signed tag
+  packages: write   # push the image to ghcr.io
+  id-token: write   # cosign keyless signing via the GitHub OIDC provider
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/ava-bridge
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check the tag is signed (informational)
+        run: |
+          if git verify-tag "${GITHUB_REF_NAME}" 2>/dev/null; then
+            echo "tag ${GITHUB_REF_NAME} signature: OK"
+          else
+            echo "::warning::tag ${GITHUB_REF_NAME} is not verifiably signed. Recommended: git tag -s (the maintainer's public key must be importable to verify here)."
+          fi
+
+      - name: Resolve version (strip leading v)
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image tags + labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+
+      - name: Build & push (multi-arch, SBOM + SLSA provenance)
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            AVA_VERSION=${{ steps.ver.outputs.version }}
+            AVA_REVISION=${{ github.sha }}
+          provenance: true
+          sbom: true
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign the image (keyless / OIDC)
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "${IMAGE}@${DIGEST}"
+
+      - name: Source SBOM (Syft, CycloneDX)
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: ava-sbom.cyclonedx.json
+
+      - name: Release notes from CHANGELOG
+        run: python3 deploy/scripts/changelog_extract.py "${GITHUB_REF_NAME}" > RELEASE_NOTES.md
+
+      - name: Checksums
+        run: sha256sum ava-sbom.cyclonedx.json > checksums.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: RELEASE_NOTES.md
+          files: |
+            ava-sbom.cyclonedx.json
+            checksums.txt
+          fail_on_unmatched_files: true

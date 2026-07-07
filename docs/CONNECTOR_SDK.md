@@ -161,6 +161,15 @@ From that one manifest, with nothing hand-maintained in Ava's core:
 - **Agent tools** ← `actions` (declared or discovered)
 - **Agent egress policy** ← `egress` + `actions`
 - **Browser data-proxy** ← `ui.api`
+- **Chat quick-cards** ← `chat_pickup` (after a turn used one of your tools,
+  Ava reads your app's log for artifacts produced during the turn and attaches
+  them as deterministic cards; app-relative URLs resolve via `/apps/<id>`)
+- **Ops job attribution** ← `jobs` (your app's active jobs appear next to the
+  GPU graph so spikes are self-explanatory)
+- **Loaded-model roles** ← `model_hints` (label what a checkpoint is FOR)
+
+The `chat_pickup` / `jobs` / `model_hints` field shapes are documented inline in
+[`connectors/_template/connector.yaml`](../connectors/_template/connector.yaml).
 
 ---
 

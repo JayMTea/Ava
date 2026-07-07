@@ -6,7 +6,7 @@ Provides read/write access to egress policies.
 import re
 import yaml
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Dict, Any, List
 from datetime import datetime
 import logging
 
@@ -34,6 +34,19 @@ class PolicyManager:
         """A policy name maps directly to <name>.yaml in POLICIES_DIR, so reject
         anything with path separators or traversal that could escape it."""
         return bool(name) and re.fullmatch(r'[A-Za-z0-9_-]+', name) is not None
+
+    @staticmethod
+    def _normalize_name(name: str) -> str:
+        """Canonical policy name: trimmed + lowercased, so ' Ava-Knowledge ' and
+        'ava-knowledge' resolve to the same reserved/system policy."""
+        return (name or '').strip().lower()
+
+    @staticmethod
+    def _reserved_name(name: str) -> bool:
+        """True if a name collides with a core/system policy (which callers must
+        not create or overwrite). Matches case/whitespace-insensitively."""
+        norm = PolicyManager._normalize_name(name)
+        return norm in {p.lower() for p in PolicyManager.CORE_POLICIES}
 
     @staticmethod
     def list_policies() -> Dict[str, Any]:

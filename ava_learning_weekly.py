@@ -2,7 +2,8 @@
 """
 Ava Weekly Learning Trends Analysis (Phase 5 Extension)
 Analyzes learning cycles from the past 7 days and detects patterns/trends.
-Sends summary email every Sunday at 4am PST via systemd timer.
+Sends a summary email on your deployment's schedule (e.g. weekly via
+systemd timer or cron).
 """
 
 import sys
@@ -15,17 +16,11 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from collections import Counter
 
-# Load .env if it exists (for local testing or if env vars not set by systemd)
 HERE = Path(__file__).resolve().parent
-env_file = HERE / '.env'
-if env_file.exists():
-    with open(env_file) as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith('#') and '=' in line:
-                key, val = line.split('=', 1)
-                if key not in os.environ:
-                    os.environ[key] = val
+
+# Importing settings auto-loads .env (repo root + $AVA_HOME) into the
+# environment; values already set (systemd EnvironmentFile=, shell) win.
+from ava_bridge import settings  # noqa: F401,E402
 
 # Setup logging
 logging.basicConfig(
@@ -158,7 +153,7 @@ def analyze_trends(code_state, chat_state):
 
 def format_weekly_html(code_state, chat_state, trends):
     """Format weekly summary as beautiful HTML email."""
-    now = datetime.now()
+    now = datetime.now().astimezone()  # aware local time, so %Z is truthful
     
     html = f'''<!DOCTYPE html>
 <html>
@@ -234,7 +229,7 @@ def format_weekly_html(code_state, chat_state, trends):
         
         <div class="signature">
           <p>Growing stronger,<br><strong>Ava 🪻</strong></p>
-          <p style="margin: 10px 0 0 0; font-size: 11px; color: #999;">Weekly trends report generated {now.strftime('%A at %I:%M %p PST')}.</p>
+          <p style="margin: 10px 0 0 0; font-size: 11px; color: #999;">Weekly trends report generated {now.strftime('%A at %I:%M %p %Z')}.</p>
         </div>
       </div>
     </div>
@@ -245,28 +240,30 @@ def format_weekly_html(code_state, chat_state, trends):
     return html
 
 def send_email(html_body):
-    """Send email via Outlook SMTP."""
-    outlook_email = os.getenv('OUTLOOK_EMAIL', '').strip()
-    outlook_password = os.getenv('OUTLOOK_PASSWORD', '').strip()
-    
-    if not outlook_email or not outlook_password:
-        logger.warning('OUTLOOK_EMAIL or OUTLOOK_PASSWORD not set; skipping email')
+    """Send email via SMTP (STARTTLS). AVA_SMTP_USER / AVA_SMTP_PASSWORD;
+    legacy OUTLOOK_EMAIL / OUTLOOK_PASSWORD still accepted."""
+    smtp_user = (os.getenv('AVA_SMTP_USER') or os.getenv('OUTLOOK_EMAIL', '')).strip()
+    smtp_password = (os.getenv('AVA_SMTP_PASSWORD') or os.getenv('OUTLOOK_PASSWORD', '')).strip()
+
+    if not smtp_user or not smtp_password:
+        logger.warning('AVA_SMTP_USER / AVA_SMTP_PASSWORD (or legacy OUTLOOK_*) not set; skipping email')
         return False
-    
-    recipient_email = os.getenv('AVA_REPORT_EMAIL', '').strip() or outlook_email
-    smtp_host = os.getenv('AVA_SMTP_HOST', 'smtp-mail.outlook.com').strip()
+
+    recipient_email = os.getenv('AVA_REPORT_EMAIL', '').strip() or smtp_user
+    smtp_host = os.getenv('AVA_SMTP_HOST', 'smtp.office365.com').strip()
+    smtp_port = int(os.getenv('AVA_SMTP_PORT', '587'))
 
     try:
         msg = MIMEMultipart('alternative')
         msg['Subject'] = '📊 Ava\'s Weekly Learning Trends'
-        msg['From'] = outlook_email
+        msg['From'] = smtp_user
         msg['To'] = recipient_email
 
         msg.attach(MIMEText(html_body, 'html'))
 
-        with smtplib.SMTP(smtp_host, 587) as server:
+        with smtplib.SMTP(smtp_host, smtp_port) as server:
             server.starttls()
-            server.login(outlook_email, outlook_password)
+            server.login(smtp_user, smtp_password)
             server.send_message(msg)
         
         logger.info(f'Weekly email sent to {recipient_email}')

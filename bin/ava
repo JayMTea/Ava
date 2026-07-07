@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Ava CLI launcher — runs ava_cli.py with the project's Python (venv if present).
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PY="$HERE/.venv/bin/python"
+[ -x "$PY" ] || PY="$(command -v python3 || command -v python)"
+exec "$PY" "$HERE/ava_cli.py" "$@"

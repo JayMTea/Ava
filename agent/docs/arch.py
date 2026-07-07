@@ -31,7 +31,7 @@ import sys
 import yaml
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(os.path.dirname(HERE))          # repo root (~/projects/Ava)
+ROOT = os.path.dirname(os.path.dirname(HERE))          # repo root
 OVERLAY = os.path.join(ROOT, "overlay", "agent")       # optional private overlay (gitignored)
 MANIFEST = os.path.join(HERE, "architecture.yaml")
 DIAGRAMS = os.path.join(HERE, "diagrams")
@@ -800,10 +800,20 @@ def main(argv=None):
     p_upd.add_argument("--message")
     args = ap.parse_args(argv)
 
+    # The manifest is deployment-specific and gitignored — a fresh fork doesn't
+    # have one, and that's fine: every subcommand is a no-op skip, not a crash.
+    if args.cmd != "update" and not os.path.isfile(MANIFEST):
+        print("arch.py: no agent/docs/architecture.yaml on this checkout "
+              "(deployment-specific, not shipped) — nothing to do.")
+        return
+
     if args.cmd == "render":
         render(load())
         print("rendered system.d2/.svg + network.d2/.svg")
     elif args.cmd == "tables":
+        if not os.path.isfile(README):
+            print("arch.py tables: DEV_NOTES.md not present on this checkout — skipped.")
+            return
         write_tables(load())
         print("regenerated README services table")
     elif args.cmd == "sync":

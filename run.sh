@@ -23,7 +23,7 @@ export WHISPER_MODEL="${WHISPER_MODEL:-small.en}"
 export WAKE_WORD="${WAKE_WORD:-}"
 
 # Speaker verification: only respond to the enrolled voice (models/voiceprint.npy).
-# Tuned from enrollment (mean consistency 0.83). 0 = disable the voice gate.
+# Tune to YOUR enrollment quality (typical 0.45-0.65). 0 = disable the voice gate.
 export SPEAKER_THRESHOLD="${SPEAKER_THRESHOLD:-0.55}"
 
 # Pass through any args (e.g. --mode ptt). Defaults to hands-free listen mode.

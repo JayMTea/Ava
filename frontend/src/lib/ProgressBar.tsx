@@ -1,5 +1,5 @@
 // Shared progress-bar primitive used everywhere renders report progress (chat
-// GPU workloads, Studio design/content/video). One component => consistent
+// GPU workloads, connector-app renders/video). One component => consistent
 // look & behaviour across all tabs and any future modules.
 //
 // While `progress` is 0 it shows an indeterminate sweep (the ".prog-ind" class,

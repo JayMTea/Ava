@@ -12,8 +12,14 @@ RUN npm run build
 
 # ---- stage 2: python runtime ----
 FROM python:3.12-slim AS runtime
+# Release CI passes these from the git tag so `ava version` / /api/health report
+# the real build (see ava_bridge/version.py). Default to the committed VERSION.
+ARG AVA_VERSION=""
+ARG AVA_REVISION=""
 ENV PYTHONUNBUFFERED=1 \
-    AVA_HOME=/data
+    AVA_HOME=/data \
+    AVA_VERSION=${AVA_VERSION} \
+    AVA_REVISION=${AVA_REVISION}
 WORKDIR /app
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \

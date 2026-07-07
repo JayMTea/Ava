@@ -6,10 +6,6 @@ import { ProgressBar } from '../../lib/ProgressBar';
 
 const BLUR_DELAY_MS = 30000;
 
-export function studioUrl(u: string): string {
-  return u && u.charAt(0) === '/' && u.indexOf('/studio') !== 0 ? '/studio' + u : u;
-}
-
 // Fullscreen viewer. Tap backdrop / X to close; pinch-to-zoom + drag-to-pan on
 // touch, wheel-to-zoom + double-tap on desktop. Optional `info` renders a
 // collapsible details overlay (e.g. the models + prompt used for the image).
@@ -290,7 +286,9 @@ export function PreviewCard({
   onOpen: (url: string) => void;
   onQuickSay: (t: string) => void;
 }) {
-  const disp = studioUrl(preview.url);
+  // Preview URLs arrive server-resolved (connector chat_pickup rewrites
+  // app-relative paths through the same-origin /apps/<id> proxy).
+  const disp = preview.url;
   const who = preview.persona ? ' ' + preview.persona : '';
   const cap = [preview.persona || 'preview', preview.theme, preview.seed != null ? 'seed ' + preview.seed : null]
     .filter(Boolean)

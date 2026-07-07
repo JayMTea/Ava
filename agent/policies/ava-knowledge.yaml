@@ -30,8 +30,6 @@ network_policies:
           - allow: { method: POST, path: "/internal/extract" }
           - allow: { method: POST, path: "/internal/run-gpu-job" }
           - allow: { method: GET, path: "/internal/model" }
-          - allow: { method: GET, path: "/internal/studio/today" }
-          - allow: { method: GET, path: "/internal/studio/content" }
           - allow: { method: POST, path: "/internal/web/search" }
           - allow: { method: POST, path: "/internal/web/fetch" }
           - allow: { method: GET, path: "/internal/devices/events" }

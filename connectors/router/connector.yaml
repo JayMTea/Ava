@@ -4,4 +4,6 @@ kind: core
 service:
   name: Router
   unit: ava-router.service
-  probe: "http://127.0.0.1:8010/healthz"
+  # The router is embedded in the bridge by default; a standalone unit or a
+  # different port is picked up via AVA_ROUTER_URL.
+  probe: "${AVA_ROUTER_URL:-http://127.0.0.1:8010}/healthz"

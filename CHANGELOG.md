@@ -6,21 +6,42 @@ on-prem project, so versions are dated milestones rather than published releases
 
 ## [Unreleased]
 
-### Added
-- **Governance & security documentation:** `SECURITY.md` (trust boundaries,
-  egress model, secret inventory, threat model, sensitive-data handling),
-  `CONTRIBUTING.md` (SSOT workflow, how to add tools/policies/services), and an
-  Architecture Decision Record set under `agent/docs/adr/`.
-- **Two new generated diagrams**, drift-checked 1:1 from the manifest:
-  - `agent/docs/diagrams/security.svg` — trust boundaries + enforced control points.
-  - `agent/docs/diagrams/policy.svg` — per-tool least-privilege egress trace.
-- Enriched the SSOT manifest with `policies` detail (tools + egress per policy)
-  and a `security` section (boundaries, controls, secret inventory).
+### Added — Publish-readiness (fork-portability pass)
+- **Inference provider layer** (`ava_bridge/router_app.py`): the router is now an
+  importable app factory with per-backend `engine` (vLLM/Ollama/llama.cpp/cloud)
+  and `tools` flags, minimal engine adapters (vLLM reasoning kwargs, stream-usage
+  injection, tool-capability routing), and **embeds in the bridge** at startup
+  (`router_host.py`) — auto-detecting a standalone `ava-router` unit. Bare metal
+  and Docker now ship the same bridge→router→engine product.
+- **Router auth hardening**: `/v1/*` requires a bearer/`X-Ava-Router-Token` when
+  bound off-loopback; loopback default stays open. Token in `secrets/router_token`.
+- **First-run web wizard** (`/setup/wizard`): hardware+tier → backend → features
+  → connectors, written to `ava.yaml` via `settings.save_patch`.
+- **Connector capabilities** (generic, manifest-driven): `chat_pickup` (post-turn
+  artifact quick-cards), `jobs` (GPU-attribution job polling), `model_hints`
+  (loaded-model roles) — so app-specific chat/dashboard behavior is declared in a
+  `connector.yaml`, not wired into core.
+- **CI** (`.github/workflows/ci.yml`): ruff, pytest, frontend dist-drift, CPU-only
+  smoke boot, gitleaks. New `ruff.toml`, `requirements-dev.txt`,
+  `requirements-voice.txt`.
+- **Security-surface tests** (42 → 108): router proxy/failover/auth, auth
+  middleware + login throttle, SSRF guard (per-hop redirect revalidation),
+  connector registry parsing.
+- `bin/ava` is now tracked; `.env` is auto-loaded by the app itself (not just the
+  run scripts); generic `AVA_SMTP_*` env (legacy `OUTLOOK_*` still accepted);
+  timezone-truthful digest timestamps; frontend bundle code-split (React chunk).
 
-### Changed
-- Diagram layout engine switched from **ELK → TALA** (Terrastruct), driven by the
-  manifest `diagram_style.d2.layout` token. Token stored in
-  `~/.config/tstruct/auth.json`.
+### Changed — De-personalization
+- First-party personal apps fully decoupled from tracked core (moved behind the
+  connector manifest + overlay); default the GPU model checkpoint is now `gpu_model_base`;
+  owner-specific component/architecture docs moved to the gitignored `docs/dev/`;
+  `CONTRIBUTING.md` rewritten for fork contributors; a voice-dep import guard so
+  a fresh install boots without `requirements-voice.txt`.
+
+### Added — Governance & security documentation
+- `SECURITY.md` (trust boundaries, egress model, secret inventory, threat model),
+  `CONTRIBUTING.md`, and an Architecture Decision Record set under
+  `agent/docs/adr/`.
 
 ## [2026-07-06] — Productization: pluggable apps, agent runtime & Omni switchover
 
@@ -75,7 +96,7 @@ minutes." Four coherent work streams:
 - **Ava's agent now runs on open-model 30B** (Super-120B fully retired). The sandbox
   agent had its own inference config (`~/.openclaw/openclaw.json`) still on Super;
   repointed it (+ `models.json`, host `~/.nemoclaw/*`) to Omni. See
-  `docs/OMNI_SWITCHOVER.md` §3b.
+  the Omni switchover runbook (deployment-local, `docs/dev/`).
 - **`vllm-open` served at 65536 context** (was 32768) — the agent's ~29k-token
   system context now fits; `deploy/omni-serve.sh` default bumped.
 
@@ -84,23 +105,21 @@ minutes." Four coherent work streams:
   exposed on external interfaces; the sandbox reaches it via the host-side guard
   proxy. `ava_security_check.py` passes.
 
-## [2026-07-03] — Central model hub (`~/ai/models`)
+## [2026-07-03] — Central model hub
 
 ### Changed
-- **All model weights consolidated into a single machine-wide hub** at
-  `~/ai/models` (SSOT), catalogued by `~/ai/models/REGISTRY.yaml`. Removed ~500 GB
-  of duplicated weights (verified byte-identical before deletion).
-  - vLLM now loads from `~/ai/models/_hf` (`HF_HOME`); `~/.cache/huggingface` is a
-    symlink into it, and `start-vllm.sh` was repointed (`HF_CACHE=~/ai/models/_hf`).
-  - the GPU service reads from `~/ai/models/latent pipeline` (`gpusvc/extra_model_paths.yaml`
-    `base_path` repointed); `~/projects/video_ai/models` is now a symlink into it.
-  - Voice models (Piper, faster-whisper, ECAPA) moved to `~/ai/models/audio`;
-    Ava's `models/` are symlinks into the hub (only `voiceprint.npy` stays local).
-  - ollama store consolidated under `~/ai/models/_caches/ollama`.
+- **All model weights consolidated into a single machine-wide hub** (see
+  `paths.models` / `AVA_MODELS_DIR`), catalogued by a registry file. Duplicated
+  weights removed (verified byte-identical before deletion).
+  - vLLM loads via `HF_HOME` inside the hub; the GPU service reads via
+    `gpusvc/extra_model_paths.yaml` `base_path`.
+  - Voice models (Piper, faster-whisper, ECAPA) live under the hub; only the
+    biometric `voiceprint.npy` stays app-local.
+  - The Ollama store is consolidated under the hub's caches.
 
 ### Added
-- **Model Hub** node in the system diagram (engines → "load weights" →
-  `~/ai/models`), regenerated from the manifest.
+- **Model Hub** node in the system diagram (engines → "load weights" → the
+  hub), regenerated from the manifest.
 
 ## [2026-06-28] — Self-maintaining architecture pipeline
 
@@ -112,7 +131,8 @@ minutes." Four coherent work streams:
   `check_drift`, `sync_diagrams`, `update_architecture`) so Ava can read and update
   her own architecture, gated by the `ava-knowledge` policy.
 - Automation: `ava-arch-sync.path`/`.service` watcher + git pre-commit drift gate.
-- Comprehensive docs: `README.md`, `agent/docs/COMPONENTS.md`, `agent/docs/ARCHITECTURE.md`.
+- Comprehensive docs: `README.md`, `agent/docs/README.md` (deployment-specific
+  component notes live outside the public repo).
 
 ### Security
 - App password gate on `:8445` (HMAC-signed session cookie, per-IP login throttle).

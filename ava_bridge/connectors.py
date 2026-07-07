@@ -39,19 +39,21 @@ _cache: Dict[str, object] = {"ts": 0.0, "list": None}
 
 import re as _re
 
-_ENV_VAR = _re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+_ENV_VAR = _re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
 
 
 def _expand(val):
     """Expand ${VAR} references: first the built-in connector vars (AVA_HOME,
     AVA_LOGS, AVA_DATA, ROOT), then any remaining ${NAME} from the process
-    environment. So a manifest can reference any exported env var directly.
+    environment. ${NAME:-default} falls back to `default` when NAME is unset
+    or empty — so one manifest can serve bare metal and Docker.
     """
     if not isinstance(val, str):
         return val
     for k, v in _VARS.items():
         val = val.replace("${%s}" % k, v or "")
-    val = _ENV_VAR.sub(lambda m: os.environ.get(m.group(1), ""), val)
+    val = _ENV_VAR.sub(
+        lambda m: os.environ.get(m.group(1)) or (m.group(2) or ""), val)
     return val
 
 
@@ -101,6 +103,8 @@ def _load_dir(base: str) -> dict:
                 m = yaml.safe_load(f) or {}
         except Exception:  # noqa: BLE001 — a bad manifest must not crash boot
             continue
+        if not isinstance(m, dict):  # e.g. a YAML list/scalar — not a manifest
+            continue
         m["id"] = m.get("id") or name
         out[m["id"]] = m
     return out
@@ -144,6 +148,96 @@ def perf_sources() -> Dict[str, str]:
         path = _expand(p.get("path"))
         if path:
             out[p.get("app") or m["id"]] = path
+    return out
+
+
+def chat_pickups() -> List[dict]:
+    """Resolved chat-artifact pickup specs for connectors declaring a
+    ``chat_pickup:`` block — after a turn used one of the named tools, the
+    bridge polls the app's log for artifacts produced during the turn and
+    attaches them as chat quick-cards. Manifest form:
+
+        chat_pickup:
+          after_actions: [preview]     # this connector's generated tools
+          after_tools: [my_raw_tool]   # optional extra raw tool names
+          path: "/api/log"             # GET base_url + path
+          params: { kind: preview, limit: 12 }
+          list_key: log                # JSON key holding rows (newest-first)
+          ts_key: ts                   # row field compared to turn start
+          fields: { persona: persona, url: url, seed: seed, theme: theme }
+
+    ``url_prefix`` is `/apps/<id>` for iframe apps so app-relative artifact
+    URLs resolve through the same-origin app proxy (cookie-authed).
+    """
+    out: List[dict] = []
+    for m in load():
+        cp = m.get("chat_pickup")
+        if not isinstance(cp, dict):
+            continue
+        cid = m["id"]
+        tools = [f"{cid}_{a}" for a in (cp.get("after_actions") or [])]
+        tools += [str(t) for t in (cp.get("after_tools") or [])]
+        base = _expand(cp.get("base")) or base_url(cid)
+        if not tools or not base or not cp.get("path"):
+            continue
+        ui = m.get("ui") or {}
+        out.append({
+            "id": cid,
+            "tools": tools,
+            "url": base.rstrip("/") + str(cp["path"]),
+            "params": cp.get("params") or {},
+            "list_key": cp.get("list_key") or "log",
+            "ts_key": cp.get("ts_key") or "ts",
+            "fields": cp.get("fields") or {},
+            "url_prefix": f"/apps/{cid}" if ui.get("embed") == "iframe" else "",
+        })
+    return out
+
+
+def job_sources() -> List[dict]:
+    """Live-job polling specs for connectors declaring a ``jobs:`` block —
+    lets the ops dashboard attribute GPU spikes to named tasks. Manifest form:
+
+        jobs:
+          path: "/api/jobs"          # GET base_url + path
+          params: { active: 1 }
+          list_key: jobs             # rows carry kind/stage/progress
+          engine: the GPU service
+          labels: { generate: "Content render" }   # kind -> human label
+    """
+    out: List[dict] = []
+    for m in load():
+        jb = m.get("jobs")
+        if not isinstance(jb, dict):
+            continue
+        base = _expand(jb.get("base")) or base_url(m["id"])
+        if not base or not jb.get("path"):
+            continue
+        out.append({
+            "id": m["id"],
+            "url": base.rstrip("/") + str(jb["path"]),
+            "params": jb.get("params") or {},
+            "list_key": jb.get("list_key") or "jobs",
+            "engine": jb.get("engine"),
+            "labels": {str(k): str(v) for k, v in (jb.get("labels") or {}).items()},
+        })
+    return out
+
+
+def model_hints() -> List[dict]:
+    """Loaded-model attribution hints merged from all connectors:
+
+        model_hints:
+          - { match: [substr1, substr2], role: "Image rendering" }
+
+    The hardware monitor checks these when labelling what a loaded model is FOR.
+    """
+    out: List[dict] = []
+    for m in load():
+        for h in (m.get("model_hints") or []):
+            if isinstance(h, dict) and h.get("match") and h.get("role"):
+                out.append({"match": [str(s).lower() for s in (h["match"] or [])],
+                            "role": str(h["role"])})
     return out
 
 
@@ -241,13 +335,20 @@ def find_action(cid: str, aid: str) -> dict | None:
 
 
 def base_url(cid: str) -> str | None:
-    """The connector's own host-local API base (for the generic action proxy)."""
+    """The connector's own host-local API base (for the generic action proxy).
+
+    Resolution order: top-level `base_url` -> `ui.url` (an iframe app's own
+    origin) -> the origin of `service.probe`.
+    """
+    from urllib.parse import urlparse
     m = {x["id"]: x for x in load()}.get(cid) or {}
     if m.get("base_url"):
         return _expand(m["base_url"]).rstrip("/")
+    ui_url = _expand((m.get("ui") or {}).get("url") or "")
+    if ui_url:
+        return ui_url.rstrip("/")
     probe = _expand((m.get("service") or {}).get("probe") or "")
     if probe:
-        from urllib.parse import urlparse
         u = urlparse(probe)
         if u.scheme and u.netloc:
             return f"{u.scheme}://{u.netloc}"

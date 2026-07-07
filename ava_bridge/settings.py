@@ -2,6 +2,10 @@
 
 Layered resolution (highest wins):
     1. environment variables      (e.g. AVA_PORT)
+       (a `.env` file at the repo root or $AVA_HOME is auto-loaded into the
+        environment at import — values already present in the real environment
+        always win, so systemd EnvironmentFile=/compose `environment:` keep
+        priority)
     2. $AVA_HOME/ava.yaml          (the user's config file)
     3. built-in defaults
 
@@ -31,9 +35,49 @@ except Exception:  # noqa: BLE001
 # self-editing / packaged image paths — never for user data.
 CODE_ROOT = Path(__file__).resolve().parent.parent
 
+
+def _load_dotenv(path: Path) -> None:
+    """Minimal stdlib .env loader (KEY=value, `#` comments, optional `export `,
+    single/double quotes; $VAR expansion except inside single quotes).
+
+    Uses os.environ.setdefault so anything already in the real environment
+    (systemd EnvironmentFile=, docker compose `environment:`, shell exports,
+    the run scripts' own `set -a; . .env`) always wins.
+    """
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):].lstrip()
+        key, sep, value = line.partition("=")
+        key = key.strip()
+        if not sep or not key or any(c in key for c in " \t"):
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == "'" and value[-1] == "'":
+            value = value[1:-1]
+        else:
+            if len(value) >= 2 and value[0] == '"' and value[-1] == '"':
+                value = value[1:-1]
+            value = os.path.expandvars(value)
+        os.environ.setdefault(key, value)
+
+
+# The repo .env loads first (it may define AVA_HOME itself), then AVA_HOME is
+# resolved, then $AVA_HOME/.env (if different) fills any remaining gaps.
+_load_dotenv(CODE_ROOT / ".env")
+
 # Where *data* lives. Override with AVA_HOME; defaults to the code root so the
 # original single-user layout (./data ./logs ./media) is unchanged.
 AVA_HOME = Path(os.environ.get("AVA_HOME", str(CODE_ROOT))).expanduser()
+
+if AVA_HOME.resolve() != CODE_ROOT.resolve():
+    _load_dotenv(AVA_HOME / ".env")
 
 CONFIG_PATH = AVA_HOME / "ava.yaml"
 
@@ -173,6 +217,54 @@ def secret(name: str, env: str | None = None, generate: bool = False,
             pass
         return val
     return None
+
+
+def _deep_merge(base: dict, patch: dict) -> dict:
+    for k, v in patch.items():
+        if isinstance(v, dict) and isinstance(base.get(k), dict):
+            _deep_merge(base[k], v)
+        else:
+            base[k] = v
+    return base
+
+
+def save_patch(patch: dict) -> dict:
+    """Deep-merge `patch` into $AVA_HOME/ava.yaml and persist it (the single
+    write path for the setup wizard and any future `ava config set`). Seeds from
+    config.example.yaml on first write, refreshes the in-process config, and
+    returns the merged config. Requires PyYAML."""
+    if yaml is None:
+        raise RuntimeError("PyYAML is required to write ava.yaml")
+    current: dict = {}
+    if CONFIG_PATH.is_file():
+        try:
+            current = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8")) or {}
+        except Exception:  # noqa: BLE001
+            current = {}
+    elif (CODE_ROOT / "config.example.yaml").is_file():
+        try:
+            current = yaml.safe_load(
+                (CODE_ROOT / "config.example.yaml").read_text(encoding="utf-8")) or {}
+        except Exception:  # noqa: BLE001
+            current = {}
+    merged = _deep_merge(current if isinstance(current, dict) else {}, patch)
+    os.makedirs(CONFIG_PATH.parent, exist_ok=True)
+    CONFIG_PATH.write_text(
+        yaml.safe_dump(merged, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    global _CFG
+    _CFG = merged
+    return merged
+
+
+def role_backend(role: str) -> str | None:
+    """Resolve a logical model role (`inference.roles.<role>`: chat / fast /
+    embed / …) to a declared backend id, falling back to `inference.primary`.
+    Returns None when neither is configured (legacy/default installs)."""
+    v = get(f"inference.roles.{role}")
+    if v:
+        return str(v)
+    v = get("inference.primary")
+    return str(v) if v else None
 
 
 def as_dict() -> dict:

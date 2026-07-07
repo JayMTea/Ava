@@ -14,14 +14,17 @@ from __future__ import annotations
 from .base import AgentRuntime
 from .nemoclaw import NemoClawRuntime
 from .direct import DirectRuntime
+from .remote import RemoteRuntime
 
 _nemoclaw = NemoClawRuntime()
 _direct = DirectRuntime()
+_remote = RemoteRuntime()
 
-# Registry so a future runtime can be selected by name via config `agent.runtime`.
+# Registry so a runtime can be selected by name via config `agent.runtime`.
 _REGISTRY: dict[str, AgentRuntime] = {
     "nemoclaw": _nemoclaw,
     "openclaw": _nemoclaw,   # alias — nemoclaw runs openclaw
+    "remote": _remote,       # nemoclaw in a separate container (Docker full agent)
     "direct": _direct,
     "none": _direct,
 }
@@ -33,6 +36,10 @@ def nemoclaw() -> NemoClawRuntime:
 
 def direct() -> DirectRuntime:
     return _direct
+
+
+def remote() -> RemoteRuntime:
+    return _remote
 
 
 def configured() -> AgentRuntime:

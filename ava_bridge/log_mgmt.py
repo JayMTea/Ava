@@ -4,11 +4,9 @@ Provides read access to systemd journals and application logs.
 """
 
 import subprocess
-import json
 import re
 from pathlib import Path
-from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any
+from typing import Optional, Dict, Any
 import logging
 
 from . import config

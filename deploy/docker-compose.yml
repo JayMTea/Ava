@@ -8,14 +8,16 @@
 # All state lives in one folder (AVA_HOME, default ./ava-data). On first visit
 # the web UI walks you through setting an admin password (no secret to hunt for).
 #
-# Inference: the container runs Ava in DIRECT chat mode (AVA_AGENT_ENABLED=0) and
-# talks to an OpenAI-compatible endpoint set by AVA_INFERENCE_URL. Each profile
-# provides one; override it in a .env next to this file if needed:
-#   gpu/full -> http://vllm:8002/v1/chat/completions      (default)
-#   cpu      -> http://ollama:11434/v1/chat/completions
-#   cloud    -> https://api.openai.com/v1/chat/completions (+ set AVA_INFERENCE_KEY)
+# Inference: chat flows bridge -> EMBEDDED router (in-process, :8010 inside the
+# ava container) -> the profile's engine — the same product as bare metal, with
+# failover + perf logging + the /which model pill. Each profile declares its
+# backend via AVA_BACKEND_*; override in a .env next to this file if needed:
+#   gpu/full -> AVA_BACKEND_URL=http://vllm:8002/v1     engine vllm   (default)
+#   cpu      -> AVA_BACKEND_URL=http://ollama:11434/v1  engine ollama
+#   cloud    -> set AVA_BACKEND_URL/ENGINE=openai/MODEL + AVA_INFERENCE_KEY
 # The full tool-using agent (self-coding, connectors) needs the OpenClaw runtime,
-# which is not bundled in this image — see deploy/README.md.
+# which is not bundled in this image — see deploy/README.md. (A future agent
+# container only needs network access to ava:8010 + the router token.)
 name: ava
 
 services:
@@ -23,25 +25,78 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
-    image: ava/bridge:latest
+      args:
+        AVA_VERSION: ${AVA_VERSION:-}
+        AVA_REVISION: ${AVA_REVISION:-}
+    # Local build tag by default. To run the SIGNED published image instead:
+    #   AVA_IMAGE=ghcr.io/<owner>/ava-bridge:v0.1.0  (then `docker compose pull`)
+    # Verify it first — see deploy/README.md "Verified install".
+    image: ${AVA_IMAGE:-ava/bridge:latest}
     environment:
       AVA_HOME: /data
       AVA_PORT: "8096"
       AVA_PASSWORD: ${AVA_PASSWORD:-}
-      # No agent sandbox in the container -> direct (tool-less) chat, which works.
+      # Agent runtime: "direct" (tool-less, default) or "remote" (full agent via
+      # the `agent` service below — enable the `agent` profile + set these).
       AVA_AGENT_ENABLED: ${AVA_AGENT_ENABLED:-0}
-      # Which OpenAI-compatible endpoint the direct chat path calls.
-      AVA_ROUTER_CHAT: ${AVA_INFERENCE_URL:-http://vllm:8002/v1/chat/completions}
+      AVA_AGENT_RUNTIME: ${AVA_AGENT_RUNTIME:-direct}
+      AVA_AGENT_URL: http://agent:9100
+      # Bind the embedded router on all interfaces so the agent sandbox can reach
+      # it at ava:8010 (this turns /v1 auth ON; the agent presents the token).
+      AVA_ROUTER_HOST: ${AVA_ROUTER_HOST:-127.0.0.1}
+      # The OpenAI-compatible backend behind the embedded router.
+      AVA_BACKEND_URL: ${AVA_BACKEND_URL:-http://vllm:8002/v1}
+      AVA_BACKEND_ENGINE: ${AVA_BACKEND_ENGINE:-vllm}
+      AVA_BACKEND_MODEL: ${AVA_MODEL:-nvidia/Nemotron-Open-30B-A3B-Reasoning-FP8}
       AVA_INFERENCE_KEY: ${AVA_INFERENCE_KEY:-}
+      # the GPU service endpoint for the image pipeline + gpu-service connector (`full`
+      # profile only — in other profiles the connector row just shows down).
+      AVA_GPU_SERVICE: ${AVA_GPU_SERVICE:-http://gpu-service:8188}
     volumes:
       - ${AVA_HOME:-./ava-data}:/data
     ports:
       - "127.0.0.1:8096:8096"
     restart: unless-stopped
 
+  # --- full tool-using agent (opt-in; profile `agent`) -------------------------
+  # Runs NemoClaw + the RemoteRuntime shim. It mounts the host Docker socket so
+  # OpenShell can spawn the agent sandbox — that socket is ROOT-EQUIVALENT on the
+  # host, so this is deliberately opt-in. Enable with:
+  #   AVA_AGENT_ENABLED=1  AVA_AGENT_RUNTIME=remote  AVA_ROUTER_HOST=0.0.0.0
+  #   docker compose --profile agent up -d          (or `--profile full`)
+  # See deploy/README.md "Full agent in Docker" for the security caveat + the
+  # sandbox<->bridge networking notes.
+  agent:
+    profiles: ["agent", "full"]
+    build:
+      context: ..
+      dockerfile: deploy/agent.Dockerfile
+    image: ava/agent-runtime:latest
+    environment:
+      AVA_HOME: /data
+      AVA_ROUTER_URL: http://ava:8010
+      AVA_BRIDGE_URL: http://ava:8096
+      AVA_OC_SANDBOX: ${AVA_OC_SANDBOX:-my-assistant}
+      AVA_OC_AGENT: ${AVA_OC_AGENT:-main}
+      AVA_BACKEND_MODEL: ${AVA_MODEL:-nvidia/Nemotron-Open-30B-A3B-Reasoning-FP8}
+      # Override if the sandbox can't auto-resolve the bridge container's IP.
+      AVA_BRIDGE_IP: ${AVA_BRIDGE_IP:-}
+    volumes:
+      - ${AVA_HOME:-./ava-data}:/data
+      # Root-equivalent on the host — see the security caveat in the docs.
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Persist the whole home: the entrypoint installs the NemoClaw CLI here on
+      # first start, plus the sandbox registry/onboard state — so restarts skip
+      # both the install and the re-onboard.
+      - ava-agent-home:/root
+    depends_on:
+      - ava
+    restart: unless-stopped
+
   # --- inference: CPU / no-GPU users ---
   # First run pulls a small model: `docker compose exec ollama ollama pull llama3.2`
-  # then set AVA_INFERENCE_URL=http://ollama:11434/v1/chat/completions in .env.
+  # then set in .env: AVA_BACKEND_URL=http://ollama:11434/v1
+  #                   AVA_BACKEND_ENGINE=ollama  AVA_MODEL=llama3.2
   ollama:
     profiles: ["cpu"]
     image: ollama/ollama:latest
@@ -83,5 +138,9 @@ services:
     volumes:
       - ${AVA_HOME:-./ava-data}/models/gpusvc:/opt/the GPU service/models
     restart: unless-stopped
-# The `cloud` profile starts only the ava service; set AVA_INFERENCE_URL +
-# AVA_INFERENCE_KEY in .env to point at your provider (no local engine).
+# The `cloud` profile starts only the ava service; set in .env:
+#   AVA_BACKEND_URL=https://api.openai.com/v1  (or your provider's /v1 base)
+#   AVA_BACKEND_ENGINE=openai  AVA_MODEL=<model id>  AVA_INFERENCE_KEY=<key>
+
+volumes:
+  ava-agent-home:   # NemoClaw CLI + sandbox registry/state for the agent runtime

@@ -1,4 +1,4 @@
-// get_emails — read recent emails from Outlook IMAP (read-only).
+// get_emails — read recent emails from the configured IMAP mailbox (read-only).
 //
 // Host-callback to the bridge's /internal/emails endpoint, which handles
 // Python IMAP connection + parsing. This MCP tool just proxies the call.
@@ -9,7 +9,7 @@ const BRIDGE = process.env.AVA_BRIDGE_URL || 'http://host.openshell.internal:809
 
 export default {
   name: 'get_emails',
-  description: 'Read recent emails from your Outlook inbox. Fetches the latest messages with subject, from, date, and text snippet. Falls back to learning digest if IMAP unavailable. Read-only access only.',
+  description: 'Read recent emails from your configured mailbox (IMAP). Fetches the latest messages with subject, from, date, and text snippet. Falls back to learning digest if IMAP unavailable. Read-only access only.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -56,7 +56,7 @@ export default {
         emails: r.emails || [],
         count: r.count || 0,
         mailbox,
-        note: 'Read-only access. Fetched via Outlook IMAP.',
+        note: 'Read-only access. Fetched via IMAP.',
       };
     } catch (error) {
       return { error: `Email fetch failed: ${error.message}` };

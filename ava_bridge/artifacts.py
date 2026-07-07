@@ -18,7 +18,6 @@ import shlex
 
 import requests
 
-from . import config
 from .agent import _sbx_read, _session_file
 
 GEO_URL = "https://geocoding-api.open-meteo.com/v1/search"

@@ -122,7 +122,7 @@ cd agent && ./install.sh                # deploy — zero core-code changes
 ```
 
 Ava then monitors your app in the dashboard, charts its performance, and can call
-its actions natively. See [connectors/README.md](connectors/README.md).
+its actions natively. See the [Connector SDK](docs/CONNECTOR_SDK.md).
 
 ## Under the hood
 

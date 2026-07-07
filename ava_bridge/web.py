@@ -207,6 +207,12 @@ def _extract_text(html: str, url: str) -> str:
     return text.strip()
 
 
+def _make_client(**kwargs) -> httpx.Client:
+    """Seam for the fetch HTTP client so tests can inject an httpx.MockTransport
+    (MockTransport rejects the real `proxy` kwarg, so it's dropped there)."""
+    return httpx.Client(**kwargs)
+
+
 def fetch(url: str) -> dict:
     """Fetch a public web page and return cleaned text. SSRF-guarded per hop.
 
@@ -235,7 +241,7 @@ def fetch(url: str) -> dict:
         current = url
         hops = 0
         try:
-            with httpx.Client(**client_kwargs) as client:
+            with _make_client(**client_kwargs) as client:
                 while True:
                     _validate_fetch_url(current)          # re-validate EVERY hop
                     with client.stream("GET", current) as resp:

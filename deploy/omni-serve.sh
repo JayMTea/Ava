@@ -11,7 +11,7 @@
 #
 # The container uses --restart unless-stopped, so it comes back on Docker/host
 # restart. For a hardened always-on setup, point the host vLLM systemd unit at
-# this script (see docs/OMNI_SWITCHOVER.md) instead of the old start-vllm.sh flow.
+# this script instead of a bespoke start script.
 #
 # ── Memory budget (121 GB unified) ────────────────────────────────────────────
 #   weights (FP8)         ~35 GB      (half of BF16 — that's why we use FP8)
@@ -34,6 +34,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 [ -f "$REPO/.env" ] && set -a && . "$REPO/.env" && set +a
 
+# Default image is aarch64 (DGX/GB10-class hosts). On x86_64 override it:
+#   VLLM_IMAGE=vllm/vllm-openai:latest ./deploy/omni-serve.sh
 IMAGE="${VLLM_IMAGE:-vllm/vllm-openai:v0.20.0-aarch64-cu130-ubuntu2404}"
 # Hugging Face cache the container mounts. Defaults to the model store under
 # AVA_HOME (matching `ava setup`); override with HF_CACHE or AVA_HOME in .env.

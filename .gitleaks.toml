@@ -1,0 +1,25 @@
+# Ava gitleaks config — extends the built-in ruleset, allowlisting the example
+# placeholders so the CI secrets-scan stays green on intentional non-secrets.
+title = "Ava gitleaks config"
+
+[extend]
+useDefault = true
+
+# Narrow allowlist: only the true template/example files are path-excluded, so a
+# real secret accidentally committed to docs/examples is still caught. The
+# regexes cover placeholder tokens that appear in prose examples.
+[allowlist]
+description = "Example/template placeholders — not real secrets"
+paths = [
+  '''config\.example\.yaml''',
+  '''\.env\.example''',
+  '''connectors/_template/connector\.yaml''',
+  '''examples/hello-app/connector\.yaml''',
+  '''examples/device-app/connector\.yaml''',
+]
+regexes = [
+  '''you@example\.com''',
+  '''your-[a-z-]*-(key|token|password)''',
+  '''<[A-Za-z0-9 _-]+>''',           # placeholder tokens like <a chat model id>
+  '''ci-smoke-pass''',              # the CI smoke-boot password
+]

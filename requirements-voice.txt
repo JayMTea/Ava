@@ -1,0 +1,12 @@
+# Ava voice extras — optional. Enables STT (faster-whisper) and the
+# speaker-verification voice gate (torch + speechbrain, CPU inference).
+# Without these the bridge runs voice-less; /api/talk returns 503.
+#
+# Piper TTS is a vendored platform binary under bin/piper/, not a pip package.
+#
+# Install:  pip install -r requirements-voice.txt
+# Tip: for CPU-only torch wheels add:  --extra-index-url https://download.pytorch.org/whl/cpu
+faster-whisper==1.2.1
+torch==2.12.1
+torchaudio==2.11.0
+speechbrain==1.1.0

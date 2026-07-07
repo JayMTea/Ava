@@ -41,8 +41,8 @@ def _short_model_name(model: str | None, runtime: str | None = None,
         return "open-model 30B"
     if "hunyuan" in ml:
         return "Hunyuan Video"
-    if "lustify" in ml or (ml.endswith(".safetensors") and "gpumodel" in ml):
-        return "the GPU model Lustify"
+    if ml.endswith(".safetensors") and "gpumodel" in ml:
+        return "the GPU model checkpoint"
 
     if ml in {"vllm::enginecore", "enginecore"}:
         if backend == "omni":
@@ -144,8 +144,6 @@ def _simple_component_name(kind: str, name: str) -> str:
         return "conditioner Face"
     if "clip-vit" in low or "vit-h" in low:
         return "CLIP ViT-H"
-    if "lustify" in low:
-        return "Lustify the GPU model"
     if low.endswith(".safetensors"):
         n = n[:-12]
     elif low.endswith(".ckpt"):
@@ -262,7 +260,11 @@ def _attach_components(rows: list[dict]) -> list[dict]:
         # Fallback: still show a readable gpusvc stack even when /proc mapping
         # visibility is restricted on this host/container boundary.
         if (not comps) and "gpusvc" in runtime:
-            ckpt = os.environ.get("AVA_GPU_MODEL", "lustifygpumodelNSFW_apexV8.safetensors")
+            try:  # same resolution gpu_service uses (env -> ava.yaml -> the GPU model base)
+                import gpu_service
+                ckpt = gpu_service.DEFAULT_CKPT
+            except Exception:  # noqa: BLE001
+                ckpt = os.environ.get("AVA_GPU_MODEL", "gpu_model_base")
             upscaler = os.environ.get("AVA_UPSCALE_MODEL", "refiner_x4plus.pth")
             comps = [
                 {
@@ -643,24 +645,6 @@ def _disk(path: str = "/") -> dict:
             "used_pct": round(100 * u.used / u.total) if u.total else None}
 
 
-_STUDIO_BASE = os.environ.get("STUDIO_BASE", "http://127.0.0.1:8097").rstrip("/")
-
-_JOB_KINDS = {
-    "generate": "Content render",
-    "partner": "Couple render",
-    "duo": "Two-persona render",
-    "preview": "Face preview",
-    "scene": "Scene render",
-    "video": "Video render",
-}
-
-
-def _job_label(kind, persona, theme) -> str:
-    # Just the job/service type — no character name or scene text (the monitor is
-    # about what's running on the box, not which persona it's for).
-    return _JOB_KINDS.get(kind or "", (str(kind).title() if kind else "Render"))
-
-
 def _model_role(model) -> str:
     """What a loaded model is FOR, so a GPU spike on it is self-explanatory."""
     m = (model or "").lower()
@@ -670,28 +654,50 @@ def _model_role(model) -> str:
         return "Image & video rendering"
     if "hunyuan" in m or "wan" in m:
         return "Video rendering"
-    if "gpumodel" in m or "lustify" in m or "flux" in m:
+    if "gpumodel" in m or "flux" in m:
         return "Image rendering"
+    # Connector-declared hints (model_hints: in a connector.yaml).
+    try:
+        from . import connectors
+        for h in connectors.model_hints():
+            if any(s in m for s in h["match"]):
+                return h["role"]
+    except Exception:  # noqa: BLE001
+        pass
     return ""
 
 
 def _active_jobs() -> list[dict]:
     """Currently-running jobs across the box so a GPU spike can be attributed to a
-    named task (render / video / chat image) instead of a bare percentage."""
+    named task (render / video / chat image) instead of a bare percentage.
+
+    External jobs come from connectors that declare a `jobs:` block (see
+    connectors.job_sources) — the registry is cached (~30 s), so a fork with no
+    such connectors makes zero HTTP calls here.
+    """
     jobs: list[dict] = []
-    # Studio renders — the big the GPU service GPU spikes. Separate process, so query it.
-    try:
-        r = requests.get(f"{_STUDIO_BASE}/api/jobs", params={"active": 1}, timeout=1.5)
-        if r.ok:
-            for j in r.json().get("jobs", []):
-                jobs.append({
-                    "name": _job_label(j.get("kind"), j.get("persona"), j.get("theme")),
-                    "stage": j.get("stage"),
-                    "progress": j.get("progress"),
-                    "engine": "the GPU service",
-                })
-    except Exception:  # noqa: BLE001 — best-effort; the panel degrades gracefully
-        pass
+    try:  # lazy import: keeps this module importable standalone
+        from . import connectors
+        sources = connectors.job_sources()
+    except Exception:  # noqa: BLE001
+        sources = []
+    for src in sources:
+        try:
+            r = requests.get(src["url"], params=src["params"], timeout=1.5)
+            if r.ok:
+                for j in r.json().get(src["list_key"], []):
+                    kind = j.get("kind")
+                    # Just the job/service type — no free text (the monitor is
+                    # about what's running on the box, not the content).
+                    jobs.append({
+                        "name": src["labels"].get(kind or "",
+                                                  str(kind).title() if kind else "Job"),
+                        "stage": j.get("stage"),
+                        "progress": j.get("progress"),
+                        "engine": src.get("engine"),
+                    })
+        except Exception:  # noqa: BLE001 — best-effort; the panel degrades gracefully
+            pass
     # Ava's own chat image renders (this process's media-job tracker).
     try:
         from . import state

@@ -1,0 +1,95 @@
+site_name: Ava
+site_description: A self-hosted personal AI operating layer — chat, voice, image/video, app automation, on your own hardware.
+site_url: https://JayMTea.github.io/Ava/
+repo_url: https://github.com/JayMTea/Ava
+repo_name: JayMTea/Ava
+copyright: Apache-2.0 &middot; The Ava Authors
+
+# Staged by docs-site/sync.py (an allow-list copy — see that script).
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: material
+  language: en
+  font:
+    text: Inter
+    code: JetBrains Mono
+  icon:
+    repo: fontawesome/brands/github
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-sunny
+        name: Light mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.indexes
+    - navigation.tracking
+    - content.code.copy
+    - content.code.annotate
+    - search.suggest
+    - search.highlight
+    - toc.follow
+
+extra_css:
+  - stylesheets/extra.css
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+nav:
+  - Home: index.md
+  - Install:
+      - Quickstart: deploy/README.md
+      - Agent runtime: docs/AGENT_RUNTIME.md
+  - Connectors (SDK):
+      - Overview: docs/CONNECTOR_SDK.md
+      - Device connectors: docs/DEVICE_CONNECTORS.md
+      - "Example — app connector": examples/hello-app/index.md
+      - "Example — device connector": examples/device-app/index.md
+  - Architecture:
+      - Overview: agent/docs/README.md
+      - Decision records:
+          - About ADRs: agent/docs/adr/index.md
+          - Template: agent/docs/adr/0000-template.md
+          - SSOT architecture pipeline: agent/docs/adr/0001-ssot-architecture-pipeline.md
+          - Two-app split: agent/docs/adr/0002-two-app-split.md
+          - Per-tool egress policies: agent/docs/adr/0003-per-tool-egress-policies.md
+          - TALA layout engine: agent/docs/adr/0004-tala-layout-engine.md
+  - Security: SECURITY.md
+  - Contributing: CONTRIBUTING.md
+  - Releasing: docs/RELEASING.md
+  - Roadmap & design:
+      - Packaging plan: docs/PACKAGING_PLAN.md
+      - Warm-agent mode (design): docs/WARM_AGENT_MODE.md
+  - Reference:
+      - Changelog: CHANGELOG.md
+      - Hardware support: docs/HWINFO_VALIDATION.md

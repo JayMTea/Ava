@@ -20,8 +20,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from ava_bridge import settings  # noqa: E402
-
-__version__ = "0.1.0"
+from ava_bridge.version import __version__, revision  # noqa: E402
 
 G, Y, R, B, X = "\033[32m", "\033[33m", "\033[31m", "\033[34m", "\033[0m"
 OK, WARN, BAD = f"{G}✓{X}", f"{Y}●{X}", f"{R}✗{X}"
@@ -40,18 +39,9 @@ def _probe(url: str) -> bool:
 
 
 # --------------------------------------------------------------------------- #
-def _recommend_tier(avail_gb: float) -> tuple[str, str]:
-    """Map available fit-memory (GB) to a concrete model class + example, so a
-    user knows what will run on their hardware without guessing."""
-    if avail_gb >= 40:
-        return "large", "~30B-class models (e.g. the default Nemotron open-model 30B)"
-    if avail_gb >= 20:
-        return "medium", "~13-14B models, or a quantized 30B"
-    if avail_gb >= 12:
-        return "small", "~7-8B models (e.g. Llama 3.1 8B, Qwen2.5 7B)"
-    if avail_gb >= 6:
-        return "tiny", "~3-7B quantized (Q4) models via Ollama"
-    return "cloud", "too little local memory — use a hosted API (cloud profile)"
+# Tier recommendation lives in model_fit so doctor / models pull / the setup
+# wizard share one source of truth.
+from ava_bridge.model_fit import recommend_tier as _recommend_tier  # noqa: E402
 
 
 def cmd_doctor(_args) -> int:
@@ -134,6 +124,34 @@ def cmd_doctor(_args) -> int:
             note += f"  ⚠ needs ~{weight} GB > {avail:.0f} GB available"
         _row(icon, name, note)
 
+    # The route chat ACTUALLY uses (fixes the old doctor/reality mismatch where
+    # backends probed green on :8002 while chat errored against :8010).
+    print("\nInference route (what chat actually uses)")
+    try:
+        from ava_bridge import config as _bcfg, router_host
+        rst = router_host.router_status()
+        default_chat = f"http://127.0.0.1:{_bcfg.ROUTER_PORT}/v1/chat/completions"
+        if _bcfg.ROUTER_CHAT_URL != default_chat:
+            up = _probe(_bcfg.ROUTER_CHAT_URL.rsplit("/chat/completions", 1)[0]
+                        + "/models")
+            _row(OK if up else WARN, "chat url",
+                 f"{_bcfg.ROUTER_CHAT_URL}  (router bypass — no failover/perf log)")
+        elif rst["alive"]:
+            _row(OK, "router", f":{rst['port']} up")
+        elif rst["embedded_setting"] in ("false", "0", "no", "off"):
+            _row(BAD, "router", f":{rst['port']} down and inference.router.embedded "
+                 "is false — chat will error")
+        else:
+            _row(OK, "router", f":{rst['port']} not running — `ava up` starts it "
+                 "embedded")
+        chat_role = settings.role_backend("chat")
+        if chat_role:
+            declared = chat_role in (settings.get("inference.backends", {}) or {})
+            _row(OK if declared else BAD, "chat role",
+                 chat_role + ("" if declared else "  ⚠ not a declared backend"))
+    except Exception as e:  # noqa: BLE001
+        _row(WARN, "inference route", f"probe failed: {e}")
+
     print("\nBridge")
     port = settings.get_int("server.port", 8096, env="AVA_PORT")
     _row(OK if _probe(f"http://127.0.0.1:{port}/api/health") else WARN,
@@ -151,6 +169,10 @@ def cmd_setup(args) -> int:
     # signing secret (auto-generated, secure by default)
     settings.secret("session_secret", env="AVA_SECRET", generate=True)
     _row(OK, "session secret", "generated" if not os.environ.get("AVA_SECRET") else "from env")
+
+    # router token (guards /which /route /fit; also /v1/* when LAN-exposed)
+    settings.secret("router_token", env="AVA_ROUTER_TOKEN", generate=True)
+    _row(OK, "router token", "generated" if not os.environ.get("AVA_ROUTER_TOKEN") else "from env")
 
     # admin password: env -> flag -> existing -> generate
     pw_path = os.path.join(settings.data_dir(), "auth_password")
@@ -205,9 +227,9 @@ def cmd_up(args) -> int:
     return subprocess.call(cmd, cwd=settings.CODE_ROOT)
 
 
-# Version is bumped on each packaged release.
 def cmd_version(_args) -> int:
-    print(f"ava {__version__}")
+    rev = revision()
+    print(f"ava {__version__}" + (f" ({rev})" if rev else ""))
     return 0
 
 
@@ -425,7 +447,7 @@ def cmd_device(args) -> int:
         with open(path, "w", encoding="utf-8") as f:
             f.write(_DEVICE_CONNECTOR_TEMPLATE.replace("NAME", args.name))
         print(f"{OK} created {path}")
-        print(f"   1. edit it (set your app's PORT), then restart Ava (or `ava up`)")
+        print("   1. edit it (set your app's PORT), then restart Ava (or `ava up`)")
         print(f"   2. get the inbound push token:  ava device token {args.name}")
         print(f"   3. see events arrive:           ava device events {args.name}")
         return 0
@@ -490,12 +512,13 @@ def _model_dirs() -> dict:
     base = settings.models_dir()
     return {"root": base, "hf": os.path.join(base, "hf"),
             "ollama": os.path.join(base, "ollama"),
-            "gpusvc": os.path.join(base, "gpusvc")}
+            "gpusvc": os.path.join(base, "gpusvc"),
+            "gguf": os.path.join(base, "gguf")}
 
 
 def ensure_model_dirs() -> dict:
     d = _model_dirs()
-    for k in ("hf", "ollama", "gpusvc"):
+    for k in ("hf", "ollama", "gpusvc", "gguf"):
         os.makedirs(d[k], exist_ok=True)
     for sub in _gpusvc_SUBDIRS:
         os.makedirs(os.path.join(d["gpusvc"], sub), exist_ok=True)
@@ -565,11 +588,29 @@ def _gpusvc_present(spec: dict, gpusvc_dir: str) -> bool:
     return os.path.isfile(_gpusvc_target(spec, gpusvc_dir))
 
 
+def _gguf_target(spec: dict, gguf_dir: str) -> str:
+    name = os.path.basename(spec.get("id") or spec.get("url") or "model.gguf")
+    return os.path.join(gguf_dir, name)
+
+
+def _gguf_present(spec: dict, gguf_dir: str) -> bool:
+    return os.path.isfile(_gguf_target(spec, gguf_dir))
+
+
+def _pull_gguf(spec: dict, gguf_dir: str) -> int:
+    """Direct-URL GGUF download for llama.cpp — same streaming path as gpusvc."""
+    return _download_url(spec.get("url"), _gguf_target(spec, gguf_dir),
+                         spec.get("id", "model"))
+
+
 def _pull_gpusvc(spec: dict, gpusvc_dir: str) -> int:
-    target = _gpusvc_target(spec, gpusvc_dir)
-    url = spec.get("url")
+    return _download_url(spec.get("url"), _gpusvc_target(spec, gpusvc_dir),
+                         spec.get("id", "model"))
+
+
+def _download_url(url: str | None, target: str, label: str) -> int:
     if not url:
-        print(f"  {WARN} no url for {spec['id']} — place the file at {target} by hand")
+        print(f"  {WARN} no url for {label} — place the file at {target} by hand")
         return 1
     os.makedirs(os.path.dirname(target), exist_ok=True)
     try:
@@ -611,6 +652,8 @@ def _model_present(spec: dict, dirs: dict) -> bool:
         return _ollama_present(spec["id"], dirs["ollama"])
     if eng == "gpu-service":
         return _gpusvc_present(spec, dirs["gpusvc"])
+    if eng in ("llamacpp", "gguf"):
+        return _gguf_present(spec, dirs["gguf"])
     return False
 
 
@@ -626,8 +669,35 @@ def _pull_one(role: str, spec: dict, dirs: dict) -> int:
         return _pull_ollama(spec["id"], dirs["ollama"])
     if eng == "gpu-service":
         return _pull_gpusvc(spec, dirs["gpusvc"])
+    if eng in ("llamacpp", "gguf"):
+        return _pull_gguf(spec, dirs["gguf"])
     print(f"  {WARN} unknown engine '{eng}' — skipped")
     return 1
+
+
+def _backend_stanza(role: str, spec: dict, dirs: dict) -> str:
+    """A copy-pasteable ava.yaml `inference` stanza for a just-pulled model, so
+    pull -> configure is one flow instead of a docs hunt."""
+    eng = spec.get("engine", "openai")
+    base = {"vllm": "http://127.0.0.1:8002/v1",
+            "ollama": "http://127.0.0.1:11434/v1",
+            "llamacpp": "http://127.0.0.1:8080/v1",
+            "gguf": "http://127.0.0.1:8080/v1"}.get(eng, "http://127.0.0.1:8002/v1")
+    bid = f"local-{role}"
+    lines = [
+        "inference:",
+        f"  primary: {bid}",
+        "  backends:",
+        f"    {bid}:",
+        f"      engine: {'llamacpp' if eng == 'gguf' else eng}",
+        f"      base_url: {base}",
+        f"      model: {spec.get('id')}",
+    ]
+    if eng in ("llamacpp", "gguf"):
+        lines.append(f"      # serve it:  llama-server -m {_gguf_target(spec, dirs['gguf'])} "
+                     "--port 8080 --jinja")
+        lines.append("      tools: none   # set to native only with a tool-call chat template")
+    return "\n".join(lines)
 
 
 def _detected_tier() -> tuple[str, float | None]:
@@ -674,7 +744,12 @@ def cmd_models(args) -> int:
                       f"provider (set inference.backends + AVA_INFERENCE_KEY).")
                 return 0
             print(f"{B}--auto{X}: detected tier '{tier}' \u2192 pulling '{role}'\n")
-            return _pull_one(role, manifest[role], dirs)
+            rc = _pull_one(role, manifest[role], dirs)
+            if rc == 0:
+                print(f"\n{B}Add to your ava.yaml{X} (if not already configured):\n")
+                print(_backend_stanza(role, manifest[role], dirs))
+                print()
+            return rc
         roles = [args.name] if args.name else list(manifest)
         rc = 0
         for role in roles:

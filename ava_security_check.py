@@ -11,10 +11,8 @@ should be fixed or explicitly documented before they become part of the system.
 from __future__ import annotations
 
 import ipaddress
-import os
 import stat
 import subprocess
-import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent

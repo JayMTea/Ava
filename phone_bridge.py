@@ -12,15 +12,13 @@ Everything runs locally on the Spark; nothing leaves the tailnet.
 
 import base64
 import asyncio
-import html
 import hmac
 import json
 import os
-import re
 import threading
 import time
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import List
 
@@ -37,11 +35,12 @@ import voice_ava as va
 # owns one concern. Routes below only authenticate, serve, capture input, and
 # forward to Ava-the-agent. See ava_bridge/__init__.py for the map.
 from ava_bridge import config, state
+from ava_bridge.version import version as _ava_version
 from ava_bridge.config import (
     RATE, MEDIA_DIR, UPLOAD_DIR, MAX_UPLOAD_BYTES, MAX_DOC_CHARS,
-    OC_SESSION, OC_AGENT, PHONE_THRESHOLD, COOKIE_NAME, IMAGE_EXTS,
+    OC_SESSION, PHONE_THRESHOLD, COOKIE_NAME, IMAGE_EXTS,
 )
-from ava_bridge.agent import (ask_openclaw, run_turn as _agent_run_turn, _warm_openclaw,
+from ava_bridge.agent import (run_turn as _agent_run_turn, _warm_openclaw,
                               discard_session, get_route, set_route, which_model)
 from ava_bridge.chat_store import history_for as _history_for
 from ava_bridge.gpu_jobs import (start_image_job, start_upscale_job,
@@ -57,12 +56,12 @@ from ava_bridge.auth import (
     current_password, needs_setup, set_password,
 )
 from ava_bridge import internal, architecture, learning_mgmt, log_mgmt, config_mgmt, policy_mgmt, perf_mgmt
-from ava_bridge import dashboard, alerts, connectors, perf_store, devices
+from ava_bridge import dashboard, connectors, perf_store, devices
 from ava_bridge import code_agent
 from ava_bridge import hardware
 from ava_bridge import web as web_access
 from ava_bridge.learning import CodeLearner, ChatLearner
-from ava_bridge.coder import apply_turn
+_AVA_VERSION = _ava_version()
 # Shared-state aliases so the route bodies below read naturally (same objects).
 _ATTACH = state.attachments
 _ATTACH_LOCK = state.attachments_lock
@@ -156,7 +155,11 @@ def setup_post(request: Request, password: str = Form(""), confirm: str = Form("
         return HTMLResponse(
             SETUP_PAGE.replace("<!--MSG-->", "Passwords do not match."), status_code=400)
     set_password(password)
-    resp = RedirectResponse("/", status_code=303)   # log straight in
+    # Fresh install -> continue into the onboarding wizard (hardware, backend,
+    # features, connectors). A pre-existing config skips it (setup_completed()).
+    from ava_bridge.setup_wizard import setup_completed
+    dest = "/" if setup_completed() else "/setup/wizard"
+    resp = RedirectResponse(dest, status_code=303)
     _set_session_cookie(resp)
     return resp
 
@@ -169,14 +172,23 @@ def logout():
 
 
 # Lazily-initialised heavy objects (loaded once on first request / startup).
+# Voice (STT + speaker gate) is an OPTIONAL extra — requirements-voice.txt.
+# Without it the bridge boots and serves normally, just voice-less.
 def _ensure_loaded():
-    if _state["whisper"] is None:
-        from faster_whisper import WhisperModel
-        _state["whisper"] = WhisperModel(va.WHISPER_MODEL, device="cpu", compute_type="int8")
-    if _state["voiceprint"] is None:
-        _state["voiceprint"] = spk.load_voiceprint()
-    if _state["verifier"] is None and _state["voiceprint"] is not None and PHONE_THRESHOLD > 0:
-        _state["verifier"] = spk.SpeakerVerifier()
+    if _state["voice_unavailable"]:
+        return
+    try:
+        if _state["whisper"] is None:
+            from faster_whisper import WhisperModel
+            _state["whisper"] = WhisperModel(va.WHISPER_MODEL, device="cpu", compute_type="int8")
+        if _state["voiceprint"] is None:
+            _state["voiceprint"] = spk.load_voiceprint()
+        if _state["verifier"] is None and _state["voiceprint"] is not None and PHONE_THRESHOLD > 0:
+            _state["verifier"] = spk.SpeakerVerifier()
+    except ImportError:
+        _state["voice_unavailable"] = True
+        print("[ava-bridge] voice disabled — optional STT deps not installed "
+              "(pip install -r requirements-voice.txt to enable).", flush=True)
 
 
 @app.on_event("startup")
@@ -197,6 +209,13 @@ def _startup():
     else:
         print(f"[ava-bridge] agent runtime: {rt.name} (full agent — tools + memory + skills).", flush=True)
     threading.Thread(target=_warm_openclaw, daemon=True).start()
+    # Provide the inference router: embedded in-process unless a standalone
+    # unit already owns the port (or config disables it). Same in-process
+    # pattern as the samplers below — no extra service on a fresh install.
+    from ava_bridge import router_host
+    mode = router_host.start_embedded()
+    print(f"[ava-bridge] inference router: {mode} "
+          f"(:{config.ROUTER_PORT})", flush=True)
     # Start the dashboard's hardware time-series sampler (ring buffer).
     hardware.start_sampler()
     # Start the in-process perf-log rollup (bounds raw storage + serves cold history
@@ -230,6 +249,10 @@ def legacy_index():
 # exists); a fork with no overlay simply skips them.
 
 
+# First-run onboarding wizard (server-rendered; cookie-gated sub-routes).
+from ava_bridge.setup_wizard import router as _wizard_router  # noqa: E402
+app.include_router(_wizard_router)
+
 # Mount the optional overlay personal-app routes now that `app` exists.
 try:
     from overlay.ava_bridge import personal_routes as _personal_routes
@@ -248,6 +271,7 @@ def health():
         "ctx_max": config.CTX_MAX,
         "ctx_base": config.CTX_BASE,
         "brand": config.AVA_NAME,
+        "version": _AVA_VERSION,
     }
 
 
@@ -255,14 +279,15 @@ def health():
 def brand():
     """Assistant name/tagline (config brand.* -> ava.yaml/env). Lets a fork
     re-brand the whole UI without editing React — the SPA reads this."""
-    return {"name": config.AVA_NAME, "tagline": config.AVA_TAGLINE}
+    return {"name": config.AVA_NAME, "tagline": config.AVA_TAGLINE,
+            "version": _AVA_VERSION}
 
 
 @app.get("/api/hardware")
 async def api_hardware():
-    """Live DGX Spark hardware snapshot for the app's floating monitor: GPU
-    utilisation/temperature, unified memory used/free, and CPU utilisation.
-    Auth-gated like every other /api route."""
+    """Live hardware snapshot for the app's floating monitor: GPU
+    utilisation/temperature, unified/system memory used/free, and CPU
+    utilisation. Auth-gated like every other /api route."""
     return await run_in_threadpool(hardware.stats)
 
 
@@ -646,7 +671,7 @@ async def internal_run_gpu_job(request: Request):
     Ava's `run_gpu_job` MCP tool calls this instead of hitting the GPU service directly.
     The bridge then owns the the GPU service render (start_image_job -> gpu_service, tracked
     over the the GPU service websocket), so /api/job/{id} reports a TRUE percentage the chat
-    bar polls — exactly like the Studio and the manual Generate button. Token-gated
+    bar polls — exactly like the manual Generate button. Token-gated
     (reuses the ava-knowledge /internal egress; no new policy).
     """
     if not internal.authorized(request):
@@ -702,8 +727,8 @@ async def internal_run_gpu_job(request: Request):
     return {"job": {"id": job_id, "kind": "image", "status": "running"}}
 
 
-# The /internal/studio/* routes (today + flexible-range content) moved to the
-# optional overlay (overlay/ava_bridge/personal_routes.py) with the Studio proxy.
+# Personal-app routes (reverse proxies + their /internal/* read-backs) live in
+# the optional gitignored overlay (overlay/ava_bridge/*), registered at boot.
 
 
 # ---- Architecture capability (Ava reads/updates her own SSOT diagrams+code) --
@@ -1153,6 +1178,10 @@ async def internal_web_fetch(request: Request):
 async def talk(audio: UploadFile = File(...), history: str = Form("[]"),
                attachments: str = Form("[]"), chat_id: str = Form("")):
     _ensure_loaded()
+    if _state["voice_unavailable"]:
+        return JSONResponse(
+            {"error": "voice not installed — pip install -r requirements-voice.txt"},
+            status_code=503)
     raw = await audio.read()
     if not raw:
         return JSONResponse({"error": "empty audio"}, status_code=400)

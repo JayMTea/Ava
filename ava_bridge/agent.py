@@ -46,12 +46,15 @@ def _warm_openclaw():
 
 
 def _sbx_read(inner: str, timeout: int = 20) -> str:
-    """Run a command inside the agent sandbox (for live chain-of-thought)."""
-    return runtime.nemoclaw().exec(inner, timeout=timeout)
+    """Run a command inside the agent sandbox (for live chain-of-thought).
+
+    Uses the CONFIGURED runtime (nemoclaw in-process by default, or the remote
+    agent container when `agent.runtime: remote`) so live CoT works on both."""
+    return runtime.configured().exec(inner, timeout=timeout)
 
 
 def _session_file(sid: str) -> str | None:
-    return runtime.nemoclaw().session_file(sid)
+    return runtime.configured().session_file(sid)
 
 
 def discard_session(sid: str) -> bool:

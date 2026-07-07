@@ -39,7 +39,7 @@ for (const [path, mod] of Object.entries(_overlayViews)) {
   NATIVE_VIEWS[key] = mod.default;
 }
 
-// The active tab lives in the URL hash (#studio) so it's bookmarkable and the
+// The active tab lives in the URL hash (#vitals, #ops, an app id, …) so it's bookmarkable and the
 // browser back/forward buttons move between tabs. App ids are accepted
 // optimistically (the /api/apps list confirms them once loaded).
 function viewFromHash(): View | null {

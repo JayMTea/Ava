@@ -13,16 +13,14 @@ So Ava can refactor a tool, fix a UI bug, or repair an error she hit — all on 
 own — but she can never silently change auth, egress policy, or the deploy scripts
 without the owner clicking Approve. See access_policy.py for the tiers.
 """
-import json
 import os
 import subprocess
-import time
 import uuid
 from datetime import datetime, timezone
 
 from . import config, state, access_policy
 from .coder import (
-    SYSTEM_PROMPT, TOOLS, ROOT, _safe, _git,
+    SYSTEM_PROMPT, _safe, _git,
     _tool_list_dir, _tool_read_file, _tool_search,
     _stage_write, _stage_str_replace, _stage_append, _stage_delete,
     _edits_from_staged, _anthropic, set_active_root, reset_active_root,

@@ -61,6 +61,21 @@ models:
 # add a second backend below only if you want an automatic cloud fallback.
 inference:
   primary: local-omni
+  # Logical model roles -> backend ids, so features never name a model inline.
+  # Unset roles fall back to `primary`. media roles resolve via `models:` above.
+  # roles:
+  #   chat: local-omni         # the conversational brain (direct + agent path)
+  #   fast: local-omni         # utility/classify turns (X-Ava-Workload: fast)
+  # The OpenAI-compatible router (embedded in the bridge at startup; a
+  # standalone `uvicorn ava_router:app` unit is detected and used instead).
+  # router:
+  #   embedded: auto           # [AVA_ROUTER_EMBEDDED] auto | true | false
+  #   host: 127.0.0.1          # [AVA_ROUTER_HOST]  bind host; non-loopback
+  #                            #   exposure turns /v1/* auth ON (see require_auth)
+  #   port: 8010               # [AVA_ROUTER_PORT]
+  #   require_auth: auto       # [AVA_ROUTER_REQUIRE_AUTH] auto = require a
+  #                            #   Bearer/X-Ava-Router-Token on /v1/* iff the
+  #                            #   bind host is non-loopback
   # Reasoning control for a *reasoning* local model (e.g. Nemotron open-model).
   # The router injects this as the default vLLM `chat_template_kwargs` on every
   # chat completion. Left unbounded, a reasoning model emits hundreds–~1000
@@ -81,9 +96,15 @@ inference:
   # ctx_max: 65536                                         # [AVA_CTX_MAX]
   backends:
     local-omni:
-      engine: vllm
+      engine: vllm             # vllm | ollama | llamacpp | openai (generic cloud)
       base_url: http://127.0.0.1:8002/v1
       model: nvidia/Nemotron-Open-30B-A3B-Reasoning-FP8
+      # tools: native          # native (default) = the endpoint returns real
+      #                        #   tool_calls; none = requests carrying `tools`
+      #                        #   skip this backend (plain llama.cpp without a
+      #                        #   tool-call chat template). Engine launch flags
+      #                        #   matter too: vLLM needs --tool-call-parser,
+      #                        #   llama.cpp needs --jinja; Ollama is native.
       fit:
         weight_gb: 35           # resident footprint in the unified memory pool
         tier: large             # large | small | tiny  (quality/size class)

@@ -61,6 +61,8 @@ done
 # --- 2. Discover the guard proxy (only present inside the sandbox shell) ------
 PROXY="$("$NEMOCLAW" "$SANDBOX" exec --no-tty -- bash -lc 'printf %s "$HTTPS_PROXY"' 2>/dev/null \
   | grep -oE 'https?://[^[:space:]]+' | head -1)"
+# Fallback = OpenShell's default sandbox-gateway address; export PROXY to
+# override if your sandbox uses a different one.
 PROXY="${PROXY:-http://10.200.0.1:3128}"
 echo "[ava] proxy=$PROXY"
 

@@ -9,7 +9,6 @@ tail of that session file, so the UI can show Ava's REAL reasoning + actions
 live, then attach the final reply / image when she finishes.
 """
 import json
-import os
 import shlex
 import threading
 import time
@@ -17,7 +16,7 @@ import uuid
 
 import requests
 
-from . import config, state, runtime
+from . import connectors, state, runtime
 from .agent import (ask_openclaw, which_model, _sbx_read, _session_file,
                     chat_direct)
 from .artifacts import build_turn_artifact
@@ -29,29 +28,32 @@ from .gpu_jobs import (_pickup_image_since, start_agent_image_watch,
 def _pickup_previews_since(t0: float, tools: list[str]) -> list[dict]:
     """Deterministic action data for chat quick-buttons.
 
-    When a turn used persona_preview, read the connected persona app's render log
-    (append-only genlog) for preview renders produced since the turn started and
-    return {persona, url, seed, theme} for each. No LLM / trajectory parsing —
-    the app is the single source of truth, so the UI can offer a deterministic
-    "Lock this face" button tied to a real preview image.
+    Connectors can declare a ``chat_pickup:`` block (see connectors.chat_pickups):
+    when a turn used one of the named tools, read the app's append-only render
+    log for artifacts produced since the turn started and return one card dict
+    per artifact. No LLM / trajectory parsing — the app is the single source of
+    truth, so the UI can offer deterministic quick-buttons tied to real images.
+    App-relative URLs are rewritten through the same-origin /apps/<id> proxy.
     """
-    if not any("persona_preview" in (t or "") for t in tools):
-        return []
-    try:
-        r = requests.get(f"{os.environ.get('STUDIO_BASE', 'http://127.0.0.1:8097')}/api/log",
-                         params={"kind": "preview", "limit": 12}, timeout=8)
-        rows = (r.json() or {}).get("log", [])
-    except Exception:  # noqa: BLE001 — buttons are best-effort
-        return []
     out: list[dict] = []
-    for rec in rows:  # genlog returns newest-first
-        if float(rec.get("ts") or 0) < t0 - 2:
+    for spec in connectors.chat_pickups():
+        if not any(t in tools for t in spec["tools"]):
             continue
-        url = rec.get("url")
-        if not url:
+        try:
+            r = requests.get(spec["url"], params=spec["params"], timeout=8)
+            rows = (r.json() or {}).get(spec["list_key"], [])
+        except Exception:  # noqa: BLE001 — cards are best-effort
             continue
-        out.append({"persona": rec.get("persona"), "url": url,
-                    "seed": rec.get("seed"), "theme": rec.get("theme")})
+        for rec in rows:  # app logs return newest-first
+            if float(rec.get(spec["ts_key"]) or 0) < t0 - 2:
+                continue
+            item = {k: rec.get(src) for k, src in spec["fields"].items()}
+            url = item.get("url")
+            if not url:
+                continue
+            if url.startswith("/") and spec["url_prefix"]:
+                item["url"] = spec["url_prefix"] + url
+            out.append(item)
     return out
 
 

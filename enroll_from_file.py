@@ -2,7 +2,7 @@
 """Build Ava's "my voice only" voiceprint from a recording (any audio format).
 
 You record ~45-60s of your natural speech on your PC, drop the file into
-~/projects/Ava/enroll/, then run:
+the repo's enroll/ directory, then run:
 
     ./.venv/bin/python enroll_from_file.py enroll/my_voice.m4a
 
@@ -14,8 +14,6 @@ import argparse
 import os
 import subprocess
 import sys
-import tempfile
-import wave
 
 import numpy as np
 

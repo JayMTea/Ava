@@ -154,9 +154,9 @@ class NemoClawRuntime(AgentRuntime):
 
     def provision(self, auto_install: bool = False) -> dict:
         """Make NemoClaw ready, idempotently:
-          1. ensure the `nemoclaw` CLI (auto `npm install -g nemoclaw` if asked),
-          2. ensure the sandbox exists (guides you to `nemoclaw onboard` — it is
-             interactive: it configures the inference endpoint + credentials),
+          1. ensure the `nemoclaw` CLI (via NVIDIA's official installer if asked;
+             the npm package is a stub — needs Node >=22.16 + a Docker daemon),
+          2. ensure the sandbox exists (guides you to `nemoclaw onboard`),
           3. deploy Ava's tools/policies/skills via agent/install.sh.
         Returns {ok, steps, detail}."""
         steps: list[dict] = []
@@ -165,20 +165,33 @@ class NemoClawRuntime(AgentRuntime):
             steps.append({"step": name, "ok": ok, "detail": detail})
             return ok
 
-        # 1. CLI
+        # 1. CLI. NOTE: the npm `nemoclaw` package is an empty stub — the real
+        # CLI is NVIDIA's official installer (needs Node >=22.16 + a reachable
+        # Docker daemon). The installer also attempts an onboard at the end, so
+        # tolerate a non-zero exit and verify by the CLI being present.
+        _INSTALL = ("curl -fsSL https://raw.githubusercontent.com/NVIDIA/"
+                    "NemoClaw/main/install.sh | bash")
         have_cli = bool(self.cli) and os.path.exists(self.cli)
         if not have_cli and auto_install:
-            if _which("npm"):
-                rc, out = self._run(["npm", "install", "-g", "nemoclaw"], timeout=600)
-                have_cli = rc == 0 and bool(_which("nemoclaw"))
+            if _which("curl") and _which("bash"):
+                env = {**os.environ, "NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE": "1"}
+                cp = subprocess.run(["bash", "-lc", _INSTALL + " || true"],
+                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                    timeout=900, env=env)
+                have_cli = bool(_which("nemoclaw")) or (
+                    bool(self.cli) and os.path.exists(self.cli))
                 step("install-cli", have_cli,
-                     "npm install -g nemoclaw" + ("" if have_cli else f" failed: {out[-200:]}"))
+                     "NemoClaw official installer"
+                     + ("" if have_cli else f" — CLI not found after install: "
+                        f"{cp.stdout.decode(errors='ignore')[-200:]}"))
             else:
-                step("install-cli", False, "npm not found — install Node.js, then `npm install -g nemoclaw`")
+                step("install-cli", False,
+                     "curl/bash not found — install them + Node >=22, then run: " + _INSTALL)
         elif not have_cli:
             step("install-cli", False,
-                 "nemoclaw not installed. Run `npm install -g nemoclaw` (or pass --install), "
-                 "then re-run. See github.com/NVIDIA/NemoClaw.")
+                 "nemoclaw not installed. Run the official installer (or pass "
+                 "--install), then re-run:\n  " + _INSTALL
+                 + "\n(needs Node >=22.16. See github.com/NVIDIA/NemoClaw.)")
         else:
             step("install-cli", True, self.cli)
         if not (bool(self.cli) and os.path.exists(self.cli)) and not _which("nemoclaw"):

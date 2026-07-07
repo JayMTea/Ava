@@ -15,7 +15,6 @@ service restart.
 """
 import difflib
 import fnmatch
-import json
 import os
 import re
 import subprocess

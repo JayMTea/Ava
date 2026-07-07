@@ -27,7 +27,7 @@ constraints:
 
 notes: |
   - Ava uses get_email_digest to reference her own learning
-  - Daily digests: 4am PST, scheduled by ava-learning-digest.timer
-  - Weekly trends: Sunday 4am PST, scheduled by ava-learning-weekly.timer
+  - Daily digests: on the deployment's configured schedule (timer/cron)
+  - Weekly trends: on the deployment's configured schedule (timer/cron)
   - All digests are archived in logs/ for reference
   - Future enhancement: integrate with knowledge base for trend analysis

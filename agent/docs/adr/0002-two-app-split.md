@@ -1,6 +1,8 @@
 # 0002. Split Experience (`:8445`) and Admin (`:8444`) front doors
 
-- **Status:** Accepted
+- **Status:** Superseded (historical) — the productized single-tenant build serves
+  one bridge on `:8096` (loopback by default) with a unified auth gate; the Admin
+  surface became the in-app Command Center. Kept for the decision history.
 - **Date:** 2026-06-28
 - **Deciders:** project owner
 

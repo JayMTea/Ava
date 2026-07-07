@@ -1,0 +1,27 @@
+# Ava lint config. Default rule set (pyflakes + pycodestyle E4/E7/E9); the
+# frontend, the private overlay, and generated/vendored trees are excluded.
+target-version = "py312"
+line-length = 100
+
+extend-exclude = [
+    "frontend",
+    "overlay",
+    ".venv",
+    "docs",
+    "agent/mcp_server_content/connectors",
+    "agent/policies/generated",
+]
+
+[lint]
+# Keep the default select (E4, E7, E9, F). New code is held to this; a small set
+# of pre-existing legacy patterns is ignored per-file below rather than globally,
+# so the standard still applies everywhere else.
+[lint.per-file-ignores]
+"agent/docs/arch.py" = ["E741"]          # single-char loop vars in the d2 renderer
+"ava_bridge/coder.py" = ["E402", "E741", "F841"]  # post-guard import + legacy locals
+"ava_bridge/config_mgmt.py" = ["E722"]   # legacy best-effort restore
+"ava_bridge/connectors.py" = ["E402"]    # `import re as _re` after the var table
+"ava_bridge/learning.py" = ["F841"]      # legacy staged local
+"ava_bridge/log_mgmt.py" = ["F841"]      # legacy staged local
+"phone_bridge.py" = ["E722"]             # legacy best-effort handlers
+"voice_ava.py" = ["E702"]                # terse teardown line

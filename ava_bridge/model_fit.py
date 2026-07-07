@@ -284,3 +284,18 @@ def fit_report(backends: list) -> dict:
             "gating": "enabled" if mem.readable else "disabled",
             "platform": hwinfo.platform_id(),
             "backends": rows, "ts": time.time()}
+
+
+def recommend_tier(avail_gb: float) -> tuple:
+    """Map available fit-memory (GB) to a concrete model class + example, so a
+    user knows what will run on their hardware without guessing. Single source
+    of truth for `ava doctor`, `ava models pull --auto` and the setup wizard."""
+    if avail_gb >= 40:
+        return "large", "~30B-class models (e.g. the default Nemotron open-model 30B)"
+    if avail_gb >= 20:
+        return "medium", "~13-14B models, or a quantized 30B"
+    if avail_gb >= 12:
+        return "small", "~7-8B models (e.g. Llama 3.1 8B, Qwen2.5 7B)"
+    if avail_gb >= 6:
+        return "tiny", "~3-7B quantized (Q4) models via Ollama"
+    return "cloud", "too little local memory — use a hosted API (cloud profile)"

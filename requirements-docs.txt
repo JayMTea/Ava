@@ -1,0 +1,6 @@
+# Ava docs-site extras — build the MkDocs Material site (docs-site/).
+# Not part of the app runtime. Build locally:
+#   pip install -r requirements-docs.txt
+#   python docs-site/sync.py && mkdocs build --strict -f docs-site/mkdocs.yml
+mkdocs==1.6.1
+mkdocs-material==9.6.14

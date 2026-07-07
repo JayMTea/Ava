@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff==0.15.14
+      - run: ruff check .
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: python -m pytest tests/ -q
+
+  frontend-dist-drift:
+    # The bridge serves the prebuilt bundle, so frontend/dist is tracked. Rebuild
+    # with the same toolchain as deploy/Dockerfile (node:20) and fail if dist
+    # drifts from src — a PR that changes src must commit the rebuilt dist.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - working-directory: frontend
+        run: npm ci
+      - working-directory: frontend
+        run: npm run build
+      - name: Assert dist is in sync with src
+        run: |
+          if ! git diff --exit-code -- frontend/dist; then
+            echo "::error::frontend/dist is out of date — run 'npm run build' in frontend/ and commit the result."
+            exit 1
+          fi
+
+  smoke:
+    # CPU-only boot: the bridge must start and serve /api/health with no model,
+    # no agent runtime, and no voice deps installed.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Boot the bridge and probe health
+        env:
+          AVA_HOME: ${{ runner.temp }}/ava-home
+          AVA_AGENT_ENABLED: "0"
+        run: |
+          python ava_cli.py setup --password ci-smoke-pass
+          python serve.py &
+          SERVER_PID=$!
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8096/api/health >/dev/null 2>&1; then
+              echo "health OK"; kill $SERVER_PID; exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::bridge did not become healthy in time"
+          kill $SERVER_PID 2>/dev/null || true
+          exit 1
+
+  secrets-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  docs:
+    # Fail a PR that breaks a docs link before it reaches the publish workflow.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-docs.txt
+      - run: python docs-site/sync.py
+      - run: mkdocs build --strict -f docs-site/mkdocs.yml

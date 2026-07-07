@@ -389,19 +389,31 @@ ava/
       ([examples/hello-app](../examples/hello-app/)).
 
 **Phase 3 — Inference & hardware abstraction**
-- [ ] Provider layer (vLLM/Ollama/llama.cpp/cloud); `models.yaml` role manifest.
-- [ ] Hardware-tier recommendation + optional model download.
+- [x] Provider layer (vLLM/Ollama/llama.cpp/cloud): `ava_bridge/router_app.py`
+      app factory with per-backend `engine`/`tools` flags + minimal engine
+      adapters; the **router is embedded in the bridge** (`router_host.py`,
+      auto-detects a standalone unit) so bare-metal and Docker share one path;
+      `/v1/*` auth-hardened (loopback default, bearer when LAN-exposed). Roles
+      live in `ava.yaml` `inference.roles` (decision: **extend ava.yaml, no
+      separate `models.yaml`**).
+- [x] Hardware-tier recommendation (`model_fit.recommend_tier`, shared by
+      doctor/wizard/CLI) + `ava models pull --auto` with an emitted config stanza.
 
 **Phase 4 — Packaging & onboarding**
 - [x] Docker Compose profiles (`gpu`/`cpu`/`cloud`/`full`) + `Dockerfile` +
       one-line `deploy/install.sh` + `deploy/README.md` (scaffolded).
 - [x] `ava setup` writes `ava.yaml` + generates password/secrets (CLI first-run).
-- [ ] First-run **web** wizard (browser onboarding) — CLI setup exists; web next.
+- [x] First-run **web** wizard (`/setup/wizard`): password → hardware+tier →
+      backend pick → optional features → connector catalog, all written to
+      `ava.yaml` via `settings.save_patch`. Server-rendered (no SPA dependency).
 - [ ] Agent runtime bundled/auto-provisioned into the images.
 
 **Phase 5 — Public beta**
-- [ ] Security hardening pass, telemetry opt-in, docs site, license, CI/CD,
-      signed releases. Private beta → public.
+- [x] Security hardening (router `/v1` auth, security-surface test suite:
+      auth middleware / SSRF guard / token scoping / connector registry) + CI/CD
+      (`.github/workflows/ci.yml`: ruff, pytest, dist-drift, CPU smoke boot,
+      gitleaks).
+- [ ] Telemetry opt-in, docs site, signed releases. Private beta → public.
 
 ---
 

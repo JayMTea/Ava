@@ -9,8 +9,10 @@
 
 import http from 'http';
 
-const BRIDGE_HOST = 'host.openshell.internal';
-const BRIDGE_PORT = 8096;
+// Bridge endpoint — same env override pattern as the sibling tools.
+const BRIDGE = new URL(process.env.AVA_BRIDGE_URL || 'http://host.openshell.internal:8096');
+const BRIDGE_HOST = BRIDGE.hostname;
+const BRIDGE_PORT = Number(BRIDGE.port || 80);
 const INTERNAL_TOKEN = process.env.AVA_INTERNAL_TOKEN || '';
 
 export default {

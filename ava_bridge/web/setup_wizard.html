@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#262624">
+<title>__BRAND__ &middot; Setup</title>
+<style>
+ :root{--bg:#262624;--panel:#1f1e1d;--line:#3b3a36;--muted:#9a968c;--txt:#f4f3ee;
+   --accent:#c96442;--accent-hover:#b45739;--input:#30302e;--inputline:#46443f;
+   --serif:ui-serif,Georgia,"Times New Roman",serif}
+ *{box-sizing:border-box} html,body{height:100%}
+ body{margin:0;font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+   background:var(--bg);color:var(--txt);display:flex;align-items:center;justify-content:center;padding:24px}
+ .card{width:100%;max-width:440px;background:var(--panel);border:1px solid var(--line);
+   border-radius:20px;padding:30px 26px;box-shadow:0 20px 60px rgba(0,0,0,.35)}
+ h1{font-family:var(--serif);font-weight:500;font-size:24px;text-align:center;margin:0 0 4px}
+ p.sub{margin:0 0 20px;text-align:center;color:var(--muted);font-size:14px}
+ .steps{display:flex;gap:6px;justify-content:center;margin-bottom:20px}
+ .dot{width:8px;height:8px;border-radius:50%;background:var(--inputline)}
+ .dot.on{background:var(--accent)}
+ .step{display:none} .step.on{display:block}
+ label{display:block;font-size:13px;color:var(--muted);margin:12px 0 5px}
+ input,select{width:100%;padding:12px 14px;border-radius:12px;border:1px solid var(--inputline);
+   background:var(--input);color:var(--txt);font-size:15px;font-family:inherit}
+ .row{display:flex;gap:10px} .row>*{flex:1}
+ .opt{border:1px solid var(--inputline);border-radius:12px;padding:12px 14px;margin:8px 0;cursor:pointer}
+ .opt.sel{border-color:var(--accent);background:rgba(201,100,66,.08)}
+ .opt b{display:block} .opt small{color:var(--muted)}
+ .check{display:flex;align-items:center;gap:10px;margin:8px 0;cursor:pointer}
+ .check input{width:auto}
+ .info{background:var(--input);border-radius:12px;padding:12px 14px;font-size:14px;color:var(--muted)}
+ .info b{color:var(--txt)}
+ button{width:100%;padding:12px;border:0;border-radius:12px;background:var(--accent);color:#fff;
+   font-size:15px;font-weight:600;cursor:pointer;margin-top:16px}
+ button:hover{background:var(--accent-hover)} button.ghost{background:transparent;border:1px solid var(--inputline)}
+ .nav{display:flex;gap:10px} .nav button{margin-top:16px}
+ .msg{color:#e58a6f;font-size:13px;text-align:center;min-height:16px;margin-top:8px}
+</style></head><body>
+ <div class="card">
+  <h1>Set up __BRAND__</h1>
+  <p class="sub">A few choices and you're chatting — nothing leaves your machine.</p>
+  <div class="steps"><span class="dot on"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+
+  <!-- Step 1: hardware -->
+  <div class="step on" data-step="0">
+   <div class="info" id="hw">Checking your hardware…</div>
+   <div class="nav"><button onclick="go(1)">Next</button></div>
+  </div>
+
+  <!-- Step 2: backend -->
+  <div class="step" data-step="1">
+   <div id="backendOpts"></div>
+   <div id="localFields" style="display:none">
+     <label>Engine</label>
+     <select id="engine"><option value="vllm">vLLM</option><option value="ollama">Ollama</option><option value="llamacpp">llama.cpp</option></select>
+     <label>Base URL</label><input id="baseUrl" value="http://127.0.0.1:11434/v1">
+     <label>Model</label><input id="model" placeholder="llama3.2">
+   </div>
+   <div id="cloudFields" style="display:none">
+     <label>Provider base URL</label><input id="cBase" placeholder="https://api.openai.com/v1">
+     <label>Model</label><input id="cModel" placeholder="gpt-4o-mini">
+     <label>API key (stored locally in secrets/, never in ava.yaml)</label><input id="cKey" type="password">
+   </div>
+   <div class="nav"><button class="ghost" onclick="go(0)">Back</button><button onclick="go(2)">Next</button></div>
+  </div>
+
+  <!-- Step 3: features -->
+  <div class="step" data-step="2">
+   <label>Optional features (all off by default)</label>
+   <label class="check"><input type="checkbox" id="fImage"> Image / video generation (the GPU service)</label>
+   <label class="check"><input type="checkbox" id="fSearch"> Web search (self-hosted SearXNG)</label>
+   <label class="check"><input type="checkbox" id="fVoice"> Voice (needs requirements-voice.txt)</label>
+   <div class="nav"><button class="ghost" onclick="go(1)">Back</button><button onclick="go(3)">Next</button></div>
+  </div>
+
+  <!-- Step 4: connectors + finish -->
+  <div class="step" data-step="3">
+   <label>Enable connectors (apps Ava monitors &amp; drives)</label>
+   <div id="connList" class="info">Loading…</div>
+   <button onclick="finish()">Finish setup</button>
+   <div class="msg" id="msg"></div>
+  </div>
+ </div>
+<script>
+const S={mode:null};
+function go(n){document.querySelectorAll('.step').forEach(e=>e.classList.toggle('on',+e.dataset.step===n));
+  document.querySelectorAll('.dot').forEach((d,i)=>d.classList.toggle('on',i<=n));
+  if(n===3)loadConnectors();}
+async function j(u,o){const r=await fetch(u,o);return r.json();}
+(async()=>{
+  const h=await j('/api/setup/hardware');
+  document.getElementById('hw').innerHTML = h.fit_gb
+    ? `<b>${h.gpu||'Local compute'}</b> · ${h.fit_gb} GB usable (${h.source||'detected'})<br>Recommended tier: <b>${h.tier}</b> — ${h.hint}`
+    : `No local GPU pool detected — a cloud key is the easy path.<br><small>${h.hint||''}</small>`;
+  const b=await j('/api/setup/backends');
+  const opts=document.getElementById('backendOpts');
+  const mk=(id,title,sub)=>`<div class="opt" data-m="${id}"><b>${title}</b><small>${sub}</small></div>`;
+  opts.innerHTML =
+    mk('local','Local engine', b.ollama?'Ollama detected on :11434':(b.vllm?'vLLM detected on :8002':'point at a running local engine'))
+    + mk('cloud','Cloud API key','use any OpenAI-compatible provider');
+  opts.querySelectorAll('.opt').forEach(o=>o.onclick=()=>{
+    opts.querySelectorAll('.opt').forEach(x=>x.classList.remove('sel'));o.classList.add('sel');
+    S.mode=o.dataset.m;
+    document.getElementById('localFields').style.display=S.mode==='local'?'block':'none';
+    document.getElementById('cloudFields').style.display=S.mode==='cloud'?'block':'none';
+    if(S.mode==='local'&&b.vllm){document.getElementById('engine').value='vllm';document.getElementById('baseUrl').value='http://127.0.0.1:8002/v1';}
+  });
+  (opts.querySelector(b.vllm||b.ollama?'[data-m=local]':'[data-m=cloud]')).click();
+})();
+async function loadConnectors(){
+  const c=await j('/api/setup/connectors');const el=document.getElementById('connList');
+  if(!c.connectors.length){el.textContent='No connectors installed yet — add one anytime (docs/CONNECTOR_SDK.md).';return;}
+  el.innerHTML=c.connectors.map(x=>`<label class="check"><input type="checkbox" value="${x.id}" checked> ${x.label} <small>(${x.kind})</small></label>`).join('');
+}
+async function finish(){
+  const inf = S.mode==='cloud'
+    ? {mode:'cloud',base_url:v('cBase'),model:v('cModel'),api_key:v('cKey')}
+    : {mode:'local',engine:v('engine'),base_url:v('baseUrl'),model:v('model')};
+  const connectors=[...document.querySelectorAll('#connList input:checked')].map(i=>i.value);
+  const body={inference:inf,features:{image:c('fImage'),web_search:c('fSearch'),voice:c('fVoice')},connectors};
+  const r=await fetch('/api/setup/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d=await r.json();
+  if(!r.ok){document.getElementById('msg').textContent=d.error||'save failed';return;}
+  document.getElementById('msg').style.color='#9a968c';
+  document.getElementById('msg').textContent='Saved. Restart Ava to apply, then reload…';
+  setTimeout(()=>location.href='/',1500);
+}
+function v(id){return (document.getElementById(id).value||'').trim();}
+function c(id){return document.getElementById(id).checked;}
+</script>
+</body></html>

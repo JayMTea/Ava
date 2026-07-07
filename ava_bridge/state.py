@@ -58,7 +58,10 @@ login_fails: dict[str, list] = {}
 login_lock = threading.Lock()
 
 # Lazily-initialised heavy objects (whisper STT, speaker verifier, voiceprint).
-heavy = {"whisper": None, "verifier": None, "voiceprint": None}
+# `voice_unavailable` flips True when the optional voice deps (see
+# requirements-voice.txt) aren't installed — the app runs voice-less.
+heavy = {"whisper": None, "verifier": None, "voiceprint": None,
+         "voice_unavailable": False}
 
 
 # ===== Persistence for Learning State ========================================
@@ -99,7 +102,7 @@ def load_learning_state():
                 code_learning_state.update(data["code"])
             if "chat" in data:
                 chat_learning_state.update(data["chat"])
-        print(f"✅ Loaded learning state from disk")
+        print("✅ Loaded learning state from disk")
     except Exception as e:
         print(f"⚠️  Warning: Could not load learning state: {e}")
 

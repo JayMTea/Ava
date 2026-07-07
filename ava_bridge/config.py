@@ -57,6 +57,14 @@ OC_AGENT = settings.get("agent.agent_id", "main", env="AVA_OC_AGENT")
 OC_SESSION = os.environ.get("AVA_OC_SESSION", "ava-phone")
 OC_THINKING = os.environ.get("AVA_OC_THINKING", "off")
 
+# Remote agent runtime (Docker "full agent" path): when agent.runtime is
+# "remote", the bridge talks over HTTP to a separate agent-runtime container
+# (which owns the nemoclaw CLI + Docker socket) instead of running nemoclaw
+# in-process. See ava_bridge/runtime/remote.py + deploy/agent.Dockerfile.
+# AGENT_TOKEN is defined next to ROUTER_TOKEN (it reuses the internal token as
+# the shared bridge<->agent bearer, and that is derived further down).
+AGENT_URL = settings.get("agent.url", "http://agent:9100", env="AVA_AGENT_URL")
+
 # Context-window sizing for the chat token counter. CTX_MAX is the model's usable
 # context length (the open-model brain is served at --max-model-len 65536); CTX_BASE
 # is a rough fixed overhead (system prompt + persona + tool schemas) the UI adds to
@@ -80,17 +88,29 @@ OC_NEMOCLAW = (
 PHONE_THRESHOLD = float(os.environ.get("AVA_PHONE_THRESHOLD", "0.40"))
 
 # ---- Inference router --------------------------------------------------------
-# ava_router.py fronts Ava's single always-on brain (open-model 30B) plus any
-# declared cloud fallback. After a turn we ask it which backend actually answered
-# so the UI can show a "which model" pill. Best-effort: if unreachable, omitted.
-ROUTER_WHICH_URL = os.environ.get("AVA_ROUTER_WHICH", "http://127.0.0.1:8010/which")
+# The router (ava_bridge/router_app.py) fronts the declared inference backends.
+# By default the bridge EMBEDS it in-process at startup (router_host.py); an
+# always-on standalone unit is detected and used instead. These URLs derive
+# from `inference.router.{host,port}` so one config moves everything.
+ROUTER_HOST = settings.get("inference.router.host", "127.0.0.1",
+                           env="AVA_ROUTER_HOST")
+ROUTER_PORT = settings.get_int("inference.router.port", 8010,
+                               env="AVA_ROUTER_PORT")
+# The bridge always reaches its (embedded or local standalone) router over
+# loopback; ROUTER_HOST is the BIND host, which may be 0.0.0.0 for LAN exposure.
+_ROUTER_BASE = f"http://127.0.0.1:{ROUTER_PORT}"
+# After a turn we ask the router which backend actually answered so the UI can
+# show a "which model" pill. Best-effort: if unreachable, omitted.
+ROUTER_WHICH_URL = os.environ.get("AVA_ROUTER_WHICH", f"{_ROUTER_BASE}/which")
 # Get/set which backend the router prefers as primary — backs the chat's
-# model-picker dropdown (usually just the Omni brain).
-ROUTER_ROUTE_URL = os.environ.get("AVA_ROUTER_ROUTE", "http://127.0.0.1:8010/route")
+# model-picker dropdown.
+ROUTER_ROUTE_URL = os.environ.get("AVA_ROUTER_ROUTE", f"{_ROUTER_BASE}/route")
 # OpenAI-compatible chat endpoint — used by the DEGRADED chat path (no agent
 # runtime): the bridge posts here directly so a fresh fork can chat tool-lessly.
+# `inference.chat_url` / AVA_ROUTER_CHAT overrides to bypass the router and hit
+# a backend directly — you then lose failover, perf logging and /which.
 ROUTER_CHAT_URL = settings.get("inference.chat_url",
-                               "http://127.0.0.1:8010/v1/chat/completions",
+                               f"{_ROUTER_BASE}/v1/chat/completions",
                                env="AVA_ROUTER_CHAT")
 # Optional bearer key for the direct chat endpoint (e.g. a cloud provider key when
 # ROUTER_CHAT_URL points straight at OpenAI/OpenRouter instead of the local router).
@@ -105,13 +125,13 @@ PUBLIC_URL = settings.get("server.public_url", f"http://localhost:{SERVER_PORT}"
 # ---- Code mode (Ava edits her own source via Claude) -------------------------
 # Code-mode turns run HOST-side (the repo lives here, not in the sandbox) against
 # the Anthropic Messages API, scoped to this repo (config.ROOT). Put your key in
-# ~/projects/Ava/.env as ANTHROPIC_API_KEY=... (chmod 600); the service loads it.
+# the repo's .env as ANTHROPIC_API_KEY=... (chmod 600); it is auto-loaded.
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 ANTHROPIC_BASE = os.environ.get("ANTHROPIC_BASE", "https://api.anthropic.com")
 ANTHROPIC_VERSION = os.environ.get("ANTHROPIC_VERSION", "2023-06-01")
 # Fallback model list for the UI dropdown if the live /v1/models call fails.
-# NOTE: this deployment's key uses short aliases (claude-sonnet-4-6, …), not the
-# public dated ids (claude-sonnet-4-20250514). Verified working on this key.
+# Some API keys expose short aliases (claude-sonnet-4-6, …) instead of dated
+# ids; the UI prefers the live /v1/models list and falls back to these.
 CODE_MODELS_FALLBACK = [
     "claude-sonnet-4-6",
     "claude-opus-4-8",
@@ -235,9 +255,17 @@ def _internal_token() -> str:
 INTERNAL_TOKEN = _internal_token()
 
 # Shared secret the bridge sends to the inference router's control endpoints
-# (/which, /route) so a random client on the host/tailnet can't flip Ava's brain
-# or read her telemetry. Reuses the internal token unless explicitly overridden.
-ROUTER_TOKEN = os.environ.get("AVA_ROUTER_TOKEN") or INTERNAL_TOKEN
+# (/which, /route, /fit; also /v1/* when the router is LAN-exposed). MUST match
+# the router's own resolution chain (ava_bridge/router_app._resolve_token):
+# env -> $AVA_HOME/secrets/router_token -> the internal token.
+ROUTER_TOKEN = (os.environ.get("AVA_ROUTER_TOKEN")
+                or settings.secret("router_token")
+                or INTERNAL_TOKEN)
+
+# Shared bearer between the bridge and the remote agent-runtime shim. Both
+# containers mount /data, so the internal token (derived from data/.internal_token)
+# is the same on both sides — no separate secret to distribute.
+AGENT_TOKEN = os.environ.get("AVA_AGENT_TOKEN") or INTERNAL_TOKEN
 
 # ---- Upload file types -------------------------------------------------------
 TEXT_EXTS = {".txt", ".md", ".markdown", ".csv", ".tsv", ".json", ".yaml", ".yml",

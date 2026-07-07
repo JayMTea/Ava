@@ -132,6 +132,12 @@ def _login_record(ip: str, ok: bool) -> None:
 
 _PUBLIC_PATHS = {"/login", "/logout", "/setup", "/api/health", "/favicon.ico"}
 
+# Path prefixes that should answer 401 JSON (API-shaped) rather than redirect
+# to /login when unauthenticated. Overlay route modules may append their own
+# prefixes at register() time (same extension pattern as internal._TOKEN_GROUPS
+# and access_policy._PROJECT_DENY).
+API_PREFIXES = ["/api", "/apps", "/media", "/uploads"]
+
 
 def _is_ingest(path: str) -> bool:
     """The inbound device-event channel (POST /api/connectors/<id>/events). Callers
@@ -146,12 +152,10 @@ async def auth_gate(request: Request, call_next):
     # bearer-token check (see ava_bridge/internal.py), so it bypasses the
     # cookie gate rather than redirecting to /login. The device-event ingest
     # endpoint bypasses the same way for the same reason (its own bearer check).
-    if (path in _PUBLIC_PATHS or path.startswith("/internal") or _is_ingest(path)
-            or _is_authed(request)):
+    if (path in _PUBLIC_PATHS or path == "/internal" or path.startswith("/internal/")
+            or _is_ingest(path) or _is_authed(request)):
         return await call_next(request)
-    if path.startswith("/api") or path.startswith("/studio") \
-            or path.startswith("/apps") \
-            or path.startswith("/media") or path.startswith("/uploads"):
+    if any(path == p or path.startswith(p + "/") for p in API_PREFIXES):
         return JSONResponse({"error": "auth required"}, status_code=401)
     # First run (no password yet) -> onboarding screen, not a dead login wall.
     return RedirectResponse("/setup" if needs_setup() else "/login", status_code=303)

@@ -1,5 +1,9 @@
 # Connectors
 
+> This is the in-repo note for the `connectors/` folder. The full, canonical
+> connector contract (manifest fields, embed tiers, agent tools, egress, devices)
+> lives in [docs/CONNECTOR_SDK.md](../docs/CONNECTOR_SDK.md).
+
 A **connector** teaches Ava about one thing she monitors or drives — a service to
 health-check, a performance log to chart, and (on the roadmap) an egress policy
 and agent actions. Ava's **dashboard service matrix** and **performance

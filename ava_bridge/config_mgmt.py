@@ -3,10 +3,9 @@ Configuration management module for Ava.
 Provides read/write access to .env, digest scripts, and persona config.
 """
 
-import os
 import re
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Dict, Any
 from datetime import datetime
 import logging
 
@@ -46,6 +45,28 @@ class ConfigManager:
         'LOG_LEVEL',
         'CORS_ORIGINS',
     ]
+
+    # Substrings that mark a key as secret regardless of the explicit list.
+    _SENSITIVE_PATTERNS = ('TOKEN', 'SECRET', 'PASSWORD', 'APIKEY', '_KEY', 'INTERNAL')
+
+    @staticmethod
+    def _validate_env_updates(updates: Dict[str, Any]) -> str | None:
+        """Validate a batch of env-var updates. Returns an error string (naming
+        the offending rule) or None if every key/value is safe to write.
+
+        Deny-by-default: only ALLOWED_ENV_KEYS are mutable; secret-looking keys
+        are always refused; values may not smuggle newlines (which would inject
+        extra .env lines)."""
+        for key, val in updates.items():
+            if any(c in str(val) for c in ('\n', '\r')):
+                return f'value for {key!r} contains newlines (rejected)'
+            up = key.upper()
+            if key in ConfigManager.PROTECTED_KEYS or any(
+                    p in up for p in ConfigManager._SENSITIVE_PATTERNS):
+                return f'{key!r} is a protected/secret key and cannot be changed'
+            if key not in ConfigManager.ALLOWED_ENV_KEYS:
+                return f'{key!r} is not in the allowlisted set of mutable env keys'
+        return None
 
     @staticmethod
     def read_config(component: str) -> Dict[str, Any]:
@@ -178,6 +199,10 @@ class ConfigManager:
 
             # Update the file
             if component == 'env':
+                # Deny-by-default validation (protected/secret/newline/allowlist).
+                env_err = ConfigManager._validate_env_updates(updates)
+                if env_err:
+                    return {'ok': False, 'error': env_err}
                 # Update .env file
                 lines = []
                 with open(path, 'r') as f:
@@ -278,7 +303,7 @@ class ConfigManager:
             return {
                 'ok': True,
                 'component': component,
-                'note': f'Text file. Use read_config() to view current content.'
+                'note': 'Text file. Use read_config() to view current content.'
             }
 
 
