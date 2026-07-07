@@ -24,7 +24,7 @@ to *your* apps, and answers only to you.
 - 🗣️ **Talk to it** — on-device voice (speech in, speech out), gated to *your* voice.
 - 🎨 **Create with it** — image **and** video generation, orchestrated by the agent.
 - 🧩 **Wire it to your apps** — drop-in connectors; Ava monitors *and* drives them.
-- 🛠️ **It improves itself** — proposes and applies its own code changes, behind approval gates.
+- 🛠️ **It edits its own code** — generates and applies source changes as git commits; edits to sensitive paths (auth, config, secrets) are held for your approval.
 - 📊 **See everything** — a live Command Center: throughput, cost/energy, jobs, alerts.
 - 🔒 **Private by default** — runs on your hardware; nothing leaves unless you say so.
 
@@ -33,7 +33,7 @@ to *your* apps, and answers only to you.
 Most AI tools are *one* of these: a chat UI, a local model runner, a voice
 assistant, an agent framework, or an image generator. **Ava is the layer that ties
 them together** into one assistant you actually own — chat + voice + generation +
-app automation + self-improvement, behind a single dashboard, running on your own
+app automation + self-editing, behind a single dashboard, running on your own
 hardware with the model of your choice (local **vLLM / Ollama / llama.cpp**, or a
 **cloud key**).
 
@@ -58,7 +58,9 @@ Control Center).
 - **It watches itself.** A real operations dashboard — tokens/sec, TTFT, render
   times, **cost & energy**, running jobs, alerts, service health. An assistant you
   can't observe is one you can't trust.
-- **It gets better.** Ava can edit its own source (with your approval), so it grows with you.
+- **It edits its own source.** Ava generates code changes via your Anthropic key and
+  commits them to git (every change one revert away); edits to protected paths — auth,
+  config, secrets, deploy — are held for your approval, not applied blind.
 - **Anyone can extend it.** Add your app with a small manifest — no core-code changes.
   Ava picks up its health, metrics, egress policy, and agent tools automatically.
 
@@ -74,7 +76,7 @@ Strong ● · Partial ◐ · None ○ — honest, not marketing:
 | Voice (+ biometric gate) | ● | ◐ | ○ | ○ | ● | ◐ |
 | Image / **video** generation | ● | ○ | ◐ | ○ | ○ | ◐ |
 | Agent tools / skills / memory | ● | ● | ◐ | ● | ◐ | ● |
-| **Self-improvement** (edits own code) | ● | ◐ | ○ | ◐ | ○ | ○ |
+| **Self-editing** (governed code changes) | ● | ◐ | ○ | ◐ | ○ | ○ |
 | Drives your **other apps** (connectors) | ● | ◐ | ○ | ◐ | ● | ◐ |
 | Ops **dashboard** (perf / cost / alerts) | ● | ○ | ○ | ○ | ◐ | ○ |
 | Governance / approval gates | ● | ◐ | ○ | ○ | ◐ | ◐ |
@@ -84,14 +86,14 @@ Strong ● · Partial ◐ · None ○ — honest, not marketing:
 \* inherited from whatever model you plug in.
 
 **The honest read:** Ava is the only column that's Strong across voice + generation +
-agent + self-improvement + connectors + observability *together*, self-hosted. It
+agent + self-editing + connectors + observability *together*, self-hosted. It
 trails the cloud giants on raw model IQ and polish — because it's the **control
 layer, not the brain**. Its job is to put *their* models (or yours) to work, privately.
 
 **A note on NemoClaw:** it's less a competitor than a foundation — NemoClaw is
 Ava's **default agent runtime** (sandbox, tools, egress policies, memory), and
 Ava layers private on-device voice, GPU workloads, the connector SDK,
-the ops dashboard, and governed self-improvement on top. Use NemoClaw alone if
+the ops dashboard, and governed self-editing on top. Use NemoClaw alone if
 you want a channel-based agent (Slack/Telegram/etc.); use Ava if you want the
 full private assistant stack. See [docs/AGENT_RUNTIME.md](docs/AGENT_RUNTIME.md).
 

@@ -79,7 +79,8 @@ def format_digest_html(code_state, chat_state):
             if inline_fixes:
                 code_html += '<p><strong>Recent auto-fixes:</strong></p><ul>'
                 for fix in inline_fixes[-3:]:
-                    code_html += f'<li>{fix.get("description", "?")} (critical: {fix.get("critical", False)})</li>'
+                    fix_desc = fix.get("fix_applied") or fix.get("description", "?")
+                    code_html += f'<li>{fix_desc} (critical: {fix.get("critical", False)})</li>'
                 code_html += '</ul>'
     
     # Summarize chat learning

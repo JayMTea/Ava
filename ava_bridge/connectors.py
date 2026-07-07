@@ -1,10 +1,12 @@
 """Connector registry — Ava's pluggable integration layer.
 
 A *connector* is a small manifest (`connector.yaml`) describing one thing Ava
-monitors or drives: its health probe, its performance-log source, and (on the
-roadmap) its egress policy + agent actions. The dashboard service matrix, the
-performance aggregator, and future agent tooling all READ this registry — so
-adding an app is dropping in a folder, not editing core code.
+monitors or drives: its health probe, its performance-log source, its egress
+policy, and its agent actions. The dashboard service matrix, the performance
+aggregator, and the left-rail app nav read this registry directly (drop in a
+folder → they update); the agent's tools + egress policy are generated from the
+same manifest by `ava connector tools|policies --write` (then `agent/install.sh`
+deploys them). Either way: adding an app is a manifest, not core-code edits.
 
 Manifests are discovered from (later overrides earlier):
   1. built-in   <repo>/connectors/<id>/connector.yaml    (shipped first-party)

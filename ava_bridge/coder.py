@@ -1,17 +1,22 @@
-"""Code mode: Ava edits her own source with Claude (your Anthropic key).
+"""Code mode: staged, human-reviewed source edits via Claude (your Anthropic key).
 
-Used only when the chat UI's Code-mode toggle is on. Runs HOST-side because the
-repo lives on the host, not in the sandbox. It drives the Anthropic Messages API
-with a small tool loop scoped to this repo (config.ROOT):
+Drives the Anthropic Messages API with a small tool loop scoped to this repo
+(config.ROOT), staging edits in-memory and computing unified diffs for an
+Apply / Discard review flow:
 
     list_dir / read_file / search   -> let Claude inspect the code
     write_file / delete_file        -> STAGE a change (never touches disk)
 
-Nothing is written during a turn. Claude's edits are staged in-memory; the bridge
-computes unified diffs and the UI shows them with Apply / Discard. Apply writes
-the files and git-commits them (authored as Ava) so every change is one revert
-away. UI/HTML changes need no restart; Python changes can opt into a detached
-service restart.
+Nothing is written during a turn; Apply writes the staged files and git-commits
+them (authored as Ava) so every change is one revert away. Runs HOST-side
+because the repo lives on the host, not in the sandbox.
+
+STATUS (2026-07-07): the staged-review turn loop in this module
+(`start_code_turn` / `apply_turn` / `discard_turn`) is NOT yet wired into the
+React SPA — the new UI's code toggle points at /legacy, and the live self-edit
+path today is the autonomous engine in `code_agent.py`, which reuses this
+module's staging/diff/git helpers. Porting this review UX into the SPA is
+tracked in docs/dev/HARDEN_AND_ONBOARD_PLAN.md (Track A2).
 """
 import difflib
 import fnmatch
