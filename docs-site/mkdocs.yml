@@ -75,8 +75,8 @@ nav:
   - Connectors (SDK):
       - Overview: docs/CONNECTOR_SDK.md
       - Device connectors: docs/DEVICE_CONNECTORS.md
-      - "Example — app connector": examples/hello-app/index.md
-      - "Example — device connector": examples/device-app/index.md
+      - "Example: app connector": examples/hello-app/index.md
+      - "Example: device connector": examples/device-app/index.md
   - Architecture:
       - Overview: agent/docs/README.md
       - Decision records:
