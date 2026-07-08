@@ -84,29 +84,41 @@ Strong ● · Partial ◐ · None ○. Honest, not marketing:
 | Self-hosted / private | ● | ● | ● | ● | ● | ○ |
 | Model-agnostic (bring your own) | ● | ● | ● | ◐ | ◐ | ○ |
 | Chat | ● | ● | ● | ◐ | ◐ | ● |
-| Voice (+ biometric gate) | ● | ◐ | ○ | ○ | ● | ◐ |
-| GPU workloads (**video** via connectors) | ● | ○ | ◐ | ○ | ○ | ◐ |
+| Voice | ● | ● | ○ | ○ | ● | ◐ |
+| Biometric voice gate (speaker verification) | ● | ○ | ○ | ○ | ◐ | ○ |
+| Image / video generation | ● | ● | ◐ | ○ | ○ | ◐ |
 | Agent tools / skills / memory | ● | ● | ◐ | ● | ◐ | ● |
-| **Self-editing** (governed code changes) | ● | ◐ | ○ | ◐ | ○ | ○ |
-| Drives your **other apps** (connectors) | ● | ◐ | ○ | ◐ | ● | ◐ |
-| Ops **dashboard** (perf / cost / alerts) | ● | ○ | ○ | ○ | ◐ | ○ |
-| Governance / approval gates | ● | ◐ | ○ | ○ | ◐ | ◐ |
+| Self-editing (governed code changes) | ● | ● | ○ | ◐ | ○ | ○ |
+| Connectors / integrations | ● | ● | ○ | ◐ | ● | ◐ |
+| Egress-policed connectors (per-app network policy) | ● | ◐ | ○ | ○ | ○ | ○ |
+| Ops **dashboard**: chat / sessions / tasks / logs | ● | ● | ◐ | ◐ | ● | ◐ |
+| Perf & energy telemetry (tokens/sec, TTFT, energy, alerts) | ● | ◐† | ○ | ○ | ◐ | ○ |
+| User-facing memory governance (view / correct / delete / export) | ● | ◐ | ○ | ○ | ○ | ◐ |
+| Governance / approval gates | ● | ● | ○ | ○ | ◐ | ◐ |
 | Raw model quality (IQ) | ◐\* | ◐\* | ◐\* | ◐\* | ◐\* | ● |
-| Polish / mobile / scale | ○ | ◐ | ◐ | ◐ | ● | ● |
+| Polish / mobile / scale | ◐ | ● | ◐ | ◐ | ● | ● |
 
 \* inherited from whatever model you plug in.
+† OpenClaw surfaces session token and cost *estimates* in its Control UI, but does
+not (yet) offer dedicated performance/energy telemetry or an alerts surface.
 
-**The honest read:** Ava is the only column that is Strong across voice, generation,
-agent, self-editing, connectors, and observability *together*, self-hosted. It
-trails the cloud giants on raw model IQ and polish because it is the **control
-layer, not the brain**. Its job is to put *their* models (or yours) to work, privately.
+**The honest read:** Ava and OpenClaw overlap heavily by design — Ava runs *on*
+OpenClaw. Both are self-hosted, model-agnostic, and Strong across chat, voice,
+generation, memory, self-editing, and connectors. Where Ava adds value is the
+layer it wraps around that shared core: **perf/energy observability**, a
+**biometric speaker gate**, **per-connector egress policies**, and **user-facing
+memory governance** — an ops/security/governance skin over a best-in-class agent
+runtime. OpenClaw leads on maturity, polish, and community scale, and both trail
+the cloud giants on raw model IQ, because Ava is the **control layer, not the brain**.
 
-**A note on NemoClaw:** it is less a competitor than a foundation. NemoClaw is
-Ava's **default agent runtime** (sandbox, tools, egress policies, memory), and
-Ava layers private on-device voice, GPU workloads, the connector SDK,
-the ops dashboard, and governed self-editing on top. Use NemoClaw alone if
-you want a channel-based agent (Slack/Telegram/etc.); use Ava if you want the
-full private assistant stack. See [docs/AGENT_RUNTIME.md](docs/AGENT_RUNTIME.md).
+**A note on OpenClaw / NemoClaw:** it is a foundation, not a competitor. NemoClaw
+(which runs OpenClaw in a sandbox) is Ava's **default agent runtime** — sandbox,
+tools, egress enforcement, per-session memory — and Ava is a private-assistant
+distribution built on top of it: observability, biometric voice, the connector
+SDK's egress policies, and memory governance. Use OpenClaw directly if you want
+the agent and its channels (Slack/Telegram/etc.); use Ava if you want that same
+engine packaged as an observable, egress-policed, governed home appliance. See
+[docs/AGENT_RUNTIME.md](docs/AGENT_RUNTIME.md).
 
 ## What Ava is *not*
 
