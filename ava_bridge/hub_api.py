@@ -37,6 +37,21 @@ def audit_log(limit: int = 200, kind: str = ""):
     return {"events": audit.tail(limit, kind=kind or None)}
 
 
+# --------------------------------------------------------------------------- #
+# Approvals — the agent parked a sensitive connector action; the operator OKs it
+# --------------------------------------------------------------------------- #
+@router.get("/approvals")
+def approvals_list():
+    from . import approvals
+    return {"pending": approvals.pending()}
+
+
+@router.post("/approvals/{aid}")
+def approvals_decide(aid: str, decision: str = "approve"):
+    from . import approvals
+    return {"ok": approvals.decide(aid, decision != "deny")}
+
+
 def _proxy_actions(m: dict) -> list[dict]:
     """Generic-proxy actions (id + path) — the ones that get a generated tool
     and an auto-allowed egress route."""
@@ -478,6 +493,8 @@ async def connector_new(body: dict):
     label = str(body.get("label") or cid.title()).strip()
     kind = body.get("kind") if body.get("kind") in ("core", "inference", "media", "app") else "app"
     manifest: dict = {"id": cid, "label": label, "kind": kind, "enabled": True}
+    if body.get("confirm"):  # connector-level "require my approval for every action"
+        manifest["confirm"] = True
 
     probe = str(body.get("probe") or "").strip()
     base_url = str(body.get("base_url") or "").strip()

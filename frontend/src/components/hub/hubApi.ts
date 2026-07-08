@@ -131,6 +131,7 @@ export interface NewConnectorBody {
   probe?: string;
   base_url?: string;
   token_env?: string;
+  confirm?: boolean;
   actions?: { id: string; method: string; path: string; description?: string; confirm?: boolean }[];
   mcp?: { url?: string; command?: string; token_env?: string; sandbox?: string };
   discover?: { base?: string; list?: string; call?: string; token_env?: string };
@@ -153,6 +154,15 @@ export interface CostSettings {
   daily_spend_usd: number;
   daily_energy_kwh: number;
   power_measured: boolean;
+}
+
+// ---- Approvals (human-in-the-loop) ------------------------------------------
+export interface PendingApproval {
+  id: string;
+  connector: string;
+  action: string;
+  args: Record<string, string>;
+  ts: number;
 }
 
 // ---- Flight recorder (audit ledger) -----------------------------------------
@@ -275,6 +285,11 @@ export const hub = {
   // Flight recorder
   audit: (limit = 200, kind = '') =>
     req<{ events: AuditEvent[] }>(`/api/hub/audit?limit=${limit}${kind ? `&kind=${encodeURIComponent(kind)}` : ''}`),
+
+  // Approvals
+  approvals: () => req<{ pending: PendingApproval[] }>('/api/hub/approvals'),
+  decideApproval: (id: string, approve: boolean) =>
+    req<{ ok: boolean }>(`/api/hub/approvals/${encodeURIComponent(id)}?decision=${approve ? 'approve' : 'deny'}`, { method: 'POST' }),
 
   // System
   system: () => req<SystemInfo>('/api/hub/system'),

@@ -56,7 +56,7 @@ from ava_bridge.auth import (
     current_password, needs_setup, set_password,
 )
 from ava_bridge import internal, architecture, learning_mgmt, log_mgmt, config_mgmt, policy_mgmt, perf_mgmt
-from ava_bridge import audit
+from ava_bridge import audit, approvals
 from ava_bridge import dashboard, connectors, perf_store, devices
 from ava_bridge import code_agent
 from ava_bridge import hardware
@@ -395,6 +395,10 @@ async def internal_connector(cid: str, action: str, request: Request):
         name = (body.get("name") or "").strip()
         if not name:
             return JSONResponse({"error": "missing tool name"}, status_code=400)
+        gate = await run_in_threadpool(approvals.gate, cid, name, body.get("arguments") or {})
+        if gate not in ("skip", "approved"):
+            audit.record("egress", connector=cid, tool=name, status=f"blocked:{gate}")
+            return JSONResponse({"error": f"not run — awaiting-approval {gate}"}, status_code=403)
         data, status = await run_in_threadpool(
             connectors.call_discovered, cid, name, body.get("arguments") or {})
         # Egress record for the flight recorder: the agent reached out to a
@@ -407,6 +411,10 @@ async def internal_connector(cid: str, action: str, request: Request):
     args = dict(request.query_params)
     if isinstance(body, dict):
         args.update(body)
+    gate = await run_in_threadpool(approvals.gate, cid, action, args)
+    if gate not in ("skip", "approved"):
+        audit.record("egress", connector=cid, tool=action, status=f"blocked:{gate}")
+        return JSONResponse({"error": f"not run — awaiting-approval {gate}"}, status_code=403)
     data, status = await run_in_threadpool(connectors.call_action, cid, action, args)
     audit.record("egress", connector=cid, tool=action, status=status)
     return JSONResponse(data, status_code=status)

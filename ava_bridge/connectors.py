@@ -641,5 +641,21 @@ def devices() -> List[dict]:
     return out
 
 
+def needs_confirm(cid: str, action: str) -> bool:
+    """True if <action> on connector <cid> requires operator approval before it
+    runs. Sources: connector-level ``confirm: true`` / ``confirm: [names]``, or
+    ``confirm: true`` on the specific static action."""
+    m = {x["id"]: x for x in load()}.get(cid) or {}
+    c = m.get("confirm")
+    if c is True:
+        return True
+    if isinstance(c, list) and action in c:
+        return True
+    for a in _static_actions(m):
+        if a.get("id") == action and a.get("confirm"):
+            return True
+    return False
+
+
 def all() -> List[dict]:  # noqa: A003 — deliberate registry accessor
     return load()

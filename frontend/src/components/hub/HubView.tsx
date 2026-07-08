@@ -5,9 +5,54 @@ import { api } from '../../lib/api';
 import { hub } from './hubApi';
 import type {
   AgentStatus, AuditEvent, BackendProbe, BenchStatus, CostSettings, EnrollResult,
-  GenerateResult, HardwareInfo, HubConnector, ModelStore, NewConnectorBody, ProbeResult,
-  PullStatus, SystemInfo, VoiceStatus,
+  GenerateResult, HardwareInfo, HubConnector, ModelStore, NewConnectorBody,
+  PendingApproval, ProbeResult, PullStatus, SystemInfo, VoiceStatus,
 } from './hubApi';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Approvals banner — the agent parked a sensitive action; the operator decides.
+// Polls so it appears on any Hub tab while a call is blocked waiting.
+// ─────────────────────────────────────────────────────────────────────────────
+function ApprovalsBanner() {
+  const [pending, setPending] = useState<PendingApproval[]>([]);
+  useEffect(() => {
+    let alive = true;
+    const tick = () => hub.approvals().then((r) => { if (alive) setPending(r.pending); }).catch(() => {});
+    tick();
+    const t = setInterval(tick, 3000);
+    return () => { alive = false; clearInterval(t); };
+  }, []);
+  const decide = async (id: string, approve: boolean) => {
+    setPending((p) => p.filter((x) => x.id !== id));
+    try { await hub.decideApproval(id, approve); } catch { /* it may have timed out */ }
+  };
+  if (!pending.length) return null;
+  return (
+    <div style={{ marginBottom: 16 }}>
+      {pending.map((p) => (
+        <div key={p.id} className="hub-restart" style={{
+          background: 'rgba(201,100,66,0.10)', color: 'var(--txt)',
+          borderColor: 'color-mix(in srgb, var(--accent) 45%, transparent)',
+          justifyContent: 'space-between', flexWrap: 'wrap', gap: 10,
+        }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+            <span style={{ color: 'var(--accent)', display: 'inline-flex' }}><Icon name="lock" /></span>
+            <span>
+              <b>Approve action?</b> Ava wants to run <code>{p.action}</code> on <b>{p.connector}</b>
+              {Object.keys(p.args).length > 0 && (
+                <span style={{ color: 'var(--muted)' }}> · {Object.entries(p.args).map(([k, v]) => `${k}=${v}`).join(', ')}</span>
+              )}
+            </span>
+          </span>
+          <span style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+            <button className="hub-btn sm" onClick={() => decide(p.id, true)}><Icon name="check" />Approve</button>
+            <button className="hub-btn ghost sm" onClick={() => decide(p.id, false)}><Icon name="close" />Deny</button>
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared bits
@@ -492,7 +537,7 @@ function ConnectorRow({ c }: { c: HubConnector }) {
   );
 }
 
-interface ActionDraft { id: string; method: string; path: string; description: string }
+interface ActionDraft { id: string; method: string; path: string; description: string; confirm?: boolean }
 
 // Derive a safe connector id from a human app name, so the user never has to
 // think about slugs: "My Notes App" -> "my-notes-app".
@@ -517,6 +562,7 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
   const [actions, setActions] = useState<ActionDraft[]>([]);
   const [isolate, setIsolate] = useState(true);
   const [dockerAvail, setDockerAvail] = useState(true);
+  const [confirmAll, setConfirmAll] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [done, setDone] = useState('');
@@ -563,8 +609,10 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
       body.mcp = isUrl
         ? { url: reach.trim(), token_env: tenv }
         : { command: reach.trim(), token_env: tenv, sandbox: (isolate && dockerAvail) ? 'docker' : undefined };
+      if (confirmAll) body.confirm = true;
     } else if (probe?.kind === 'discover') {
       body.discover = { base: reach.trim(), token_env: tenv };
+      if (confirmAll) body.confirm = true;
     } else {
       body.base_url = reach.trim() || undefined;
       body.token_env = tenv;
@@ -576,7 +624,7 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
       else { setDone(`Connected “${name.trim()}”. Preview / Generate & deploy below.`); reset(); onCreated(); }
     } catch (e) { setMsg((e as Error).message); }
     setBusy(false);
-  }, [id, name, health, reach, isUrl, tokenEnv, probe, actions, isolate, dockerAvail, onCreated]);
+  }, [id, name, health, reach, isUrl, tokenEnv, probe, actions, isolate, dockerAvail, confirmAll, onCreated]);
 
   const found = probe && (probe.kind === 'mcp' || probe.kind === 'discover');
   const manual = probe && (probe.kind === 'rest' || probe.kind === 'unknown');
@@ -658,6 +706,13 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
               </span>
             </label>
           )}
+          <label className="hub-check" style={{ marginTop: probe!.kind === 'mcp' && !isUrl ? 0 : 12, borderBottom: 0, paddingBottom: 0 }}>
+            <input type="checkbox" checked={confirmAll} onChange={(e) => setConfirmAll(e.target.checked)} />
+            <span className="hub-check-main">
+              <span className="hub-check-title">Ask me before Ava uses these</span>
+              <span className="hub-check-sub">Every call waits for your one-tap approval — good for anything that spends money, sends messages, or deletes data.</span>
+            </span>
+          </label>
         </div>
       )}
 
@@ -680,6 +735,11 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
                 onChange={(e) => setAction(i, { path: e.target.value })} />
               <input className="hub-input" style={{ flex: 2 }} value={a.description} placeholder="short description for the agent"
                 onChange={(e) => setAction(i, { description: e.target.value })} />
+              <label className="hub-check" style={{ flex: '0 0 auto', borderBottom: 0, padding: '0 4px', margin: 0 }}
+                title="Require my approval before Ava runs this action">
+                <input type="checkbox" checked={!!a.confirm} onChange={(e) => setAction(i, { confirm: e.target.checked })} />
+                <Icon name="lock" />
+              </label>
               <button className="hub-btn ghost sm" style={{ flex: '0 0 auto' }} aria-label="Remove action"
                 onClick={() => setActions((x) => x.filter((_, j) => j !== i))}><Icon name="trash" /></button>
             </div>
@@ -1250,6 +1310,7 @@ export function HubView() {
           <p>Configure your model, agent, apps, and system — all from here, written to your config, nothing to source.</p>
         </div>
 
+        <ApprovalsBanner />
         <RestartBanner show={restart} />
 
         <div className="hub-tabs">
