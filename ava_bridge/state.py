@@ -57,6 +57,11 @@ _persist_lock = threading.Lock()
 login_fails: dict[str, list] = {}
 login_lock = threading.Lock()
 
+# Timestamp of the last interactive user turn (start or finish). Used to
+# distinguish generations the user drove from background/idle token burn (the
+# "agent kept spending while you were away" signal). 0 = never.
+interaction = {"ts": 0.0}
+
 # Lazily-initialised heavy objects (whisper STT, speaker verifier, voiceprint).
 # `voice_unavailable` flips True when the optional voice deps (see
 # requirements-voice.txt) aren't installed — the app runs voice-less.

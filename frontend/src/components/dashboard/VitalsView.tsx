@@ -11,6 +11,7 @@ export function VitalsView() {
   const tokSeries = useLiveResource(
     useCallback(() => dash.perfSeries('tokens_per_sec', '1h', '24h', undefined, 'llm'), []), 15000);
   const cost = useLiveResource(useCallback(() => dash.perfCost('7d', 'app'), []), 30000);
+  const budget = useLiveResource(useCallback(() => dash.budget(), []), 30000);
   const hw = useLiveResource(useCallback(() => dash.hwHistory(), []), 5000);
 
   const s = summary.data?.summary;
@@ -72,6 +73,46 @@ export function VitalsView() {
         <StatCard label="Route Errors" value={fmtInt(failovers)}
           tone={failovers ? 'warn' : 'ok'} hint="always-on model" />
       </div>
+
+      {/* Budget meter — only when a budget is configured (Setup → Budgets) */}
+      {budget.data && (budget.data.budgets.daily_usd || budget.data.budgets.daily_kwh) && (
+        <Panel title="Today's budget" subtitle="Spend & energy against your caps — set on the Setup → Budgets page">
+          <div style={{ display: 'grid', gap: 14, gridTemplateColumns: '1fr 1fr' }}>
+            {budget.data.budgets.daily_usd != null && (() => {
+              const used = budget.data.daily_spend_usd, cap = budget.data.budgets.daily_usd!;
+              const pct = Math.min(100, Math.round((used / cap) * 100));
+              const col = pct >= 100 ? 'var(--err)' : pct >= 80 ? 'var(--warn)' : 'var(--ok)';
+              return (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-sm)', marginBottom: 5 }}>
+                    <span style={{ color: 'var(--muted)' }}>Cloud spend</span>
+                    <span><b style={{ color: col }}>${used.toFixed(2)}</b> <span style={{ color: 'var(--muted)' }}>/ ${cap}</span></span>
+                  </div>
+                  <div style={{ height: 8, borderRadius: 999, background: 'var(--panel2)', overflow: 'hidden' }}>
+                    <div style={{ width: `${pct}%`, height: '100%', background: col }} />
+                  </div>
+                </div>
+              );
+            })()}
+            {budget.data.budgets.daily_kwh != null && (() => {
+              const used = budget.data.daily_energy_kwh, cap = budget.data.budgets.daily_kwh!;
+              const pct = Math.min(100, Math.round((used / cap) * 100));
+              const col = pct >= 100 ? 'var(--err)' : pct >= 80 ? 'var(--warn)' : 'var(--ok)';
+              return (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-sm)', marginBottom: 5 }}>
+                    <span style={{ color: 'var(--muted)' }}>GPU energy{budget.data.power_measured ? '' : ' (est.)'}</span>
+                    <span><b style={{ color: col }}>{used.toFixed(2)}</b> <span style={{ color: 'var(--muted)' }}>/ {cap} kWh</span></span>
+                  </div>
+                  <div style={{ height: 8, borderRadius: 999, background: 'var(--panel2)', overflow: 'hidden' }}>
+                    <div style={{ width: `${pct}%`, height: '100%', background: col }} />
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        </Panel>
+      )}
 
       {/* Row: inference throughput + model share */}
       <div className="db-grid db-grid-2">

@@ -56,6 +56,7 @@ from ava_bridge.auth import (
     current_password, needs_setup, set_password,
 )
 from ava_bridge import internal, architecture, learning_mgmt, log_mgmt, config_mgmt, policy_mgmt, perf_mgmt
+from ava_bridge import audit
 from ava_bridge import dashboard, connectors, perf_store, devices
 from ava_bridge import code_agent
 from ava_bridge import hardware
@@ -396,6 +397,10 @@ async def internal_connector(cid: str, action: str, request: Request):
             return JSONResponse({"error": "missing tool name"}, status_code=400)
         data, status = await run_in_threadpool(
             connectors.call_discovered, cid, name, body.get("arguments") or {})
+        # Egress record for the flight recorder: the agent reached out to a
+        # connector/MCP tool. This is the closest in-process egress signal we
+        # have (the sandbox's network denials live in openclaw, not here).
+        audit.record("egress", connector=cid, tool=name, status=status)
         return JSONResponse(data, status_code=status)
     # Merge query params (GET-style tools) with any JSON body so declared actions
     # get their args regardless of how the tool passed them.
@@ -403,6 +408,7 @@ async def internal_connector(cid: str, action: str, request: Request):
     if isinstance(body, dict):
         args.update(body)
     data, status = await run_in_threadpool(connectors.call_action, cid, action, args)
+    audit.record("egress", connector=cid, tool=action, status=status)
     return JSONResponse(data, status_code=status)
 
 

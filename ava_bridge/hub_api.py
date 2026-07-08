@@ -16,7 +16,7 @@ import sys
 import threading
 from collections import deque
 
-from fastapi import APIRouter, UploadFile
+from fastapi import APIRouter, Request, UploadFile
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
@@ -62,6 +62,59 @@ def system():
         "web_search": settings.get_bool("features.web_search", False),
         "image": settings.get_bool("features.image", True),
     }
+
+
+@router.get("/cost")
+def cost_get():
+    """Current electricity rate, currency, and spend/energy budgets + live
+    daily totals (for the Setup hub Budgets editor + the Vitals budget bar)."""
+    from . import dashboard
+    settings_ = dashboard.cost_settings()
+    day = dashboard.perf_cost("1d")
+    settings_["daily_spend_usd"] = day["spend_usd"]
+    settings_["daily_energy_kwh"] = day["energy_kwh"]
+    settings_["power_measured"] = day["power_measured"]
+    return settings_
+
+
+@router.post("/cost")
+async def cost_set(request: Request):
+    """Persist cost/budget settings to ava.yaml (cost.*) — no source edits."""
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": "invalid json"}, status_code=400)
+    patch: dict = {}
+    if "electricity_rate_per_kwh" in body:
+        try:
+            patch["electricity_rate_per_kwh"] = max(0.0, float(body["electricity_rate_per_kwh"]))
+        except (TypeError, ValueError):
+            return JSONResponse({"ok": False, "error": "rate must be a number"}, status_code=400)
+    if body.get("currency"):
+        patch["currency"] = str(body["currency"])[:3]
+    if isinstance(body.get("budgets"), dict):
+        b = {}
+        for k in ("daily_usd", "monthly_usd", "daily_kwh"):
+            v = body["budgets"].get(k)
+            if v in (None, "", 0):
+                b[k] = None                       # clear the budget
+            else:
+                try:
+                    b[k] = round(max(0.0, float(v)), 2)
+                except (TypeError, ValueError):
+                    return JSONResponse({"ok": False, "error": f"{k} must be a number"},
+                                        status_code=400)
+        patch["budgets"] = b
+    if not patch:
+        return JSONResponse({"ok": False, "error": "nothing to set"}, status_code=400)
+    try:
+        settings.save_patch({"cost": patch})
+        from . import dashboard
+        dashboard.invalidate_cost_cache()
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": f"could not write ava.yaml: {e}"},
+                            status_code=500)
+    return {"ok": True}
 
 
 @router.post("/system/approval")

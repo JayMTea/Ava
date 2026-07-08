@@ -4,14 +4,14 @@ import { EmptyState, Panel } from '../dashboard/primitives';
 import { api } from '../../lib/api';
 import { hub } from './hubApi';
 import type {
-  AgentStatus, BackendProbe, EnrollResult, GenerateResult, HardwareInfo, HubConnector,
-  ModelStore, PullStatus, SystemInfo, VoiceStatus,
+  AgentStatus, AuditEvent, BackendProbe, CostSettings, EnrollResult, GenerateResult,
+  HardwareInfo, HubConnector, ModelStore, PullStatus, SystemInfo, VoiceStatus,
 } from './hubApi';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared bits
 // ─────────────────────────────────────────────────────────────────────────────
-type TabId = 'overview' | 'models' | 'agent' | 'connectors' | 'voice' | 'system';
+type TabId = 'overview' | 'models' | 'agent' | 'connectors' | 'voice' | 'budgets' | 'history' | 'system';
 
 const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: 'overview', label: 'Overview', icon: 'gauge' },
@@ -19,6 +19,8 @@ const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: 'agent', label: 'Agent', icon: 'bot' },
   { id: 'connectors', label: 'Connectors', icon: 'panel' },
   { id: 'voice', label: 'Voice', icon: 'mic' },
+  { id: 'budgets', label: 'Budgets', icon: 'chart' },
+  { id: 'history', label: 'History', icon: 'activity' },
   { id: 'system', label: 'System', icon: 'sliders' },
 ];
 
@@ -806,6 +808,179 @@ function VoicePanel({ onRestart }: { onRestart: () => void }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Budgets — spend/energy caps + live meter
+// ─────────────────────────────────────────────────────────────────────────────
+function meterTone(pct: number): 'ok' | 'warn' | 'err' {
+  return pct >= 100 ? 'err' : pct >= 80 ? 'warn' : 'ok';
+}
+
+function BudgetBar({ label, used, cap, unit }: { label: string; used: number; cap: number | null; unit: string }) {
+  if (!cap) return null;
+  const pct = Math.min(100, Math.round((used / cap) * 100));
+  const tone = meterTone((used / cap) * 100);
+  const col = tone === 'err' ? 'var(--err)' : tone === 'warn' ? 'var(--warn)' : 'var(--ok)';
+  return (
+    <div style={{ margin: '10px 0' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-sm)', marginBottom: 4 }}>
+        <span style={{ color: 'var(--muted)' }}>{label}</span>
+        <span><b style={{ color: col }}>{unit === '$' ? `$${used.toFixed(2)}` : `${used.toFixed(2)} ${unit}`}</b> <span style={{ color: 'var(--muted)' }}>/ {unit === '$' ? `$${cap}` : `${cap} ${unit}`}</span></span>
+      </div>
+      <div style={{ height: 8, borderRadius: 999, background: 'var(--panel2)', overflow: 'hidden' }}>
+        <div style={{ width: `${pct}%`, height: '100%', background: col, transition: 'width .3s' }} />
+      </div>
+    </div>
+  );
+}
+
+function BudgetsPanel() {
+  const [c, setC] = useState<CostSettings | null>(null);
+  const [rate, setRate] = useState('');
+  const [du, setDu] = useState('');
+  const [mu, setMu] = useState('');
+  const [dk, setDk] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  const load = useCallback(() => {
+    hub.cost().then((r) => {
+      setC(r);
+      setRate(String(r.electricity_rate_per_kwh ?? ''));
+      setDu(r.budgets.daily_usd != null ? String(r.budgets.daily_usd) : '');
+      setMu(r.budgets.monthly_usd != null ? String(r.budgets.monthly_usd) : '');
+      setDk(r.budgets.daily_kwh != null ? String(r.budgets.daily_kwh) : '');
+    }).catch(() => {});
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const save = useCallback(async () => {
+    setBusy(true); setMsg('');
+    const num = (s: string) => (s.trim() === '' ? null : Number(s));
+    try {
+      const r = await hub.saveCost({
+        electricity_rate_per_kwh: rate.trim() === '' ? 0 : Number(rate),
+        budgets: { daily_usd: num(du), monthly_usd: num(mu), daily_kwh: num(dk) },
+      } as Partial<CostSettings>);
+      if (r.error) setMsg(r.error);
+      else { setMsg('Saved.'); load(); }
+    } catch (e) { setMsg((e as Error).message); }
+    setBusy(false);
+  }, [rate, du, mu, dk, load]);
+
+  return (
+    <>
+      <Panel title="Spend & energy meter" subtitle="Today's usage against your caps. Cloud API $ is real; local generation is free (energy only).">
+        {c ? (
+          (c.budgets.daily_usd || c.budgets.monthly_usd || c.budgets.daily_kwh) ? (
+            <>
+              <BudgetBar label="Cloud spend today" used={c.daily_spend_usd} cap={c.budgets.daily_usd} unit="$" />
+              <BudgetBar label={`GPU energy today${c.power_measured ? '' : ' (est.)'}`} used={c.daily_energy_kwh} cap={c.budgets.daily_kwh} unit="kWh" />
+              {c.budgets.monthly_usd != null && (
+                <div className="hub-note" style={{ marginTop: 10 }}>
+                  Monthly cap ${c.budgets.monthly_usd} — alerts fire at 80% and 100% (Operations page).
+                </div>
+              )}
+            </>
+          ) : <EmptyState text="No budgets set yet — add one below to turn on the meter and alerts." />
+        ) : <EmptyState text="Loading…" />}
+      </Panel>
+
+      <div className="hub-section" />
+      <Panel title="Set budgets" subtitle="Leave a field blank to disable that budget. Alerts appear on the Operations page; nothing is ever blocked automatically.">
+        <div className="hub-field" style={{ maxWidth: 320 }}>
+          <label>Electricity rate ({c?.currency || '$'} / kWh)</label>
+          <input className="hub-input" value={rate} onChange={(e) => setRate(e.target.value)} placeholder="0.15" inputMode="decimal" />
+        </div>
+        <div className="hub-fieldrow">
+          <div className="hub-field"><label>Daily cloud $ cap</label>
+            <input className="hub-input" value={du} onChange={(e) => setDu(e.target.value)} placeholder="none" inputMode="decimal" /></div>
+          <div className="hub-field"><label>Monthly cloud $ cap</label>
+            <input className="hub-input" value={mu} onChange={(e) => setMu(e.target.value)} placeholder="none" inputMode="decimal" /></div>
+          <div className="hub-field"><label>Daily energy cap (kWh)</label>
+            <input className="hub-input" value={dk} onChange={(e) => setDk(e.target.value)} placeholder="none" inputMode="decimal" /></div>
+        </div>
+        <div className="hub-btn-row">
+          <button className="hub-btn" onClick={save} disabled={busy}><Icon name="check" />{busy ? 'Saving…' : 'Save budgets'}</button>
+        </div>
+        {msg && <div className={'hub-msg' + (msg === 'Saved.' ? ' ok' : ' err')}>{msg}</div>}
+        <div className="hub-note" style={{ marginTop: 14 }}>
+          <b>Idle-burn watch</b> is always on: if the agent generates more than ~5k tokens
+          in 10 minutes while you're away, Operations raises an alert — the "what did it
+          spend while I slept" signal.
+        </div>
+      </Panel>
+    </>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// History — the flight recorder (durable audit ledger)
+// ─────────────────────────────────────────────────────────────────────────────
+function evtColor(kind: string): string {
+  return kind === 'code_change' ? 'var(--accent)' : kind === 'egress' ? 'var(--info)' : 'var(--ok)';
+}
+function evtSummary(e: AuditEvent): string {
+  if (e.kind === 'turn') return `Chat turn · ${e.status}${e.tools?.length ? ' · tools: ' + e.tools.join(', ') : ' · no tools'}${e.duration_s ? ` · ${e.duration_s}s` : ''}`;
+  if (e.kind === 'code_change') return `Self-edit · ${e.outcome}${e.commit ? ' · ' + e.commit : ''}${e.paths?.length ? ' · ' + e.paths.length + ' file(s)' : ''}${e.approved_by ? ' · approved by ' + e.approved_by : ''}`;
+  if (e.kind === 'egress') return `Tool call · ${e.connector}/${e.tool} → ${e.status}`;
+  return e.kind;
+}
+
+function HistoryPanel() {
+  const [events, setEvents] = useState<AuditEvent[] | null>(null);
+  const [kind, setKind] = useState('');
+  const [err, setErr] = useState('');
+  const load = useCallback(() => {
+    setErr('');
+    hub.audit(300, kind).then((r) => setEvents(r.events)).catch((e) => setErr((e as Error).message));
+  }, [kind]);
+  useEffect(() => { load(); }, [load]);
+
+  const FILTERS: { id: string; label: string }[] = [
+    { id: '', label: 'All' }, { id: 'turn', label: 'Chat turns' },
+    { id: 'code_change', label: 'Self-edits' }, { id: 'egress', label: 'Tool calls' },
+  ];
+
+  return (
+    <Panel
+      title="Flight recorder"
+      subtitle="A durable, append-only record of everything the agent did — turns, self-edits, and tool calls. Survives restarts (logs/audit.jsonl)."
+      right={<button className="hub-btn ghost sm" onClick={load}><Icon name="refresh" />Refresh</button>}
+    >
+      <div className="hub-tabs" style={{ marginBottom: 14, borderBottom: 0 }}>
+        {FILTERS.map((f) => (
+          <button key={f.id} className={'hub-tab' + (kind === f.id ? ' active' : '')} onClick={() => setKind(f.id)}>{f.label}</button>
+        ))}
+      </div>
+      {err && <div className="hub-msg err">{err}</div>}
+      {events == null ? <EmptyState text="Loading…" />
+        : events.length === 0 ? <EmptyState text="No events recorded yet. Actions will appear here as the agent works." />
+          : (
+            <div>
+              {events.map((e, i) => (
+                <div key={i} className="hub-row">
+                  <div className="hub-row-main">
+                    <div className="hub-row-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <i style={{ width: 7, height: 7, borderRadius: '50%', background: evtColor(e.kind), flexShrink: 0 }} />
+                      {evtSummary(e)}
+                    </div>
+                    {(e.error || e.request) && (
+                      <div className="hub-row-sub" style={{ color: e.error ? 'var(--err)' : 'var(--muted)' }}>
+                        {e.error ? `error: ${e.error}` : e.request}
+                      </div>
+                    )}
+                  </div>
+                  <div className="hub-row-sub" style={{ flexShrink: 0, whiteSpace: 'nowrap' }}>
+                    {new Date(e.ts * 1000).toLocaleString()}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+    </Panel>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // System
 // ─────────────────────────────────────────────────────────────────────────────
 function SystemPanel({ onRestart }: { onRestart: () => void }) {
@@ -950,6 +1125,8 @@ export function HubView() {
         {tab === 'agent' && <AgentPanel />}
         {tab === 'connectors' && <ConnectorsPanel />}
         {tab === 'voice' && <VoicePanel onRestart={notifyRestart} />}
+        {tab === 'budgets' && <BudgetsPanel />}
+        {tab === 'history' && <HistoryPanel />}
         {tab === 'system' && <SystemPanel onRestart={notifyRestart} />}
       </div>
     </div>

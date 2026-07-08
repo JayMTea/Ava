@@ -79,3 +79,46 @@ rules:
     cooldown: 60
     severity: critical
     message: "A monitored service is down"
+  # Budget rules read a percent-of-budget metric, so the cap itself lives in
+  # cost.yaml / ava.yaml (cost.budgets.*). The metric is 0 when no budget is
+  # set, so these stay dormant until you configure a budget in the Setup hub.
+  - id: budget_daily
+    metric: budget_daily_pct
+    op: ">="
+    value: 100
+    for: 0
+    cooldown: 3600
+    severity: critical
+    message: "Daily cloud spend budget reached"
+  - id: budget_daily_warn
+    metric: budget_daily_pct
+    op: ">="
+    value: 80
+    for: 0
+    cooldown: 3600
+    severity: warn
+    message: "Daily cloud spend at 80% of budget"
+  - id: budget_monthly
+    metric: budget_monthly_pct
+    op: ">="
+    value: 100
+    for: 0
+    cooldown: 21600
+    severity: critical
+    message: "Monthly cloud spend budget reached"
+  - id: budget_energy
+    metric: budget_energy_pct
+    op: ">="
+    value: 100
+    for: 0
+    cooldown: 3600
+    severity: warn
+    message: "Daily GPU energy budget reached"
+  - id: idle_burn
+    metric: idle_burn_tokens_10m
+    op: ">"
+    value: 5000
+    for: 60
+    cooldown: 600
+    severity: warn
+    message: "Agent is generating tokens while idle"

@@ -115,6 +115,10 @@ export const dash = {
     get<{ ok: boolean; recent: Record<string, unknown>[] }>('/api/perf/recent' + qs({ limit, app, category })),
   perfCost: (since = '7d', group = 'model') =>
     get<PerfCost>('/api/perf/cost' + qs({ since, group })),
+  budget: () => get<{
+    currency: string; daily_spend_usd: number; daily_energy_kwh: number; power_measured: boolean;
+    budgets: { daily_usd: number | null; monthly_usd: number | null; daily_kwh: number | null };
+  }>('/api/hub/cost'),
   hwHistory: (since?: number) =>
     get<{ ok: boolean; samples: HwSample[] }>('/api/hardware/history' + qs({ since })),
   jobs: (status?: string, kind?: string, limit = 100) =>

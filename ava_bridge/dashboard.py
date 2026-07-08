@@ -141,15 +141,45 @@ def perf_recent(limit=50, app=None, category=None) -> dict:
 def _cost_cfg() -> dict:
     def load():
         path = os.path.join(config.ROOT, "config", "cost.yaml")
+        cfg = {"electricity_rate_per_kwh": 0, "nominal_gpu_watts": 180,
+               "currency": "$", "prices": {}, "budgets": {}}
         if yaml is not None:
             try:
                 with open(path, encoding="utf-8") as f:
-                    return yaml.safe_load(f) or {}
+                    cfg.update(yaml.safe_load(f) or {})
             except Exception:  # noqa: BLE001
                 pass
-        return {"electricity_rate_per_kwh": 0, "nominal_gpu_watts": 180,
-                "prices": {}}
+        # ava.yaml `cost:` overlay — GUI-editable (Setup hub) without source edits.
+        from . import settings
+        rate = settings.get("cost.electricity_rate_per_kwh", None)
+        if rate is not None:
+            cfg["electricity_rate_per_kwh"] = rate
+        cur = settings.get("cost.currency", None)
+        if cur:
+            cfg["currency"] = cur
+        budgets = settings.get("cost.budgets", None)
+        if isinstance(budgets, dict):
+            cfg["budgets"] = {**(cfg.get("budgets") or {}), **budgets}
+        return cfg
     return _cached("cost_cfg", 30, load)
+
+
+def invalidate_cost_cache() -> None:
+    """Drop cached cost config + budget rollup so a Hub save reflects at once."""
+    _cache.pop("cost_cfg", None)
+    _cache.pop("budget_pct", None)
+
+
+def cost_settings() -> dict:
+    """Current cost/budget config for the Hub (read side of the editor)."""
+    cfg = _cost_cfg()
+    b = cfg.get("budgets") or {}
+    return {"electricity_rate_per_kwh": cfg.get("electricity_rate_per_kwh", 0),
+            "currency": cfg.get("currency", "$"),
+            "nominal_gpu_watts": cfg.get("nominal_gpu_watts", 180),
+            "budgets": {"daily_usd": b.get("daily_usd"),
+                        "monthly_usd": b.get("monthly_usd"),
+                        "daily_kwh": b.get("daily_kwh")}}
 
 
 def _price_for(model: str, prices: dict) -> Optional[dict]:
@@ -520,6 +550,37 @@ def build_alert_metrics() -> dict:
                 stuck += 1
     m["job_stuck_count"] = stuck
     m["service_down_count"] = ops_services().get("down", 0)
+
+    # --- cost / energy budgets + idle burn (dormant until a budget is set) ---
+    cfg = _cost_cfg()
+    budgets = cfg.get("budgets") or {}
+
+    def _budget_pct():
+        day = perf_cost("1d")
+        mon = perf_cost("30d")
+        du, mu, dk = (budgets.get("daily_usd"), budgets.get("monthly_usd"),
+                      budgets.get("daily_kwh"))
+        return {
+            "budget_daily_pct": round(day["spend_usd"] / du * 100, 1) if du else 0,
+            "budget_monthly_pct": round(mon["spend_usd"] / mu * 100, 1) if mu else 0,
+            "budget_energy_pct": round(day["energy_kwh"] / dk * 100, 1) if dk else 0,
+            "daily_spend_usd": day["spend_usd"], "daily_energy_kwh": day["energy_kwh"],
+        }
+    m.update(_cached("budget_pct", 60, _budget_pct))
+
+    # Idle burn: completion tokens generated in the last 10 min while no turn is
+    # running AND >120s after the last interactive activity — i.e. the agent
+    # spending on its own while you were away. 0 when you're actively using it.
+    with state.turns_lock:
+        turn_running = any(t.get("status") == "running" for t in state.turns.values())
+    idle_tokens = 0
+    if not turn_running:
+        last = state.interaction.get("ts", 0)
+        for r in _all_rows(None, "llm", "10m"):
+            ct = r.get("completion_tokens") or 0
+            if ct and (r.get("ts") or 0) > last + 120:
+                idle_tokens += int(ct)
+    m["idle_burn_tokens_10m"] = idle_tokens
     return m
 
 

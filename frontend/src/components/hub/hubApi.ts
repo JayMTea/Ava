@@ -118,6 +118,39 @@ export interface NewConnectorBody {
   mcp?: { url?: string; command?: string; token_env?: string };
 }
 
+// ---- Cost & budgets ---------------------------------------------------------
+export interface CostSettings {
+  electricity_rate_per_kwh: number;
+  currency: string;
+  nominal_gpu_watts: number;
+  budgets: { daily_usd: number | null; monthly_usd: number | null; daily_kwh: number | null };
+  daily_spend_usd: number;
+  daily_energy_kwh: number;
+  power_measured: boolean;
+}
+
+// ---- Flight recorder (audit ledger) -----------------------------------------
+export interface AuditEvent {
+  ts: number;
+  kind: string;
+  status?: string;
+  tools?: string[];
+  model?: string;
+  duration_s?: number;
+  error?: string;
+  outcome?: string;
+  project?: string;
+  commit?: string;
+  actor?: string;
+  approved_by?: string;
+  paths?: string[];
+  connector?: string;
+  tool?: string;
+  chat_id?: string;
+  request?: string;
+  [k: string]: unknown;
+}
+
 // ---- System -----------------------------------------------------------------
 export interface SystemInfo {
   brand: string;
@@ -190,6 +223,19 @@ export const hub = {
       `/api/hub/voice/threshold?value=${encodeURIComponent(value)}`,
       { method: 'POST' },
     ),
+
+  // Cost & budgets
+  cost: () => req<CostSettings>('/api/hub/cost'),
+  saveCost: (body: Partial<CostSettings>) =>
+    req<{ ok: boolean; error?: string }>('/api/hub/cost', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+
+  // Flight recorder
+  audit: (limit = 200, kind = '') =>
+    req<{ events: AuditEvent[] }>(`/api/hub/audit?limit=${limit}${kind ? `&kind=${encodeURIComponent(kind)}` : ''}`),
 
   // System
   system: () => req<SystemInfo>('/api/hub/system'),

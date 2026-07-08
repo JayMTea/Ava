@@ -10,6 +10,16 @@ electricity_rate_per_kwh: 0.15   # your $/kWh; set 0 to hide the $-energy figure
 # a live power sample isn't available in the hardware history window.
 nominal_gpu_watts: 180
 
+currency: "$"                    # display symbol for cost figures
+
+# Spend/energy budgets. null = no budget (the meter + alert stay dormant). Set
+# these here OR from the Setup hub → System → Budgets, which writes them to
+# ava.yaml (cost.budgets.*) so a fork configures them without editing source.
+budgets:
+  daily_usd: null                # cloud API $ per day
+  monthly_usd: null              # cloud API $ per rolling 30 days
+  daily_kwh: null                # GPU energy per day
+
 prices:
   "claude-opus":   { input: 15.0, output: 75.0 }
   "claude-sonnet": { input: 3.0,  output: 15.0 }

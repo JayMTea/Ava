@@ -248,12 +248,14 @@ def _run_turn(tid: str, agent_text: str, sid: str, chat_id: str):
                                 previews=previews, artifact=artifact,
                                 model=m, ctx_tokens=(m or {}).get("prompt_tokens"),
                                 tools_used=tools)
+    state.interaction["ts"] = time.time()  # turn finished — reset idle baseline
     audit.record("turn", chat_id=chat_id, status="done", tools=tools,
                  model=(m or {}).get("id"), duration_s=round(time.time() - t0, 1))
 
 
 def start_turn(agent_text: str, sid: str, chat_id: str) -> str:
     _prune_turns()
+    state.interaction["ts"] = time.time()  # mark interactive activity (idle-burn baseline)
     tid = uuid.uuid4().hex[:12]
     with state.turns_lock:
         state.turns[tid] = {"id": tid, "status": "running", "steps": [], "reply": None,
