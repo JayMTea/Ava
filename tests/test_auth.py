@@ -40,7 +40,9 @@ class TokenTests(unittest.TestCase):
     def test_tampered_signature_rejected(self):
         tok = auth._make_token()
         exp, _, sig = tok.partition(".")
-        self.assertFalse(auth._valid_token(f"{exp}.{sig[:-1]}0"))
+        # Flip (not just set) the last hex char so the token always differs.
+        tampered = "0" if sig[-1] != "0" else "1"
+        self.assertFalse(auth._valid_token(f"{exp}.{sig[:-1]}{tampered}"))
 
     def test_expired_rejected(self):
         exp = str(int(time.time()) - 10)
