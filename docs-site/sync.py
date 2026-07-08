@@ -37,6 +37,7 @@ CURATED: dict[str, str] = {
     "CHANGELOG.md": "CHANGELOG.md",
     "deploy/README.md": "deploy/README.md",
     "docs/AGENT_RUNTIME.md": "docs/AGENT_RUNTIME.md",
+    "docs/CONNECT_YOUR_APPS.md": "docs/CONNECT_YOUR_APPS.md",
     "docs/CONNECTOR_SDK.md": "docs/CONNECTOR_SDK.md",
     "docs/DEVICE_CONNECTORS.md": "docs/DEVICE_CONNECTORS.md",
     "docs/RELEASING.md": "docs/RELEASING.md",
@@ -65,6 +66,11 @@ ASSETS: dict[str, str] = {
     "docs/assets/vitals-dashboard.png": "docs/assets/vitals-dashboard.png",
     # Narrated walkthrough video + its poster for the landing page.
     "docs/assets/reel-poster.png": "docs/assets/reel-poster.png",
+    # Connect-your-apps walkthrough (docs/CONNECT_YOUR_APPS.md).
+    "docs/assets/connect-app-tour.mp4": "docs/assets/connect-app-tour.mp4",
+    "docs/assets/connect-app-1-connectors.png": "docs/assets/connect-app-1-connectors.png",
+    "docs/assets/connect-app-2-detected.png": "docs/assets/connect-app-2-detected.png",
+    "docs/assets/connect-app-3-connected.png": "docs/assets/connect-app-3-connected.png",
     "docs/assets/ava-tour.mp4": "docs/assets/ava-tour.mp4",
     "agent/docs/diagrams/system.svg": "agent/docs/diagrams/system.svg",
     "agent/docs/diagrams/network.svg": "agent/docs/diagrams/network.svg",

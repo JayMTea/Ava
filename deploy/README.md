@@ -150,19 +150,11 @@ env vars. They are never stored in `ava.yaml` and never in the repo.
 
 ## 4. Connecting your own apps
 
-Ava discovers integrations from **connector manifests**. Each connector declares
-its health probe, metrics/perf source, egress policy, and agent actions; the
-dashboard's service matrix, performance charts, and the agent's tools all update
-automatically:
-
-```bash
-ava connector new myapp                 # scaffold a manifest
-# edit connector.yaml: health probe, perf log, actions
-ava connector tools    myapp --write    # generate the agent tools
-ava connector policies myapp --write    # generate its egress policy
-```
-
-Full guide: [docs/CONNECTOR_SDK.md](../docs/CONNECTOR_SDK.md).
+Wire your apps into Ava from the browser (**Setup → Connectors → Connect an
+app**: paste an address, click Detect, done) or from the CLI with a connector
+manifest. The step-by-step guide, with screenshots and a video of the whole
+flow, is [Connect your apps](../docs/CONNECT_YOUR_APPS.md); the full manifest
+reference is the [Connector SDK](../docs/CONNECTOR_SDK.md).
 
 ---
 
