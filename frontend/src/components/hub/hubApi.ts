@@ -132,6 +132,15 @@ export interface NewConnectorBody {
   base_url?: string;
   actions?: { id: string; method: string; path: string; description?: string }[];
   mcp?: { url?: string; command?: string; token_env?: string };
+  discover?: { base?: string; list?: string; call?: string; token_env?: string };
+}
+export interface ProbeResult {
+  ok: boolean;
+  kind?: 'mcp' | 'discover' | 'rest' | 'unknown';
+  transport?: string;
+  tools?: { name: string; description: string }[];
+  detail?: string;
+  error?: string;
 }
 
 // ---- Cost & budgets ---------------------------------------------------------
@@ -208,6 +217,12 @@ export const hub = {
     }),
   newConnector: (body: NewConnectorBody) =>
     req<{ ok: boolean; path?: string; actions?: number; error?: string }>('/api/hub/connectors/new', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  probeConnector: (body: { url?: string; command?: string; token_env?: string }) =>
+    req<ProbeResult>('/api/hub/connectors/probe', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),

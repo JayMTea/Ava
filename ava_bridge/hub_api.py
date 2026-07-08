@@ -381,6 +381,85 @@ def voice_threshold(value: float):
 _ID_RE = re.compile(r"^[a-z][a-z0-9_-]{1,31}$")
 
 
+def _slim_tools(tools) -> list[dict]:
+    out = []
+    for t in (tools or [])[:60]:
+        if isinstance(t, dict) and t.get("name"):
+            out.append({"name": str(t["name"])[:80],
+                        "description": str(t.get("description") or "")[:200]})
+    return out
+
+
+def _probe(url: str, command: str, token_env: str | None) -> dict:
+    """Figure out how to talk to an app so the user doesn't have to classify it:
+    try MCP (a start command = stdio, or the URL = MCP-over-HTTP), then a
+    discovery endpoint (GET <url>/tools). Returns the detected kind + the tools
+    we found, or kind='rest' when nothing is auto-discoverable (the caller then
+    asks the user to declare actions — the one thing we can't infer)."""
+    from . import mcp_client
+    import uuid
+    cid = "__probe_" + uuid.uuid4().hex[:6]
+
+    # 1) A start command is unambiguously an MCP stdio server.
+    if command:
+        spec = {"transport": "stdio", "url": None, "command": command.split(),
+                "env": None, "token_env": token_env}
+        try:
+            res = mcp_client.list_tools(cid, spec)
+        finally:
+            mcp_client.reset(cid)
+        if res.get("tools"):
+            return {"ok": True, "kind": "mcp", "transport": "stdio",
+                    "tools": _slim_tools(res["tools"])}
+        return {"ok": True, "kind": "unknown", "tools": [],
+                "detail": res.get("error", "that command didn't expose MCP tools")}
+
+    if not url:
+        return {"ok": False, "error": "give a web address or a start command"}
+
+    # 2) Try MCP over HTTP at the URL.
+    spec = {"transport": "http", "url": url, "command": None, "env": None,
+            "token_env": token_env}
+    try:
+        res = mcp_client.list_tools(cid, spec)
+    finally:
+        mcp_client.reset(cid)
+    if res.get("tools"):
+        return {"ok": True, "kind": "mcp", "transport": "http",
+                "tools": _slim_tools(res["tools"])}
+
+    # 3) Try a discovery endpoint (our list+call facade / FastMCP-style).
+    try:
+        import requests
+        headers = {}
+        if token_env and os.environ.get(token_env):
+            headers["Authorization"] = "Bearer " + os.environ[token_env]
+        r = requests.get(url.rstrip("/") + "/tools", headers=headers, timeout=8)
+        data = r.json()
+        tools = data.get("tools") if isinstance(data, dict) else (
+            data if isinstance(data, list) else None)
+        if isinstance(tools, list) and tools:
+            return {"ok": True, "kind": "discover", "tools": _slim_tools(tools)}
+    except Exception:  # noqa: BLE001
+        pass
+
+    # 4) A plain web API — Ava can't guess its endpoints; the user declares them.
+    return {"ok": True, "kind": "rest", "tools": [],
+            "detail": "No tools to auto-discover — tell Ava what this app can do."}
+
+
+@router.post("/connectors/probe")
+async def connector_probe(request: Request):
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": "invalid json"}, status_code=400)
+    url = str(body.get("url") or "").strip()
+    command = str(body.get("command") or "").strip()
+    token_env = str(body.get("token_env") or "").strip() or None
+    return await run_in_threadpool(_probe, url, command, token_env)
+
+
 @router.post("/connectors/new")
 async def connector_new(body: dict):
     """Write $AVA_HOME/connectors/<id>/connector.yaml from the Hub's form.
@@ -426,8 +505,23 @@ async def connector_new(body: dict):
             mcp["token_env"] = tenv
         manifest["mcp"] = mcp
 
+    # Auto-discovered facade (GET /tools + POST /call) — from the probe's
+    # 'discover' result. Ava lists + calls the app's tools live; the agent still
+    # reaches only the policed __tools/__call bridge routes.
+    disc_in = body.get("discover") if isinstance(body.get("discover"), dict) else None
+    if disc_in and not mcp_in:
+        d = {"list": str(disc_in.get("list") or "/tools"),
+             "call": str(disc_in.get("call") or "/call")}
+        b = str(disc_in.get("base") or base_url or "").strip()
+        if b:
+            d["base"] = b
+        tenv = str(disc_in.get("token_env") or "").strip()
+        if tenv:
+            d["token_env"] = tenv
+        manifest["actions"] = {"discover": d}
+
     actions = []
-    for a in ([] if mcp_in else (body.get("actions") or []))[:32]:
+    for a in ([] if (mcp_in or disc_in) else (body.get("actions") or []))[:32]:
         aid = str(a.get("id", "")).strip().lower()
         path = str(a.get("path", "")).strip()
         if not (_ID_RE.match(aid) and path.startswith("/")):

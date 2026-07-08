@@ -5,7 +5,8 @@ import { api } from '../../lib/api';
 import { hub } from './hubApi';
 import type {
   AgentStatus, AuditEvent, BackendProbe, BenchStatus, CostSettings, EnrollResult,
-  GenerateResult, HardwareInfo, HubConnector, ModelStore, PullStatus, SystemInfo, VoiceStatus,
+  GenerateResult, HardwareInfo, HubConnector, ModelStore, NewConnectorBody, ProbeResult,
+  PullStatus, SystemInfo, VoiceStatus,
 } from './hubApi';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -506,61 +507,84 @@ const VALID_ID = /^[a-z][a-z0-9_-]{1,31}$/;
 
 function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<'rest' | 'mcp'>('rest');
   const [name, setName] = useState('');
-  const [probe, setProbe] = useState('');
-  const [baseUrl, setBaseUrl] = useState('');
+  const [reach, setReach] = useState('');       // a URL or a start command
+  const [tokenEnv, setTokenEnv] = useState('');
+  const [health, setHealth] = useState('');
+  const [probing, setProbing] = useState(false);
+  const [probe, setProbe] = useState<ProbeResult | null>(null);
+  const [probeErr, setProbeErr] = useState('');
   const [actions, setActions] = useState<ActionDraft[]>([]);
-  const [mcpUrl, setMcpUrl] = useState('');
-  const [mcpCommand, setMcpCommand] = useState('');
-  const [mcpToken, setMcpToken] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [done, setDone] = useState('');
 
   const id = slugId(name);
   const validId = VALID_ID.test(id);
+  const isUrl = reach.trim().toLowerCase().startsWith('http');
 
+  const reset = () => {
+    setName(''); setReach(''); setTokenEnv(''); setHealth('');
+    setProbe(null); setProbeErr(''); setActions([]);
+  };
   const setAction = (i: number, patch: Partial<ActionDraft>) =>
     setActions((a) => a.map((x, j) => (j === i ? { ...x, ...patch } : x)));
 
+  const runProbe = useCallback(async () => {
+    if (!reach.trim()) return;
+    setProbing(true); setProbe(null); setProbeErr(''); setActions([]);
+    try {
+      const body = isUrl ? { url: reach.trim() } : { command: reach.trim() };
+      const r = await hub.probeConnector({ ...body, token_env: tokenEnv.trim() || undefined });
+      if (!r.ok) setProbeErr(r.error || 'could not reach it');
+      else {
+        setProbe(r);
+        if (r.kind === 'rest' || r.kind === 'unknown') {
+          setActions([{ id: '', method: 'POST', path: '', description: '' }]);
+        }
+      }
+    } catch (e) { setProbeErr((e as Error).message); }
+    setProbing(false);
+  }, [reach, isUrl, tokenEnv]);
+
   const create = useCallback(async () => {
     setBusy(true); setMsg(''); setDone('');
+    const body: NewConnectorBody = {
+      id, label: name.trim() || undefined, probe: health.trim() || undefined,
+    };
+    const tenv = tokenEnv.trim() || undefined;
+    if (probe?.kind === 'mcp') {
+      body.mcp = isUrl ? { url: reach.trim(), token_env: tenv }
+        : { command: reach.trim(), token_env: tenv };
+    } else if (probe?.kind === 'discover') {
+      body.discover = { base: reach.trim(), token_env: tenv };
+    } else {
+      body.base_url = reach.trim() || undefined;
+      body.actions = actions.filter((a) => a.id.trim() && a.path.trim());
+    }
     try {
-      const r = await hub.newConnector({
-        id,
-        label: name.trim() || undefined,
-        probe: probe.trim() || undefined,
-        base_url: mode === 'rest' ? baseUrl.trim() || undefined : undefined,
-        actions: mode === 'rest' ? actions.filter((a) => a.id.trim() && a.path.trim()) : undefined,
-        mcp: mode === 'mcp' ? {
-          url: mcpUrl.trim() || undefined,
-          command: mcpCommand.trim() || undefined,
-          token_env: mcpToken.trim() || undefined,
-        } : undefined,
-      });
-      if (!r.ok) { setMsg(r.error || 'could not create connector'); }
-      else {
-        setDone(`Created “${name.trim()}”. Now Preview / Generate & deploy its policy below.`);
-        setName(''); setProbe(''); setBaseUrl(''); setActions([]);
-        setMcpUrl(''); setMcpCommand(''); setMcpToken('');
-        onCreated();
-      }
+      const r = await hub.newConnector(body);
+      if (!r.ok) setMsg(r.error || 'could not create connector');
+      else { setDone(`Connected “${name.trim()}”. Preview / Generate & deploy below.`); reset(); onCreated(); }
     } catch (e) { setMsg((e as Error).message); }
     setBusy(false);
-  }, [id, name, probe, baseUrl, actions, mode, mcpUrl, mcpCommand, mcpToken, onCreated]);
+  }, [id, name, health, reach, isUrl, tokenEnv, probe, actions, onCreated]);
+
+  const found = probe && (probe.kind === 'mcp' || probe.kind === 'discover');
+  const manual = probe && (probe.kind === 'rest' || probe.kind === 'unknown');
+  const canCreate = validId && !!probe && (found || (manual && actions.some((a) => a.id.trim() && a.path.trim())));
 
   if (!open) {
     return (
       <div className="hub-btn-row" style={{ marginTop: 0 }}>
-        <button className="hub-btn" onClick={() => setOpen(true)}><Icon name="plus" />New connector</button>
+        <button className="hub-btn" onClick={() => setOpen(true)}><Icon name="plus" />Connect an app</button>
         {done && <span className="hub-msg ok" style={{ marginTop: 0, alignSelf: 'center' }}>{done}</span>}
       </div>
     );
   }
   return (
-    <Panel title="Connect an app" subtitle="Tell Ava about your app in plain terms — it writes the setup for you. You'll preview the tools and the security policy before anything goes live." right={
-      <button className="hub-btn ghost sm" onClick={() => setOpen(false)}>Cancel</button>
+    <Panel title="Connect an app" subtitle="Tell Ava where your app is — it figures out how to talk to it and writes the setup. You'll preview the tools and the security policy before anything goes live." right={
+      <button className="hub-btn ghost sm" onClick={() => { setOpen(false); reset(); }}>Cancel</button>
     }>
       <div className="hub-field" style={{ maxWidth: 420 }}>
         <label>App name</label>
@@ -574,81 +598,81 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
               Please start the name with a letter (at least 2 characters).
             </div>)}
       </div>
+
       <div className="hub-field">
-        <label>How does Ava reach it?</label>
-        <div className="hub-opts">
-          <button className={'hub-opt' + (mode === 'rest' ? ' sel' : '')} onClick={() => setMode('rest')}>
-            <b>It has a web API</b>
-            <small>Most apps. It runs at a URL with endpoints — you'll name what Ava can do with it.</small>
-          </button>
-          <button className={'hub-opt' + (mode === 'mcp' ? ' sel' : '')} onClick={() => setMode('mcp')}>
-            <b>It's an MCP server</b>
-            <small>A Model Context Protocol tool server. Ava discovers its tools for you, automatically.</small>
+        <label>Where is your app?</label>
+        <div className="hub-fieldrow">
+          <input className="hub-input" style={{ flex: 3 }} value={reach}
+            onChange={(e) => { setReach(e.target.value); setProbe(null); setProbeErr(''); }}
+            onKeyDown={(e) => { if (e.key === 'Enter') runProbe(); }}
+            placeholder="http://127.0.0.1:9000  —  or a start command like: npx -y @modelcontextprotocol/server-github" />
+          <button className="hub-btn" style={{ flex: '0 0 auto' }} onClick={runProbe} disabled={probing || !reach.trim()}>
+            <Icon name={probing ? 'refresh' : 'sparkles'} />{probing ? 'Checking…' : 'Detect'}
           </button>
         </div>
-        <div className="hub-note" style={{ marginTop: 8 }}>
-          Not sure? Pick <b>It has a web API</b> — that fits almost everything. MCP is a newer
-          standard specifically for AI tool servers; if your app doesn't mention “MCP,” it isn't one.
+        <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--muted)', marginTop: 5 }}>
+          Paste its web address, or a command that starts it. Ava checks what it is — you don't have to know.
         </div>
       </div>
 
       <div className="hub-fieldrow">
-        <div className="hub-field"><label>Health check URL <span style={{ opacity: 0.7 }}>(optional — lets Ava show if it's online)</span></label>
-          <input className="hub-input" value={probe} onChange={(e) => setProbe(e.target.value)} placeholder="http://127.0.0.1:9000/health" /></div>
-        {mode === 'rest' && (
-          <div className="hub-field"><label>Where does your app run? <span style={{ opacity: 0.7 }}>(its web address)</span></label>
-            <input className="hub-input" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="http://127.0.0.1:9000" /></div>
-        )}
+        <div className="hub-field"><label>Access token env var <span style={{ opacity: 0.7 }}>(optional, if it needs auth)</span></label>
+          <input className="hub-input" value={tokenEnv} onChange={(e) => setTokenEnv(e.target.value)} placeholder="MYAPP_TOKEN" /></div>
+        <div className="hub-field"><label>Health check URL <span style={{ opacity: 0.7 }}>(optional — shows if it's online)</span></label>
+          <input className="hub-input" value={health} onChange={(e) => setHealth(e.target.value)} placeholder="http://127.0.0.1:9000/health" /></div>
       </div>
 
-      {mode === 'mcp' && (
-        <>
-          <div className="hub-fieldrow">
-            <div className="hub-field"><label>Server URL (HTTP transport)</label>
-              <input className="hub-input" value={mcpUrl} onChange={(e) => setMcpUrl(e.target.value)} placeholder="http://127.0.0.1:9200/mcp" /></div>
-            <div className="hub-field"><label>… or command (stdio transport)</label>
-              <input className="hub-input" value={mcpCommand} onChange={(e) => setMcpCommand(e.target.value)} placeholder="npx -y @modelcontextprotocol/server-github" /></div>
+      {probeErr && <div className="hub-msg err">Couldn't reach it: {probeErr}. Check it's running, or add its actions manually below.</div>}
+
+      {found && (
+        <div className="hub-note" style={{ borderColor: 'color-mix(in srgb, var(--ok) 40%, transparent)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+            <span style={{ color: 'var(--ok)', display: 'inline-flex' }}><Icon name="check" /></span>
+            <b>Found {probe!.tools?.length || 0} tool{(probe!.tools?.length || 0) === 1 ? '' : 's'}</b>
+            <span style={{ color: 'var(--muted)' }}>via {probe!.kind === 'mcp' ? `MCP (${probe!.transport})` : 'its tool list'} — Ava will discover and call these for you.</span>
           </div>
-          <div className="hub-field" style={{ maxWidth: 360 }}><label>Bearer token env var (optional)</label>
-            <input className="hub-input" value={mcpToken} onChange={(e) => setMcpToken(e.target.value)} placeholder="MYMCP_TOKEN" /></div>
-          <div className="hub-note">
-            The agent never talks to this server directly — it reaches two policed bridge routes,
-            and the generated egress policy allow-lists exactly those. A stdio command runs on this
-            machine as you, like any MCP desktop client — only add servers you trust.
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {(probe!.tools || []).slice(0, 24).map((t) => (
+              <span key={t.name} className="hub-badge" title={t.description}>{t.name}</span>
+            ))}
           </div>
-        </>
+        </div>
       )}
 
-      {mode === 'rest' && (
-      <div className="hub-field">
-        <label>Agent actions — each becomes a tool Ava can call (and an egress allow-rule)</label>
-        {actions.map((a, i) => (
-          <div className="hub-fieldrow" key={i} style={{ marginBottom: 8 }}>
-            <input className="hub-input" style={{ flex: 1 }} value={a.id} placeholder="action_id"
-              onChange={(e) => setAction(i, { id: e.target.value })} />
-            <select className="hub-select" style={{ flex: '0 0 90px' }} value={a.method}
-              onChange={(e) => setAction(i, { method: e.target.value })}>
-              <option>POST</option><option>GET</option>
-            </select>
-            <input className="hub-input" style={{ flex: 2 }} value={a.path} placeholder="/api/do-thing"
-              onChange={(e) => setAction(i, { path: e.target.value })} />
-            <input className="hub-input" style={{ flex: 2 }} value={a.description} placeholder="what it does (shown to the agent)"
-              onChange={(e) => setAction(i, { description: e.target.value })} />
-            <button className="hub-btn ghost sm" style={{ flex: '0 0 auto' }} aria-label="Remove action"
-              onClick={() => setActions((x) => x.filter((_, j) => j !== i))}><Icon name="trash" /></button>
-          </div>
-        ))}
-        <button className="hub-btn ghost sm" onClick={() => setActions((a) => [...a, { id: '', method: 'POST', path: '', description: '' }])}>
-          <Icon name="plus" />Add action
-        </button>
-      </div>
+      {manual && (
+        <div className="hub-field">
+          <label>
+            {probe!.kind === 'unknown'
+              ? 'Ava couldn’t auto-detect its tools — tell it what this app can do:'
+              : 'This looks like a regular web app — tell Ava what it can do:'}
+          </label>
+          {actions.map((a, i) => (
+            <div className="hub-fieldrow" key={i} style={{ marginBottom: 8 }}>
+              <input className="hub-input" style={{ flex: 1 }} value={a.id} placeholder="what it does (e.g. create_note)"
+                onChange={(e) => setAction(i, { id: e.target.value })} />
+              <select className="hub-select" style={{ flex: '0 0 90px' }} value={a.method}
+                onChange={(e) => setAction(i, { method: e.target.value })}>
+                <option>POST</option><option>GET</option>
+              </select>
+              <input className="hub-input" style={{ flex: 2 }} value={a.path} placeholder="/api/notes"
+                onChange={(e) => setAction(i, { path: e.target.value })} />
+              <input className="hub-input" style={{ flex: 2 }} value={a.description} placeholder="short description for the agent"
+                onChange={(e) => setAction(i, { description: e.target.value })} />
+              <button className="hub-btn ghost sm" style={{ flex: '0 0 auto' }} aria-label="Remove action"
+                onClick={() => setActions((x) => x.filter((_, j) => j !== i))}><Icon name="trash" /></button>
+            </div>
+          ))}
+          <button className="hub-btn ghost sm" onClick={() => setActions((a) => [...a, { id: '', method: 'POST', path: '', description: '' }])}>
+            <Icon name="plus" />Add another
+          </button>
+        </div>
       )}
 
       <div className="hub-btn-row">
-        <button className="hub-btn" onClick={create}
-          disabled={busy || !validId || (mode === 'mcp' && !mcpUrl.trim() && !mcpCommand.trim())}>
-          <Icon name="check" />{busy ? 'Creating…' : 'Create connector'}
+        <button className="hub-btn" onClick={create} disabled={busy || !canCreate}>
+          <Icon name="check" />{busy ? 'Connecting…' : 'Connect app'}
         </button>
+        {!probe && reach.trim() && <span className="hub-msg" style={{ marginTop: 0, alignSelf: 'center', color: 'var(--muted)' }}>Click Detect first.</span>}
       </div>
       {msg && <div className="hub-msg err">{msg}</div>}
     </Panel>
