@@ -4,10 +4,23 @@ import { EmptyState, Panel } from '../dashboard/primitives';
 import { api } from '../../lib/api';
 import { hub } from './hubApi';
 import type {
-  AgentStatus, AuditEvent, BackendProbe, BenchResult, BenchStatus, CostSettings, EnrollResult,
-  GenerateResult, HardwareInfo, HubConnector, MemoryCounts, MemoryItem, ModelStore,
-  NewConnectorBody, PendingApproval, ProbeResult, PullStatus, SystemInfo, VoiceStatus,
+  AgentStatus, AuditEvent, Backend, BackendList, BackendProbe, BackendTestResult, BenchResult,
+  BenchStatus, CostSettings, EnrollResult, GenerateResult, HardwareInfo, HubConnector,
+  MemoryCounts, MemoryItem, ModelStore, NewConnectorBody, PendingApproval, ProbeResult,
+  PullStatus, SystemInfo, VoiceStatus,
 } from './hubApi';
+
+// Engine presets for the "add a model" form: label + default OpenAI-compatible
+// base URL + whether it's a local engine (local engines need no API key). Ava
+// talks to any of these the same way — an OpenAI-compatible /v1 endpoint.
+const ENGINE_PRESETS: { value: string; label: string; base: string; cloud?: boolean }[] = [
+  { value: 'ollama', label: 'Ollama', base: 'http://127.0.0.1:11434/v1' },
+  { value: 'mlx', label: 'MLX (Apple Silicon)', base: 'http://127.0.0.1:8080/v1' },
+  { value: 'lmstudio', label: 'LM Studio', base: 'http://127.0.0.1:1234/v1' },
+  { value: 'llamacpp', label: 'llama.cpp', base: 'http://127.0.0.1:8080/v1' },
+  { value: 'vllm', label: 'vLLM (NVIDIA)', base: 'http://127.0.0.1:8002/v1' },
+  { value: 'openai', label: 'Cloud (OpenAI-compatible)', base: 'https://api.openai.com/v1', cloud: true },
+];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Approvals banner — the agent parked a sensitive action; the operator decides.
@@ -149,37 +162,8 @@ function Overview({ onGo }: { onGo: (t: TabId) => void }) {
 // ─────────────────────────────────────────────────────────────────────────────
 function ModelsPanel({ onRestart }: { onRestart: () => void }) {
   const [hw, setHw] = useState<HardwareInfo | null>(null);
-  const [be, setBe] = useState<BackendProbe | null>(null);
-  const [mode, setMode] = useState<'local' | 'cloud'>('local');
-  const [engine, setEngine] = useState('vllm');
-  const [baseUrl, setBaseUrl] = useState('http://127.0.0.1:8002/v1');
-  const [model, setModel] = useState('');
-  const [cBase, setCBase] = useState('https://api.openai.com/v1');
-  const [cModel, setCModel] = useState('');
-  const [cKey, setCKey] = useState('');
-  const [msg, setMsg] = useState('');
-  const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    hub.hardware().then(setHw).catch(() => {});
-    hub.backends().then((b) => {
-      setBe(b);
-      if (b.ollama && !b.vllm) { setEngine('ollama'); setBaseUrl('http://127.0.0.1:11434/v1'); }
-    }).catch(() => {});
-  }, []);
-
-  const save = useCallback(async () => {
-    setBusy(true); setMsg('');
-    const inference = mode === 'cloud'
-      ? { mode, base_url: cBase.trim(), model: cModel.trim(), api_key: cKey.trim() }
-      : { mode, engine, base_url: baseUrl.trim(), model: model.trim() };
-    try {
-      const r = await hub.save({ inference });
-      if (r.error) { setMsg(r.error); }
-      else { setMsg(''); onRestart(); }
-    } catch (e) { setMsg((e as Error).message); }
-    setBusy(false);
-  }, [mode, engine, baseUrl, model, cBase, cModel, cKey, onRestart]);
+  useEffect(() => { hub.hardware().then(setHw).catch(() => {}); }, []);
 
   return (
     <>
@@ -194,59 +178,201 @@ function ModelsPanel({ onRestart }: { onRestart: () => void }) {
       </Panel>
 
       <div className="hub-section" />
-      <Panel title="Inference backend" subtitle="Where Ava's chat runs. Local keeps everything on your box; cloud uses any OpenAI-compatible provider.">
-        <div className="hub-opts">
-          <button className={'hub-opt' + (mode === 'local' ? ' sel' : '')} onClick={() => setMode('local')}>
-            <b>Local engine</b>
-            <small>{be?.ollama ? 'Ollama detected on :11434' : be?.vllm ? 'vLLM detected on :8002' : 'point at a running local engine'}</small>
-          </button>
-          <button className={'hub-opt' + (mode === 'cloud' ? ' sel' : '')} onClick={() => setMode('cloud')}>
-            <b>Cloud API key</b>
-            <small>any OpenAI-compatible provider</small>
-          </button>
-        </div>
-
-        {mode === 'local' ? (
-          <>
-            <div className="hub-field">
-              <label>Engine</label>
-              <select className="hub-select" value={engine} onChange={(e) => setEngine(e.target.value)}>
-                <option value="vllm">vLLM</option>
-                <option value="ollama">Ollama</option>
-                <option value="llamacpp">llama.cpp</option>
-              </select>
-            </div>
-            <div className="hub-fieldrow">
-              <div className="hub-field"><label>Base URL</label>
-                <input className="hub-input" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} /></div>
-              <div className="hub-field"><label>Model</label>
-                <input className="hub-input" value={model} onChange={(e) => setModel(e.target.value)} placeholder="e.g. llama3.2" /></div>
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="hub-field"><label>Provider base URL</label>
-              <input className="hub-input" value={cBase} onChange={(e) => setCBase(e.target.value)} /></div>
-            <div className="hub-fieldrow">
-              <div className="hub-field"><label>Model</label>
-                <input className="hub-input" value={cModel} onChange={(e) => setCModel(e.target.value)} placeholder="e.g. gpt-4o-mini" /></div>
-              <div className="hub-field"><label>API key <span style={{ opacity: 0.7 }}>(stored in secrets/, never in ava.yaml)</span></label>
-                <input className="hub-input" type="password" value={cKey} onChange={(e) => setCKey(e.target.value)} /></div>
-            </div>
-          </>
-        )}
-
-        <div className="hub-btn-row">
-          <button className="hub-btn" onClick={save} disabled={busy}>
-            <Icon name="check" />{busy ? 'Saving…' : 'Save inference config'}
-          </button>
-        </div>
-        {msg && <div className="hub-msg err">{msg}</div>}
-      </Panel>
+      <BrainManager onRestart={onRestart} />
 
       <div className="hub-section" />
       <ModelStorePanel />
     </>
+  );
+}
+
+// The multi-model "brain" manager: link one or more OpenAI-compatible models
+// (local engines or any cloud provider), test each before committing, and pick
+// which one is Ava's brain. Cloud keys go to the secrets store, never ava.yaml.
+function BrainManager({ onRestart }: { onRestart: () => void }) {
+  const [list, setList] = useState<BackendList | null>(null);
+  const [be, setBe] = useState<BackendProbe | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState<string | null>(null);
+
+  // form state
+  const [id, setId] = useState('');
+  const [engine, setEngine] = useState('ollama');
+  const [baseUrl, setBaseUrl] = useState('http://127.0.0.1:11434/v1');
+  const [model, setModel] = useState('');
+  const [apiKey, setApiKey] = useState('');
+  const [makeBrain, setMakeBrain] = useState(false);
+  const [test, setTest] = useState<BackendTestResult | null>(null);
+  const [testing, setTesting] = useState(false);
+
+  const preset = ENGINE_PRESETS.find((p) => p.value === engine) ?? ENGINE_PRESETS[0];
+  const isCloud = !!preset.cloud;
+
+  const load = useCallback(() => { hub.backendList().then(setList).catch(() => {}); }, []);
+  useEffect(() => {
+    load();
+    hub.backends().then(setBe).catch(() => {});
+  }, [load]);
+
+  const resetForm = useCallback(() => {
+    setEditing(null); setId(''); setEngine('ollama');
+    setBaseUrl('http://127.0.0.1:11434/v1'); setModel(''); setApiKey('');
+    setMakeBrain(false); setTest(null); setMsg('');
+  }, []);
+
+  const openAdd = useCallback(() => {
+    resetForm();
+    setMakeBrain(!list?.backends.length); // first model is the brain by default
+    setShowForm(true);
+  }, [resetForm, list]);
+
+  const openEdit = useCallback((b: Backend) => {
+    setEditing(b.id); setId(b.id); setEngine(b.engine);
+    setBaseUrl(b.base_url); setModel(b.model); setApiKey('');
+    setMakeBrain(b.is_brain); setTest(null); setMsg(''); setShowForm(true);
+  }, []);
+
+  // Changing the engine swaps in that engine's default endpoint (unless editing
+  // an existing backend, where we keep the user's URL).
+  const onEngine = useCallback((v: string) => {
+    setEngine(v); setTest(null);
+    if (!editing) {
+      const p = ENGINE_PRESETS.find((x) => x.value === v);
+      if (p) setBaseUrl(p.base);
+    }
+  }, [editing]);
+
+  const runTest = useCallback(async () => {
+    setTesting(true); setTest(null); setMsg('');
+    try {
+      const r = await hub.backendTest({
+        id: editing || id, base_url: baseUrl.trim(), model: model.trim(),
+        api_key: apiKey.trim() || undefined,
+      });
+      setTest(r);
+    } catch (e) { setTest({ ok: false, error: (e as Error).message }); }
+    setTesting(false);
+  }, [editing, id, baseUrl, model, apiKey]);
+
+  const save = useCallback(async () => {
+    setBusy(true); setMsg('');
+    try {
+      const r = await hub.backendSave({
+        id: (editing || id).trim(), engine, base_url: baseUrl.trim(),
+        model: model.trim(), api_key: apiKey.trim() || undefined, make_brain: makeBrain,
+      });
+      if (!r.ok) { setMsg(r.error || 'could not save'); }
+      else { setShowForm(false); resetForm(); load(); onRestart(); }
+    } catch (e) { setMsg((e as Error).message); }
+    setBusy(false);
+  }, [editing, id, engine, baseUrl, model, apiKey, makeBrain, resetForm, load, onRestart]);
+
+  const setBrain = useCallback(async (bid: string) => {
+    try { const r = await hub.backendBrain(bid); if (r.ok) { load(); onRestart(); } }
+    catch { /* surfaced on next load */ }
+  }, [load, onRestart]);
+
+  const remove = useCallback(async (bid: string) => {
+    if (!window.confirm(`Remove the "${bid}" model?`)) return;
+    try { const r = await hub.backendDelete(bid); if (r.ok) { load(); onRestart(); } }
+    catch { /* surfaced on next load */ }
+  }, [load, onRestart]);
+
+  const backends = list?.backends ?? [];
+
+  return (
+    <Panel
+      title="Ava's brain"
+      subtitle="Link any model — a local engine (Ollama, MLX, LM Studio, llama.cpp, vLLM) or any OpenAI-compatible cloud provider — and pick which one Ava thinks with."
+      right={<button className="hub-btn sm" onClick={openAdd}><Icon name="sparkles" />Add a model</button>}
+    >
+      {list == null ? <EmptyState text="Loading models…" />
+        : backends.length === 0 && !showForm
+          ? <EmptyState text="No model linked yet — click “Add a model” to connect Ava's brain." />
+          : (
+            <div className="hub-model-list">
+              {backends.map((b) => (
+                <div key={b.id} className={'hub-opt' + (b.is_brain ? ' sel' : '')}
+                     style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'default' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <b style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {b.label}
+                      {b.is_brain && <Badge tone="accent">brain</Badge>}
+                    </b>
+                    <small style={{ color: 'var(--muted)', wordBreak: 'break-all' }}>
+                      {b.engine} · {b.model || 'no model set'} · {b.base_url}
+                      {!b.local && (b.has_key ? ' · key ✓' : ' · no key')}
+                    </small>
+                  </div>
+                  {!b.is_brain && (
+                    <button className="hub-btn sm ghost" onClick={() => setBrain(b.id)}>Use as brain</button>
+                  )}
+                  <button className="hub-btn sm ghost" onClick={() => openEdit(b)}>Edit</button>
+                  <button className="hub-btn sm ghost" onClick={() => remove(b.id)} aria-label={`Remove ${b.id}`}>
+                    <Icon name="trash" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+      {showForm && (
+        <div className="hub-model-form" style={{ marginTop: 14, borderTop: '1px solid var(--line)', paddingTop: 14 }}>
+          <div className="hub-fieldrow">
+            <div className="hub-field"><label>Name</label>
+              <input className="hub-input" value={id} disabled={!!editing}
+                     onChange={(e) => setId(e.target.value)} placeholder="e.g. my-openai" /></div>
+            <div className="hub-field"><label>Engine</label>
+              <select className="hub-select" value={engine} onChange={(e) => onEngine(e.target.value)}>
+                {ENGINE_PRESETS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+              </select></div>
+          </div>
+          <div className="hub-fieldrow">
+            <div className="hub-field"><label>Base URL</label>
+              <input className="hub-input" value={baseUrl} onChange={(e) => { setBaseUrl(e.target.value); setTest(null); }} /></div>
+            <div className="hub-field"><label>Model</label>
+              <input className="hub-input" value={model} onChange={(e) => { setModel(e.target.value); setTest(null); }}
+                     placeholder={isCloud ? 'e.g. gpt-4o-mini' : 'e.g. llama3.1:70b'} /></div>
+          </div>
+          {isCloud && (
+            <div className="hub-field"><label>API key <span style={{ opacity: 0.7 }}>(stored in secrets/, never in ava.yaml)</span></label>
+              <input className="hub-input" type="password" value={apiKey}
+                     onChange={(e) => { setApiKey(e.target.value); setTest(null); }}
+                     placeholder={editing ? 'leave blank to keep the saved key' : ''} /></div>
+          )}
+          <label className="hub-check" style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '10px 0' }}>
+            <input type="checkbox" checked={makeBrain} onChange={(e) => setMakeBrain(e.target.checked)} />
+            Use this as Ava's brain
+          </label>
+
+          {test && (
+            <div className={'hub-msg ' + (test.ok ? 'ok' : 'err')}>
+              {test.ok
+                ? `✓ Connected${test.ms != null ? ` (${test.ms} ms)` : ''}${test.reply ? ` — replied “${test.reply}”` : ''}`
+                : `✗ ${test.error || 'failed'}`}
+            </div>
+          )}
+
+          <div className="hub-btn-row">
+            <button className="hub-btn ghost" onClick={runTest} disabled={testing || !baseUrl.trim() || !model.trim()}>
+              {testing ? 'Testing…' : 'Test connection'}
+            </button>
+            <button className="hub-btn" onClick={save} disabled={busy || !(editing || id).trim() || !baseUrl.trim() || !model.trim()}>
+              <Icon name="check" />{busy ? 'Saving…' : 'Save model'}
+            </button>
+            <button className="hub-btn ghost" onClick={() => { setShowForm(false); resetForm(); }} disabled={busy}>Cancel</button>
+          </div>
+          {msg && <div className="hub-msg err">{msg}</div>}
+          {be && !be.ollama && !be.vllm && !isCloud && (
+            <div className="hub-msg" style={{ color: 'var(--muted)' }}>
+              No local engine detected. Start one first (e.g. install Ollama and run <code>ollama serve</code>), or link a cloud provider.
+            </div>
+          )}
+        </div>
+      )}
+    </Panel>
   );
 }
 

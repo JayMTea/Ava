@@ -154,6 +154,14 @@ def load_backends() -> list:
         if not base:
             continue
         key = os.environ.get(b["api_key_env"]) if b.get("api_key_env") else None
+        if not key:
+            # Fall back to a per-backend key from the secrets store (secrets/<id>.key),
+            # written by the Hub's model manager — so a UI-linked cloud model
+            # authenticates without the user hand-wiring an env var.
+            try:
+                key = settings.backend_key(name)
+            except Exception:  # noqa: BLE001
+                key = None
         out.append({
             "id": name, "url": base, "model": b.get("model") or "",
             "label": b.get("label") or name, "engine": b.get("engine", "openai"),

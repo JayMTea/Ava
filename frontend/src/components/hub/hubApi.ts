@@ -67,6 +67,39 @@ export interface GenerateResult {
   error?: string;
 }
 
+// ---- Inference backends (the multi-model "brain" manager) -------------------
+export interface Backend {
+  id: string;
+  engine: string;
+  base_url: string;
+  model: string;
+  label: string;
+  local: boolean;
+  is_brain: boolean;
+  is_primary: boolean;
+  has_key: boolean;
+}
+export interface BackendList {
+  backends: Backend[];
+  brain: string | null;
+  primary: string | null;
+}
+export interface BackendTestResult {
+  ok: boolean;
+  ms?: number;
+  reply?: string;
+  status?: number;
+  error?: string;
+}
+export interface SaveBackendBody {
+  id: string;
+  engine: string;
+  base_url: string;
+  model: string;
+  api_key?: string;
+  make_brain?: boolean;
+}
+
 // ---- Model store ------------------------------------------------------------
 export interface ModelRole {
   role: string;
@@ -261,6 +294,28 @@ export const hub = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }),
+
+  // Inference backends — the multi-model brain manager
+  backendList: () => req<BackendList>('/api/hub/models/backends'),
+  backendSave: (b: SaveBackendBody) =>
+    req<{ ok: boolean; id?: string; error?: string; restart_required?: boolean }>(
+      '/api/hub/models/backends', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(b),
+      }),
+  backendTest: (b: { id?: string; base_url: string; model: string; api_key?: string }) =>
+    req<BackendTestResult>('/api/hub/models/backends/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(b),
+    }),
+  backendBrain: (id: string) =>
+    req<{ ok: boolean; brain?: string; error?: string; restart_required?: boolean }>(
+      `/api/hub/models/backends/${encodeURIComponent(id)}/brain`, { method: 'POST' }),
+  backendDelete: (id: string) =>
+    req<{ ok: boolean; error?: string; restart_required?: boolean }>(
+      `/api/hub/models/backends/${encodeURIComponent(id)}/delete`, { method: 'POST' }),
 
   // Model store
   models: () => req<ModelStore>('/api/hub/models'),
