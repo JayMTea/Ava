@@ -103,3 +103,5 @@ nav:
   - Reference:
       - Security: SECURITY.md
       - Hardware support: docs/HWINFO_VALIDATION.md
+      - Memory & recall: docs/MEMORY.md
+      - On your phone (PWA): docs/MOBILE.md

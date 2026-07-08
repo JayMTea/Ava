@@ -163,6 +163,16 @@ LEARNING_ENABLED = settings.get_bool("features.learning", True, env="AVA_LEARNIN
 LEARNING_INTERVAL_H = settings.get_int("learning.interval_hours", 24,
                                        env="AVA_LEARNING_INTERVAL_H")
 
+# --- Personal long-term memory (governed recall) ---------------------------- #
+# SQLite FTS5 store at $AVA_HOME/data/memory.db: distilled facts about the
+# owner + uploaded-document chunks, folded into chat turns as recall context
+# and audit-logged. Inspect/edit/export in the Hub Memory tab. See
+# ava_bridge/memory_store.py and docs/MEMORY.md.
+MEMORY_ENABLED = settings.get_bool("features.memory", True, env="AVA_MEMORY")
+MEMORY_RECALL_K = settings.get_int("memory.recall_k", 4, env="AVA_MEMORY_RECALL_K")
+MEMORY_RECALL_MAX_CHARS = settings.get_int("memory.recall_max_chars", 2000,
+                                           env="AVA_MEMORY_RECALL_MAX_CHARS")
+
 # ---- Multi-repo code changes -------------------------------------------------
 # Ava's code-change engine normally edits her OWN repo (ROOT), auto-applying safe
 # edits. It can ALSO edit additional "connected" projects under far stricter rules

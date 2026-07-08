@@ -24,7 +24,8 @@ from typing import List
 
 import requests
 from fastapi import FastAPI, Form, UploadFile, File, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
+from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
+                               RedirectResponse, Response, StreamingResponse)
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
@@ -57,6 +58,7 @@ from ava_bridge.auth import (
 )
 from ava_bridge import internal, architecture, learning_mgmt, log_mgmt, config_mgmt, policy_mgmt, perf_mgmt
 from ava_bridge import audit, approvals
+from ava_bridge import memory_store
 from ava_bridge import dashboard, connectors, perf_store, devices
 from ava_bridge import arch_watch
 from ava_bridge import code_agent
@@ -244,6 +246,34 @@ def index():
         except OSError:
             return SPA_PAGE
     return LEGACY_PAGE
+
+
+# PWA shell files live at the dist ROOT (not dist/assets/), so the /assets
+# mount doesn't cover them. Served explicitly; both are in auth._PUBLIC_PATHS.
+@app.get("/manifest.webmanifest", include_in_schema=False)
+def pwa_manifest():
+    p = os.path.join(FRONTEND_DIST, "manifest.webmanifest")
+    if not os.path.isfile(p):
+        return JSONResponse({"error": "not built"}, status_code=404)
+    return FileResponse(p, media_type="application/manifest+json")
+
+
+@app.get("/sw.js", include_in_schema=False)
+def pwa_sw():
+    p = os.path.join(FRONTEND_DIST, "sw.js")
+    if not os.path.isfile(p):
+        return JSONResponse({"error": "not built"}, status_code=404)
+    # no-cache: the worker itself must always revalidate, or updates stall.
+    return FileResponse(p, media_type="text/javascript",
+                        headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    p = os.path.join(FRONTEND_DIST, "favicon.ico")
+    if not os.path.isfile(p):
+        return JSONResponse({"error": "not built"}, status_code=404)
+    return FileResponse(p, media_type="image/x-icon")
 
 
 @app.get("/legacy", response_class=HTMLResponse)
@@ -1264,6 +1294,7 @@ async def talk(audio: UploadFile = File(...), history: str = Form("[]"),
     # Route through Ava — she decides whether to call the run_gpu_job tool.
     ids = _parse_ids(attachments)
     agent_text = _augment(text, ids)
+    agent_text = memory_store.augment_with_recall(agent_text, text, chat_id)
     sid = _chat_session(chat_id) if chat_id else None
     if chat_id:
         _chat_append(chat_id, "user", text, _atts_meta(ids))
@@ -1375,6 +1406,7 @@ async def talk_text(text: str = Form(...), history: str = Form("[]"),
         return JSONResponse({"error": "empty text"}, status_code=400)
 
     agent_text = _augment(text, ids)
+    agent_text = memory_store.augment_with_recall(agent_text, text, chat_id)
     sid = _chat_session(chat_id) if chat_id else None
     if chat_id:
         _chat_append(chat_id, "user", text, _atts_meta(ids))
@@ -1412,6 +1444,7 @@ async def chat_stream(text: str = Form(...), history: str = Form("[]"),
     if not text and not ids:
         return JSONResponse({"error": "empty text"}, status_code=400)
     agent_text = _augment(text, ids)
+    agent_text = memory_store.augment_with_recall(agent_text, text, chat_id)
     sid = _chat_session(chat_id) if chat_id else OC_SESSION
     if chat_id:
         _chat_append(chat_id, "user", text, _atts_meta(ids))
@@ -1495,6 +1528,11 @@ async def upload(files: List[UploadFile] = File(...)):
                "chars": len(text), "ocr": bool(is_image and text), "text": text}
         with _ATTACH_LOCK:
             _ATTACH[aid] = rec
+        # Long-term memory: index document text so it stays searchable in
+        # future conversations (not just this message). Images skipped unless
+        # OCR found real text.
+        if not is_image or rec["ocr"]:
+            memory_store.index_document(aid, safe, text)
         out.append({k: rec[k] for k in ("id", "filename", "kind", "url", "chars", "ocr")})
     return {"attachments": out}
 

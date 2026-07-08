@@ -554,3 +554,20 @@ header .sub { display:none; }
 }
 .st-modal-body { display:flex; flex-direction:column; gap:8px; }
 .st-modal-actions { display:flex; align-items:center; justify-content:flex-end; gap:8px; }
+
+/* ====================== MOBILE CHAT (PWA) POLISH ======================
+   Phones get the full-width column with tighter gutters. The structural
+   pieces (overlay drawer + scrim, safe-area composer padding, 16px input
+   to defeat iOS focus-zoom) already exist above — this only retunes
+   spacing at the shared 760px breakpoint. */
+@media (max-width:760px) {
+  .log-inner { gap:18px; padding:18px 12px 28px; }
+  .bubble.me { max-width:88%; }
+  #composer { padding:0 10px calc(12px + env(safe-area-inset-bottom)); }
+  .crow { border-radius:20px; padding:10px 10px 8px 12px; }
+  .modelbar { padding:0 12px; }
+  .jump-latest { right:12px; bottom:12px; }
+  header { padding:10px 12px 8px; padding-top:calc(10px + env(safe-area-inset-top)); }
+  .chat-empty h2 { font-size:26px; }
+  .lv-inner, .sv-inner { padding:18px 12px 48px; }
+}

@@ -190,6 +190,23 @@ export interface AuditEvent {
   [k: string]: unknown;
 }
 
+// ---- Memory (governed long-term store) ---------------------------------------
+export interface MemoryItem {
+  id: number;
+  kind: 'fact' | 'doc';
+  source: string;      // 'distilled' | 'manual' | 'upload:<filename>'
+  text: string;
+  created: number;
+  updated: number;
+  pinned: boolean;
+  meta: Record<string, unknown>;
+}
+export interface MemoryCounts {
+  facts: number;
+  doc_chunks: number;
+  total: number;
+}
+
 // ---- System -----------------------------------------------------------------
 export interface SystemInfo {
   brand: string;
@@ -295,6 +312,25 @@ export const hub = {
   approvals: () => req<{ pending: PendingApproval[] }>('/api/hub/approvals'),
   decideApproval: (id: string, approve: boolean) =>
     req<{ ok: boolean }>(`/api/hub/approvals/${encodeURIComponent(id)}?decision=${approve ? 'approve' : 'deny'}`, { method: 'POST' }),
+
+  // Memory
+  memory: (q = '', kind = '', limit = 200) =>
+    req<{ items: MemoryItem[]; counts: MemoryCounts; enabled: boolean }>(
+      `/api/hub/memory?limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ''}${kind ? `&kind=${encodeURIComponent(kind)}` : ''}`),
+  addMemory: (text: string) =>
+    req<{ ok: boolean; id?: number; error?: string }>('/api/hub/memory', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    }),
+  updateMemory: (id: number, patch: { text?: string; pinned?: boolean }) =>
+    req<{ ok: boolean; error?: string }>(`/api/hub/memory/${id}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    }),
+  deleteMemory: (id: number) =>
+    req<{ ok: boolean; error?: string }>(`/api/hub/memory/${id}/delete`, { method: 'POST' }),
 
   // System
   system: () => req<SystemInfo>('/api/hub/system'),

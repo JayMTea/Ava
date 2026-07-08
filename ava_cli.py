@@ -314,6 +314,21 @@ def cmd_verify(_args) -> int:
          "renders real data" if digest_ok else "placeholder '?' bug")
     fails += (not has_sched) + (not digest_ok)
 
+    # 3b. Long-term memory (governed recall)
+    print("\nMemory (long-term recall)")
+    if not config.MEMORY_ENABLED:
+        _row(WARN, "features.memory", "off — no recall, no distillation")
+    else:
+        from ava_bridge import memory_store
+        store_ok, detail = memory_store.self_check()
+        _row(OK if store_ok else BAD, "store (SQLite FTS5)",
+             detail if store_ok else f"BROKEN: {detail}")
+        distill_ok = callable(getattr(learning, "memory_distiller", None) and
+                              getattr(learning.memory_distiller, "run_cycle", None))
+        _row(OK if distill_ok else BAD, "distiller wiring",
+             "memory_distiller in run_all_cycles" if distill_ok else "MISSING")
+        fails += (not store_ok) + (not distill_ok)
+
     # 4. Voice / biometric (optional capability)
     print("\nVoice / biometric")
     voice_on = settings.get_bool("features.voice", False, env="AVA_VOICE")
