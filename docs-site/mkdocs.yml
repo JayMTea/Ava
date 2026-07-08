@@ -49,6 +49,7 @@ extra_css:
 
 extra_javascript:
   - javascripts/diagram-zoom.js  # zoom/pan lightbox for diagram SVGs
+  - javascripts/carousel.js      # landing-page screenshot carousel
 
 extra:
   generator: false  # hide "Made with Material for MkDocs" in the footer

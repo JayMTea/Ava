@@ -87,32 +87,57 @@
 
   <section class="ava-gallery-sec">
     <div class="md-grid">
-      <ul class="ava-gallery">
-        <li>
-          <a href="{{ 'docs/assets/shot-vitals.png' | url }}">
-            <img src="{{ 'docs/assets/shot-vitals.png' | url }}" loading="lazy"
-                 alt="Vitals: tokens/sec, time-to-first-token, cost and energy, model routing, and GPU telemetry"></a>
-          <p><strong>Vitals.</strong> Throughput, latency, cost, energy, and live hardware in one Command Center.</p>
-        </li>
-        <li>
-          <a href="{{ 'docs/assets/shot-operations.png' | url }}">
-            <img src="{{ 'docs/assets/shot-operations.png' | url }}" loading="lazy"
-                 alt="Operations: live agent turns and image jobs, a job queue, background learning, and service health"></a>
-          <p><strong>Operations.</strong> Every live job, agent turn, connector, alert, and approval as it happens.</p>
-        </li>
-        <li>
-          <a href="{{ 'docs/assets/shot-chat.png' | url }}">
-            <img src="{{ 'docs/assets/shot-chat.png' | url }}" loading="lazy"
-                 alt="Chat: Ava drafts a launch announcement and generates a poster, using image and calendar tools"></a>
-          <p><strong>Chat.</strong> Ask in plain language. Ava drives your apps and creative tools, and shows its work.</p>
-        </li>
-        <li>
-          <a href="{{ 'docs/assets/shot-setup-hub.png' | url }}">
-            <img src="{{ 'docs/assets/shot-setup-hub.png' | url }}" loading="lazy"
-                 alt="Setup hub: wire in connectors from the browser, each behind an auto-generated egress policy"></a>
-          <p><strong>Setup.</strong> Pick a model, provision the agent, and wire in apps, all from the browser.</p>
-        </li>
-      </ul>
+      <div class="ava-carousel" aria-roledescription="carousel" aria-label="Ava screenshots">
+        <div class="ava-carousel__viewport">
+          <ul class="ava-carousel__track">
+            <li class="ava-slide" role="group" aria-roledescription="slide"
+                data-title="Vitals." data-caption="Throughput, latency, cost, energy, and live hardware in one Command Center.">
+              <a href="{{ 'docs/assets/shot-vitals.png' | url }}" target="_blank" rel="noopener">
+                <img src="{{ 'docs/assets/shot-vitals.png' | url }}" loading="lazy"
+                     alt="Vitals: tokens/sec, time-to-first-token, cost and energy, model routing, and GPU telemetry"></a>
+            </li>
+            <li class="ava-slide" role="group" aria-roledescription="slide"
+                data-title="Operations." data-caption="Every live job, agent turn, connector, alert, and approval as it happens.">
+              <a href="{{ 'docs/assets/shot-operations.png' | url }}" target="_blank" rel="noopener">
+                <img src="{{ 'docs/assets/shot-operations.png' | url }}" loading="lazy"
+                     alt="Operations: live agent turns and image jobs, a job queue, background learning, and service health"></a>
+            </li>
+            <li class="ava-slide" role="group" aria-roledescription="slide"
+                data-title="Chat." data-caption="Ask in plain language. Ava drives your apps and creative tools, and shows its work.">
+              <a href="{{ 'docs/assets/shot-chat.png' | url }}" target="_blank" rel="noopener">
+                <img src="{{ 'docs/assets/shot-chat.png' | url }}" loading="lazy"
+                     alt="Chat: Ava drafts a launch announcement and generates a poster, using image and calendar tools"></a>
+            </li>
+            <li class="ava-slide" role="group" aria-roledescription="slide"
+                data-title="Setup." data-caption="Pick a model, provision the agent, and wire in apps, all from the browser.">
+              <a href="{{ 'docs/assets/shot-setup-hub.png' | url }}" target="_blank" rel="noopener">
+                <img src="{{ 'docs/assets/shot-setup-hub.png' | url }}" loading="lazy"
+                     alt="Setup hub: wire in connectors from the browser, each behind an auto-generated egress policy"></a>
+            </li>
+          </ul>
+        </div>
+        <button class="ava-carousel__arrow ava-carousel__arrow--prev" type="button" aria-label="Previous screenshot">&#8249;</button>
+        <button class="ava-carousel__arrow ava-carousel__arrow--next" type="button" aria-label="Next screenshot">&#8250;</button>
+        <p class="ava-carousel__caption"></p>
+        <div class="ava-carousel__dots" role="tablist" aria-label="Choose a screenshot"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="ava-demo">
+    <div class="md-grid">
+      <h2>Try it live</h2>
+      <p>The real Ava app, running on sample data, right in your browser. Click
+      through the dashboard, operations, chat, and browser setup. Nothing is
+      installed, and no data leaves this page.</p>
+      <div class="ava-demo__frame">
+        <div class="ava-demo__bar"><i></i><i></i><i></i><span>Ava &mdash; live demo (sample data)</span></div>
+        <iframe class="ava-demo__iframe" src="{{ 'demo/' | url }}"
+                title="Ava live interactive demo" loading="lazy"></iframe>
+      </div>
+      <p class="ava-demo__note">
+        <a href="{{ 'demo/' | url }}" target="_blank" rel="noopener">Open the demo full screen</a>
+      </p>
     </div>
   </section>
 
