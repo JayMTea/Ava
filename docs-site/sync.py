@@ -38,6 +38,9 @@ CURATED: dict[str, str] = {
     "deploy/README.md": "deploy/README.md",
     "docs/AGENT_RUNTIME.md": "docs/AGENT_RUNTIME.md",
     "docs/CONNECT_YOUR_APPS.md": "docs/CONNECT_YOUR_APPS.md",
+    "docs/CONNECT_YOUR_DEVICES.md": "docs/CONNECT_YOUR_DEVICES.md",
+    "docs/MEMORY.md": "docs/MEMORY.md",
+    "docs/MOBILE.md": "docs/MOBILE.md",
     "docs/CONNECTOR_SDK.md": "docs/CONNECTOR_SDK.md",
     "docs/DEVICE_CONNECTORS.md": "docs/DEVICE_CONNECTORS.md",
     "docs/RELEASING.md": "docs/RELEASING.md",
@@ -51,8 +54,6 @@ CURATED: dict[str, str] = {
     "agent/docs/adr/0002-two-app-split.md": "agent/docs/adr/0002-two-app-split.md",
     "agent/docs/adr/0003-per-tool-egress-policies.md": "agent/docs/adr/0003-per-tool-egress-policies.md",
     "agent/docs/adr/0004-tala-layout-engine.md": "agent/docs/adr/0004-tala-layout-engine.md",
-    "examples/hello-app/README.md": "examples/hello-app.md",
-    "examples/device-app/README.md": "examples/device-app.md",
 }
 
 # The landing page lives in docs-site/ (site-specific, not repo docs). Its

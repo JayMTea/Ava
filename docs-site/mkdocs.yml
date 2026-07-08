@@ -85,12 +85,11 @@ nav:
   - Get started:
       - Quickstart (Docker): deploy/README.md
       - Connect your apps: docs/CONNECT_YOUR_APPS.md
+      - Connect your devices: docs/CONNECT_YOUR_DEVICES.md
       - Agent runtime: docs/AGENT_RUNTIME.md
   - Connector SDK:
-      - Manifest reference: docs/CONNECTOR_SDK.md
+      - App connectors: docs/CONNECTOR_SDK.md
       - Device connectors: docs/DEVICE_CONNECTORS.md
-      - "Example: app connector": examples/hello-app.md
-      - "Example: device connector": examples/device-app.md
   - Architecture:
       - Overview: agent/docs/README.md
       - Decision records:

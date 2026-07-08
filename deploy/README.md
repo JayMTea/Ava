@@ -25,7 +25,7 @@ admin password, so there is nothing to hunt for in logs.
 
 > **On a Mac (Apple Silicon)?** Skip Docker. Docker Desktop on macOS can't pass
 > the Apple GPU through, so inference in a container runs CPU-only. Use the
-> bare-metal path below — see [Apple Silicon (Mac mini / Studio)](#apple-silicon-mac-mini--studio).
+> bare-metal path below — see [Apple Silicon (Mac mini / Studio)](#apple-silicon-mac-mini-studio).
 
 Good to know:
 

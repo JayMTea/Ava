@@ -16,31 +16,8 @@ directions:
 A **device connector** is just a normal [connector](CONNECTOR_SDK.md) whose
 `connector.yaml` adds an `ingest:` block (push) and usually an `actions.discover`
 block (pull). Everything else in the Connector SDK (health probe, left-rail UI,
-egress policy) still applies. The pull side can also be wired up from the
-browser ([Connect your apps](CONNECT_YOUR_APPS.md)); the push token comes from
-the CLI (`ava device token`).
-
----
-
-## Quick start
-
-```bash
-# 1. Scaffold a device connector under $AVA_HOME/connectors/<name>/
-ava device new greenhouse
-
-# 2. Edit connectors/greenhouse/connector.yaml — point it at your app's port.
-
-# 3. Get the inbound push token your app will present:
-ava device token greenhouse
-
-# 4. Restart Ava (or `ava up`), then:
-ava device list                 # greenhouse — pull,push
-ava device events greenhouse    # events as they arrive
-```
-
-A complete runnable example is in [`examples/device-app/`](../examples/device-app/)
-(both directions, about 150 lines, stdlib only). Copy it, then replace the faked
-device I/O with yours.
+egress policy) still applies. For the guided, task-first version of this page,
+see [Connect your devices](CONNECT_YOUR_DEVICES.md).
 
 ---
 
@@ -151,6 +128,37 @@ rotates the token. Keep it secret; treat it like a password.
 
 ---
 
+## Worked example: the demo device app
+
+[`examples/device-app/`](../examples/device-app/) is a complete, runnable device
+connector: both directions in about 150 lines of stdlib Python. `server.py`
+stands in for your app (tools: `read_temperature`, `set_relay`, plus a demo
+event pusher); replace the faked device I/O with yours.
+
+```bash
+# 1. Register the connector (built-in id: device-demo)
+cp -r examples/device-app "$AVA_HOME/connectors/device-demo"
+
+# 2. Get this connector's inbound push token
+ava device token device-demo        # copy the token it prints
+
+# 3. Start your app, pointed at Ava
+export AVA_URL=http://localhost:8096
+export AVA_CID=device-demo
+export AVA_INGEST_TOKEN=<the token from step 2>
+python examples/device-app/server.py
+
+# 4. Restart Ava (or `ava up`) so it loads the connector, then:
+ava device list                     # shows device-demo (pull,push)
+ava device events device-demo       # watch the pushed motion + readings arrive
+```
+
+Ask Ava *"read the demo temperature"* (pull) or *"did anything happen with my
+devices?"* (push, read via the `device_events` tool). The `notify`/warn motion
+event also raises a dashboard alert.
+
+---
+
 ## What Ava does NOT do
 
 - No serial/BLE/MQTT/Firmata/Matter/Zigbee transports, and no shipped firmware.
@@ -165,7 +173,6 @@ that bridges your hub's API to Ava as a device connector.
 
 ## Reference
 
-- Example: [`examples/device-app/`](../examples/device-app/)
 - Connector SDK (the base): [CONNECTOR_SDK.md](CONNECTOR_SDK.md)
 - Code: `ava_bridge/devices.py` (store), the ingest route + `device.event` in
   `phone_bridge.py`, `ava_bridge/internal.ingest_token` (token),

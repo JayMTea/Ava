@@ -226,12 +226,34 @@ The `chat_pickup` / `jobs` / `model_hints` field shapes are documented inline in
 
 ---
 
-## 7. Worked example
+## 7. Worked example: connect the sample app
 
 [`examples/hello-app/`](../examples/hello-app/) is a complete, runnable
 third-party connector (iframe UI, discovered tools, and a health probe) in about
-150 lines. Copy it into `$AVA_HOME/connectors/` and watch it appear. It is the
-acceptance test for "fork Ava, add your app, zero source edits."
+150 lines. It is the acceptance test for "fork Ava, add your app, zero source
+edits":
+
+```bash
+# 1. Start the app's own web server (its UI + /health + /tools + /call)
+python examples/hello-app/server.py        # serves http://127.0.0.1:8477
+
+# 2. Register it with Ava by dropping the folder into your data root
+cp -r examples/hello-app "$AVA_HOME/connectors/hello"   # $AVA_HOME defaults to the repo root
+
+# 3. Restart Ava (or `ava up`) and open the web app
+#    -> "Hello App" appears in the left rail, embedded same-origin
+#    -> ask Ava: "ping the hello app"  (its tools were discovered live)
+```
+
+| File | Role |
+|---|---|
+| `connector.yaml` | The manifest. `ui.embed: iframe` + `url` gives the rail tile and the embedded UI. `service.probe` gives the dashboard health row. `actions.discover` bridges the app's tool set. `egress` renders into the agent's network policy. |
+| `server.py` | The app: a stdlib-only HTTP server exposing `/` (UI), `/health`, `/tools`, `/call`. Replace it with your real app. |
+
+The contract the app implements: `GET /health` returns `{"ok": true}`; `GET /`
+serves the UI (read `?theme=light|dark` to match Ava); tools are either
+discovered (`GET /tools` + `POST /call`, as here) or declared under
+`actions.static` in the manifest.
 
 ## 8. First-party vs third-party tiers
 

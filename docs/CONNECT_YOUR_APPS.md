@@ -90,10 +90,10 @@ ava connector tools    myapp --write    # generate the agent tools
 ava connector policies myapp --write    # generate its egress policy
 ```
 
-- Full manifest reference: [Connector SDK](CONNECTOR_SDK.md)
-- Hardware and sensors (Arduino, ESP32, smart-home hubs): [Device connectors](DEVICE_CONNECTORS.md)
-- Runnable starting points: [example app connector](../examples/hello-app/) and
-  [example device connector](../examples/device-app/)
+- Full manifest reference, with a runnable worked example:
+  [App connectors](CONNECTOR_SDK.md)
+- Hardware and sensors (Arduino, ESP32, smart-home hubs):
+  [Connect your devices](CONNECT_YOUR_DEVICES.md)
 
 ---
 
