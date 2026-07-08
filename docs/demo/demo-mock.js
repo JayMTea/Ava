@@ -32,6 +32,7 @@ window.__AVA_FIXTURES__ = {"alerts":{"ok":true,"active":[],"metrics":{"gpu_temp"
   }
 
   var wob = function (i, k) { k = k || 1; return 0.5 + 0.5 * Math.sin(i * 0.7 * k + k); };
+  var demoConnected = false; // connect-an-app demo state (resets on reload)
 
   function series(metric) {
     var N = 24, step = 3600000, end = Date.now(), pts = [];
@@ -74,7 +75,26 @@ window.__AVA_FIXTURES__ = {"alerts":{"ok":true,"active":[],"metrics":{"gpu_temp"
     [/^\/api\/setup\/connectors$/, function () { return fx('setup-connectors'); }],
     [/^\/api\/hub\/system$/, function () { return fx('hub-system'); }],
     [/^\/api\/hub\/agent\/status$/, function () { return fx('hub-agent-status'); }],
-    [/^\/api\/hub\/connectors$/, function () { return fx('hub-connectors'); }],
+    // Connect-an-app flow works in the demo: Detect finds tools, Connect
+    // succeeds, and the new row appears in the list (state resets on reload).
+    [/^\/api\/hub\/connectors\/probe$/, function () {
+      return { ok: true, kind: 'discover', tools: [
+        { name: 'create_note', description: 'Create a new note' },
+        { name: 'list_notes', description: 'List recent notes' },
+        { name: 'search_notes', description: 'Full-text search across notes' },
+      ] };
+    }],
+    [/^\/api\/hub\/connectors\/new$/, function () {
+      demoConnected = true;
+      return { ok: true, path: '$AVA_HOME/connectors/your-app/connector.yaml', actions: 3 };
+    }],
+    [/^\/api\/hub\/connectors$/, function () {
+      var base = fx('hub-connectors');
+      if (demoConnected && base && base.connectors) {
+        base.connectors = [{ id: 'your-app', label: 'Your App', kind: 'app', status: 'up', actions: 3, mcp: false, has_policy: true, has_tools: true, renders_policy: true, enabled: true }].concat(base.connectors);
+      }
+      return base;
+    }],
     [/^\/api\/hub\/models\/pull\/status$/, function () { return { status: 'idle', role: null, rc: null, log: [] }; }],
     [/^\/api\/hub\/models\/bench\/status$/, function () { return { status: 'idle', result: null }; }],
     [/^\/api\/hub\/models$/, function () { return fx('hub-models'); }],

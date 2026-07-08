@@ -85,6 +85,7 @@ nav:
   - Get started:
       - Quickstart (Docker): deploy/README.md
       - Agent runtime: docs/AGENT_RUNTIME.md
+      - Connect your apps: docs/CONNECT_YOUR_APPS.md
   - Connectors (SDK):
       - Overview: docs/CONNECTOR_SDK.md
       - Device connectors: docs/DEVICE_CONNECTORS.md
