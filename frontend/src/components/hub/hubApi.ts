@@ -130,8 +130,9 @@ export interface NewConnectorBody {
   kind?: string;
   probe?: string;
   base_url?: string;
-  actions?: { id: string; method: string; path: string; description?: string }[];
-  mcp?: { url?: string; command?: string; token_env?: string };
+  token_env?: string;
+  actions?: { id: string; method: string; path: string; description?: string; confirm?: boolean }[];
+  mcp?: { url?: string; command?: string; token_env?: string; sandbox?: string };
   discover?: { base?: string; list?: string; call?: string; token_env?: string };
 }
 export interface ProbeResult {
@@ -187,6 +188,7 @@ export interface SystemInfo {
   voiceprint: boolean;
   web_search: boolean;
   image: boolean;
+  docker: boolean;
 }
 
 export const hub = {

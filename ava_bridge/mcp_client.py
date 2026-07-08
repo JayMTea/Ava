@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import threading
 import time
@@ -195,13 +196,36 @@ class _HttpSession(_Session):
 # --------------------------------------------------------------------------- #
 # stdio transport (newline-delimited JSON-RPC over a subprocess)
 # --------------------------------------------------------------------------- #
+def _docker_wrap(spec: dict) -> list[str]:
+    """Wrap a stdio MCP command to run inside a throwaway container, so an
+    untrusted server can't touch the host filesystem. Secrets are passed via
+    -e (from spec.env); network defaults to the bridge (many servers need it,
+    e.g. a GitHub server), set network: none in the manifest to fully cut it."""
+    image = spec.get("image") or "node:20-slim"
+    network = spec.get("network") or "bridge"
+    argv = ["docker", "run", "--rm", "-i", "--network", network,
+            "--cpus", "1", "--memory", "512m", "--pids-limit", "256",
+            "--read-only", "--tmpfs", "/tmp", "--tmpfs", "/root",
+            "--security-opt", "no-new-privileges"]
+    for k, v in (spec.get("env") or {}).items():
+        argv += ["-e", f"{k}={v}"]
+    return argv + [image] + list(spec["command"])
+
+
 class _StdioSession(_Session):
     def __init__(self, spec: dict):
         super().__init__(spec)
-        env = {**os.environ, **(spec.get("env") or {})}
+        if (spec.get("sandbox") or "none").lower() == "docker":
+            if not shutil.which("docker"):
+                raise McpError("sandbox: docker requested but Docker isn't installed")
+            cmd = _docker_wrap(spec)
+            popen_env = os.environ            # secrets passed via -e inside the wrap
+        else:
+            cmd = spec["command"]
+            popen_env = {**os.environ, **(spec.get("env") or {})}
         self._proc = subprocess.Popen(
-            spec["command"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL, env=env, text=True, bufsize=1)
+            cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL, env=popen_env, text=True, bufsize=1)
 
     def alive(self) -> bool:
         return self._proc.poll() is None

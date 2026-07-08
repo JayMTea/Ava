@@ -61,6 +61,7 @@ def system():
         "voiceprint": voiceprint,
         "web_search": settings.get_bool("features.web_search", False),
         "image": settings.get_bool("features.image", True),
+        "docker": bool(__import__("shutil").which("docker")),
     }
 
 
@@ -503,6 +504,10 @@ async def connector_new(body: dict):
         tenv = str(mcp_in.get("token_env") or "").strip()
         if tenv:
             mcp["token_env"] = tenv
+        if command and mcp_in.get("sandbox") == "docker":
+            mcp["sandbox"] = "docker"          # run the stdio server contained
+            if mcp_in.get("image"):
+                mcp["image"] = str(mcp_in["image"])
         manifest["mcp"] = mcp
 
     # Auto-discovered facade (GET /tools + POST /call) — from the probe's
@@ -530,9 +535,16 @@ async def connector_new(body: dict):
                "description": str(a.get("description") or aid.replace("_", " ")).strip(),
                "method": "POST" if str(a.get("method", "POST")).upper() == "POST" else "GET",
                "path": path}
+        if a.get("confirm"):
+            act["confirm"] = True              # per-action human-in-the-loop gate
         actions.append(act)
     if actions:
         manifest["actions"] = actions
+        # The app's own bearer token (named env var) — so Ava can authenticate
+        # to it. The secret value stays in $AVA_HOME's env, never in the manifest.
+        rest_token = str(body.get("token_env") or "").strip()
+        if rest_token:
+            manifest["auth"] = {"token_env": rest_token}
         egress: dict = {}
         if base_url:  # actions call base_url server-side; allow it for the agent
             from urllib.parse import urlparse

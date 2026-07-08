@@ -527,7 +527,12 @@ def _mcp_spec(m: dict) -> dict | None:
     transport = mcp.get("transport") or ("stdio" if command and not url else "http")
     env = {k: _expand(str(v)) for k, v in (mcp.get("env") or {}).items()} or None
     return {"transport": transport, "url": url, "command": command,
-            "env": env, "token_env": mcp.get("token_env")}
+            "env": env, "token_env": mcp.get("token_env"),
+            # Container isolation for a stdio server (filesystem-contained):
+            # sandbox: docker · image: <base with the runtime> · network: none|bridge
+            "sandbox": str(mcp.get("sandbox") or "none").lower(),
+            "image": mcp.get("image") or "node:20-slim",
+            "network": str(mcp.get("network") or "bridge")}
 
 
 # --- Dynamic tool discovery -------------------------------------------------

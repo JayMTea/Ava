@@ -515,9 +515,15 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
   const [probe, setProbe] = useState<ProbeResult | null>(null);
   const [probeErr, setProbeErr] = useState('');
   const [actions, setActions] = useState<ActionDraft[]>([]);
+  const [isolate, setIsolate] = useState(true);
+  const [dockerAvail, setDockerAvail] = useState(true);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [done, setDone] = useState('');
+
+  useEffect(() => {
+    hub.system().then((s) => { setDockerAvail(s.docker); setIsolate(s.docker); }).catch(() => {});
+  }, []);
 
   const id = slugId(name);
   const validId = VALID_ID.test(id);
@@ -554,12 +560,14 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
     };
     const tenv = tokenEnv.trim() || undefined;
     if (probe?.kind === 'mcp') {
-      body.mcp = isUrl ? { url: reach.trim(), token_env: tenv }
-        : { command: reach.trim(), token_env: tenv };
+      body.mcp = isUrl
+        ? { url: reach.trim(), token_env: tenv }
+        : { command: reach.trim(), token_env: tenv, sandbox: (isolate && dockerAvail) ? 'docker' : undefined };
     } else if (probe?.kind === 'discover') {
       body.discover = { base: reach.trim(), token_env: tenv };
     } else {
       body.base_url = reach.trim() || undefined;
+      body.token_env = tenv;
       body.actions = actions.filter((a) => a.id.trim() && a.path.trim());
     }
     try {
@@ -568,7 +576,7 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
       else { setDone(`Connected “${name.trim()}”. Preview / Generate & deploy below.`); reset(); onCreated(); }
     } catch (e) { setMsg((e as Error).message); }
     setBusy(false);
-  }, [id, name, health, reach, isUrl, tokenEnv, probe, actions, onCreated]);
+  }, [id, name, health, reach, isUrl, tokenEnv, probe, actions, isolate, dockerAvail, onCreated]);
 
   const found = probe && (probe.kind === 'mcp' || probe.kind === 'discover');
   const manual = probe && (probe.kind === 'rest' || probe.kind === 'unknown');
@@ -636,6 +644,20 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
               <span key={t.name} className="hub-badge" title={t.description}>{t.name}</span>
             ))}
           </div>
+          {probe!.kind === 'mcp' && !isUrl && (
+            <label className="hub-check" style={{ marginTop: 12, borderBottom: 0, paddingBottom: 0 }}>
+              <input type="checkbox" checked={isolate && dockerAvail} disabled={!dockerAvail}
+                onChange={(e) => setIsolate(e.target.checked)} />
+              <span className="hub-check-main">
+                <span className="hub-check-title">Run it in an isolated container <span style={{ color: 'var(--ok)' }}>(recommended)</span></span>
+                <span className="hub-check-sub">
+                  {dockerAvail
+                    ? 'This server runs on your machine — a container keeps it off your files (read-only, resource-capped).'
+                    : 'Docker isn’t installed, so the server would run directly on the host. Install Docker to contain it.'}
+                </span>
+              </span>
+            </label>
+          )}
         </div>
       )}
 
