@@ -6,6 +6,52 @@ on-prem project, so versions are dated milestones rather than published releases
 
 ## [Unreleased]
 
+### Added — Setup Hub, MCP, governance & observability
+- **Setup Hub** (`ava_bridge/hub_api.py`, `frontend/.../hub/`): a GUI onboarding &
+  control portal — Overview, Models (hardware detect, pull-with-progress, bench),
+  Agent (status/provision), Connectors (detect-then-connect an app, preview the
+  generated tools + egress policy, deploy), Voice (browser-mic enrollment + gate
+  test), Budgets, History (flight recorder), System. Everything writes `ava.yaml`.
+- **Connect an app by detection** — one "where is your app?" field; Ava probes it
+  (MCP over HTTP/stdio, or a discovery endpoint) and either finds the tools or
+  asks for the REST actions. `POST /api/hub/connectors/probe`.
+- **Wrap any MCP server in an egress policy** (`ava_bridge/mcp_client.py`): real
+  MCP (JSON-RPC over Streamable HTTP or stdio) as a connector via an `mcp:`
+  manifest block; the agent reaches only the two policed `__tools`/`__call`
+  routes, allow-listed by the auto-generated policy.
+- **Container-isolated MCP servers** — `mcp.sandbox: docker` runs a stdio server
+  in a throwaway container (`--read-only`, tmpfs, cpu/mem/pid caps,
+  no-new-privileges, no host mounts; `network: none` optional).
+- **Human-in-the-loop approval gate** (`ava_bridge/approvals.py`) — mark an action
+  `confirm: true` (or connector-level) and the agent's call blocks until you
+  approve/deny in the Hub; `GET/POST /api/hub/approvals`.
+- **Governed self-editing modes** — `code.approval: all | policy | none` (default
+  `all`); secrets/`models/**`/`.git` always hard-denied.
+- **Real learning cycles** — local-first self-analysis (router → Anthropic
+  fallback) parks improvement proposals for approval, on a schedule + a "Run now"
+  button; replaced the previously-dormant stubs.
+- **Flight recorder** (`ava_bridge/audit.py`) — durable append-only audit ledger
+  (turns, self-edits, tool calls) at `$AVA_HOME/logs/audit.jsonl`, surfaced on the
+  History tab; survives restarts.
+- **Cost & energy budgets** — `cost.budgets` (daily/monthly $ + daily kWh) with
+  80%/100% alerts and an idle-burn watch; editable in the Hub; honest "estimated"
+  labeling when GPU power isn't measured.
+- **Durable chain-of-thought** — reasoning steps persist with the chat message and
+  replay on reload.
+- **REST connector auth** — `auth: {token_env}` injects the app's bearer token
+  server-side.
+- **`ava models bench`** — same prompt across backends, TTFT/tokens-per-sec compare
+  (CLI + Hub Compare button). **`ava verify`** — end-to-end claim check.
+- **Tests**: connector-generator goldens (fixture-based), MCP client (http+stdio),
+  budgets/audit, approvals, bench/CoT.
+
+### Changed
+- Docs reconciled with the code: "self-improvement" → governed **self-editing**;
+  "image **and** video" → GPU workloads (video via connector apps);
+  connector egress + tools documented as shipped (not "on the roadmap").
+- Example/personal connectors removed from the tree; a fresh install lists only
+  the infra connectors, so forkers connect their own app from a clean slate.
+
 ### Added — Publish-readiness (fork-portability pass)
 - **Inference provider layer** (`ava_bridge/router_app.py`): the router is now an
   importable app factory with per-backend `engine` (vLLM/Ollama/llama.cpp/cloud)
@@ -94,9 +140,7 @@ minutes." Four coherent work streams:
 
 ### Fixed — Omni agent switchover
 - **Ava's agent now runs on open-model 30B** (Super-120B fully retired). The sandbox
-  agent had its own inference config (`~/.openclaw/openclaw.json`) still on Super;
-  repointed it (+ `models.json`, host `~/.nemoclaw/*`) to Omni. See
-  the Omni switchover runbook (deployment-local, `docs/dev/`).
+  agent's own inference config was repointed from Super to Omni.
 - **`vllm-open` served at 65536 context** (was 32768) — the agent's ~29k-token
   system context now fits; `deploy/omni-serve.sh` default bumped.
 

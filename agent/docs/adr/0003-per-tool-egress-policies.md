@@ -21,7 +21,7 @@ by default**. Host-callbacks additionally require a scoped
 `X-Ava-Internal-Token` bearer and are limited to enumerated `/internal/...`
 routes. The manifest declares the
 tool↔policy↔egress mapping and drift-checks it 1:1 against the policy files; the
-generated [policy-trace diagram](../diagrams/policy.svg) visualizes it.
+generated policy-trace diagram (rendered locally by `arch.py sync`) visualizes it.
 
 ## Consequences
 

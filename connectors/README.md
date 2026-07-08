@@ -5,10 +5,12 @@
 > lives in [docs/CONNECTOR_SDK.md](../docs/CONNECTOR_SDK.md).
 
 A **connector** teaches Ava about one thing she monitors or drives — a service to
-health-check, a performance log to chart, and (on the roadmap) an egress policy
-and agent actions. Ava's **dashboard service matrix** and **performance
-aggregator** are *derived* from these manifests, so adding your app is dropping a
-folder here — no core-code changes.
+health-check, a performance log to chart, an egress policy, and agent actions
+(or a whole MCP server). Ava's **dashboard service matrix**, **performance
+aggregator**, **agent tools**, and **egress policy** are all *derived* from these
+manifests, so adding your app is dropping a folder here — no core-code changes.
+The easiest path is the **Setup → Connect an app** GUI, which writes the manifest
+for you; this file documents the format underneath it.
 
 ## Where they load from
 - **built-in:** `connectors/<id>/connector.yaml` (this folder — the first-party ones)
@@ -28,11 +30,24 @@ perf:                     # optional — if the app writes an Ava performance.js
   app: myapp
   path: "${AVA_HOME}/connectors/myapp/performance.jsonl"
 egress:                   # optional — what Ava's agent tools may reach
-  routes: ["POST /internal/myapp/do"]   # bridge routes (host.openshell.internal:8096)
-  hosts:  ["127.0.0.1:9000"]            # or direct host:port endpoints
-actions:                  # optional — agent tools this connector exposes
-  - { id: myapp_do, description: "what it does" }
+  hosts:  ["127.0.0.1:9000"]            # host:port endpoints (auto-derived from actions too)
+actions:                  # optional — each becomes an agent tool (+ egress rule)
+  - id: myapp_do
+    method: POST                        # GET args -> query params; POST -> JSON body
+    path: "/api/do"                     # forwarded to base_url + path
+    description: "what it does"
+    # confirm: true                     # require your approval before Ava runs it
+base_url: "http://127.0.0.1:9000"       # where `actions` are sent (also probe origin)
+# --- or wrap an MCP server instead of declaring actions: ---
+# mcp:
+#   command: ["npx", "-y", "@modelcontextprotocol/server-github"]
+#   sandbox: docker                     # run the server contained (recommended)
+#   env: { GITHUB_TOKEN: "${GITHUB_TOKEN}" }
 ```
+
+See **[docs/CONNECTOR_SDK.md](../docs/CONNECTOR_SDK.md)** for the full field
+reference (MCP servers, container isolation, discovery, per-action approval,
+UI tiles, chat pickups).
 
 Path variables you can use: `${AVA_HOME}` `${AVA_LOGS}` `${AVA_DATA}` `${ROOT}`.
 

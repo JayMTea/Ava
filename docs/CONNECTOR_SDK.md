@@ -151,9 +151,12 @@ real MCP server and its tools are discovered and bridged live:
 mcp:
   url: "http://127.0.0.1:9200/mcp"     # Streamable HTTP transport
   token_env: MYAPP_TOKEN                # optional bearer
-  # or a stdio server (spawned by the bridge on the host):
+  # or a stdio server (spawned by the bridge):
   # command: ["npx", "-y", "@modelcontextprotocol/server-github"]
   # env: { GITHUB_TOKEN: "${GITHUB_TOKEN}" }
+  # sandbox: docker                     # run the stdio server contained (below)
+  # image: node:20-slim                 # base image with the runtime (default)
+  # network: bridge                     # or `none` to cut the server off the net
 ```
 
 **The security pitch — an egress policy around every MCP server.** Ava's
@@ -162,9 +165,23 @@ sandboxed agent never connects to the MCP server: the bridge speaks MCP
 only the two policed bridge routes (`__tools`/`__call`) that the connector's
 auto-generated egress policy allow-lists — and nothing else. A malicious or
 compromised MCP server never gains a direct line into the sandbox, and the
-sandbox never gains a direct line out. (A `command:` server is a host process
-you chose — the same trust model as every MCP desktop client; the policy bounds
-what the *agent* can do with it, not what you install.)
+sandbox never gains a direct line out.
+
+**Container isolation for stdio servers (`sandbox: docker`).** A `command:`
+server (e.g. `npx …`) is code you install; by default it runs as you on the
+host, the same trust model as every MCP desktop client. Set `sandbox: docker`
+and Ava runs it inside a throwaway container instead — `--read-only`, a tmpfs
+for scratch, CPU/memory/pid caps, `no-new-privileges`, and **no host filesystem
+mounts** — so an untrusted server can't touch your files. Set `network: none`
+to also cut its network. The Setup → Connect an app GUI offers this as a
+one-click toggle, defaulted on when Docker is available.
+
+**Per-action approval (`confirm`).** Gate a sensitive tool behind your explicit
+OK: put `confirm: true` on a static action, or at the connector level use
+`confirm: true` (every action) / `confirm: [tool_a, tool_b]`. When the agent
+calls a gated action the call **pauses**, an approval prompt appears with the
+arguments, and the action runs only if you approve (or is refused on deny /
+timeout). Every request and decision is written to the audit ledger.
 
 ### Egress
 `ava connector policies <id> --write` renders the connector's egress into

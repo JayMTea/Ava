@@ -13,7 +13,7 @@ sync with the running system, not aspirational.
 
 ## Decision
 
-Treat [`agent/docs/architecture.yaml`](../architecture.yaml) as the **single source
+Treat `agent/docs/architecture.yaml` (generated locally per deployment) as the **single source
 of truth (SSOT)**. A generator/validator (`agent/docs/arch.py`):
 
 - generates the system, network, policy, and security diagrams (D2) and the

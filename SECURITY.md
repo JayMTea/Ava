@@ -5,7 +5,7 @@ control. It handles sensitive data (login credentials, chat history, and
 **biometric voiceprints**), so security is designed in, not bolted on. This
 document is the human-readable companion to the generated security diagram:
 
-- **Trust boundaries & control points** — [`agent/docs/diagrams/security.svg`](agent/docs/diagrams/security.svg)
+- **Trust boundaries & control points** — [architecture overview](docs/assets/architecture.svg)
 
 The diagram (and a per-tool egress/policy trace) is **generated** from a
 deployment-local SSOT manifest (`agent/docs/architecture.yaml`, gitignored —

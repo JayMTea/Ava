@@ -126,5 +126,5 @@ sandboxed with per-tool egress policies) and an OpenAI-compatible **inference
 router** for the local open-model model. GPU workloads runs on **the GPU service**;
 video pipelines arrive as connector apps, not core.
 Everything else — the apps Ava monitors and drives — is a **connector** you can
-drop in. See the [architecture diagrams](../agent/docs/diagrams/system.svg) and
+drop in. See the [architecture diagram](assets/architecture.svg) and
 the [productization plan](PACKAGING_PLAN.md).

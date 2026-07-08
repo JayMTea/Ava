@@ -11,12 +11,12 @@ can only be trusted after running it on the real device. This is that checklist.
 | Platform | Fit memory source | GPU util/temp/power | GPU/unified memory | Status |
 |---|---|---|---|---|
 | Linux + discrete NVIDIA | free **VRAM** (NVML→nvidia-smi) | ✅ NVML/smi | ✅ VRAM | verified logic; needs a discrete box to confirm VRAM path |
-| DGX Spark GB10 (unified) | system RAM (psutil) | ✅ nvidia-smi | unified via system RAM | **verified on-device** |
+| Unified-memory NVIDIA (e.g. GB10 / DGX Spark) | system RAM (psutil) | ✅ nvidia-smi | unified via system RAM | **verified on-device** |
 | Apple Silicon Mac | system RAM (psutil) | ❌ None (no unprivileged API) | ✅ unified via system RAM | **needs on-device validation** |
 | CPU-only / other | system RAM (psutil→/proc) | ❌ None | system RAM | verified logic |
 | No psutil, non-Linux | none → gating disabled | ❌ None | none | verified logic (degrades safely) |
 
-## Run this on the Mac mini
+## Run this on an Apple-Silicon Mac
 
 ```bash
 pip install -r requirements.txt          # pulls psutil; nvidia-ml-py stays inactive

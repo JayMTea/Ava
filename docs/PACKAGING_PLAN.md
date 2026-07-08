@@ -34,9 +34,10 @@ models**, and connects to **their own apps** via connectors.
   conflicts with "use their own hardware." Keep the door open (see §11) but don't
   build for it now.
 
-**North-star install experience (the bar to hit):**
+**North-star install experience (the bar to hit — the `get.ava.sh` domain is not
+registered yet; today the real path is `docker compose up`, see deploy/README.md):**
 ```
-curl -fsSL https://get.ava.sh | sh      # or: docker compose up
+curl -fsSL https://get.ava.sh | sh      # PLANNED — today: docker compose up
 # → detects hardware → pulls a model tier → opens http://localhost:8096
 # → first-run wizard: set password, pick model, (optionally) add connectors
 # → you're chatting in <10 minutes, zero source edits
@@ -69,27 +70,11 @@ model-agnostic + plug-and-play. Almost nothing else does all of these at once.
 frontier-capability chatbot. It **orchestrates** intelligence; it doesn't produce
 it — its "IQ" is whatever model you plug in.
 
-**Competitive scorecard** (Strong ● · Partial ◐ · None ○ — honest, not marketing):
+**Competitive scorecard:** the canonical, up-to-date comparison (including the
+NemoClaw/OpenClaw column) lives in the [README](../README.md#how-it-compares) —
+read it there rather than duplicating a table that drifts.
 
-| Capability | **Ava** | Open WebUI | OpenHands | Home Assistant | ChatGPT/Claude (cloud) |
-|---|:--:|:--:|:--:|:--:|:--:|
-| Self-hosted / private | ● | ● | ● | ● | ○ |
-| Model-agnostic (BYO model) | ● | ● | ◐ | ◐ | ○ |
-| Chat | ● | ● | ◐ | ◐ | ● |
-| Voice (+ biometric gate) | ● | ○ | ○ | ● | ◐ |
-| Image / **video** generation | ● | ◐ | ○ | ○ | ◐ |
-| Agent tools / skills / memory | ● | ◐ | ● | ◐ | ● |
-| **Self-improvement** (edits own code) | ● | ○ | ◐ | ○ | ○ |
-| Drives your **other apps** (connectors) | ● | ○ | ◐ | ● | ◐ |
-| Ops **dashboard** (perf/cost/alerts) | ● | ○ | ○ | ◐ | ○ |
-| Governance / approval gates | ● | ○ | ○ | ◐ | ◐ |
-| Plug-and-play packaging | ◐→● | ● | ● | ● | ● |
-| Raw model quality (IQ) | ◐* | ◐* | ◐* | ◐* | ● |
-| Polish / mobile / scale | ○ | ◐ | ◐ | ● | ● |
-
-\* = inherited from whatever model is plugged in.
-
-**Read of the table:** Ava is the only column that's Strong across voice + generation
+**Read of it:** Ava is the only column that's Strong across voice + generation
 + agent + self-improvement + connectors + observability + governance *together*,
 self-hosted. The trade-off is honest: it trails the cloud incumbents on raw model
 IQ, polish, and mobile/scale — because those aren't its job. It's the **control
@@ -281,8 +266,9 @@ hand-maintained.
 - **Profiles**: `--profile gpu | cpu | cloud | full` so users pick their setup.
 - One bind-mounted `AVA_HOME` volume = all state.
 
-**Secondary: one-line install script** (`get.ava.sh`) that installs Docker if
-needed, writes `AVA_HOME`, runs compose, opens the wizard.
+**Secondary (planned): one-line install script** (`get.ava.sh` — domain not yet
+registered) that installs Docker if needed, writes `AVA_HOME`, runs compose,
+opens the wizard.
 
 **Example compose shape (profiles let users pick their setup):**
 ```yaml

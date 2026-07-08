@@ -8,7 +8,7 @@ per-turn agent cold-start without coupling Ava to any one machine or operator.
 Every conversational turn runs through `AgentRuntime.run_turn`. On the default
 runtime (NemoClaw), each turn currently boots an **embedded** agent: it spawns the
 7 MCP tool-server node processes, loads plugins, and compiles the ~33k-token
-system context from scratch, then tears it all down. Measured on a GB10 box:
+system context from scratch, then tears it all down. Measured on a unified-memory GPU box:
 
 - a 1-token reply ("OK") turn ≈ **5–9s wall-clock**; the model itself is ~2s.
 - so ~5–8s per turn is fixed boot overhead, independent of the question.

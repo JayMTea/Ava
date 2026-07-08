@@ -49,7 +49,7 @@ building locally by setting `AVA_IMAGE` in `deploy/.env`, and verify it first:
 ```bash
 # Verify the release image (see SECURITY.md §9 for the exact identity regex):
 cosign verify ghcr.io/jaymtea/ava-bridge:v0.1.0 \
-  --certificate-identity-regexp "https://github.com/JayMTea/.+/release.yml@refs/tags/v0.1.0" \
+  --certificate-identity-regexp "https://github.com/JayMTea/.+/.github/workflows/release.yml@refs/tags/v0.1.0" \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 
 echo "AVA_IMAGE=ghcr.io/jaymtea/ava-bridge:v0.1.0" >> deploy/.env
