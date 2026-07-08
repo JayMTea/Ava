@@ -11,6 +11,7 @@ site_dir: site
 
 theme:
   name: material
+  custom_dir: overrides  # home.html — the landing page template
   language: en
   font:
     text: Inter
@@ -67,6 +68,7 @@ markdown_extensions:
 
 nav:
   - Home: index.md
+  - Why Ava?: overview.md
   - Install:
       - Quickstart: deploy/README.md
       - Agent runtime: docs/AGENT_RUNTIME.md

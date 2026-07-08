@@ -21,15 +21,15 @@ to *your* apps, and answers only to you.
 
 ---
 
-- 🗣️ **Talk to it** — on-device voice (speech in, speech out), gated to *your* voice.
-- 🎨 **Create with it** — GPU workloads orchestrated by the agent (the GPU service); video via connector apps.
-- 🧩 **Wire it to your apps** — drop-in connectors; Ava monitors *and* drives them.
-- 🔌 **Wrap any MCP server in an egress policy** — plug into the whole MCP ecosystem; tools are discovered live, and the agent reaches them only through two policed routes.
-- 🛠️ **It edits its own code** — generates and applies source changes as git commits; by default every change waits for your approval (`code.approval`).
-- 🧠 **It studies itself** — periodic local-first analysis of its own activity parks improvement proposals for your sign-off; nothing self-applies.
-- 📊 **See everything** — a live Command Center: throughput, cost/energy, jobs, alerts.
-- 🖱️ **Set up from the browser** — a guided Setup hub: pick a model, provision the agent, wire in apps, enroll your voice. No terminal required.
-- 🔒 **Private by default** — runs on your hardware; nothing leaves unless you say so.
+- **Talk to it** — on-device voice (speech in, speech out), gated to *your* voice.
+- **Create with it** — GPU workloads orchestrated by the agent (the GPU service); video via connector apps.
+- **Wire it to your apps** — drop-in connectors; Ava monitors *and* drives them.
+- **Wrap any MCP server in an egress policy** — plug into the whole MCP ecosystem; tools are discovered live, and the agent reaches them only through two policed routes.
+- **It edits its own code** — generates and applies source changes as git commits; by default every change waits for your approval (`code.approval`).
+- **It studies itself** — periodic local-first analysis of its own activity parks improvement proposals for your sign-off; nothing self-applies.
+- **See everything** — a live Command Center: throughput, cost/energy, jobs, alerts.
+- **Set up from the browser** — a guided Setup hub: pick a model, provision the agent, wire in apps, enroll your voice. No terminal required.
+- **Private by default** — runs on your hardware; nothing leaves unless you say so.
 
 ## What is Ava?
 

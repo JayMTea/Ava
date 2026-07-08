@@ -27,8 +27,11 @@ BRANCH = os.environ.get("AVA_DOCS_BRANCH", "master")
 
 # src (repo-relative) -> dst (staging-relative). READMEs that are linked as bare
 # directories are staged as index.md so those directory links resolve.
+# The site homepage (index.md) is NOT the README: it's the landing page,
+# authored at docs-site/home.md (see HOME_PAGE below); the README becomes the
+# "Why Ava?" overview page.
 CURATED: dict[str, str] = {
-    "README.md": "index.md",
+    "README.md": "overview.md",
     "CONTRIBUTING.md": "CONTRIBUTING.md",
     "SECURITY.md": "SECURITY.md",
     "CHANGELOG.md": "CHANGELOG.md",
@@ -50,6 +53,11 @@ CURATED: dict[str, str] = {
     "examples/hello-app/README.md": "examples/hello-app/index.md",
     "examples/device-app/README.md": "examples/device-app/index.md",
 }
+
+# The landing page lives in docs-site/ (site-specific, not repo docs). Its
+# links are authored repo-relative and staged at the root, so the standard
+# rewrite (as if the page were index.md) applies unchanged.
+HOME_PAGE = ("home.md", "index.md")  # (docs-site-relative src, staging dst)
 
 ASSETS: dict[str, str] = {
     "docs/assets/architecture.svg": "docs/assets/architecture.svg",
@@ -121,6 +129,15 @@ def main() -> int:
         dp = OUT / dst
         dp.parent.mkdir(parents=True, exist_ok=True)
         dp.write_text(text, encoding="utf-8")
+    home_src, home_dst = HOME_PAGE
+    hp = HERE / home_src
+    if hp.is_file():
+        (OUT / home_dst).write_text(
+            _rewrite_links(hp.read_text(encoding="utf-8"), home_dst),
+            encoding="utf-8",
+        )
+    else:
+        missing.append(f"docs-site/{home_src}")
     for src, dst in ASSETS.items():
         sp = REPO / src
         if not sp.is_file():
