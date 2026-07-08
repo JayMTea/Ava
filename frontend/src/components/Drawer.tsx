@@ -72,12 +72,8 @@ export function Drawer({
         </div>
         <div className="rail-spacer" />
         <div className="rail-foot">
+          {/* Single user-settings portal — sign out lives inside Setup. */}
           {railBtn('hub', 'Setup', 'sliders')}
-          <form method="post" action="/logout">
-            <button type="submit" className="rail-btn" title="Sign out" aria-label="Sign out">
-              <Icon name="lock" />
-            </button>
-          </form>
         </div>
       </div>
 

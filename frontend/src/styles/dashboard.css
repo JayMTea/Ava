@@ -86,7 +86,7 @@
 .db-pill {
   display: inline-flex; align-items: center; gap: 6px;
   font-size: var(--fs-xs); padding: 2px 8px; border-radius: var(--r-pill);
-  background: rgba(255,255,255,.05); color: var(--txt); text-transform: capitalize;
+  background: var(--wash-5); color: var(--txt); text-transform: capitalize;
 }
 .db-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
 .pill-ok .db-dot { background: var(--ok); box-shadow: 0 0 0 2px rgba(63,178,127,.18); }
@@ -96,13 +96,13 @@
 
 /* ---- banners / alerts ---- */
 .db-banner { padding: var(--sp-3) var(--sp-4); border-radius: var(--r-md); font-size: var(--fs-sm); }
-.db-banner-crit { background: rgba(224,54,77,.12); border: 1px solid rgba(224,54,77,.4); color: #ffb3bd; }
+.db-banner-crit { background: rgba(224,54,77,.12); border: 1px solid rgba(224,54,77,.4); color: var(--err-tint); }
 .db-alerts { display: flex; flex-direction: column; gap: 8px; }
 .db-alert { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px;
-  padding: 8px 10px; border-radius: var(--r-sm); background: rgba(255,255,255,.03); border: 1px solid var(--line); }
+  padding: 8px 10px; border-radius: var(--r-sm); background: var(--wash-3); border: 1px solid var(--line); }
 .db-alert-sev { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; padding: 2px 7px; border-radius: var(--r-pill); }
-.db-alert.sev-critical .db-alert-sev { background: rgba(224,54,77,.18); color: #ffb3bd; }
-.db-alert.sev-warn .db-alert-sev { background: rgba(224,169,59,.18); color: #f2cf8a; }
+.db-alert.sev-critical .db-alert-sev { background: rgba(224,54,77,.18); color: var(--err-tint); }
+.db-alert.sev-warn .db-alert-sev { background: rgba(224,169,59,.18); color: var(--warn-tint); }
 .db-alert-msg { color: var(--txt); font-size: var(--fs-sm); }
 .db-alert-val { color: var(--muted); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
 
@@ -134,11 +134,11 @@
 
 /* ---- connectors ---- */
 .db-conn-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
-.db-conn { padding: 10px 12px; border-radius: var(--r-sm); background: rgba(255,255,255,.03); border: 1px solid var(--line); }
+.db-conn { padding: 10px 12px; border-radius: var(--r-sm); background: var(--wash-3); border: 1px solid var(--line); }
 .db-conn-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .db-conn-name { color: var(--txt); font-size: var(--fs-sm); font-weight: var(--fw-medium); }
 .db-conn-kind { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .4px;
-  padding: 2px 6px; border-radius: var(--r-pill); background: rgba(255,255,255,.04); }
+  padding: 2px 6px; border-radius: var(--r-pill); background: var(--wash-4); }
 .db-conn-meta { color: var(--muted); font-size: var(--fs-xs); margin-top: 4px; }
 
 /* ---- work rows / badges ---- */
@@ -147,19 +147,19 @@
 .db-work-label { color: var(--txt); font-size: var(--fs-sm); font-weight: var(--fw-medium); }
 .db-work-meta { color: var(--muted); font-size: var(--fs-xs); }
 .db-badge { font-size: var(--fs-xs); padding: 3px 9px; border-radius: var(--r-pill); }
-.db-badge-warn { background: rgba(224,169,59,.16); color: #f2cf8a; }
-.db-badge-ok { background: rgba(63,178,127,.16); color: #8fe0b8; }
+.db-badge-warn { background: rgba(224,169,59,.16); color: var(--warn-tint); }
+.db-badge-ok { background: rgba(63,178,127,.16); color: var(--ok-tint); }
 
 /* ---- service matrix ---- */
 .db-svc-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
 .db-svc { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--r-sm);
-  background: rgba(255,255,255,.03); border: 1px solid var(--line); }
+  background: var(--wash-3); border: 1px solid var(--line); }
 .db-svc-name { color: var(--txt); font-size: var(--fs-sm); }
 .db-svc-down { border-color: rgba(224,54,77,.4); }
 
 /* ---- empty / skeleton ---- */
 .db-empty { color: var(--muted); font-size: var(--fs-sm); text-align: center; padding: 28px 10px; }
-.db-skeleton { background: linear-gradient(90deg, rgba(255,255,255,.03), rgba(255,255,255,.07), rgba(255,255,255,.03));
+.db-skeleton { background: linear-gradient(90deg, var(--wash-3), var(--wash-7), var(--wash-3));
   background-size: 200% 100%; animation: dbshimmer 1.4s ease-in-out infinite; border-radius: var(--r-sm); }
 @keyframes dbshimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 

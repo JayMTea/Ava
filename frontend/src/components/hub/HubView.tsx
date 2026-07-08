@@ -500,8 +500,8 @@ function ConnectorRow({ c }: { c: HubConnector }) {
             {c.enabled ? <Badge tone="ok">enabled</Badge> : <Badge>disabled</Badge>}
             {c.mcp && <Badge tone="accent">MCP server</Badge>}
             {c.actions > 0 && <Badge tone="accent">{c.actions} action{c.actions === 1 ? '' : 's'}</Badge>}
-            {c.actions > 0 && (c.has_tools ? <Badge tone="ok">tools ✓</Badge> : <Badge tone="warn">tools stale</Badge>)}
-            {c.renders_policy && (c.has_policy ? <Badge tone="ok">policy ✓</Badge> : <Badge tone="warn">policy stale</Badge>)}
+            {c.actions > 0 && (c.has_tools ? <Badge tone="ok">tools ok</Badge> : <Badge tone="warn">tools stale</Badge>)}
+            {c.renders_policy && (c.has_policy ? <Badge tone="ok">policy ok</Badge> : <Badge tone="warn">policy stale</Badge>)}
           </div>
         </div>
         {(c.actions > 0 || (c.mcp && c.renders_policy)) && (
@@ -1305,9 +1305,16 @@ export function HubView() {
   return (
     <div className="hub view-scroll">
       <div className="hub-inner">
-        <div className="hub-head">
-          <h2>Set up {brand}</h2>
-          <p>Configure your model, agent, apps, and system — all from here, written to your config, nothing to source.</p>
+        <div className="hub-head" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+          <div>
+            <h2>Set up {brand}</h2>
+            <p>Configure your model, agent, apps, and system — all from here, written to your config, nothing to source.</p>
+          </div>
+          <form method="post" action="/logout" style={{ flexShrink: 0 }}>
+            <button type="submit" className="hub-btn ghost sm">
+              <Icon name="lock" />Sign out
+            </button>
+          </form>
         </div>
 
         <ApprovalsBanner />

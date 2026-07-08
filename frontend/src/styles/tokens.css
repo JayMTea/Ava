@@ -33,6 +33,36 @@
   --rec:#e0364d;         /* legacy alias (recording dot) */
   --info:#7ea6c9;        /* informational */
 
+  /* ---- Overlay "wash" tints (hover / active / selected surfaces) ----
+     These are the only theme-adaptive tints: a white film on dark, a black
+     film on light. Number = the dark-mode opacity %. Use these instead of a
+     literal rgba(255,255,255,…) so every surface flips with the theme.       */
+  --wash-3:rgba(255,255,255,.03);
+  --wash-4:rgba(255,255,255,.04);
+  --wash-5:rgba(255,255,255,.05);
+  --wash-6:rgba(255,255,255,.06);
+  --wash-7:rgba(255,255,255,.07);
+  --wash-8:rgba(255,255,255,.08);
+  --wash-10:rgba(255,255,255,.10);
+  --wash-14:rgba(255,255,255,.14);
+  --wash-18:rgba(255,255,255,.18);
+
+  /* ---- Tint text on translucent chips (badges, alerts, active pills) ----
+     `*-tint` is the readable text color over a faint same-hue background; on
+     dark it's a light pastel, on light it flips to a deep shade. Pair with the
+     rgba(...) chip backgrounds already in the CSS.                            */
+  --accent-soft:rgba(201,100,66,.16);  /* active-pill background */
+  --accent-tint:#f0b49e;               /* active-pill text */
+  --accent-line:#6b3a2a;               /* active-pill border */
+  --ok-tint:#8fe0b8;
+  --warn-tint:#f2cf8a;
+  --err-tint:#ffb3bd;
+
+  /* ---- Neutral greys (disabled controls, input focus ring, drag grip) ---- */
+  --disabled-bg:#4a4843;
+  --disabled-txt:#8a877f;
+  --focus-line:#5c5951;
+
   /* ---- Chart palette (categorical cycle, accent-led) ---- */
   --chart-1:#c96442;
   --chart-2:#3fb27f;
@@ -81,4 +111,77 @@
 
   /* ---- Layout ---- */
   --col:768px;           /* centered content column width */
+}
+
+/* =========================================================================
+   LIGHT THEME — the only override. Set <html data-theme="light"> (the top-bar
+   toggle + boot script do this) and every token value below replaces the dark
+   default. Because all app surfaces read these tokens (and the --wash-* tints),
+   any current or future page inherits light mode with no per-component work.
+   ========================================================================= */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  /* surfaces — warm paper, not stark white */
+  --bg:#faf9f5;
+  --panel:#f4f3ee;
+  --panel2:#ecebe4;
+  --line:#e5e2d9;
+  --sidebar:#f4f3ee;
+  --userbubble:#ecebe4;
+  --input:#ffffff;
+  --inputline:#dcd8cc;
+
+  /* text */
+  --txt:#2b2a27;
+  --muted:#73706a;
+
+  /* accent — terracotta reads well on light; nudge hover a touch darker */
+  --accent:#bd5b3b;
+  --accent-hover:#a44e32;
+
+  /* semantic — slightly deepened so badges/labels stay legible on light */
+  --ok:#2f9d6e;
+  --warn:#bd881f;
+  --err:#d0293f;
+  --rec:#d0293f;
+  --info:#5b83a6;
+
+  /* chart palette (mirrors semantic; grid/axis follow line/muted) */
+  --chart-1:#bd5b3b;
+  --chart-2:#2f9d6e;
+  --chart-3:#bd881f;
+  --chart-4:#5b83a6;
+  --chart-5:#7a5fe0;
+  --chart-6:#73706a;
+  --chart-grid:#e5e2d9;
+  --chart-axis:#73706a;
+
+  /* softer elevation on a light canvas */
+  --shadow-1:0 1px 2px rgba(0,0,0,.08);
+  --shadow-2:0 6px 20px rgba(0,0,0,.12);
+
+  /* wash tints flip to a black film (tuned lower — black reads stronger) */
+  --wash-3:rgba(0,0,0,.02);
+  --wash-4:rgba(0,0,0,.03);
+  --wash-5:rgba(0,0,0,.04);
+  --wash-6:rgba(0,0,0,.05);
+  --wash-7:rgba(0,0,0,.055);
+  --wash-8:rgba(0,0,0,.06);
+  --wash-10:rgba(0,0,0,.08);
+  --wash-14:rgba(0,0,0,.10);
+  --wash-18:rgba(0,0,0,.13);
+
+  /* tint text flips to deep same-hue shades legible on the faint chip bg */
+  --accent-soft:rgba(201,100,66,.14);
+  --accent-tint:#9e4327;
+  --accent-line:#e6c3b5;
+  --ok-tint:#1f7a52;
+  --warn-tint:#8a5e00;
+  --err-tint:#b21e33;
+
+  /* neutral greys → light greys */
+  --disabled-bg:#e5e2d9;
+  --disabled-txt:#a8a49b;
+  --focus-line:#c9b8ae;
 }
