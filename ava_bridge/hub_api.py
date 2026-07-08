@@ -535,8 +535,13 @@ async def connector_new(body: dict):
         manifest["actions"] = actions
         egress: dict = {}
         if base_url:  # actions call base_url server-side; allow it for the agent
-            host = base_url.split("//", 1)[-1].split("/", 1)[0]
-            egress["hosts"] = [host]
+            from urllib.parse import urlparse
+            u = urlparse(base_url if "//" in base_url else "http://" + base_url)
+            if u.hostname:
+                # Scheme-aware default port: https://api.example.com -> :443,
+                # not the policy renderer's :80 fallback.
+                port = u.port or (443 if u.scheme == "https" else 80)
+                egress["hosts"] = [f"{u.hostname}:{port}"]
         manifest["egress"] = egress or {"routes": []}
 
     d = os.path.join(settings.home("connectors"), cid)
