@@ -37,6 +37,7 @@ on **the GPU service**. Everything else is a **connector** you drop in.
 
 - [Why Ava?](README.md): what it is, what it is not, honest comparisons
 - [Quickstart](deploy/README.md): Docker profiles and bare-metal install
-- [Connector SDK](docs/CONNECTOR_SDK.md): add your own app with a manifest
+- [Connect your apps](docs/CONNECT_YOUR_APPS.md): wire in your apps from the browser
+- [Connector SDK](docs/CONNECTOR_SDK.md): build your own connector with a manifest
 - [Agent runtime](docs/AGENT_RUNTIME.md): the sandbox, tools, and egress policies
 - [Architecture](agent/docs/README.md): how the pieces fit

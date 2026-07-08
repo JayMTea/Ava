@@ -51,8 +51,8 @@ CURATED: dict[str, str] = {
     "agent/docs/adr/0002-two-app-split.md": "agent/docs/adr/0002-two-app-split.md",
     "agent/docs/adr/0003-per-tool-egress-policies.md": "agent/docs/adr/0003-per-tool-egress-policies.md",
     "agent/docs/adr/0004-tala-layout-engine.md": "agent/docs/adr/0004-tala-layout-engine.md",
-    "examples/hello-app/README.md": "examples/hello-app/index.md",
-    "examples/device-app/README.md": "examples/device-app/index.md",
+    "examples/hello-app/README.md": "examples/hello-app.md",
+    "examples/device-app/README.md": "examples/device-app.md",
 }
 
 # The landing page lives in docs-site/ (site-specific, not repo docs). Its
@@ -80,9 +80,9 @@ ASSETS: dict[str, str] = {
 # Where every curated repo path lands in the staging tree, so links can be
 # recomputed as correct relative paths.
 _SRC_TO_DST: dict[str, str] = {**CURATED, **ASSETS}
-# Bare-directory links (e.g. `examples/hello-app/`) resolve to that dir's index.
+# Bare-directory links (e.g. `examples/hello-app/`) resolve to that dir's README page.
 _DIR_TO_INDEX = {os.path.dirname(s): d for s, d in CURATED.items()
-                 if os.path.basename(d) == "index.md"}
+                 if os.path.basename(s) == "README.md" and os.path.dirname(s)}
 
 # The label may itself contain one nested [...] (e.g. a badge/image link
 # `[![alt](img)](target)`), so allow a single level of bracket nesting.
@@ -97,22 +97,23 @@ def _staged_dst(resolved_noslash: str) -> str | None:
     return None
 
 
-def _rewrite_target(target: str, src_dst: str) -> str:
+def _rewrite_target(target: str, src: str, src_dst: str) -> str:
     raw = target.strip()
     if raw.startswith(("http://", "https://", "#", "mailto:")):
         return target
     path_part, _, anchor = raw.partition("#")
     if not path_part:                      # pure anchor
         return target
-    src_dir = os.path.dirname(src_dst)     # staging-relative dir of THIS page
-    # Resolve the link against the SOURCE layout (paths are preserved 1:1 except
-    # the README/index.md remaps, which _staged_dst accounts for).
+    src_dir = os.path.dirname(src)         # repo-relative dir the link was AUTHORED in
+    dst_dir = os.path.dirname(src_dst)     # staging-relative dir the page LANDS in
+    # Resolve the link against the SOURCE layout, then re-relativize against the
+    # staged location (pages can move during staging, e.g. README.md remaps).
     resolved = os.path.normpath(os.path.join(src_dir, path_part))
     resolved_noslash = resolved.rstrip("/").lstrip("./")
 
     dst = _staged_dst(resolved_noslash)
     if dst is not None:                    # an internal page/asset/index dir
-        rel = os.path.relpath(dst, start=src_dir or ".")
+        rel = os.path.relpath(dst, start=dst_dir or ".")
         return rel + (("#" + anchor) if anchor else "")
     # Otherwise it points at repo source not on the site -> GitHub.
     abspath = REPO / resolved_noslash
@@ -121,9 +122,9 @@ def _rewrite_target(target: str, src_dst: str) -> str:
     return url + (("#" + anchor) if anchor else "")
 
 
-def _rewrite_links(text: str, src_dst: str) -> str:
+def _rewrite_links(text: str, src: str, src_dst: str) -> str:
     def repl(m: re.Match) -> str:
-        return m.group(1) + _rewrite_target(m.group(2), src_dst) + m.group(3)
+        return m.group(1) + _rewrite_target(m.group(2), src, src_dst) + m.group(3)
     text = _LINK.sub(repl, text)
     # GitHub renders markdown inside plain HTML blocks; MkDocs needs the
     # md_in_html opt-in attribute or the div's contents show as raw text.
@@ -140,7 +141,7 @@ def main() -> int:
         if not sp.is_file():
             missing.append(src)
             continue
-        text = _rewrite_links(sp.read_text(encoding="utf-8"), src)
+        text = _rewrite_links(sp.read_text(encoding="utf-8"), src, dst)
         dp = OUT / dst
         dp.parent.mkdir(parents=True, exist_ok=True)
         dp.write_text(text, encoding="utf-8")
@@ -148,7 +149,7 @@ def main() -> int:
     hp = HERE / home_src
     if hp.is_file():
         (OUT / home_dst).write_text(
-            _rewrite_links(hp.read_text(encoding="utf-8"), home_dst),
+            _rewrite_links(hp.read_text(encoding="utf-8"), home_dst, home_dst),
             encoding="utf-8",
         )
     else:

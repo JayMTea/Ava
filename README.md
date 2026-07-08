@@ -134,16 +134,12 @@ enroll your voice. Prefer bare metal? `ava setup && ava doctor && ava up`;
 
 ## Add your own app (connectors)
 
-```bash
-ava connector new myapp                 # scaffold a manifest
-# edit connector.yaml: health probe, perf log, actions
-ava connector tools    myapp --write    # generate the agent tools
-ava connector policies myapp --write    # generate its egress policy
-cd agent && ./install.sh                # deploy — zero core-code changes
-```
-
-Ava then monitors your app in the dashboard, charts its performance, and can call
-its actions natively. See the [Connector SDK](docs/CONNECTOR_SDK.md).
+Wire an app in from the browser: **Setup → Connectors → Connect an app**, paste
+its address, click Detect, done. Ava then monitors it in the dashboard, charts
+its performance, and can call its actions natively, with every app behind an
+auto-generated egress policy. Step-by-step guide, with a video:
+[Connect your apps](docs/CONNECT_YOUR_APPS.md). Building your own connector?
+See the [Connector SDK](docs/CONNECTOR_SDK.md).
 
 ## Under the hood
 

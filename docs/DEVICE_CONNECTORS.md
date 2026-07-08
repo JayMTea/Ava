@@ -16,7 +16,9 @@ directions:
 A **device connector** is just a normal [connector](CONNECTOR_SDK.md) whose
 `connector.yaml` adds an `ingest:` block (push) and usually an `actions.discover`
 block (pull). Everything else in the Connector SDK (health probe, left-rail UI,
-egress policy) still applies.
+egress policy) still applies. The pull side can also be wired up from the
+browser ([Connect your apps](CONNECT_YOUR_APPS.md)); the push token comes from
+the CLI (`ava device token`).
 
 ---
 

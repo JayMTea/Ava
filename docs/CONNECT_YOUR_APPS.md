@@ -4,7 +4,9 @@ Connecting an app wires it into everything Ava does: the app gets a tile in the
 left rail, a health row on the dashboard, and its tools become things you can
 ask for in plain language, each behind an auto-generated security policy.
 
-There are two ways to do it. Most people should use the first one.
+There are two ways to do it. Most people should use the first one; the second
+is for developers building their own connector, and its full reference is the
+[Connector SDK](CONNECTOR_SDK.md).
 
 ---
 

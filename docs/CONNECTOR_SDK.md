@@ -7,6 +7,11 @@
 
 This is the productization contract: fork Ava, connect **your** apps, ship.
 
+> **Just wiring an existing app in?** You don't need this page. Use the browser
+> flow in [Connect your apps](CONNECT_YOUR_APPS.md) (Setup → Connectors →
+> Connect an app); it writes this manifest for you. This page is the reference
+> for everything a connector can declare.
+
 ---
 
 ## 1. Where connectors live

@@ -84,13 +84,13 @@ nav:
   - Why Ava?: overview.md
   - Get started:
       - Quickstart (Docker): deploy/README.md
-      - Agent runtime: docs/AGENT_RUNTIME.md
       - Connect your apps: docs/CONNECT_YOUR_APPS.md
-  - Connectors (SDK):
-      - Overview: docs/CONNECTOR_SDK.md
+      - Agent runtime: docs/AGENT_RUNTIME.md
+  - Connector SDK:
+      - Manifest reference: docs/CONNECTOR_SDK.md
       - Device connectors: docs/DEVICE_CONNECTORS.md
-      - "Example: app connector": examples/hello-app/index.md
-      - "Example: device connector": examples/device-app/index.md
+      - "Example: app connector": examples/hello-app.md
+      - "Example: device connector": examples/device-app.md
   - Architecture:
       - Overview: agent/docs/README.md
       - Decision records:
