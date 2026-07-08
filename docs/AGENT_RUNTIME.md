@@ -94,13 +94,7 @@ socket) runs the sandbox and exposes it over HTTP; the bridge talks to it via
 `RemoteRuntime`, so tools, memory, and live chain-of-thought all work — the
 bridge just doesn't care that the runtime is across the network.
 
-```
-┌────────────┐   HTTP /run_turn,/exec,…   ┌──────────────────┐  spawns  ┌───────────┐
-│ ava (bridge│──────────────────────────>│ agent (nemoclaw +│─────────>│ OpenShell │
-│  Remote-   │<── /v1 inference ─────────│  shim, :9100)    │  via     │  sandbox  │
-│  Runtime)  │      (ava:8010)            │  + docker.sock   │  socket  │ (tools)   │
-└────────────┘                            └──────────────────┘          └───────────┘
-```
+[![The remote runtime: bridge, agent container, sandbox](assets/agent-remote-runtime.svg)](assets/agent-remote-runtime.svg)
 
 Enable it:
 

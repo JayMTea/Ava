@@ -61,6 +61,7 @@ HOME_PAGE = ("home.md", "index.md")  # (docs-site-relative src, staging dst)
 
 ASSETS: dict[str, str] = {
     "docs/assets/architecture.svg": "docs/assets/architecture.svg",
+    "docs/assets/agent-remote-runtime.svg": "docs/assets/agent-remote-runtime.svg",
     "docs/assets/vitals-dashboard.jpg": "docs/assets/vitals-dashboard.jpg",
     "agent/docs/diagrams/system.svg": "agent/docs/diagrams/system.svg",
     "agent/docs/diagrams/network.svg": "agent/docs/diagrams/network.svg",
@@ -151,10 +152,11 @@ def main() -> int:
         dp = OUT / dst
         dp.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(sp, dp)
-    # Local site assets (theme CSS) that live under docs-site/, not the repo.
-    css_src = HERE / "stylesheets"
-    if css_src.is_dir():
-        shutil.copytree(css_src, OUT / "stylesheets")
+    # Local site assets (theme CSS/JS) that live under docs-site/, not the repo.
+    for local in ("stylesheets", "javascripts"):
+        src_dir = HERE / local
+        if src_dir.is_dir():
+            shutil.copytree(src_dir, OUT / local)
     if missing:
         print("WARNING: missing sources:\n  " + "\n  ".join(missing))
     print(f"staged {len(CURATED)} pages + {len(ASSETS)} assets -> {OUT}")

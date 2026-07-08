@@ -47,6 +47,9 @@ theme:
 extra_css:
   - stylesheets/extra.css
 
+extra_javascript:
+  - javascripts/diagram-zoom.js  # zoom/pan lightbox for diagram SVGs
+
 extra:
   generator: false  # hide "Made with Material for MkDocs" in the footer
 
