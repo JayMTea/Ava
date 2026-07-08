@@ -62,6 +62,8 @@ HOME_PAGE = ("home.md", "index.md")  # (docs-site-relative src, staging dst)
 ASSETS: dict[str, str] = {
     "docs/assets/architecture.svg": "docs/assets/architecture.svg",
     "docs/assets/vitals-dashboard.jpg": "docs/assets/vitals-dashboard.jpg",
+    "agent/docs/diagrams/system.svg": "agent/docs/diagrams/system.svg",
+    "agent/docs/diagrams/network.svg": "agent/docs/diagrams/network.svg",
     "agent/docs/diagrams/security.svg": "agent/docs/diagrams/security.svg",
 }
 
@@ -112,7 +114,10 @@ def _rewrite_target(target: str, src_dst: str) -> str:
 def _rewrite_links(text: str, src_dst: str) -> str:
     def repl(m: re.Match) -> str:
         return m.group(1) + _rewrite_target(m.group(2), src_dst) + m.group(3)
-    return _LINK.sub(repl, text)
+    text = _LINK.sub(repl, text)
+    # GitHub renders markdown inside plain HTML blocks; MkDocs needs the
+    # md_in_html opt-in attribute or the div's contents show as raw text.
+    return text.replace('<div align="center">', '<div align="center" markdown>')
 
 
 def main() -> int:

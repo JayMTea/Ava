@@ -232,3 +232,20 @@
 [data-md-color-scheme="slate"] .ava-shot img {
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
 }
+
+/* 404 page (overrides/404.html) */
+.ava-404 {
+  padding: 3rem 0 4rem;
+  text-align: center;
+}
+.ava-404 h1 {
+  font-family: var(--ava-serif);
+  font-weight: 500;
+}
+.ava-404__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.6rem;
+  margin-top: 1.4rem;
+}

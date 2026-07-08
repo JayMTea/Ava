@@ -1,0 +1,18 @@
+{#-
+  Friendly 404. GitHub Pages serves this file for ANY missing path, so every
+  link must be absolute (config.site_url), never relative.
+-#}
+{% extends "main.html" %}
+
+{% block content %}
+<div class="ava-404">
+  <h1>Page not found</h1>
+  <p>This page doesn't exist or has moved. The links below will get you back
+  on track.</p>
+  <p class="ava-404__actions">
+    <a class="ava-btn ava-btn--primary" href="{{ config.site_url }}">Home</a>
+    <a class="ava-btn" href="{{ config.site_url }}deploy/">Quickstart</a>
+    <a class="ava-btn" href="{{ config.site_url }}overview/">Why Ava?</a>
+  </p>
+</div>
+{% endblock %}

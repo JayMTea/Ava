@@ -26,9 +26,29 @@ Two planes, in one sentence: the **bridge** (`ava_bridge/`, the web app on
 sandbox) is the capability plane, and they only talk over enumerated,
 token-gated `/internal/*` routes and the inference router.
 
-The architecture SSOT manifest (`architecture.yaml`) and its generated
-diagrams are **deployment-specific and gitignored** — each install describes
-its own topology. `arch.py` (the sync/check/render pipeline) skips gracefully
-when the manifest is absent. For the public architecture overview, see the
-root [README.md](../../README.md) and
+## The system, in three diagrams
+
+Rendered by `arch.py` from the live architecture manifest and drift-checked
+against the running code (services, MCP tools, egress policies), so they show
+the system as it actually is, not as it was once drawn.
+
+**System** — every service, plane by plane: front doors, the sandboxed agent
+runtime, the category MCP servers, engines, and runtime state.
+
+[![System diagram](diagrams/system.svg)](diagrams/system.svg)
+
+**Network** — who may talk to whom: ports, loopback binds, and the enumerated
+bridge routes.
+
+[![Network diagram](diagrams/network.svg)](diagrams/network.svg)
+
+**Security** — trust zones and gates, from the internet down to the sandbox.
+
+[![Security diagram](diagrams/security.svg)](diagrams/security.svg)
+
+The SSOT manifest (`architecture.yaml`) and the `.d2` sources stay
+**deployment-specific and gitignored**; the rendered SVGs above are committed
+as the reference topology. `arch.py` (the sync/check/render pipeline) skips
+gracefully when the manifest is absent. See also the root
+[README.md](../../README.md) and
 [docs/CONNECTOR_SDK.md](../../docs/CONNECTOR_SDK.md).

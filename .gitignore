@@ -68,13 +68,12 @@ frontend/src/overlay/
 agent/mcp_server_content/connectors/
 agent/policies/generated/
 
-# Real architecture SSOT + generated diagrams (deployment-specific; public README
-# uses docs/assets/architecture.svg instead). Kept on disk for local drift-check.
+# Architecture SSOT manifest + .d2 sources (deployment-specific). The rendered
+# system/network/security SVGs ARE tracked as the public reference diagrams;
+# policy.svg stays local (it embeds install-specific filesystem paths).
 agent/docs/architecture.yaml
 agent/docs/diagrams/system.d2
-agent/docs/diagrams/system.svg
 agent/docs/diagrams/network.d2
-agent/docs/diagrams/network.svg
 agent/docs/diagrams/policy.d2
 agent/docs/diagrams/policy.svg
 

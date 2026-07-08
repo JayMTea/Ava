@@ -47,6 +47,9 @@ theme:
 extra_css:
   - stylesheets/extra.css
 
+extra:
+  generator: false  # hide "Made with Material for MkDocs" in the footer
+
 plugins:
   - search
 

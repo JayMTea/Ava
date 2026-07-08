@@ -26,7 +26,9 @@
         Not a chatbot. Not a model. A <strong>control layer</strong> for your own AI.
       </p>
       <div class="ava-hero__actions">
-        <a class="ava-btn ava-btn--primary" href="{{ 'deploy/README/' | url }}">Get started</a>
+        {#- deploy/README.md builds to deploy/ (MkDocs maps README.md to the
+            directory index), so link the directory, not deploy/README/. -#}
+        <a class="ava-btn ava-btn--primary" href="{{ 'deploy/' | url }}">Get started</a>
         <a class="ava-btn" href="{{ config.repo_url }}">View on GitHub</a>
         <a class="ava-btn ava-btn--ghost" href="{{ 'overview/' | url }}">Why Ava?</a>
       </div>
