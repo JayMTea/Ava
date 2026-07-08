@@ -21,6 +21,7 @@ Ava through her `architecture` MCP tools.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -37,6 +38,17 @@ MANIFEST = os.path.join(HERE, "architecture.yaml")
 DIAGRAMS = os.path.join(HERE, "diagrams")
 ICONS_DIR = os.path.join(DIAGRAMS, "icons")
 ICONS_ENABLED = False   # icons removed project-wide; set True to re-enable Lucide icons
+# Hand-authored hero diagrams outside the manifest build (their .d2 IS the
+# source, with its own layout engine — see each file's header). Rendered by
+# render()/sync (plain d2, no sheet-fitting, appearance stays as authored)
+# and freshness-checked exactly like the generated ones, so they can't
+# silently go stale on the site.
+STATIC_D2: list[tuple[str, str, str]] = [
+    (os.path.join(ROOT, "docs", "assets", "agent-remote-runtime.d2"),
+     os.path.join(ROOT, "docs", "assets", "agent-remote-runtime.svg"), "tala"),
+    (os.path.join(ROOT, "docs", "assets", "architecture.d2"),
+     os.path.join(ROOT, "docs", "assets", "architecture.svg"), "elk"),
+]
 # The generated services table lives in the PRIVATE dev notes (deployment-specific,
 # gitignored). The public README.md is hand-authored and app-agnostic.
 README = os.path.join(ROOT, "DEV_NOTES.md")
@@ -470,6 +482,21 @@ def _fit_to_sheet(svg_path: str, st: dict) -> None:
         f.write(prefix + wrapper)
 
 
+def _d2sum(d2_path: str) -> str:
+    with open(d2_path, "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
+
+
+def _svg_d2sum(svg_path: str) -> str | None:
+    """The d2sum stamped into the SVG at render time (None if unstamped)."""
+    try:
+        with open(svg_path, encoding="utf-8") as f:
+            m = re.search(r"d2sum:([0-9a-f]{64})", f.read())
+        return m.group(1) if m else None
+    except OSError:
+        return None
+
+
 def render_d2(d2_path: str, svg_path: str, m: dict | None = None) -> None:
     d2 = _d2_bin()
     if not os.path.exists(d2):
@@ -481,6 +508,24 @@ def render_d2(d2_path: str, svg_path: str, m: dict | None = None) -> None:
         check=True, capture_output=True, text=True,
     )
     _fit_to_sheet(svg_path, st)
+    _stamp_d2sum(d2_path, svg_path)
+
+
+def _stamp_d2sum(d2_path: str, svg_path: str) -> None:
+    # Stamp the source hash so any consumer (check_drift, CI tests) can prove
+    # this SVG was rendered from the current .d2 without needing d2 installed.
+    with open(svg_path, "a", encoding="utf-8") as f:
+        f.write(f"<!-- d2sum:{_d2sum(d2_path)} -->\n")
+
+
+def render_static(d2_path: str, svg_path: str, layout: str) -> None:
+    """Plain d2 render for a hand-authored diagram (no manifest sheet-fit)."""
+    d2 = _d2_bin()
+    if not os.path.exists(d2):
+        raise RuntimeError("d2 not found (install: https://d2lang.com/install.sh)")
+    subprocess.run([d2, "--theme", "0", "--layout", layout, "--pad", "24",
+                    d2_path, svg_path], check=True, capture_output=True, text=True)
+    _stamp_d2sum(d2_path, svg_path)
 
 
 def render(m: dict) -> list[str]:
@@ -494,6 +539,10 @@ def render(m: dict) -> list[str]:
             f.write(builder(m))
         render_d2(d2_path, svg_path, m)
         written += [d2_path, svg_path]
+    for d2_path, svg_path, layout in STATIC_D2:
+        if os.path.exists(d2_path) and _svg_d2sum(svg_path) != _d2sum(d2_path):
+            render_static(d2_path, svg_path, layout)
+            written.append(svg_path)
     return written
 
 
@@ -660,6 +709,20 @@ def check_drift(m: dict) -> dict:
         if want != have:
             errors.append(f"{name}.d2 is stale — run `arch.py sync` to regenerate the diagrams")
 
+    # 6. rendered SVGs must match their .d2 source (d2sum stamped at render
+    #    time) — covers the generated diagrams AND the hand-authored STATIC_D2.
+    pairs = [(os.path.join(DIAGRAMS, f"{n}.d2"), os.path.join(DIAGRAMS, f"{n}.svg"))
+             for n in ("system", "network", "policy", "security")]
+    pairs += [(d2p, svgp) for d2p, svgp, _ in STATIC_D2]
+    for d2p, svgp in pairs:
+        if not os.path.exists(d2p):
+            continue
+        rel = os.path.relpath(svgp, ROOT)
+        if not os.path.exists(svgp):
+            errors.append(f"{rel} missing — run `arch.py sync` to render it")
+        elif _svg_d2sum(svgp) != _d2sum(d2p):
+            errors.append(f"{rel} is stale vs its .d2 — run `arch.py sync` to re-render")
+
     return {"ok": not errors, "errors": errors, "warnings": warnings,
             "tools_found": len(found), "tools_declared": len(declared_tools)}
 
@@ -726,7 +789,8 @@ def sync(commit: bool = False, message: str | None = None) -> dict:
     result = {"ok": True, "regenerated": [os.path.relpath(p, ROOT) for p in written],
               "drift": drift, "committed": False}
     if commit:
-        paths = ["agent/docs/architecture.yaml", "agent/docs/diagrams", "README.md"]
+        paths = ["agent/docs/architecture.yaml", "agent/docs/diagrams", "README.md",
+                 *(os.path.relpath(svg, ROOT) for _, svg, _ in STATIC_D2)]
         _git(["add", *paths])
         st = _run(["git", "-C", ROOT, "status", "--porcelain", *paths])
         if st.strip():

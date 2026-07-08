@@ -58,6 +58,7 @@ from ava_bridge.auth import (
 from ava_bridge import internal, architecture, learning_mgmt, log_mgmt, config_mgmt, policy_mgmt, perf_mgmt
 from ava_bridge import audit, approvals
 from ava_bridge import dashboard, connectors, perf_store, devices
+from ava_bridge import arch_watch
 from ava_bridge import code_agent
 from ava_bridge import hardware
 from ava_bridge import web as web_access
@@ -226,6 +227,9 @@ def _startup():
     # Start the in-process self-analysis/learning scheduler (local-first; parks
     # improvement proposals for approval). No-op if features.learning is false.
     learning.start_scheduler()
+    # Architecture drift watchdog: periodic SSOT check between commits — heals
+    # stale diagrams, alerts on structural drift. No-op without a manifest.
+    arch_watch.start_scheduler()
 
 
 @app.get("/", response_class=HTMLResponse)

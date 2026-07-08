@@ -9,6 +9,7 @@ on:
     branches: [master, main]
     paths:
       - "**/*.md"
+      - "**/*.svg"          # diagrams are published on the site
       - "docs-site/**"
       - ".github/workflows/docs.yml"
   workflow_dispatch:
