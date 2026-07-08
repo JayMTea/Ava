@@ -53,7 +53,7 @@ curl -fsSL https://get.ava.sh | sh      # PLANNED — today: docker compose up
 > tools, on your own hardware, and keeps improving itself.
 
 **Shorter variants**
-- *Tagline:* "Your private Jarvis — self-hosted, on your hardware, wired to your world."
+- *Tagline:* "Your private AI: self-hosted, on your hardware, wired to your world."
 - *One-liner:* "One self-hosted hub for chat, voice, GPU workloads, and app
   automation — behind a single dashboard, running on your own GPU."
 - *Category:* a **personal AI operating layer** (not a chatbot, not a model).

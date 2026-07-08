@@ -2,7 +2,7 @@
 
 # Ava
 
-### Your private Jarvis — self-hosted, on your hardware, wired to your world.
+### Your private AI: self-hosted, on your hardware, wired to your world.
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Self-hosted](https://img.shields.io/badge/self--hosted-yes-success.svg)](deploy/README.md)

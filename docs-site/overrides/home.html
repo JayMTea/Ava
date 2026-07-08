@@ -5,8 +5,8 @@
   own markdown (quickstart, architecture) as normal typeset content below.
   Styles live in docs-site/stylesheets/extra.css under "Landing page".
 
-  Every claim on this page is code-backed — keep it that way. If a feature
-  changes, fix the copy here in the same PR.
+  Every claim on this page is code-backed. If a feature changes, fix the copy
+  here in the same PR. House style: no emoji, no em dashes, keep it short.
 -#}
 {% extends "main.html" %}
 
@@ -16,11 +16,11 @@
   <section class="ava-hero">
     <div class="md-grid">
       <p class="ava-hero__eyebrow">Self-hosted &middot; Apache-2.0 &middot; Bring any model</p>
-      <h1>Your private Jarvis.</h1>
+      <h1>Your AI. Your hardware.</h1>
       <p class="ava-hero__tagline">
-        Ava is a personal AI operating layer: chat, voice, GPU workloads, and
-        app automation behind one dashboard &mdash; on <em>your</em> hardware, with the
-        model of your choice (local vLLM&nbsp;/ Ollama&nbsp;/ llama.cpp, or a cloud key).
+        Chat, voice, GPU workloads, and app automation in one private
+        dashboard. Runs on your machine with any model: vLLM, Ollama,
+        llama.cpp, or a cloud key.
       </p>
       <p class="ava-hero__kicker">
         Not a chatbot. Not a model. A <strong>control layer</strong> for your own AI.
@@ -38,39 +38,34 @@
       <ul class="ava-cards">
         <li>
           <h3>Voice, gated to <em>you</em></h3>
-          <p>Speech in, speech out — fully on-device (Whisper&nbsp;STT, Piper&nbsp;TTS).
-          Enroll a voiceprint and a biometric gate makes Ava answer
-          <em>your</em> voice, not anyone within earshot.</p>
+          <p>Speech in, speech out, fully on-device. Enroll a voiceprint and
+          Ava answers your voice only.</p>
         </li>
         <li>
           <h3>Drives your other apps</h3>
-          <p>Drop in a small connector manifest and Ava monitors <em>and</em> drives
-          the app — health, metrics, agent tools, and its egress policy are all
-          generated for you. No core-code changes.</p>
+          <p>Drop in a small manifest. Ava monitors the app, charts its
+          metrics, and calls its actions. No core changes.</p>
         </li>
         <li>
           <h3>MCP, but governed</h3>
-          <p>Point a manifest at any MCP server and its tools go live — behind an
-          auto-generated egress policy. The sandboxed agent reaches exactly two
-          policed routes. Other clients trust the server; Ava contains it.</p>
+          <p>Wire in any MCP server and its tools go live behind an
+          auto-generated egress policy. The agent reaches two policed routes,
+          nothing else.</p>
         </li>
         <li>
           <h3>Edits its own code, governed</h3>
-          <p>Ava writes source changes as git commits — every change one revert
-          away. By default each one waits for your approval
-          (<code>code.approval</code>); secrets and models are never writable.</p>
+          <p>Source changes land as git commits. Each waits for your approval
+          by default; secrets and models are never writable.</p>
         </li>
         <li>
           <h3>A real Command Center</h3>
-          <p>Tokens/sec, time-to-first-token, render times, cost &amp;
-          <strong>energy</strong>, live jobs, alerts, approvals. An assistant you
-          can't observe is one you can't trust.</p>
+          <p>Tokens/sec, latency, cost and energy, live jobs, alerts,
+          approvals. If you can't observe it, you can't trust it.</p>
         </li>
         <li>
           <h3>Private by default</h3>
-          <p>Single-tenant on your GPU, bound to localhost, zero telemetry.
-          Conversations, files, and your voiceprint stay on your box — nothing
-          leaves unless you wire it out yourself.</p>
+          <p>Single-tenant, localhost-bound, zero telemetry. Nothing leaves
+          your box unless you wire it out.</p>
         </li>
       </ul>
     </div>
@@ -79,13 +74,11 @@
   <section class="ava-shot">
     <div class="md-grid">
       <h2>See everything it does</h2>
-      <p>The dashboard is the front door: a <strong>Vitals</strong> tab (her
-      performance — throughput, latency, cost &amp; energy, hardware) and an
-      <strong>Operations</strong> tab (live jobs, connectors, alerts, and the
-      approval-gated Control Center). Setup happens in the browser too — pick a
-      model, provision the agent, wire in apps, enroll your voice.</p>
+      <p><strong>Vitals</strong> tracks performance: throughput, latency, cost
+      and energy. <strong>Operations</strong> tracks live jobs, connectors,
+      alerts, and approvals. Setup happens in the browser too.</p>
       <img src="{{ 'docs/assets/vitals-dashboard.jpg' | url }}"
-           alt="Ava's Vitals dashboard — tokens/sec, time-to-first-token, cost and energy, hardware telemetry"
+           alt="Ava's Vitals dashboard: tokens/sec, time-to-first-token, cost and energy, hardware telemetry"
            loading="lazy">
     </div>
   </section>
