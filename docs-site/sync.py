@@ -63,11 +63,7 @@ ASSETS: dict[str, str] = {
     "docs/assets/architecture.svg": "docs/assets/architecture.svg",
     "docs/assets/agent-remote-runtime.svg": "docs/assets/agent-remote-runtime.svg",
     "docs/assets/vitals-dashboard.png": "docs/assets/vitals-dashboard.png",
-    # Product screenshots + tour reel for the landing page (see overrides/home.html).
-    "docs/assets/shot-vitals.png": "docs/assets/shot-vitals.png",
-    "docs/assets/shot-operations.png": "docs/assets/shot-operations.png",
-    "docs/assets/shot-chat.png": "docs/assets/shot-chat.png",
-    "docs/assets/shot-setup-hub.png": "docs/assets/shot-setup-hub.png",
+    # Narrated walkthrough video + its poster for the landing page.
     "docs/assets/reel-poster.png": "docs/assets/reel-poster.png",
     "docs/assets/ava-tour.mp4": "docs/assets/ava-tour.mp4",
     "agent/docs/diagrams/system.svg": "agent/docs/diagrams/system.svg",

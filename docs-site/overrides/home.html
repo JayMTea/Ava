@@ -76,56 +76,16 @@
   <section class="ava-shot">
     <div class="md-grid">
       <h2>See everything it does</h2>
-      <p>A 30-second tour of the dashboard, chat, and browser setup. No audio.</p>
+      <p>A guided walkthrough: the live dashboard, a real chat, and browser setup.
+      Press play. On-screen captions carry the narration.</p>
       <div class="ava-media">
-        <video class="ava-reel" autoplay muted loop playsinline preload="metadata"
+        <video class="ava-reel" controls playsinline preload="metadata"
                poster="{{ 'docs/assets/reel-poster.png' | url }}"
-               aria-label="A tour of Ava: Command Center, Operations, chat driving apps, and browser setup">
+               aria-label="A guided walkthrough of Ava: Command Center, Operations, a live chat, and browser setup">
           <source src="{{ 'docs/assets/ava-tour.mp4' | url }}" type="video/mp4">
         </video>
         <button class="ava-expand" type="button" data-expand-target=".ava-reel"
                 aria-label="Expand video" title="Expand">&#10530;</button>
-      </div>
-    </div>
-  </section>
-
-  <section class="ava-gallery-sec">
-    <div class="md-grid">
-      <div class="ava-carousel" aria-roledescription="carousel" aria-label="Ava screenshots">
-        <div class="ava-carousel__viewport">
-          <ul class="ava-carousel__track">
-            <li class="ava-slide" role="group" aria-roledescription="slide"
-                data-title="Vitals." data-caption="Throughput, latency, cost, energy, and live hardware in one Command Center.">
-              <a href="{{ 'docs/assets/shot-vitals.png' | url }}" target="_blank" rel="noopener">
-                <img src="{{ 'docs/assets/shot-vitals.png' | url }}" loading="lazy"
-                     alt="Vitals: tokens/sec, time-to-first-token, cost and energy, model routing, and GPU telemetry"></a>
-            </li>
-            <li class="ava-slide" role="group" aria-roledescription="slide"
-                data-title="Operations." data-caption="Every live job, agent turn, connector, alert, and approval as it happens.">
-              <a href="{{ 'docs/assets/shot-operations.png' | url }}" target="_blank" rel="noopener">
-                <img src="{{ 'docs/assets/shot-operations.png' | url }}" loading="lazy"
-                     alt="Operations: live agent turns and image jobs, a job queue, background learning, and service health"></a>
-            </li>
-            <li class="ava-slide" role="group" aria-roledescription="slide"
-                data-title="Chat." data-caption="Ask in plain language. Ava drives your apps and creative tools, and shows its work.">
-              <a href="{{ 'docs/assets/shot-chat.png' | url }}" target="_blank" rel="noopener">
-                <img src="{{ 'docs/assets/shot-chat.png' | url }}" loading="lazy"
-                     alt="Chat: Ava drafts a launch announcement and generates a poster, using image and calendar tools"></a>
-            </li>
-            <li class="ava-slide" role="group" aria-roledescription="slide"
-                data-title="Setup." data-caption="Pick a model, provision the agent, and wire in apps, all from the browser.">
-              <a href="{{ 'docs/assets/shot-setup-hub.png' | url }}" target="_blank" rel="noopener">
-                <img src="{{ 'docs/assets/shot-setup-hub.png' | url }}" loading="lazy"
-                     alt="Setup hub: wire in connectors from the browser, each behind an auto-generated egress policy"></a>
-            </li>
-          </ul>
-        </div>
-        <button class="ava-carousel__arrow ava-carousel__arrow--prev" type="button" aria-label="Previous screenshot">&#8249;</button>
-        <button class="ava-carousel__arrow ava-carousel__arrow--next" type="button" aria-label="Next screenshot">&#8250;</button>
-        <button class="ava-expand ava-expand--carousel" type="button" data-expand-target=".ava-carousel"
-                aria-label="Expand screenshot" title="Expand">&#10530;</button>
-        <p class="ava-carousel__caption"></p>
-        <div class="ava-carousel__dots" role="tablist" aria-label="Choose a screenshot"></div>
       </div>
     </div>
   </section>
