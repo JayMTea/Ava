@@ -128,6 +128,9 @@ cd deploy && docker compose --profile gpu up -d   # or: cpu | cloud | full
 # open http://localhost:8096 — the first screen prompts you to set an admin password
 ```
 
+**On a Mac (Apple Silicon)?** Run bare metal, not Docker (Docker Desktop can't use
+the Apple GPU): see [Apple Silicon (Mac mini / Studio)](deploy/README.md#apple-silicon-mac-mini--studio).
+
 From there the **Setup hub** (in the app) walks you through the rest: detect
 hardware, download a fitting model, provision the agent, wire in your apps,
 enroll your voice. Prefer bare metal? `ava setup && ava doctor && ava up`;

@@ -45,7 +45,12 @@ def wizard_page():
 @router.get("/api/setup/hardware")
 def api_hardware():
     from . import hwinfo, model_fit
-    out = {"fit_gb": None, "source": None, "tier": "cloud", "hint": "", "gpu": None}
+    out = {"fit_gb": None, "source": None, "tier": "cloud", "hint": "",
+           "gpu": None, "platform": None, "note": ""}
+    try:
+        out["platform"] = hwinfo.platform_id()
+    except Exception:  # noqa: BLE001
+        pass
     try:
         mem = hwinfo.fit_memory()
         out["fit_gb"] = round(mem.total_gb, 1) if mem.total_gb else None
@@ -57,6 +62,13 @@ def api_hardware():
             out["hint"] = "no local GPU/unified pool detected — use a cloud key"
     except Exception as e:  # noqa: BLE001
         out["hint"] = f"probe failed: {e}"
+    # Apple Silicon: unified memory is the pool; GPU util/temp/power have no
+    # unprivileged API (blank meters are expected), and vLLM can't serve here —
+    # use Ollama / MLX / LM Studio. Surface this so a Mac first-run isn't puzzling.
+    if out["platform"] == "darwin-apple":
+        out["note"] = ("Apple Silicon: use Ollama, MLX, or LM Studio (vLLM needs "
+                       "an NVIDIA GPU). GPU memory shows; util/temp/power read "
+                       "blank — that's expected on a Mac.")
     try:
         from . import hardware
         g = hardware._gpu()

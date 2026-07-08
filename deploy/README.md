@@ -23,6 +23,10 @@ docker compose --profile agent up -d   # + full tool-using agent (opt-in, see be
 Then open **http://localhost:8096**. The first screen prompts you to create an
 admin password, so there is nothing to hunt for in logs.
 
+> **On a Mac (Apple Silicon)?** Skip Docker. Docker Desktop on macOS can't pass
+> the Apple GPU through, so inference in a container runs CPU-only. Use the
+> bare-metal path below — see [Apple Silicon (Mac mini / Studio)](#apple-silicon-mac-mini--studio).
+
 Good to know:
 
 - **All state lives in one folder** (`AVA_HOME`, default `deploy/ava-data/`):
@@ -126,6 +130,36 @@ regardless):
 Every `/v1/*` call then requires the router token
 (`$AVA_HOME/secrets/router_token`) as a `Bearer` / `X-Ava-Router-Token`
 header. Loopback (the default) needs no token for `/v1/*`.
+
+### Apple Silicon (Mac mini / Studio)
+
+A Mac is **unified-memory** hardware: CPU and GPU share one RAM pool, there is no
+`nvidia-smi`, and **vLLM does not run** (it needs a CUDA/ROCm GPU). Run bare metal
+with a native engine so inference uses the Metal GPU. The hardware layer detects
+Apple Silicon automatically and gates model routing on the shared RAM pool (a
+512 GB Studio runs a 70B comfortably; a 24 GB mini should stay ~8B).
+
+```bash
+python3 -m venv .venv && . .venv/bin/activate
+pip install -r requirements.txt              # no CUDA/vLLM wheels; clean on arm64
+
+# a native, OpenAI-compatible engine (any of these work; Ollama shown):
+brew install ollama && ollama serve &
+ollama pull llama3.1:70b                      # sized to YOUR Mac's memory
+
+./bin/ava setup      # on a Mac this seeds an Ollama backend, not the vLLM default
+./bin/ava doctor     # confirms it detects Apple Silicon + the right memory tier
+./bin/ava up         # http://localhost:8096
+```
+
+Notes:
+- **`ava models pull --auto` is Apple-aware** — on a Mac it fetches an Ollama
+  model sized to your memory, never the CUDA-only Nemotron default.
+- LM Studio and MLX also work — point the backend `base_url` at their
+  OpenAI-compatible endpoint (see the Apple example in
+  [`config.example.yaml`](../config.example.yaml)).
+- GPU **memory** shows in the dashboard; util/temp/power read blank on Apple
+  (no unprivileged API) — that's expected, not a fault.
 
 ---
 
