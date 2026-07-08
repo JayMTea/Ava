@@ -77,11 +77,15 @@
     <div class="md-grid">
       <h2>See everything it does</h2>
       <p>A 30-second tour of the dashboard, chat, and browser setup. No audio.</p>
-      <video class="ava-reel" autoplay muted loop playsinline preload="metadata"
-             poster="{{ 'docs/assets/reel-poster.png' | url }}"
-             aria-label="A tour of Ava: Command Center, Operations, chat driving apps, and browser setup">
-        <source src="{{ 'docs/assets/ava-tour.mp4' | url }}" type="video/mp4">
-      </video>
+      <div class="ava-media">
+        <video class="ava-reel" autoplay muted loop playsinline preload="metadata"
+               poster="{{ 'docs/assets/reel-poster.png' | url }}"
+               aria-label="A tour of Ava: Command Center, Operations, chat driving apps, and browser setup">
+          <source src="{{ 'docs/assets/ava-tour.mp4' | url }}" type="video/mp4">
+        </video>
+        <button class="ava-expand" type="button" data-expand-target=".ava-reel"
+                aria-label="Expand video" title="Expand">&#10530;</button>
+      </div>
     </div>
   </section>
 
@@ -118,6 +122,8 @@
         </div>
         <button class="ava-carousel__arrow ava-carousel__arrow--prev" type="button" aria-label="Previous screenshot">&#8249;</button>
         <button class="ava-carousel__arrow ava-carousel__arrow--next" type="button" aria-label="Next screenshot">&#8250;</button>
+        <button class="ava-expand ava-expand--carousel" type="button" data-expand-target=".ava-carousel"
+                aria-label="Expand screenshot" title="Expand">&#10530;</button>
         <p class="ava-carousel__caption"></p>
         <div class="ava-carousel__dots" role="tablist" aria-label="Choose a screenshot"></div>
       </div>
@@ -131,9 +137,14 @@
       through the dashboard, operations, chat, and browser setup. Nothing is
       installed, and no data leaves this page.</p>
       <div class="ava-demo__frame">
-        <div class="ava-demo__bar"><i></i><i></i><i></i><span>Ava &mdash; live demo (sample data)</span></div>
-        <iframe class="ava-demo__iframe" src="{{ 'demo/' | url }}"
-                title="Ava live interactive demo" loading="lazy"></iframe>
+        <div class="ava-demo__bar"><i></i><i></i><i></i><span>Ava &mdash; live demo (sample data)</span>
+          <button class="ava-demo__expand" type="button" data-expand-target=".ava-demo__frame"
+                  aria-label="Expand demo to full screen" title="Expand">&#10530;</button>
+        </div>
+        <div class="ava-demo__viewport">
+          <iframe class="ava-demo__iframe" src="{{ 'demo/' | url }}"
+                  title="Ava live interactive demo" loading="lazy" allowfullscreen></iframe>
+        </div>
       </div>
       <p class="ava-demo__note">
         <a href="{{ 'demo/' | url }}" target="_blank" rel="noopener">Open the demo full screen</a>

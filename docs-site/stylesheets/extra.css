@@ -233,17 +233,49 @@
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
 }
 
+/* A media block with a corner "expand to fullscreen" button. */
+.ava-media {
+  position: relative;
+  max-width: 44rem;
+  margin: 0 auto;
+}
+.ava-expand {
+  position: absolute;
+  top: 0.55rem;
+  right: 0.55rem;
+  width: 1.95rem;
+  height: 1.95rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 0.4rem;
+  background: rgba(20, 18, 22, 0.6);
+  color: #fff;
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+  transition: background 0.15s ease;
+  z-index: 3;
+}
+.ava-expand:hover {
+  background: rgba(20, 18, 22, 0.9);
+}
+
 /* Tour reel (the mp4 already carries its own window frame + branded bg) */
 .ava-reel {
   display: block;
   width: 100%;
-  max-width: 60rem;
-  margin: 0 auto;
   border-radius: 0.7rem;
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22);
 }
 [data-md-color-scheme="slate"] .ava-reel {
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+}
+.ava-reel:fullscreen {
+  border-radius: 0;
+  box-shadow: none;
 }
 
 /* Screenshot carousel (javascripts/carousel.js) */
@@ -252,9 +284,34 @@
 }
 .ava-carousel {
   position: relative;
-  max-width: 58rem;
+  max-width: 44rem;
   margin: 0 auto;
   outline: none;
+}
+.ava-expand--carousel {
+  top: 0.55rem;
+  right: 0.55rem;
+}
+/* In fullscreen, center the current image on the branded canvas. */
+.ava-carousel:fullscreen {
+  max-width: none;
+  background: #0d0d10;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 3vh 5vw;
+}
+.ava-carousel:fullscreen .ava-carousel__viewport {
+  border: 0;
+  box-shadow: none;
+}
+.ava-carousel:fullscreen .ava-slide img {
+  max-height: 82vh;
+  width: auto;
+  margin: 0 auto;
+}
+.ava-carousel:fullscreen .ava-carousel__caption {
+  color: #ece9f2;
 }
 .ava-carousel__viewport {
   overflow: hidden;
@@ -371,7 +428,7 @@
   color: var(--ava-land-muted);
 }
 .ava-demo__frame {
-  max-width: 64rem;
+  max-width: 52rem;
   margin: 0 auto;
   border-radius: 0.7rem;
   overflow: hidden;
@@ -406,19 +463,66 @@
   font-size: 0.72rem;
   letter-spacing: 0.02em;
 }
+.ava-demo__expand {
+  margin-left: auto;
+  width: 1.6rem;
+  height: 1.6rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 0.3rem;
+  background: rgba(255, 255, 255, 0.08);
+  color: #cdc9d2;
+  font-size: 0.85rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.ava-demo__expand:hover {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+/* Show the real desktop app, scaled down to a tidy preview. carousel.js sizes
+   the iframe (design 1280x820) to fit .ava-demo__viewport; fullscreen resets it. */
+.ava-demo__viewport {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  background: #0c0c0e;
+}
 .ava-demo__iframe {
   display: block;
-  width: 100%;
-  height: 640px;
+  width: 1280px;
+  height: 820px;
   border: 0;
   background: #0c0c0e;
+  transform-origin: top left;
+}
+.ava-demo__frame:fullscreen {
+  max-width: none;
+  width: 100vw;
+  height: 100vh;
+  border: 0;
+  border-radius: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ava-demo__frame:fullscreen .ava-demo__viewport {
+  flex: 1;
+  height: auto !important;
+}
+.ava-demo__frame:fullscreen .ava-demo__iframe {
+  width: 100% !important;
+  height: 100% !important;
+  transform: none !important;
 }
 .ava-demo__note {
   margin: 1rem auto 0;
   font-size: 0.78rem;
 }
 @media (max-width: 44rem) {
-  .ava-demo__iframe { height: 460px; }
+  .ava-demo__viewport { min-height: 300px; }
 }
 
 /* Diagram zoom lightbox (javascripts/diagram-zoom.js) */

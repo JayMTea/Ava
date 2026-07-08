@@ -68,8 +68,56 @@
     start();
   }
 
+  // Corner "expand" buttons -> native fullscreen of their target element.
+  function wireExpand() {
+    document.querySelectorAll('[data-expand-target]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var t = document.querySelector(btn.getAttribute('data-expand-target'));
+        if (!t) return;
+        if (document.fullscreenElement) {
+          (document.exitFullscreen || document.webkitExitFullscreen || function () {}).call(document);
+          return;
+        }
+        var req = t.requestFullscreen || t.webkitRequestFullscreen || t.msRequestFullscreen;
+        if (req) { var p = req.call(t); if (p && p.catch) p.catch(function () {}); }
+      });
+    });
+  }
+
+  // Render the real desktop app (design 1280x820) scaled to fit the demo box, so
+  // it stays the full dashboard, just smaller. Fullscreen is handled by CSS.
+  var DESIGN_W = 1280, DESIGN_H = 820;
+  function scaleDemo() {
+    var vp = document.querySelector('.ava-demo__viewport');
+    var frame = document.querySelector('.ava-demo__iframe');
+    if (!vp || !frame) return;
+    if (document.fullscreenElement) { frame.style.transform = ''; vp.style.height = ''; return; }
+    var w = vp.clientWidth;
+    if (w < 620) {
+      // Narrow screens: let the app use its own responsive layout, no scaling.
+      frame.style.width = w + 'px';
+      frame.style.height = '620px';
+      frame.style.transform = '';
+      vp.style.height = '';
+    } else {
+      frame.style.width = DESIGN_W + 'px';
+      frame.style.height = DESIGN_H + 'px';
+      var s = w / DESIGN_W;
+      frame.style.transform = 'scale(' + s + ')';
+      vp.style.height = Math.round(DESIGN_H * s) + 'px';
+    }
+  }
+
+  var rt = null;
+  function onResize() { if (rt) clearTimeout(rt); rt = setTimeout(scaleDemo, 120); }
+
   function boot() {
     document.querySelectorAll('.ava-carousel').forEach(init);
+    wireExpand();
+    scaleDemo();
+    window.addEventListener('resize', onResize);
+    document.addEventListener('fullscreenchange', scaleDemo);
+    document.addEventListener('webkitfullscreenchange', scaleDemo);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
