@@ -192,11 +192,13 @@ def cmd_setup(args) -> int:
         _row(OK, "password", f"{Y}{pw}{X}   (saved to {pw_path})")
 
     # ava.yaml starter
+    created = False
     if not settings.CONFIG_PATH.is_file():
         example = os.path.join(settings.CODE_ROOT, "config.example.yaml")
         try:
             if os.path.isfile(example):
                 shutil.copyfile(example, settings.CONFIG_PATH)
+                created = True
                 _row(OK, "ava.yaml", f"created at {settings.CONFIG_PATH}")
             else:
                 _row(WARN, "ava.yaml", "template not found; skipped")
@@ -204,6 +206,26 @@ def cmd_setup(args) -> int:
             _row(WARN, "ava.yaml", f"skip: {e}")
     else:
         _row(OK, "ava.yaml", "already exists")
+
+    # The shipped default backend is vLLM (NVIDIA-only). On a box that can't serve
+    # it (Apple Silicon, CPU-only), rewrite the fresh inference block to point at a
+    # servable local engine — the SAME model `ava models pull --auto` will fetch —
+    # so a Mac user isn't left pointing at a dead vLLM endpoint. Best-effort.
+    if created and _platform_label() not in ("linux-nvidia", "windows-nvidia"):
+        try:
+            tier, _avail = _detected_tier()
+            _role, spec, _note = _resolve_auto(tier, _models_manifest())
+        except Exception:  # noqa: BLE001
+            spec = None
+        if spec and spec.get("engine") in _LOCAL_CHAT_ENGINES:
+            if _seed_inference_backend(spec):
+                _row(OK, "inference",
+                     f"seeded {spec['engine']} backend ({spec['id']}) for "
+                     f"{_platform_label()} — the vLLM default won't run here")
+        elif spec is None:
+            _row(WARN, "inference",
+                 f"no local engine fits {_platform_label()}; configure a cloud "
+                 "backend (see config.example.yaml) or install Ollama/MLX")
 
     # model store scaffolding — same hf/ollama/gpusvc layout as the Docker volumes,
     # so a fork's tree matches the author's and `ava models pull` has a home.
@@ -313,6 +335,21 @@ def cmd_verify(_args) -> int:
     _row(OK if digest_ok else BAD, "digest content",
          "renders real data" if digest_ok else "placeholder '?' bug")
     fails += (not has_sched) + (not digest_ok)
+
+    # 3b. Long-term memory (governed recall)
+    print("\nMemory (long-term recall)")
+    if not config.MEMORY_ENABLED:
+        _row(WARN, "features.memory", "off — no recall, no distillation")
+    else:
+        from ava_bridge import memory_store
+        store_ok, detail = memory_store.self_check()
+        _row(OK if store_ok else BAD, "store (SQLite FTS5)",
+             detail if store_ok else f"BROKEN: {detail}")
+        distill_ok = callable(getattr(learning, "memory_distiller", None) and
+                              getattr(learning.memory_distiller, "run_cycle", None))
+        _row(OK if distill_ok else BAD, "distiller wiring",
+             "memory_distiller in run_all_cycles" if distill_ok else "MISSING")
+        fails += (not store_ok) + (not distill_ok)
 
     # 4. Voice / biometric (optional capability)
     print("\nVoice / biometric")
@@ -618,6 +655,15 @@ _DEFAULT_MODELS = {
                      "resolve/main/gpu_model_base"},
 }
 
+# Chat models for boxes that can't serve the vLLM default (Apple Silicon, CPU-only):
+# vLLM needs CUDA/ROCm, so `pull --auto` must never fetch it there. Keyed by the
+# memory tier, mirrors the Apple-Silicon example in config.example.yaml (Ollama's
+# OpenAI-compatible API on :11434 reads the same unified-memory pool).
+_OLLAMA_CHAT = {
+    "large": {"engine": "ollama", "id": "llama3.1:70b", "tier": "large"},
+    "medium": {"engine": "ollama", "id": "llama3.1:8b", "tier": "small"},
+}
+
 
 def _models_manifest() -> dict:
     """Default roles overlaid with the user's `models:` block. A partial
@@ -850,6 +896,101 @@ def _detected_tier() -> tuple[str, float | None]:
     return _recommend_tier(avail)[0], avail
 
 
+def _platform_label() -> str:
+    """Coarse platform id for user-facing messages (never raises)."""
+    try:
+        from ava_bridge import hwinfo
+        return hwinfo.platform_id()
+    except Exception:  # noqa: BLE001
+        return "this platform"
+
+
+# Local chat engines Ava can seed a backend for on a non-CUDA box (all serve an
+# OpenAI-compatible API; vLLM is deliberately absent — it needs a CUDA/ROCm GPU).
+_LOCAL_CHAT_ENGINES = {"ollama", "llamacpp", "gguf", "mlx", "mlx-lm",
+                       "lmstudio", "lm-studio"}
+
+
+def _seed_inference_backend(spec: dict) -> bool:
+    """Rewrite ava.yaml's `inference` block to a single servable local backend
+    matching `spec` (engine + model), replacing the vLLM default. Best-effort:
+    returns True only if it rewrote the file. Called only on non-CUDA platforms
+    from `ava setup`, so a Mac never boots pointing at a dead vLLM endpoint."""
+    try:
+        import yaml as _yaml
+    except Exception:  # noqa: BLE001 — PyYAML absent; leave the example in place
+        return False
+    if not settings.CONFIG_PATH.is_file():
+        return False
+    try:
+        cfg = _yaml.safe_load(settings.CONFIG_PATH.read_text(encoding="utf-8")) or {}
+    except Exception:  # noqa: BLE001
+        return False
+    eng = str(spec.get("engine", "ollama")).strip().lower()
+    base = {"llamacpp": "http://127.0.0.1:8080/v1",
+            "gguf": "http://127.0.0.1:8080/v1"}.get(eng, "http://127.0.0.1:11434/v1")
+    bid = "local-ollama" if eng == "ollama" else f"local-{eng}"
+    cfg["inference"] = {
+        "primary": bid,
+        "backends": {bid: {
+            "engine": "llamacpp" if eng == "gguf" else eng,
+            "base_url": base,
+            "model": spec.get("id"),
+            "fit": {"tier": spec.get("tier", "large"),
+                    "workloads": ["chat", "reasoning", "code"]},
+        }},
+    }
+    try:
+        settings.CONFIG_PATH.write_text(
+            _yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True), encoding="utf-8")
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _engine_servable_here(engine: str | None) -> bool:
+    """Can THIS box actually run a local engine of this type?
+
+    vLLM needs a CUDA/ROCm GPU, so it can't serve on Apple Silicon or a CPU-only
+    box — pulling ~35 GB of FP8 weights there is a trap. Every other local engine
+    (Ollama, llama.cpp, MLX, LM Studio) and all cloud engines run anywhere. When
+    the platform is unknown we don't block (return True) — degrade, never brick.
+    """
+    eng = (engine or "").strip().lower()
+    if eng == "vllm":
+        return _platform_label() in ("linux-nvidia", "windows-nvidia")
+    return True
+
+
+def _resolve_auto(tier: str, manifest: dict) -> tuple:
+    """Pick (role, spec, note) for `ava models pull --auto`, platform-aware.
+
+    Guarantees the returned spec's engine is servable on THIS box, so a high-RAM
+    Mac (tier 'large') is never steered into the vLLM-only default it can't run.
+    Substitutes a same-tier Ollama chat model, or downshifts to the servable
+    'fast' role; `note` explains any substitution. Returns (None, None, note) when
+    nothing local is servable (caller should point at a cloud provider)."""
+    role = {"large": "chat", "medium": "chat",
+            "small": "fast", "tiny": "fast"}.get(tier)
+    if not role or role not in manifest:
+        return None, None, None
+    spec = manifest[role]
+    if _engine_servable_here(spec.get("engine")):
+        return role, spec, None
+    plat = _platform_label()
+    blocked = (f"the default '{role}' model ({spec.get('engine')}: "
+               f"{spec.get('id')}) can't be served on {plat}")
+    sub = _OLLAMA_CHAT.get(tier)
+    if sub and _engine_servable_here(sub.get("engine")):
+        return role, sub, (f"{blocked} — substituting {sub['engine']}: "
+                           f"{sub['id']} instead")
+    fast = manifest.get("fast")
+    if fast and _engine_servable_here(fast.get("engine")):
+        return "fast", fast, (f"{blocked} — downshifting to the '{fast.get('engine')}' "
+                              f"model {fast.get('id')}")
+    return None, None, blocked
+
+
 def cmd_models(args) -> int:
     manifest = _models_manifest()
     dirs = _model_dirs()
@@ -876,17 +1017,20 @@ def cmd_models(args) -> int:
         ensure_model_dirs()
         if args.auto:
             tier, _avail = _detected_tier()
-            role = {"large": "chat", "medium": "chat", "small": "fast",
-                    "tiny": "fast"}.get(tier)
-            if not role or role not in manifest:
-                print(f"{WARN} detected tier '{tier}' — no local model fits; use a cloud "
-                      f"provider (set inference.backends + AVA_INFERENCE_KEY).")
+            role, spec, note = _resolve_auto(tier, manifest)
+            if role is None:
+                print(f"{WARN} detected tier '{tier}' on {_platform_label()}: "
+                      f"{note or 'no locally-servable model fits'}. Use a cloud "
+                      f"provider (set inference.backends + AVA_INFERENCE_KEY), or "
+                      f"install Ollama/MLX and `ava models pull <role>` by hand.")
                 return 0
+            if note:
+                print(f"{WARN} {note}.\n")
             print(f"{B}--auto{X}: detected tier '{tier}' \u2192 pulling '{role}'\n")
-            rc = _pull_one(role, manifest[role], dirs)
+            rc = _pull_one(role, spec, dirs)
             if rc == 0:
                 print(f"\n{B}Add to your ava.yaml{X} (if not already configured):\n")
-                print(_backend_stanza(role, manifest[role], dirs))
+                print(_backend_stanza(role, spec, dirs))
                 print()
             return rc
         roles = [args.name] if args.name else list(manifest)

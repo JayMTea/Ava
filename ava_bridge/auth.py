@@ -130,7 +130,10 @@ def _login_record(ip: str, ok: bool) -> None:
             rec[0] += 1
 
 
-_PUBLIC_PATHS = {"/login", "/logout", "/setup", "/api/health", "/favicon.ico"}
+_PUBLIC_PATHS = {"/login", "/logout", "/setup", "/api/health", "/favicon.ico",
+                 # PWA shell: browsers fetch the manifest and service worker
+                 # without credentials context — they must not bounce to /login.
+                 "/manifest.webmanifest", "/sw.js"}
 
 # Path prefixes that should answer 401 JSON (API-shaped) rather than redirect
 # to /login when unauthenticated. Overlay route modules may append their own

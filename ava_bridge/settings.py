@@ -22,7 +22,9 @@ See docs/PACKAGING_PLAN.md.
 """
 from __future__ import annotations
 
+import copy as _copy
 import os
+import re as _re
 import secrets as _secrets
 from pathlib import Path
 
@@ -238,6 +240,51 @@ def secret(name: str, env: str | None = None, generate: bool = False,
     return None
 
 
+def _safe_backend_id(bid: str) -> str:
+    """Filesystem-safe form of a user-supplied backend id (secrets filename)."""
+    return _re.sub(r"[^a-z0-9_-]", "", (bid or "").strip().lower())[:48]
+
+
+def backend_key(backend_id: str) -> str | None:
+    """Per-backend API key from the secrets store (`secrets/<id>.key`), written by
+    the Hub's model manager and resolved by router_app.load_backends. Keeps cloud
+    keys out of ava.yaml while still reaching the router. None if absent/empty."""
+    bid = _safe_backend_id(backend_id)
+    if not bid:
+        return None
+    p = Path(secrets_dir()) / f"{bid}.key"
+    if p.is_file():
+        try:
+            return p.read_text(encoding="utf-8").strip() or None
+        except OSError:
+            return None
+    return None
+
+
+def write_backend_key(backend_id: str, key: str) -> None:
+    """Store a per-backend API key 0600 under `secrets/<id>.key`."""
+    bid = _safe_backend_id(backend_id)
+    if not bid:
+        return
+    os.makedirs(secrets_dir(), exist_ok=True)
+    p = Path(secrets_dir()) / f"{bid}.key"
+    p.write_text(key, encoding="utf-8")
+    os.chmod(p, 0o600)
+
+
+def delete_backend_key(backend_id: str) -> None:
+    """Remove a per-backend key file if present (best-effort)."""
+    bid = _safe_backend_id(backend_id)
+    if not bid:
+        return
+    p = Path(secrets_dir()) / f"{bid}.key"
+    try:
+        if p.is_file():
+            p.unlink()
+    except OSError:
+        pass
+
+
 def _deep_merge(base: dict, patch: dict) -> dict:
     for k, v in patch.items():
         if isinstance(v, dict) and isinstance(base.get(k), dict):
@@ -275,6 +322,27 @@ def save_patch(patch: dict) -> dict:
     return merged
 
 
+def current_config() -> dict:
+    """A deep copy of the live config for callers that will mutate it and then
+    persist with save_config (e.g. deleting a backend — a merge can't express a
+    removal)."""
+    return _copy.deepcopy(_CFG)
+
+
+def save_config(cfg: dict) -> dict:
+    """Persist a FULL config dict to ava.yaml and refresh the in-process copy.
+    The low-level primitive for edits that must delete keys (which save_patch's
+    deep-merge cannot). Callers typically start from current_config()."""
+    if yaml is None:
+        raise RuntimeError("PyYAML is required to write ava.yaml")
+    os.makedirs(CONFIG_PATH.parent, exist_ok=True)
+    CONFIG_PATH.write_text(
+        yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    global _CFG
+    _CFG = cfg
+    return cfg
+
+
 def role_backend(role: str) -> str | None:
     """Resolve a logical model role (`inference.roles.<role>`: chat / fast /
     embed / …) to a declared backend id, falling back to `inference.primary`.
@@ -289,3 +357,16 @@ def role_backend(role: str) -> str | None:
 def as_dict() -> dict:
     """The loaded ava.yaml (for `ava doctor` / debugging)."""
     return dict(_CFG)
+
+
+# Bridge a UI-saved cloud key (secrets/inference_key, written by the first-run
+# wizard / single-backend save) into the env the router + direct chat actually
+# read (AVA_INFERENCE_KEY). Without this, a cloud brain configured from the
+# browser saves a key that never reaches load_backends. setdefault => a real env
+# var or .env entry still wins. Per-backend keys use backend_key() instead.
+try:
+    _legacy_key = secret("inference_key")
+    if _legacy_key:
+        os.environ.setdefault("AVA_INFERENCE_KEY", _legacy_key)
+except Exception:  # noqa: BLE001 — never let secret probing break boot
+    pass

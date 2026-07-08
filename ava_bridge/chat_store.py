@@ -120,6 +120,22 @@ def history_for(cid: str, limit: int = 20) -> list[dict]:
     return [{"role": m.get("role"), "content": m.get("content")} for m in msgs[-limit:]]
 
 
+def recent_messages(since_ts: float, limit: int = 200) -> list[dict]:
+    """User/assistant messages newer than since_ts across ALL chats, oldest
+    first — the memory distiller's feed (ava_bridge/learning.py)."""
+    out = []
+    with state.chats_lock:
+        for c in state.chats.values():
+            for m in c.get("messages", []):
+                ts = m.get("ts", 0)
+                if ts > since_ts and m.get("role") in ("user", "assistant") \
+                        and (m.get("content") or "").strip():
+                    out.append({"role": m["role"], "content": m["content"],
+                                "ts": ts, "chat_id": c.get("id", "")})
+    out.sort(key=lambda m: m["ts"])
+    return out[-limit:]
+
+
 def _chat_summary(c: dict) -> dict:
     return {"id": c["id"], "title": c.get("title") or "New chat",
             "updated": c.get("updated", 0), "count": len(c.get("messages", []))}

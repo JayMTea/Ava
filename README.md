@@ -27,8 +27,10 @@ to *your* apps, and answers only to you.
 - **Wrap any MCP server in an egress policy.** Plug into the whole MCP ecosystem; tools are discovered live, and the agent reaches them only through two policed routes.
 - **It edits its own code.** Source changes land as git commits; by default every change waits for your approval (`code.approval`).
 - **It studies itself.** Periodic local-first analysis of its own activity parks improvement proposals for your sign-off; nothing self-applies.
+- **It remembers — and you hold the eraser.** Long-term memory distilled from your chats and uploads, recalled when relevant, every recall audit-logged; view, correct, delete, or export all of it in the Hub ([docs/MEMORY.md](docs/MEMORY.md)).
 - **See everything.** A live Command Center: throughput, cost and energy, jobs, alerts.
 - **Set up from the browser.** A guided Setup hub: pick a model, provision the agent, wire in apps, enroll your voice. No terminal required.
+- **Take it with you.** The web app installs to your phone's home screen as a PWA ([docs/MOBILE.md](docs/MOBILE.md)).
 - **Private by default.** Runs on your hardware; nothing leaves unless you say so.
 
 ## What is Ava?
@@ -125,6 +127,9 @@ locked to a single cloud vendor.
 cd deploy && docker compose --profile gpu up -d   # or: cpu | cloud | full
 # open http://localhost:8096 — the first screen prompts you to set an admin password
 ```
+
+**On a Mac (Apple Silicon)?** Run bare metal, not Docker (Docker Desktop can't use
+the Apple GPU): see [Apple Silicon (Mac mini / Studio)](deploy/README.md#apple-silicon-mac-mini--studio).
 
 From there the **Setup hub** (in the app) walks you through the rest: detect
 hardware, download a fitting model, provision the agent, wire in your apps,

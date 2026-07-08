@@ -363,9 +363,88 @@ Reply with ONLY a JSON list of objects with those keys."""
         return cycle
 
 
+class MemoryDistiller:
+    """Distills durable facts about the owner from recent chat history into
+    the long-term memory store (ava_bridge/memory_store.py).
+
+    Unlike the code/chat learners this produces memories, not approval
+    proposals — its governance surface is the Hub Memory tab (view / edit /
+    delete / export) plus a `memory_distill` audit event per cycle. A kv
+    cursor in memory.db marks how far distillation has read, so each cycle
+    only sees new messages."""
+
+    KV_KEY = "distill_last_ts"
+    MAX_FACTS = 8
+    MIN_MESSAGES = 4  # below this there's no signal worth an LLM call
+
+    @staticmethod
+    def _transcript(msgs: list[dict], per_msg: int = 500, total: int = 6000) -> str:
+        lines = []
+        for m in msgs:
+            who = "User" if m["role"] == "user" else "Ava"
+            lines.append(f"{who}: {m['content'][:per_msg]}")
+        text = "\n".join(lines)
+        return text[-total:]
+
+    @staticmethod
+    def _parse_facts(text: str) -> list[str]:
+        match = re.search(r"\[.*\]", text, re.DOTALL)
+        if not match:
+            return []
+        try:
+            raw = json.loads(match.group())
+        except (ValueError, TypeError):
+            return []
+        return [s.strip()[:300] for s in raw
+                if isinstance(s, str) and s.strip()]
+
+    async def run_cycle(self) -> int:
+        """One distillation pass over unseen chat messages. Returns the number
+        of facts stored (0 on no signal / no LLM / nothing durable)."""
+        from . import chat_store, memory_store
+        if not config.MEMORY_ENABLED:
+            return 0
+        last = float(memory_store.kv_get(self.KV_KEY, "0") or 0)
+        msgs = chat_store.recent_messages(last)
+        if len(msgs) < self.MIN_MESSAGES:
+            return 0
+
+        prompt = f"""Below is a recent conversation log between a user and their assistant.
+
+{self._transcript(msgs)}
+
+Extract facts about the USER worth remembering long-term: stable preferences,
+ongoing projects, their setup/hardware, people or places they mention
+recurringly, decisions they made. Only durable facts — skip one-off tasks,
+small talk, and anything the assistant said about itself. Write each fact as
+one self-contained sentence.
+
+Reply with ONLY a JSON array of strings (max {self.MAX_FACTS}), or [] if
+nothing qualifies."""
+
+        text = await _complete_local(prompt, 800)
+        if not text:
+            text = await _complete_anthropic(prompt, 800)
+        if not text:
+            return 0  # keep the cursor — retry these messages next cycle
+
+        n = 0
+        for fact in self._parse_facts(text)[:self.MAX_FACTS]:
+            if memory_store.add("fact", fact, source="distilled") is not None:
+                n += 1
+        # Advance the cursor now that an LLM actually looked at these messages
+        # (even if it found nothing durable).
+        memory_store.kv_set(self.KV_KEY, str(msgs[-1]["ts"]))
+        if n:
+            from . import audit
+            audit.record("memory_distill", added=n, messages=len(msgs))
+        return n
+
+
 # Singleton learner instances
 code_learner = CodeLearner()
 chat_learner = ChatLearner()
+memory_distiller = MemoryDistiller()
 
 
 # --------------------------------------------------------------------------- #
@@ -394,6 +473,10 @@ async def run_all_cycles() -> dict:
         summary["chat_proposals"] = len(cyc.get("proposals", []))
     except Exception:  # noqa: BLE001
         summary["chat_error"] = True
+    try:
+        summary["memory_facts"] = await memory_distiller.run_cycle()
+    except Exception:  # noqa: BLE001
+        summary["memory_error"] = True
     return summary
 
 

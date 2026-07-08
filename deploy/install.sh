@@ -26,6 +26,34 @@ fi
 say() { printf '\033[34m==>\033[0m %s\n' "$*"; }
 die() { printf '\033[31mError:\033[0m %s\n' "$*" >&2; exit 1; }
 
+# Apple Silicon: Docker Desktop on macOS can't pass the Apple GPU through, so the
+# Docker path runs inference CPU-only — slow, and it wastes a Mac's unified memory
+# (the whole point of a Mac Studio). Steer to the Metal-accelerated bare-metal path
+# unless the user explicitly opts into Docker with AVA_FORCE_DOCKER=1.
+if [ "$(uname -s 2>/dev/null || true)" = "Darwin" ]; then
+  say "Detected macOS ($(uname -m 2>/dev/null || echo '?'))."
+  if [ "${AVA_FORCE_DOCKER:-0}" != "1" ]; then
+    cat <<EOF
+On Apple Silicon, run Ava bare-metal so inference uses the Metal GPU + unified
+memory (Docker Desktop can't pass the GPU through, so its inference is CPU-only):
+
+  cd "${AVA_DIR}"
+  python3 -m venv .venv && . .venv/bin/activate
+  pip install -r requirements.txt
+  ./bin/ava setup && ./bin/ava doctor && ./bin/ava up
+
+Then install a native engine and pull a model (do NOT use the vLLM default):
+  brew install ollama && ollama serve
+  ollama pull llama3.1:70b        # sized to your Mac; see config.example.yaml
+Full recipe: deploy/README.md, "Apple Silicon (Mac mini / Studio)".
+
+To use the (CPU-only) Docker path anyway, re-run with AVA_FORCE_DOCKER=1.
+EOF
+    exit 0
+  fi
+  say "AVA_FORCE_DOCKER=1 — proceeding with the CPU-only Docker path on macOS."
+fi
+
 command -v docker >/dev/null 2>&1 || die "Docker is required — https://docs.docker.com/get-docker/"
 docker compose version >/dev/null 2>&1 || die "Docker Compose v2 is required."
 

@@ -51,7 +51,7 @@
    <div id="backendOpts"></div>
    <div id="localFields" style="display:none">
      <label>Engine</label>
-     <select id="engine"><option value="vllm">vLLM</option><option value="ollama">Ollama</option><option value="llamacpp">llama.cpp</option></select>
+     <select id="engine"><option value="ollama">Ollama</option><option value="mlx">MLX (Apple Silicon)</option><option value="lmstudio">LM Studio</option><option value="llamacpp">llama.cpp</option><option value="vllm">vLLM (NVIDIA)</option></select>
      <label>Base URL</label><input id="baseUrl" value="http://127.0.0.1:11434/v1">
      <label>Model</label><input id="model" placeholder="llama3.2">
    </div>
@@ -88,14 +88,15 @@ function go(n){document.querySelectorAll('.step').forEach(e=>e.classList.toggle(
 async function j(u,o){const r=await fetch(u,o);return r.json();}
 (async()=>{
   const h=await j('/api/setup/hardware');
-  document.getElementById('hw').innerHTML = h.fit_gb
+  document.getElementById('hw').innerHTML = (h.fit_gb
     ? `<b>${h.gpu||'Local compute'}</b> · ${h.fit_gb} GB usable (${h.source||'detected'})<br>Recommended tier: <b>${h.tier}</b> — ${h.hint}`
-    : `No local GPU pool detected — a cloud key is the easy path.<br><small>${h.hint||''}</small>`;
+    : `No local GPU pool detected — a cloud key is the easy path.<br><small>${h.hint||''}</small>`)
+    + (h.note ? `<br><small>${h.note}</small>` : '');
   const b=await j('/api/setup/backends');
   const opts=document.getElementById('backendOpts');
   const mk=(id,title,sub)=>`<div class="opt" data-m="${id}"><b>${title}</b><small>${sub}</small></div>`;
   opts.innerHTML =
-    mk('local','Local engine', b.ollama?'Ollama detected on :11434':(b.vllm?'vLLM detected on :8002':'point at a running local engine'))
+    mk('local','Local engine', b.ollama?'Ollama detected on :11434':(b.vllm?'vLLM detected on :8002':'no local engine yet — install Ollama (ollama.com) or LM Studio, then pull a model'))
     + mk('cloud','Cloud API key','use any OpenAI-compatible provider');
   opts.querySelectorAll('.opt').forEach(o=>o.onclick=()=>{
     opts.querySelectorAll('.opt').forEach(x=>x.classList.remove('sel'));o.classList.add('sel');
