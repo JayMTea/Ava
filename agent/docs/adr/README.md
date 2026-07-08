@@ -1,14 +1,14 @@
 # Architecture Decision Records (ADRs)
 
 This directory captures **significant, hard-to-reverse decisions** about Ava's
-architecture. Each ADR is immutable once accepted — to change a decision, write a
-new ADR that supersedes the old one (and link them).
+architecture. Each ADR is immutable once accepted: to change a decision, write a
+new ADR that supersedes the old one, and link them.
 
 ## Why ADRs
 
 Ava makes many reversible-but-significant choices (which engine, which boundary,
-which layout tool). Capturing the *context* and *consequences* — not just the
-outcome — means future-you (or a new contributor) understands *why*, not just
+which layout tool). Capturing the *context* and *consequences*, not just the
+outcome, means future-you (or a new contributor) understands *why*, not just
 *what*.
 
 ## Format

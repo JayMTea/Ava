@@ -1,14 +1,14 @@
 # Example device app
 
-A complete, runnable **third-party device connector** — the copy-paste starting
+A complete, runnable **third-party device connector**: the copy-paste starting
 point for wiring your own hardware (Arduino, Nicla, Portenta, ESP32, a smart-home
-hub, any sensor) to Ava. It shows **both directions** in ~150 lines of stdlib
-Python:
+hub, any sensor) to Ava. It shows **both directions** in about 150 lines of
+stdlib Python:
 
-- **Pull** — Ava reads/commands your devices on demand. The app exposes an
+- **Pull**: Ava reads and commands your devices on demand. The app exposes an
   MCP-style tool server (`GET /tools`, `POST /call`) that Ava bridges live via the
   connector's `actions.discover` block. Tools here: `read_temperature`, `set_relay`.
-- **Push** — your app hands Ava an event when *it* decides (a `motion` event, a
+- **Push**: your app hands Ava an event when *it* decides (a `motion` event, a
   `temperature` reading), by POSTing to `/api/connectors/<id>/events` with a
   per-connector bearer token.
 
@@ -36,9 +36,9 @@ ava device events device-demo       # watch the pushed motion + readings arrive
 ```
 
 Ask Ava *"read the demo temperature"* (pull) or *"did anything happen with my
-devices?"* (she reads the pushed events via the `device_events` tool). Pushed
-events also surface live on the dashboard (a `device.event` SSE frame), and the
-`notify`/`warn` motion event raises a dashboard alert.
+devices?"* (the agent reads the pushed events via the `device_events` tool).
+Pushed events also surface live on the dashboard (a `device.event` SSE frame),
+and the `notify`/`warn` motion event raises a dashboard alert.
 
 See [docs/DEVICE_CONNECTORS.md](../../docs/DEVICE_CONNECTORS.md) for the full
 contract.

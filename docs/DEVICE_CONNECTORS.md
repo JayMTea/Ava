@@ -1,7 +1,7 @@
-# Device Connectors — wire your own sensing devices to Ava
+# Device connectors: wire your own sensing devices to Ava
 
-> Bring your **own** app for your **own** hardware — Arduino, Nicla, Portenta,
-> ESP32, a smart-home hub, any sensor — and connect it to Ava by dropping in a
+> Bring your **own** app for your **own** hardware (Arduino, Nicla, Portenta,
+> ESP32, a smart-home hub, any sensor) and connect it to Ava by dropping in a
 > folder. **No edits to Ava's code, and no device protocols baked into Ava.**
 
 Ava deliberately does **not** speak serial, BLE, MQTT, Zigbee, Matter, or any
@@ -15,8 +15,8 @@ directions:
 
 A **device connector** is just a normal [connector](CONNECTOR_SDK.md) whose
 `connector.yaml` adds an `ingest:` block (push) and usually an `actions.discover`
-block (pull). Everything else in the Connector SDK — health probe, left-rail UI,
-egress policy — still applies.
+block (pull). Everything else in the Connector SDK (health probe, left-rail UI,
+egress policy) still applies.
 
 ---
 
@@ -37,8 +37,8 @@ ava device events greenhouse    # events as they arrive
 ```
 
 A complete runnable example is in [`examples/device-app/`](../examples/device-app/)
-(both directions, ~150 lines, stdlib only). Copy it, replace the faked device I/O
-with yours.
+(both directions, about 150 lines, stdlib only). Copy it, then replace the faked
+device I/O with yours.
 
 ---
 
@@ -79,9 +79,9 @@ egress:
 
 ---
 
-## Pull — Ava reads & commands your devices
+## Pull: Ava reads and commands your devices
 
-Your app exposes the same tiny MCP-style contract as
+Your app exposes the same small MCP-style contract as
 [`examples/hello-app/`](../examples/hello-app/):
 
 ```
@@ -89,8 +89,8 @@ GET  /tools                    -> {"tools": [ {name, description, inputSchema}, 
 POST /call {name, arguments}   -> {"text": "..."}
 ```
 
-Ava discovers those tools live (via `actions.discover`) and her agent calls them
-when the user asks — *"what's the greenhouse temperature?"*, *"turn on the pump"*.
+Ava discovers those tools live (via `actions.discover`) and the agent calls them
+when the user asks: *"what's the greenhouse temperature?"*, *"turn on the pump"*.
 This path is unchanged from the Connector SDK; see [CONNECTOR_SDK.md §5](CONNECTOR_SDK.md).
 
 To also generate the egress allow-list so the sandboxed agent may reach the bridge
@@ -103,7 +103,7 @@ cd agent && ./install.sh                     # deploy into the sandbox
 
 ---
 
-## Push — your app hands Ava an event
+## Push: your app hands Ava an event
 
 When your app decides something happened, it POSTs to Ava:
 
@@ -123,10 +123,10 @@ Content-Type: application/json
 
 Returns `{ "ok": true, "seq": N }`. What Ava does with it:
 
-- **Stores** it in `${AVA_LOGS}/devices/<id>.jsonl` (bounded, self-managing — no
-  external database), so it survives restarts and Ava can answer *"did anything
-  happen?"*.
-- **Surfaces it live** on the dashboard — every event rides the ops SSE stream as
+- **Stores** it in `${AVA_LOGS}/devices/<id>.jsonl` (bounded and self-managing,
+  with no external database), so it survives restarts and Ava can answer *"did
+  anything happen?"*.
+- **Surfaces it live** on the dashboard: every event rides the ops SSE stream as
   a `device.event` frame (a toast).
 - For **`notify: true`** or **`severity` warn/critical**, also raises a short-lived
   entry in the dashboard's **active alerts** panel.
@@ -137,27 +137,27 @@ Returns `{ "ok": true, "seq": N }`. What Ava does with it:
 
 Each connector has its own inbound **bearer token**, derived from Ava's root
 secret (`HMAC(root, "ava-ingest:<id>")`). Print it with `ava device token <id>`.
-It is deliberately **not** Ava's internal tool token — an app that can push events
+It is deliberately **not** Ava's internal tool token: an app that can push events
 **cannot** reach Ava's `/internal/*` tool surface. Rotating the connector id
 rotates the token. Keep it secret; treat it like a password.
 
-> **Direction of the "notification".** The *decision* to notify is your app's —
-> your device logic owns when to fire. Ava is the *delivery surface*: it receives
-> the event and shows it to the user. (Proactive **voice** announcement isn't wired
-> in v1; events surface in the UI and to the agent. The `device.event` frame is the
-> seam a future release can hook TTS onto.)
+> **Who decides to notify.** The *decision* to notify is your app's; your device
+> logic owns when to fire. Ava is the *delivery surface*: it receives the event
+> and shows it to the user. (Proactive **voice** announcement isn't wired in v1;
+> events surface in the UI and to the agent. The `device.event` frame is the seam
+> a future release can hook TTS onto.)
 
 ---
 
 ## What Ava does NOT do
 
-- No serial/BLE/MQTT/Firmata/Matter/Zigbee transports, and no shipped firmware —
-  your app owns all device I/O, so this stays general for *any* device.
-- No automation/rules engine — the "if this then that" lives in your app (which is
-  also what decides when to push a `notify` event).
+- No serial/BLE/MQTT/Firmata/Matter/Zigbee transports, and no shipped firmware.
+  Your app owns all device I/O, so this stays general for *any* device.
+- No automation or rules engine. The "if this then that" lives in your app,
+  which is also what decides when to push a `notify` event.
 
-Smart-home gear (Home Assistant, etc.) fits the same contract: run a small app that
-bridges your hub's API to Ava as a device connector.
+Smart-home gear (Home Assistant, etc.) fits the same contract: run a small app
+that bridges your hub's API to Ava as a device connector.
 
 ---
 

@@ -1,4 +1,4 @@
-# Hardware abstraction layer — on-device validation
+# Hardware abstraction layer: on-device validation
 
 `ava_bridge/hwinfo.py` is the single place the app reads hardware (memory, GPU),
 consumed by the model-fit router (`model_fit.py` → `ava_router.py /fit`) and the
@@ -16,7 +16,7 @@ can only be trusted after running it on the real device. This is that checklist.
 | CPU-only / other | system RAM (psutil→/proc) | None | system RAM | verified logic |
 | No psutil, non-Linux | none → gating disabled | None | none | verified logic (degrades safely) |
 
-## Run this on an Apple-Silicon Mac
+## Run this on an Apple Silicon Mac
 
 ```bash
 pip install -r requirements.txt          # pulls psutil; nvidia-ml-py stays inactive
@@ -24,38 +24,41 @@ python3 -c "from ava_bridge import hwinfo, json; print(__import__('json').dumps(
 ```
 
 **Expect:**
+
 - `platform` == `"darwin-apple"`.
 - `fit_memory.source` == `"system-psutil"`, `total_gb` ≈ the Mac's installed RAM
   (16 / 24 / 32 / 64 / 128), `free_gb` a plausible live figure.
-- `system_memory` matches `fit_memory` (unified memory → same pool).
+- `system_memory` matches `fit_memory` (unified memory means the same pool).
 - `gpus[0].name` contains the SoC (e.g. "Apple M4 Pro GPU");
-  `util`/`temp_c`/`power_w` are `null` (**expected** — see caveat); `mem_total_gb`
-  equals installed RAM.
+  `util`/`temp_c`/`power_w` are `null` (**expected**; see the caveat below);
+  `mem_total_gb` equals installed RAM.
 - `have.psutil` == true, `have.nvml` == false.
 
 **Then confirm the fit router:**
+
 ```bash
 # with two Ollama models configured per config.example.yaml's Apple example:
 curl -s -H "X-Ava-Router-Token: $AVA_ROUTER_TOKEN" localhost:8010/fit | python3 -m json.tool
 ```
-- `gating` == `"enabled"` (NOT "disabled" — that would mean memory couldn't be read).
+
+- `gating` == `"enabled"` (NOT "disabled"; that would mean memory could not be read).
 - `mem_source` == `"system-psutil"`, `platform` == `"darwin-apple"`.
 - Each backend shows `local: true` and a `serve_reason` referencing the live figure.
-- Load a large model + start something memory-heavy, re-hit `/fit`: the big
+- Load a large model, start something memory-heavy, and re-hit `/fit`: the big
   backend should flip to `serve_ok: false` ("SHED") while the small one stays true.
 
 ## Known caveat (by design, not a bug)
 
-Apple GPU **utilisation / temperature / power** have no unprivileged API:
+Apple GPU **utilization, temperature, and power** have no unprivileged API:
 `powermetrics` needs `sudo`, and Metal performance counters are private. The HAL
 returns `null` for these rather than fabricating numbers, so the Mac dashboard
-shows memory + CPU reliably and dashes for GPU util/temp/power. Wiring
+shows memory and CPU reliably, and dashes for GPU util/temp/power. Wiring
 `sudo powermetrics --samplers gpu_power` (or a Metal helper) is a possible future
-provider in `hwinfo._apple_gpus()` — deliberately out of scope here.
+provider in `hwinfo._apple_gpus()`, deliberately out of scope here.
 
 ## Adding a new accelerator later
 
 Write one provider in `hwinfo.py` (a `_xxx_gpus()` returning `list[GpuInfo]` and,
 if it has dedicated memory, a branch in `vram_mem()`), then add its class to
 `platform_id()` / `gpus()`. Nothing in `model_fit.py`, `ava_router.py`, or
-`hardware.py` changes — that is the point of the HAL.
+`hardware.py` changes; that is the point of the HAL.

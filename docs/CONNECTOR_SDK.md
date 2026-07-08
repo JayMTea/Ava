@@ -1,9 +1,9 @@
 # Ava Connector SDK
 
-> Add your own app to Ava by dropping in a folder — **no edits to Ava's code**.
-> A connector gives your app a left-rail tile, an embedded (or native) UI, a
-> health row on the Ops dashboard, a performance source, live agent tools, and an
-> auto-generated egress policy — all derived from one `connector.yaml`.
+> Add your own app to Ava by dropping in a folder, with **no edits to Ava's
+> code**. A connector gives your app a left-rail tile, an embedded (or native)
+> UI, a health row on the Ops dashboard, a performance source, live agent tools,
+> and an auto-generated egress policy, all derived from one `connector.yaml`.
 
 This is the productization contract: fork Ava, connect **your** apps, ship.
 
@@ -13,12 +13,12 @@ This is the productization contract: fork Ava, connect **your** apps, ship.
 
 Manifests are discovered from two roots (the second overrides the first by id):
 
-1. **Built-in** — `<repo>/connectors/<id>/connector.yaml` (first-party, shipped)
-2. **User** — `$AVA_HOME/connectors/<id>/connector.yaml` (yours)
+1. **Built-in**: `<repo>/connectors/<id>/connector.yaml` (first-party, shipped)
+2. **User**: `$AVA_HOME/connectors/<id>/connector.yaml` (yours)
 
-`$AVA_HOME` defaults to the repo root; in Docker it's the mounted data volume.
+`$AVA_HOME` defaults to the repo root; in Docker it is the mounted data volume.
 Drop a folder in, restart Ava (or `ava up`), done. Folders starting with `_`/`.`
-are ignored (that's why `_template/` is skipped).
+are ignored (that is why `_template/` is skipped).
 
 Scaffold one:
 
@@ -76,8 +76,8 @@ actions:                      # OPTIONAL — agent tools (see §5)
 ```
 
 `${VAR}` references expand from connector vars (`AVA_HOME`, `AVA_LOGS`,
-`AVA_DATA`, `ROOT`) and then the process
-environment — so `${MYCRM_API_URL}` resolves from Ava's config/env.
+`AVA_DATA`, `ROOT`) and then the process environment, so `${MYCRM_API_URL}`
+resolves from Ava's config or env.
 
 ---
 
@@ -89,20 +89,22 @@ the app body:
 
 | `embed` | Who it's for | How Ava renders it |
 |---|---|---|
-| **`iframe`** | **Third-party apps** (the common case) | Ava reverse-proxies your app's web UI **same-origin** under `/apps/<id>/` and shows it in an `<iframe>`. Because it's same-origin, your app inherits Ava's session cookie — **no separate login**. Ava's theme is passed as `?theme=light\|dark`. |
+| **`iframe`** | **Third-party apps** (the common case) | Ava reverse-proxies your app's web UI **same-origin** under `/apps/<id>/` and shows it in an `<iframe>`. Because it's same-origin, your app inherits Ava's session cookie, so there is **no separate login**. Ava's theme is passed as `?theme=light\|dark`. |
 | **`native`** | First-party React views | Renders `NATIVE_VIEWS[view]`, provided by an optional gitignored overlay (`frontend/src/overlay/views/*`). Reserved for apps bundled into the frontend. |
 | **`none`** | Apps with tools but no UI | Ava renders a generic **action console** listing the app's agent actions. |
 
-### Why same-origin matters (the SSO trick)
+### Why same-origin matters
+
 Ava's session cookie is `httpOnly` + `SameSite=Lax` + host-only, so a raw
 `http://127.0.0.1:9000` iframe would receive **no** cookie. Ava proxies your app
 under its **own** origin (`/apps/<id>/`) so the cookie flows and your app is
 authenticated for free. You never handle Ava's auth.
 
 ### iframe security
+
 The iframe is sandboxed (`allow-scripts allow-forms allow-same-origin`). Because
-the proxy makes it same-origin, treat the embedded app as trusted-ish; review
-third-party app code before enabling it, as you would any plugin.
+the proxy makes it same-origin, treat the embedded app as trusted code: review a
+third-party app before enabling it, as you would any plugin.
 
 ---
 
@@ -115,18 +117,20 @@ injected server-side (the browser never sees the token). `base` defaults to the
 `service.probe` host.
 
 > **First-party note:** an app that also streams **media** (arbitrary non-API
-> paths) may keep a dedicated full reverse-proxy instead — e.g. a media app with
-> its own `/<app>/*` proxy. The generic `/apps/<id>/api` proxy is API-only.
+> paths) may keep a dedicated full reverse-proxy instead, for example a media app
+> with its own `/<app>/*` proxy. The generic `/apps/<id>/api` proxy is API-only.
 
 ---
 
 ## 5. Agent tools
 
 Two shapes, both reached through **one** generic bridge route
-(`/internal/connector/<id>/<action>`) — no bespoke bridge code:
+(`/internal/connector/<id>/<action>`), with no bespoke bridge code:
 
 ### Declared (`actions.static`)
+
 Each becomes a generated tool calling your REST API through the proxy:
+
 ```yaml
 actions:
   static:
@@ -135,17 +139,20 @@ actions:
       path: "/api/leads/{owner}"   # {tmpl} path params are filled from args
       input: { owner: {type: string}, name: {type: string} }
 ```
+
 Generate the `.mjs` tools: `ava connector tools mycrm --write`.
 
 ### Discovered (`actions.discover`)
-Bridges an existing **MCP-style tool server** live — Ava GETs `list` for the tool
-schemas and POSTs `call` `{name, arguments}` to invoke. Great for wrapping a
-FastMCP/tool server without re-declaring each tool. Reserved bridge actions
+
+Bridges an existing **MCP-style tool server** live: Ava GETs `list` for the tool
+schemas and POSTs `call` `{name, arguments}` to invoke. This wraps a
+FastMCP-style tool server without re-declaring each tool. Reserved bridge actions
 `__tools` and `__call` serve this.
 
-### MCP servers (`mcp:`) — wrap any Model Context Protocol server
-The headline path into the ~20k-server MCP ecosystem. Point the manifest at any
-real MCP server and its tools are discovered and bridged live:
+### MCP servers (`mcp:`): wrap any Model Context Protocol server
+
+The headline path into the roughly 20,000-server MCP ecosystem. Point the
+manifest at any real MCP server and its tools are discovered and bridged live:
 
 ```yaml
 mcp:
@@ -159,31 +166,32 @@ mcp:
   # network: bridge                     # or `none` to cut the server off the net
 ```
 
-**The security pitch — an egress policy around every MCP server.** Ava's
-sandboxed agent never connects to the MCP server: the bridge speaks MCP
+**The security model: an egress policy around every MCP server.** Ava's
+sandboxed agent never connects to the MCP server. The bridge speaks MCP
 (JSON-RPC over Streamable HTTP or stdio) server-side, and the agent can reach
 only the two policed bridge routes (`__tools`/`__call`) that the connector's
-auto-generated egress policy allow-lists — and nothing else. A malicious or
+auto-generated egress policy allow-lists, and nothing else. A malicious or
 compromised MCP server never gains a direct line into the sandbox, and the
 sandbox never gains a direct line out.
 
 **Container isolation for stdio servers (`sandbox: docker`).** A `command:`
-server (e.g. `npx …`) is code you install; by default it runs as you on the
-host, the same trust model as every MCP desktop client. Set `sandbox: docker`
-and Ava runs it inside a throwaway container instead — `--read-only`, a tmpfs
+server (for example `npx …`) is code you install; by default it runs as you on
+the host, the same trust model as every MCP desktop client. Set `sandbox: docker`
+and Ava runs it inside a throwaway container instead: `--read-only`, a tmpfs
 for scratch, CPU/memory/pid caps, `no-new-privileges`, and **no host filesystem
-mounts** — so an untrusted server can't touch your files. Set `network: none`
+mounts**, so an untrusted server cannot touch your files. Set `network: none`
 to also cut its network. The Setup → Connect an app GUI offers this as a
 one-click toggle, defaulted on when Docker is available.
 
 **Per-action approval (`confirm`).** Gate a sensitive tool behind your explicit
 OK: put `confirm: true` on a static action, or at the connector level use
-`confirm: true` (every action) / `confirm: [tool_a, tool_b]`. When the agent
+`confirm: true` (every action) or `confirm: [tool_a, tool_b]`. When the agent
 calls a gated action the call **pauses**, an approval prompt appears with the
-arguments, and the action runs only if you approve (or is refused on deny /
+arguments, and the action runs only if you approve (or is refused on deny or
 timeout). Every request and decision is written to the audit ledger.
 
 ### Egress
+
 `ava connector policies <id> --write` renders the connector's egress into
 `agent/policies/generated/<id>.yaml`; `cd agent && ./install.sh` deploys it into
 the sandbox. The generic proxy routes for your actions (and `__tools`/`__call`)
@@ -206,7 +214,7 @@ From that one manifest, with nothing hand-maintained in Ava's core:
   them as deterministic cards; app-relative URLs resolve via `/apps/<id>`)
 - **Ops job attribution** ← `jobs` (your app's active jobs appear next to the
   GPU graph so spikes are self-explanatory)
-- **Loaded-model roles** ← `model_hints` (label what a checkpoint is FOR)
+- **Loaded-model roles** ← `model_hints` (label what a checkpoint is for)
 
 The `chat_pickup` / `jobs` / `model_hints` field shapes are documented inline in
 [`connectors/_template/connector.yaml`](../connectors/_template/connector.yaml).
@@ -216,16 +224,18 @@ The `chat_pickup` / `jobs` / `model_hints` field shapes are documented inline in
 ## 7. Worked example
 
 [`examples/hello-app/`](../examples/hello-app/) is a complete, runnable
-third-party connector (iframe UI + discovered tools + health) in ~150 lines. Copy
-it into `$AVA_HOME/connectors/` and watch it appear — the acceptance test for
-"fork Ava, add your app, zero source edits."
+third-party connector (iframe UI, discovered tools, and a health probe) in about
+150 lines. Copy it into `$AVA_HOME/connectors/` and watch it appear. It is the
+acceptance test for "fork Ava, add your app, zero source edits."
 
 ## 8. First-party vs third-party tiers
 
 - **Third-party** (you): `embed: iframe` (your own UI) or `embed: none` (tools
   only), reached entirely through the generic proxy. This is the supported,
-  no-core-edit path. The first-party apps were migrated onto exactly this path as the dogfood.
-- **First-party native** (in-repo): a React view in `NATIVE_VIEWS` + optionally a
-  dedicated proxy for media. Reserved for apps shipped inside Ava's bundle.
+  no-core-edit path. The first-party apps were migrated onto exactly this path
+  as the dogfood.
+- **First-party native** (in-repo): a React view in `NATIVE_VIEWS`, plus
+  optionally a dedicated proxy for media. Reserved for apps shipped inside
+  Ava's bundle.
 
 See also [PACKAGING_PLAN.md §5.3](PACKAGING_PLAN.md).

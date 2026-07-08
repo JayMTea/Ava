@@ -1,8 +1,8 @@
-# Hello App — example Ava connector
+# Hello App: an example Ava connector
 
 A minimal, self-contained third-party app that shows the whole integration
 contract: a **left-rail tile**, an **embedded UI**, a **health probe**, and live
-**agent tools** — all from one `connector.yaml` plus a tiny web server, with **no
+**agent tools**, all from one `connector.yaml` plus a small web server, with **no
 changes to Ava's code**.
 
 ## Run it (the zero-source-edit acceptance test)
@@ -17,7 +17,7 @@ cp -r examples/hello-app "$AVA_HOME/connectors/hello"   # $AVA_HOME defaults to 
 # 3. Restart Ava (or `ava up`) and open the web app
 #    -> "Hello App" now appears in the left rail
 #    -> clicking it renders the app's page, embedded same-origin
-#    -> ask Ava: "ping the hello app"  (she discovered its tools)
+#    -> ask Ava: "ping the hello app"  (its tools were discovered live)
 ```
 
 That's it. You edited zero lines of Ava.
@@ -31,12 +31,12 @@ That's it. You edited zero lines of Ava.
 
 ## The contract your app implements
 
-- `GET /health` → `{"ok": true}` — for the dashboard service matrix.
-- `GET /` (+ any UI routes) → your web UI. Read `?theme=light|dark` to match Ava.
+- `GET /health` → `{"ok": true}`, for the dashboard service matrix.
+- `GET /` (plus any UI routes) → your web UI. Read `?theme=light|dark` to match Ava.
 - **Agent tools**, either:
-  - **discovered** — `GET /tools` → `{"tools":[{name,description,inputSchema}]}` and
+  - **discovered**: `GET /tools` → `{"tools":[{name,description,inputSchema}]}` and
     `POST /call {name, arguments}` → `{"text": "..."}` (what this example does), or
-  - **declared** — list them under `actions.static` in the manifest with a
+  - **declared**: list them under `actions.static` in the manifest with a
     `method`/`path`, and Ava calls your REST endpoints directly.
 
 See [../../docs/CONNECTOR_SDK.md](../../docs/CONNECTOR_SDK.md) for the full reference.
