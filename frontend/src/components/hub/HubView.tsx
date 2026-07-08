@@ -493,11 +493,21 @@ function ConnectorRow({ c }: { c: HubConnector }) {
 
 interface ActionDraft { id: string; method: string; path: string; description: string }
 
+// Derive a safe connector id from a human app name, so the user never has to
+// think about slugs: "My Notes App" -> "my-notes-app".
+function slugId(name: string): string {
+  return name.trim().toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-+|-+$)/g, '')
+    .replace(/-{2,}/g, '-')
+    .slice(0, 32);
+}
+const VALID_ID = /^[a-z][a-z0-9_-]{1,31}$/;
+
 function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<'rest' | 'mcp'>('rest');
-  const [id, setId] = useState('');
-  const [label, setLabel] = useState('');
+  const [name, setName] = useState('');
   const [probe, setProbe] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
   const [actions, setActions] = useState<ActionDraft[]>([]);
@@ -508,6 +518,9 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
   const [msg, setMsg] = useState('');
   const [done, setDone] = useState('');
 
+  const id = slugId(name);
+  const validId = VALID_ID.test(id);
+
   const setAction = (i: number, patch: Partial<ActionDraft>) =>
     setActions((a) => a.map((x, j) => (j === i ? { ...x, ...patch } : x)));
 
@@ -515,8 +528,8 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
     setBusy(true); setMsg(''); setDone('');
     try {
       const r = await hub.newConnector({
-        id: id.trim().toLowerCase(),
-        label: label.trim() || undefined,
+        id,
+        label: name.trim() || undefined,
         probe: probe.trim() || undefined,
         base_url: mode === 'rest' ? baseUrl.trim() || undefined : undefined,
         actions: mode === 'rest' ? actions.filter((a) => a.id.trim() && a.path.trim()) : undefined,
@@ -528,14 +541,14 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
       });
       if (!r.ok) { setMsg(r.error || 'could not create connector'); }
       else {
-        setDone(`Created ${r.path}. Now Preview / Generate & deploy its policy below.`);
-        setId(''); setLabel(''); setProbe(''); setBaseUrl(''); setActions([]);
+        setDone(`Created “${name.trim()}”. Now Preview / Generate & deploy its policy below.`);
+        setName(''); setProbe(''); setBaseUrl(''); setActions([]);
         setMcpUrl(''); setMcpCommand(''); setMcpToken('');
         onCreated();
       }
     } catch (e) { setMsg((e as Error).message); }
     setBusy(false);
-  }, [id, label, probe, baseUrl, actions, mode, mcpUrl, mcpCommand, mcpToken, onCreated]);
+  }, [id, name, probe, baseUrl, actions, mode, mcpUrl, mcpCommand, mcpToken, onCreated]);
 
   if (!open) {
     return (
@@ -546,32 +559,44 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
     );
   }
   return (
-    <Panel title="New connector" subtitle="Describe your app; Ava writes the manifest. Actions become agent tools with a matching egress policy — preview both before deploying." right={
+    <Panel title="Connect an app" subtitle="Tell Ava about your app in plain terms — it writes the setup for you. You'll preview the tools and the security policy before anything goes live." right={
       <button className="hub-btn ghost sm" onClick={() => setOpen(false)}>Cancel</button>
     }>
-      <div className="hub-fieldrow">
-        <div className="hub-field"><label>ID (a-z, 0-9, -, _)</label>
-          <input className="hub-input" value={id} onChange={(e) => setId(e.target.value)} placeholder="myapp" /></div>
-        <div className="hub-field"><label>Label</label>
-          <input className="hub-input" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="My App" /></div>
+      <div className="hub-field" style={{ maxWidth: 420 }}>
+        <label>App name</label>
+        <input className="hub-input" value={name} autoFocus
+          onChange={(e) => setName(e.target.value)} placeholder="My Notes App" />
+        {name.trim() && (validId
+          ? <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--muted)', marginTop: 5 }}>
+              Ava will refer to it as <code style={{ color: 'var(--txt)' }}>{id}</code>
+            </div>
+          : <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--warn)', marginTop: 5 }}>
+              Please start the name with a letter (at least 2 characters).
+            </div>)}
       </div>
       <div className="hub-field">
-        <label>What kind of app is this?</label>
+        <label>How does Ava reach it?</label>
         <div className="hub-opts">
           <button className={'hub-opt' + (mode === 'rest' ? ' sel' : '')} onClick={() => setMode('rest')}>
-            <b>REST API</b><small>declare actions; each becomes an agent tool + egress rule</small>
+            <b>It has a web API</b>
+            <small>Most apps. It runs at a URL with endpoints — you'll name what Ava can do with it.</small>
           </button>
           <button className={'hub-opt' + (mode === 'mcp' ? ' sel' : '')} onClick={() => setMode('mcp')}>
-            <b>MCP server</b><small>wrap any Model Context Protocol server — tools discovered live, sandboxed behind an egress policy</small>
+            <b>It's an MCP server</b>
+            <small>A Model Context Protocol tool server. Ava discovers its tools for you, automatically.</small>
           </button>
+        </div>
+        <div className="hub-note" style={{ marginTop: 8 }}>
+          Not sure? Pick <b>It has a web API</b> — that fits almost everything. MCP is a newer
+          standard specifically for AI tool servers; if your app doesn't mention “MCP,” it isn't one.
         </div>
       </div>
 
       <div className="hub-fieldrow">
-        <div className="hub-field"><label>Health probe URL (optional)</label>
+        <div className="hub-field"><label>Health check URL <span style={{ opacity: 0.7 }}>(optional — lets Ava show if it's online)</span></label>
           <input className="hub-input" value={probe} onChange={(e) => setProbe(e.target.value)} placeholder="http://127.0.0.1:9000/health" /></div>
         {mode === 'rest' && (
-          <div className="hub-field"><label>App base URL (where actions are sent)</label>
+          <div className="hub-field"><label>Where does your app run? <span style={{ opacity: 0.7 }}>(its web address)</span></label>
             <input className="hub-input" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="http://127.0.0.1:9000" /></div>
         )}
       </div>
@@ -621,7 +646,7 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
 
       <div className="hub-btn-row">
         <button className="hub-btn" onClick={create}
-          disabled={busy || !id.trim() || (mode === 'mcp' && !mcpUrl.trim() && !mcpCommand.trim())}>
+          disabled={busy || !validId || (mode === 'mcp' && !mcpUrl.trim() && !mcpCommand.trim())}>
           <Icon name="check" />{busy ? 'Creating…' : 'Create connector'}
         </button>
       </div>
