@@ -61,8 +61,8 @@ clone, or point `AVA_REPO` at your fork:
 
 ```bash
 git clone https://github.com/<you>/ava && cd ava/deploy && ./install.sh
-# or standalone:
-AVA_REPO=https://github.com/<you>/ava.git bash -c "$(curl -fsSL https://raw.githubusercontent.com/<you>/ava/main/deploy/install.sh)"
+# or standalone (replace `master` with your fork's default branch or a release tag):
+AVA_REPO=https://github.com/<you>/ava.git bash -c "$(curl -fsSL https://raw.githubusercontent.com/<you>/ava/master/deploy/install.sh)"
 ```
 
 > Note: `ollama`/`vllm`/`gpu-service` are upstream images (override `gpu-service` with
