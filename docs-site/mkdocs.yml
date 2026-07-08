@@ -99,11 +99,6 @@ nav:
           - Two-app split: agent/docs/adr/0002-two-app-split.md
           - Per-tool egress policies: agent/docs/adr/0003-per-tool-egress-policies.md
           - TALA layout engine: agent/docs/adr/0004-tala-layout-engine.md
-  - Project:
-      - Roadmap & packaging: docs/PACKAGING_PLAN.md
-      - Warm-agent mode (design): docs/WARM_AGENT_MODE.md
+  - Reference:
       - Security: SECURITY.md
-      - Contributing: CONTRIBUTING.md
-      - Releasing: docs/RELEASING.md
-      - Changelog: CHANGELOG.md
       - Hardware support: docs/HWINFO_VALIDATION.md
