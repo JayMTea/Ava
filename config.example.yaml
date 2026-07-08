@@ -205,11 +205,19 @@ cost:
 # window into hourly/daily buckets under $AVA_HOME/logs/rollups so month-range
 # charts stay fast. Raw segments are pruned only AFTER they're rolled up, so history
 # is bounded but never lost. Sensible defaults — tune only if you generate a lot.
+# How long accumulated telemetry/history is kept. This is the single retention
+# knob, editable from Setup → System. It bounds BOTH perf rollups and hardware
+# history, so "nothing older than this" holds everywhere the dashboards read.
+data:
+  retention_days: 183      # [AVA_DATA_RETENTION_DAYS] ~6 months. 0 = keep forever.
+
 perf:
   hot_window: 48h          # [AVA_PERF_HOT_WINDOW] recent range served from raw JSONL
   rollup_interval: 1h      # [AVA_PERF_ROLLUP_INTERVAL] how often the in-process rollup runs
-  hourly_retention: 90d    # [AVA_PERF_HOURLY_RETENTION] how long hourly buckets are kept
-  daily_retention: 0       # [AVA_PERF_DAILY_RETENTION] 0 = keep daily buckets forever
+  # hourly_retention / daily_retention default to data.retention_days above.
+  # Uncomment only to override per tier (a value here wins; 0 = keep forever):
+  # hourly_retention: 90d  # [AVA_PERF_HOURLY_RETENTION]
+  # daily_retention: 0     # [AVA_PERF_DAILY_RETENTION]
   max_rotated_files: 5     # [AVA_PERF_LOG_KEEP] raw segments retained (.1..N) before rollup absorbs them
   max_tok_s: 2000          # [AVA_PERF_MAX_TOK_S] clamp implausible tokens/sec (timing artefacts) to null
   # Live-file rotation size is writer-only (stdlib), set via env: [AVA_PERF_LOG_MAX_BYTES] (default 32MiB)

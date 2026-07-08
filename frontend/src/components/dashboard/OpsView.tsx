@@ -7,6 +7,7 @@ import { LearningView } from '../learning/LearningView';
 import {
   BarList, EmptyState, Panel, StatCard, StatusPill, ago, fmtClock, fmtInt,
 } from './primitives';
+import { METRICS } from './metrics';
 
 type Overlay = Record<string, { status?: string; progress?: number; stage?: string; step_count?: number; tools?: number }>;
 
@@ -94,13 +95,13 @@ export function OpsView() {
       ) : (
       <>
       <div className="db-kpis">
-        <StatCard label="Active turns" value={fmtInt(summary.data?.turns.running)} tone={summary.data?.turns.running ? 'accent' : 'default'} />
-        <StatCard label="Active renders" value={fmtInt(summary.data?.jobs.running)} tone={summary.data?.jobs.running ? 'accent' : 'default'} />
-        <StatCard label="Generations 24h" value={fmtInt(summary.data?.generations_24h)} />
+        <StatCard label="Active turns" value={fmtInt(summary.data?.turns.running)} tone={summary.data?.turns.running ? 'accent' : 'default'} help={METRICS.activeTurns} />
+        <StatCard label="Active renders" value={fmtInt(summary.data?.jobs.running)} tone={summary.data?.jobs.running ? 'accent' : 'default'} help={METRICS.activeRenders} />
+        <StatCard label="Generations 24h" value={fmtInt(summary.data?.generations_24h)} help={METRICS.generations24h} />
         <StatCard label="Services up" value={services.data ? `${services.data.services.length - services.data.down}/${services.data.services.length}` : '—'}
-          tone={services.data?.down ? 'err' : 'ok'} />
-        <StatCard label="Pending approvals" value={fmtInt(pending)} tone={pending ? 'warn' : 'default'} hint="learning proposals" />
-        <StatCard label="Alerts" value={fmtInt(alerts.length)} tone={criticals.length ? 'err' : alerts.length ? 'warn' : 'ok'} />
+          tone={services.data?.down ? 'err' : 'ok'} help={METRICS.servicesUp} />
+        <StatCard label="Pending approvals" value={fmtInt(pending)} tone={pending ? 'warn' : 'default'} hint="learning proposals" help={METRICS.pendingApprovals} />
+        <StatCard label="Alerts" value={fmtInt(alerts.length)} tone={criticals.length ? 'err' : alerts.length ? 'warn' : 'ok'} help={METRICS.alerts} />
       </div>
 
       {/* Live activity feed */}

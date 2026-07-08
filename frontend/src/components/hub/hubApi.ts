@@ -101,7 +101,10 @@ export interface BenchResult {
 }
 export interface BenchStatus {
   status: 'idle' | 'running' | 'done' | 'error';
-  result: { prompt?: string; results: BenchResult[]; winner?: string | null; error?: string } | null;
+  result: {
+    prompt?: string; results: BenchResult[]; winner?: string | null; error?: string;
+    backend_count?: number; pending?: number;
+  } | null;
 }
 
 // ---- Voice ------------------------------------------------------------------
@@ -199,6 +202,8 @@ export interface SystemInfo {
   web_search: boolean;
   image: boolean;
   docker: boolean;
+  retention_days: number;        // 0 == keep forever
+  retention_choices: number[];
 }
 
 export const hub = {
@@ -296,6 +301,11 @@ export const hub = {
   setApproval: (mode: string) =>
     req<{ ok: boolean; error?: string; restart_required?: boolean }>(
       `/api/hub/system/approval?mode=${encodeURIComponent(mode)}`,
+      { method: 'POST' },
+    ),
+  setRetention: (days: number) =>
+    req<{ ok: boolean; error?: string; restart_required?: boolean }>(
+      `/api/hub/system/retention?days=${days}`,
       { method: 'POST' },
     ),
 };

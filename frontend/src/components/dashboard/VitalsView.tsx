@@ -1,18 +1,27 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { dash } from './dashApi';
 import { useLiveResource } from '../../hooks/useLive';
 import {
-  BarList, Donut, EmptyState, Gauge, Panel, Skeleton, StatCard, TimeSeries,
+  BarList, Donut, EmptyState, Gauge, InfoTip, Panel, RangeSelector, Skeleton, StatCard, TimeSeries,
   fmtInt, fmtNum,
 } from './primitives';
+import { RANGE_MAP, type RangeKey } from './ranges';
+import { METRICS } from './metrics';
 
 export function VitalsView() {
   const summary = useLiveResource(useCallback(() => dash.perfSummary(), []), 10000);
+  const [tokRange, setTokRange] = useState<RangeKey>('day');
+  const tr = RANGE_MAP[tokRange];
   const tokSeries = useLiveResource(
-    useCallback(() => dash.perfSeries('tokens_per_sec', '1h', '24h', undefined, 'llm'), []), 15000);
+    useCallback(() => dash.perfSeries('tokens_per_sec', tr.bucket, tr.since, undefined, 'llm'), [tr]), tr.pollMs);
   const cost = useLiveResource(useCallback(() => dash.perfCost('7d', 'app'), []), 30000);
   const budget = useLiveResource(useCallback(() => dash.budget(), []), 30000);
-  const hw = useLiveResource(useCallback(() => dash.hwHistory(), []), 5000);
+  const [hwRange, setHwRange] = useState<RangeKey>('day');
+  const hr = RANGE_MAP[hwRange];
+  const hw = useLiveResource(useCallback(() => dash.hwHistory(hr.since, hr.bucket), [hr]), hr.pollMs);
+  // Gauges show the instantaneous reading, so they read an always-live day fetch
+  // rather than the charted range (whose last bucket can span a week at 5Y).
+  const hwLive = useLiveResource(useCallback(() => dash.hwHistory('1d', '5m'), []), 5000);
 
   const s = summary.data?.summary;
   const llm = s?.llm || {};
@@ -31,7 +40,8 @@ export function VitalsView() {
   const ttftAvg = ttft.length ? ttft.reduce((a, b) => a + b, 0) / ttft.length : null;
 
   const samples = hw.data?.samples || [];
-  const latest = samples[samples.length - 1];
+  const liveSamples = hwLive.data?.samples || [];
+  const latest = liveSamples[liveSamples.length - 1];
   const hwPoints = samples.map((x) => ({
     t: x.ts, 'GPU util': x.gpu_util ?? 0, 'GPU temp': x.gpu_temp ?? 0,
     'GPU power': x.gpu_power ?? 0, 'Mem %': x.mem_used_pct ?? 0, CPU: x.cpu ?? 0,
@@ -54,24 +64,24 @@ export function VitalsView() {
 
       {/* KPI strip */}
       <div className="db-kpis">
-        <StatCard label="Spend (7d)" tone="accent"
+        <StatCard label="Spend (7d)" tone="accent" help={METRICS.spend}
           value={cost.data ? `$${fmtNum(cost.data.spend_usd, 2)}` : '—'}
           hint={cost.data?.by ? `${Object.keys(cost.data.by).length} sources` : 'code API cost'} />
-        <StatCard label={cost.data && !cost.data.power_measured ? 'Energy (7d, est.)' : 'Energy (7d)'} tone="accent"
+        <StatCard label={cost.data && !cost.data.power_measured ? 'Energy (7d, est.)' : 'Energy (7d)'} tone="accent" help={METRICS.energy}
           value={cost.data ? fmtNum(cost.data.energy_kwh, 3) : '—'} unit="kWh"
           hint={cost.data
             ? (cost.data.power_measured
               ? (cost.data.energy_usd != null ? `≈ $${fmtNum(cost.data.energy_usd, 2)} · measured` : `${fmtNum(cost.data.avg_gpu_watts, 0)} W measured avg`)
               : `estimate — no GPU power sensor (nominal ${fmtNum(cost.data.avg_gpu_watts, 0)} W)`)
             : 'GPU energy'} />
-        <StatCard label="Throughput" value={fmtNum(tokAvg, 1)} unit="tok/s"
+        <StatCard label="Throughput" value={fmtNum(tokAvg, 1)} unit="tok/s" help={METRICS.throughput}
           tone={tokAvg == null ? 'default' : tokAvg < 15 ? 'warn' : 'ok'}
           hint={`${fmtInt(tokN)} completions`} />
-        <StatCard label="TTFT" value={fmtNum(ttftAvg, 0)} unit="ms" hint="time to first token" />
+        <StatCard label="TTFT" value={fmtNum(ttftAvg, 0)} unit="ms" hint="time to first token" help={METRICS.ttft} />
         <StatCard label="Renders" value={fmtInt((s?.image?.count || 0) + (s?.video?.count || 0))}
-          hint={`${fmtInt(s?.upscale?.count || 0)} upscales`} />
+          hint={`${fmtInt(s?.upscale?.count || 0)} upscales`} help={METRICS.renders} />
         <StatCard label="Route Errors" value={fmtInt(failovers)}
-          tone={failovers ? 'warn' : 'ok'} hint="always-on model" />
+          tone={failovers ? 'warn' : 'ok'} hint="always-on model" help={METRICS.routeErrors} />
       </div>
 
       {/* Budget meter — only when a budget is configured (Setup → Budgets) */}
@@ -116,13 +126,17 @@ export function VitalsView() {
 
       {/* Row: inference throughput + model share */}
       <div className="db-grid db-grid-2">
-        <Panel title="Inference throughput" subtitle="tokens/sec by model (24h)">
+        <Panel title={<>Inference throughput <InfoTip text={METRICS.throughputSeries} label="Inference throughput" /></>}
+          subtitle={`tokens/sec by model · ${tr.label}`}
+          right={<RangeSelector value={tokRange} onChange={setTokRange} />}>
           {tokSeries.loading ? <Skeleton /> :
             tokSeries.data && tokSeries.data.points.length ?
-              <TimeSeries points={tokSeries.data.points} series={tokSeries.data.series} unit="" /> :
+              <TimeSeries points={tokSeries.data.points} series={tokSeries.data.series} unit=""
+                xTickFmt={tr.tick} xTipFmt={tr.tip} /> :
               <EmptyState text="No inference recorded yet — chat with Ava to populate this." />}
         </Panel>
-        <Panel title="Model routing" subtitle="share of completions served">
+        <Panel title={<>Model routing <InfoTip text={METRICS.modelShare} label="Model routing" /></>}
+          subtitle="share of completions served">
           {modelShare.length ? <Donut data={modelShare} /> :
             <EmptyState text="No completions yet." />}
         </Panel>
@@ -141,19 +155,28 @@ export function VitalsView() {
       </div>
 
       {/* Hardware */}
-      <Panel title="Hardware" subtitle="live device telemetry"
-        right={latest ? <span className="db-panel-right-note">{latest.gpu_power != null ? `${Math.round(latest.gpu_power)} W` : ''}</span> : null}>
+      <Panel title={<>Hardware <InfoTip text={METRICS.hardwareSeries} label="Hardware telemetry" /></>}
+        subtitle={`live device telemetry · ${hr.label}`}
+        right={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {latest?.gpu_power != null && (
+              <span className="db-panel-right-note">{Math.round(latest.gpu_power)} W</span>
+            )}
+            <RangeSelector value={hwRange} onChange={setHwRange} />
+          </div>
+        }>
         <div className="db-gauges">
-          <Gauge value={latest?.gpu_util ?? null} label="GPU util" />
-          <Gauge value={latest?.gpu_temp ?? null} label="GPU temp" unit="°" max={100} warnAt={78} critAt={88} />
-          <Gauge value={latest?.mem_used_pct ?? null} label="Memory" warnAt={85} critAt={95} />
-          <Gauge value={latest?.cpu ?? null} label="CPU" />
+          <Gauge value={latest?.gpu_util ?? null} label="GPU util" help={METRICS.gpuUtil} />
+          <Gauge value={latest?.gpu_temp ?? null} label="GPU temp" unit="°" max={100} warnAt={78} critAt={88} help={METRICS.gpuTemp} />
+          <Gauge value={latest?.mem_used_pct ?? null} label="Memory" warnAt={85} critAt={95} help={METRICS.memory} />
+          <Gauge value={latest?.cpu ?? null} label="CPU" help={METRICS.cpu} />
         </div>
         {hwPoints.length > 1 ? (
           <div style={{ marginTop: 12 }}>
-            <TimeSeries points={hwPoints} series={['GPU util', 'GPU temp', 'Mem %', 'CPU']} height={200} />
+            <TimeSeries points={hwPoints} series={['GPU util', 'GPU temp', 'Mem %', 'CPU']} height={200}
+              xTickFmt={hr.tick} xTipFmt={hr.tip} />
           </div>
-        ) : <EmptyState text="Collecting hardware samples…" />}
+        ) : <EmptyState text={hw.loading ? 'Loading…' : 'Collecting hardware samples…'} />}
       </Panel>
     </div>
   );

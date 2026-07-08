@@ -77,6 +77,8 @@ def system():
         "web_search": settings.get_bool("features.web_search", False),
         "image": settings.get_bool("features.image", True),
         "docker": bool(__import__("shutil").which("docker")),
+        "retention_days": settings.data_retention_days(),
+        "retention_choices": list(settings.DATA_RETENTION_CHOICES),
     }
 
 
@@ -142,6 +144,27 @@ def set_approval(mode: str):
                             status_code=400)
     try:
         settings.save_patch({"code": {"approval": mode}})
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": f"could not write ava.yaml: {e}"},
+                            status_code=500)
+    return {"ok": True, "restart_required": True}
+
+
+@router.post("/system/retention")
+def set_retention(days: int):
+    """Set data.retention_days — how long telemetry/history is kept (0 = forever).
+    Applies to perf rollups + hardware history on the next restart."""
+    try:
+        days = int(days)
+    except (TypeError, ValueError):
+        return JSONResponse({"ok": False, "error": "days must be an integer"},
+                            status_code=400)
+    if days not in settings.DATA_RETENTION_CHOICES:
+        return JSONResponse(
+            {"ok": False, "error": f"days must be one of {list(settings.DATA_RETENTION_CHOICES)}"},
+            status_code=400)
+    try:
+        settings.save_patch({"data": {"retention_days": days}})
     except Exception as e:  # noqa: BLE001
         return JSONResponse({"ok": False, "error": f"could not write ava.yaml: {e}"},
                             status_code=500)
@@ -286,8 +309,21 @@ _bench_lock = threading.Lock()
 
 def _run_bench(prompt: str, only, max_tokens: int) -> None:
     from . import bench
+
+    def on_result(partial, total):
+        # Publish a running snapshot so the panel fills row-by-row as each
+        # backend finishes, with a live "fastest" leader.
+        ok = [r for r in partial if r.get("ok")]
+        winner = max(ok, key=lambda r: r["tok_s"])["id"] if ok else None
+        _bench_job["result"] = {
+            "prompt": prompt, "max_tokens": max_tokens,
+            "results": list(partial), "winner": winner,
+            "backend_count": total, "pending": total - len(partial),
+        }
+
     try:
-        _bench_job["result"] = bench.bench(prompt, only=only, max_tokens=max_tokens)
+        _bench_job["result"] = bench.bench(prompt, only=only, max_tokens=max_tokens,
+                                           on_result=on_result)
         _bench_job["status"] = "done"
     except Exception as e:  # noqa: BLE001
         _bench_job["result"] = {"error": str(e)[:200], "results": []}

@@ -85,16 +85,29 @@ def bench_one(b: dict, prompt: str, max_tokens: int = 200) -> dict:
 
 
 def bench(prompt: str = DEFAULT_PROMPT, only: list[str] | None = None,
-          max_tokens: int = 200) -> dict:
-    """Bench every backend (or the subset whose id/model matches `only`)."""
+          max_tokens: int = 200, on_result=None) -> dict:
+    """Bench every backend (or the subset whose id/model matches `only`).
+
+    `on_result(results_so_far, total)` is called after each backend finishes, so
+    a caller (the Hub compare panel) can stream partial results and show each row
+    filling in as it lands instead of waiting for the whole run.
+    """
     bs = backends()
     if only:
         want = [s.strip().lower() for s in only if s.strip()]
         bs = [b for b in bs
               if any(w in b["id"].lower() or w in (b.get("model") or "").lower()
                      for w in want)]
-    results = [bench_one(b, prompt, max_tokens) for b in bs]
+    total = len(bs)
+    results: list[dict] = []
+    for b in bs:
+        results.append(bench_one(b, prompt, max_tokens))
+        if on_result:
+            try:
+                on_result(list(results), total)
+            except Exception:  # noqa: BLE001 — a progress hook must never fail the run
+                pass
     ok = [r for r in results if r.get("ok")]
     winner = max(ok, key=lambda r: r["tok_s"])["id"] if ok else None
     return {"prompt": prompt, "max_tokens": max_tokens,
-            "results": results, "winner": winner}
+            "results": results, "winner": winner, "backend_count": total}

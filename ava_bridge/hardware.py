@@ -762,13 +762,200 @@ def _sampler_loop() -> None:
         time.sleep(_SAMPLE_INTERVAL)
 
 
+# --- persistent, downsampled history (day → 5-year dashboard ranges) ---------
+# The ring buffer above only holds ~2h and dies on restart, so it can't back the
+# Week/Month/Year/5-Year filters. A tiny background thread rolls the hot buffer
+# into two bounded on-disk tiers (1-minute rows kept 90d, 1-hour rows kept 5y).
+# `history_series` then stitches the right tier + the hot tail and averages into
+# whatever bucket the chart asks for. Compact JSONL, no DB — same "cheap, one
+# host" spirit as the sampler. Everything is wrapped so a disk error can never
+# take down sampling.
+_HW_FIELDS = ("gpu_util", "gpu_temp", "gpu_power", "mem_used_pct", "mem_used_gb", "cpu")
+# (filename, cadence seconds). Retention per tier is resolved live from the
+# user's data.retention_days setting via _tier_retention_s (below).
+_TIERS = (
+    ("hw_1m.jsonl", 60),
+    ("hw_1h.jsonl", 3600),
+)
+_MINUTE_TIER_CAP_S = 90 * 86400  # minute-resolution never kept beyond 90d (file size)
+_PERSIST_STARTED = False
+
+
+def _retention_s() -> float:
+    """User-configured retention in seconds (0 == forever). Setup → System."""
+    try:
+        from . import settings
+        return settings.data_retention_s()
+    except Exception:  # noqa: BLE001
+        return 183 * 86400
+
+
+def _tier_retention_s(name: str) -> float:
+    """How long a given tier's rows are kept. The minute tier is additionally
+    capped at 90d regardless of the setting (long ranges use the hour tier)."""
+    full = _retention_s()  # 0 == forever
+    if name == "hw_1m.jsonl":
+        return _MINUTE_TIER_CAP_S if full <= 0 else min(full, _MINUTE_TIER_CAP_S)
+    return full
+
+
+def _dur_s(s, default: float) -> float:
+    """Parse a '5m' / '6h' / '30d' duration to seconds (mirrors dashboard._parse_dur)."""
+    try:
+        mult = {"m": 60, "h": 3600, "d": 86400}.get(str(s)[-1].lower())
+        return float(str(s)[:-1]) * mult if mult else default
+    except Exception:  # noqa: BLE001
+        return default
+
+
+def _hw_dir() -> str:
+    try:
+        from . import settings
+        base = settings.logs_dir()
+    except Exception:  # noqa: BLE001
+        base = os.environ.get("AVA_LOGS_DIR") or os.path.expanduser("~/.ava/logs")
+    return os.path.join(base, "hw_history")
+
+
+def _p(name: str) -> str:
+    return os.path.join(_hw_dir(), name)
+
+
+def _avg_samples(rows: list) -> dict:
+    """Average each numeric field across rows, ignoring missing values."""
+    out: dict = {}
+    for f in _HW_FIELDS:
+        vals = [r[f] for r in rows if isinstance(r.get(f), (int, float))]
+        out[f] = round(sum(vals) / len(vals), 2) if vals else None
+    return out
+
+
+def _append_jsonl(path: str, row: dict) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(row, separators=(",", ":")) + "\n")
+
+
+def _read_jsonl_since(path: str, cutoff: float) -> list:
+    rows: list = []
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    r = json.loads(line)
+                except Exception:  # noqa: BLE001 — skip a torn line
+                    continue
+                if (r.get("ts") or 0) >= cutoff:
+                    rows.append(r)
+    except FileNotFoundError:
+        pass
+    return rows
+
+
+def _last_row_ts(path: str) -> float:
+    try:
+        last = 0.0
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        last = float(json.loads(line).get("ts") or 0)
+                    except Exception:  # noqa: BLE001
+                        pass
+        return last
+    except FileNotFoundError:
+        return 0.0
+
+
+def _prune_jsonl(path: str, retention_s: float, now: float) -> None:
+    """Drop rows older than the retention window (rewrite in place).
+    retention_s <= 0 means keep forever — nothing to prune."""
+    if retention_s <= 0:
+        return
+    cutoff = now - retention_s
+    kept = _read_jsonl_since(path, cutoff)
+    try:
+        tmp = path + ".tmp"
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(tmp, "w", encoding="utf-8") as f:
+            for r in kept:
+                f.write(json.dumps(r, separators=(",", ":")) + "\n")
+        os.replace(tmp, path)
+    except FileNotFoundError:
+        pass
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _persist_loop() -> None:
+    # Seed each tier's clock from what's already on disk so restarts don't
+    # double-write a bucket.
+    last_flush = {interval: _last_row_ts(_p(name)) for name, interval in _TIERS}
+    last_prune = 0.0
+    while True:
+        try:
+            now = time.time()
+            with _HISTORY_LOCK:
+                snap = list(_HISTORY)
+            for name, interval in _TIERS:
+                if now - last_flush[interval] < interval:
+                    continue
+                grp = [r for r in snap if (r.get("ts") or 0) >= now - interval]
+                if grp:
+                    row = _avg_samples(grp)
+                    row["ts"] = round(now, 1)
+                    _append_jsonl(_p(name), row)
+                last_flush[interval] = now
+            if now - last_prune >= 3600:
+                for name, _interval in _TIERS:
+                    _prune_jsonl(_p(name), _tier_retention_s(name), now)
+                last_prune = now
+        except Exception:  # noqa: BLE001 — persistence must never break sampling
+            pass
+        time.sleep(30)
+
+
+def history_series(since: str = "1d", bucket: str = "5m", max_points: int = 720) -> list[dict]:
+    """Bucket-averaged hardware samples for a dashboard range. Reads the tier that
+    covers the window (1-min ≤90d, else 1-hour) plus the hot ring-buffer tail,
+    then averages into `bucket`-wide points. Returns oldest → newest."""
+    now = time.time()
+    span = _dur_s(since, 86400)
+    step = max(1.0, _dur_s(bucket, 300))
+    cutoff = now - span
+    name = "hw_1m.jsonl" if span <= 90 * 86400 else "hw_1h.jsonl"
+    rows = _read_jsonl_since(_p(name), cutoff)
+    with _HISTORY_LOCK:
+        rows += [r for r in _HISTORY if (r.get("ts") or 0) >= cutoff]
+    buckets: dict = {}
+    for r in rows:
+        ts = r.get("ts") or 0
+        if ts < cutoff:
+            continue
+        bts = int(ts // step * step)
+        buckets.setdefault(bts, []).append(r)
+    out = []
+    for bts in sorted(buckets):
+        row = _avg_samples(buckets[bts])
+        row["ts"] = bts
+        out.append(row)
+    return out[-max_points:]
+
+
 def start_sampler() -> None:
-    """Start the background hardware sampler once (idempotent)."""
-    global _SAMPLER_STARTED
+    """Start the background hardware sampler + persistence once (idempotent)."""
+    global _SAMPLER_STARTED, _PERSIST_STARTED
     if _SAMPLER_STARTED:
         return
     _SAMPLER_STARTED = True
     threading.Thread(target=_sampler_loop, daemon=True).start()
+    if not _PERSIST_STARTED:
+        _PERSIST_STARTED = True
+        threading.Thread(target=_persist_loop, daemon=True).start()
 
 
 def history(since: float | None = None, limit: int = 2000) -> list[dict]:

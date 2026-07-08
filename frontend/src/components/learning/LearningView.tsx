@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { learning } from '../../lib/api';
+import { api, learning } from '../../lib/api';
+import { InfoTip } from '../dashboard/primitives';
+import { METRICS } from '../dashboard/metrics';
 import type { LearnContext, LearningCycle, Proposal, StagedChange } from '../../lib/types';
 import { Icon } from '../../lib/icons';
 
@@ -219,11 +221,11 @@ function ProposalCard({ proposal, onChanged }: { proposal: EnrichedProposal; onC
 // ─────────────────────────────────────────────────────────────────────────────
 // Dashboard pieces
 // ─────────────────────────────────────────────────────────────────────────────
-function StatTile({ label, value, tone }: { label: string; value: number | string; tone?: string }) {
+function StatTile({ label, value, tone, help }: { label: string; value: number | string; tone?: string; help?: string }) {
   return (
     <div className={'dash-stat' + (tone ? ' t-' + tone : '')}>
       <div className="dash-stat-v">{value}</div>
-      <div className="dash-stat-l">{label}</div>
+      <div className="dash-stat-l">{label}{help && <InfoTip text={help} label={label} />}</div>
     </div>
   );
 }
@@ -340,17 +342,24 @@ export function LearningView({ embedded = false }: { embedded?: boolean } = {}) 
   const [appTab, setAppTab] = useState<LearnContext>('code');
   const [running, setRunning] = useState(false);
   const [runNote, setRunNote] = useState('');
+  // Apps Ava actually has a connection to (the connector registry). The learning
+  // store can carry `project` tags for repos Ava was pointed at in the past
+  // (e.g. before apps were decoupled); we only surface Ava herself + apps that
+  // are currently connected, so the grid can't leak stale/foreign projects.
+  const [connectedApps, setConnectedApps] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const [code, chat] = await Promise.all([
+      const [code, chat, apps] = await Promise.all([
         learning.state('code').catch(() => ({ cycles: [] as LearningCycle[] })),
         learning.state('chat').catch(() => ({ cycles: [] as LearningCycle[] })),
+        api.apps().catch(() => ({ apps: [] as { id: string }[] })),
       ]);
       setCodeCycles(code.cycles || []);
       setChatCycles(chat.cycles || []);
+      setConnectedApps(new Set((apps.apps || []).map((a) => a.id)));
     } catch (e) {
       setError((e as Error).message);
     }
@@ -376,16 +385,21 @@ export function LearningView({ embedded = false }: { embedded?: boolean } = {}) 
     setRunning(false);
   }, [load]);
 
-  // Flatten every proposal, tagged with its context + app.
+  // Flatten every proposal, tagged with its context + app. Only Ava's own work
+  // and proposals belonging to a currently-connected app are kept — anything
+  // tagged with a project Ava is no longer connected to is left out of the view.
   const allProps = useMemo<EnrichedProposal[]>(() => {
     const out: EnrichedProposal[] = [];
+    const keep = (app: string) => app === 'ava' || connectedApps.has(app);
     for (const cy of codeCycles)
-      for (const p of cy.proposals || [])
-        out.push({ ...p, ctx: 'code', app: p.project || 'ava', cycleTs: cy.timestamp });
+      for (const p of cy.proposals || []) {
+        const app = p.project || 'ava';
+        if (keep(app)) out.push({ ...p, ctx: 'code', app, cycleTs: cy.timestamp });
+      }
     for (const cy of chatCycles)
       for (const p of cy.proposals || []) out.push({ ...p, ctx: 'chat', app: 'ava', cycleTs: cy.timestamp });
     return out;
-  }, [codeCycles, chatCycles]);
+  }, [codeCycles, chatCycles, connectedApps]);
 
   const buckets = useMemo<AppBucket[]>(() => {
     const m = new Map<string, AppBucket>();
@@ -501,10 +515,10 @@ export function LearningView({ embedded = false }: { embedded?: boolean } = {}) 
         ) : (
           <>
             <div className="dash-stats">
-              <StatTile label="Approval gates" value={pendingGates.length} tone={pendingGates.length ? 'attn' : undefined} />
-              <StatTile label="Code changes" value={codeChanges} />
-              <StatTile label="Completed" value={applied} tone="ok" />
-              <StatTile label="Apps" value={buckets.length} />
+              <StatTile label="Approval gates" value={pendingGates.length} tone={pendingGates.length ? 'attn' : undefined} help={METRICS.approvalGates} />
+              <StatTile label="Code changes" value={codeChanges} help={METRICS.codeChanges} />
+              <StatTile label="Completed" value={applied} tone="ok" help={METRICS.completed} />
+              <StatTile label="Apps" value={buckets.length} help={METRICS.apps} />
             </div>
 
             {pendingGates.length > 0 && (

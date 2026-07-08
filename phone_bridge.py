@@ -334,8 +334,8 @@ async def api_perf_cost(since: str = "7d", group: str = "model"):
 
 
 @app.get("/api/hardware/history")
-async def api_hardware_history(since: float | None = None):
-    return {"ok": True, "samples": await run_in_threadpool(hardware.history, since)}
+async def api_hardware_history(since: str = "1d", bucket: str = "5m"):
+    return {"ok": True, "samples": await run_in_threadpool(hardware.history_series, since, bucket)}
 
 
 @app.get("/api/jobs")

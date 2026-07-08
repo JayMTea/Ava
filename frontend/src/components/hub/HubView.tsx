@@ -4,7 +4,7 @@ import { EmptyState, Panel } from '../dashboard/primitives';
 import { api } from '../../lib/api';
 import { hub } from './hubApi';
 import type {
-  AgentStatus, AuditEvent, BackendProbe, BenchStatus, CostSettings, EnrollResult,
+  AgentStatus, AuditEvent, BackendProbe, BenchResult, BenchStatus, CostSettings, EnrollResult,
   GenerateResult, HardwareInfo, HubConnector, ModelStore, NewConnectorBody,
   PendingApproval, ProbeResult, PullStatus, SystemInfo, VoiceStatus,
 } from './hubApi';
@@ -328,6 +328,71 @@ function ModelStorePanel() {
   );
 }
 
+// Compare-panel scale/reference constants. Bars are absolute-but-adaptive: the
+// track scales to the fastest in the set (never below a floor, so a lone model
+// still fills a meaningful amount), and a faint marker shows the "good enough"
+// threshold so a single-model baseline still reads as fast/slow.
+const TOKS_MIN_SCALE = 30;    // tok/s — bar track never scales below this
+const TTFT_MAX_SCALE = 1000;  // ms — TTFT track floor
+const TOKS_GOOD = 15;         // interactive throughput marker
+const TTFT_GOOD = 500;        // snappy time-to-first-token marker
+const clampPct = (n: number) => Math.max(0, Math.min(100, n));
+
+function BenchBar({ pct, mark, kind, markTitle }: {
+  pct: number; mark: number; kind: 'tok' | 'ttft'; markTitle: string;
+}) {
+  return (
+    <div className="bench-bar">
+      <span className={'bench-bar-fill ' + kind} style={{ width: pct + '%' }} />
+      {mark > 1 && mark < 99 && <i className="bench-mark" style={{ left: mark + '%' }} title={markTitle} />}
+    </div>
+  );
+}
+
+function BenchTable({ results, winner }: { results: BenchResult[]; winner?: string | null }) {
+  const okv = results.filter((r) => r.ok);
+  const maxTok = Math.max(TOKS_MIN_SCALE, ...okv.map((r) => r.tok_s || 0));
+  const maxTtft = Math.max(TTFT_MAX_SCALE, ...okv.map((r) => r.ttft_ms || 0));
+  // Best throughput first; failed backends sink to the bottom.
+  const sorted = [...results].sort((a, b) =>
+    a.ok !== b.ok ? (a.ok ? -1 : 1) : (b.tok_s || 0) - (a.tok_s || 0));
+  const tokMark = clampPct((TOKS_GOOD / maxTok) * 100);
+  const ttftMark = clampPct((1 - TTFT_GOOD / maxTtft) * 100);
+
+  return (
+    <div className="bench-cmp">
+      {sorted.map((r) => (
+        <div className={'bench-row' + (r.id === winner ? ' win' : '') + (r.ok ? '' : ' err')} key={r.id}>
+          <div className="bench-name">
+            {r.id === winner && <Badge tone="ok">fastest</Badge>}
+            <span className="bench-id" title={r.model || r.id}>{r.model || r.id}</span>
+            {r.engine && <span className="bench-eng">{r.engine}</span>}
+          </div>
+          {r.ok ? (
+            <>
+              <div className="bench-metric">
+                <div className="bench-metric-head">
+                  <b>{r.tok_s}</b> tok/s
+                  {r.estimated_tokens && <span className="bench-est" title="tokens/sec estimated — the endpoint didn't report token usage">est.</span>}
+                </div>
+                <BenchBar pct={clampPct(((r.tok_s || 0) / maxTok) * 100)} mark={tokMark}
+                  kind="tok" markTitle="interactive ≥ 15 tok/s" />
+              </div>
+              <div className="bench-metric">
+                <div className="bench-metric-head"><b>{r.ttft_ms}</b> ms TTFT</div>
+                <BenchBar pct={clampPct((1 - (r.ttft_ms || 0) / maxTtft) * 100)} mark={ttftMark}
+                  kind="ttft" markTitle="snappy ≤ 500 ms" />
+              </div>
+            </>
+          ) : (
+            <div className="bench-fail"><Icon name="alert" /> {r.error || 'no response'}</div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function BenchPanel() {
   const [bench, setBench] = useState<BenchStatus | null>(null);
   const [prompt, setPrompt] = useState('');
@@ -336,7 +401,7 @@ function BenchPanel() {
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
     if (bench?.status !== 'running') return;
-    const t = setInterval(() => hub.benchStatus().then(setBench).catch(() => {}), 1500);
+    const t = setInterval(() => hub.benchStatus().then(setBench).catch(() => {}), 1200);
     return () => clearInterval(t);
   }, [bench?.status]);
 
@@ -351,12 +416,18 @@ function BenchPanel() {
 
   const running = bench?.status === 'running';
   const res = bench?.result;
+  const results = res?.results || [];
+  // Skeleton rows for backends still being measured (or one placeholder before
+  // the first result lands so the run never looks stalled).
+  const pending = running ? (res?.pending ?? (res ? 0 : 1)) : 0;
+  const hasOutput = running || results.length > 0 || !!res?.error;
+
   return (
     <div style={{ borderTop: '1px solid var(--line)', paddingTop: 16 }}>
       <div className="hub-row" style={{ border: 0, padding: 0 }}>
         <div className="hub-row-main">
           <div className="hub-row-title">Compare models</div>
-          <div className="hub-row-sub">Run the same prompt on every backend — TTFT and tokens/sec side by side.</div>
+          <div className="hub-row-sub">Run the same prompt on every backend — throughput and time-to-first-token, side by side.</div>
         </div>
         <button className="hub-btn sm" onClick={run} disabled={running}>
           <Icon name={running ? 'refresh' : 'chart'} />{running ? 'Benchmarking…' : 'Run benchmark'}
@@ -365,31 +436,43 @@ function BenchPanel() {
       <input className="hub-input" style={{ marginTop: 10 }} value={prompt}
         onChange={(e) => setPrompt(e.target.value)} placeholder="Optional prompt (default: a short standard prompt)" />
       {msg && <div className="hub-msg err">{msg}</div>}
-      {res && res.results.length > 0 && (
-        <div className="hub-preview" style={{ marginTop: 12 }}>
-          <div className="hub-preview-head"><Icon name="chart" /> {res.prompt ? `"${res.prompt.slice(0, 60)}"` : 'results'}</div>
-          <div style={{ padding: 12 }}>
-            {res.results.map((r) => (
-              <div className="hub-row" key={r.id} style={{ padding: '8px 0' }}>
-                <div className="hub-row-main">
-                  <div className="hub-row-title" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    {r.id === res.winner && <Badge tone="ok">fastest</Badge>}
-                    {r.id} <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 'var(--fs-xs)' }}>· {r.engine}</span>
-                  </div>
-                  {!r.ok && <div className="hub-row-sub" style={{ color: 'var(--err)' }}>{r.error}</div>}
-                </div>
-                {r.ok && (
-                  <div className="hub-row-sub" style={{ flexShrink: 0, textAlign: 'right', fontFamily: 'var(--font-mono)' }}>
-                    <b style={{ color: 'var(--txt)' }}>{r.tok_s}</b> tok/s · {r.ttft_ms}ms TTFT · {r.estimated_tokens ? '~' : ''}{r.tokens} tok
+
+      {hasOutput && (
+        <div className="hub-preview bench-preview" style={{ marginTop: 12 }}>
+          <div className="hub-preview-head">
+            <Icon name="chart" /> {res?.prompt ? `"${res.prompt.slice(0, 56)}"` : 'results'}
+          </div>
+          <div className="bench-body">
+            {res?.error ? (
+              <div className="hub-msg err" style={{ margin: 0 }}>{res.error}</div>
+            ) : (
+              <>
+                {results.length > 0 && <BenchTable results={results} winner={res?.winner} />}
+                {pending > 0 && (
+                  <div className="bench-cmp">
+                    {Array.from({ length: pending }).map((_, i) => (
+                      <div className="bench-row pending" key={'p' + i}>
+                        <div className="bench-name"><span className="bench-skel skel-name" /></div>
+                        <div className="bench-metric"><span className="bench-skel skel-bar" /></div>
+                        <div className="bench-metric"><span className="bench-skel skel-bar" /></div>
+                      </div>
+                    ))}
                   </div>
                 )}
-              </div>
-            ))}
+                {!running && results.length === 1 && (
+                  <div className="bench-hint">
+                    <Icon name="info" /> One model measured. Add another backend under
+                    <b> Inference backend</b> above to compare them head-to-head.
+                  </div>
+                )}
+              </>
+            )}
           </div>
         </div>
       )}
-      {res && res.results.length === 0 && (
-        <div className="hub-msg" style={{ color: 'var(--muted)' }}>{res.error || 'No backends configured to benchmark.'}</div>
+
+      {!running && bench?.status === 'done' && results.length === 0 && !res?.error && (
+        <EmptyState text="No models configured to benchmark — add an inference backend above, then run the comparison." />
       )}
     </div>
   );
@@ -1183,6 +1266,14 @@ function HistoryPanel() {
 // ─────────────────────────────────────────────────────────────────────────────
 // System
 // ─────────────────────────────────────────────────────────────────────────────
+// Human label for a retention window in days (0 == forever).
+const RETENTION_LABELS: Record<number, string> = {
+  0: 'Forever', 30: '1 month', 90: '3 months', 183: '6 months', 365: '1 year', 730: '2 years',
+};
+function retentionLabel(days: number): string {
+  return RETENTION_LABELS[days] || (days > 0 ? `${days} days` : 'Forever');
+}
+
 function SystemPanel({ onRestart }: { onRestart: () => void }) {
   const [sys, setSys] = useState<SystemInfo | null>(null);
   const [busy, setBusy] = useState(false);
@@ -1210,6 +1301,16 @@ function SystemPanel({ onRestart }: { onRestart: () => void }) {
     } catch (e) { setMsg((e as Error).message); }
     setBusy(false);
   }, [load, onRestart]);
+
+  const setRetention = useCallback(async (days: number) => {
+    setBusy(true); setMsg('');
+    try {
+      const r = await hub.setRetention(days);
+      if (r.error) setMsg(r.error);
+      else { setSys((s) => (s ? { ...s, retention_days: days } : s)); onRestart(); }
+    } catch (e) { setMsg((e as Error).message); }
+    setBusy(false);
+  }, [onRestart]);
 
   const APPROVALS: { id: string; title: string; sub: string }[] = [
     { id: 'all', title: 'All changes need approval', sub: 'Safest. Every edit Ava makes to its own code waits for you.' },
@@ -1239,6 +1340,27 @@ function SystemPanel({ onRestart }: { onRestart: () => void }) {
             </button>
           ))}
         </div>
+      </Panel>
+
+      <div className="hub-section" />
+      <Panel title="Data retention" subtitle="How long Ava keeps performance metrics and hardware history. Older data is pruned automatically; the dashboard's time-range filters can only reach back as far as this.">
+        {sys ? (
+          <>
+            <div className="hub-field" style={{ maxWidth: 320 }}>
+              <label>Keep data for</label>
+              <select className="hub-select" value={sys.retention_days} disabled={busy}
+                onChange={(e) => setRetention(Number(e.target.value))}>
+                {(sys.retention_choices || [30, 90, 183, 365, 730, 0]).map((d) => (
+                  <option key={d} value={d}>{retentionLabel(d)}{d === 183 ? ' (default)' : ''}</option>
+                ))}
+              </select>
+            </div>
+            <div className="hub-note" style={{ marginTop: 12 }}>
+              Currently keeping <b>{retentionLabel(sys.retention_days)}</b> of history.
+              Changing this takes effect after a restart and prunes anything older on the next cleanup.
+            </div>
+          </>
+        ) : <EmptyState text="Loading…" />}
       </Panel>
 
       <div className="hub-section" />

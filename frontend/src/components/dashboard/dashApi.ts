@@ -119,8 +119,8 @@ export const dash = {
     currency: string; daily_spend_usd: number; daily_energy_kwh: number; power_measured: boolean;
     budgets: { daily_usd: number | null; monthly_usd: number | null; daily_kwh: number | null };
   }>('/api/hub/cost'),
-  hwHistory: (since?: number) =>
-    get<{ ok: boolean; samples: HwSample[] }>('/api/hardware/history' + qs({ since })),
+  hwHistory: (since = '1d', bucket = '5m') =>
+    get<{ ok: boolean; samples: HwSample[] }>('/api/hardware/history' + qs({ since, bucket })),
   jobs: (status?: string, kind?: string, limit = 100) =>
     get<{ ok: boolean; jobs: JobRow[] }>('/api/jobs' + qs({ status, kind, limit })),
   turns: (active = false, limit = 50) =>

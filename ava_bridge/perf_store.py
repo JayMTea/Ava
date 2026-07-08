@@ -53,8 +53,24 @@ def _dur(s, default: float) -> float:
 
 HOT_WINDOW_S = _dur(settings.get("perf.hot_window", "48h", env="AVA_PERF_HOT_WINDOW"), 172800)
 ROLLUP_INTERVAL_S = _dur(settings.get("perf.rollup_interval", "1h", env="AVA_PERF_ROLLUP_INTERVAL"), 3600)
-HOURLY_RETENTION_S = _dur(settings.get("perf.hourly_retention", "90d", env="AVA_PERF_HOURLY_RETENTION"), 90 * 86400)
-DAILY_RETENTION_S = _dur(settings.get("perf.daily_retention", "0", env="AVA_PERF_DAILY_RETENTION"), 0)
+# Retention is a single user-facing knob (Setup → System · data.retention_days,
+# default ~6 months, 0 == forever). Both rollup tiers are pruned to it, so
+# "nothing older than X" holds across the board. `perf.hourly_retention` /
+# `perf.daily_retention` still override per-tier for advanced setups (an explicit
+# value wins; unset falls back to the unified retention — note _dur("none")==0,
+# so we only parse a value that was actually provided).
+_RETENTION_S = settings.data_retention_s()
+
+
+def _tier_retention(key: str, env: str) -> float:
+    v = settings.get(key, None, env=env)
+    return _dur(v, _RETENTION_S) if v is not None else _RETENTION_S
+
+
+HOURLY_RETENTION_S = _tier_retention("perf.hourly_retention", "AVA_PERF_HOURLY_RETENTION")
+DAILY_RETENTION_S = _tier_retention("perf.daily_retention", "AVA_PERF_DAILY_RETENTION")
+# For the hourly-vs-daily read boundary, 0 (forever) means "hourly covers all".
+_HOURLY_SPAN_S = HOURLY_RETENTION_S or 10 * 365 * 86400
 KEEP = settings.get_int("perf.max_rotated_files", 5, env="AVA_PERF_LOG_KEEP")
 MAX_TOK_S = float(_dur(settings.get("perf.max_tok_s", "2000", env="AVA_PERF_MAX_TOK_S"), 2000) or 2000)
 
@@ -440,7 +456,7 @@ def cold_series(metric: str, step: int, since_ts: float, until_ts: float,
                 app: Optional[str] = None, category: Optional[str] = None) -> dict:
     """Rollup-backed series for [since_ts, until_ts), re-bucketed to `step` and split
     by model label. Same {points, series} shape dashboard.perf_series emits for hot."""
-    use_daily = step >= 86400 or since_ts < time.time() - HOURLY_RETENTION_S
+    use_daily = step >= 86400 or since_ts < time.time() - _HOURLY_SPAN_S
     buckets = _load(DAILY_FILE if use_daily else HOURLY_FILE)
     is_sum = metric in ("tokens", "completion_tokens")
     # (rebucket_ts, label) -> [sum, count]

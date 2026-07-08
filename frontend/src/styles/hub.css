@@ -247,6 +247,64 @@
   white-space: pre;
 }
 
+/* ---- model compare (bench) — filled bars, sortable, responsive ---- */
+.bench-body { padding: 8px 14px 14px; }
+.bench-cmp { display: flex; flex-direction: column; }
+.bench-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 1.25fr) 1fr 1fr;
+  gap: 16px;
+  align-items: center;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--line);
+}
+.bench-row:last-child { border-bottom: 0; }
+.bench-name { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.bench-id { font-weight: var(--fw-medium); font-size: var(--fs-sm); color: var(--txt);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.bench-eng { font-size: var(--fs-xs); color: var(--muted); }
+.bench-row.err .bench-name { opacity: 0.65; }
+
+.bench-metric { min-width: 0; }
+.bench-metric-head { font-size: var(--fs-xs); color: var(--muted); margin-bottom: 5px;
+  font-family: var(--font-mono); }
+.bench-metric-head b { color: var(--txt); font-size: var(--fs-sm); font-weight: var(--fw-medium); }
+.bench-est { margin-left: 5px; font-size: 10px; color: var(--muted); opacity: 0.8; cursor: help; }
+.bench-bar { position: relative; height: 8px; border-radius: var(--r-pill); background: var(--wash-6); }
+.bench-bar-fill { position: absolute; left: 0; top: 0; height: 100%; min-width: 8px;
+  border-radius: var(--r-pill); transition: width var(--dur-slow) ease; }
+.bench-bar-fill.tok { background: var(--accent); }
+.bench-bar-fill.ttft { background: var(--info); }
+/* faint "good enough" threshold marker on the track */
+.bench-mark { position: absolute; top: -2px; height: 12px; width: 1px;
+  background: var(--muted); opacity: 0.45; }
+
+.bench-fail { grid-column: 2 / 4; display: flex; align-items: center; gap: 6px;
+  color: var(--err); font-size: var(--fs-xs); }
+.bench-fail svg { width: 14px; height: 14px; flex: 0 0 auto; }
+
+.bench-hint { display: flex; align-items: center; gap: 8px; margin-top: 12px;
+  padding: 10px 12px; background: var(--wash-4); border-radius: var(--r-sm);
+  font-size: var(--fs-xs); color: var(--muted); line-height: 1.5; }
+.bench-hint svg { width: 14px; height: 14px; flex: 0 0 auto; color: var(--accent); }
+.bench-hint b { color: var(--txt); font-weight: var(--fw-medium); }
+
+/* progressive skeleton rows while backends are still being measured */
+.bench-row.pending { opacity: 0.7; }
+.bench-skel { display: block; border-radius: 6px;
+  background: linear-gradient(90deg, var(--wash-3), var(--wash-7), var(--wash-3));
+  background-size: 200% 100%; animation: benchShimmer 1.4s ease-in-out infinite; }
+.bench-skel.skel-name { height: 14px; width: 62%; }
+.bench-skel.skel-bar { height: 8px; width: 100%; margin-top: 19px; border-radius: var(--r-pill); }
+@keyframes benchShimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+/* mobile: stack each row — name over full-width metric bars */
+@media (max-width: 640px) {
+  .bench-row { grid-template-columns: 1fr; gap: 9px; }
+  .bench-fail { grid-column: auto; }
+  .bench-skel.skel-bar { margin-top: 0; }
+}
+
 /* ---- inline notices ---- */
 .hub-note {
   font-size: var(--fs-sm);

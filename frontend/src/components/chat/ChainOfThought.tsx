@@ -16,8 +16,12 @@ export function ChainOfThought({ label, steps, status, secs, error }: Props) {
     'cot' + (open && status === 'running' ? ' open' : '') + (status === 'done' ? ' cot-done' : '') + (status === 'error' ? ' cot-fail' : '');
 
   let headText: string;
-  if (status === 'done') headText = `Thought for ${secs}s` + (steps.length ? ` · ${steps.length} steps` : '');
-  else if (status === 'error') headText = `Failed: ${error || 'failed'}`;
+  if (status === 'done') {
+    // Live turns carry an elapsed time; replayed/persisted chains don't, so fall
+    // back to a plain label instead of rendering "Thought for undefineds".
+    const lead = typeof secs === 'number' ? `Thought for ${secs}s` : 'Reasoning';
+    headText = lead + (steps.length ? ` · ${steps.length} steps` : '');
+  } else if (status === 'error') headText = `Failed: ${error || 'failed'}`;
   else headText = `${label}…`;
 
   return (

@@ -127,6 +127,25 @@ def get_bool(dotted: str, default: bool, env: str | None = None) -> bool:
     return str(v).strip().lower() not in ("0", "false", "no", "off", "")
 
 
+# How long accumulated telemetry/history (perf rollups, hardware samples) is
+# retained. One knob, surfaced in Setup → System. Default ~6 months.
+DATA_RETENTION_DEFAULT_DAYS = 183
+# Allowed choices the UI offers (days); 0 == keep forever.
+DATA_RETENTION_CHOICES = (30, 90, 183, 365, 730, 0)
+
+
+def data_retention_days() -> int:
+    """Configured retention in days (0 == forever). `data.retention_days`."""
+    return get_int("data.retention_days", DATA_RETENTION_DEFAULT_DAYS,
+                   env="AVA_DATA_RETENTION_DAYS")
+
+
+def data_retention_s() -> float:
+    """Configured retention in seconds (0 == forever)."""
+    days = data_retention_days()
+    return 0.0 if days <= 0 else float(days) * 86400
+
+
 # ---- identity (brand + owner) — the re-branding seam ---------------------- #
 # These drive the assistant's name, who it serves, and its persona. A fork
 # re-brands entirely from ava.yaml/env; the code names no person or place.

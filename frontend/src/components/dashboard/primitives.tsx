@@ -1,9 +1,49 @@
-import type { ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie,
   PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
+import { Icon } from '../../lib/icons';
 import { axisTick, gridStroke, seriesColor, semantic, tooltipProps } from './chartTheme';
+import { RANGES, type RangeKey } from './ranges';
+
+/* ---------- InfoTip (hover/focus "what does this mean?" popover) ---------- */
+// Renders into document.body so panel overflow can never clip it. Positioned
+// against the trigger's viewport rect (fixed), above the icon. Works on hover,
+// keyboard focus, and tap.
+export function InfoTip({ text, label }: { text: string; label?: string }) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState({ x: 0, y: 0 });
+  const ref = useRef<HTMLButtonElement>(null);
+  const show = () => {
+    const r = ref.current?.getBoundingClientRect();
+    if (r) setPos({ x: r.left + r.width / 2, y: r.top });
+    setOpen(true);
+  };
+  const hide = () => setOpen(false);
+  return (
+    <>
+      <button
+        ref={ref}
+        type="button"
+        className="info-tip"
+        aria-label={label ? `What is ${label}?` : 'What does this mean?'}
+        onMouseEnter={show}
+        onMouseLeave={hide}
+        onFocus={show}
+        onBlur={hide}
+        onClick={(e) => { e.stopPropagation(); e.preventDefault(); open ? hide() : show(); }}
+      >
+        <Icon name="info" />
+      </button>
+      {open && createPortal(
+        <div className="info-pop" role="tooltip" style={{ left: pos.x, top: pos.y }}>{text}</div>,
+        document.body,
+      )}
+    </>
+  );
+}
 
 /* ---------- formatting helpers ---------- */
 export const fmtNum = (v: number | null | undefined, d = 0) =>
@@ -48,15 +88,15 @@ export function Panel({
 
 /* ---------- StatCard ---------- */
 export function StatCard({
-  label, value, unit, hint, tone = 'default', spark,
+  label, value, unit, hint, tone = 'default', spark, help,
 }: {
   label: string; value: ReactNode; unit?: string; hint?: ReactNode;
   tone?: 'default' | 'ok' | 'warn' | 'err' | 'accent';
-  spark?: number[];
+  spark?: number[]; help?: string;
 }) {
   return (
     <div className={`db-stat tone-${tone}`}>
-      <div className="db-stat-label">{label}</div>
+      <div className="db-stat-label">{label}{help && <InfoTip text={help} label={label} />}</div>
       <div className="db-stat-value">
         {value}
         {unit && <span className="db-stat-unit">{unit}</span>}
@@ -100,14 +140,20 @@ export function StatusPill({ status }: { status: string }) {
 }
 
 /* ---------- TimeSeries (multi-line) ---------- */
+// `xTickFmt`/`xTipFmt` let the caller adapt the axis to the selected range
+// (clock for a day, weekday for a week, month/year for long ranges). Both take a
+// unix-seconds timestamp; they default to a clock so short series still read well.
 export function TimeSeries({
   points, series, height = 220, xKey = 't', asArea = false, unit = '',
+  xTickFmt, xTipFmt,
 }: {
   points: Record<string, number>[]; series: string[]; height?: number;
   xKey?: string; asArea?: boolean; unit?: string;
+  xTickFmt?: (t: number) => string; xTipFmt?: (t: number) => string;
 }) {
-  const xfmt = (t: number) =>
-    new Date(t * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const xfmt = xTickFmt ?? ((t: number) =>
+    new Date(t * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+  const tipFmt = xTipFmt ?? ((t: number) => fmtClock(t));
   const Chart = asArea ? AreaChart : LineChart;
   return (
     <ResponsiveContainer width="100%" height={height}>
@@ -116,7 +162,7 @@ export function TimeSeries({
         <XAxis dataKey={xKey} tickFormatter={xfmt} tick={axisTick()} tickLine={false} axisLine={false} minTickGap={40} />
         <YAxis tick={axisTick()} tickLine={false} axisLine={false} width={44}
           tickFormatter={(v) => `${v}${unit}`} />
-        <Tooltip {...tooltipProps()} labelFormatter={(t) => fmtClock(Number(t))} />
+        <Tooltip {...tooltipProps()} labelFormatter={(t) => tipFmt(Number(t))} />
         {series.map((s, i) =>
           asArea ? (
             <Area key={s} type="monotone" dataKey={s} stroke={seriesColor(i)}
@@ -128,6 +174,31 @@ export function TimeSeries({
         )}
       </Chart>
     </ResponsiveContainer>
+  );
+}
+
+/* ---------- RangeSelector (Day / Week / … / 5Y) ---------- */
+// Drop-in segmented control for any timeseries. Reuses the .db-seg styles.
+export function RangeSelector({
+  value, onChange,
+}: {
+  value: RangeKey; onChange: (r: RangeKey) => void;
+}) {
+  return (
+    <div className="db-seg db-range" role="tablist" aria-label="Time range">
+      {RANGES.map((r) => (
+        <button
+          key={r.key}
+          type="button"
+          role="tab"
+          aria-selected={value === r.key}
+          className={'db-seg-btn' + (value === r.key ? ' on' : '')}
+          onClick={() => onChange(r.key)}
+        >
+          {r.label}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -185,10 +256,10 @@ export function Donut({
 
 /* ---------- Gauge (radial utilisation dial) ---------- */
 export function Gauge({
-  value, label, unit = '%', max = 100, warnAt = 80, critAt = 92,
+  value, label, unit = '%', max = 100, warnAt = 80, critAt = 92, help,
 }: {
   value: number | null; label: string; unit?: string; max?: number;
-  warnAt?: number; critAt?: number;
+  warnAt?: number; critAt?: number; help?: string;
 }) {
   const v = value == null ? 0 : Math.max(0, Math.min(max, value));
   const pct = (v / max) * 100;
@@ -206,7 +277,7 @@ export function Gauge({
       <div className="db-gauge-val" style={{ color: col }}>
         {value == null ? '—' : Math.round(value)}<span>{unit}</span>
       </div>
-      <div className="db-gauge-label">{label}</div>
+      <div className="db-gauge-label">{label}{help && <InfoTip text={help} label={label} />}</div>
     </div>
   );
 }

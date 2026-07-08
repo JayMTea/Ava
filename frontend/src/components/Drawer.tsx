@@ -1,5 +1,83 @@
+import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { AppEntry, ChatSummary } from '../lib/types';
 import { Icon } from '../lib/icons';
+
+// Rail foot flyout: the sliders icon reveals the "system" destinations (Vitals,
+// Operations, Setup) as a hover/click pop-up, so the rail itself stays just chat
+// + the user's connected apps. Rendered through a portal (the drawer clips
+// overflow) and positioned against the trigger, opening up-and-to-the-right.
+type MenuItem = { id: string; label: string; icon: string };
+function RailFlyout({
+  items, view, onView,
+}: {
+  items: MenuItem[]; view: string; onView: (v: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState({ left: 0, bottom: 0 });
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const closeTimer = useRef<number | undefined>(undefined);
+  const active = items.some((it) => it.id === view);
+
+  const place = () => {
+    const r = wrapRef.current?.getBoundingClientRect();
+    if (r) setPos({ left: r.right + 8, bottom: window.innerHeight - r.bottom });
+  };
+  const openMenu = () => { window.clearTimeout(closeTimer.current); place(); setOpen(true); };
+  const scheduleClose = () => { closeTimer.current = window.setTimeout(() => setOpen(false), 140); };
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as Element;
+      if (!wrapRef.current?.contains(t) && !t.closest?.('.rail-menu')) setOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('pointerdown', onDown);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('pointerdown', onDown);
+    };
+  }, [open]);
+
+  return (
+    <div className="rail-menu-wrap" ref={wrapRef} onMouseEnter={openMenu} onMouseLeave={scheduleClose}>
+      <button
+        className={'rail-btn' + (active ? ' active' : '')}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title="Settings & dashboards"
+        aria-label="Settings & dashboards"
+        onClick={() => (open ? setOpen(false) : openMenu())}
+      >
+        <Icon name="sliders" />
+      </button>
+      {open && createPortal(
+        <div
+          className="rail-menu"
+          role="menu"
+          style={{ left: pos.left, bottom: pos.bottom }}
+          onMouseEnter={openMenu}
+          onMouseLeave={scheduleClose}
+        >
+          {items.map((it) => (
+            <button
+              key={it.id}
+              role="menuitem"
+              className={'rail-menu-item' + (view === it.id ? ' active' : '')}
+              onClick={() => { onView(it.id); setOpen(false); }}
+            >
+              <Icon name={it.icon} />
+              <span>{it.label}</span>
+            </button>
+          ))}
+        </div>,
+        document.body,
+      )}
+    </div>
+  );
+}
 
 interface Props {
   open: boolean;
@@ -57,23 +135,27 @@ export function Drawer({
 
   return (
     <aside id="drawer" className={open ? 'open' : ''}>
-      {/* Narrow icon rail — one icon per page (Claude style). */}
+      {/* Narrow icon rail — the Assistant on top, then the user's connected apps.
+          Vitals / Operations / Setup live in the settings flyout at the foot. */}
       <div className="side-rail">
         <div className="rail-tabs">
-          {/* Vitals + Operations, then a divider before the app tabs. */}
-          {railBtn('vitals', 'Vitals', 'gauge')}
-          {railBtn('ops', 'Operations', 'activity')}
-          <div className="rail-div" />
           {railBtn('chat', `${brand} — Assistant`, 'bot')}
-          {/* App tabs — derived from the connector registry. */}
+          {/* App tabs — derived from the connector registry, below the chat icon. */}
           {apps
             .filter((a) => a.section !== 'core')
             .map((a) => railBtn(a.id, a.label, a.icon))}
         </div>
         <div className="rail-spacer" />
         <div className="rail-foot">
-          {/* Single user-settings portal — sign out lives inside Setup. */}
-          {railBtn('hub', 'Setup', 'sliders')}
+          <RailFlyout
+            items={[
+              { id: 'vitals', label: 'Vitals', icon: 'gauge' },
+              { id: 'ops', label: 'Operations', icon: 'activity' },
+              { id: 'hub', label: 'Setup', icon: 'sliders' },
+            ]}
+            view={view}
+            onView={onView}
+          />
         </div>
       </div>
 

@@ -35,7 +35,11 @@ export function useLiveResource<T>(fetcher: () => Promise<T>, intervalMs = 4000)
       window.clearTimeout(timer);
       document.removeEventListener('visibilitychange', onVis);
     };
-  }, [load, intervalMs]);
+    // `fetcher` in deps: when a caller passes a new memoized fetcher (e.g. the
+    // user picked a different time range), refetch at once and restart the timer
+    // on the new cadence. Callers already memoize with useCallback, so a stable
+    // fetcher won't churn this effect.
+  }, [load, intervalMs, fetcher]);
 
   return { data, error, loading, refresh: load };
 }
