@@ -44,10 +44,10 @@ export default {
         { direct: false, timeout: 220,
           headers: { 'X-Ava-Internal-Token': internalToken || '' } });
     } catch (err) {
-      return `❌ Error reaching the code-change handler: ${err.message}`;
+      return `Error reaching the code-change handler: ${err.message}`;
     }
     if (data && data.error) {
-      return `❌ Code change failed: ${data.error}`;
+      return `Code change failed: ${data.error}`;
     }
 
     const status = data.status || "completed";
@@ -56,35 +56,35 @@ export default {
     const errors = data.errors || [];
 
     if (status === "no_changes") {
-      return `ℹ️ No code changes were needed.\n\n${data.summary || ""}`.trim();
+      return `No code changes were needed.\n\n${data.summary || ""}`.trim();
     }
 
     const head = {
-      completed: "✅ Code changes applied",
-      partial: "✅ Some changes applied · ⏳ some need the user's approval",
-      pending_approval: "⏳ Change staged — waiting for the user's approval",
-      blocked: "🚫 Change blocked by access policy",
-      error: "❌ Code change error",
-    }[status] || "✅ Code changes applied";
+      completed: "Code changes applied",
+      partial: "Some changes applied · some need the user's approval",
+      pending_approval: "Change staged — waiting for the user's approval",
+      blocked: "Change blocked by access policy",
+      error: "Code change error",
+    }[status] || "Code changes applied";
 
     let out = head + "\n\n";
-    if (data.summary) out += `📝 ${data.summary}\n\n`;
+    if (data.summary) out += `${data.summary}\n\n`;
 
     if (applied.length) {
-      out += `📂 **Applied** (${applied.length})\n`;
+      out += `**Applied** (${applied.length})\n`;
       for (const f of applied) out += `  • ${f.path}${f.description ? " — " + f.description : ""}\n`;
-      if (data.git_commit) out += `  🔗 commit ${data.git_commit}\n`;
+      if (data.git_commit) out += `  commit ${data.git_commit}\n`;
       out += "\n";
     }
 
     if (pending.length) {
-      out += `⏳ **Awaiting the user's approval** (${pending.length}) — protected files\n`;
+      out += `**Awaiting the user's approval** (${pending.length}) — protected files\n`;
       for (const f of pending) out += `  • ${f.path}${f.description ? " — " + f.description : ""}\n`;
       out += `  → Review & approve on the Learning page.\n\n`;
     }
 
     if (errors.length) {
-      out += `⚠️ **Notes**\n`;
+      out += `**Notes**\n`;
       for (const e of errors) out += `  • ${e}\n`;
     }
 

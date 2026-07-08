@@ -24,7 +24,7 @@ export default {
   },
   async handler(args, { http, internalToken }) {
     const query = (args && args.query || '').trim();
-    if (!query) return '❌ Provide a `query`.';
+    if (!query) return 'Provide a `query`.';
     let data;
     try {
       data = await http.postJson(`${BRIDGE}/internal/web/search`,
@@ -32,9 +32,9 @@ export default {
         { direct: false, timeout: 30,
           headers: { 'X-Ava-Internal-Token': internalToken || '' } });
     } catch (err) {
-      return `❌ Error reaching web search: ${err.message}`;
+      return `Error reaching web search: ${err.message}`;
     }
-    if (data && data.error) return `❌ Web search failed: ${data.error}`;
+    if (data && data.error) return `Web search failed: ${data.error}`;
     const results = (data && data.results) || [];
     if (!results.length) return `No results for "${query}".`;
     const answers = (data && data.answers) || [];

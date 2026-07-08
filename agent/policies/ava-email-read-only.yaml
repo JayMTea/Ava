@@ -8,7 +8,7 @@ preset:
   description: "Ava can read her own learning digest emails (daily and weekly reports). Read-only access."
 
 network_policies: {}
-icon: 📧
+icon: email
 
 tools:
   - ava-tools__get_email_digest

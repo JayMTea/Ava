@@ -30,8 +30,8 @@ export default {
     const caps = (s.capabilities || []).map(x => `  - ${x.category}: ${x.tools.join(', ')}`).join('\n');
     const d = s.drift || {};
     const drift = d.ok
-      ? '✅ in sync (manifest matches the running code)'
-      : `⚠️ DRIFT — ${(d.errors || []).length} error(s):\n    ${(d.errors || []).join('\n    ')}`;
+      ? 'in sync (manifest matches the running code)'
+      : `DRIFT — ${(d.errors || []).length} error(s):\n    ${(d.errors || []).join('\n    ')}`;
     const warn = (d.warnings || []).length ? `\n  warnings:\n    ${d.warnings.join('\n    ')}` : '';
     return [
       `Ava architecture — ${s.meta.name} on ${s.meta.host} (updated ${s.meta.updated})`,

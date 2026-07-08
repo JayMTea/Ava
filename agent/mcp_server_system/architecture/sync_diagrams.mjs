@@ -32,8 +32,8 @@ export default {
     const d = (r && r.drift) || {};
     const regen = (r && r.regenerated) || [];
     const drift = d.ok === false
-      ? `⚠️ drift remains: ${(d.errors || []).join('; ')}`
-      : '✅ in sync';
+      ? `drift remains: ${(d.errors || []).join('; ')}`
+      : 'in sync';
     return `Regenerated: ${regen.join(', ') || '(no changes)'}\n`
       + `Committed: ${r && r.committed ? 'yes' : 'no (nothing changed)'}\n${drift}`;
   },

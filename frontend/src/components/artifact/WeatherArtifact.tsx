@@ -90,11 +90,6 @@ function WeekChart({ days }: { days: WeatherDay[] }) {
           <text x={x(i)} y={H - padB + 16} textAnchor="middle" fontSize={10} fill="#aab2c2">
             {d.weekday}
           </text>
-          {d.emoji && (
-            <text x={x(i)} y={H - padB + 30} textAnchor="middle" fontSize={11}>
-              {d.emoji}
-            </text>
-          )}
         </g>
       ))}
     </svg>
@@ -117,7 +112,6 @@ export function WeatherArtifact({ art }: { art: WeatherArtifactData }) {
   return (
     <div className="wx">
       <div className="wx-hero">
-        <div className="wx-emoji">{c.emoji || '🌤️'}</div>
         <div className="wx-hero-main">
           <div className="wx-temp">{c.temp != null ? `${c.temp}${u}` : '—'}</div>
           <div className="wx-desc">{c.desc}</div>
@@ -142,7 +136,6 @@ export function WeatherArtifact({ art }: { art: WeatherArtifactData }) {
             {days.map((d) => (
               <div className="wx-day" key={d.date}>
                 <div className="d">{d.weekday}</div>
-                <div className="e">{d.emoji}</div>
                 <div className="cond">{d.desc}</div>
                 <div className="rng">
                   <span className="pp">{d.precip != null ? `${d.precip}%` : ''}</span>

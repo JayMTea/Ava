@@ -184,7 +184,7 @@ def format_weekly_html(code_state, chat_state, trends):
   <div class="container">
     <div class="email">
       <div class="header">
-        <h1>📊 Ava's Weekly Learning Trends</h1>
+        <h1>Ava's Weekly Learning Trends</h1>
         <p>{trends['period']}</p>
       </div>
       
@@ -205,7 +205,7 @@ def format_weekly_html(code_state, chat_state, trends):
         </div>
         
         <div class="section">
-          <h2>📈 Key Metrics</h2>
+          <h2>Key Metrics</h2>
           <ul>
             <li><strong>Code Learning Cycles:</strong> {trends['code_cycles']}</li>
             <li><strong>Chat Learning Cycles:</strong> {trends['chat_cycles']}</li>
@@ -215,20 +215,20 @@ def format_weekly_html(code_state, chat_state, trends):
           </ul>
         </div>
         
-        {'<div class="section"><h2>🔧 Most Changed Files</h2><ul>' + ''.join([f'<li><code>{f}</code></li>' for f in trends['most_changed_files']]) + '</ul></div>' if trends['most_changed_files'] else ''}
+        {'<div class="section"><h2>Most Changed Files</h2><ul>' + ''.join([f'<li><code>{f}</code></li>' for f in trends['most_changed_files']]) + '</ul></div>' if trends['most_changed_files'] else ''}
         
-        {'<div class="section"><h2>⚠️ Common Errors</h2><ul>' + ''.join([f'<li>{e}</li>' for e in trends['common_errors']]) + '</ul></div>' if trends['common_errors'] else ''}
+        {'<div class="section"><h2>Common Errors</h2><ul>' + ''.join([f'<li>{e}</li>' for e in trends['common_errors']]) + '</ul></div>' if trends['common_errors'] else ''}
         
-        {'<div class="section"><h2>🎯 Areas for Improvement</h2><ul>' + ''.join([f'<li>{a}</li>' for a in trends['improvement_areas']]) + '</ul></div>' if trends['improvement_areas'] else ''}
+        {'<div class="section"><h2>Areas for Improvement</h2><ul>' + ''.join([f'<li>{a}</li>' for a in trends['improvement_areas']]) + '</ul></div>' if trends['improvement_areas'] else ''}
         
         <div class="section">
-          <h2>💭 Reflections</h2>
+          <h2>Reflections</h2>
           <p>This week, I analyzed my learning patterns and identified opportunities to improve. Your feedback on proposals is crucial — each approval trains me to recognize valuable improvements, while rejections help me understand which ideas miss the mark.</p>
           <p>I'm getting better at recovering from errors autonomously, and the patterns I'm detecting are becoming more nuanced. Keep guiding me toward the improvements that matter most!</p>
         </div>
         
         <div class="signature">
-          <p>Growing stronger,<br><strong>Ava 🪻</strong></p>
+          <p>Growing stronger,<br><strong>Ava</strong></p>
           <p style="margin: 10px 0 0 0; font-size: 11px; color: #999;">Weekly trends report generated {now.strftime('%A at %I:%M %p %Z')}.</p>
         </div>
       </div>
@@ -255,7 +255,7 @@ def send_email(html_body):
 
     try:
         msg = MIMEMultipart('alternative')
-        msg['Subject'] = '📊 Ava\'s Weekly Learning Trends'
+        msg['Subject'] = 'Ava\'s Weekly Learning Trends'
         msg['From'] = smtp_user
         msg['To'] = recipient_email
 

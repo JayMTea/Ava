@@ -107,7 +107,7 @@ def main():
     suggested = max(0.25, float(sims.min()) - args.threshold_margin)
 
     spk.save_voiceprint(voiceprint)
-    print(f"\n✓ Saved your voiceprint -> {spk.VOICEPRINT}")
+    print(f"\nSaved your voiceprint -> {spk.VOICEPRINT}")
     print(f"  Suggested SPEAKER_THRESHOLD = {suggested:.2f}")
     if sims.mean() < 0.6:
         print("  NOTE: consistency is a bit low — a cleaner/longer recording would help.")

@@ -16,10 +16,10 @@ silently fall out of date with reality.
 
 | Boundary | Trust | What enforces it |
 |----------|-------|------------------|
-| 🌐 Internet / LAN | Untrusted | The bridge binds loopback by default; any wider exposure (VPN like Tailscale, or a reverse proxy) is the operator's explicit choice |
-| 🛡️ Perimeter | Authenticated | The app **auth gate** — a signed-cookie session, on every request |
-| 🔒 Host (loopback) | Trusted | App services bind `127.0.0.1`; the inference router's `/v1` requires a bearer token when bound off-loopback; sandbox-only access goes through per-port gateway forwarders |
-| 🔒 Sandbox (Docker) | Confined | The agent runs in an OpenClaw sandbox with **no ambient egress** — every outbound call passes the SSRF guard + per-tool allow-list |
+| Internet / LAN | Untrusted | The bridge binds loopback by default; any wider exposure (VPN like Tailscale, or a reverse proxy) is the operator's explicit choice |
+| Perimeter | Authenticated | The app **auth gate** — a signed-cookie session, on every request |
+| Host (loopback) | Trusted | App services bind `127.0.0.1`; the inference router's `/v1` requires a bearer token when bound off-loopback; sandbox-only access goes through per-port gateway forwarders |
+| Sandbox (Docker) | Confined | The agent runs in an OpenClaw sandbox with **no ambient egress** — every outbound call passes the SSRF guard + per-tool allow-list |
 
 ## 2. Authentication & sessions (the perimeter)
 

@@ -119,7 +119,6 @@ export function ChatView({
                   >
                     {it.artifact && (
                       <div className="art-chip" onClick={() => onOpenArtifact(it.artifact!)}>
-                        <span className="cic">{it.artifact.current?.emoji || '📊'}</span>
                         <span>
                           <b>{it.artifact.title || 'View artifact'}</b>
                           <br />

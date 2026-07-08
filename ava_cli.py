@@ -23,7 +23,7 @@ from ava_bridge import settings  # noqa: E402
 from ava_bridge.version import __version__, revision  # noqa: E402
 
 G, Y, R, B, X = "\033[32m", "\033[33m", "\033[31m", "\033[34m", "\033[0m"
-OK, WARN, BAD = f"{G}✓{X}", f"{Y}●{X}", f"{R}✗{X}"
+OK, WARN, BAD = f"{G}+{X}", f"{Y}●{X}", f"{R}x{X}"
 
 
 def _row(mark: str, label: str, detail: str = "") -> None:
@@ -121,7 +121,7 @@ def cmd_doctor(_args) -> int:
         icon = OK if ok else WARN
         if weight and avail and float(weight) > float(avail):
             icon = WARN
-            note += f"  ⚠ needs ~{weight} GB > {avail:.0f} GB available"
+            note += f"  ! needs ~{weight} GB > {avail:.0f} GB available"
         _row(icon, name, note)
 
     # The route chat ACTUALLY uses (fixes the old doctor/reality mismatch where
@@ -148,7 +148,7 @@ def cmd_doctor(_args) -> int:
         if chat_role:
             declared = chat_role in (settings.get("inference.backends", {}) or {})
             _row(OK if declared else BAD, "chat role",
-                 chat_role + ("" if declared else "  ⚠ not a declared backend"))
+                 chat_role + ("" if declared else "  ! not a declared backend"))
     except Exception as e:  # noqa: BLE001
         _row(WARN, "inference route", f"probe failed: {e}")
 
@@ -229,8 +229,8 @@ def cmd_up(args) -> int:
 
 def cmd_verify(_args) -> int:
     """End-to-end claim check: exercise the golden path and confirm each
-    advertised capability is actually wired. Prints ✓ / ● / ✗ per check and
-    exits non-zero if any HARD check (✗) fails. ● (warn) never fails the run —
+    advertised capability is actually wired. Prints + / ● / x per check and
+    exits non-zero if any HARD check (x) fails. ● (warn) never fails the run —
     it flags an optional capability that isn't set up, not a broken claim."""
     import yaml as _yaml
     from ava_bridge import connectors, config, access_policy, learning
@@ -337,7 +337,7 @@ def cmd_verify(_args) -> int:
 
     print()
     if fails:
-        print(f"{BAD} verify: {fails} hard check(s) failed — fix the ✗ rows above.\n")
+        print(f"{BAD} verify: {fails} hard check(s) failed — fix the x rows above.\n")
         return 1
     print(f"{OK} verify: all hard checks passed. (● rows are optional capabilities.)\n")
     return 0
@@ -914,7 +914,7 @@ def cmd_models(args) -> int:
             if not r.get("ok"):
                 _row(BAD, r["id"][:22], f"error: {r.get('error','')}")
                 continue
-            star = " ★" if r["id"] == res["winner"] else ""
+            star = " *" if r["id"] == res["winner"] else ""
             est = "~" if r.get("estimated_tokens") else " "
             print(f"  {G if r['id']==res['winner'] else ''}{r['id'][:22]:22}{X} "
                   f"{r['ttft_ms']:>7.0f}m {r['tok_s']:>7.1f} {est}{r['tokens']:>6} "

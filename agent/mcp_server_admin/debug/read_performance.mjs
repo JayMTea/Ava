@@ -58,7 +58,7 @@ export default {
         return `Error reading performance: ${(data && data.error) || "bridge unreachable"}`;
       }
 
-      let text = `📈 Generation performance — ${data.apps.join(", ")}\n`;
+      let text = `Generation performance — ${data.apps.join(", ")}\n`;
       text += `Total records: ${data.total}\n`;
       const missing = Object.entries(data.sources_present || {})
         .filter(([, present]) => !present)

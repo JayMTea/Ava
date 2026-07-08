@@ -24,7 +24,7 @@ export default {
   },
   async handler(args, { http, internalToken }) {
     const url = (args && args.url || '').trim();
-    if (!url) return '❌ Provide a `url`.';
+    if (!url) return 'Provide a `url`.';
     let data;
     try {
       data = await http.postJson(`${BRIDGE}/internal/web/fetch`,
@@ -32,9 +32,9 @@ export default {
         { direct: false, timeout: 40,
           headers: { 'X-Ava-Internal-Token': internalToken || '' } });
     } catch (err) {
-      return `❌ Error reaching web fetch: ${err.message}`;
+      return `Error reaching web fetch: ${err.message}`;
     }
-    if (data && data.error) return `❌ Could not fetch: ${data.error}`;
+    if (data && data.error) return `Could not fetch: ${data.error}`;
     const text = (data && data.text) || '';
     if (!text) return `Fetched ${data && data.url || url} but no readable text was extracted.`;
     const note = data && data.truncated ? '\n\n[content truncated]' : '';

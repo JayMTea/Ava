@@ -34,13 +34,13 @@ echo "[ava] sandbox=$SANDBOX"
 # sandbox. If the CLI or sandbox isn't there yet, stop with a clear next step
 # rather than failing deep in a policy-add. (`ava agent provision` runs this.)
 if ! command -v "$NEMOCLAW" >/dev/null 2>&1 && [ ! -x "$NEMOCLAW" ]; then
-  echo "[ava] ✗ nemoclaw CLI not found ($NEMOCLAW)." >&2
+  echo "[ava] ERROR: nemoclaw CLI not found ($NEMOCLAW)." >&2
   echo "[ava]   Install it:  npm install -g nemoclaw   (github.com/NVIDIA/NemoClaw)" >&2
   echo "[ava]   or run:      ava agent provision --install" >&2
   exit 1
 fi
 if ! "$NEMOCLAW" list --json 2>/dev/null | grep -q "\"$SANDBOX\""; then
-  echo "[ava] ✗ sandbox '$SANDBOX' not found." >&2
+  echo "[ava] ERROR: sandbox '$SANDBOX' not found." >&2
   echo "[ava]   Create it:   nemoclaw onboard   (configures inference + creates the sandbox)" >&2
   echo "[ava]   then re-run: cd agent && ./install.sh" >&2
   exit 1
@@ -97,7 +97,7 @@ for base in "$HERE" "$OVERLAY"; do
   done
 done
 mapfile -t CATS < <(printf '%s\n' "${!CAT_SRC[@]}" | sort)
-[ "${#CATS[@]}" -gt 0 ] || { echo "[ava] ✗ no mcp_server_* dirs found" >&2; exit 1; }
+[ "${#CATS[@]}" -gt 0 ] || { echo "[ava] ERROR: no mcp_server_* dirs found" >&2; exit 1; }
 echo "[ava] discovered ${#CATS[@]} mcp server(s): ${CATS[*]}"
 
 # Token groups = discovered categories + the shared "connectors" group.
@@ -134,7 +134,7 @@ for cat in "${CATS[@]}"; do
   echo "[ava] deploying mcp_server_${cat} → $dest ($name)…"
   B64="$(tar czf - -C "$src" . | base64 -w0)"
   # Simple deployment: extract to dest, check syntax
-  CMD='rm -rf "$DEST"; mkdir -p "$DEST"; echo "$0" | base64 -d | tar xzf - -C "$DEST"; node --check "$DEST/_server.mjs" && echo "[ava] ✅ $NAME" || echo "[ava] ⚠️  $NAME (syntax error)"'
+  CMD='rm -rf "$DEST"; mkdir -p "$DEST"; echo "$0" | base64 -d | tar xzf - -C "$DEST"; node --check "$DEST/_server.mjs" && echo "[ava] ok: $NAME" || echo "[ava] WARNING: $NAME (syntax error)"'
   "$NEMOCLAW" "$SANDBOX" exec --no-tty -- env DEST="$dest" NAME="$name" bash -c "$CMD" "$B64" 2>&1 | grep -vE "$NOISE" | tail -3
 done
 SPECS_JSON="[$(IFS=,; echo "${SPECS[*]}")]"

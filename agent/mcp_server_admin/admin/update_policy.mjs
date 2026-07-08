@@ -47,7 +47,7 @@ export default {
     }
     if (data && data.error) return `Error updating policy: ${data.error}`;
 
-    let text = `✅ Updated policy: ${data.name}\n\n`;
+    let text = `Updated policy: ${data.name}\n\n`;
     text += `Reason: ${data.reason}\n`;
     text += `Backup: ${data.backup}\n`;
     text += `New rule count: ${data.new_rule_count}\n`;

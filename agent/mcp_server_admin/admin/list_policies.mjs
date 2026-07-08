@@ -26,13 +26,13 @@ export default {
     }
     if (data && data.error) return `Error listing policies: ${data.error}`;
 
-    let text = `📋 Available Policies (${data.count})\n`;
+    let text = `Available Policies (${data.count})\n`;
     text += "=".repeat(50) + "\n\n";
 
     for (const policy of data.policies) {
       let marker = "";
-      if (policy.protected) marker += "🔒 PROTECTED ";
-      if (policy.core) marker += "📌 CORE";
+      if (policy.protected) marker += "PROTECTED ";
+      if (policy.core) marker += "CORE";
 
       text += `${policy.name}`;
       if (marker) text += ` [${marker}]`;
@@ -40,7 +40,7 @@ export default {
     }
 
     if (data.protected && data.protected.length > 0) {
-      text += `\n⚠️  Protected policies (cannot be modified):\n`;
+      text += `\n Protected policies (cannot be modified):\n`;
       for (const p of data.protected) {
         text += `  - ${p}\n`;
       }

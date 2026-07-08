@@ -107,7 +107,7 @@ def save_learning_state():
             os.replace(tmp, path)
             os.chmod(path, 0o600)
     except Exception as e:
-        print(f"⚠️  Warning: Could not save learning state: {e}")
+        print(f"Warning: Could not save learning state: {e}")
 
 
 def load_learning_state():
@@ -129,9 +129,9 @@ def load_learning_state():
                 code_learning_state.update(data["code"])
             if "chat" in data:
                 chat_learning_state.update(data["chat"])
-        print("✅ Loaded learning state from disk")
+        print("Loaded learning state from disk")
     except Exception as e:
-        print(f"⚠️  Warning: Could not load learning state: {e}")
+        print(f"Warning: Could not load learning state: {e}")
 
 
 # Load learning state on startup

@@ -26,7 +26,7 @@ if ! command -v nemoclaw >/dev/null 2>&1; then
   curl -fsSL "https://raw.githubusercontent.com/NVIDIA/NemoClaw/${NEMOCLAW_INSTALL_REF:-main}/install.sh" | bash || true
   hash -r
   if ! command -v nemoclaw >/dev/null 2>&1; then
-    echo "[agent] ✗ NemoClaw CLI did not install — see logs above" >&2
+    echo "[agent] ERROR: NemoClaw CLI did not install — see logs above" >&2
     exit 1
   fi
 fi
@@ -59,7 +59,7 @@ if ! nemoclaw list --json 2>/dev/null | grep -q "\"${SANDBOX}\""; then
   export OPENAI_API_KEY="${ROUTER_TOKEN:-none}"
   if ! nemoclaw onboard --non-interactive --yes \
         --yes-i-accept-third-party-software --name "${SANDBOX}"; then
-    echo "[agent] ✗ onboarding failed — see logs above" >&2
+    echo "[agent] ERROR: onboarding failed — see logs above" >&2
     exit 1
   fi
   # The sandbox reaches the bridge at host.openshell.internal; point that alias
@@ -70,7 +70,7 @@ if ! nemoclaw list --json 2>/dev/null | grep -q "\"${SANDBOX}\""; then
     echo "[agent] mapping host.openshell.internal -> ${BRIDGE_IP}"
     nemoclaw "${SANDBOX}" hosts-add host.openshell.internal "${BRIDGE_IP}" || true
   else
-    echo "[agent] ⚠ could not resolve the bridge IP; set AVA_BRIDGE_IP so the" \
+    echo "[agent] WARNING: could not resolve the bridge IP; set AVA_BRIDGE_IP so the" \
          "sandbox can reach the bridge (see deploy/README.md)." >&2
   fi
 fi
@@ -78,7 +78,7 @@ fi
 # --- Deploy Ava's tools/policies/skills into the sandbox (idempotent) --------
 echo "[agent] deploying tools/policies/skills ..."
 AVA_BRIDGE_URL="${BRIDGE_URL}" AVA_OC_SANDBOX="${SANDBOX}" \
-  bash /app/agent/install.sh || echo "[agent] ⚠ install.sh reported issues"
+  bash /app/agent/install.sh || echo "[agent] WARNING: install.sh reported issues"
 
 echo "[agent] serving the runtime shim on :9100 ..."
 exec python -m ava_bridge.agent_runtime_server

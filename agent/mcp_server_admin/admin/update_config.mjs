@@ -38,7 +38,7 @@ export default {
     }
     if (data && data.error) return `Error updating config: ${data.error}`;
 
-    let text = `✅ Updated ${data.component}\n\n`;
+    let text = `Updated ${data.component}\n\n`;
     text += `Changed: ${data.changed} settings\n`;
     text += `Reason: ${data.reason}\n`;
     text += `Backup: ${data.backup}\n`;

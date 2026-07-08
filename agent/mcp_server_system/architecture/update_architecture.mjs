@@ -41,9 +41,9 @@ export default {
     if (!r || !r.ok) {
       const d = (r && r.drift) || {};
       const extra = (d.errors || []).length ? `\n  ${d.errors.join('\n  ')}` : '';
-      return `❌ Update rejected: ${(r && r.error) || 'unknown error'}${extra}`;
+      return `Update rejected: ${(r && r.error) || 'unknown error'}${extra}`;
     }
-    return `✅ Architecture updated, diagrams + docs regenerated.\n`
+    return `Architecture updated, diagrams + docs regenerated.\n`
       + `Committed: ${r.committed ? 'yes' : 'no'}\n`
       + `${r.drift && r.drift.ok ? 'In sync.' : 'Note: drift report attached.'}`;
   },

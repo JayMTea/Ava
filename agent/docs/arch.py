@@ -316,7 +316,7 @@ def build_policy_d2(m: dict) -> str:
 
     Generated 1:1 from the manifest `policies` (name / tools / egress). Shows
     that each MCP tool may reach ONLY its declared host:port + method/path;
-    everything else is denied by default (the red ⛔ node).
+    everything else is denied by default (the red deny node).
     """
     PAL = _palettes(m)
     st = _style(m)

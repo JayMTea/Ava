@@ -202,7 +202,7 @@ def _startup():
     from ava_bridge import runtime
     rt, err = runtime.gate()
     if err:
-        print(f"[ava-bridge] ⚠ AGENT RUNTIME REQUIRED BUT MISSING — {err}", flush=True)
+        print(f"[ava-bridge] WARNING: AGENT RUNTIME REQUIRED BUT MISSING — {err}", flush=True)
         print("[ava-bridge]   chat turns will error until you provision it "
               "(`ava agent provision --install`).", flush=True)
     elif rt.name == "direct":

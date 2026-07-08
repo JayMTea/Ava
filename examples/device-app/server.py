@@ -102,7 +102,7 @@ def _demo_pusher():
 
 PAGE = """<!doctype html><meta charset=utf-8><title>Device App</title>
 <style>body{font-family:system-ui;margin:40px;max-width:640px}code{background:#eee;padding:2px 5px;border-radius:4px}</style>
-<h1>🔌 Example device app</h1>
+<h1>Example device app</h1>
 <p>This stands in for <b>your</b> app. Ava reads its tools
 (<code>read_temperature</code>, <code>set_relay</code>) on demand, and it pushes
 events to Ava (<code>motion</code>, <code>temperature</code>) on its own schedule.</p>

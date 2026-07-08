@@ -127,7 +127,6 @@ export interface WeatherDay {
   precip: number | null;
   code: number | null;
   desc: string;
-  emoji: string;
 }
 
 export interface WeatherCurrent {
@@ -137,7 +136,6 @@ export interface WeatherCurrent {
   wind: number | null;
   code: number | null;
   desc: string;
-  emoji: string;
 }
 
 export interface WeatherArtifactData {

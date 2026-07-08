@@ -30,7 +30,7 @@ TOOLS = [
 
 def call_tool(name: str, args: dict) -> str:
     if name == "hello_ping":
-        return "pong 🏓 — the Hello App tool was reached through Ava's connector proxy."
+        return "pong — the Hello App tool was reached through Ava's connector proxy."
     if name == "hello_echo":
         return f"echo: {args.get('text', '')}"
     return f"unknown tool: {name}"
@@ -55,7 +55,7 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
   #out {{ margin-top:14px; font-size:13px; color:var(--muted); min-height:18px; }}
 </style></head><body>
   <div class="card">
-    <h1>👋 Hello from a third-party app</h1>
+    <h1>Hello from a third-party app</h1>
     <p>This page is served by <code>examples/hello-app/server.py</code> on its own
        port, and embedded in Ava <b>same-origin</b> via the connector proxy at
        <code>/apps/hello/</code> — so it inherited Ava's session with no login.</p>

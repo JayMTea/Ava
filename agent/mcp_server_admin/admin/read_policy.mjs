@@ -30,8 +30,8 @@ export default {
     }
     if (data && data.error) return `Error reading policy: ${data.error}`;
 
-    let text = `📋 Policy: ${data.name}\n`;
-    if (data.protected) text += "🔒 PROTECTED (read-only)\n";
+    let text = `Policy: ${data.name}\n`;
+    if (data.protected) text += "PROTECTED (read-only)\n";
     text += `Path: ${data.path}\n\n`;
 
     text += "---YAML---\n";

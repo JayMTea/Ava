@@ -23,19 +23,19 @@ from .agent import _sbx_read, _session_file
 GEO_URL = "https://geocoding-api.open-meteo.com/v1/search"
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 
-# WMO weather codes → (human description, emoji). Mirrors the get_weather tool.
+# WMO weather codes → human description. Mirrors the get_weather tool.
 WMO = {
-    0: ("Clear sky", "☀️"), 1: ("Mainly clear", "🌤️"), 2: ("Partly cloudy", "⛅"),
-    3: ("Overcast", "☁️"), 45: ("Fog", "🌫️"), 48: ("Rime fog", "🌫️"),
-    51: ("Light drizzle", "🌦️"), 53: ("Drizzle", "🌦️"), 55: ("Dense drizzle", "🌧️"),
-    56: ("Freezing drizzle", "🌧️"), 57: ("Freezing drizzle", "🌧️"),
-    61: ("Slight rain", "🌦️"), 63: ("Rain", "🌧️"), 65: ("Heavy rain", "🌧️"),
-    66: ("Freezing rain", "🌧️"), 67: ("Freezing rain", "🌧️"),
-    71: ("Slight snow", "🌨️"), 73: ("Snow", "🌨️"), 75: ("Heavy snow", "❄️"),
-    77: ("Snow grains", "🌨️"),
-    80: ("Rain showers", "🌦️"), 81: ("Rain showers", "🌧️"), 82: ("Heavy showers", "⛈️"),
-    85: ("Snow showers", "🌨️"), 86: ("Heavy snow showers", "❄️"),
-    95: ("Thunderstorm", "⛈️"), 96: ("Thunderstorm w/ hail", "⛈️"), 99: ("Severe thunderstorm", "⛈️"),
+    0: "Clear sky", 1: "Mainly clear", 2: "Partly cloudy",
+    3: "Overcast", 45: "Fog", 48: "Rime fog",
+    51: "Light drizzle", 53: "Drizzle", 55: "Dense drizzle",
+    56: "Freezing drizzle", 57: "Freezing drizzle",
+    61: "Slight rain", 63: "Rain", 65: "Heavy rain",
+    66: "Freezing rain", 67: "Freezing rain",
+    71: "Slight snow", 73: "Snow", 75: "Heavy snow",
+    77: "Snow grains",
+    80: "Rain showers", 81: "Rain showers", 82: "Heavy showers",
+    85: "Snow showers", 86: "Heavy snow showers",
+    95: "Thunderstorm", 96: "Thunderstorm w/ hail", 99: "Severe thunderstorm",
 }
 
 def _default_location_name() -> str:
@@ -51,7 +51,7 @@ def _default_location_name() -> str:
 
 
 def _wmo(code):
-    return WMO.get(int(code) if code is not None else -1, ("Mixed conditions", "🌡️"))
+    return WMO.get(int(code) if code is not None else -1, "Mixed conditions")
 
 
 def _extract_weather_args(sid: str, after: int) -> tuple[str | None, int]:
@@ -155,20 +155,20 @@ def build_weather_artifact(location: str | None, days: int = 7) -> dict | None:
         return None
 
     cur = j.get("current") or {}
-    cdesc, cemoji = _wmo(cur.get("weather_code"))
+    cdesc = _wmo(cur.get("weather_code"))
     current = {
         "temp": round(cur.get("temperature_2m")) if cur.get("temperature_2m") is not None else None,
         "feels": round(cur.get("apparent_temperature")) if cur.get("apparent_temperature") is not None else None,
         "humidity": cur.get("relative_humidity_2m"),
         "wind": round(cur.get("wind_speed_10m")) if cur.get("wind_speed_10m") is not None else None,
-        "code": cur.get("weather_code"), "desc": cdesc, "emoji": cemoji,
+        "code": cur.get("weather_code"), "desc": cdesc,
     }
 
     d = j.get("daily") or {}
     daily = []
     import datetime as _dt
     for i, day in enumerate(d.get("time") or []):
-        desc, emoji = _wmo((d.get("weather_code") or [None])[i] if i < len(d.get("weather_code") or []) else None)
+        desc = _wmo((d.get("weather_code") or [None])[i] if i < len(d.get("weather_code") or []) else None)
         try:
             wd = _dt.date.fromisoformat(day).strftime("%a")
         except Exception:  # noqa: BLE001
@@ -179,7 +179,7 @@ def build_weather_artifact(location: str | None, days: int = 7) -> dict | None:
             "tmin": round(d["temperature_2m_min"][i]) if d.get("temperature_2m_min") else None,
             "precip": (d.get("precipitation_probability_max") or [None] * (i + 1))[i],
             "code": (d.get("weather_code") or [None] * (i + 1))[i],
-            "desc": desc, "emoji": emoji,
+            "desc": desc,
         })
 
     h = j.get("hourly") or {}

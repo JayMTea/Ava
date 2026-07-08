@@ -24,10 +24,10 @@ export default {
     if (r && r.error && r.ok === undefined) return `Could not run drift check: ${r.error}`;
     const errs = (r && r.errors) || [];
     const warns = (r && r.warnings) || [];
-    if (r && r.ok && !warns.length) return '✅ In sync — the manifest, diagrams, and code all match.';
+    if (r && r.ok && !warns.length) return 'In sync — the manifest, diagrams, and code all match.';
     const parts = [];
-    if (r && r.ok) parts.push('✅ No drift errors (manifest matches the code).');
-    else parts.push(`⚠️ DRIFT — ${errs.length} error(s) to fix:\n  ${errs.join('\n  ')}`);
+    if (r && r.ok) parts.push('No drift errors (manifest matches the code).');
+    else parts.push(`DRIFT — ${errs.length} error(s) to fix:\n  ${errs.join('\n  ')}`);
     if (warns.length) parts.push(`Warnings:\n  ${warns.join('\n  ')}`);
     return parts.join('\n');
   },

@@ -78,11 +78,11 @@ the destination. Force it explicitly with `agent.enabled: false` or
 
 | | NemoClaw (full) | Direct (floor) |
 |---|:--:|:--:|
-| Tools / connectors / images | ✅ | ❌ |
-| Sandboxed + egress-policed | ✅ | ❌ |
-| Persistent agent memory | ✅ | replayed history |
-| Live chain-of-thought | ✅ | ❌ |
-| Works with zero setup | needs provisioning | ✅ |
+| Tools / connectors / images | Yes | No |
+| Sandboxed + egress-policed | Yes | No |
+| Persistent agent memory | Yes | replayed history |
+| Live chain-of-thought | Yes | No |
+| Works with zero setup | needs provisioning | Yes |
 
 ## Full agent in Docker (the `remote` runtime)
 
@@ -96,8 +96,8 @@ bridge just doesn't care that the runtime is across the network.
 
 ```
 ┌────────────┐   HTTP /run_turn,/exec,…   ┌──────────────────┐  spawns  ┌───────────┐
-│ ava (bridge│──────────────────────────▶│ agent (nemoclaw +│─────────▶│ OpenShell │
-│  Remote-   │◀── /v1 inference ─────────│  shim, :9100)    │  via     │  sandbox  │
+│ ava (bridge│──────────────────────────>│ agent (nemoclaw +│─────────>│ OpenShell │
+│  Remote-   │<── /v1 inference ─────────│  shim, :9100)    │  via     │  sandbox  │
 │  Runtime)  │      (ava:8010)            │  + docker.sock   │  socket  │ (tools)   │
 └────────────┘                            └──────────────────┘          └───────────┘
 ```
@@ -119,7 +119,7 @@ entirely from `NEMOCLAW_*` env — inference endpoint `ava:8010/v1`, provider
 `compatible-endpoint`), maps `host.openshell.internal` to the bridge, runs
 `agent/install.sh`, and serves the shim on `:9100` (auth-gated, never published).
 
-> ⚠ **Security:** the `agent` container mounts `/var/run/docker.sock`, which is
+> **Security:** the `agent` container mounts `/var/run/docker.sock`, which is
 > **root-equivalent on the host**. That's why it's opt-in behind the `agent`
 > profile and why Docker-in-Docker was kept out of the bridge. Run it only on a
 > host you trust with that access.

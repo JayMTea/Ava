@@ -57,7 +57,7 @@ export default {
       let text = "";
 
       if (data.ok) {
-        text += `📋 Logs for ${data.service || data.component}\n`;
+        text += `Logs for ${data.service || data.component}\n`;
         if (data.level) text += `Level: ${data.level}\n`;
         if (data.since) text += `Since: ${data.since}\n`;
         if (data.path) text += `Path: ${data.path}\n`;

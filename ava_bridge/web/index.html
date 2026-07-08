@@ -452,8 +452,6 @@
     font-size:12.5px; color:#cfe0ff; background:rgba(42,109,244,.12); border:1px solid #2c447f;
     border-radius:12px; padding:8px 12px; transition:background .12s, border-color .12s; }
   .art-chip:hover { background:rgba(42,109,244,.2); border-color:var(--accent); }
-  .art-chip .cic { display:inline-flex; width:26px; height:26px; align-items:center;
-    justify-content:center; font-size:16px; }
   .art-chip b { font-weight:600; }
   .art-chip small { color:var(--muted); }
 
@@ -461,7 +459,6 @@
   .wx { display:flex; flex-direction:column; gap:16px; }
   .wx-hero { display:flex; align-items:center; gap:16px; padding:16px 18px; border-radius:16px;
     background:linear-gradient(135deg,#1c2740,#141a28); border:1px solid var(--line); }
-  .wx-emoji { font-size:52px; line-height:1; }
   .wx-hero-main { display:flex; flex-direction:column; gap:2px; min-width:0; }
   .wx-temp { font-size:40px; font-weight:700; line-height:1; }
   .wx-desc { font-size:14px; color:#cdd4e2; }
@@ -476,10 +473,9 @@
     padding:8px 4px 4px; }
   .wx-chart svg { width:100%; height:auto; display:block; }
   .wx-days { display:flex; flex-direction:column; gap:6px; }
-  .wx-day { display:grid; grid-template-columns:52px 30px 1fr 96px; align-items:center; gap:10px;
+  .wx-day { display:grid; grid-template-columns:52px 1fr 96px; align-items:center; gap:10px;
     padding:9px 12px; border-radius:12px; background:var(--panel2); border:1px solid var(--line); }
   .wx-day .d { font-size:13px; font-weight:600; }
-  .wx-day .e { font-size:20px; text-align:center; }
   .wx-day .cond { font-size:12px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .wx-day .rng { display:flex; align-items:center; gap:8px; justify-content:flex-end; font-size:13px; }
   .wx-day .rng .lo { color:#6ea8ff; }
@@ -732,8 +728,7 @@ function addArtifactChip(bubble, art){
   if (!bubble || !art) return;
   const chip = document.createElement('div');
   chip.className = 'art-chip';
-  const emoji = art.type === 'weather' && art.current ? (art.current.emoji || '🌤️') : '📊';
-  chip.innerHTML = '<span class="cic">' + emoji + '</span><span><b>' +
+  chip.innerHTML = '<span><b>' +
     (art.title || 'View artifact') + '</b><br><small>Open the visualization \u2192</small></span>';
   chip.onclick = () => openArtifact(art);
   bubble.appendChild(chip);
@@ -747,7 +742,6 @@ function renderWeather(root, art){
   const c = art.current || {};
   const hero = document.createElement('div'); hero.className = 'wx-hero';
   hero.innerHTML =
-    '<div class="wx-emoji">' + (c.emoji || '🌤️') + '</div>' +
     '<div class="wx-hero-main">' +
       '<div class="wx-temp">' + (c.temp != null ? c.temp + u : '\u2014') + '</div>' +
       '<div class="wx-desc">' + (c.desc || '') + '</div>' +
@@ -773,7 +767,6 @@ function renderWeather(root, art){
       const row = document.createElement('div'); row.className = 'wx-day';
       row.innerHTML =
         '<div class="d">' + d.weekday + '</div>' +
-        '<div class="e">' + (d.emoji || '') + '</div>' +
         '<div class="cond">' + (d.desc || '') + '</div>' +
         '<div class="rng"><span class="pp">' + (d.precip != null ? d.precip + '%' : '') + '</span>' +
           '<span class="lo">' + (d.tmin != null ? d.tmin + '\u00b0' : '') + '</span>' +
@@ -823,7 +816,6 @@ function weatherChartSVG(days, u){
   days.forEach((d, i) => {
     labels += '<text x="' + x(i) + '" y="' + (H - padB + 16) + '" text-anchor="middle" font-size="10" fill="#aab2c2">' +
       (d.weekday === 'Today' ? 'Today' : d.weekday) + '</text>';
-    if (d.emoji) labels += '<text x="' + x(i) + '" y="' + (H - padB + 30) + '" text-anchor="middle" font-size="11">' + d.emoji + '</text>';
     if (d.tmax != null){ dots += '<circle cx="' + x(i) + '" cy="' + y(d.tmax) + '" r="3" fill="#ffb454"></circle>' +
       '<text x="' + x(i) + '" y="' + (y(d.tmax) - 7) + '" text-anchor="middle" font-size="9.5" fill="#ffb454">' + d.tmax + '\u00b0</text>'; }
     if (d.tmin != null){ dots += '<circle cx="' + x(i) + '" cy="' + y(d.tmin) + '" r="3" fill="#6ea8ff"></circle>' +
@@ -1882,7 +1874,7 @@ async function loadLearningState(ctx){
             fbac.appendChild(flbl);
             const fhelpBtn = document.createElement('button');
             fhelpBtn.className = 'lp-fbtn';
-            fhelpBtn.textContent = '👍';
+            fhelpBtn.textContent = 'Yes';
             fhelpBtn.title = 'Helpful';
             fhelpBtn.onclick = async () => {
               fhelpBtn.disabled = true;
@@ -1894,7 +1886,7 @@ async function loadLearningState(ctx){
             fbac.appendChild(fhelpBtn);
             const funhelpBtn = document.createElement('button');
             funhelpBtn.className = 'lp-fbtn';
-            funhelpBtn.textContent = '👎';
+            funhelpBtn.textContent = 'No';
             funhelpBtn.title = 'Not Helpful';
             funhelpBtn.onclick = async () => {
               funhelpBtn.disabled = true;

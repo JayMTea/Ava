@@ -31,7 +31,7 @@ export default {
     }
     if (data && data.error) return `Error reading config: ${data.error}`;
 
-    let text = `📋 Configuration: ${data.component}\n`;
+    let text = `Configuration: ${data.component}\n`;
     text += `Path: ${data.path}\n\n`;
 
     if (typeof data.config === "object") {
@@ -41,7 +41,7 @@ export default {
       for (const [key, val] of Object.entries(data.config)) {
         text += `${key}: ${val}\n`;
       }
-      if (data.note) text += `\n⚠️  ${data.note}`;
+      if (data.note) text += `\n ${data.note}`;
     } else {
       // File content (text)
       text += data.config;
