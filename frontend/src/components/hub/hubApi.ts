@@ -87,6 +87,22 @@ export interface PullStatus {
   rc: number | null;
   log: string[];
 }
+export interface BenchResult {
+  ok: boolean;
+  id: string;
+  model: string;
+  engine?: string;
+  ttft_ms?: number;
+  tok_s?: number;
+  tokens?: number;
+  total_s?: number;
+  estimated_tokens?: boolean;
+  error?: string;
+}
+export interface BenchStatus {
+  status: 'idle' | 'running' | 'done' | 'error';
+  result: { prompt?: string; results: BenchResult[]; winner?: string | null; error?: string } | null;
+}
 
 // ---- Voice ------------------------------------------------------------------
 export interface VoiceStatus {
@@ -202,6 +218,12 @@ export const hub = {
   pull: (role: string) =>
     req<{ ok: boolean; error?: string }>(`/api/hub/models/pull?role=${encodeURIComponent(role)}`, { method: 'POST' }),
   pullStatus: () => req<PullStatus>('/api/hub/models/pull/status'),
+  bench: (prompt?: string) =>
+    req<{ ok: boolean; error?: string }>('/api/hub/models/bench', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: prompt || undefined, max_tokens: 200 }),
+    }),
+  benchStatus: () => req<BenchStatus>('/api/hub/models/bench/status'),
 
   // Voice — raw fetch: enroll/test return structured {ok:false,error} bodies on
   // 4xx (deps missing, bad audio), which we surface instead of throwing.

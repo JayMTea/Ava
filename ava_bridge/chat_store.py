@@ -54,11 +54,32 @@ def _chat_new(title: str = "New chat") -> dict:
         return dict(state.chats[cid])
 
 
+def _trim_steps(steps: list | None) -> list | None:
+    """Keep the reasoning trajectory durable but bounded — chats.json is loaded
+    whole into memory, so cap the count and truncate long thinking blocks."""
+    if not steps:
+        return None
+    out = []
+    for s in steps[-60:]:
+        if not isinstance(s, dict):
+            continue
+        st = {"kind": s.get("kind", "text")}
+        if s.get("name"):
+            st["name"] = str(s["name"])[:120]
+        tx = s.get("text")
+        if tx:
+            tx = str(tx)
+            st["text"] = tx[:4000] + (" …[truncated]" if len(tx) > 4000 else "")
+        out.append(st)
+    return out or None
+
+
 def _chat_append(cid: str, role: str, content: str,
                  atts: list | None = None, image: str | None = None,
                  model: dict | None = None,
                  img_models: list | None = None,
-                 tools_used: list[str] | None = None) -> None:
+                 tools_used: list[str] | None = None,
+                 steps: list | None = None) -> None:
     with state.chats_lock:
         c = state.chats.get(cid)
         if not c:
@@ -74,6 +95,9 @@ def _chat_append(cid: str, role: str, content: str,
             msg["model"] = model
         if tools_used:
             msg["tools_used"] = [str(t) for t in tools_used if str(t).strip()]
+        trimmed = _trim_steps(steps)
+        if trimmed:
+            msg["steps"] = trimmed  # durable chain-of-thought (survives reload)
         c["messages"].append(msg)
         c["updated"] = msg["ts"]
         # Auto-title an untitled chat from its first user message.

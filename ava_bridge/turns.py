@@ -125,6 +125,19 @@ def _parse_turn_steps(text: str) -> list[dict]:
     return steps
 
 
+def _read_session_steps(sid: str, after: int) -> list[dict]:
+    """Read the complete CoT trajectory for a finished turn (same source as the
+    live poller). Used to persist durable chain-of-thought with the chat message."""
+    try:
+        path = _session_file(sid)
+        if not path:
+            return []
+        cmd = f"tail -n +{after} {shlex.quote(path)} 2>/dev/null | head -c 400000"
+        return _parse_turn_steps(_sbx_read(cmd))
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def _poll_turn_steps(tid: str, sid: str, after: int):
     path = _session_file(sid)
     cmd = f"tail -n +{after} {shlex.quote(path)} 2>/dev/null | head -c 400000"
@@ -241,13 +254,16 @@ def _run_turn(tid: str, agent_text: str, sid: str, chat_id: str):
     except Exception:  # noqa: BLE001 — the side panel is best-effort
         artifact = None
     m = which_model()
+    final_steps = _read_session_steps(sid, after)  # durable CoT: definitive trajectory
     if chat_id:
-        _chat_append(chat_id, "assistant", reply, model=m, tools_used=tools)
+        _chat_append(chat_id, "assistant", reply, model=m, tools_used=tools,
+                     steps=final_steps)
     with state.turns_lock:
         state.turns[tid].update(status="done", reply=reply, job=job,
                                 previews=previews, artifact=artifact,
                                 model=m, ctx_tokens=(m or {}).get("prompt_tokens"),
-                                tools_used=tools)
+                                tools_used=tools,
+                                steps=final_steps or state.turns[tid].get("steps"))
     state.interaction["ts"] = time.time()  # turn finished — reset idle baseline
     audit.record("turn", chat_id=chat_id, status="done", tools=tools,
                  model=(m or {}).get("id"), duration_s=round(time.time() - t0, 1))

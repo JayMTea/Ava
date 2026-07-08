@@ -263,6 +263,46 @@ def models_pull_status():
             "rc": _pull_job["rc"], "log": list(_pull_job["log"])}
 
 
+# --- Model bench/compare (background — same prompt on each backend) ---------
+_bench_job: dict = {"status": "idle", "result": None}
+_bench_lock = threading.Lock()
+
+
+def _run_bench(prompt: str, only, max_tokens: int) -> None:
+    from . import bench
+    try:
+        _bench_job["result"] = bench.bench(prompt, only=only, max_tokens=max_tokens)
+        _bench_job["status"] = "done"
+    except Exception as e:  # noqa: BLE001
+        _bench_job["result"] = {"error": str(e)[:200], "results": []}
+        _bench_job["status"] = "error"
+
+
+@router.post("/models/bench")
+async def models_bench(request: Request):
+    from . import bench
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        body = {}
+    with _bench_lock:
+        if _bench_job["status"] == "running":
+            return JSONResponse({"ok": False, "error": "a benchmark is already running"},
+                                status_code=409)
+        prompt = str(body.get("prompt") or bench.DEFAULT_PROMPT)[:2000]
+        only = body.get("models") if isinstance(body.get("models"), list) else None
+        max_tokens = min(max(int(body.get("max_tokens") or 200), 16), 1000)
+        _bench_job.update(status="running", result=None)
+        threading.Thread(target=_run_bench, args=(prompt, only, max_tokens),
+                         daemon=True, name="hub-model-bench").start()
+    return {"ok": True, "status": "running"}
+
+
+@router.get("/models/bench/status")
+def models_bench_status():
+    return {"status": _bench_job["status"], "result": _bench_job["result"]}
+
+
 # --------------------------------------------------------------------------- #
 # Voice — status / enroll from browser recordings / test similarity
 # --------------------------------------------------------------------------- #

@@ -4,8 +4,8 @@ import { EmptyState, Panel } from '../dashboard/primitives';
 import { api } from '../../lib/api';
 import { hub } from './hubApi';
 import type {
-  AgentStatus, AuditEvent, BackendProbe, CostSettings, EnrollResult, GenerateResult,
-  HardwareInfo, HubConnector, ModelStore, PullStatus, SystemInfo, VoiceStatus,
+  AgentStatus, AuditEvent, BackendProbe, BenchStatus, CostSettings, EnrollResult,
+  GenerateResult, HardwareInfo, HubConnector, ModelStore, PullStatus, SystemInfo, VoiceStatus,
 } from './hubApi';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -276,7 +276,76 @@ function ModelStorePanel() {
         </div>
       )}
       {msg && <div className="hub-msg err">{msg}</div>}
+      <div className="hub-section" />
+      <BenchPanel />
     </Panel>
+  );
+}
+
+function BenchPanel() {
+  const [bench, setBench] = useState<BenchStatus | null>(null);
+  const [prompt, setPrompt] = useState('');
+  const [msg, setMsg] = useState('');
+  const load = useCallback(() => { hub.benchStatus().then(setBench).catch(() => {}); }, []);
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (bench?.status !== 'running') return;
+    const t = setInterval(() => hub.benchStatus().then(setBench).catch(() => {}), 1500);
+    return () => clearInterval(t);
+  }, [bench?.status]);
+
+  const run = useCallback(async () => {
+    setMsg('');
+    try {
+      const r = await hub.bench(prompt);
+      if (!r.ok) { setMsg(r.error || 'could not start'); return; }
+      setBench({ status: 'running', result: null });
+    } catch (e) { setMsg((e as Error).message); }
+  }, [prompt]);
+
+  const running = bench?.status === 'running';
+  const res = bench?.result;
+  return (
+    <div style={{ borderTop: '1px solid var(--line)', paddingTop: 16 }}>
+      <div className="hub-row" style={{ border: 0, padding: 0 }}>
+        <div className="hub-row-main">
+          <div className="hub-row-title">Compare models</div>
+          <div className="hub-row-sub">Run the same prompt on every backend — TTFT and tokens/sec side by side.</div>
+        </div>
+        <button className="hub-btn sm" onClick={run} disabled={running}>
+          <Icon name={running ? 'refresh' : 'chart'} />{running ? 'Benchmarking…' : 'Run benchmark'}
+        </button>
+      </div>
+      <input className="hub-input" style={{ marginTop: 10 }} value={prompt}
+        onChange={(e) => setPrompt(e.target.value)} placeholder="Optional prompt (default: a short standard prompt)" />
+      {msg && <div className="hub-msg err">{msg}</div>}
+      {res && res.results.length > 0 && (
+        <div className="hub-preview" style={{ marginTop: 12 }}>
+          <div className="hub-preview-head"><Icon name="chart" /> {res.prompt ? `"${res.prompt.slice(0, 60)}"` : 'results'}</div>
+          <div style={{ padding: 12 }}>
+            {res.results.map((r) => (
+              <div className="hub-row" key={r.id} style={{ padding: '8px 0' }}>
+                <div className="hub-row-main">
+                  <div className="hub-row-title" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    {r.id === res.winner && <Badge tone="ok">fastest</Badge>}
+                    {r.id} <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 'var(--fs-xs)' }}>· {r.engine}</span>
+                  </div>
+                  {!r.ok && <div className="hub-row-sub" style={{ color: 'var(--err)' }}>{r.error}</div>}
+                </div>
+                {r.ok && (
+                  <div className="hub-row-sub" style={{ flexShrink: 0, textAlign: 'right', fontFamily: 'var(--font-mono)' }}>
+                    <b style={{ color: 'var(--txt)' }}>{r.tok_s}</b> tok/s · {r.ttft_ms}ms TTFT · {r.estimated_tokens ? '~' : ''}{r.tokens} tok
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {res && res.results.length === 0 && (
+        <div className="hub-msg" style={{ color: 'var(--muted)' }}>{res.error || 'No backends configured to benchmark.'}</div>
+      )}
+    </div>
   );
 }
 

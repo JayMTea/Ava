@@ -898,6 +898,31 @@ def cmd_models(args) -> int:
                 continue
             rc = _pull_one(role, manifest[role], dirs) or rc
         return rc
+    if args.action == "bench":
+        from ava_bridge import bench as _bench
+        prompt = args.name or _bench.DEFAULT_PROMPT
+        only = args.models.split(",") if getattr(args, "models", None) else None
+        print(f"\n{B}Model bench{X}  — same prompt on each backend "
+              f"(max {args.max_tokens} tokens)\n  prompt: {prompt!r}\n")
+        res = _bench.bench(prompt, only=only, max_tokens=args.max_tokens)
+        if not res["results"]:
+            print(f"{WARN} no matching backends (configure inference.backends in ava.yaml)")
+            return 1
+        print(f"  {'backend':22} {'TTFT':>8} {'tok/s':>8} {'tokens':>8} {'total':>8}")
+        print(f"  {'-'*22} {'-'*8} {'-'*8} {'-'*8} {'-'*8}")
+        for r in res["results"]:
+            if not r.get("ok"):
+                _row(BAD, r["id"][:22], f"error: {r.get('error','')}")
+                continue
+            star = " ★" if r["id"] == res["winner"] else ""
+            est = "~" if r.get("estimated_tokens") else " "
+            print(f"  {G if r['id']==res['winner'] else ''}{r['id'][:22]:22}{X} "
+                  f"{r['ttft_ms']:>7.0f}m {r['tok_s']:>7.1f} {est}{r['tokens']:>6} "
+                  f"{r['total_s']:>7.1f}s{star}")
+        if res["winner"]:
+            print(f"\n{OK} fastest: {B}{res['winner']}{X} (tok/s). "
+                  "~ = tokens estimated (endpoint didn't report usage).")
+        return 0
     return 1
 
 
@@ -930,11 +955,15 @@ def main() -> int:
     dp.add_argument("name", nargs="?", help="device connector id (for new / token / events)")
     dp.add_argument("--limit", type=int, default=0, help="max events to show (events)")
     dp.set_defaults(func=cmd_device)
-    mp = sub.add_parser("models", help="model store: list / pull / verify weights")
-    mp.add_argument("action", choices=["list", "pull", "verify"])
-    mp.add_argument("name", nargs="?", help="role to pull (chat/fast/image); default all")
+    mp = sub.add_parser("models", help="model store: list / pull / verify / bench")
+    mp.add_argument("action", choices=["list", "pull", "verify", "bench"])
+    mp.add_argument("name", nargs="?",
+                    help="pull: role (chat/fast/image); bench: the prompt")
     mp.add_argument("--auto", action="store_true",
                     help="pull the chat/fast model that fits the detected memory tier")
+    mp.add_argument("--models", help="bench: comma-separated backend ids/models to compare")
+    mp.add_argument("--max-tokens", type=int, default=200, dest="max_tokens",
+                    help="bench: completion length per model (default 200)")
     mp.set_defaults(func=cmd_models)
 
     args = p.parse_args()

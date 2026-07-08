@@ -193,6 +193,7 @@ export interface ChatMessage {
   image?: string;
   model?: ModelInfo | null;
   tools_used?: string[];
+  steps?: CotStep[];
   url?: string;
   caption?: string;
 }

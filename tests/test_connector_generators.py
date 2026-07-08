@@ -1,115 +1,105 @@
-"""Golden tests for the connector code generators.
+"""Tests for the connector code generators — self-contained (fixture-based).
 
 One connector manifest generates BOTH the agent's tools (`.mjs`) AND its egress
-security policy (`.yaml`). These tests regenerate from the shipped first-party
-manifests and assert byte-equality with the committed generated files — so a
-manifest edit that wasn't regenerated, or a drift in the generators
-(`render_tool` / `render_egress_policy`), fails CI instead of silently shipping
-a stale tool or an over-broad policy.
+security policy (`.yaml`). These tests drive the generators from an in-test
+manifest (mocking connectors.load), so they run identically on a fresh checkout
+regardless of which connectors are installed — the shipped example/personal
+connectors and their generated output are gitignored.
 
-They also assert the security invariant that every generic-proxy action a tool
-can call is allow-listed (GET+POST) in the connector's egress policy — i.e. the
-tools and the policy stay in lockstep, which is the whole point of generating
-both from one manifest.
+The load-bearing assertions:
+  1. Generation is deterministic (regen twice == identical) — the anchor a
+     golden/`ava verify` drift check relies on.
+  2. tool <-> policy lockstep: every generic-proxy action a tool can call is
+     allow-listed (GET+POST) in the connector's egress policy — the whole point
+     of generating both from one manifest.
+  3. An MCP connector's policy allows EXACTLY the two __tools/__call routes and
+     nothing else — the agent never reaches the MCP server directly.
 """
-import os
 import unittest
+from unittest import mock
 
 import yaml
 
-from ava_bridge import connectors, settings
+from ava_bridge import connectors
 
-POL_DIR = os.path.join(settings.CODE_ROOT, "agent", "policies", "generated")
-TOOL_ROOT = os.path.join(settings.CODE_ROOT, "agent", "mcp_server_content", "connectors")
+REST_FIXTURE = {
+    "id": "acme",
+    "label": "Acme CRM",
+    "kind": "app",
+    "base_url": "http://127.0.0.1:9000",
+    "egress": {"hosts": ["127.0.0.1:9000"]},
+    "actions": [
+        {"id": "create_lead", "description": "Create a lead", "method": "POST",
+         "path": "/api/leads", "input": {"name": {"type": "string"}}},
+        {"id": "list_leads", "description": "List leads", "method": "GET",
+         "path": "/api/leads"},
+    ],
+}
+
+MCP_FIXTURE = {"id": "mcpsrv", "label": "MCP Server", "kind": "app",
+               "mcp": {"url": "http://127.0.0.1:9200/mcp"}}
+
+
+def _with(manifest):
+    """Patch the registry so the generators resolve our fixture by id."""
+    return mock.patch.object(connectors, "load", return_value=[manifest])
 
 
 def _proxy_actions(m):
-    """Generic-proxy actions (those with an id + path) are the ones that get a
-    generated tool and an auto-allowed egress route."""
     return [a for a in connectors._static_actions(m)
             if a.get("id") and a.get("path")]
 
 
-class TestEgressPolicyGolden(unittest.TestCase):
-    def test_committed_policies_match_regeneration(self):
-        """Every committed generated policy must match what the generator
-        produces now — catches drift and forgot-to-regenerate. Driven from the
-        committed files so it also flags an orphan (a generated policy whose
-        connector no longer renders one). Connectors whose egress is hand-curated
-        in agent/policies/ (e.g. gpu-service) have no file here and are not required
-        to."""
-        if not os.path.isdir(POL_DIR):
-            self.skipTest("no agent/policies/generated dir")
-        checked = 0
-        for name in sorted(os.listdir(POL_DIR)):
-            if not name.endswith(".yaml"):
-                continue
-            cid = name[:-len(".yaml")]
-            pol = connectors.render_egress_policy(cid)
-            self.assertIsNotNone(
-                pol,
-                f"agent/policies/generated/{name} exists but connector '{cid}' "
-                f"no longer renders a policy — remove the stale file or restore "
-                f"its manifest egress block")
-            regen = yaml.safe_dump(pol, sort_keys=False)
-            with open(os.path.join(POL_DIR, name), encoding="utf-8") as f:
-                committed = f.read()
-            self.assertEqual(
-                regen, committed,
-                f"agent/policies/generated/{name} is stale — regenerate with "
-                f"`ava connector policies {cid} --write`")
-            checked += 1
-        self.assertGreater(checked, 0, "no committed connector policies were checked")
+class TestDeterminism(unittest.TestCase):
+    def test_policy_regen_identical(self):
+        with _with(REST_FIXTURE):
+            a = yaml.safe_dump(connectors.render_egress_policy("acme"), sort_keys=False)
+            b = yaml.safe_dump(connectors.render_egress_policy("acme"), sort_keys=False)
+        self.assertEqual(a, b)
+        self.assertIn("ava-acme", a)
 
-
-class TestToolGolden(unittest.TestCase):
-    def test_committed_tools_match_regeneration(self):
-        checked = 0
-        for m in connectors.all():
-            cid = m["id"]
-            for a in _proxy_actions(m):
-                path = os.path.join(TOOL_ROOT, cid, f"{cid}_{a['id']}.mjs")
-                regen = connectors.render_tool(cid, a)
-                self.assertTrue(
-                    os.path.exists(path),
-                    f"missing generated tool {path} — run "
-                    f"`ava connector tools {cid} --write`")
-                with open(path, encoding="utf-8") as f:
-                    committed = f.read()
-                self.assertEqual(
-                    regen, committed,
-                    f"{path} is stale — regenerate with "
-                    f"`ava connector tools {cid} --write`")
-                checked += 1
-        self.assertGreater(checked, 0, "no committed connector tools were checked")
+    def test_tool_regen_identical_and_valid(self):
+        with _with(REST_FIXTURE):
+            for act in _proxy_actions(REST_FIXTURE):
+                s1 = connectors.render_tool("acme", act)
+                s2 = connectors.render_tool("acme", act)
+                self.assertEqual(s1, s2)
+                # the generated tool names itself and targets the proxy route
+                self.assertIn(act["id"], s1)
+                self.assertIn(f"/internal/connector/acme/{act['id']}", s1)
 
 
 class TestToolPolicyLockstep(unittest.TestCase):
-    """Security invariant: every generic-proxy action a tool can call must be
-    allow-listed for BOTH GET and POST in the connector's egress policy."""
+    def test_every_proxy_route_is_allow_listed(self):
+        with _with(REST_FIXTURE):
+            pol = connectors.render_egress_policy("acme")
+            actions = _proxy_actions(REST_FIXTURE)
+        allowed = {(r["allow"]["method"], r["allow"]["path"])
+                   for np in pol["network_policies"].values()
+                   for ep in np.get("endpoints", []) for r in ep.get("rules", [])}
+        for a in actions:
+            route = f"/internal/connector/acme/{a['id']}"
+            self.assertIn(("GET", route), allowed, f"{a['id']} GET not allowed")
+            self.assertIn(("POST", route), allowed, f"{a['id']} POST not allowed")
 
-    def test_every_proxy_action_route_is_allowed(self):
-        for m in connectors.all():
-            cid = m["id"]
-            actions = _proxy_actions(m)
-            if not actions:
-                continue
-            pol = connectors.render_egress_policy(cid)
-            self.assertIsNotNone(
-                pol, f"{cid} has generic-proxy actions but no egress policy")
-            allowed = set()
-            for np in pol["network_policies"].values():
-                for ep in np.get("endpoints", []):
-                    for rule in ep.get("rules", []):
-                        al = rule.get("allow", {})
-                        allowed.add((al.get("method"), al.get("path")))
-            for a in actions:
-                route = f"/internal/connector/{cid}/{a['id']}"
-                for method in ("GET", "POST"):
-                    self.assertIn(
-                        (method, route), allowed,
-                        f"{cid}: action '{a['id']}' route {route} is not "
-                        f"allow-listed for {method} in the egress policy")
+    def test_generated_tool_exists_for_every_proxy_action(self):
+        with _with(REST_FIXTURE):
+            for a in _proxy_actions(REST_FIXTURE):
+                self.assertTrue(connectors.render_tool("acme", a).strip())
+
+
+class TestMcpEgressContainment(unittest.TestCase):
+    def test_mcp_policy_allows_exactly_the_two_bridge_routes(self):
+        with _with(MCP_FIXTURE):
+            pol = connectors.render_egress_policy("mcpsrv")
+        self.assertIsNotNone(pol)
+        allowed = {(r["allow"]["method"], r["allow"]["path"])
+                   for np in pol["network_policies"].values()
+                   for ep in np.get("endpoints", []) for r in ep.get("rules", [])}
+        self.assertEqual(allowed, {
+            ("GET", "/internal/connector/mcpsrv/__tools"),
+            ("POST", "/internal/connector/mcpsrv/__call"),
+        })
 
 
 if __name__ == "__main__":

@@ -463,6 +463,14 @@ export function useChat() {
           } else if (m.image) {
             next.push({ kind: 'image', id: uid(), url: m.image, caption: m.content || '', allowUpscale: true });
           } else {
+            // Durable chain-of-thought: replay the saved reasoning above the
+            // reply, exactly as it appeared live (collapsed, status done).
+            if (m.steps && m.steps.length) {
+              next.push({
+                kind: 'cot', id: uid(), label: 'Reasoning',
+                steps: m.steps, status: 'done',
+              });
+            }
             next.push({
               kind: 'ava',
               id: uid(),
