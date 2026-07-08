@@ -47,8 +47,8 @@ time-to-first-token, render times, cost & energy, hardware) and an **Operations*
 tab (live jobs, background workflows, connectors, alerts, and the approval-gated
 Control Center).
 
-<!-- Recapture with live data via: log in → Vitals tab → save to docs/assets/vitals-dashboard.jpg -->
-![Ava's Vitals dashboard — performance at a glance](docs/assets/vitals-dashboard.jpg)
+<!-- Regenerate this and the site's screenshots/tour with the local capture studio. -->
+![Ava's Vitals dashboard — performance at a glance](docs/assets/vitals-dashboard.png)
 
 ## Why Ava?
 

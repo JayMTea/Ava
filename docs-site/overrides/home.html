@@ -76,12 +76,43 @@
   <section class="ava-shot">
     <div class="md-grid">
       <h2>See everything it does</h2>
-      <p><strong>Vitals</strong> tracks performance: throughput, latency, cost
-      and energy. <strong>Operations</strong> tracks live jobs, connectors,
-      alerts, and approvals. Setup happens in the browser too.</p>
-      <img src="{{ 'docs/assets/vitals-dashboard.jpg' | url }}"
-           alt="Ava's Vitals dashboard: tokens/sec, time-to-first-token, cost and energy, hardware telemetry"
-           loading="lazy">
+      <p>A 30-second tour of the dashboard, chat, and browser setup. No audio.</p>
+      <video class="ava-reel" autoplay muted loop playsinline preload="metadata"
+             poster="{{ 'docs/assets/reel-poster.png' | url }}"
+             aria-label="A tour of Ava: Command Center, Operations, chat driving apps, and browser setup">
+        <source src="{{ 'docs/assets/ava-tour.mp4' | url }}" type="video/mp4">
+      </video>
+    </div>
+  </section>
+
+  <section class="ava-gallery-sec">
+    <div class="md-grid">
+      <ul class="ava-gallery">
+        <li>
+          <a href="{{ 'docs/assets/shot-vitals.png' | url }}">
+            <img src="{{ 'docs/assets/shot-vitals.png' | url }}" loading="lazy"
+                 alt="Vitals: tokens/sec, time-to-first-token, cost and energy, model routing, and GPU telemetry"></a>
+          <p><strong>Vitals.</strong> Throughput, latency, cost, energy, and live hardware in one Command Center.</p>
+        </li>
+        <li>
+          <a href="{{ 'docs/assets/shot-operations.png' | url }}">
+            <img src="{{ 'docs/assets/shot-operations.png' | url }}" loading="lazy"
+                 alt="Operations: live agent turns and image jobs, a job queue, background learning, and service health"></a>
+          <p><strong>Operations.</strong> Every live job, agent turn, connector, alert, and approval as it happens.</p>
+        </li>
+        <li>
+          <a href="{{ 'docs/assets/shot-chat.png' | url }}">
+            <img src="{{ 'docs/assets/shot-chat.png' | url }}" loading="lazy"
+                 alt="Chat: Ava drafts a launch announcement and generates a poster, using image and calendar tools"></a>
+          <p><strong>Chat.</strong> Ask in plain language. Ava drives your apps and creative tools, and shows its work.</p>
+        </li>
+        <li>
+          <a href="{{ 'docs/assets/shot-setup-hub.png' | url }}">
+            <img src="{{ 'docs/assets/shot-setup-hub.png' | url }}" loading="lazy"
+                 alt="Setup hub: wire in connectors from the browser, each behind an auto-generated egress policy"></a>
+          <p><strong>Setup.</strong> Pick a model, provision the agent, and wire in apps, all from the browser.</p>
+        </li>
+      </ul>
     </div>
   </section>
 

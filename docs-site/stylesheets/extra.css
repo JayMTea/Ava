@@ -88,27 +88,27 @@
 }
 
 .ava-hero__eyebrow {
-  margin: 0 0 0.9rem;
-  font-size: 0.7rem;
-  font-weight: 600;
-  letter-spacing: 0.09em;
+  margin: 0 0 0.8rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--ava-accent);
 }
 
 .ava-hero h1 {
-  margin: 0 0 0.8rem;
+  margin: 0 0 0.9rem;
   font-family: var(--ava-serif);
   font-weight: 500;
-  font-size: clamp(2rem, 5vw, 3rem);
-  line-height: 1.1;
+  font-size: clamp(1.9rem, 4vw, 2.6rem);
+  line-height: 1.12;
   letter-spacing: 0.2px;
 }
 
 .ava-hero__tagline {
   max-width: 40rem;
   margin: 0 auto 0.7rem;
-  font-size: 0.95rem;
+  font-size: 1.02rem;
   line-height: 1.55;
   color: var(--ava-land-muted);
 }
@@ -231,6 +231,68 @@
 }
 [data-md-color-scheme="slate"] .ava-shot img {
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+/* Tour reel (the mp4 already carries its own window frame + branded bg) */
+.ava-reel {
+  display: block;
+  width: 100%;
+  max-width: 60rem;
+  margin: 0 auto;
+  border-radius: 0.7rem;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22);
+}
+[data-md-color-scheme="slate"] .ava-reel {
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+}
+
+/* Screenshot gallery (2x2) */
+.ava-gallery-sec {
+  padding: 3rem 0 3.4rem;
+}
+.ava-gallery {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 2rem 2.2rem;
+}
+.ava-gallery li {
+  margin: 0;
+}
+.ava-gallery a {
+  display: block;
+  border-radius: 0.55rem;
+  overflow: hidden;
+  border: 1px solid var(--ava-land-border);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.12);
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+.ava-gallery a:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.2);
+}
+[data-md-color-scheme="slate"] .ava-gallery a {
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.5);
+}
+.ava-gallery img {
+  display: block;
+  width: 100%;
+}
+.ava-gallery p {
+  margin: 0.7rem 0 0;
+  font-size: 0.78rem;
+  line-height: 1.55;
+  color: var(--ava-land-muted);
+}
+.ava-gallery p strong {
+  color: var(--md-default-fg-color);
+}
+@media (max-width: 44rem) {
+  .ava-gallery {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* Diagram zoom lightbox (javascripts/diagram-zoom.js) */
