@@ -178,5 +178,81 @@ class DecideRememberTests(unittest.TestCase):
             g.assert_not_called()
 
 
+class TierCacheTests(unittest.TestCase):
+    """ava-tools/1 declared tiers: the write-through cache and its precedence
+    in action_access (static > dynamic_access patterns > cache > fallback)."""
+
+    def setUp(self):
+        from ava_bridge import tools_cache
+        self.tc = tools_cache
+        self.tmp = tempfile.mkdtemp()
+        self._p = [
+            mock.patch.object(connectors, "BUILTIN_DIR", self.tmp),
+            mock.patch.object(connectors, "USER_DIR", self.tmp),
+            mock.patch.object(tools_cache, "PATH",
+                              os.path.join(self.tmp, "tools_cache.json")),
+            mock.patch.object(grants, "PATH", os.path.join(self.tmp, "g.yaml")),
+            mock.patch("ava_bridge.audit.record"),
+        ]
+        for p in self._p:
+            p.start()
+        self.tc._cache.update(data=None, mtime=0.0)
+        grants._cache.update(data=None, mtime=0.0)
+
+    def tearDown(self):
+        for p in self._p:
+            p.stop()
+
+    def _facade_app(self, extra=""):
+        _write(self.tmp, "app",
+               f"id: app\nactions:\n  discover: {{ base: 'http://127.0.0.1:9', "
+               f"list: /tools, call: /call }}\n{extra}")
+        connectors.load(force=True)
+
+    def test_roundtrip_and_invalid_tier_defaults_to_write(self):
+        self._facade_app()
+        self.tc.update("app", [
+            {"name": "list_things", "access": "read", "description": "x"},
+            {"name": "wipe", "access": "destructive"},
+            {"name": "odd", "access": "sudo"},          # invalid -> write
+        ])
+        self.tc._cache.update(data=None, mtime=0.0)     # force disk re-read
+        self.assertEqual(self.tc.access("app", "list_things"), "read")
+        self.assertEqual(self.tc.access("app", "wipe"), "destructive")
+        self.assertEqual(self.tc.access("app", "odd"), "write")
+        self.assertIsNone(self.tc.access("app", "never_seen"))
+
+    def test_gate_honors_cached_tiers_fail_ask_otherwise(self):
+        self._facade_app()
+        self.tc.update("app", [{"name": "list_things", "access": "read"},
+                               {"name": "wipe", "access": "destructive"}])
+        self.assertFalse(connectors.needs_confirm("app", "list_things"))  # silent
+        self.assertTrue(connectors.needs_confirm("app", "wipe"))          # always
+        self.assertFalse(connectors.grantable("app", "wipe"))             # locked
+        self.assertTrue(connectors.needs_confirm("app", "never_seen"))    # fail-ask
+
+    def test_destructive_via_facade_ignores_rogue_grant(self):
+        self._facade_app()
+        self.tc.update("app", [{"name": "wipe", "access": "destructive"}])
+        grants.grant("app", "wipe")
+        self.assertTrue(connectors.needs_confirm("app", "wipe"))
+
+    def test_manifest_dynamic_access_outranks_facade(self):
+        # The operator's word beats the app's self-report.
+        self._facade_app(extra="dynamic_access:\n  list_things: write\n")
+        self.tc.update("app", [{"name": "list_things", "access": "read"}])
+        self.assertEqual(connectors.action_access("app", "list_things"), "write")
+
+    def test_discover_tools_writes_through(self):
+        self._facade_app()
+        resp = mock.Mock()
+        resp.json.return_value = {"facade": "ava-tools/1", "tools": [
+            {"name": "list_things", "access": "read", "description": "d"}]}
+        with mock.patch("requests.get", return_value=resp):
+            out = connectors.discover_tools("app")
+        self.assertEqual(len(out["tools"]), 1)
+        self.assertEqual(self.tc.access("app", "list_things"), "read")
+
+
 if __name__ == "__main__":
     unittest.main()

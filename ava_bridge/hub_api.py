@@ -789,6 +789,33 @@ def _probe(url: str, command: str, token_env: str | None) -> dict:
         except Exception:  # noqa: BLE001
             return False
 
+    # 1.5) The app may self-describe: GET /.well-known/ava.json (SDK §5) names
+    # the app, its health probe, its UI, and where the facade routes live — the
+    # most authoritative signal, so it goes first and prefills the whole form.
+    try:
+        import requests
+        headers = {}
+        if token_env and os.environ.get(token_env):
+            headers["Authorization"] = "Bearer " + os.environ[token_env]
+        wk = requests.get(url.rstrip("/") + "/.well-known/ava.json",
+                          headers=headers, timeout=5)
+        meta = wk.json() if wk.status_code == 200 else None
+        if isinstance(meta, dict) and str(meta.get("facade", "")).startswith("ava-tools/"):
+            list_path = "/" + str(meta.get("tools") or "/tools").lstrip("/")
+            call_path = "/" + str(meta.get("call") or "/call").lstrip("/")
+            r = requests.get(url.rstrip("/") + list_path, headers=headers, timeout=8)
+            data = r.json()
+            tools = data.get("tools") if isinstance(data, dict) else None
+            if isinstance(tools, list) and tools:
+                health = str(meta.get("health") or "").strip()
+                return {"ok": True, "kind": "discover", "tools": _slim_tools(tools),
+                        "label": str(meta.get("label") or "").strip()[:60] or None,
+                        "health": (url.rstrip("/") + "/" + health.lstrip("/")) if health else None,
+                        "discover": {"list": list_path, "call": call_path},
+                        "has_ui": bool(meta.get("ui")) or _serves_html()}
+    except Exception:  # noqa: BLE001
+        pass
+
     # 2) Try MCP over HTTP at the URL.
     spec = {"transport": "http", "url": url, "command": None, "env": None,
             "token_env": token_env}
@@ -992,6 +1019,11 @@ async def connector_new(body: dict):
         return JSONResponse({"ok": False, "error": f"could not write manifest: {e}"},
                             status_code=500)
     connectors.load(force=True)  # pick it up without a restart
+    if disc_in or mcp_in:
+        # Seed the JIT tier cache (ava-tools/1 `access`) so the app's declared
+        # tiers apply from the very first agent call — best-effort; a down app
+        # just seeds later, on the next discovery.
+        await run_in_threadpool(connectors.discover_tools, cid)
     return {"ok": True, "path": path, "manifest": manifest,
             "actions": len(actions)}
 

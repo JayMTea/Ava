@@ -212,6 +212,10 @@ export interface ProbeResult {
   actions?: { id: string; method: string; path: string; description?: string; confirm?: boolean; access?: string }[];
   // The app serves its own web UI — offer the embedded sidebar tile (ui.embed: iframe).
   has_ui?: boolean;
+  // Self-described via /.well-known/ava.json — prefill the connect form.
+  label?: string;
+  health?: string;
+  discover?: { list: string; call: string };
   detail?: string;
   error?: string;
 }

@@ -18,13 +18,18 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 PORT = int(os.environ.get("HELLO_APP_PORT", "8477"))
 
+# The ava-tools/1 facade (docs/CONNECTOR_SDK.md §5): name, description,
+# inputSchema, and an access tier that drives Ava's JIT consent — `read` runs
+# silently, `write` asks the operator on first use, `destructive` always asks.
 TOOLS = [
     {"name": "hello_ping", "description": "Health check — returns pong.",
-     "inputSchema": {"type": "object", "properties": {}}},
+     "inputSchema": {"type": "object", "properties": {}},
+     "access": "read"},
     {"name": "hello_echo", "description": "Echo back a message.",
      "inputSchema": {"type": "object",
                      "properties": {"text": {"type": "string"}},
-                     "required": ["text"]}},
+                     "required": ["text"]},
+     "access": "read"},
 ]
 
 
@@ -92,8 +97,15 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, PAGE, "text/html; charset=utf-8")
         if path == "/health":
             return self._send(200, json.dumps({"ok": True}))
+        if path == "/.well-known/ava.json":
+            # Self-description (SDK §5): lets Ava's Detect prefill its form.
+            return self._send(200, json.dumps({
+                "facade": "ava-tools/1", "label": "Hello App",
+                "tools": "/tools", "call": "/call",
+                "health": "/health", "ui": True}))
         if path == "/tools":
-            return self._send(200, json.dumps({"tools": TOOLS}))
+            return self._send(200, json.dumps({"facade": "ava-tools/1",
+                                               "tools": TOOLS}))
         self._send(404, json.dumps({"error": "not found"}))
 
     def do_POST(self):
@@ -104,7 +116,11 @@ class Handler(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(n) or b"{}")
         except Exception:  # noqa: BLE001
             return self._send(400, json.dumps({"error": "invalid json"}))
-        text = call_tool((body.get("name") or "").strip(), body.get("arguments") or {})
+        name = (body.get("name") or "").strip()
+        if not any(t["name"] == name for t in TOOLS):
+            # ava-tools/1: unknown names are a 404 with an error message.
+            return self._send(404, json.dumps({"error": f"unknown tool '{name}'"}))
+        text = call_tool(name, body.get("arguments") or {})
         self._send(200, json.dumps({"text": text}))
 
     def log_message(self, *a):  # quiet

@@ -154,6 +154,81 @@ schemas and POSTs `call` `{name, arguments}` to invoke. This wraps a
 FastMCP-style tool server without re-declaring each tool. Reserved bridge actions
 `__tools` and `__call` serve this.
 
+### The tool facade — `ava-tools/1`
+
+The contract *your app* implements to be discovered. Two routes; the Hub's
+Detect finds them ahead of OpenAPI scraping, and the sample
+(`examples/hello-app`) and note-keeper are conforming implementations.
+
+```
+GET /tools
+-> 200 {
+     "facade": "ava-tools/1",            // recommended — versions the contract
+     "tools": [{
+       "name": "list_personas",          // ^[a-z][a-z0-9_]{1,31}$
+       "description": "…",               // <=200 chars — the agent reads this
+       "inputSchema": {"type": "object", "properties": {…}, "required": […]},
+       "access": "read"                  // read | write | destructive
+     }]
+   }
+
+POST /call    {"name": "list_personas", "arguments": {…}}
+-> 200 <the tool's JSON result>
+-> 404 {"error": "unknown tool '…'"}     // name not in /tools
+-> 400 {"error": "bad arguments: …"}     // input validation failed
+-> 5xx {"error": "…"}                    // tool crashed — a message, never a blank 500
+```
+
+Rules of the road:
+
+- **Curate.** Expose intent-level tools ("generate", "list_personas"), not your
+  REST surface. Don't expose destructive ops you wouldn't hand an assistant —
+  note-keeper exposes no deletes; deleting stays in the app's own UI.
+- **`access` drives JIT consent** on Ava's side: `read` runs silently, `write`
+  asks the operator on first use ("Always allow" is remembered), `destructive`
+  asks every time and can never be always-allowed. Omitted -> `write` (safe).
+  Tiers are self-reported: they can only make a tool *quieter*, never extend
+  its reach — the egress policy, the operator's gate, and the audit ledger are
+  Ava's, not the app's.
+- **Results are for a model.** Return compact JSON; prefer ids and URLs over
+  payloads; never inline binary/base64 blobs.
+- **Auth** is optional: Ava sends `Authorization: Bearer <token>` when the
+  manifest declares `token_env` on the discover block.
+- `facade` is informational at version 1 — it exists so a future `ava-tools/2`
+  can negotiate.
+
+**Don't write it by hand — scaffold it.** In *your app's* repo:
+
+```bash
+ava app new myapp --framework fastapi   # or flask | express | stdlib
+#   --port 9000   the port your app serves on
+#   --ui          include the sidebar-tile ui: block (your app has a web UI)
+```
+
+writes `ava/surface.py` (a vendored, self-contained facade with a `tool()`
+registry and the error contract built in — the file is yours, edit freely),
+`ava/connector.yaml`, and `ava/README-AVA.md` with the wire-up for your
+framework. Wire it in (one line), add your tools, then connect the app in
+Ava's Hub — Detect finds the facade. `ava connector new` remains the Ava-side
+scaffold; `ava app new` is the app-side one.
+
+**Self-describe (optional): `GET /.well-known/ava.json`.** Detect tries this
+first. It lets your app *tell* Ava what it is — a friendly name, where its
+health check lives, whether it has an embeddable UI, and where the facade
+routes are (so they don't have to sit at the root). All fields except `facade`
+are optional; anything present prefills the Hub's connect form.
+
+```json
+{
+  "facade": "ava-tools/1",
+  "label": "Hello App",
+  "tools": "/tools",              // path to the facade listing (default /tools)
+  "call": "/call",                // path tools are invoked at (default /call)
+  "health": "/api/health",        // prefills the health-probe field
+  "ui": true                      // serves an embeddable web UI (sidebar tile)
+}
+```
+
 ### MCP servers (`mcp:`): wrap any Model Context Protocol server
 
 The headline path into the roughly 20,000-server MCP ecosystem. Point the
@@ -280,8 +355,8 @@ cp -r examples/hello-app "$AVA_HOME/connectors/hello"   # $AVA_HOME defaults to 
 
 The contract the app implements: `GET /health` returns `{"ok": true}`; `GET /`
 serves the UI (read `?theme=light|dark` to match Ava); tools are either
-discovered (`GET /tools` + `POST /call`, as here) or declared under
-`actions.static` in the manifest.
+discovered (`GET /tools` + `POST /call` per the **`ava-tools/1` facade spec in
+§5**, as here) or declared under `actions.static` in the manifest.
 
 ## 8. First-party vs third-party tiers
 

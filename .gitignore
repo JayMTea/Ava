@@ -55,6 +55,9 @@ enroll/*.ogg
 # User config + secrets (portable install)
 ava.yaml
 /secrets/
+# JIT-consent user data (grants + declared tool tiers)
+connector_grants.yaml
+connector_tools_cache.json
 
 # Private, deployment-specific (not shipped publicly). Entries for specific
 # private apps live in .git/info/exclude (local-only) so their names aren't

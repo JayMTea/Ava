@@ -856,7 +856,7 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
           <button className="hub-btn ghost sm" onClick={showToken} disabled={busy} title="Show the push token a device presents to send readings/events">
             <Icon name="lock" />Push token
           </button>
-          {c.actions > 0 && c.enabled && (
+          {hasAgentSurface && c.enabled && (
             <button className="hub-btn ghost sm" onClick={() => setShowPerms((v) => !v)}
               title="What Ava may do in this app — reads run silently, writes ask once, destructive always asks">
               <Icon name="lock" />Permissions
@@ -1037,6 +1037,10 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
       else {
         setProbe(r);
         setAddToRail(!!r.has_ui);   // the app has a web UI — offer the sidebar tile, default on
+        // Self-described apps (/.well-known/ava.json) prefill the form — only
+        // fields the user hasn't typed into.
+        if (r.label) setName((v) => v.trim() ? v : r.label!);
+        if (r.health) setHealth((v) => v.trim() ? v : r.health!);
         if (r.kind === 'rest' || r.kind === 'unknown') {
           // Auto-fill from the app's OpenAPI spec when we found one; otherwise
           // start with one blank row for the user to fill in.
@@ -1065,7 +1069,10 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
         : { command: reach.trim(), token_env: tenv, sandbox: (isolate && dockerAvail) ? 'docker' : undefined };
       if (confirmAll) body.confirm = true;
     } else if (probe?.kind === 'discover') {
-      body.discover = { base: reach.trim(), token_env: tenv };
+      // Facade paths from /.well-known/ava.json when declared (they may not
+      // live at the /tools + /call defaults).
+      body.discover = { base: reach.trim(), token_env: tenv,
+                        list: probe.discover?.list, call: probe.discover?.call };
       if (confirmAll) body.confirm = true;
     } else if (!isDevice) {
       body.base_url = reach.trim() || undefined;

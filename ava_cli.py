@@ -592,6 +592,29 @@ egress:
 """
 
 
+def cmd_app(args) -> int:
+    """Developer-side scaffold: generate the ava-tools/1 facade INSIDE your app
+    repo (surface file + connector manifest + quickstart). The Shopify-CLI
+    counterpart to `ava connector new` (which scaffolds Ava's half)."""
+    from ava_bridge import scaffold
+
+    if args.action != "new" or not args.name:
+        print(f"{BAD} usage: ava app new <id> [--framework fastapi|flask|express|stdlib]"
+              f" [--port 9000] [--dir PATH] [--ui]")
+        return 1
+    try:
+        written = scaffold.create(args.name, framework=args.framework,
+                                  port=args.port, out_dir=args.dir, ui=args.ui)
+    except (ValueError, FileExistsError) as e:
+        print(f"{BAD} {e}")
+        return 1
+    for p in written:
+        print(f"{OK} wrote {p}")
+    print(f"\nNext: {os.path.join(args.dir, 'ava', 'README-AVA.md')} — wire it up, "
+          f"add your tools, then connect http://127.0.0.1:{args.port} in Ava's Hub.")
+    return 0
+
+
 def cmd_device(args) -> int:
     """Device connectors: scaffold, inbound token, and recent pushed events."""
     from ava_bridge import connectors, devices, internal
@@ -1117,6 +1140,16 @@ def main() -> int:
     cp.add_argument("name", nargs="?", help="connector name (for new / policies / tools)")
     cp.add_argument("--write", action="store_true", help="write generated files (policies -> agent/policies/generated, tools -> agent/mcp_server_content/connectors)")
     cp.set_defaults(func=cmd_connector)
+    apn = sub.add_parser("app", help="scaffold the ava-tools/1 agent surface inside YOUR app repo")
+    apn.add_argument("action", choices=["new"])
+    apn.add_argument("name", nargs="?", help="app id (a-z 0-9 _ -)")
+    apn.add_argument("--framework", choices=["fastapi", "flask", "express", "stdlib"],
+                     default="fastapi", help="your app's web framework (default fastapi)")
+    apn.add_argument("--port", type=int, default=9000, help="the port your app serves on")
+    apn.add_argument("--dir", default=".", help="app repo root to write into (default .)")
+    apn.add_argument("--ui", action="store_true",
+                     help="include the sidebar-tile ui: block (your app serves a web UI)")
+    apn.set_defaults(func=cmd_app)
     dp = sub.add_parser("device", help="wire your own device/sensor app to Ava: scaffold / token / events")
     dp.add_argument("action", choices=["list", "new", "token", "events"])
     dp.add_argument("name", nargs="?", help="device connector id (for new / token / events)")

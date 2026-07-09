@@ -508,7 +508,8 @@ def _static_tool_schemas(m: dict) -> list[dict]:
         out.append({"name": a["id"],
                     "description": f"[{method} {a.get('path')}] {desc}".strip(),
                     "inputSchema": {"type": "object",
-                                    "properties": a.get("input") or {}}})
+                                    "properties": a.get("input") or {}},
+                    "access": _infer_access(a)})
     return out
 
 
@@ -745,10 +746,23 @@ def discover_tools(cid: str, query: str = "", limit: int = 0) -> dict:
     the manifest's own actions. `query`/`limit` filter the result server-side
     so the agent's find_tool returns a shortlist, not the whole set."""
     m = {x["id"]: x for x in load()}.get(cid) or {}
+
+    def _remember(res: dict) -> dict:
+        """Write the declared access tiers through to the JIT cache (best-effort
+        — discovery must never fail on cache IO) before any query filtering."""
+        try:
+            tools = res.get("tools") if isinstance(res, dict) else None
+            if isinstance(tools, list):
+                from . import tools_cache
+                tools_cache.update(cid, tools)
+        except Exception:  # noqa: BLE001
+            pass
+        return res
+
     mcp = _mcp_spec(m)
     if mcp:
         from . import mcp_client
-        return _filter_tools(mcp_client.list_tools(cid, mcp), query, limit)
+        return _filter_tools(_remember(mcp_client.list_tools(cid, mcp)), query, limit)
     spec = _discover_spec(m)
     if not spec:
         if _static_actions(m):
@@ -761,7 +775,7 @@ def discover_tools(cid: str, query: str = "", limit: int = 0) -> dict:
     try:
         r = requests.get(base + spec["list"], headers=_discover_headers(spec), timeout=20)
         try:
-            return _filter_tools(r.json(), query, limit)
+            return _filter_tools(_remember(r.json()), query, limit)
         except Exception:  # noqa: BLE001
             return {"error": f"{cid} discovery returned {r.status_code}"}
     except Exception as e:  # noqa: BLE001
@@ -872,6 +886,13 @@ def _dynamic_access(m: dict, action: str) -> str:
             t = str(tier or "").lower()
             if t in _TIERS and fnmatch.fnmatch(action, str(pattern)):
                 return t
+    # The app's own ava-tools/1 declaration (write-through cache filled by
+    # discover_tools). Manifest patterns above outrank it — the operator's word
+    # beats the app's self-report; it outranks the blanket fallback below.
+    from . import tools_cache
+    acc = tools_cache.access(str(m.get("id") or ""), action)
+    if acc:
+        return acc
     return "physical" if m.get("role") == "device" else "write"
 
 
