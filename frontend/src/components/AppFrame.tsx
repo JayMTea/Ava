@@ -17,7 +17,10 @@ export function AppFrame({ id, label }: { id: string; label: string }) {
 
   const theme = document.documentElement.dataset.theme
     || (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-  const src = `/apps/${encodeURIComponent(id)}/?theme=${theme}&embedded=1`;
+  // v= busts HTML cached before the proxy sent Cache-Control: no-cache on app
+  // pages — those poisoned entries pin the iframe to a stale bundle and are
+  // never revalidated. Bump only if the embed contract changes again.
+  const src = `/apps/${encodeURIComponent(id)}/?theme=${theme}&embedded=1&v=1`;
 
   return (
     <div className="appframe">
