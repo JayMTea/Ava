@@ -1,35 +1,35 @@
-/* Ava docs theme — matches the product palette (SSOT: frontend/src/styles/tokens.css
-   and ava_bridge/web/setup.html). VS Code blue accent on a warm near-black canvas,
-   serif headings, so the docs feel like the app. */
+/* Ava docs theme — the palette is INHERITED from the app, not copied. sync.py
+   stages frontend/src/styles/tokens.css (the SSOT) as stylesheets/tokens.css,
+   re-keyed to Material's scheme attribute; this file only maps Material's
+   variables onto those tokens and adds docs-specific chrome. Change a token in
+   the app and the site follows on the next docs build — declare no color
+   literals here that the app already has a token for. */
 
 :root {
-  --ava-accent: #007acc;
-  --ava-accent-hover: #0068ad;
   --ava-serif: ui-serif, Georgia, "Times New Roman", serif;
 }
 
-/* Light scheme */
-[data-md-color-scheme="default"] {
-  --md-primary-fg-color: #007acc;
-  --md-primary-fg-color--light: #3399d6;
-  --md-primary-fg-color--dark: #0068ad;
-  --md-accent-fg-color: #0068ad;
-  --md-typeset-a-color: #0068ad;
-}
-
-/* Dark scheme — the product's warm near-black canvas */
+/* One mapping for BOTH schemes: the token file swaps the underlying values per
+   scheme, so this block never changes. Declared on the scheme attribute
+   (= <body>) so each var() resolves against that scheme's token values —
+   var() captured at :root would freeze the dark values. */
+[data-md-color-scheme="default"],
 [data-md-color-scheme="slate"] {
-  --md-primary-fg-color: #007acc;
-  --md-accent-fg-color: #3399d6;
-  --md-typeset-a-color: #3399d6;
-  --md-default-bg-color: #262624;
-  --md-default-bg-color--light: #1f1e1d;
-  --md-code-bg-color: #1f1e1d;
-  --md-default-fg-color: #f4f3ee;
-  --md-default-fg-color--light: #d7d4cc;
-  --md-default-fg-color--lighter: #9a968c;
-  --md-typeset-color: #f4f3ee;
-  --md-footer-bg-color: #1f1e1d;
+  --ava-accent: var(--accent);
+  --ava-accent-hover: var(--accent-hover);
+  --md-primary-fg-color: var(--accent);
+  --md-primary-fg-color--light: var(--accent-tint);
+  --md-primary-fg-color--dark: var(--accent-hover);
+  --md-accent-fg-color: var(--accent);
+  --md-typeset-a-color: var(--accent-tint);
+  --md-default-bg-color: var(--bg);
+  --md-default-bg-color--light: var(--panel);
+  --md-code-bg-color: var(--panel);
+  --md-default-fg-color: var(--txt);
+  --md-default-fg-color--light: color-mix(in srgb, var(--txt) 85%, var(--bg));
+  --md-default-fg-color--lighter: var(--muted);
+  --md-typeset-color: var(--txt);
+  --md-footer-bg-color: var(--panel);
 }
 
 /* Serif headings, matching the setup/login screens */
@@ -46,13 +46,13 @@
   background-color: var(--ava-accent);
 }
 [data-md-color-scheme="slate"] .md-header {
-  background-color: #1f1e1d;
-  border-bottom: 1px solid #3b3a36;
+  background-color: var(--panel);
+  border-bottom: 1px solid var(--line);
 }
 
 /* Tables (comparison matrix, config keys) read cleanly on the warm canvas */
 [data-md-color-scheme="slate"] .md-typeset table:not([class]) th {
-  background-color: #2f2e2b;
+  background-color: var(--panel2);
 }
 
 /* ------------------------------------------------------------------ */
@@ -116,15 +116,11 @@
 /* Landing page (overrides/home.html — homepage only)                  */
 /* ------------------------------------------------------------------ */
 
+/* Landing tokens ride the app tokens too — resolved per scheme via <body>. */
 .ava-landing {
-  --ava-land-border: #e4ded4;
-  --ava-land-card-bg: #ffffff;
-  --ava-land-muted: #5f5a51;
-}
-[data-md-color-scheme="slate"] .ava-landing {
-  --ava-land-border: #3b3a36;
-  --ava-land-card-bg: #2f2e2b;
-  --ava-land-muted: #b5b1a7;
+  --ava-land-border: var(--line);
+  --ava-land-card-bg: var(--input);
+  --ava-land-muted: var(--muted);
 }
 
 .ava-landing .md-grid {
@@ -136,12 +132,9 @@
 /* Hero — full-bleed warm band under the header */
 .ava-hero {
   padding: 3.4rem 0 2.8rem;
-  background-color: #f6f0e9;
+  background-color: var(--panel);
   border-bottom: 1px solid var(--ava-land-border);
   text-align: center;
-}
-[data-md-color-scheme="slate"] .ava-hero {
-  background-color: #1f1e1d;
 }
 
 .ava-hero__eyebrow {
@@ -256,13 +249,10 @@
 /* Screenshot band */
 .ava-shot {
   padding: 2.6rem 0 3rem;
-  background-color: #f6f0e9;
+  background-color: var(--panel);
   border-top: 1px solid var(--ava-land-border);
   border-bottom: 1px solid var(--ava-land-border);
   text-align: center;
-}
-[data-md-color-scheme="slate"] .ava-shot {
-  background-color: #1f1e1d;
 }
 
 .ava-shot h2 {
@@ -456,7 +446,7 @@
   transition: background 0.15s ease, transform 0.15s ease;
 }
 .ava-carousel__dots button.is-active {
-  background: var(--md-accent-fg-color, #0068ad);
+  background: var(--accent);
   transform: scale(1.25);
 }
 

@@ -183,6 +183,17 @@ def main() -> int:
         src_dir = HERE / local
         if src_dir.is_dir():
             shutil.copytree(src_dir, OUT / local)
+    # The palette is INHERITED from the app, not copied: stage the app's design
+    # tokens (SSOT) re-keyed from the app's theme switch (html[data-theme]) to
+    # Material's scheme attribute (body[data-md-color-scheme]). The dark :root
+    # block stays as-is (slate needs no override); the light block lands on the
+    # body when Material is in its default scheme. stylesheets/extra.css maps
+    # Material's --md-* variables onto these tokens.
+    tokens = REPO / "frontend/src/styles/tokens.css"
+    css = tokens.read_text(encoding="utf-8")
+    css = css.replace(':root[data-theme="light"]', '[data-md-color-scheme="default"]')
+    (OUT / "stylesheets").mkdir(parents=True, exist_ok=True)
+    (OUT / "stylesheets" / "tokens.css").write_text(css, encoding="utf-8")
     if missing:
         print("WARNING: missing sources:\n  " + "\n  ".join(missing))
     print(f"staged {len(CURATED)} pages + {len(ASSETS)} assets -> {OUT}")

@@ -11,6 +11,7 @@ on:
       - "**/*.md"
       - "**/*.svg"          # diagrams are published on the site
       - "docs-site/**"
+      - "frontend/src/styles/tokens.css"  # the site inherits the app palette
       - ".github/workflows/docs.yml"
   workflow_dispatch:
 

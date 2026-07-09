@@ -44,6 +44,7 @@ theme:
     - toc.follow
 
 extra_css:
+  - stylesheets/tokens.css  # the app's design tokens, staged by sync.py (SSOT)
   - stylesheets/extra.css
 
 extra_javascript:
