@@ -347,6 +347,10 @@ Open Ava's Hub -> Connectors -> **Connect an app** -> paste
 tools, and (if your app serves a web UI) offers a sidebar tile. Sanity check
 by hand: `curl http://127.0.0.1:__PORT__/tools`
 
+Embedding your web UI in Ava's sidebar? It gets served under `/apps/__ID__/`,
+so the UI must use RELATIVE asset URLs and mount-prefixed API calls — see
+"Make your UI mount-agnostic" in Ava's docs/CONNECTOR_SDK.md §3.
+
 The full contract (error shapes, tier semantics, trust boundary):
 `docs/CONNECTOR_SDK.md` §5 "The tool facade — ava-tools/1" in the Ava repo.
 '''

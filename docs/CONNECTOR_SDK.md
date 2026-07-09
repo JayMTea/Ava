@@ -111,6 +111,36 @@ The iframe is sandboxed (`allow-scripts allow-forms allow-same-origin`). Because
 the proxy makes it same-origin, treat the embedded app as trusted code: review a
 third-party app before enabling it, as you would any plugin.
 
+### Make your UI mount-agnostic (the one requirement on your app)
+
+Embedded, your app is served from `/apps/<id>/` instead of `/` — so a UI built
+with **absolute** URLs (`/assets/main.js`, `fetch('/api/things')`) breaks under
+the proxy while working standalone. The same build must work at both mounts:
+
+1. **Assets: emit relative URLs.** Vite: `base: './'` in `vite.config.ts`.
+2. **API/media calls: prefix with the detected mount.** Derive it once from the
+   document URL and wrap every root-relative URL:
+
+```ts
+// '' standalone, '/apps/<id>' when embedded — same build works at both.
+export const MOUNT: string = (() => {
+  let p = window.location.pathname;
+  if (!p.endsWith('/')) p = p.replace(/[^/]*$/, '');
+  return p.replace(/\/+$/, '');
+})();
+export const withBase = (u: string): string =>
+  u && u.charAt(0) === '/' ? MOUNT + u : u;
+
+fetch(withBase('/api/things'));   // -> /apps/<id>/api/things when embedded
+```
+
+Everything else is handled by the proxy: your HTML is always revalidated (so a
+rebuild shows up on reload), `/apps/<id>/api/*` reaches your same-origin API
+with no manifest config, and a top-level visit to `/apps/<id>/` bounces the
+user back into Ava's shell. One more tip from the field: gate your UI build on
+a typecheck (`tsc -b --noEmit && vite build`) — bundlers don't catch unbound
+identifiers, and a broken bundle inside an iframe is painful to debug.
+
 ---
 
 ## 4. Browser data-proxy (`ui.api`)
