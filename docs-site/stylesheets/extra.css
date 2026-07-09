@@ -1,27 +1,27 @@
 /* Ava docs theme — matches the product palette (SSOT: frontend/src/styles/tokens.css
-   and ava_bridge/web/setup.html). Terracotta accent on a warm near-black canvas,
+   and ava_bridge/web/setup.html). VS Code blue accent on a warm near-black canvas,
    serif headings, so the docs feel like the app. */
 
 :root {
-  --ava-accent: #c96442;
-  --ava-accent-hover: #b45739;
+  --ava-accent: #007acc;
+  --ava-accent-hover: #0068ad;
   --ava-serif: ui-serif, Georgia, "Times New Roman", serif;
 }
 
 /* Light scheme */
 [data-md-color-scheme="default"] {
-  --md-primary-fg-color: #c96442;
-  --md-primary-fg-color--light: #d98168;
-  --md-primary-fg-color--dark: #b45739;
-  --md-accent-fg-color: #b45739;
-  --md-typeset-a-color: #b45739;
+  --md-primary-fg-color: #007acc;
+  --md-primary-fg-color--light: #3399d6;
+  --md-primary-fg-color--dark: #0068ad;
+  --md-accent-fg-color: #0068ad;
+  --md-typeset-a-color: #0068ad;
 }
 
 /* Dark scheme — the product's warm near-black canvas */
 [data-md-color-scheme="slate"] {
-  --md-primary-fg-color: #c96442;
-  --md-accent-fg-color: #d98168;
-  --md-typeset-a-color: #d98168;
+  --md-primary-fg-color: #007acc;
+  --md-accent-fg-color: #3399d6;
+  --md-typeset-a-color: #3399d6;
   --md-default-bg-color: #262624;
   --md-default-bg-color--light: #1f1e1d;
   --md-code-bg-color: #1f1e1d;
@@ -456,7 +456,7 @@
   transition: background 0.15s ease, transform 0.15s ease;
 }
 .ava-carousel__dots button.is-active {
-  background: var(--md-accent-fg-color, #e0673f);
+  background: var(--md-accent-fg-color, #0068ad);
   transform: scale(1.25);
 }
 

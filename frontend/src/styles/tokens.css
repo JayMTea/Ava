@@ -3,7 +3,7 @@
    Every design value for Ava lives here ONCE. All CSS and the dashboard's
    Recharts theme read these variables; no other file declares token *values*.
    To re-theme Ava (or add a light theme via [data-theme="…"]), edit ONLY this
-   file. Theme = Ava terracotta. (No external brand.)
+   file. Theme = VS Code blue. (No external brand.)
    ========================================================================= */
 :root {
   color-scheme: dark;
@@ -22,9 +22,9 @@
   --txt:#f4f3ee;         /* primary (warm off-white) */
   --muted:#9a968c;       /* secondary */
 
-  /* ---- Color · accent (Ava terracotta) ---- */
-  --accent:#c96442;
-  --accent-hover:#b45739;
+  /* ---- Color · accent (VS Code blue) ---- */
+  --accent:#007acc;
+  --accent-hover:#0068ad;
 
   /* ---- Color · semantic ---- */
   --ok:#3fb27f;          /* success / online / good */
@@ -51,9 +51,9 @@
      `*-tint` is the readable text color over a faint same-hue background; on
      dark it's a light pastel, on light it flips to a deep shade. Pair with the
      rgba(...) chip backgrounds already in the CSS.                            */
-  --accent-soft:rgba(201,100,66,.16);  /* active-pill background */
-  --accent-tint:#f0b49e;               /* active-pill text */
-  --accent-line:#6b3a2a;               /* active-pill border */
+  --accent-soft:rgba(0,122,204,.16);   /* active-pill background */
+  --accent-tint:#8ec9f0;               /* active-pill text */
+  --accent-line:#1d4e75;               /* active-pill border */
   --ok-tint:#8fe0b8;
   --warn-tint:#f2cf8a;
   --err-tint:#ffb3bd;
@@ -64,7 +64,7 @@
   --focus-line:#5c5951;
 
   /* ---- Chart palette (categorical cycle, accent-led) ---- */
-  --chart-1:#c96442;
+  --chart-1:#007acc;
   --chart-2:#3fb27f;
   --chart-3:#e0a93b;
   --chart-4:#7ea6c9;
@@ -136,9 +136,9 @@
   --txt:#2b2a27;
   --muted:#73706a;
 
-  /* accent — terracotta reads well on light; nudge hover a touch darker */
-  --accent:#bd5b3b;
-  --accent-hover:#a44e32;
+  /* accent — nudge the blue a touch darker on light for contrast */
+  --accent:#006bb3;
+  --accent-hover:#005c9c;
 
   /* semantic — slightly deepened so badges/labels stay legible on light */
   --ok:#2f9d6e;
@@ -148,7 +148,7 @@
   --info:#5b83a6;
 
   /* chart palette (mirrors semantic; grid/axis follow line/muted) */
-  --chart-1:#bd5b3b;
+  --chart-1:#006bb3;
   --chart-2:#2f9d6e;
   --chart-3:#bd881f;
   --chart-4:#5b83a6;
@@ -173,9 +173,9 @@
   --wash-18:rgba(0,0,0,.13);
 
   /* tint text flips to deep same-hue shades legible on the faint chip bg */
-  --accent-soft:rgba(201,100,66,.14);
-  --accent-tint:#9e4327;
-  --accent-line:#e6c3b5;
+  --accent-soft:rgba(0,122,204,.14);
+  --accent-tint:#005a94;
+  --accent-line:#b7d8ee;
   --ok-tint:#1f7a52;
   --warn-tint:#8a5e00;
   --err-tint:#b21e33;

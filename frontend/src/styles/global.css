@@ -82,7 +82,7 @@
     width:40px; height:40px; border-radius:50%; border:none; cursor:pointer; z-index:1;
     background:rgba(20,24,34,.72); color:#fff; display:flex; align-items:center; justify-content:center; }
   .lb-info-btn svg { width:20px; height:20px; }
-  .lb-info-btn.on { background:var(--accent, #c96442); }
+  .lb-info-btn.on { background:var(--accent, #007acc); }
   .lb-info { position:absolute; left:0; right:0; bottom:0; z-index:2; cursor:default;
     max-height:55%; overflow:auto; padding:16px 18px calc(18px + env(safe-area-inset-bottom));
     background:linear-gradient(to top, rgba(10,12,18,.97), rgba(10,12,18,.82) 80%, transparent);

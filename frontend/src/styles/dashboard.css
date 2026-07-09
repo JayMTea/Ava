@@ -1,6 +1,6 @@
 /* =========================================================================
    Ava Command Center — dashboard styles (Vitals + Operations).
-   Uses only tokens.css variables so it stays on-theme (Ava terracotta).
+   Uses only tokens.css variables so it stays on-theme (VS Code blue).
    ========================================================================= */
 
 .db-view {
@@ -135,7 +135,7 @@
 .db-feed { display: flex; flex-direction: column; gap: 10px; }
 .db-feed-row { display: flex; align-items: center; gap: 10px; }
 .db-feed-badge { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; padding: 3px 7px; border-radius: var(--r-sm); flex: none; }
-.badge-turn { background: rgba(201,100,66,.18); color: var(--accent); }
+.badge-turn { background: rgba(0,122,204,.18); color: var(--accent); }
 .badge-job { background: rgba(126,166,201,.18); color: var(--info); }
 .db-feed-main { flex: 1; min-width: 0; }
 .db-feed-title { color: var(--txt); font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

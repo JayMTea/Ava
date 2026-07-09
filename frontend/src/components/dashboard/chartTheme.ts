@@ -10,7 +10,7 @@ export function token(name: string, fallback = ''): string {
 // Categorical cycle (accent-led), drawn from the token palette.
 export function chartColors(): string[] {
   return [
-    token('--chart-1', '#c96442'),
+    token('--chart-1', '#007acc'),
     token('--chart-2', '#3fb27f'),
     token('--chart-3', '#e0a93b'),
     token('--chart-4', '#7ea6c9'),
@@ -28,7 +28,7 @@ export const semantic = () => ({
   ok: token('--ok', '#3fb27f'),
   warn: token('--warn', '#e0a93b'),
   err: token('--err', '#e0364d'),
-  accent: token('--accent', '#c96442'),
+  accent: token('--accent', '#007acc'),
   muted: token('--muted', '#9a968c'),
 });
 

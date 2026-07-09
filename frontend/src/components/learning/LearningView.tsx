@@ -32,7 +32,7 @@ const APP_META: Record<string, { label: string; sub: string }> = {
 function appMeta(key: string) {
   return APP_META[key] || { label: key, sub: 'connected app' };
 }
-const APP_COLORS = ['#c96442', '#4f8a8b', '#7c6f9f', '#b08968', '#5e8c6a', '#9a6a8c', '#6a7fa8'];
+const APP_COLORS = ['#007acc', '#4f8a8b', '#7c6f9f', '#b08968', '#5e8c6a', '#9a6a8c', '#6a7fa8'];
 function appColor(key: string): string {
   let h = 0;
   for (const c of key) h = (h * 31 + c.charCodeAt(0)) >>> 0;

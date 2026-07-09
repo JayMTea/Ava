@@ -44,7 +44,7 @@ function ApprovalsBanner() {
     <div style={{ marginBottom: 16 }}>
       {pending.map((p) => (
         <div key={p.id} className="hub-restart" style={{
-          background: 'rgba(201,100,66,0.10)', color: 'var(--txt)',
+          background: 'rgba(0,122,204,0.10)', color: 'var(--txt)',
           borderColor: 'color-mix(in srgb, var(--accent) 45%, transparent)',
           justifyContent: 'space-between', flexWrap: 'wrap', gap: 10,
         }}>

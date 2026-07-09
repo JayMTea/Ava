@@ -252,7 +252,7 @@ header .sub { display:none; }
 
 /* Artifact "open" chip in Ava's warm accent. */
 .art-chip { color:var(--accent-tint); background:var(--accent-soft); border-color:var(--accent-line); }
-.art-chip:hover { background:rgba(201,100,66,.2); border-color:var(--accent); }
+.art-chip:hover { background:rgba(0,122,204,.2); border-color:var(--accent); }
 
 /* ======================= EMPTY-STATE GREETING ======================= */
 .chat-empty {
@@ -292,7 +292,7 @@ header .sub { display:none; }
 .crow .mic:hover:not(:disabled) { background:var(--wash-7); color:var(--txt); }
 .crow .mic:disabled { color:var(--disabled-txt); }
 .crow .mic svg { width:19px; height:19px; }
-.crow .mic.rec { background:var(--accent); color:#fff; box-shadow:0 0 0 4px rgba(201,100,66,.22); }
+.crow .mic.rec { background:var(--accent); color:#fff; box-shadow:0 0 0 4px rgba(0,122,204,.22); }
 .crow .mic.rec:hover { background:var(--accent-hover); color:#fff; }
 .send { width:34px; height:34px; background:var(--accent); color:#fff; }
 .send:hover:not(:disabled) { background:var(--accent-hover); }
@@ -416,7 +416,7 @@ header .sub { display:none; }
 .dash-stat { border:1px solid var(--line); border-radius:14px; background:var(--panel); padding:16px 16px 14px; }
 .dash-stat-v { font-size:30px; font-weight:600; line-height:1; font-variant-numeric:tabular-nums; }
 .dash-stat-l { font-size:11.5px; color:var(--muted); margin-top:8px; text-transform:uppercase; letter-spacing:.05em; }
-.dash-stat.t-attn { border-color:var(--accent-line); background:rgba(201,100,66,.08); }
+.dash-stat.t-attn { border-color:var(--accent-line); background:rgba(0,122,204,.08); }
 .dash-stat.t-attn .dash-stat-v { color:var(--accent-tint); }
 .dash-stat.t-ok .dash-stat-v { color:#7fd0a0; }
 @media (max-width:680px) { .dash-stats { grid-template-columns:repeat(2,1fr); } }
@@ -433,7 +433,7 @@ header .sub { display:none; }
 .gate-row { display:flex; align-items:center; gap:12px; width:100%; text-align:left; cursor:pointer;
   border:1px solid var(--line); border-radius:12px; background:var(--panel); padding:11px 14px;
   transition:border-color .12s, background .12s; }
-.gate-row:hover { border-color:var(--accent-line); background:rgba(201,100,66,.06); }
+.gate-row:hover { border-color:var(--accent-line); background:rgba(0,122,204,.06); }
 .gate-app { width:30px; height:30px; border-radius:9px; flex:0 0 auto; color:#fff; font-weight:700; font-size:14px;
   display:flex; align-items:center; justify-content:center; }
 .gate-main { flex:1; min-width:0; }
@@ -452,7 +452,7 @@ header .sub { display:none; }
 .app-card-id { flex:1; min-width:0; }
 .app-card-name { font-size:15px; font-weight:600; }
 .app-card-sub { font-size:11.5px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.app-card-pending { flex:0 0 auto; background:rgba(201,100,66,.18); color:var(--accent-tint); border-radius:999px;
+.app-card-pending { flex:0 0 auto; background:rgba(0,122,204,.18); color:var(--accent-tint); border-radius:999px;
   min-width:22px; height:22px; padding:0 7px; display:flex; align-items:center; justify-content:center;
   font-size:12px; font-weight:700; }
 .app-card-stats { display:flex; gap:14px; font-size:12.5px; color:var(--muted); }
@@ -498,7 +498,7 @@ header .sub { display:none; }
 .st-checks, .st-chk { display:flex; gap:14px; flex-wrap:wrap; font-size:12.5px; color:var(--muted); align-items:center; }
 .st-checks label, .st-chk { display:inline-flex; align-items:center; gap:6px; }
 .st-check { display:inline-flex; align-items:center; gap:7px; font-size:12.5px; color:var(--muted); margin:8px 0 4px; cursor:pointer; }
-.st-check input { accent-color:var(--accent, #c96442); }
+.st-check input { accent-color:var(--accent, #007acc); }
 
 .st-btn { display:inline-flex; align-items:center; gap:6px; padding:7px 13px; border-radius:9px; font-size:13px;
   font-weight:500; border:1px solid var(--line); background:var(--panel2); color:var(--txt); cursor:pointer; }
