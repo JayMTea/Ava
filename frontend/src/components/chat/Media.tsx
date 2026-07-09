@@ -159,7 +159,7 @@ export function ImageMessage({
   const [dim, setDim] = useState('');
   const [upscaling, setUpscaling] = useState(false);
   const [displayUrl, setDisplayUrl] = useState(url);
-  const timer = useRef<ReturnType<typeof setTimeout>>();
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const arm = () => {
     setBlurred(false);
