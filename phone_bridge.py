@@ -575,6 +575,13 @@ async def app_ui_proxy(cid: str, path: str, request: Request):
     if not meta or meta.get("embed") != "iframe" or not meta.get("url"):
         return JSONResponse({"error": f"connector {cid} is not an iframe app"},
                             status_code=404)
+    # A TOP-LEVEL visit to the iframe's src (typed/bookmarked /apps/<id>/)
+    # strands the user in the bare app with no Ava shell around it. Bounce them
+    # to the app's tile inside the shell; the embedded iframe itself fetches
+    # with Sec-Fetch-Dest: iframe and passes through untouched.
+    if not path and request.method == "GET" \
+            and request.headers.get("sec-fetch-dest") == "document":
+        return RedirectResponse(f"/#{cid}")
     url = f"{meta['url'].rstrip('/')}/{path}"
     params = dict(request.query_params)
     body = await request.body() if request.method in ("POST", "PATCH", "PUT") else None
