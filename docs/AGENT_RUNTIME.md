@@ -40,7 +40,22 @@ Here is what it looks like in the app: open **Setup → Agent**, click
   Your browser can't play video. <a href="../assets/agent-setup-tour.mp4">Download the walkthrough</a>.
 </video>
 
-From a terminal, the same flow is:
+### Step 1: Open Setup → Agent
+
+The status card shows what's already in place: whether the CLI is installed,
+whether the sandbox exists, and whether Ava's tools are deployed into it.
+
+![The Agent tab: an Agent runtime card marked active, with Configured, CLI, Sandbox exists, and Tools available rows above a Provision / re-check button](assets/agent-setup-1-status.png)
+
+### Step 2: Click "Provision / re-check"
+
+Each step verifies in order — the CLI, the sandbox, tools & skills, the
+deny-by-default egress policies — and finishes with a live health check where
+the agent answers a real test turn.
+
+![After provisioning: NemoClaw CLI, Sandbox, Tools & skills, Egress policies, and Health each listed with their result, ending with Provisioned in 6.2s](assets/agent-setup-2-provision.png)
+
+That's the whole setup. From a terminal, the same flow is:
 
 ```bash
 ava agent provision --install     # installs the nemoclaw CLI, then guides you

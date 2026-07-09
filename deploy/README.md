@@ -120,6 +120,11 @@ cd frontend && npm install && npm run build && cd ..
 
 `ava setup` prints your generated admin password (or pass `--password`).
 
+A healthy run looks like this — `doctor` shows the hardware it detected, and
+`up` prints the address to open:
+
+![Terminal: ava setup and ava doctor passing with green checks, including hardware Apple M4 Max with 128 GB unified memory, then ava up printing http://localhost:8096](../docs/assets/install-1-terminal.png)
+
 ### Inference on bare metal
 
 Chat flows **bridge → router → your engine**. The OpenAI-compatible router
