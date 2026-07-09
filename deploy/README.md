@@ -5,6 +5,15 @@ hardware, point it at your own models, and connect your own apps. This is step
 one of getting started: fork (or clone) the repo, then pick the path for your
 machine.
 
+Here is the whole install on a Mac, end to end (sound on):
+
+<video controls playsinline preload="metadata"
+       style="width:100%;border-radius:8px"
+       aria-label="Narrated screen recording: cloning Ava, running ava setup, doctor, and up on a Mac, then verifying the detected hardware in the app">
+  <source src="../docs/assets/install-tour.mp4" type="video/mp4">
+  Your browser can't play video. <a href="../docs/assets/install-tour.mp4">Download the walkthrough</a>.
+</video>
+
 | Your machine | Install path |
 |---|---|
 | Mac mini / Studio (Apple Silicon) | [Bare metal with a native engine](#apple-silicon-mac-mini-studio); Docker can't reach the Apple GPU |

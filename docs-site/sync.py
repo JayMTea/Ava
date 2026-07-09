@@ -74,6 +74,7 @@ ASSETS: dict[str, str] = {
     "docs/assets/connect-app-3-connected.png": "docs/assets/connect-app-3-connected.png",
     "docs/assets/connect-device-tour.mp4": "docs/assets/connect-device-tour.mp4",
     "docs/assets/choose-model-tour.mp4": "docs/assets/choose-model-tour.mp4",
+    "docs/assets/install-tour.mp4": "docs/assets/install-tour.mp4",
     "docs/assets/hardware-detected.png": "docs/assets/hardware-detected.png",
     "docs/assets/agent-setup-tour.mp4": "docs/assets/agent-setup-tour.mp4",
     "docs/assets/pwa-install-ios.png": "docs/assets/pwa-install-ios.png",
