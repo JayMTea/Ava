@@ -84,6 +84,11 @@ jobs:
         run: python ava_cli.py verify
 
   secrets-scan:
+    # Dependabot runs get a read-only token, and the action's PR API calls
+    # (comments in v2, listing PR commits in v3) 403 with "Resource not
+    # accessible by integration" — unfixable via env. Bot PRs only touch
+    # manifests/lockfiles; pushes to master still get the full scan.
+    if: github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -92,10 +97,6 @@ jobs:
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Dependabot-triggered runs get a read-only token; the action's
-          # PR-comment call then 403s ("Resource not accessible by
-          # integration") and fails the job. Still scan — just don't comment.
-          GITLEAKS_ENABLE_COMMENTS: ${{ github.actor == 'dependabot[bot]' && 'false' || 'true' }}
 
   docs:
     # Fail a PR that breaks a docs link before it reaches the publish workflow.
