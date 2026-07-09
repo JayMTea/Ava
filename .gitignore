@@ -85,3 +85,7 @@ gpusvc/extra_model_paths.yaml
 # Docs site — generated staging + build output
 docs-site/docs/
 docs-site/site/
+
+# Personal instance connectors (this box's AVA_HOME = repo root; the shipped
+# template lives in examples/home-assistant/)
+connectors/home-assistant/

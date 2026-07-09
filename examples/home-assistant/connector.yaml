@@ -29,6 +29,8 @@ mcp:
 #   HassListAddItem: write        # shopping list — ask once, then allow
 dynamic_access:
   GetLiveContext: read            # current state of exposed entities
+  GetDateTime: read               # informational
+  todo_get_items: read            # reads a to-do/shopping list
   "*": physical                   # turn_on/turn_off/set/lock/... always ask
 
 service:

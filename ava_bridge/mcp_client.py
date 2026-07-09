@@ -251,22 +251,34 @@ class _SseSession(_Session):
 
     def _reader(self) -> None:
         """Consume the stream: `endpoint` announces the POST URL, `message`
-        carries JSON-RPC; anything else (pings, server notices) is ignored."""
+        carries JSON-RPC; anything else (pings, server notices) is ignored.
+
+        Line splitting is done by hand: iter_lines' default 512-byte read
+        blocks until the buffer fills (starving short events), and with byte
+        reads it emits phantom blank lines on CRLF endings (Home Assistant
+        terminates SSE lines with \\r\\n) — a phantom blank dispatches an
+        event before its data arrives. Byte reads drain the buffered socket,
+        so chunk_size=1 stays cheap."""
         event, data = "", []
+        buf = b""
         try:
-            # chunk_size=1: iter_lines' default 512-byte read blocks until the
-            # buffer fills — a short `endpoint` event would never surface.
-            # Byte reads drain the buffered socket, so this stays cheap.
-            for line in self._stream.iter_lines(chunk_size=1, decode_unicode=True):
-                if line is None:
+            for chunk in self._stream.iter_content(chunk_size=1):
+                if not chunk:
                     continue
-                if line == "":                       # blank line ends one event
-                    self._dispatch(event or "message", "\n".join(data))
-                    event, data = "", []
-                elif line.startswith("event:"):
-                    event = line[6:].strip()
-                elif line.startswith("data:"):
-                    data.append(line[5:].lstrip())
+                buf += chunk
+                while True:
+                    nl = buf.find(b"\n")
+                    if nl < 0:
+                        break
+                    line = buf[:nl].rstrip(b"\r").decode("utf-8", "replace")
+                    buf = buf[nl + 1:]
+                    if line == "":                   # blank line ends one event
+                        self._dispatch(event or "message", "\n".join(data))
+                        event, data = "", []
+                    elif line.startswith("event:"):
+                        event = line[6:].strip()
+                    elif line.startswith("data:"):
+                        data.append(line[5:].lstrip())
         except Exception as e:  # noqa: BLE001 — stream death is reported to waiters
             self._dead = self._dead or f"SSE stream error: {e}"
         finally:

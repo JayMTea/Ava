@@ -97,7 +97,9 @@ class _SseStub(http.server.BaseHTTPRequestHandler):
         q: "queue.Queue" = queue.Queue()
         self.streams.append(q)      # register BEFORE announcing the endpoint,
         try:                        # or a fast client's first POST races us
-            self.wfile.write(b"event: endpoint\ndata: /messages\n\n")
+            # CRLF line endings on purpose — Home Assistant's SSE does this,
+            # and it regressed the parser once (phantom blank lines).
+            self.wfile.write(b"event: endpoint\r\ndata: /messages\r\n\r\n")
             self.wfile.flush()
             while not self.stop.is_set():
                 try:
@@ -105,8 +107,8 @@ class _SseStub(http.server.BaseHTTPRequestHandler):
                 except queue.Empty:
                     continue
                 try:
-                    self.wfile.write(b"event: message\ndata: "
-                                     + json.dumps(msg).encode() + b"\n\n")
+                    self.wfile.write(b"event: message\r\ndata: "
+                                     + json.dumps(msg).encode() + b"\r\n\r\n")
                     self.wfile.flush()
                 except OSError:      # client hung up (session reset)
                     return
