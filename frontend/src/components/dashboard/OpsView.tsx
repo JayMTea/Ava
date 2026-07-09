@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { dash } from './dashApi';
 import type { Alert, JobRow, TurnRow } from './dashApi';
 import { useEventStream, useLiveResource } from '../../hooks/useLive';
@@ -13,7 +13,17 @@ type Overlay = Record<string, { status?: string; progress?: number; stage?: stri
 
 // One event pushed to Ava by a user's device/sensor connector app (device.event).
 type DevEvent = { seq: number; ts: number; cid: string; name: string; type?: string;
-  value?: number | string; unit?: string; message?: string; severity?: string };
+  value?: number | string; unit?: string; message?: string; severity?: string; notify?: boolean };
+
+// Optional proactive voice: speak a device event aloud in this browser. Uses the
+// Web Speech API (no server voice subprocess), the seam docs/DEVICE_CONNECTORS.md
+// flagged for future announcements. Only fires for notify/warn/critical events.
+function announceDeviceEvent(e: DevEvent) {
+  if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+  const val = e.value !== undefined ? ` ${e.value}${e.unit ? ' ' + e.unit : ''}` : '';
+  const text = e.message || `${e.cid}: ${e.name}${val}`;
+  try { window.speechSynthesis.speak(new SpeechSynthesisUtterance(text)); } catch { /* ignore */ }
+}
 
 export function OpsView() {
   const summary = useLiveResource(useCallback(() => dash.opsSummary(), []), 6000);
@@ -30,6 +40,15 @@ export function OpsView() {
   const [liveAlerts, setLiveAlerts] = useState<Alert[] | null>(null);
   const [deviceEvents, setDeviceEvents] = useState<DevEvent[]>([]);
   const [seg, setSeg] = useState<'live' | 'control'>('live');
+  const [speakAlerts, setSpeakAlerts] = useState(() => {
+    try { return localStorage.getItem('ava.speakDeviceAlerts') === '1'; } catch { return false; }
+  });
+  // A ref so the (once-created, []-deps) SSE handler reads the live toggle value.
+  const speakRef = useRef(speakAlerts);
+  useEffect(() => {
+    speakRef.current = speakAlerts;
+    try { localStorage.setItem('ava.speakDeviceAlerts', speakAlerts ? '1' : '0'); } catch { /* ignore */ }
+  }, [speakAlerts]);
 
   useEventStream('/api/stream/ops', useMemo(() => ({
     'turn.update': (d: unknown) => {
@@ -46,7 +65,13 @@ export function OpsView() {
       return base.some((x) => x.id === al.id) ? base : [...base, al];
     }),
     'alert.clear': (d: unknown) => setLiveAlerts((a) => (a || []).filter((x) => x.id !== (d as { id: string }).id)),
-    'device.event': (d: unknown) => setDeviceEvents((xs) => [d as DevEvent, ...xs].slice(0, 30)),
+    'device.event': (d: unknown) => {
+      const ev = d as DevEvent;
+      setDeviceEvents((xs) => [ev, ...xs].slice(0, 30));
+      if (speakRef.current && (ev.notify || ev.severity === 'warn' || ev.severity === 'critical')) {
+        announceDeviceEvent(ev);
+      }
+    },
   }), []));
 
   const alerts = liveAlerts ?? alertsRes.data?.active ?? [];
@@ -137,7 +162,16 @@ export function OpsView() {
       {/* Device events — pushed live by the user's connected device/sensor apps */}
       {deviceEvents.length > 0 && (
         <Panel title="Device events" subtitle="pushed live by your connected devices"
-          right={<span className="db-live-dot" title="live"><i />live</span>}>
+          right={
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 12 }}>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-xs)', color: 'var(--muted)', cursor: 'pointer' }}
+                title="Speak notify/critical device events aloud in this browser (Web Speech).">
+                <input type="checkbox" checked={speakAlerts} onChange={(e) => setSpeakAlerts(e.target.checked)} />
+                Speak alerts
+              </label>
+              <span className="db-live-dot" title="live"><i />live</span>
+            </span>
+          }>
           <div className="db-feed">
             {deviceEvents.map((e) => (
               <div key={e.seq} className="db-feed-row">
@@ -264,7 +298,9 @@ export function OpsView() {
               </div>
             ))}
           </div>
-        ) : <EmptyState text="No connectors registered." />}
+        ) : conns.error && !conns.data
+          ? <EmptyState text="Couldn’t load connectors — check the bridge is reachable." />
+          : <EmptyState text="No connectors registered." />}
       </Panel>
 
       {/* Tool usage */}

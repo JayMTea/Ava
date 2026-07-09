@@ -43,6 +43,15 @@ _SEVERITIES = ("info", "warn", "critical")
 _NAME_MAX = 64
 _MSG_MAX = 500
 
+# Per-connector ingest rate limit (token bucket). A buggy or hostile device must
+# not be able to flood the event log or the alert surface. Steady state allows
+# ~_RATE_PER_MIN events/min with bursts up to _RATE_BURST; env-tunable, and
+# AVA_DEVICES_RATE_PER_MIN=0 disables it.
+_RATE_PER_MIN = int(os.environ.get("AVA_DEVICES_RATE_PER_MIN", "600"))
+_RATE_BURST = max(1, int(os.environ.get("AVA_DEVICES_BURST", "60")))
+_buckets: Dict[str, tuple] = {}   # cid -> (tokens, last_ts)
+_bucket_lock = threading.Lock()
+
 # In-memory ring of the most recent events across all connectors, each tagged with
 # a process-monotonic sequence so an SSE generator can emit only what's new to it.
 _lock = threading.Lock()
@@ -122,6 +131,23 @@ def normalize(cid: str, payload: dict) -> dict:
     if payload.get("notify"):
         rec["notify"] = True
     return rec
+
+
+def allow(cid: str) -> bool:
+    """Token-bucket rate limit per connector. True if this event is within budget,
+    False if `cid` is pushing faster than the configured rate (caller returns 429)."""
+    if _RATE_PER_MIN <= 0:
+        return True
+    rate = _RATE_PER_MIN / 60.0
+    now = time.time()
+    with _bucket_lock:
+        tokens, last = _buckets.get(cid, (float(_RATE_BURST), now))
+        tokens = min(float(_RATE_BURST), tokens + (now - last) * rate)
+        if tokens < 1.0:
+            _buckets[cid] = (tokens, now)
+            return False
+        _buckets[cid] = (tokens - 1.0, now)
+        return True
 
 
 def record_event(cid: str, payload: dict) -> dict:

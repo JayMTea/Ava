@@ -58,7 +58,10 @@ export interface HubConnector {
   has_tools: boolean;
   renders_policy: boolean;
   enabled: boolean;
+  builtin?: boolean;   // shipped in the repo — read-only (no edit/disable/delete)
 }
+export interface ConnectorLoadError { id: string; path: string; error: string }
+export interface ManifestResult { ok: boolean; yaml?: string; editable?: boolean; error?: string }
 export interface GenerateResult {
   ok: boolean;
   policy?: string; // rendered YAML preview
@@ -168,9 +171,35 @@ export interface NewConnectorBody {
   base_url?: string;
   token_env?: string;
   confirm?: boolean;
+  role?: string;      // 'device' — enables the push flow + Devices grouping
+  ingest?: boolean;   // let the app push readings/events with its ingest token
   actions?: { id: string; method: string; path: string; description?: string; confirm?: boolean }[];
   mcp?: { url?: string; command?: string; token_env?: string; sandbox?: string };
   discover?: { base?: string; list?: string; call?: string; token_env?: string };
+}
+export interface IngestToken {
+  ok: boolean;
+  token?: string;
+  enabled?: boolean;
+  url?: string;       // the push endpoint, e.g. /api/connectors/<id>/events
+  error?: string;
+}
+export interface DeployResult {
+  ok: boolean;
+  deployed?: boolean;
+  steps?: { step: string; ok: boolean; detail: string }[];
+  detail?: string;
+  error?: string;
+}
+export interface DeviceEvent {
+  ts: number;
+  cid: string;
+  type: string;
+  name: string;
+  value?: number | string;
+  unit?: string;
+  message?: string;
+  severity?: string;
 }
 export interface ProbeResult {
   ok: boolean;
@@ -277,7 +306,24 @@ export const hub = {
     ),
 
   // Connectors
-  connectors: () => req<{ connectors: HubConnector[] }>('/api/hub/connectors'),
+  connectors: () =>
+    req<{ connectors: HubConnector[]; errors?: ConnectorLoadError[] }>('/api/hub/connectors'),
+  setConnectorEnabled: (id: string, enabled: boolean) =>
+    req<{ ok: boolean; enabled?: boolean; error?: string }>(
+      `/api/hub/connectors/${encodeURIComponent(id)}/enabled`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      }),
+  getManifest: (id: string) =>
+    req<ManifestResult>(`/api/hub/connectors/${encodeURIComponent(id)}/manifest`),
+  saveManifest: (id: string, yaml: string) =>
+    req<{ ok: boolean; error?: string }>(
+      `/api/hub/connectors/${encodeURIComponent(id)}/manifest`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ yaml }),
+      }),
   generate: (id: string, write: boolean) =>
     req<GenerateResult>(`/api/hub/connectors/${encodeURIComponent(id)}/generate?write=${write ? 1 : 0}`, {
       method: 'POST',
@@ -294,6 +340,16 @@ export const hub = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }),
+  ingestToken: (id: string) =>
+    req<IngestToken>(`/api/hub/connectors/${encodeURIComponent(id)}/ingest-token`),
+  lastEvent: (id: string) =>
+    req<{ ok: boolean; event: DeviceEvent | null }>(
+      `/api/hub/connectors/${encodeURIComponent(id)}/last-event`),
+  deployConnector: (id: string) =>
+    req<DeployResult>(`/api/hub/connectors/${encodeURIComponent(id)}/deploy`, { method: 'POST' }),
+  deleteConnector: (id: string) =>
+    req<{ ok: boolean; error?: string }>(
+      `/api/hub/connectors/${encodeURIComponent(id)}/delete`, { method: 'POST' }),
 
   // Inference backends — the multi-model brain manager
   backendList: () => req<BackendList>('/api/hub/models/backends'),

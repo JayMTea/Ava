@@ -491,7 +491,12 @@ def ops_services() -> dict:
 
 
 def connectors_info() -> dict:
-    """The connector registry, for the dashboard Connectors panel."""
+    """The dashboard **telemetry** view of connectors (Ops Connectors panel):
+    enabled connectors only (`connectors.all()`), with health / perf / egress-count
+    fields for monitoring. Distinct from the Hub's `/api/hub/connectors`
+    (`hub_api.list_connectors`), the **management** view that also lists disabled
+    connectors and their edit/deploy state. Two audiences, two shapes — see the
+    note on `list_connectors`."""
     items = []
     for m in connectors.all():
         svc = m.get("service") or {}

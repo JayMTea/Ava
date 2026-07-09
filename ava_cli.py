@@ -107,6 +107,22 @@ def cmd_doctor(_args) -> int:
     except Exception as e:  # noqa: BLE001
         _row(WARN, "agent runtime", f"probe failed: {e}")
 
+    print("\nConnectors")
+    try:
+        from ava_bridge import connectors as _conn
+        _conn.load(force=True)          # populates load_errors()
+        cat = _conn.catalog()
+        on = len([m for m in cat if m.get("enabled", True)])
+        _row(OK, "loaded", f"{on} enabled, {len(cat) - on} disabled")
+        errs = _conn.load_errors()
+        if errs:
+            for e in errs:
+                _row(BAD, "manifest", f"{e['id']}: {e['error']}")
+        else:
+            _row(OK, "manifests", "all parsed cleanly")
+    except Exception as e:  # noqa: BLE001
+        _row(WARN, "connectors", f"probe failed: {e}")
+
     print("\nInference backends")
     backends = (settings.get("inference.backends", {}) or {})
     if not backends:
