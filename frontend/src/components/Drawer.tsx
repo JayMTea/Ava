@@ -81,7 +81,7 @@ function RailFlyout({
 
 interface Props {
   open: boolean;
-  onClose: () => void;
+  onToggle: () => void;
   apps: AppEntry[];
   brand?: string;
   view: string;
@@ -95,7 +95,7 @@ interface Props {
 
 export function Drawer({
   open,
-  onClose,
+  onToggle,
   apps,
   brand = 'Ava',
   view,
@@ -135,9 +135,27 @@ export function Drawer({
 
   return (
     <aside id="drawer" className={open ? 'open' : ''}>
-      {/* Narrow icon rail — the Assistant on top, then the user's connected apps.
-          Vitals / Operations / Setup live in the settings flyout at the foot. */}
+      {/* Narrow icon rail (claude.ai style) — panel toggle on top, then new chat,
+          the Assistant, and the user's connected apps. Vitals / Operations / Setup
+          live in the settings flyout at the foot. */}
       <div className="side-rail">
+        <button
+          className="rail-btn rail-toggle"
+          title={open ? 'Close sidebar' : 'Open sidebar'}
+          aria-label={open ? 'Close sidebar' : 'Open sidebar'}
+          aria-expanded={open}
+          onClick={onToggle}
+        >
+          <Icon name="sidebar" />
+        </button>
+        <button
+          className="rail-btn rail-new"
+          title="New chat"
+          aria-label="New chat"
+          onClick={onNewChat}
+        >
+          <Icon name="plus" />
+        </button>
         <div className="rail-tabs">
           {railBtn('chat', `${brand} — Assistant`, 'bot')}
           {/* App tabs — derived from the connector registry, below the chat icon. */}
@@ -168,15 +186,6 @@ export function Drawer({
             </span>
             <span className="brand-name">{titles[view] || brand}</span>
           </div>
-          <button
-            id="closeDrawer"
-            className="ibtn"
-            style={{ width: 32, height: 32 }}
-            aria-label="Close"
-            onClick={onClose}
-          >
-            <Icon name="close" />
-          </button>
         </div>
 
         {view === 'chat' ? (

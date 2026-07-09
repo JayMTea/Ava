@@ -175,7 +175,7 @@ export default function App() {
       >
         <Drawer
           open={sidebarOpen}
-          onClose={() => setSidebarOpen(false)}
+          onToggle={() => setSidebarOpen((o) => !o)}
           apps={apps}
           brand={brand}
           view={view}

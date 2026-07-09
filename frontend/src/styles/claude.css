@@ -21,10 +21,14 @@ body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica
   position:relative; transform:none; height:auto; z-index:5;
   width:300px; max-width:300px; flex:0 0 300px;
   background:var(--sidebar); border-right:1px solid var(--line);
-  padding-top:0; transition:margin-left .22s ease;
+  padding-top:0; transition:width .22s ease, flex-basis .22s ease, max-width .22s ease;
   display:flex; flex-direction:row; overflow:hidden;
 }
-#appShell.nav-closed #drawer { margin-left:-300px; }
+/* Collapsed on desktop: only the content panel tucks away — the icon rail stays
+   pinned (claude.ai style). The panel has a fixed width so it clips under the
+   drawer's overflow:hidden instead of squishing mid-transition. */
+#appShell.nav-closed #drawer { width:56px; max-width:56px; flex:0 0 56px; }
+#appShell.nav-closed .side-rail { border-right-color:transparent; }
 
 /* --- Icon rail --- */
 .side-rail { flex:0 0 56px; display:flex; flex-direction:column; align-items:center;
@@ -40,6 +44,14 @@ body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica
 .rail-btn.active { background:var(--wash-10); color:var(--txt); }
 .rail-btn svg { width:20px; height:20px; }
 
+/* Rail head (claude.ai style): panel toggle on top, then the new-chat "+" as a
+   soft filled circle, with a breath of air before the tab stack. */
+.rail-toggle { margin-bottom:10px; }
+.rail-new { width:36px; height:36px; border-radius:50%; margin-bottom:4px;
+  background:var(--wash-7); color:var(--txt); }
+.rail-new:hover { background:var(--wash-10); }
+.rail-new svg { width:18px; height:18px; }
+
 /* Settings flyout (Vitals / Operations / Setup) off the rail foot. Portalled to
    <body>, so it's position:fixed and anchored by the trigger's rect. */
 .rail-menu-wrap { display:flex; }
@@ -54,7 +66,7 @@ body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica
 .rail-menu-item svg { width:18px; height:18px; flex:0 0 auto; }
 
 /* --- Content panel --- */
-.side-panel { flex:1 1 auto; min-width:0; display:flex; flex-direction:column; }
+.side-panel { flex:0 0 244px; width:244px; min-width:0; display:flex; flex-direction:column; }
 .panel-head { padding:15px 12px 10px; display:flex; align-items:center;
   justify-content:space-between; gap:8px; }
 .panel-head .brand { display:flex; align-items:center; gap:9px; min-width:0; }
@@ -92,13 +104,15 @@ body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica
 .chatitem .del svg { width:15px; height:15px; }
 .draw-empty { color:var(--muted); font-size:12.5px; text-align:left; padding:10px 14px; }
 
-/* Mobile: sidebar becomes a fixed overlay again. */
+/* Mobile: sidebar becomes a fixed overlay again (rail included — no pinned rail). */
 @media (max-width:760px) {
   #drawer { position:fixed; top:0; left:0; height:100dvh; z-index:40;
     flex-basis:300px; margin-left:0; transform:translateX(-100%);
     transition:transform .22s ease; padding-top:env(safe-area-inset-top); }
   #appShell.nav-open #drawer { transform:translateX(0); }
-  #appShell.nav-closed #drawer { transform:translateX(-100%); margin-left:0; }
+  #appShell.nav-closed #drawer { transform:translateX(-100%); margin-left:0;
+    width:300px; max-width:300px; flex:0 0 300px; }
+  #appShell.nav-closed .side-rail { border-right-color:var(--line); }
 }
 
 /* Mobile-only scrim behind the overlay sidebar. */
@@ -114,8 +128,14 @@ header {
 }
 header h1 { font-size:15px; font-weight:600; letter-spacing:.2px; order:2; }
 header .sub { display:none; }
-#menuBtn { position:static; order:1; width:36px; height:36px; color:var(--muted); }
+#menuBtn { position:static; order:1; width:36px; height:36px; color:var(--muted);
+  display:flex; align-items:center; justify-content:center; }
 #menuBtn:hover { background:var(--wash-6); color:var(--txt); }
+/* Desktop: the sidebar toggle lives in the rail head, so the header button goes.
+   Mobile keeps it — the whole drawer (rail included) slides off-screen there. */
+@media (min-width:761px) {
+  #menuBtn { display:none; }
+}
 
 /* Right-side controls cluster — pinned to the top-right on every view. */
 .header-right { order:3; margin-left:auto; display:inline-flex; align-items:center; gap:8px; }
