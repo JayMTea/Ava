@@ -73,6 +73,45 @@
   cursor: pointer;
 }
 
+/* Header: hide the repo source widget; the theme toggle takes its far-right
+   slot (flex order), and chrome.js injects a "View on GitHub" pill before the
+   search box. */
+.md-header__source {
+  display: none;
+}
+.md-header__option {
+  order: 9;
+}
+.ava-gh-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45em;
+  margin-right: 0.6rem;
+  padding: 0.34em 1.05em;
+  border: 1.5px solid currentColor;
+  border-radius: 2em;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: inherit;
+  white-space: nowrap;
+  opacity: 0.95;
+  transition: opacity 0.15s ease, background-color 0.15s ease;
+}
+.ava-gh-btn:hover {
+  opacity: 1;
+  background-color: rgba(255, 255, 255, 0.12);
+  color: inherit;
+}
+.ava-gh-btn svg {
+  width: 0.95em;
+  height: 0.95em;
+  fill: currentColor;
+}
+@media (max-width: 44rem) {
+  .ava-gh-btn span { display: none; }   /* icon-only on small screens */
+  .ava-gh-btn { padding: 0.34em 0.6em; }
+}
+
 /* ------------------------------------------------------------------ */
 /* Landing page (overrides/home.html — homepage only)                  */
 /* ------------------------------------------------------------------ */

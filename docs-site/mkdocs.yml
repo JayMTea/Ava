@@ -63,8 +63,7 @@ markdown_extensions:
   - attr_list
   - md_in_html
   - tables
-  - toc:
-      permalink: true
+  - toc: {}
   - pymdownx.superfences
   - pymdownx.highlight:
       anchor_linenums: true
