@@ -1,8 +1,24 @@
 # Installing & running Ava
 
 Ava is **self-hosted and single-tenant**: you run your own instance on your own
-hardware, point it at your own models, and connect your own apps. There are two
-install paths, easiest first.
+hardware, point it at your own models, and connect your own apps. This is step
+one of getting started: fork (or clone) the repo, then pick the path for your
+machine.
+
+| Your machine | Install path |
+|---|---|
+| Mac mini / Studio (Apple Silicon) | [Bare metal with a native engine](#apple-silicon-mac-mini-studio); Docker can't reach the Apple GPU |
+| NVIDIA GPU box | [Docker, `gpu` profile](#1-docker-recommended) (vLLM) |
+| DGX Spark / unified-memory NVIDIA | [Docker, `gpu` profile](#1-docker-recommended); hardware detection is verified on-device |
+| No GPU | [Docker, `cpu` profile](#1-docker-recommended) (Ollama) |
+| Just an API key | [Docker, `cloud` profile](#1-docker-recommended) |
+
+However you install, verify the wiring afterwards: open **Setup → Models** and
+Ava should show your machine, detected automatically:
+
+![Ava's hardware detection: compute, usable memory, and a recommended model tier](../docs/assets/hardware-detected.png)
+
+Then continue to step two, [picking Ava's brain](../docs/CHOOSE_A_MODEL.md).
 
 ---
 

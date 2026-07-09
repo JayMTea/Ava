@@ -36,7 +36,6 @@ theme:
   features:
     # No navigation.sections -> top-level sections render as collapsible dropdowns.
     - navigation.top
-    - navigation.indexes
     - navigation.tracking
     - content.code.copy
     - content.code.annotate
@@ -82,10 +81,10 @@ validation:
 nav:
   - Why Ava?: overview.md
   - Get started:
-      - Quickstart (Docker): deploy/README.md
-      - Connect your hardware: docs/CONNECT_YOUR_HARDWARE.md
-      - Connect your apps: docs/CONNECT_YOUR_APPS.md
-      - Agent runtime: docs/AGENT_RUNTIME.md
+      - 1. Install on your hardware: deploy/README.md
+      - 2. Pick a model: docs/CHOOSE_A_MODEL.md
+      - 3. Set up the agent: docs/AGENT_RUNTIME.md
+      - 4. Connect your apps: docs/CONNECT_YOUR_APPS.md
   - Connector SDK:
       - App connectors: docs/CONNECTOR_SDK.md
       - Device connectors: docs/DEVICE_CONNECTORS.md
