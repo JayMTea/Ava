@@ -117,9 +117,20 @@ port, MQTT topic, …); the adapter provides:
     the Hub and in `ava doctor` instead of vanishing silently.
   - Fetch-error states rendered in the Hub connectors panel (with retry) and the
     Ops connectors panel, distinct from a genuine empty list.
-- **Phase 3:** D2 (ingest rate-limit/size caps beyond the existing name/msg
-  caps), D4 (reconcile the two connector-listing endpoints), polish, optional
-  voice-announce hook on the existing `device.event` seam.
+- **Phase 3:** D2, D4, optional voice-announce hook. **✓ complete.**
+  - Ingest rate limiting: per-connector token bucket (`devices.allow`, env-tunable
+    `AVA_DEVICES_RATE_PER_MIN`/`_BURST`) → 429 on flood. (The 64 KB body cap and
+    name/message length caps already existed.)
+  - Reconciled the two listing endpoints by documenting them: `/api/hub/connectors`
+    is the management view (incl. disabled + edit/deploy state), `/api/ops/connectors`
+    is the dashboard telemetry view (enabled only + health/perf/egress) — kept
+    separate on purpose, cross-referenced in both docstrings.
+  - Voice-announce hook: opt-in "Speak alerts" toggle on the Ops Device-events
+    panel speaks notify/warn/critical events via the Web Speech API — the
+    `device.event` seam, no server voice subprocess. Persisted per browser.
+
+All three phases complete. Remaining ideas (not scheduled): a server-side/on-device
+voice path for announcements when no browser is open, and a device history view.
 
 ## Verification
 

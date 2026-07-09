@@ -197,6 +197,15 @@ def agent_provision():
 # --------------------------------------------------------------------------- #
 @router.get("/connectors")
 def list_connectors():
+    """The connector **management** view for the Setup Hub: every manifest via
+    `connectors.catalog()` (INCLUDING disabled ones, so they can be re-enabled),
+    each with its edit/deploy state (`enabled`, `builtin`, `has_tools`,
+    `has_policy`, `renders_policy`) plus any malformed-manifest `errors`.
+
+    Distinct from `/api/ops/connectors` (`dashboard.connectors_info`), which is the
+    read-only dashboard **telemetry** view: enabled connectors only, with health /
+    perf / egress-count fields for the Ops panel. Two endpoints, two audiences —
+    management vs monitoring — so neither UI carries the other's fields."""
     pol_dir = os.path.join(settings.CODE_ROOT, "agent", "policies", "generated")
     tool_root = os.path.join(settings.CODE_ROOT, "agent", "mcp_server_content", "connectors")
     user_root = settings.home("connectors")

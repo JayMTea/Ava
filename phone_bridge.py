@@ -477,6 +477,8 @@ async def connector_events(cid: str, request: Request):
     if not await run_in_threadpool(connectors.ingest_enabled, cid):
         return JSONResponse(
             {"error": f"connector {cid} has not enabled ingest"}, status_code=404)
+    if not devices.allow(cid):   # per-connector token bucket — flood protection
+        return JSONResponse({"error": "rate limited"}, status_code=429)
     raw = await request.body()
     if len(raw) > 64 * 1024:   # a single event is tiny; cap chatty/hostile apps
         return JSONResponse({"error": "event too large"}, status_code=413)
