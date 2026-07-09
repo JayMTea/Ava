@@ -264,7 +264,9 @@ export function OpsView() {
               </div>
             ))}
           </div>
-        ) : <EmptyState text="No connectors registered." />}
+        ) : conns.error && !conns.data
+          ? <EmptyState text="Couldn’t load connectors — check the bridge is reachable." />
+          : <EmptyState text="No connectors registered." />}
       </Panel>
 
       {/* Tool usage */}

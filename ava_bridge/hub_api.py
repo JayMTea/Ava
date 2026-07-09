@@ -197,11 +197,11 @@ def agent_provision():
 # --------------------------------------------------------------------------- #
 @router.get("/connectors")
 def list_connectors():
-    enabled = set(settings.get("connectors", []) or [])
     pol_dir = os.path.join(settings.CODE_ROOT, "agent", "policies", "generated")
     tool_root = os.path.join(settings.CODE_ROOT, "agent", "mcp_server_content", "connectors")
+    user_root = settings.home("connectors")
     out = []
-    for m in connectors.all():
+    for m in connectors.catalog():  # includes disabled, so they can be re-enabled
         cid = m["id"]
         actions = _proxy_actions(m)
         has_tools = bool(actions) and all(
@@ -216,10 +216,11 @@ def list_connectors():
             "has_policy": os.path.exists(os.path.join(pol_dir, f"{cid}.yaml")),
             "has_tools": has_tools,
             "renders_policy": connectors.render_egress_policy(cid) is not None,
-            # When no `connectors:` list is configured, everything ships enabled.
-            "enabled": (cid in enabled) if enabled else True,
+            "enabled": bool(m.get("enabled", True)),  # from the manifest
+            # User-added connectors are editable/removable; shipped ones are read-only.
+            "builtin": not os.path.isdir(os.path.join(user_root, cid)),
         })
-    return {"connectors": out}
+    return {"connectors": out, "errors": connectors.load_errors()}
 
 
 # --------------------------------------------------------------------------- #
@@ -958,6 +959,100 @@ def deploy_connector(cid: str):
     except Exception as e:  # noqa: BLE001
         steps.append({"step": "install", "ok": False, "detail": str(e)})
         return {"ok": False, "deployed": False, "steps": steps, "detail": "deploy failed"}
+
+
+def _user_manifest_path(cid: str) -> str:
+    return os.path.join(settings.home("connectors"), cid, "connector.yaml")
+
+
+@router.post("/connectors/{cid}/enabled")
+def set_connector_enabled(cid: str, body: dict):
+    """Flip a user connector's `enabled` flag in its manifest (the switch `load()`
+    honors). Built-in connectors shipped in the repo are read-only here."""
+    import yaml as _yaml
+    if not _ID_RE.match(cid):
+        return JSONResponse({"ok": False, "error": "bad id"}, status_code=400)
+    path = _user_manifest_path(cid)
+    if not os.path.isfile(path):
+        if any(x["id"] == cid for x in connectors.catalog()):
+            return JSONResponse({"ok": False, "error":
+                                 f"'{cid}' is a built-in connector and can't be toggled here"},
+                                status_code=400)
+        return JSONResponse({"ok": False, "error": f"unknown connector '{cid}'"},
+                            status_code=404)
+    try:
+        with open(path, encoding="utf-8") as f:
+            m = _yaml.safe_load(f) or {}
+        if not isinstance(m, dict):
+            return JSONResponse({"ok": False, "error": "manifest is not a mapping"},
+                                status_code=400)
+        m["enabled"] = bool(body.get("enabled", True))
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("# Managed by the Setup Hub — edit freely.\n")
+            _yaml.safe_dump(m, f, sort_keys=False)
+    except OSError as e:
+        return JSONResponse({"ok": False, "error": f"could not update: {e}"}, status_code=500)
+    connectors.load(force=True)
+    return {"ok": True, "enabled": m["enabled"]}
+
+
+@router.get("/connectors/{cid}/manifest")
+def get_connector_manifest(cid: str):
+    """The raw connector.yaml for editing. `editable` is false for built-ins
+    (shown read-only) — a bad edit shouldn't be possible on a shipped connector."""
+    if not _ID_RE.match(cid):
+        return JSONResponse({"ok": False, "error": "bad id"}, status_code=400)
+    upath = _user_manifest_path(cid)
+    if os.path.isfile(upath):
+        try:
+            with open(upath, encoding="utf-8") as f:
+                return {"ok": True, "yaml": f.read(), "editable": True}
+        except OSError as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+    bpath = os.path.join(settings.CODE_ROOT, "connectors", cid, "connector.yaml")
+    if os.path.isfile(bpath):
+        try:
+            with open(bpath, encoding="utf-8") as f:
+                return {"ok": True, "yaml": f.read(), "editable": False}
+        except OSError as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+    return JSONResponse({"ok": False, "error": f"unknown connector '{cid}'"}, status_code=404)
+
+
+@router.post("/connectors/{cid}/manifest")
+def put_connector_manifest(cid: str, body: dict):
+    """Overwrite a user connector's manifest with validated YAML. Rejects invalid
+    YAML, non-mappings, id changes, and edits to built-ins (delete+recreate instead)."""
+    import yaml as _yaml
+    if not _ID_RE.match(cid):
+        return JSONResponse({"ok": False, "error": "bad id"}, status_code=400)
+    text = str(body.get("yaml") or "")
+    try:
+        m = _yaml.safe_load(text)
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": f"invalid YAML: {e}"}, status_code=400)
+    if not isinstance(m, dict):
+        return JSONResponse({"ok": False, "error":
+                             "manifest must be a mapping (key: value lines)"}, status_code=400)
+    if str(m.get("id") or cid) != cid:
+        return JSONResponse({"ok": False, "error":
+                             "changing the id isn't supported — delete and recreate instead"},
+                            status_code=400)
+    upath = _user_manifest_path(cid)
+    if not os.path.isfile(upath):
+        # No user manifest: either a read-only built-in, or an unknown id.
+        if any(x["id"] == cid for x in connectors.catalog()):
+            return JSONResponse({"ok": False, "error":
+                                 f"'{cid}' is a built-in connector and is read-only here"},
+                                status_code=400)
+        return JSONResponse({"ok": False, "error": f"unknown connector '{cid}'"}, status_code=404)
+    try:
+        with open(upath, "w", encoding="utf-8") as f:
+            f.write(text if text.endswith("\n") else text + "\n")
+    except OSError as e:
+        return JSONResponse({"ok": False, "error": f"could not write: {e}"}, status_code=500)
+    connectors.load(force=True)
+    return {"ok": True}
 
 
 # --------------------------------------------------------------------------- #

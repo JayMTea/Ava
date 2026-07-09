@@ -107,10 +107,19 @@ port, MQTT topic, …); the adapter provides:
 
 ## Phasing
 
-- **Phase 1 (push + pull, user-friendly):** A, B, C1 (delete), E.
-- **Phase 2:** C2/C3 (enable/disable/edit), D1/D3.
-- **Phase 3:** D2/D4, hardening polish, optional voice-announce hook on the
-  existing `device.event` seam.
+- **Phase 1 (push + pull, user-friendly):** A, B, C1 (delete), E. **✓ complete.**
+- **Phase 2:** C2/C3 (enable/disable/edit), D1/D3. **✓ complete.**
+  - Enable/disable via the manifest `enabled` flag (`POST …/enabled`); the Hub
+    list now uses `connectors.catalog()` so disabled connectors stay visible and
+    re-enablable, with a `builtin` flag gating edit/disable/delete.
+  - Edit via a raw-manifest editor (`GET`/`POST …/manifest`), built-ins read-only.
+  - Malformed manifests are captured (`connectors.load_errors()`) and surfaced in
+    the Hub and in `ava doctor` instead of vanishing silently.
+  - Fetch-error states rendered in the Hub connectors panel (with retry) and the
+    Ops connectors panel, distinct from a genuine empty list.
+- **Phase 3:** D2 (ingest rate-limit/size caps beyond the existing name/msg
+  caps), D4 (reconcile the two connector-listing endpoints), polish, optional
+  voice-announce hook on the existing `device.event` seam.
 
 ## Verification
 

@@ -90,7 +90,12 @@ def _discover_spec(m: dict) -> dict | None:
     return None
 
 
-def _load_dir(base: str) -> dict:
+# Manifests that failed to parse on the last real load — surfaced so a bad
+# connector.yaml doesn't just vanish silently (Hub warning + `ava doctor`).
+_load_errors: List[dict] = []
+
+
+def _load_dir(base: str, errors: list | None = None) -> dict:
     out: dict = {}
     if yaml is None or not os.path.isdir(base):
         return out
@@ -103,26 +108,52 @@ def _load_dir(base: str) -> dict:
         try:
             with open(path, encoding="utf-8") as f:
                 m = yaml.safe_load(f) or {}
-        except Exception:  # noqa: BLE001 — a bad manifest must not crash boot
+        except Exception as e:  # noqa: BLE001 — a bad manifest must not crash boot
+            if errors is not None:
+                errors.append({"id": name, "path": path, "error": str(e)})
             continue
         if not isinstance(m, dict):  # e.g. a YAML list/scalar — not a manifest
+            if errors is not None:
+                errors.append({"id": name, "path": path,
+                               "error": "not a mapping (expected 'key: value' lines)"})
             continue
         m["id"] = m.get("id") or name
         out[m["id"]] = m
     return out
 
 
+def _merge_all(errors: list | None = None) -> dict:
+    merged: dict = {}
+    merged.update(_load_dir(BUILTIN_DIR, errors))
+    if os.path.realpath(USER_DIR) != os.path.realpath(BUILTIN_DIR):
+        merged.update(_load_dir(USER_DIR, errors))  # user overrides built-in by id
+    return merged
+
+
 def load(force: bool = False) -> List[dict]:
     if not force and _cache["list"] is not None and time.time() - _cache["ts"] < 30:
         return _cache["list"]  # type: ignore[return-value]
-    merged: dict = {}
-    merged.update(_load_dir(BUILTIN_DIR))
-    if os.path.realpath(USER_DIR) != os.path.realpath(BUILTIN_DIR):
-        merged.update(_load_dir(USER_DIR))  # user overrides built-in by id
+    global _load_errors
+    errors: list = []
+    merged = _merge_all(errors)
+    _load_errors = errors
     items = [m for m in merged.values() if m.get("enabled", True)]
     items.sort(key=lambda m: (0 if m.get("kind") == "core" else 1, m.get("id")))
     _cache.update(ts=time.time(), list=items)
     return items
+
+
+def catalog() -> List[dict]:
+    """Every manifest INCLUDING disabled ones, for management UIs (so a disabled
+    connector can still be seen and re-enabled). Not cached — management is rare."""
+    items = list(_merge_all().values())
+    items.sort(key=lambda m: (0 if m.get("kind") == "core" else 1, m.get("id")))
+    return items
+
+
+def load_errors() -> List[dict]:
+    """Manifests that failed to parse on the last real load (id / path / error)."""
+    return list(_load_errors)
 
 
 def services() -> List[dict]:

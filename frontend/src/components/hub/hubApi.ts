@@ -58,7 +58,10 @@ export interface HubConnector {
   has_tools: boolean;
   renders_policy: boolean;
   enabled: boolean;
+  builtin?: boolean;   // shipped in the repo — read-only (no edit/disable/delete)
 }
+export interface ConnectorLoadError { id: string; path: string; error: string }
+export interface ManifestResult { ok: boolean; yaml?: string; editable?: boolean; error?: string }
 export interface GenerateResult {
   ok: boolean;
   policy?: string; // rendered YAML preview
@@ -303,7 +306,24 @@ export const hub = {
     ),
 
   // Connectors
-  connectors: () => req<{ connectors: HubConnector[] }>('/api/hub/connectors'),
+  connectors: () =>
+    req<{ connectors: HubConnector[]; errors?: ConnectorLoadError[] }>('/api/hub/connectors'),
+  setConnectorEnabled: (id: string, enabled: boolean) =>
+    req<{ ok: boolean; enabled?: boolean; error?: string }>(
+      `/api/hub/connectors/${encodeURIComponent(id)}/enabled`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      }),
+  getManifest: (id: string) =>
+    req<ManifestResult>(`/api/hub/connectors/${encodeURIComponent(id)}/manifest`),
+  saveManifest: (id: string, yaml: string) =>
+    req<{ ok: boolean; error?: string }>(
+      `/api/hub/connectors/${encodeURIComponent(id)}/manifest`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ yaml }),
+      }),
   generate: (id: string, write: boolean) =>
     req<GenerateResult>(`/api/hub/connectors/${encodeURIComponent(id)}/generate?write=${write ? 1 : 0}`, {
       method: 'POST',

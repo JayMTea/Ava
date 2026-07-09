@@ -5,9 +5,9 @@ import { api } from '../../lib/api';
 import { hub } from './hubApi';
 import type {
   AgentStatus, AuditEvent, Backend, BackendList, BackendProbe, BackendTestResult, BenchResult,
-  BenchStatus, CostSettings, DeviceEvent, EnrollResult, GenerateResult, HardwareInfo, HubConnector,
-  IngestToken, MemoryCounts, MemoryItem, ModelStore, NewConnectorBody, PendingApproval, ProbeResult,
-  PullStatus, SystemInfo, VoiceStatus,
+  BenchStatus, ConnectorLoadError, CostSettings, DeviceEvent, EnrollResult, GenerateResult,
+  HardwareInfo, HubConnector, IngestToken, MemoryCounts, MemoryItem, ModelStore, NewConnectorBody,
+  PendingApproval, ProbeResult, PullStatus, SystemInfo, VoiceStatus,
 } from './hubApi';
 
 // Engine presets for the "add a model" form: label + default OpenAI-compatible
@@ -683,8 +683,37 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
   const [token, setToken] = useState<IngestToken | null>(null);
+  const [editText, setEditText] = useState<string | null>(null);
 
   const hasAgentSurface = c.actions > 0 || (c.mcp && c.renders_policy);
+
+  const toggleEnabled = useCallback(async () => {
+    setBusy(true); setErr('');
+    try {
+      const r = await hub.setConnectorEnabled(c.id, !c.enabled);
+      if (r.ok) onChanged(); else setErr(r.error || 'could not update');
+    } catch (e) { setErr((e as Error).message); }
+    setBusy(false);
+  }, [c.id, c.enabled, onChanged]);
+
+  const openEdit = useCallback(async () => {
+    setErr(''); setMsg('');
+    try {
+      const r = await hub.getManifest(c.id);
+      if (r.ok) setEditText(r.yaml || ''); else setErr(r.error || 'could not read manifest');
+    } catch (e) { setErr((e as Error).message); }
+  }, [c.id]);
+
+  const saveEdit = useCallback(async () => {
+    if (editText == null) return;
+    setBusy(true); setErr('');
+    try {
+      const r = await hub.saveManifest(c.id, editText);
+      if (r.ok) { setEditText(null); setMsg('Manifest saved.'); onChanged(); }
+      else setErr(r.error || 'could not save');
+    } catch (e) { setErr((e as Error).message); }
+    setBusy(false);
+  }, [c.id, editText, onChanged]);
 
   const preview = useCallback(async () => {
     setBusy(true); setMsg(''); setErr('');
@@ -723,14 +752,15 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
   }, [c.id, c.label, onChanged]);
 
   return (
-    <div style={{ borderBottom: '1px solid var(--line)', padding: '12px 0' }}>
+    <div style={{ borderBottom: '1px solid var(--line)', padding: '12px 0', opacity: c.enabled ? 1 : 0.6 }}>
       <div className="hub-row" style={{ border: 0, padding: 0 }}>
         <div className="hub-row-main">
           <div className="hub-row-title">
             {c.label} <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 'var(--fs-xs)' }}>· {c.kind}</span>
           </div>
           <div className="hub-row-sub" style={{ display: 'flex', gap: 6, marginTop: 5, flexWrap: 'wrap' }}>
-            {c.enabled ? <Badge tone="ok">enabled</Badge> : <Badge>disabled</Badge>}
+            {c.enabled ? <Badge tone="ok">enabled</Badge> : <Badge tone="warn">disabled</Badge>}
+            {c.builtin && <Badge>built-in</Badge>}
             {c.mcp && <Badge tone="accent">MCP server</Badge>}
             {c.actions > 0 && <Badge tone="accent">{c.actions} action{c.actions === 1 ? '' : 's'}</Badge>}
             {c.actions > 0 && (c.has_tools ? <Badge tone="ok">tools ok</Badge> : <Badge tone="warn">tools stale</Badge>)}
@@ -741,21 +771,50 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
           <button className="hub-btn ghost sm" onClick={showToken} disabled={busy} title="Show the push token a device presents to send readings/events">
             <Icon name="lock" />Push token
           </button>
-          {hasAgentSurface && (
+          {hasAgentSurface && c.enabled && (
             <button className="hub-btn ghost sm" onClick={preview} disabled={busy}>
               <Icon name="code" />Preview
             </button>
           )}
-          {hasAgentSurface && (
+          {hasAgentSurface && c.enabled && (
             <button className="hub-btn sm" onClick={deploy} disabled={busy}>
               <Icon name="check" />{busy ? 'Deploying…' : 'Deploy'}
             </button>
           )}
-          <button className="hub-btn ghost sm" onClick={remove} disabled={busy} aria-label="Remove connector" title="Remove connector">
-            <Icon name="trash" />
-          </button>
+          {!c.builtin && (
+            <button className="hub-btn ghost sm" onClick={toggleEnabled} disabled={busy}
+              title={c.enabled ? 'Stop Ava from using this connector' : 'Turn this connector back on'}>
+              {c.enabled ? 'Disable' : 'Enable'}
+            </button>
+          )}
+          {!c.builtin && (
+            <button className="hub-btn ghost sm" onClick={openEdit} disabled={busy} title="Edit this connector's manifest">
+              <Icon name="pencil" />Edit
+            </button>
+          )}
+          {!c.builtin && (
+            <button className="hub-btn ghost sm" onClick={remove} disabled={busy} aria-label="Remove connector" title="Remove connector">
+              <Icon name="trash" />
+            </button>
+          )}
         </div>
       </div>
+      {editText != null && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--muted)', marginBottom: 6 }}>
+            Editing <code>connectors/{c.id}/connector.yaml</code>. Full schema: <b>docs/CONNECTOR_SDK.md</b>.
+          </div>
+          <textarea className="hub-input" value={editText} spellCheck={false}
+            onChange={(e) => setEditText(e.target.value)}
+            style={{ width: '100%', minHeight: 200, fontFamily: 'monospace', fontSize: 'var(--fs-xs)', resize: 'vertical' }} />
+          <div className="hub-btn-row" style={{ marginTop: 8 }}>
+            <button className="hub-btn sm" onClick={saveEdit} disabled={busy}>
+              <Icon name="check" />{busy ? 'Saving…' : 'Save manifest'}
+            </button>
+            <button className="hub-btn ghost sm" onClick={() => setEditText(null)} disabled={busy}>Cancel</button>
+          </div>
+        </div>
+      )}
       {msg && <div className="hub-msg ok" style={{ marginTop: 8 }}>{msg}</div>}
       {err && <div className="hub-msg err" style={{ marginTop: 8 }}>{err}</div>}
       {token && (
@@ -1077,8 +1136,12 @@ function DeviceVerify({ cid, name, onClose }: { cid: string; name: string; onClo
 
 function ConnectorsPanel() {
   const [conns, setConns] = useState<HubConnector[] | null>(null);
+  const [loadErr, setLoadErr] = useState('');
+  const [badManifests, setBadManifests] = useState<ConnectorLoadError[]>([]);
   const load = useCallback(() => {
-    hub.connectors().then((r) => setConns(r.connectors)).catch(() => setConns([]));
+    hub.connectors()
+      .then((r) => { setConns(r.connectors); setBadManifests(r.errors || []); setLoadErr(''); })
+      .catch((e) => { setLoadErr((e as Error).message || 'could not load connectors'); });
   }, []);
   useEffect(() => { load(); }, [load]);
   return (
@@ -1089,9 +1152,21 @@ function ConnectorsPanel() {
         title="Connectors"
         subtitle="Each connector is one manifest that wires an app into Ava — its health, metrics, agent tools, and egress security policy."
       >
-        {conns == null ? <EmptyState text="Loading connectors…" />
-          : conns.length === 0 ? <EmptyState text="No connectors yet — create one above." />
-            : conns.map((c) => <ConnectorRow key={c.id} c={c} onChanged={load} />)}
+        {badManifests.length > 0 && (
+          <div className="hub-msg err" style={{ marginBottom: 12 }}>
+            <b>{badManifests.length} manifest{badManifests.length === 1 ? '' : 's'} couldn’t be loaded</b> and won’t appear below:
+            <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+              {badManifests.map((e) => (
+                <li key={e.path}><code>{e.id}</code>: {e.error}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {loadErr
+          ? <div className="hub-msg err">Couldn’t load connectors: {loadErr}. <button className="hub-btn ghost sm" style={{ marginLeft: 8 }} onClick={load}>Retry</button></div>
+          : conns == null ? <EmptyState text="Loading connectors…" />
+            : conns.length === 0 ? <EmptyState text="No connectors yet — create one above." />
+              : conns.map((c) => <ConnectorRow key={c.id} c={c} onChanged={load} />)}
         <div className="hub-note" style={{ marginTop: 16 }}>
           <b>Push token</b> reveals the secret a device sends its readings with. <b>Deploy</b> loads a
           connector's tools into the agent so Ava can read or command it (if the sandbox isn't
