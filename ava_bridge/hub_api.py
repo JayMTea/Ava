@@ -48,8 +48,50 @@ def approvals_list():
 
 @router.post("/approvals/{aid}")
 def approvals_decide(aid: str, decision: str = "approve"):
+    """decision: approve (once) | always (approve + durable grant) | deny."""
     from . import approvals
-    return {"ok": approvals.decide(aid, decision != "deny")}
+    return {"ok": approvals.decide(aid, decision != "deny",
+                                   remember=decision == "always")}
+
+
+@router.get("/connectors/{cid}/grants")
+def grants_list(cid: str):
+    """One connector's permission sheet (settings page): every static action
+    with its capability group, access tier, and grant state."""
+    from . import connectors as _c, grants
+    granted = grants.for_connector(cid)
+    m = {x["id"]: x for x in _c.all()}.get(cid) or {}
+    acts = []
+    for a in _c._static_actions(m):
+        if not a.get("id"):
+            continue
+        acts.append({"id": a["id"], "access": _c._infer_access(a),
+                     "capability": _c.action_capability(a),
+                     "method": str(a.get("method") or "POST").upper(),
+                     "path": a.get("path", ""),
+                     "description": a.get("description", ""),
+                     "granted": a["id"] in granted,
+                     "grantable": _c.grantable(cid, a["id"])})
+    return {"grants": granted, "actions": acts}
+
+
+@router.post("/connectors/{cid}/grants/{action}")
+def grants_add(cid: str, action: str):
+    """Pre-grant from the settings page — same rule as the "Always allow"
+    prompt: write tier only; destructive/author-gated actions can't be granted."""
+    from . import connectors as _c, grants
+    if not _c.grantable(cid, action):
+        return JSONResponse({"ok": False, "error":
+                             "this action asks every time and can't be always-allowed"},
+                            status_code=400)
+    grants.grant(cid, action)
+    return {"ok": True}
+
+
+@router.delete("/connectors/{cid}/grants/{action}")
+def grants_revoke(cid: str, action: str):
+    from . import grants
+    return {"ok": grants.revoke(cid, action)}
 
 
 def _proxy_actions(m: dict) -> list[dict]:
@@ -213,9 +255,10 @@ def list_connectors():
     for m in connectors.catalog():  # includes disabled, so they can be re-enabled
         cid = m["id"]
         actions = _proxy_actions(m)
-        has_tools = bool(actions) and all(
-            os.path.exists(os.path.join(tool_root, cid, f"{cid}_{a['id']}.mjs"))
-            for a in actions)
+        expected = connectors.tool_files(cid)
+        has_tools = bool(expected) and all(
+            os.path.exists(os.path.join(tool_root, cid, t["name"]))
+            for t in expected)
         out.append({
             "id": cid,
             "label": m.get("label", cid),
@@ -640,6 +683,57 @@ def _slim_tools(tools) -> list[dict]:
     return out
 
 
+def _actions_from_openapi(spec: dict, limit: int = 50) -> list[dict]:
+    """Turn an OpenAPI/Swagger paths object into ready-to-use connector actions
+    so a plain web app is zero-config: the user reviews a pre-filled list instead
+    of hand-typing every endpoint. Each operation -> {id, method, path, description}.
+    Destructive verbs (DELETE, or a *delete* path) default to confirm=True."""
+    if not isinstance(spec, dict):
+        return []
+    paths = spec.get("paths")
+    if not isinstance(paths, dict):
+        return []
+    out: list[dict] = []
+    seen: set[str] = set()
+    for path, ops in paths.items():
+        if not isinstance(ops, dict):
+            continue
+        for method, op in ops.items():
+            m = method.upper()
+            if m not in ("GET", "POST", "PUT", "PATCH", "DELETE"):
+                continue
+            if not isinstance(op, dict):
+                op = {}
+            # A clean, human-readable id from the method + last path segments,
+            # dropping params and a leading api/v1 prefix (e.g. GET /api/persona/{key}
+            # -> get_persona). The verbose operationId only feeds the description.
+            segs = [s for s in str(path).split("/") if s and not s.startswith("{")]
+            if len(segs) > 1 and segs[0] in ("api", "v1", "v2", "rest"):
+                segs = segs[1:]
+            tail = "_".join(segs[-2:]) if segs else "root"
+            aid = re.sub(r"[^a-z0-9]+", "_", f"{m}_{tail}".lower()).strip("_")[:32] or f"{m.lower()}_{len(out)}"
+            base, n = aid, 2
+            while aid in seen:
+                aid = f"{base[:29]}_{n}"; n += 1
+            seen.add(aid)
+            desc = str(op.get("summary") or op.get("description")
+                       or op.get("operationId") or "").strip()[:200]
+            # Access tier drives JIT consent (read silent / write asks once /
+            # destructive asks always). confirm mirrors destructive for the 🔒.
+            if m in ("GET", "HEAD"):
+                access = "read"
+            elif m == "DELETE" or "delete" in str(path).lower():
+                access = "destructive"
+            else:
+                access = "write"
+            out.append({"id": aid, "method": m, "path": str(path),
+                        "description": desc, "access": access,
+                        "confirm": access == "destructive"})
+            if len(out) >= limit:
+                return out
+    return out
+
+
 def _probe(url: str, command: str, token_env: str | None) -> dict:
     """Figure out how to talk to an app so the user doesn't have to classify it:
     try MCP (a start command = stdio, or the URL = MCP-over-HTTP), then a
@@ -693,7 +787,33 @@ def _probe(url: str, command: str, token_env: str | None) -> dict:
     except Exception:  # noqa: BLE001
         pass
 
-    # 4) A plain web API — Ava can't guess its endpoints; the user declares them.
+    # 3.5) Most web apps (FastAPI/Swagger/anything OpenAPI) publish a
+    # machine-readable spec. Read it and pre-fill the actions so the user
+    # reviews a list instead of hand-typing endpoints — zero-config.
+    try:
+        import requests
+        headers = {}
+        if token_env and os.environ.get(token_env):
+            headers["Authorization"] = "Bearer " + os.environ[token_env]
+        for suffix in ("/openapi.json", "/swagger.json", "/openapi"):
+            try:
+                r = requests.get(url.rstrip("/") + suffix, headers=headers, timeout=8)
+            except Exception:  # noqa: BLE001 — try the next well-known path
+                continue
+            if r.status_code != 200:
+                continue
+            try:
+                spec = r.json()
+            except Exception:  # noqa: BLE001 — not JSON, not a spec
+                continue
+            actions = _actions_from_openapi(spec)
+            if actions:
+                return {"ok": True, "kind": "rest", "tools": [], "actions": actions,
+                        "detail": f"Read its API — found {len(actions)} actions."}
+    except Exception:  # noqa: BLE001
+        pass
+
+    # 4) A plain web API with no discoverable spec — the user declares actions.
     return {"ok": True, "kind": "rest", "tools": [],
             "detail": "No tools to auto-discover — tell Ava what this app can do."}
 
@@ -779,7 +899,9 @@ async def connector_new(body: dict):
         manifest["actions"] = {"discover": d}
 
     actions = []
-    for a in ([] if (mcp_in or disc_in) else (body.get("actions") or []))[:32]:
+    # Cap matches the probe's discovery limit — a silently-dropped tail would
+    # read as "connected everything" when it didn't.
+    for a in ([] if (mcp_in or disc_in) else (body.get("actions") or []))[:50]:
         aid = str(a.get("id", "")).strip().lower()
         path = str(a.get("path", "")).strip()
         if not (_ID_RE.match(aid) and path.startswith("/")):
@@ -788,6 +910,12 @@ async def connector_new(body: dict):
                "description": str(a.get("description") or aid.replace("_", " ")).strip(),
                "method": "POST" if str(a.get("method", "POST")).upper() == "POST" else "GET",
                "path": path}
+        # Persist the explicit tier: the proxy collapses methods to GET/POST, so
+        # without it a DELETE endpoint would infer as read. Tier drives JIT
+        # consent (read silent / write asks once / destructive asks always).
+        acc = str(a.get("access") or "").lower()
+        if acc in ("read", "write", "destructive"):
+            act["access"] = acc
         if a.get("confirm"):
             act["confirm"] = True              # per-action human-in-the-loop gate
         actions.append(act)
@@ -842,8 +970,9 @@ def generate_connector(cid: str, write: int = 0):
                             status_code=404)
     pol = connectors.render_egress_policy(cid)
     policy_yaml = _yaml.safe_dump(pol, sort_keys=False) if pol else ""
-    tools = [{"name": f"{cid}_{a['id']}.mjs", "source": connectors.render_tool(cid, a)}
-             for a in _proxy_actions(m)]
+    # tool_files decides the shape: find/call meta tools for dynamic or large
+    # static connectors, else one tool per action.
+    tools = connectors.tool_files(cid)
     wrote: list[str] = []
     if write:
         if pol:

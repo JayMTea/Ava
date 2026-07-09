@@ -325,17 +325,20 @@ def render_egress_policy(cid: str) -> dict | None:
         rules.append({"allow": {"method": method.upper(), "path": path}})
     # Auto-allow the generic proxy route for each generic-proxy action. Both
     # methods are allowed so GET-style tools work as well as POST ones (the route
-    # is host-local + internal-token gated).
-    for a in _static_actions(m):
-        if a.get("id") and a.get("path"):
-            path = f"/internal/connector/{cid}/{a['id']}"
-            rules.append({"allow": {"method": "GET", "path": path}})
-            rules.append({"allow": {"method": "POST", "path": path}})
+    # is host-local + internal-token gated). Meta-tool connectors skip this: the
+    # agent reaches them only through __tools/__call below.
+    if not meta_static(m):
+        for a in _static_actions(m):
+            if a.get("id") and a.get("path"):
+                path = f"/internal/connector/{cid}/{a['id']}"
+                rules.append({"allow": {"method": "GET", "path": path}})
+                rules.append({"allow": {"method": "POST", "path": path}})
     # Auto-allow the discovery bridge routes for a dynamic connector — the
     # HTTP list+call facade or a real MCP server (`mcp:` block) alike. For MCP
     # this IS the whole agent-side surface: the server itself stays outside
-    # the sandbox; only these two policed routes are reachable.
-    if _discover_spec(m) or _mcp_spec(m):
+    # the sandbox; only these two policed routes are reachable. Large static
+    # connectors use the same two routes via their find/call meta tools.
+    if _discover_spec(m) or _mcp_spec(m) or meta_static(m):
         rules.append({"allow": {"method": "GET",
                                 "path": f"/internal/connector/{cid}/__tools"}})
         rules.append({"allow": {"method": "POST",
@@ -478,6 +481,150 @@ export default {{
 """
 
 
+# --- Meta tools (dynamic tool loading) ----------------------------------------
+# Past ~15 tools, per-action schemas bloat the agent's context on every turn and
+# tool selection degrades. Large static connectors therefore swap N generated
+# tools for TWO meta tools — <cid>_find_tool (search the action set) and
+# <cid>_call (invoke one by name) — the same shape mcp/discover connectors use,
+# feeding the same policed __tools/__call bridge routes and approvals gate.
+META_TOOLS_MIN = 16
+
+
+def meta_static(m: dict) -> bool:
+    """True when a static connector is big enough to use find/call meta tools."""
+    return len([a for a in _static_actions(m)
+                if a.get("id") and a.get("path")]) >= META_TOOLS_MIN
+
+
+def _static_tool_schemas(m: dict) -> list[dict]:
+    """Static generic-proxy actions in discovered-tool shape, so __tools serves
+    a large static connector exactly like an MCP/discover one."""
+    out = []
+    for a in _static_actions(m):
+        if not (a.get("id") and a.get("path")):
+            continue
+        method = str(a.get("method") or "POST").upper()
+        desc = (a.get("description") or "").strip()
+        out.append({"name": a["id"],
+                    "description": f"[{method} {a.get('path')}] {desc}".strip(),
+                    "inputSchema": {"type": "object",
+                                    "properties": a.get("input") or {}}})
+    return out
+
+
+def _filter_tools(res: dict, query: str, limit: int) -> dict:
+    """Keyword-filter and cap a {"tools": [...]} result (find_tool's search).
+    `total` reports the pre-cap match count so the agent knows to refine."""
+    tools = res.get("tools") if isinstance(res, dict) else None
+    if not isinstance(tools, list):
+        return res
+    terms = [t for t in str(query or "").lower().split() if t]
+    if terms:
+        def hits(t: dict) -> int:
+            blob = f"{t.get('name', '')} {t.get('description', '')}".lower()
+            return sum(1 for term in terms if term in blob)
+        tools = sorted((t for t in tools if hits(t)), key=hits, reverse=True)
+    total = len(tools)
+    if limit and limit > 0:
+        tools = tools[:limit]
+    return {**res, "tools": tools, "total": total}
+
+
+def render_find_tool(cid: str) -> str:
+    """The .mjs source for <cid>_find_tool: search the connector's tool set."""
+    m = {x["id"]: x for x in load()}.get(cid) or {}
+    label = (m.get("label") or cid).replace("'", "\\'")
+    acts = [a for a in _static_actions(m) if a.get("id") and a.get("path")]
+    if acts:
+        caps = sorted({action_capability(a) for a in acts})
+        hint = f"{len(acts)} actions across: {', '.join(caps[:12])}"
+    else:
+        hint = "its tools are discovered live"
+    desc = (f"Search the {label} app\\'s available actions ({hint}). "
+            f"ALWAYS call this first with a few keywords for what you want to do, "
+            f"then invoke the chosen action with {cid}_call.")
+    return f"""// AUTO-GENERATED from connectors/{cid}/connector.yaml (meta: find_tool).
+// Regenerate with:  ava connector tools {cid} --write
+const BRIDGE = process.env.AVA_BRIDGE_URL || 'http://host.openshell.internal:8096';
+
+export default {{
+  name: '{cid}_find_tool',
+  description: '{desc}',
+  inputSchema: {{
+    type: 'object',
+    properties: {{
+      query: {{ type: 'string', description: 'keywords for the action you need (e.g. "create persona")' }},
+      limit: {{ type: 'number', description: 'max results (default 12)' }},
+    }},
+    additionalProperties: false,
+  }},
+  async handler(args, ctx) {{
+    try {{
+      const q = encodeURIComponent(args.query || '');
+      const n = Number(args.limit) > 0 ? Number(args.limit) : 12;
+      const r = await fetch(`${{BRIDGE}}/internal/connector/{cid}/__tools?q=${{q}}&limit=${{n}}`, {{
+        headers: {{ 'X-Ava-Internal-Token': ctx.internalToken || '' }},
+      }});
+      const data = await r.json();
+      return JSON.stringify(data, null, 2);
+    }} catch (e) {{
+      return `Error calling {cid}_find_tool: ${{e.message}}`;
+    }}
+  }},
+}};
+"""
+
+
+def render_call_tool(cid: str) -> str:
+    """The .mjs source for <cid>_call: invoke one tool found via find_tool."""
+    m = {x["id"]: x for x in load()}.get(cid) or {}
+    label = (m.get("label") or cid).replace("'", "\\'")
+    return f"""// AUTO-GENERATED from connectors/{cid}/connector.yaml (meta: call).
+// Regenerate with:  ava connector tools {cid} --write
+const BRIDGE = process.env.AVA_BRIDGE_URL || 'http://host.openshell.internal:8096';
+
+export default {{
+  name: '{cid}_call',
+  description: 'Run one {label} action by name — find the name and its input schema with {cid}_find_tool first.',
+  inputSchema: {{
+    type: 'object',
+    properties: {{
+      name: {{ type: 'string', description: 'the action name returned by {cid}_find_tool' }},
+      arguments: {{ type: 'object', description: 'arguments matching that action\\'s inputSchema' }},
+    }},
+    required: ['name'],
+    additionalProperties: false,
+  }},
+  async handler(args, ctx) {{
+    try {{
+      const r = await fetch(`${{BRIDGE}}/internal/connector/{cid}/__call`, {{
+        method: 'POST',
+        headers: {{ 'Content-Type': 'application/json',
+                   'X-Ava-Internal-Token': ctx.internalToken || '' }},
+        body: JSON.stringify({{ name: args.name, arguments: args.arguments || {{}} }}),
+      }});
+      const data = await r.json();
+      return typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+    }} catch (e) {{
+      return `Error calling {cid}_call: ${{e.message}}`;
+    }}
+  }},
+}};
+"""
+
+
+def tool_files(cid: str) -> List[dict]:
+    """The canonical agent-tool set for a connector: find/call meta tools for
+    dynamic (mcp/discover) or large static connectors, else one tool per
+    generic-proxy action. Every generator/checker derives from this ONE list."""
+    m = {x["id"]: x for x in load()}.get(cid) or {}
+    if _discover_spec(m) or _mcp_spec(m) or meta_static(m):
+        return [{"name": f"{cid}_find_tool.mjs", "source": render_find_tool(cid)},
+                {"name": f"{cid}_call.mjs", "source": render_call_tool(cid)}]
+    return [{"name": f"{cid}_{a['id']}.mjs", "source": render_tool(cid, a)}
+            for a in _static_actions(m) if a.get("id") and a.get("path")]
+
+
 # --- App surface (data-driven nav) ------------------------------------------
 # A connector with a `ui:` block appears in Ava's left rail. `embed` selects how
 # the shell renders it:
@@ -583,17 +730,21 @@ def _discover_headers(spec: dict) -> dict:
     return h
 
 
-def discover_tools(cid: str) -> dict:
+def discover_tools(cid: str, query: str = "", limit: int = 0) -> dict:
     """The connector's dynamic tool list -> {"tools": [...]} or {"error"}.
     Routes to the real-MCP client when the manifest declares `mcp:`, else the
-    HTTP list+call discover facade."""
+    HTTP list+call discover facade, else (a large static connector's find_tool)
+    the manifest's own actions. `query`/`limit` filter the result server-side
+    so the agent's find_tool returns a shortlist, not the whole set."""
     m = {x["id"]: x for x in load()}.get(cid) or {}
     mcp = _mcp_spec(m)
     if mcp:
         from . import mcp_client
-        return mcp_client.list_tools(cid, mcp)
+        return _filter_tools(mcp_client.list_tools(cid, mcp), query, limit)
     spec = _discover_spec(m)
     if not spec:
+        if _static_actions(m):
+            return _filter_tools({"tools": _static_tool_schemas(m)}, query, limit)
         return {"error": f"connector {cid} declares no discover spec"}
     base = _discover_base(cid, spec)
     if not base:
@@ -602,7 +753,7 @@ def discover_tools(cid: str) -> dict:
     try:
         r = requests.get(base + spec["list"], headers=_discover_headers(spec), timeout=20)
         try:
-            return r.json()
+            return _filter_tools(r.json(), query, limit)
         except Exception:  # noqa: BLE001
             return {"error": f"{cid} discovery returned {r.status_code}"}
     except Exception as e:  # noqa: BLE001
@@ -618,6 +769,10 @@ def call_discovered(cid: str, name: str, args: dict | None) -> tuple:
         return mcp_client.call_tool(cid, mcp, name, args)
     spec = _discover_spec(m)
     if not spec:
+        # A large static connector's <cid>_call: dispatch to the declared action
+        # (same generic proxy — and the caller already ran the approvals gate).
+        if find_action(cid, name):
+            return call_action(cid, name, args)
         return {"error": f"connector {cid} declares no discover spec"}, 400
     base = _discover_base(cid, spec)
     if not base:
@@ -672,11 +827,33 @@ def devices() -> List[dict]:
     return out
 
 
-def needs_confirm(cid: str, action: str) -> bool:
-    """True if <action> on connector <cid> requires operator approval before it
-    runs. Sources: connector-level ``confirm: true`` / ``confirm: [names]``, or
-    ``confirm: true`` on the specific static action."""
+def _infer_access(a: dict) -> str:
+    """The access tier of one action: explicit ``access:`` wins, else inferred —
+    GET/HEAD -> read, DELETE or a *delete* id/path -> destructive, else write."""
+    acc = str(a.get("access") or "").lower()
+    if acc in ("read", "write", "destructive"):
+        return acc
+    method = str(a.get("method") or "POST").upper()
+    if method in ("GET", "HEAD"):
+        return "read"
+    if method == "DELETE" or "delete" in f"{a.get('id', '')} {a.get('path', '')}".lower():
+        return "destructive"
+    return "write"
+
+
+def action_access(cid: str, action: str) -> str:
+    """Access tier for <action> on <cid>. Dynamic tools (MCP / discovered) have
+    no static entry, so they default to write — first use asks, once."""
     m = {x["id"]: x for x in load()}.get(cid) or {}
+    for a in _static_actions(m):
+        if a.get("id") == action:
+            return _infer_access(a)
+    return "write"
+
+
+def _author_confirm(m: dict, action: str) -> bool:
+    """Explicit author gate: connector-level ``confirm: true`` / ``confirm:
+    [names]`` or ``confirm: true`` on the static action."""
     c = m.get("confirm")
     if c is True:
         return True
@@ -686,6 +863,47 @@ def needs_confirm(cid: str, action: str) -> bool:
         if a.get("id") == action and a.get("confirm"):
             return True
     return False
+
+
+def needs_confirm(cid: str, action: str) -> bool:
+    """True if <action> on connector <cid> requires operator approval before it
+    runs (JIT consent — docs/dev/CONNECTOR_DISCOVERY_UX_PLAN.md):
+
+    - an explicit author ``confirm:`` always asks and can't be granted away;
+    - ``read`` actions run silently;
+    - ``destructive`` actions ask every time;
+    - ``write`` actions ask on first use — an "Always allow" grant
+      ($AVA_HOME/connector_grants.yaml) silences later calls."""
+    m = {x["id"]: x for x in load()}.get(cid) or {}
+    if _author_confirm(m, action):
+        return True
+    tier = action_access(cid, action)
+    if tier == "read":
+        return False
+    if tier == "destructive":
+        return True
+    from . import grants
+    return not grants.has(cid, action)
+
+
+def grantable(cid: str, action: str) -> bool:
+    """True when the approval prompt may offer "Always allow": write-tier only
+    (read never asks, destructive is never grantable, author confirm sticks)."""
+    m = {x["id"]: x for x in load()}.get(cid) or {}
+    return not _author_confirm(m, action) and action_access(cid, action) == "write"
+
+
+def action_capability(a: dict) -> str:
+    """The UI grouping for one action: explicit ``capability:`` wins, else the
+    first meaningful path segment (api/v1 prefixes skipped) — /api/persona/{key}
+    groups under "persona"."""
+    cap = str(a.get("capability") or "").strip().lower()
+    if cap:
+        return cap
+    segs = [s for s in str(a.get("path") or "").split("/") if s and not s.startswith("{")]
+    if len(segs) > 1 and segs[0] in ("api", "v1", "v2", "rest"):
+        segs = segs[1:]
+    return segs[0] if segs else "general"
 
 
 def all() -> List[dict]:  # noqa: A003 — deliberate registry accessor

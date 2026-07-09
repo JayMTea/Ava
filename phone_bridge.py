@@ -420,7 +420,12 @@ async def internal_connector(cid: str, action: str, request: Request):
     if not internal.authorized(request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     if action == "__tools":
-        return JSONResponse(await run_in_threadpool(connectors.discover_tools, cid))
+        q = request.query_params.get("q", "")
+        try:
+            limit = int(request.query_params.get("limit", "0"))
+        except ValueError:
+            limit = 0
+        return JSONResponse(await run_in_threadpool(connectors.discover_tools, cid, q, limit))
     try:
         body = await request.json()
     except Exception:  # noqa: BLE001

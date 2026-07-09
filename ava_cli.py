@@ -296,19 +296,28 @@ def cmd_verify(_args) -> int:
         allowed = {(r.get("allow", {}).get("method"), r.get("allow", {}).get("path"))
                    for np in pol.get("network_policies", {}).values()
                    for ep in np.get("endpoints", []) for r in ep.get("rules", [])}
-        for a in connectors._static_actions(m):
-            if not (a.get("id") and a.get("path")):
-                continue
-            tp = os.path.join(tool_root, cid, f"{cid}_{a['id']}.mjs")
+        meta = connectors.tool_files(cid)
+        for t in meta:
+            tp = os.path.join(tool_root, cid, t["name"])
             if not os.path.exists(tp):
-                tool_drift.append(f"{cid}_{a['id']} (missing)")
+                tool_drift.append(f"{t['name'][:-4]} (missing)")
             else:
                 with open(tp, encoding="utf-8") as f:
-                    if connectors.render_tool(cid, a) != f.read():
-                        tool_drift.append(f"{cid}_{a['id']}")
-            route = f"/internal/connector/{cid}/{a['id']}"
-            if ("GET", route) not in allowed or ("POST", route) not in allowed:
-                lockstep_gap.append(f"{cid}_{a['id']}")
+                    if t["source"] != f.read():
+                        tool_drift.append(t["name"][:-4])
+        # Lockstep: every route a generated tool calls must be in the policy —
+        # __tools/__call for meta/dynamic connectors, per-action routes otherwise.
+        if connectors.meta_static(m) or connectors._discover_spec(m) or connectors._mcp_spec(m):
+            if meta and (("GET", f"/internal/connector/{cid}/__tools") not in allowed
+                         or ("POST", f"/internal/connector/{cid}/__call") not in allowed):
+                lockstep_gap.append(f"{cid} (__tools/__call)")
+        else:
+            for a in connectors._static_actions(m):
+                if not (a.get("id") and a.get("path")):
+                    continue
+                route = f"/internal/connector/{cid}/{a['id']}"
+                if ("GET", route) not in allowed or ("POST", route) not in allowed:
+                    lockstep_gap.append(f"{cid}_{a['id']}")
     _row(BAD if pol_drift else OK, "egress policies",
          f"{len(pol_drift)} stale — `ava connector policies --write`" if pol_drift
          else "match committed (regen clean)")
@@ -520,22 +529,20 @@ def cmd_connector(args) -> int:
         ids = [args.name] if args.name else [m["id"] for m in connectors.all()]
         wrote = 0
         for cid in ids:
-            m = {x["id"]: x for x in connectors.all()}.get(cid) or {}
-            for a in connectors._static_actions(m):
-                if not (a.get("id") and a.get("path")):
-                    continue  # only generic-proxy actions (with a path) get a tool
-                src = connectors.render_tool(cid, a)
+            # tool_files decides the shape: find/call meta tools for dynamic or
+            # large static connectors, else one tool per generic-proxy action.
+            for t in connectors.tool_files(cid):
                 if args.write:
                     outdir = os.path.join(settings.CODE_ROOT, "agent",
                                           "mcp_server_content", "connectors", cid)
                     os.makedirs(outdir, exist_ok=True)
-                    p = os.path.join(outdir, f"{cid}_{a['id']}.mjs")
+                    p = os.path.join(outdir, t["name"])
                     with open(p, "w", encoding="utf-8") as f:
-                        f.write(src)
+                        f.write(t["source"])
                     print(f"{OK} wrote {p}")
                     wrote += 1
                 else:
-                    print(f"# ---- {cid}_{a['id']}.mjs ----\n{src}")
+                    print(f"# ---- {t['name']} ----\n{t['source']}")
         if args.write:
             print(f"\n{wrote} tool(s) written — run `cd agent && ./install.sh` to "
                   f"deploy into the sandbox.")

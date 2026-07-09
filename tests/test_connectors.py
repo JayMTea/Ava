@@ -147,5 +147,80 @@ class CapabilityAccessorTests(unittest.TestCase):
         self.assertEqual(h["role"], "Rendering")
 
 
+class MetaToolsTests(unittest.TestCase):
+    """Dynamic tool loading: big static connectors swap N per-action tools for
+    find/call meta tools on the __tools/__call bridge routes."""
+
+    def setUp(self):
+        import tempfile
+        self.tmp = tempfile.mkdtemp()
+        self._p = [
+            mock.patch.object(connectors, "BUILTIN_DIR", self.tmp),
+            mock.patch.object(connectors, "USER_DIR", self.tmp),
+        ]
+        for p in self._p:
+            p.start()
+
+    def tearDown(self):
+        for p in self._p:
+            p.stop()
+
+    def _app(self, n):
+        acts = "\n".join(
+            f"  - id: act{i}\n    method: POST\n    path: /api/thing{i}\n"
+            f"    description: does thing {i}" for i in range(n))
+        _write(self.tmp, "app",
+               f"id: app\nbase_url: http://127.0.0.1:9\nactions:\n{acts}\n")
+        connectors.load(force=True)
+
+    def test_small_connector_keeps_per_action_tools(self):
+        self._app(connectors.META_TOOLS_MIN - 1)
+        names = [t["name"] for t in connectors.tool_files("app")]
+        self.assertEqual(len(names), connectors.META_TOOLS_MIN - 1)
+        self.assertIn("app_act0.mjs", names)
+
+    def test_large_connector_gets_two_meta_tools(self):
+        self._app(connectors.META_TOOLS_MIN)
+        names = [t["name"] for t in connectors.tool_files("app")]
+        self.assertEqual(names, ["app_find_tool.mjs", "app_call.mjs"])
+
+    def test_egress_meta_mode_uses_bridge_routes_only(self):
+        self._app(connectors.META_TOOLS_MIN)
+        pol = connectors.render_egress_policy("app")
+        rules = [r["allow"]["path"]
+                 for np in pol["network_policies"].values()
+                 for ep in np["endpoints"] for r in ep.get("rules", [])]
+        self.assertIn("/internal/connector/app/__tools", rules)
+        self.assertIn("/internal/connector/app/__call", rules)
+        self.assertFalse([p for p in rules if "/app/act" in p])
+
+    def test_egress_small_mode_keeps_per_action_routes(self):
+        self._app(3)
+        pol = connectors.render_egress_policy("app")
+        rules = [r["allow"]["path"]
+                 for np in pol["network_policies"].values()
+                 for ep in np["endpoints"] for r in ep.get("rules", [])]
+        self.assertIn("/internal/connector/app/act0", rules)
+        self.assertNotIn("/internal/connector/app/__call", rules)
+
+    def test_discover_tools_serves_static_actions_with_search(self):
+        self._app(20)
+        all_tools = connectors.discover_tools("app")
+        self.assertEqual(len(all_tools["tools"]), 20)
+        hit = connectors.discover_tools("app", query="thing7", limit=5)
+        self.assertEqual(hit["tools"][0]["name"], "act7")   # best match first
+        self.assertLessEqual(len(hit["tools"]), 5)
+
+    def test_call_discovered_falls_back_to_static_action(self):
+        self._app(20)
+        with mock.patch.object(connectors, "call_action",
+                               return_value=({"ok": True}, 200)) as ca:
+            data, status = connectors.call_discovered("app", "act3", {"x": 1})
+            ca.assert_called_once_with("app", "act3", {"x": 1})
+        self.assertEqual(status, 200)
+        data, status = connectors.call_discovered("app", "nope", {})
+        self.assertEqual(status, 400)
+
+
 if __name__ == "__main__":
     unittest.main()

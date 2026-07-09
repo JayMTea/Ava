@@ -173,7 +173,7 @@ export interface NewConnectorBody {
   confirm?: boolean;
   role?: string;      // 'device' — enables the push flow + Devices grouping
   ingest?: boolean;   // let the app push readings/events with its ingest token
-  actions?: { id: string; method: string; path: string; description?: string; confirm?: boolean }[];
+  actions?: { id: string; method: string; path: string; description?: string; confirm?: boolean; access?: string }[];
   mcp?: { url?: string; command?: string; token_env?: string; sandbox?: string };
   discover?: { base?: string; list?: string; call?: string; token_env?: string };
 }
@@ -206,6 +206,8 @@ export interface ProbeResult {
   kind?: 'mcp' | 'discover' | 'rest' | 'unknown';
   transport?: string;
   tools?: { name: string; description: string }[];
+  // Pre-filled from the app's OpenAPI/Swagger spec (a plain web app is zero-config).
+  actions?: { id: string; method: string; path: string; description?: string; confirm?: boolean; access?: string }[];
   detail?: string;
   error?: string;
 }
@@ -221,6 +223,18 @@ export interface CostSettings {
   power_measured: boolean;
 }
 
+// ---- JIT permission sheet (connector settings) --------------------------------
+export interface GrantAction {
+  id: string;
+  access: 'read' | 'write' | 'destructive';
+  capability: string;
+  method: string;
+  path: string;
+  description: string;
+  granted: boolean;
+  grantable: boolean;
+}
+
 // ---- Approvals (human-in-the-loop) ------------------------------------------
 export interface PendingApproval {
   id: string;
@@ -228,6 +242,9 @@ export interface PendingApproval {
   action: string;
   args: Record<string, string>;
   ts: number;
+  // JIT consent: write-tier prompts may offer "Always allow"; destructive ones may not.
+  grantable?: boolean;
+  access?: 'read' | 'write' | 'destructive';
 }
 
 // ---- Flight recorder (audit ledger) -----------------------------------------
@@ -419,10 +436,19 @@ export const hub = {
   audit: (limit = 200, kind = '') =>
     req<{ events: AuditEvent[] }>(`/api/hub/audit?limit=${limit}${kind ? `&kind=${encodeURIComponent(kind)}` : ''}`),
 
-  // Approvals
+  // Approvals — decision: 'approve' (once) | 'always' (approve + durable grant) | 'deny'
   approvals: () => req<{ pending: PendingApproval[] }>('/api/hub/approvals'),
-  decideApproval: (id: string, approve: boolean) =>
-    req<{ ok: boolean }>(`/api/hub/approvals/${encodeURIComponent(id)}?decision=${approve ? 'approve' : 'deny'}`, { method: 'POST' }),
+  decideApproval: (id: string, decision: 'approve' | 'always' | 'deny') =>
+    req<{ ok: boolean }>(`/api/hub/approvals/${encodeURIComponent(id)}?decision=${decision}`, { method: 'POST' }),
+  connectorGrants: (cid: string) =>
+    req<{ grants: Record<string, { granted: string; by: string }>; actions: GrantAction[] }>(
+      `/api/hub/connectors/${encodeURIComponent(cid)}/grants`),
+  grantAction: (cid: string, action: string) =>
+    req<{ ok: boolean; error?: string }>(`/api/hub/connectors/${encodeURIComponent(cid)}/grants/${encodeURIComponent(action)}`,
+      { method: 'POST' }),
+  revokeGrant: (cid: string, action: string) =>
+    req<{ ok: boolean }>(`/api/hub/connectors/${encodeURIComponent(cid)}/grants/${encodeURIComponent(action)}`,
+      { method: 'DELETE' }),
 
   // Memory
   memory: (q = '', kind = '', limit = 200) =>

@@ -6,8 +6,8 @@ import { hub } from './hubApi';
 import type {
   AgentStatus, AuditEvent, Backend, BackendList, BackendProbe, BackendTestResult, BenchResult,
   BenchStatus, ConnectorLoadError, CostSettings, DeviceEvent, EnrollResult, GenerateResult,
-  HardwareInfo, HubConnector, IngestToken, MemoryCounts, MemoryItem, ModelStore, NewConnectorBody,
-  PendingApproval, ProbeResult, PullStatus, SystemInfo, VoiceStatus,
+  GrantAction, HardwareInfo, HubConnector, IngestToken, MemoryCounts, MemoryItem, ModelStore,
+  NewConnectorBody, PendingApproval, ProbeResult, PullStatus, SystemInfo, VoiceStatus,
 } from './hubApi';
 
 // Engine presets for the "add a model" form: label + default OpenAI-compatible
@@ -35,9 +35,9 @@ function ApprovalsBanner() {
     const t = setInterval(tick, 3000);
     return () => { alive = false; clearInterval(t); };
   }, []);
-  const decide = async (id: string, approve: boolean) => {
+  const decide = async (id: string, decision: 'approve' | 'always' | 'deny') => {
     setPending((p) => p.filter((x) => x.id !== id));
-    try { await hub.decideApproval(id, approve); } catch { /* it may have timed out */ }
+    try { await hub.decideApproval(id, decision); } catch { /* it may have timed out */ }
   };
   if (!pending.length) return null;
   return (
@@ -55,11 +55,20 @@ function ApprovalsBanner() {
               {Object.keys(p.args).length > 0 && (
                 <span style={{ color: 'var(--muted)' }}> · {Object.entries(p.args).map(([k, v]) => `${k}=${v}`).join(', ')}</span>
               )}
+              {p.access === 'destructive' && (
+                <span style={{ color: 'var(--muted)' }}> · destructive — asks every time</span>
+              )}
             </span>
           </span>
           <span style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-            <button className="hub-btn sm" onClick={() => decide(p.id, true)}><Icon name="check" />Approve</button>
-            <button className="hub-btn ghost sm" onClick={() => decide(p.id, false)}><Icon name="close" />Deny</button>
+            {p.grantable && (
+              <button className="hub-btn sm" onClick={() => decide(p.id, 'always')}
+                title="Run it now and never ask again for this action — revoke anytime in the connector's settings">
+                <Icon name="check" />Always allow</button>
+            )}
+            <button className={'hub-btn sm' + (p.grantable ? ' ghost' : '')} onClick={() => decide(p.id, 'approve')}>
+              <Icon name="check" />{p.grantable ? 'Just once' : 'Approve'}</button>
+            <button className="hub-btn ghost sm" onClick={() => decide(p.id, 'deny')}><Icon name="close" />Deny</button>
           </span>
         </div>
       ))}
@@ -98,6 +107,12 @@ function RestartBanner({ show }: { show: boolean }) {
   );
 }
 
+// Kinds that are internal plumbing (bridge, inference router) or models
+// (vLLM Omni, the GPU service) — they run behind the scenes / live in the Models tab,
+// not on the Connectors page, which is only for external apps the user wires in.
+const INTERNAL_KINDS = new Set(['core', 'inference', 'media']);
+const isExternalApp = (c: HubConnector): boolean => !INTERNAL_KINDS.has(c.kind);
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Overview
 // ─────────────────────────────────────────────────────────────────────────────
@@ -117,7 +132,7 @@ function Overview({ onGo }: { onGo: (t: TabId) => void }) {
   }, []);
 
   const engineUp = backends && (backends.vllm || backends.ollama);
-  const enabledConns = conns.filter((c) => c.enabled).length;
+  const enabledConns = conns.filter((c) => c.enabled && isExternalApp(c)).length;
 
   const card = (t: TabId, icon: string, title: string, value: React.ReactNode, sub: string) => (
     <button className="hub-opt" onClick={() => onGo(t)} style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
@@ -678,6 +693,69 @@ function AgentPanel({ onRestart }: { onRestart: () => void }) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Connectors
+// The JIT permission sheet (iOS Settings→Privacy style): every action grouped
+// by capability, with its tier and grant state. Reads always run; writes toggle
+// between "asks first time" and an "always allow" grant; destructive stays 🔒.
+function PermissionsSheet({ cid }: { cid: string }) {
+  const [acts, setActs] = useState<GrantAction[] | null>(null);
+  const [err, setErr] = useState('');
+  useEffect(() => {
+    hub.connectorGrants(cid).then((r) => setActs(r.actions)).catch((e) => setErr((e as Error).message));
+  }, [cid]);
+
+  const toggle = async (a: GrantAction) => {
+    setActs((xs) => xs?.map((x) => (x.id === a.id ? { ...x, granted: !a.granted } : x)) ?? null);
+    try {
+      if (a.granted) await hub.revokeGrant(cid, a.id);
+      else await hub.grantAction(cid, a.id);
+    } catch {
+      setActs((xs) => xs?.map((x) => (x.id === a.id ? { ...x, granted: a.granted } : x)) ?? null);
+    }
+  };
+
+  if (err) return <div className="hub-msg err">{err}</div>;
+  if (acts == null) return <EmptyState text="Loading permissions…" />;
+  if (!acts.length) return <EmptyState text="No declared actions — nothing to permit." />;
+
+  const groups = [...new Set(acts.map((a) => a.capability))];
+  const state = (a: GrantAction) =>
+    a.access === 'read'
+      ? <span style={{ color: 'var(--muted)', fontSize: 'var(--fs-xs)' }}>always allowed</span>
+      : a.access === 'destructive' || !a.grantable
+        ? <span style={{ color: 'var(--muted)', fontSize: 'var(--fs-xs)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <Icon name="lock" />asks every time</span>
+        : <label className="hub-check" style={{ borderBottom: 0, padding: 0, margin: 0 }}
+            title={a.granted ? 'Always allowed — uncheck and Ava asks again' : 'Ava asks the first time; check to always allow'}>
+            <input type="checkbox" checked={a.granted} onChange={() => toggle(a)} />
+            <span style={{ fontSize: 'var(--fs-xs)' }}>always allow</span>
+          </label>;
+
+  return (
+    <div style={{ marginTop: 10 }}>
+      {groups.map((g) => (
+        <div key={g} style={{ marginBottom: 10 }}>
+          <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4 }}>
+            {g}
+          </div>
+          {acts.filter((a) => a.capability === g).map((a) => (
+            <div key={a.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '5px 0', borderBottom: '1px solid var(--line)' }}>
+              <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <code>{a.id}</code>
+                <Badge tone={a.access === 'read' ? 'ok' : a.access === 'destructive' ? 'err' : 'accent'}>{a.access}</Badge>
+                {a.description && <span style={{ color: 'var(--muted)', fontSize: 'var(--fs-xs)', marginLeft: 6 }}>{a.description}</span>}
+              </span>
+              <span style={{ flexShrink: 0 }}>{state(a)}</span>
+            </div>
+          ))}
+        </div>
+      ))}
+      <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--muted)' }}>
+        Reads run silently · writes ask once unless always-allowed · destructive actions always ask.
+      </div>
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void }) {
   const [gen, setGen] = useState<GenerateResult | null>(null);
@@ -687,6 +765,7 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
   const [err, setErr] = useState('');
   const [token, setToken] = useState<IngestToken | null>(null);
   const [editText, setEditText] = useState<string | null>(null);
+  const [showPerms, setShowPerms] = useState(false);
 
   const hasAgentSurface = c.actions > 0 || (c.mcp && c.renders_policy);
 
@@ -774,6 +853,12 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
           <button className="hub-btn ghost sm" onClick={showToken} disabled={busy} title="Show the push token a device presents to send readings/events">
             <Icon name="lock" />Push token
           </button>
+          {c.actions > 0 && c.enabled && (
+            <button className="hub-btn ghost sm" onClick={() => setShowPerms((v) => !v)}
+              title="What Ava may do in this app — reads run silently, writes ask once, destructive always asks">
+              <Icon name="lock" />Permissions
+            </button>
+          )}
           {hasAgentSurface && c.enabled && (
             <button className="hub-btn ghost sm" onClick={preview} disabled={busy}>
               <Icon name="code" />Preview
@@ -818,6 +903,7 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
           </div>
         </div>
       )}
+      {showPerms && <PermissionsSheet cid={c.id} />}
       {msg && <div className="hub-msg ok" style={{ marginTop: 8 }}>{msg}</div>}
       {err && <div className="hub-msg err" style={{ marginTop: 8 }}>{err}</div>}
       {token && (
@@ -855,7 +941,42 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
   );
 }
 
-interface ActionDraft { id: string; method: string; path: string; description: string; confirm?: boolean }
+interface ActionDraft { id: string; method: string; path: string; description: string; confirm?: boolean; access?: string }
+
+function ActionEditor({ actions, setAction, setActions }: {
+  actions: ActionDraft[];
+  setAction: (i: number, patch: Partial<ActionDraft>) => void;
+  setActions: React.Dispatch<React.SetStateAction<ActionDraft[]>>;
+}) {
+  return (
+    <>
+      {actions.map((a, i) => (
+        <div className="hub-fieldrow" key={i} style={{ marginBottom: 8 }}>
+          <input className="hub-input" style={{ flex: 1 }} value={a.id} placeholder="what it does (e.g. create_note)"
+            onChange={(e) => setAction(i, { id: e.target.value })} />
+          <select className="hub-select" style={{ flex: '0 0 90px' }} value={a.method}
+            onChange={(e) => setAction(i, { method: e.target.value })}>
+            <option>POST</option><option>GET</option>
+          </select>
+          <input className="hub-input" style={{ flex: 2 }} value={a.path} placeholder="/api/notes"
+            onChange={(e) => setAction(i, { path: e.target.value })} />
+          <input className="hub-input" style={{ flex: 2 }} value={a.description} placeholder="short description for the agent"
+            onChange={(e) => setAction(i, { description: e.target.value })} />
+          <label className="hub-check" style={{ flex: '0 0 auto', borderBottom: 0, padding: '0 4px', margin: 0 }}
+            title="Require my approval before Ava runs this action">
+            <input type="checkbox" checked={!!a.confirm} onChange={(e) => setAction(i, { confirm: e.target.checked })} />
+            <Icon name="lock" />
+          </label>
+          <button className="hub-btn ghost sm" style={{ flex: '0 0 auto' }} aria-label="Remove action"
+            onClick={() => setActions((x) => x.filter((_, j) => j !== i))}><Icon name="trash" /></button>
+        </div>
+      ))}
+      <button className="hub-btn ghost sm" onClick={() => setActions((a) => [...a, { id: '', method: 'POST', path: '', description: '' }])}>
+        <Icon name="plus" />Add another
+      </button>
+    </>
+  );
+}
 
 // Derive a safe connector id from a human app name, so the user never has to
 // think about slugs: "My Notes App" -> "my-notes-app".
@@ -912,7 +1033,14 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
       else {
         setProbe(r);
         if (r.kind === 'rest' || r.kind === 'unknown') {
-          setActions([{ id: '', method: 'POST', path: '', description: '' }]);
+          // Auto-fill from the app's OpenAPI spec when we found one; otherwise
+          // start with one blank row for the user to fill in.
+          setActions(r.actions?.length
+            ? r.actions.map((a) => ({
+                id: a.id, method: a.method, path: a.path,
+                description: a.description || '', confirm: a.confirm, access: a.access,
+              }))
+            : [{ id: '', method: 'POST', path: '', description: '' }]);
         }
       }
     } catch (e) { setProbeErr((e as Error).message); }
@@ -938,13 +1066,20 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
       body.base_url = reach.trim() || undefined;
       body.token_env = tenv;
       body.actions = actions.filter((a) => a.id.trim() && a.path.trim());
+      if (confirmAll) body.confirm = true;
     }
     if (isDevice) { body.role = 'device'; body.ingest = true; }
+    const jit = probe?.kind === 'rest' && (probe.actions?.length || 0) > 0 && !confirmAll;
     try {
       const r = await hub.newConnector(body);
       if (!r.ok) { setMsg(r.error || 'could not create connector'); }
       else if (isDevice) { setVerify({ cid: id, name: nm }); reset(); onCreated(); }
-      else { setDone(`Connected “${nm}”. Preview / Deploy below.`); reset(); onCreated(); }
+      else {
+        setDone(jit
+          ? `Connected “${nm}” — reads work now; Ava asks the first time it needs anything else.`
+          : `Connected “${nm}”. Preview / Deploy below.`);
+        reset(); onCreated();
+      }
     } catch (e) { setMsg((e as Error).message); }
     setBusy(false);
   }, [id, name, health, reach, isUrl, tokenEnv, probe, actions, isolate, dockerAvail, confirmAll, isDevice, onCreated]);
@@ -954,6 +1089,13 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
   const canCreate = validId && (isDevice
     ? true
     : !!probe && (found || (manual && actions.some((a) => a.id.trim() && a.path.trim()))));
+
+  // JIT consent (docs/dev/CONNECTOR_DISCOVERY_UX_PLAN.md): when the API was
+  // auto-read there is nothing to review at connect time — reads run silently,
+  // writes ask on first use, destructive always asks. Summarize by tier.
+  const autoFound = (probe?.actions?.length || 0) > 0;
+  const tierOf = (a: ActionDraft) => a.access || (a.method === 'GET' ? 'read' : 'write');
+  const nTier = (t: string) => actions.filter((a) => tierOf(a) === t).length;
 
   if (!open) {
     return (
@@ -1058,37 +1200,42 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
         </div>
       )}
 
-      {manual && (
+      {manual && autoFound && (
+        <div className="hub-note" style={{ borderColor: 'color-mix(in srgb, var(--ok) 40%, transparent)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+            <span style={{ color: 'var(--ok)', display: 'inline-flex' }}><Icon name="check" /></span>
+            <b>Ava read this app’s API — {actions.length} action{actions.length === 1 ? '' : 's'} found.</b>
+          </div>
+          <div style={{ color: 'var(--muted)' }}>
+            Nothing to review now: {nTier('read') > 0 && <><b>{nTier('read')} read</b> work right away</>}
+            {nTier('write') > 0 && <>{nTier('read') > 0 ? ' · ' : ''}<b>{nTier('write')} write</b> ask the first time each is used</>}
+            {nTier('destructive') > 0 && <> · <b>{nTier('destructive')} destructive</b> ask every time</>}.
+            {' '}You can change any of this later in the connector’s settings.
+          </div>
+          <label className="hub-check" style={{ marginTop: 12, borderBottom: 0, paddingBottom: 0 }}>
+            <input type="checkbox" checked={confirmAll} onChange={(e) => setConfirmAll(e.target.checked)} />
+            <span className="hub-check-main">
+              <span className="hub-check-title">Ask me before Ava uses these — every time</span>
+              <span className="hub-check-sub">Stricter than the default: every call waits for your one-tap approval, with no “always allow”.</span>
+            </span>
+          </label>
+          <details style={{ marginTop: 10 }}>
+            <summary style={{ cursor: 'pointer', color: 'var(--muted)', fontSize: 'var(--fs-xs)' }}>
+              Advanced — view or edit the {actions.length} actions
+            </summary>
+            <div style={{ marginTop: 10 }}><ActionEditor actions={actions} setAction={setAction} setActions={setActions} /></div>
+          </details>
+        </div>
+      )}
+
+      {manual && !autoFound && (
         <div className="hub-field">
           <label>
             {probe!.kind === 'unknown'
               ? 'Ava couldn’t auto-detect its tools — tell it what this app can do:'
               : 'This looks like a regular web app — tell Ava what it can do:'}
           </label>
-          {actions.map((a, i) => (
-            <div className="hub-fieldrow" key={i} style={{ marginBottom: 8 }}>
-              <input className="hub-input" style={{ flex: 1 }} value={a.id} placeholder="what it does (e.g. create_note)"
-                onChange={(e) => setAction(i, { id: e.target.value })} />
-              <select className="hub-select" style={{ flex: '0 0 90px' }} value={a.method}
-                onChange={(e) => setAction(i, { method: e.target.value })}>
-                <option>POST</option><option>GET</option>
-              </select>
-              <input className="hub-input" style={{ flex: 2 }} value={a.path} placeholder="/api/notes"
-                onChange={(e) => setAction(i, { path: e.target.value })} />
-              <input className="hub-input" style={{ flex: 2 }} value={a.description} placeholder="short description for the agent"
-                onChange={(e) => setAction(i, { description: e.target.value })} />
-              <label className="hub-check" style={{ flex: '0 0 auto', borderBottom: 0, padding: '0 4px', margin: 0 }}
-                title="Require my approval before Ava runs this action">
-                <input type="checkbox" checked={!!a.confirm} onChange={(e) => setAction(i, { confirm: e.target.checked })} />
-                <Icon name="lock" />
-              </label>
-              <button className="hub-btn ghost sm" style={{ flex: '0 0 auto' }} aria-label="Remove action"
-                onClick={() => setActions((x) => x.filter((_, j) => j !== i))}><Icon name="trash" /></button>
-            </div>
-          ))}
-          <button className="hub-btn ghost sm" onClick={() => setActions((a) => [...a, { id: '', method: 'POST', path: '', description: '' }])}>
-            <Icon name="plus" />Add another
-          </button>
+          <ActionEditor actions={actions} setAction={setAction} setActions={setActions} />
         </div>
       )}
 
@@ -1143,7 +1290,7 @@ function ConnectorsPanel() {
   const [badManifests, setBadManifests] = useState<ConnectorLoadError[]>([]);
   const load = useCallback(() => {
     hub.connectors()
-      .then((r) => { setConns(r.connectors); setBadManifests(r.errors || []); setLoadErr(''); })
+      .then((r) => { setConns(r.connectors.filter(isExternalApp)); setBadManifests(r.errors || []); setLoadErr(''); })
       .catch((e) => { setLoadErr((e as Error).message || 'could not load connectors'); });
   }, []);
   useEffect(() => { load(); }, [load]);

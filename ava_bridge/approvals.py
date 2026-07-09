@@ -45,7 +45,11 @@ def gate(cid: str, action: str, args: dict | None) -> str:
             return "denied"                 # too many parked — fail safe
         _pending[aid] = {"id": aid, "connector": cid, "action": action,
                          "args": _slim_args(args), "status": "pending",
-                         "ts": round(time.time(), 3)}
+                         "ts": round(time.time(), 3),
+                         # JIT consent: write-tier prompts may offer "Always
+                         # allow"; destructive/author-confirm ones may not.
+                         "grantable": connectors.grantable(cid, action),
+                         "access": connectors.action_access(cid, action)}
         audit.record("approval", connector=cid, action=action, state="requested")
         deadline = time.time() + TIMEOUT_S
         while _pending[aid]["status"] == "pending":
@@ -66,11 +70,19 @@ def pending() -> list[dict]:
         return [dict(p) for p in _pending.values() if p["status"] == "pending"]
 
 
-def decide(aid: str, approve: bool) -> bool:
+def decide(aid: str, approve: bool, remember: bool = False) -> bool:
+    """Resolve one pending request. ``remember=True`` on an approval writes a
+    durable grant ("Always allow") so this (connector, action) never asks again
+    — only honored where the prompt was grantable (write tier, no author gate)."""
     with _cv:
         p = _pending.get(aid)
         if not p or p["status"] != "pending":
             return False
         p["status"] = "approved" if approve else "denied"
+        to_grant = (p["connector"], p["action"]) if (
+            approve and remember and p.get("grantable")) else None
         _cv.notify_all()
-        return True
+    if to_grant:                     # file IO outside the lock; future calls only
+        from . import grants
+        grants.grant(*to_grant)
+    return True
