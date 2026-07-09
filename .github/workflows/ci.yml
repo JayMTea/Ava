@@ -90,6 +90,9 @@ jobs:
     # manifests/lockfiles; pushes to master still get the full scan.
     if: github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write   # gitleaks-action lists PR commits + comments findings
     steps:
       - uses: actions/checkout@v4
         with:
