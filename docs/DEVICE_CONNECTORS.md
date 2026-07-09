@@ -174,8 +174,10 @@ event also raises a dashboard alert.
 - No automation or rules engine. The "if this then that" lives in your app,
   which is also what decides when to push a `notify` event.
 
-Smart-home gear (Home Assistant, etc.) fits the same contract: run a small app
-that bridges your hub's API to Ava as a device connector.
+Smart-home gear fits the same contract — and for Home Assistant you don't even
+need to write the bridge: HA's own MCP Server integration plugs straight into
+the connector SDK's `mcp:` block, with actuation gated behind the never-grantable
+`physical` tier. See [Connect your Home Assistant](CONNECT_HOME_ASSISTANT.md).
 
 ---
 

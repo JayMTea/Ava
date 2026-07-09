@@ -43,6 +43,7 @@ CURATED: dict[str, str] = {
     "docs/MOBILE.md": "docs/MOBILE.md",
     "docs/CONNECTOR_SDK.md": "docs/CONNECTOR_SDK.md",
     "docs/DEVICE_CONNECTORS.md": "docs/DEVICE_CONNECTORS.md",
+    "docs/CONNECT_HOME_ASSISTANT.md": "docs/CONNECT_HOME_ASSISTANT.md",
     "docs/RELEASING.md": "docs/RELEASING.md",
     "docs/PACKAGING_PLAN.md": "docs/PACKAGING_PLAN.md",
     "docs/WARM_AGENT_MODE.md": "docs/WARM_AGENT_MODE.md",

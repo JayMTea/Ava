@@ -163,6 +163,9 @@ manifest at any real MCP server and its tools are discovered and bridged live:
 mcp:
   url: "http://127.0.0.1:9200/mcp"     # Streamable HTTP transport
   token_env: MYAPP_TOKEN                # optional bearer
+  # transport: sse                      # legacy HTTP+SSE (e.g. Home Assistant's
+  #                                     # MCP Server) — inferred when the url
+  #                                     # path ends in /sse
   # or a stdio server (spawned by the bridge):
   # command: ["npx", "-y", "@modelcontextprotocol/server-github"]
   # env: { GITHUB_TOKEN: "${GITHUB_TOKEN}" }
@@ -194,6 +197,31 @@ OK: put `confirm: true` on a static action, or at the connector level use
 calls a gated action the call **pauses**, an approval prompt appears with the
 arguments, and the action runs only if you approve (or is refused on deny or
 timeout). Every request and decision is written to the audit ledger.
+
+**Access tiers (JIT consent).** Every action carries a tier — explicit
+`access:` on a static action, else inferred from its HTTP shape:
+
+| Tier | At call time |
+|---|---|
+| `read` | runs silently |
+| `write` | asks on first use; "Always allow" grants durably |
+| `destructive` | asks every time — never grantable |
+| `physical` | **moves something in the real world** (relay, lock, valve). Asks every time — never grantable. Never inferred: it must be declared. |
+
+Dynamic tools (MCP / discovered) have no static declaration to infer from, so
+the manifest classifies them by name pattern — first match wins:
+
+```yaml
+dynamic_access:
+  GetLiveContext: read        # fnmatch patterns
+  "Vacuum*": write
+  "*": physical
+```
+
+Unmatched dynamic tools default to `write` — except on a `role: device`
+connector, where they default to `physical`: a device's unknown verbs are
+presumed to actuate until the author says otherwise. See the
+[Home Assistant connector](CONNECT_HOME_ASSISTANT.md) for the worked example.
 
 ### Egress
 

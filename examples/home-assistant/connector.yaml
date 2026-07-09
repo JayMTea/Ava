@@ -1,0 +1,36 @@
+# Home Assistant — connect YOUR Home Assistant to Ava as a device connector.
+#
+# Ava never bundles or assumes Home Assistant: this manifest is the entire
+# integration. Drop the folder into $AVA_HOME/connectors/, set two env vars,
+# restart Ava. Delete the folder and every trace is gone.
+#
+#   HASS_URL    your HA base URL, e.g. http://homeassistant.local:8123
+#   HASS_TOKEN  a long-lived access token (HA: profile -> Security)
+#
+# Requires HA's "Model Context Protocol Server" integration (Settings ->
+# Devices & services -> Add integration -> MCP Server). Only entities you
+# exposed to Assist are visible to Ava. Full walkthrough:
+# docs/CONNECT_HOME_ASSISTANT.md
+id: home-assistant
+label: Home Assistant
+kind: app
+role: device            # groups it in the Devices view; unknown dynamic tools
+                        # default to the never-grantable `physical` tier
+
+mcp:
+  # HA's MCP server speaks the legacy HTTP+SSE transport; the /sse suffix
+  # selects it automatically. Unset HASS_URL leaves the connector inert.
+  url: "${HASS_URL}/mcp_server/sse"
+  token_env: HASS_TOKEN
+
+# JIT consent for HA's dynamically-discovered Assist tools (fnmatch, first
+# match wins). Reads run silently; EVERYTHING that actuates asks every time.
+# Relax a specific benign tool in your copy if you want it grantable, e.g.:
+#   HassListAddItem: write        # shopping list — ask once, then allow
+dynamic_access:
+  GetLiveContext: read            # current state of exposed entities
+  "*": physical                   # turn_on/turn_off/set/lock/... always ask
+
+service:
+  name: Home Assistant
+  probe: "${HASS_URL:-}"
