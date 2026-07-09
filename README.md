@@ -75,31 +75,13 @@ approval-gated Control Center).
   so the sandboxed agent reaches exactly two policed routes and nothing else.
   Every other MCP client trusts the server; Ava contains it.
 
-## How it compares
+## Where it stands
 
-Strong ● · Partial ◐ · None ○. Honest, not marketing:
-
-| Capability | **Ava** | NemoClaw (OpenClaw) | Open WebUI | OpenHands | Home Assistant | ChatGPT/Claude (cloud) |
-|---|:--:|:--:|:--:|:--:|:--:|:--:|
-| Self-hosted / private | ● | ● | ● | ● | ● | ○ |
-| Model-agnostic (bring your own) | ● | ● | ● | ◐ | ◐ | ○ |
-| Chat | ● | ● | ● | ◐ | ◐ | ● |
-| Voice (+ biometric gate) | ● | ◐ | ○ | ○ | ● | ◐ |
-| GPU workloads (**video** via connectors) | ● | ○ | ◐ | ○ | ○ | ◐ |
-| Agent tools / skills / memory | ● | ● | ◐ | ● | ◐ | ● |
-| **Self-editing** (governed code changes) | ● | ◐ | ○ | ◐ | ○ | ○ |
-| Drives your **other apps** (connectors) | ● | ◐ | ○ | ◐ | ● | ◐ |
-| Ops **dashboard** (perf / cost / alerts) | ● | ○ | ○ | ○ | ◐ | ○ |
-| Governance / approval gates | ● | ◐ | ○ | ○ | ◐ | ◐ |
-| Raw model quality (IQ) | ◐\* | ◐\* | ◐\* | ◐\* | ◐\* | ● |
-| Polish / mobile / scale | ○ | ◐ | ◐ | ◐ | ● | ● |
-
-\* inherited from whatever model you plug in.
-
-**The honest read:** Ava is the only column that is Strong across voice, generation,
-agent, self-editing, connectors, and observability *together*, self-hosted. It
+Ava is the only self-hosted stack that puts voice, generation, agent tools,
+self-editing, connectors, and observability together behind one dashboard. It
 trails the cloud giants on raw model IQ and polish because it is the **control
-layer, not the brain**. Its job is to put *their* models (or yours) to work, privately.
+layer, not the brain**: its job is to put *their* models (or yours) to work,
+privately.
 
 **A note on NemoClaw:** it is less a competitor than a foundation. NemoClaw is
 Ava's **default agent runtime** (sandbox, tools, egress policies, memory), and

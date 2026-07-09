@@ -71,7 +71,7 @@ frontier-capability chatbot. It **orchestrates** intelligence; it doesn't produc
 it — its "IQ" is whatever model you plug in.
 
 **Competitive scorecard:** the canonical, up-to-date comparison (including the
-NemoClaw/OpenClaw column) lives in the [README](../README.md#how-it-compares) —
+NemoClaw/OpenClaw column) lives in the [README](../README.md#where-it-stands) —
 read it there rather than duplicating a table that drifts.
 
 **Read of it:** Ava is the only column that's Strong across voice + generation

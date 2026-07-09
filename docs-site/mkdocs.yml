@@ -84,21 +84,15 @@ nav:
   - Why Ava?: overview.md
   - Get started:
       - Quickstart (Docker): deploy/README.md
-      - Connect your apps: docs/CONNECT_YOUR_APPS.md
       - Connect your devices: docs/CONNECT_YOUR_DEVICES.md
+      - Connect your apps: docs/CONNECT_YOUR_APPS.md
       - Agent runtime: docs/AGENT_RUNTIME.md
   - Connector SDK:
       - App connectors: docs/CONNECTOR_SDK.md
       - Device connectors: docs/DEVICE_CONNECTORS.md
   - Architecture:
       - Overview: agent/docs/README.md
-      - Decision records:
-          - About ADRs: agent/docs/adr/index.md
-          - Template: agent/docs/adr/0000-template.md
-          - SSOT architecture pipeline: agent/docs/adr/0001-ssot-architecture-pipeline.md
-          - Two-app split: agent/docs/adr/0002-two-app-split.md
-          - Per-tool egress policies: agent/docs/adr/0003-per-tool-egress-policies.md
-          - TALA layout engine: agent/docs/adr/0004-tala-layout-engine.md
+      - Decision records: agent/docs/adr/index.md
   - Reference:
       - Security: SECURITY.md
       - Hardware support: docs/HWINFO_VALIDATION.md

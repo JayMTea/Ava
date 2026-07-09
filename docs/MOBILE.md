@@ -13,6 +13,10 @@ next time the app is opened.
    **Android (Chrome):** the install prompt appears automatically, or
    ⋮ menu → *Add to Home screen*.
 
+| iPhone | Android |
+|---|---|
+| ![iPhone: in Safari, tap Share, then Add to Home Screen](assets/pwa-install-ios.png) | ![Android: in Chrome, tap the three-dot menu, then Add to Home screen](assets/pwa-install-android.png) |
+
 ## HTTPS is required for the full experience
 
 Browsers only enable service workers (the offline app shell, install prompts

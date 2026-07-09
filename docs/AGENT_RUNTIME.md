@@ -30,6 +30,18 @@ specific GPU or box.
 
 ## Set it up
 
+Here is what it looks like in the app: open **Setup → Agent**, click
+**Provision / re-check**, and watch each step verify (sound on):
+
+<video controls playsinline preload="metadata"
+       style="width:100%;border-radius:8px"
+       aria-label="Narrated screen recording: provisioning the agent runtime from the Setup hub">
+  <source src="../assets/agent-setup-tour.mp4" type="video/mp4">
+  Your browser can't play video. <a href="../assets/agent-setup-tour.mp4">Download the walkthrough</a>.
+</video>
+
+From a terminal, the same flow is:
+
 ```bash
 ava agent provision --install     # installs the nemoclaw CLI, then guides you
 nemoclaw onboard                  # (interactive) configure inference + create the sandbox

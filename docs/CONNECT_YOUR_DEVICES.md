@@ -10,6 +10,15 @@ device, not to the device itself; no device protocols are baked into Ava. The
 [example device app](../examples/device-app/) is a ready starting point: about
 150 lines of stdlib Python you copy and point at your real device I/O.
 
+Here is the whole thing, end to end, narrated (sound on):
+
+<video controls playsinline preload="metadata"
+       style="width:100%;border-radius:8px"
+       aria-label="Narrated screen recording: connecting a device to Ava end to end">
+  <source src="../assets/connect-device-tour.mp4" type="video/mp4">
+  Your browser can't play video. <a href="../assets/connect-device-tour.mp4">Download the walkthrough</a>.
+</video>
+
 ---
 
 ## Reading and commanding devices (pull)

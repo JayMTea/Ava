@@ -21,6 +21,28 @@ silently fall out of date with reality.
 | Host (loopback) | Trusted | App services bind `127.0.0.1`; the inference router's `/v1` requires a bearer token when bound off-loopback; sandbox-only access goes through per-port gateway forwarders |
 | Sandbox (Docker) | Confined | The agent runs in an OpenClaw sandbox with **no ambient egress**; every outbound call passes the SSRF guard and a per-tool allow-list |
 
+### Using Ava away from home: what Tailscale is, in plain terms
+
+Out of the box, Ava only answers on the machine it runs on. That is the safest
+default, but it also means your phone can't reach it from the couch or from
+outside the house. The wrong fix is "opening a port" on your router, which puts
+your assistant on the public internet where anyone can find and probe it.
+
+[Tailscale](https://tailscale.com) is the easy, safe fix. It creates a small
+private network (a "tailnet") between only the devices you sign in on: your
+computer, your phone, your laptop. To each other they appear as if they were on
+the same home network, no matter where you are; to everyone else they are
+invisible. Nothing is exposed to the public internet, there is no port
+forwarding, and the free personal plan covers this use.
+
+In practice: install Tailscale on the machine running Ava and on your phone,
+sign both into the same account, and run one command on the Ava machine
+(`tailscale serve --bg 8096`). Ava is then reachable from your devices at a
+private `https://…ts.net` address with a valid certificate, which also unlocks
+the [install-to-home-screen experience](docs/MOBILE.md) on mobile. Your login
+password still applies on every request; Tailscale controls who can *reach* the
+door, and Ava's auth gate controls who can *open* it.
+
 ## 2. Authentication and sessions (the perimeter)
 
 The bridge (`:8096`) is password-gated by middleware in `ava_bridge/auth.py`:
