@@ -524,6 +524,15 @@ def _proxy_response(r: "requests.Response") -> Response:
         hv = r.headers.get(hkey)
         if hv:
             fwd[hkey] = hv
+    ctype = r.headers.get("content-type", "")
+    if "text/html" in ctype:
+        # An embedded app's HTML entry must always revalidate. Many app servers
+        # (Starlette StaticFiles included) send Last-Modified but no
+        # Cache-Control, so browsers cache the page heuristically — pinning the
+        # iframe to a stale bundle across the app's rebuilds. ETag stays, so
+        # unchanged pages are still cheap 304s; hashed assets stay long-cached.
+        fwd.pop("expires", None)
+        fwd["cache-control"] = "no-cache"
     return Response(content=r.content, status_code=r.status_code,
                     media_type=r.headers.get("content-type"), headers=fwd)
 
