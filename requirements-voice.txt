@@ -7,6 +7,6 @@
 # Install:  pip install -r requirements-voice.txt
 # Tip: for CPU-only torch wheels add:  --extra-index-url https://download.pytorch.org/whl/cpu
 faster-whisper==1.2.1
-torch==2.12.1
+torch==2.13.0
 torchaudio==2.11.0
 speechbrain==1.1.0

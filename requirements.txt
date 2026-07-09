@@ -8,15 +8,15 @@
 # Pinned to the last combo where include_router works. Verify before bumping:
 #   APIRouter(prefix="/x") + a route must still resolve after app.include_router().
 fastapi==0.136.3
-uvicorn[standard]==0.49.0
+uvicorn[standard]==0.51.0
 starlette==1.2.1
 requests==2.34.2
 httpx==0.28.1
 PyYAML==6.0.3
 python-multipart==0.0.32
 websocket-client==1.9.0
-numpy==2.5.0
-anthropic==0.115.0
+numpy==2.5.1
+anthropic==0.116.0
 # Hardware abstraction layer (ava_bridge/hwinfo.py): psutil reads system/unified
 # memory + CPU natively across macOS/Linux/Windows. nvidia-ml-py (NVML) is the
 # native NVIDIA telemetry API; it's import-guarded and simply inactive on non-
