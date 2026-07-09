@@ -728,7 +728,8 @@ def _actions_from_openapi(spec: dict, limit: int = 50) -> list[dict]:
             aid = re.sub(r"[^a-z0-9]+", "_", f"{m}_{tail}".lower()).strip("_")[:32] or f"{m.lower()}_{len(out)}"
             base, n = aid, 2
             while aid in seen:
-                aid = f"{base[:29]}_{n}"; n += 1
+                aid = f"{base[:29]}_{n}"
+                n += 1
             seen.add(aid)
             desc = str(op.get("summary") or op.get("description")
                        or op.get("operationId") or "").strip()[:200]

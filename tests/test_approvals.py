@@ -13,7 +13,8 @@ class TestNeedsConfirm(unittest.TestCase):
 
     def setUp(self):
         # No durable grants in play — point the store at an empty tmp file.
-        import tempfile, os
+        import os
+        import tempfile
         from ava_bridge import grants
         self._g = mock.patch.object(
             grants, "PATH", os.path.join(tempfile.mkdtemp(), "g.yaml"))
