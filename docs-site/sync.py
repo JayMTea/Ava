@@ -172,13 +172,6 @@ def main() -> int:
         src_dir = HERE / local
         if src_dir.is_dir():
             shutil.copytree(src_dir, OUT / local)
-    # Static interactive demo: a self-mocking build of the app (docs/demo/,
-    # produced by `npm run demo`). Copied wholesale so /demo/ is navigable.
-    demo_src = REPO / "docs" / "demo"
-    if demo_src.is_dir():
-        shutil.copytree(demo_src, OUT / "demo")
-    else:
-        print("NOTE: docs/demo not found — run `npm run demo` to build the live demo")
     if missing:
         print("WARNING: missing sources:\n  " + "\n  ".join(missing))
     print(f"staged {len(CURATED)} pages + {len(ASSETS)} assets -> {OUT}")
