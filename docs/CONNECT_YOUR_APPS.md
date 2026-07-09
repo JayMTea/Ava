@@ -13,9 +13,10 @@ is for developers building their own connector, and its full reference is the
 ## The no-code way: from the browser
 
 Everything happens in the app, on the **Setup → Connectors** page. No files, no
-terminal. The whole flow takes under a minute; here it is end to end:
+terminal. The whole flow takes under a minute; here it is end to end, narrated
+(sound on):
 
-<video controls muted loop playsinline preload="metadata"
+<video controls playsinline preload="metadata"
        style="width:100%;border-radius:8px"
        aria-label="Screen recording: connecting an app from the Setup hub, end to end">
   <source src="../assets/connect-app-tour.mp4" type="video/mp4">
