@@ -542,7 +542,10 @@ def _proxy_response(r: "requests.Response") -> Response:
 async def app_api_proxy(cid: str, path: str, request: Request):
     cfg = await run_in_threadpool(connectors.app_api, cid)
     if not cfg:
-        return JSONResponse({"error": f"connector {cid} has no ui.api"}, status_code=404)
+        # No declared ui.api (token injection / separate API base). The common
+        # case is an app serving its API same-origin with its UI — so /api/*
+        # falls through to the generic UI proxy instead of 404ing.
+        return await app_ui_proxy(cid, f"api/{path}", request)
     url = f"{cfg['base']}{cfg['prefix']}/{path}"
     params = dict(request.query_params)
     headers = {"content-type": request.headers.get("content-type", "application/json")}
