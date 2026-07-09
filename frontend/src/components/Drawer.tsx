@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import type { MouseEvent as ReactMouseEvent } from 'react';
 import { createPortal } from 'react-dom';
 import type { AppEntry, ChatSummary } from '../lib/types';
 import { Icon } from '../lib/icons';
@@ -106,6 +107,18 @@ export function Drawer({
   onOpenChat,
   onDeleteChat,
 }: Props) {
+  // Hover tooltip for the rail icons (claude.ai style). One shared label,
+  // portalled to <body> — the drawer clips overflow — and fixed at the rail's
+  // right edge, vertically centered on the hovered button.
+  const [tip, setTip] = useState<{ label: string; top: number } | null>(null);
+  const tipProps = (label: string) => ({
+    onMouseEnter: (e: ReactMouseEvent<HTMLElement>) => {
+      const r = e.currentTarget.getBoundingClientRect();
+      setTip({ label, top: r.top + r.height / 2 });
+    },
+    onMouseLeave: () => setTip(null),
+  });
+
   // Built-in tabs that always ship in the shell. Everything else in the rail is
   // derived from the connector app registry (/api/apps), so a new app appears by
   // dropping a connector folder — no edits here. The assistant tab is brand-named.
@@ -125,8 +138,8 @@ export function Drawer({
     <button
       key={id}
       className={'rail-btn' + (view === id ? ' active' : '')}
-      title={label}
       aria-label={label}
+      {...tipProps(label)}
       onClick={() => onView(id)}
     >
       <Icon name={icon} />
@@ -141,17 +154,17 @@ export function Drawer({
       <div className="side-rail">
         <button
           className="rail-btn rail-toggle"
-          title={open ? 'Close sidebar' : 'Open sidebar'}
           aria-label={open ? 'Close sidebar' : 'Open sidebar'}
           aria-expanded={open}
-          onClick={onToggle}
+          {...tipProps(open ? 'Close sidebar' : 'Open sidebar')}
+          onClick={() => { onToggle(); setTip(null); }}
         >
           <Icon name="sidebar" />
         </button>
         <button
           className="rail-btn rail-new"
-          title="New chat"
           aria-label="New chat"
+          {...tipProps('New chat')}
           onClick={onNewChat}
         >
           <Icon name="plus" />
@@ -163,6 +176,10 @@ export function Drawer({
             .filter((a) => a.section !== 'core')
             .map((a) => railBtn(a.id, a.label, a.icon))}
         </div>
+        {tip && createPortal(
+          <div className="rail-tip" style={{ top: tip.top }}>{tip.label}</div>,
+          document.body,
+        )}
         <div className="rail-spacer" />
         <div className="rail-foot">
           <RailFlyout

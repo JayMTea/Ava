@@ -1343,11 +1343,15 @@ function ConnectorsPanel() {
           : conns == null ? <EmptyState text="Loading connectors…" />
             : conns.length === 0 ? <EmptyState text="No connectors yet — create one above." />
               : conns.map((c) => <ConnectorRow key={c.id} c={c} onChanged={load} />)}
-        <div className="hub-note" style={{ marginTop: 16 }}>
-          <b>Push token</b> reveals the secret a device sends its readings with. <b>Deploy</b> loads a
-          connector's tools into the agent so Ava can read or command it (if the sandbox isn't
-          reachable from here, run <b>cd agent &amp;&amp; ./install.sh</b> on the agent host). Full schema:
-          <b> docs/CONNECTOR_SDK.md</b>; hardware: <b>docs/DEVICE_CONNECTORS.md</b>.
+        <div className="hub-note" style={{ marginTop: 16, display: 'grid', gap: 6 }}>
+          <div><b>Push token</b> — reveals the secret a device presents to send its readings and events.</div>
+          <div><b>Permissions</b> — what Ava may do in this app: reads run silently, writes ask once, destructive actions always ask.</div>
+          <div><b>Preview</b> — shows the tools and egress policy generated from the manifest, without touching the agent.</div>
+          <div>
+            <b>Deploy</b> — loads the connector's tools into the agent so Ava can read or command it
+            (if the sandbox isn't reachable from here, run <b>cd agent &amp;&amp; ./install.sh</b> on the agent host).
+          </div>
+          <div>Full schema: <b>docs/CONNECTOR_SDK.md</b>; hardware: <b>docs/DEVICE_CONNECTORS.md</b>.</div>
         </div>
       </Panel>
     </>

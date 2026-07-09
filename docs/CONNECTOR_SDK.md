@@ -44,7 +44,7 @@ kind: app                     # core | inference | media | app
 
 ui:                           # OPTIONAL — declare it to get a left-rail tile
   label: My CRM
-  icon: panel                 # a key in frontend/src/lib/icons.tsx (unknown = no icon, safe)
+  icon: grid                  # a key in frontend/src/lib/icons.tsx (unknown = no icon, safe)
   section: apps               # rail group: core | apps  (default apps)
   order: 50                   # sort order within the section
   embed: iframe               # native | iframe | none  (see §3)

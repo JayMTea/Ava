@@ -27,7 +27,7 @@ service:
 # shell renders it. ${ENV_VAR} references resolve from Ava's environment/config.
 # ui:
 #   label: "My App"
-#   icon: panel            # a key in frontend/src/lib/icons.tsx (unknown = no icon)
+#   icon: grid             # a key in frontend/src/lib/icons.tsx (unknown = no icon)
 #   section: apps          # rail group: core | apps  (default apps)
 #   order: 50              # sort order within the section
 #   embed: iframe          # native | iframe | none

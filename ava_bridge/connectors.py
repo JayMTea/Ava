@@ -644,7 +644,7 @@ def apps() -> List[dict]:
         out.append({
             "id": m["id"],
             "label": ui.get("label") or m.get("label") or m["id"],
-            "icon": ui.get("icon") or "panel",
+            "icon": ui.get("icon") or "grid",
             "section": ui.get("section") or "apps",
             "order": ui.get("order", 100),
             "embed": embed,
