@@ -1,8 +1,28 @@
 # Plan: Device connectors hardening + the Ava device SDK
 
-Status: **in progress** (Phase 1). This is the plan of record for making
+Status: **Phase 1 complete.** This is the plan of record for making
 "bring your own Arduino/ESP32/sensor and wire it to Ava" robust and doable
 without a terminal, and for shipping a thin, **board-agnostic** SDK.
+
+Shipped in Phase 1:
+
+- **SDK** — `sdk/arduino/AvaClient` (dependency-free C++; push via any `Client`,
+  pull via `handleHttp`/`handleStream`) and `sdk/host/ava_device` (Python push
+  client + `serve_pull` facade + `SerialRelay`). Push+pull verified end-to-end.
+- **Terminal-free on-ramp** — `GET /api/hub/connectors/{id}/ingest-token`
+  (Push-token reveal+copy in the UI), a "This is a device" preset on the connect
+  form, and a live `DeviceVerify` "waiting for first reading…" step
+  (`GET …/last-event`).
+- **Lifecycle** — `POST …/delete` (+ button; built-ins protected). There was no
+  delete before.
+- **Pull deploy automation** — `POST …/deploy` (one button = render + install
+  into the sandbox), replacing the manual `cd agent && ./install.sh`; push-only
+  devices report "nothing to deploy"; degrades gracefully when the sandbox is
+  unreachable.
+
+Deferred to Phase 2/3 below: enable/disable + edit, malformed-manifest
+surfacing, fetch-error states, ingest rate-limit, endpoint reconciliation, and
+the optional voice-announce hook.
 
 ## Objective
 
