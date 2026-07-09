@@ -688,6 +688,9 @@ def app_api(cid: str) -> dict | None:
 #   mcp:
 #     url: "http://127.0.0.1:9200/mcp"      # http transport
 #     token_env: MYMCP_TOKEN                 # optional bearer
+#     # transport: sse                       # legacy HTTP+SSE (e.g. Home
+#     #                                      # Assistant's MCP Server); inferred
+#     #                                      # when the url path ends in /sse
 #     # or a stdio server (spawned by the bridge, host-side):
 #     command: ["npx", "-y", "@modelcontextprotocol/server-github"]
 #     env: { GITHUB_TOKEN: "${GITHUB_TOKEN}" }
@@ -697,12 +700,17 @@ def _mcp_spec(m: dict) -> dict | None:
     if not isinstance(mcp, dict):
         return None
     url = _expand(mcp.get("url") or "") or None
+    if url and not url.startswith(("http://", "https://")):
+        url = None      # a ${VAR} left unset — the manifest is inert until configured
     command = mcp.get("command")
     if isinstance(command, str):
         command = command.split()
     if not url and not command:
         return None
-    transport = mcp.get("transport") or ("stdio" if command and not url else "http")
+    transport = mcp.get("transport") or (
+        "stdio" if command and not url
+        else "sse" if url and url.split("?")[0].rstrip("/").endswith("/sse")
+        else "http")
     env = {k: _expand(str(v)) for k, v in (mcp.get("env") or {}).items()} or None
     return {"transport": transport, "url": url, "command": command,
             "env": env, "token_env": mcp.get("token_env"),
@@ -827,11 +835,16 @@ def devices() -> List[dict]:
     return out
 
 
+_TIERS = ("read", "write", "destructive", "physical")
+
+
 def _infer_access(a: dict) -> str:
     """The access tier of one action: explicit ``access:`` wins, else inferred —
-    GET/HEAD -> read, DELETE or a *delete* id/path -> destructive, else write."""
+    GET/HEAD -> read, DELETE or a *delete* id/path -> destructive, else write.
+    ``physical`` (moves something in the real world — relay, lock, valve) is
+    never inferred: it must be declared, and it can never be granted away."""
     acc = str(a.get("access") or "").lower()
-    if acc in ("read", "write", "destructive"):
+    if acc in _TIERS:
         return acc
     method = str(a.get("method") or "POST").upper()
     if method in ("GET", "HEAD"):
@@ -841,14 +854,36 @@ def _infer_access(a: dict) -> str:
     return "write"
 
 
+def _dynamic_access(m: dict, action: str) -> str:
+    """Tier for a dynamically-discovered tool (MCP / discover facade), which has
+    no static entry to infer from. The manifest classifies them by name pattern:
+
+        dynamic_access:
+          GetLiveContext: read      # fnmatch patterns, first match wins
+          "*": physical
+
+    Unmatched tools fall back to ``physical`` on a ``role: device`` connector
+    (a device's unknown verbs are presumed to move something until the author
+    says otherwise) and ``write`` everywhere else."""
+    import fnmatch
+    da = m.get("dynamic_access")
+    if isinstance(da, dict):
+        for pattern, tier in da.items():
+            t = str(tier or "").lower()
+            if t in _TIERS and fnmatch.fnmatch(action, str(pattern)):
+                return t
+    return "physical" if m.get("role") == "device" else "write"
+
+
 def action_access(cid: str, action: str) -> str:
-    """Access tier for <action> on <cid>. Dynamic tools (MCP / discovered) have
-    no static entry, so they default to write — first use asks, once."""
+    """Access tier for <action> on <cid>. Static actions infer from the
+    declaration; dynamic tools (MCP / discovered) classify via the manifest's
+    ``dynamic_access`` patterns (see _dynamic_access for the defaults)."""
     m = {x["id"]: x for x in load()}.get(cid) or {}
     for a in _static_actions(m):
         if a.get("id") == action:
             return _infer_access(a)
-    return "write"
+    return _dynamic_access(m, action)
 
 
 def _author_confirm(m: dict, action: str) -> bool:
@@ -872,6 +907,8 @@ def needs_confirm(cid: str, action: str) -> bool:
     - an explicit author ``confirm:`` always asks and can't be granted away;
     - ``read`` actions run silently;
     - ``destructive`` actions ask every time;
+    - ``physical`` actions (real-world actuation) ask every time — never
+      grantable, so a lock can't become a one-tap-then-silent action;
     - ``write`` actions ask on first use — an "Always allow" grant
       ($AVA_HOME/connector_grants.yaml) silences later calls."""
     m = {x["id"]: x for x in load()}.get(cid) or {}
@@ -880,7 +917,7 @@ def needs_confirm(cid: str, action: str) -> bool:
     tier = action_access(cid, action)
     if tier == "read":
         return False
-    if tier == "destructive":
+    if tier in ("destructive", "physical"):
         return True
     from . import grants
     return not grants.has(cid, action)
@@ -888,7 +925,8 @@ def needs_confirm(cid: str, action: str) -> bool:
 
 def grantable(cid: str, action: str) -> bool:
     """True when the approval prompt may offer "Always allow": write-tier only
-    (read never asks, destructive is never grantable, author confirm sticks)."""
+    (read never asks; destructive and physical are never grantable; author
+    confirm sticks)."""
     m = {x["id"]: x for x in load()}.get(cid) or {}
     return not _author_confirm(m, action) and action_access(cid, action) == "write"
 

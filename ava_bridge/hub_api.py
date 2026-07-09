@@ -56,8 +56,10 @@ def approvals_decide(aid: str, decision: str = "approve"):
 
 @router.get("/connectors/{cid}/grants")
 def grants_list(cid: str):
-    """One connector's permission sheet (settings page): every static action
-    with its capability group, access tier, and grant state."""
+    """One connector's permission sheet (settings page): every static action —
+    plus, for an MCP/discover connector, its live dynamic tools (best-effort;
+    a down server just means the live set is omitted) — with capability group,
+    access tier, and grant state."""
     from . import connectors as _c, grants
     granted = grants.for_connector(cid)
     m = {x["id"]: x for x in _c.all()}.get(cid) or {}
@@ -72,6 +74,17 @@ def grants_list(cid: str):
                      "description": a.get("description", ""),
                      "granted": a["id"] in granted,
                      "grantable": _c.grantable(cid, a["id"])})
+    if _c._mcp_spec(m) or _c._discover_spec(m):
+        seen = {a["id"] for a in acts}
+        for t in (_c.discover_tools(cid).get("tools") or []):
+            name = t.get("name")
+            if not name or name in seen:
+                continue
+            acts.append({"id": name, "access": _c.action_access(cid, name),
+                         "capability": "live tools", "method": "", "path": "",
+                         "description": (t.get("description") or "")[:160],
+                         "granted": name in granted,
+                         "grantable": _c.grantable(cid, name)})
     return {"grants": granted, "actions": acts}
 
 
@@ -265,6 +278,7 @@ def list_connectors():
             "kind": m.get("kind", "app"),
             "actions": len(actions),
             "mcp": connectors._mcp_spec(m) is not None,
+            "discover": connectors._discover_spec(m) is not None,
             "has_policy": os.path.exists(os.path.join(pol_dir, f"{cid}.yaml")),
             "has_tools": has_tools,
             "renders_policy": connectors.render_egress_policy(cid) is not None,
@@ -761,6 +775,20 @@ def _probe(url: str, command: str, token_env: str | None) -> dict:
     if not url:
         return {"ok": False, "error": "give a web address or a start command"}
 
+    def _serves_html() -> bool:
+        """Does the app have its own web UI at the base URL? Drives the
+        "Add it to Ava's sidebar" offer (ui.embed: iframe — the embedded-app
+        tier from CONNECTOR_SDK.md §3)."""
+        try:
+            import requests
+            r = requests.get(url, timeout=5, headers={"Accept": "text/html"})
+            ct = r.headers.get("content-type", "")
+            return r.status_code < 400 and (
+                "text/html" in ct
+                or r.text[:200].lstrip().lower().startswith(("<!doctype", "<html")))
+        except Exception:  # noqa: BLE001
+            return False
+
     # 2) Try MCP over HTTP at the URL.
     spec = {"transport": "http", "url": url, "command": None, "env": None,
             "token_env": token_env}
@@ -783,7 +811,8 @@ def _probe(url: str, command: str, token_env: str | None) -> dict:
         tools = data.get("tools") if isinstance(data, dict) else (
             data if isinstance(data, list) else None)
         if isinstance(tools, list) and tools:
-            return {"ok": True, "kind": "discover", "tools": _slim_tools(tools)}
+            return {"ok": True, "kind": "discover", "tools": _slim_tools(tools),
+                    "has_ui": _serves_html()}
     except Exception:  # noqa: BLE001
         pass
 
@@ -809,12 +838,13 @@ def _probe(url: str, command: str, token_env: str | None) -> dict:
             actions = _actions_from_openapi(spec)
             if actions:
                 return {"ok": True, "kind": "rest", "tools": [], "actions": actions,
+                        "has_ui": _serves_html(),
                         "detail": f"Read its API — found {len(actions)} actions."}
     except Exception:  # noqa: BLE001
         pass
 
     # 4) A plain web API with no discoverable spec — the user declares actions.
-    return {"ok": True, "kind": "rest", "tools": [],
+    return {"ok": True, "kind": "rest", "tools": [], "has_ui": _serves_html(),
             "detail": "No tools to auto-discover — tell Ava what this app can do."}
 
 
@@ -897,6 +927,15 @@ async def connector_new(body: dict):
         if tenv:
             d["token_env"] = tenv
         manifest["actions"] = {"discover": d}
+
+    # Embedded-app tier (CONNECTOR_SDK.md §3): the app has its own web UI and the
+    # user asked for a sidebar tile — Ava reverse-proxies it same-origin under
+    # /apps/<id>/ so it inherits the session cookie. No app code changes needed.
+    if body.get("ui"):
+        ui_url = base_url or str((disc_in or {}).get("base") or "").strip()
+        if ui_url:
+            manifest["ui"] = {"label": label, "icon": "panel",
+                              "embed": "iframe", "url": ui_url}
 
     actions = []
     # Cap matches the probe's discovery limit — a silently-dropped tail would

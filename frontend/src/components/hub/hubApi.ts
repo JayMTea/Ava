@@ -54,6 +54,7 @@ export interface HubConnector {
   status: string; // up | down | unknown | n/a
   actions: number;
   mcp: boolean;
+  discover?: boolean;  // dynamic tool facade (GET /tools + POST /call)
   has_policy: boolean;
   has_tools: boolean;
   renders_policy: boolean;
@@ -173,6 +174,7 @@ export interface NewConnectorBody {
   confirm?: boolean;
   role?: string;      // 'device' — enables the push flow + Devices grouping
   ingest?: boolean;   // let the app push readings/events with its ingest token
+  ui?: boolean;       // write the embedded-app ui: block (sidebar tile + iframe proxy)
   actions?: { id: string; method: string; path: string; description?: string; confirm?: boolean; access?: string }[];
   mcp?: { url?: string; command?: string; token_env?: string; sandbox?: string };
   discover?: { base?: string; list?: string; call?: string; token_env?: string };
@@ -208,6 +210,8 @@ export interface ProbeResult {
   tools?: { name: string; description: string }[];
   // Pre-filled from the app's OpenAPI/Swagger spec (a plain web app is zero-config).
   actions?: { id: string; method: string; path: string; description?: string; confirm?: boolean; access?: string }[];
+  // The app serves its own web UI — offer the embedded sidebar tile (ui.embed: iframe).
+  has_ui?: boolean;
   detail?: string;
   error?: string;
 }
@@ -226,7 +230,7 @@ export interface CostSettings {
 // ---- JIT permission sheet (connector settings) --------------------------------
 export interface GrantAction {
   id: string;
-  access: 'read' | 'write' | 'destructive';
+  access: 'read' | 'write' | 'destructive' | 'physical';
   capability: string;
   method: string;
   path: string;
@@ -244,7 +248,7 @@ export interface PendingApproval {
   ts: number;
   // JIT consent: write-tier prompts may offer "Always allow"; destructive ones may not.
   grantable?: boolean;
-  access?: 'read' | 'write' | 'destructive';
+  access?: 'read' | 'write' | 'destructive' | 'physical';
 }
 
 // ---- Flight recorder (audit ledger) -----------------------------------------

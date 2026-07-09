@@ -58,6 +58,9 @@ function ApprovalsBanner() {
               {p.access === 'destructive' && (
                 <span style={{ color: 'var(--muted)' }}> · destructive — asks every time</span>
               )}
+              {p.access === 'physical' && (
+                <span style={{ color: 'var(--muted)' }}> · physical action — moves something in the real world; asks every time</span>
+              )}
             </span>
           </span>
           <span style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
@@ -741,7 +744,7 @@ function PermissionsSheet({ cid }: { cid: string }) {
             <div key={a.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '5px 0', borderBottom: '1px solid var(--line)' }}>
               <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 <code>{a.id}</code>
-                <Badge tone={a.access === 'read' ? 'ok' : a.access === 'destructive' ? 'err' : 'accent'}>{a.access}</Badge>
+                <Badge tone={a.access === 'read' ? 'ok' : a.access === 'destructive' || a.access === 'physical' ? 'err' : 'accent'}>{a.access}</Badge>
                 {a.description && <span style={{ color: 'var(--muted)', fontSize: 'var(--fs-xs)', marginLeft: 6 }}>{a.description}</span>}
               </span>
               <span style={{ flexShrink: 0 }}>{state(a)}</span>
@@ -750,7 +753,7 @@ function PermissionsSheet({ cid }: { cid: string }) {
         </div>
       ))}
       <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--muted)' }}>
-        Reads run silently · writes ask once unless always-allowed · destructive actions always ask.
+        Reads run silently · writes ask once unless always-allowed · destructive and physical actions always ask.
       </div>
     </div>
   );
@@ -767,7 +770,7 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
   const [editText, setEditText] = useState<string | null>(null);
   const [showPerms, setShowPerms] = useState(false);
 
-  const hasAgentSurface = c.actions > 0 || (c.mcp && c.renders_policy);
+  const hasAgentSurface = c.actions > 0 || ((c.mcp || c.discover) && c.renders_policy);
 
   const toggleEnabled = useCallback(async () => {
     setBusy(true); setErr('');
@@ -1003,6 +1006,7 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
   const [dockerAvail, setDockerAvail] = useState(true);
   const [confirmAll, setConfirmAll] = useState(false);
   const [isDevice, setIsDevice] = useState(false);
+  const [addToRail, setAddToRail] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [done, setDone] = useState('');
@@ -1018,7 +1022,7 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
 
   const reset = () => {
     setName(''); setReach(''); setTokenEnv(''); setHealth('');
-    setProbe(null); setProbeErr(''); setActions([]); setIsDevice(false);
+    setProbe(null); setProbeErr(''); setActions([]); setIsDevice(false); setAddToRail(false);
   };
   const setAction = (i: number, patch: Partial<ActionDraft>) =>
     setActions((a) => a.map((x, j) => (j === i ? { ...x, ...patch } : x)));
@@ -1032,6 +1036,7 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
       if (!r.ok) setProbeErr(r.error || 'could not reach it');
       else {
         setProbe(r);
+        setAddToRail(!!r.has_ui);   // the app has a web UI — offer the sidebar tile, default on
         if (r.kind === 'rest' || r.kind === 'unknown') {
           // Auto-fill from the app's OpenAPI spec when we found one; otherwise
           // start with one blank row for the user to fill in.
@@ -1069,6 +1074,7 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
       if (confirmAll) body.confirm = true;
     }
     if (isDevice) { body.role = 'device'; body.ingest = true; }
+    if (addToRail && probe?.has_ui && !isDevice) body.ui = true;
     const jit = probe?.kind === 'rest' && (probe.actions?.length || 0) > 0 && !confirmAll;
     try {
       const r = await hub.newConnector(body);
@@ -1082,7 +1088,7 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
       }
     } catch (e) { setMsg((e as Error).message); }
     setBusy(false);
-  }, [id, name, health, reach, isUrl, tokenEnv, probe, actions, isolate, dockerAvail, confirmAll, isDevice, onCreated]);
+  }, [id, name, health, reach, isUrl, tokenEnv, probe, actions, isolate, dockerAvail, confirmAll, isDevice, addToRail, onCreated]);
 
   const found = probe && (probe.kind === 'mcp' || probe.kind === 'discover');
   const manual = probe && (probe.kind === 'rest' || probe.kind === 'unknown');
@@ -1237,6 +1243,19 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
           </label>
           <ActionEditor actions={actions} setAction={setAction} setActions={setActions} />
         </div>
+      )}
+
+      {probe?.has_ui && !isDevice && (
+        <label className="hub-check" style={{ borderBottom: 0 }}>
+          <input type="checkbox" checked={addToRail} onChange={(e) => setAddToRail(e.target.checked)} />
+          <span className="hub-check-main">
+            <span className="hub-check-title">Add it to Ava’s sidebar</span>
+            <span className="hub-check-sub">
+              This app has its own web UI — Ava embeds it as a tile in the left rail, served
+              same-origin so it just works. Uncheck to connect only its tools.
+            </span>
+          </span>
+        </label>
       )}
 
       <div className="hub-btn-row">

@@ -1,13 +1,19 @@
 """MCP client tests — the "wrap any MCP server in an egress policy" feature.
 
 Covers: a REAL end-to-end stdio session against a stub MCP server subprocess
-(initialize -> tools/list -> tools/call over newline JSON-RPC), the HTTP
-transport's JSON/SSE/session-id handling via mocked requests, and the
-connectors-layer integration (routing + egress policy auto-allow).
+(initialize -> tools/list -> tools/call over newline JSON-RPC), a REAL
+end-to-end legacy HTTP+SSE session against a threaded stub (the Home Assistant
+MCP-server shape: endpoint event, POSTed requests, responses on the stream),
+the Streamable-HTTP transport's JSON/SSE/session-id handling via mocked
+requests, and the connectors-layer integration (routing + egress policy
+auto-allow).
 """
+import http.server
 import json
+import queue
 import sys
 import textwrap
+import threading
 import unittest
 from unittest import mock
 
@@ -66,6 +72,110 @@ class TestStdioEndToEnd(unittest.TestCase):
     def test_dead_server_returns_error_not_raise(self):
         spec = dict(STDIO_SPEC, command=[sys.executable, "-c", "pass"])  # exits at once
         out = mcp_client.list_tools("t3", spec)
+        self.assertIn("error", out)
+
+
+class _SseStub(http.server.BaseHTTPRequestHandler):
+    """The legacy HTTP+SSE MCP shape (what Home Assistant serves): GET /sse
+    streams an `endpoint` event then parks, relaying JSON-RPC responses;
+    POST /messages answers 202 and computes the response. Responses are
+    broadcast to every open stream (each test session keeps its own stream
+    alive until class teardown; clients correlate strictly by request id, so
+    a one-consumer shared queue would let an idle stream steal them)."""
+    streams: list = []           # one queue per open GET stream
+    stop = threading.Event()
+    seen_auth: list = []
+
+    def log_message(self, *a):  # noqa: D102 — quiet
+        pass
+
+    def do_GET(self):
+        self.seen_auth.append(self.headers.get("Authorization"))
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.end_headers()
+        q: "queue.Queue" = queue.Queue()
+        self.streams.append(q)      # register BEFORE announcing the endpoint,
+        try:                        # or a fast client's first POST races us
+            self.wfile.write(b"event: endpoint\ndata: /messages\n\n")
+            self.wfile.flush()
+            while not self.stop.is_set():
+                try:
+                    msg = q.get(timeout=0.05)
+                except queue.Empty:
+                    continue
+                try:
+                    self.wfile.write(b"event: message\ndata: "
+                                     + json.dumps(msg).encode() + b"\n\n")
+                    self.wfile.flush()
+                except OSError:      # client hung up (session reset)
+                    return
+        finally:
+            self.streams.remove(q)
+
+    def do_POST(self):
+        n = int(self.headers.get("Content-Length") or 0)
+        msg = json.loads(self.rfile.read(n))
+        self.send_response(202)
+        self.end_headers()
+        if "id" not in msg:      # notification
+            return
+        m = msg.get("method")
+        if m == "initialize":
+            r = {"protocolVersion": "2024-11-05", "capabilities": {"tools": {}},
+                 "serverInfo": {"name": "ha-stub", "version": "0"}}
+        elif m == "tools/list":
+            r = {"tools": [{"name": "HassTurnOn", "description": "Turns on",
+                            "inputSchema": {"type": "object"}}]}
+        elif m == "tools/call":
+            r = {"content": [{"type": "text",
+                              "text": json.dumps(msg["params"]["arguments"])}],
+                 "isError": False}
+        else:
+            r = {}
+        for q in list(self.streams):
+            q.put({"jsonrpc": "2.0", "id": msg["id"], "result": r})
+
+
+class TestSseEndToEnd(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        _SseStub.stop.clear()
+        cls.srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _SseStub)
+        threading.Thread(target=cls.srv.serve_forever, daemon=True).start()
+        cls.url = f"http://127.0.0.1:{cls.srv.server_address[1]}/sse"
+
+    @classmethod
+    def tearDownClass(cls):
+        mcp_client.reset()
+        _SseStub.stop.set()
+        cls.srv.shutdown()
+
+    def _spec(self, **kw):
+        return {"transport": "sse", "url": self.url, "command": None,
+                "env": None, "token_env": None, **kw}
+
+    def test_list_and_call_over_sse(self):
+        out = mcp_client.list_tools("sse1", self._spec())
+        self.assertNotIn("error", out, out)
+        self.assertEqual(out["tools"][0]["name"], "HassTurnOn")
+
+        data, status = mcp_client.call_tool("sse1", self._spec(), "HassTurnOn",
+                                            {"name": "kitchen"})
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(data["content"][0]["text"]),
+                         {"name": "kitchen"})
+
+    def test_bearer_token_sent_on_the_stream(self):
+        with mock.patch.dict("os.environ", {"HASS_TOKEN": "tok-1"}):
+            mcp_client.reset("sse2")
+            out = mcp_client.list_tools("sse2", self._spec(token_env="HASS_TOKEN"))
+        self.assertNotIn("error", out, out)
+        self.assertIn("Bearer tok-1", _SseStub.seen_auth)
+
+    def test_unreachable_sse_server_returns_error(self):
+        spec = self._spec(url="http://127.0.0.1:1/sse")
+        out = mcp_client.list_tools("sse3", spec)
         self.assertIn("error", out)
 
 
@@ -155,6 +265,26 @@ class TestConnectorsIntegration(unittest.TestCase):
     def test_mcp_spec_stdio_inferred(self):
         spec = connectors._mcp_spec({"id": "x", "mcp": {"command": ["npx", "-y", "srv"]}})
         self.assertEqual(spec["transport"], "stdio")
+
+    def test_mcp_spec_sse_inferred_from_url_suffix(self):
+        spec = connectors._mcp_spec(
+            {"id": "x", "mcp": {"url": "http://ha.local:8123/mcp_server/sse"}})
+        self.assertEqual(spec["transport"], "sse")
+
+    def test_mcp_spec_explicit_transport_wins(self):
+        spec = connectors._mcp_spec(
+            {"id": "x", "mcp": {"url": "http://h/sse", "transport": "http"}})
+        self.assertEqual(spec["transport"], "http")
+
+    def test_mcp_spec_inert_when_env_unset(self):
+        # "${HASS_URL}/mcp_server/sse" with HASS_URL unset expands to a
+        # scheme-less path — the manifest must go inert, not half-configured.
+        with mock.patch.dict("os.environ", {}, clear=False):
+            import os
+            os.environ.pop("HASS_URL", None)
+            spec = connectors._mcp_spec(
+                {"id": "x", "mcp": {"url": "${HASS_URL}/mcp_server/sse"}})
+        self.assertIsNone(spec)
 
     def test_mcp_spec_string_command_split(self):
         spec = connectors._mcp_spec({"id": "x", "mcp": {"command": "npx -y srv"}})

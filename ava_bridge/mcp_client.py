@@ -1,10 +1,14 @@
 """Minimal MCP client — wrap any Model Context Protocol server as a connector.
 
 Speaks real MCP (JSON-RPC 2.0): `initialize` -> `notifications/initialized` ->
-`tools/list` / `tools/call`, over either transport:
+`tools/list` / `tools/call`, over any of three transports:
 
   http   Streamable HTTP — POST JSON-RPC to the server URL; handles both plain
          JSON and text/event-stream responses, and echoes Mcp-Session-Id.
+  sse    legacy HTTP+SSE (MCP 2024-11-05) — GET a long-lived event stream, the
+         server announces a per-session POST endpoint in an `endpoint` event,
+         and JSON-RPC responses arrive as `message` events on the stream. This
+         is what Home Assistant's MCP Server integration speaks.
   stdio  newline-delimited JSON-RPC over a spawned subprocess (how most public
          MCP servers ship, e.g. `npx -y @modelcontextprotocol/server-*`).
 
@@ -49,13 +53,22 @@ _sessions: dict[str, "_Session"] = {}
 _sessions_lock = threading.Lock()
 
 
+def _make_session(spec: dict) -> "_Session":
+    t = spec["transport"]
+    if t == "stdio":
+        return _StdioSession(spec)
+    if t == "sse":
+        return _SseSession(spec)
+    return _HttpSession(spec)
+
+
 def _session(cid: str, spec: dict) -> "_Session":
     with _sessions_lock:
         s = _sessions.get(cid)
         if s is None or not s.alive() or s.spec != spec:
             if s is not None:
                 s.close()
-            s = _StdioSession(spec) if spec["transport"] == "stdio" else _HttpSession(spec)
+            s = _make_session(spec)
             _sessions[cid] = s
         return s
 
@@ -191,6 +204,129 @@ class _HttpSession(_Session):
             if isinstance(msg, dict) and msg.get("id") == want_id:
                 return msg
         return None
+
+
+# --------------------------------------------------------------------------- #
+# SSE transport (legacy HTTP+SSE, MCP 2024-11-05 — Home Assistant's MCP server)
+# --------------------------------------------------------------------------- #
+class _SseSession(_Session):
+    """GET a long-lived SSE stream; the server's first `endpoint` event names
+    the per-session POST URL; JSON-RPC requests are POSTed there and their
+    responses arrive as `message` events on the stream (correlated by id)."""
+
+    def __init__(self, spec: dict):
+        super().__init__(spec)
+        self._endpoint: str | None = None
+        self._responses: dict = {}
+        self._sse_cv = threading.Condition()
+        self._dead: str | None = None
+        import requests
+        self._stream = requests.get(
+            spec["url"], headers=self._headers(accept="text/event-stream"),
+            stream=True, timeout=(_HTTP_TIMEOUT, None))  # connect timeout; stream stays open
+        if self._stream.status_code >= 400:
+            body = self._stream.text[:200]
+            self._stream.close()
+            raise McpError(f"SSE connect returned {self._stream.status_code}: {body}")
+        # Grab the raw socket NOW (urllib3 detaches the connection later):
+        # close() must shutdown() it to unblock the reader thread's read.
+        try:
+            self._sock = self._stream.raw._fp.fp.raw._sock
+        except Exception:  # noqa: BLE001 — stack shape varies across versions
+            self._sock = None
+        threading.Thread(target=self._reader, daemon=True,
+                         name=f"mcp-sse-{spec['url'][:40]}").start()
+        with self._sse_cv:
+            self._sse_cv.wait_for(lambda: self._endpoint or self._dead,
+                                  timeout=_STDIO_START_TIMEOUT)
+            if not self._endpoint:
+                raise McpError(self._dead or "SSE server never sent its endpoint event")
+
+    def _headers(self, accept: str = "application/json") -> dict:
+        h = {"Accept": accept}
+        tenv = self.spec.get("token_env")
+        if tenv and os.environ.get(tenv):
+            h["Authorization"] = "Bearer " + os.environ[tenv]
+        return h
+
+    def _reader(self) -> None:
+        """Consume the stream: `endpoint` announces the POST URL, `message`
+        carries JSON-RPC; anything else (pings, server notices) is ignored."""
+        event, data = "", []
+        try:
+            # chunk_size=1: iter_lines' default 512-byte read blocks until the
+            # buffer fills — a short `endpoint` event would never surface.
+            # Byte reads drain the buffered socket, so this stays cheap.
+            for line in self._stream.iter_lines(chunk_size=1, decode_unicode=True):
+                if line is None:
+                    continue
+                if line == "":                       # blank line ends one event
+                    self._dispatch(event or "message", "\n".join(data))
+                    event, data = "", []
+                elif line.startswith("event:"):
+                    event = line[6:].strip()
+                elif line.startswith("data:"):
+                    data.append(line[5:].lstrip())
+        except Exception as e:  # noqa: BLE001 — stream death is reported to waiters
+            self._dead = self._dead or f"SSE stream error: {e}"
+        finally:
+            with self._sse_cv:
+                self._dead = self._dead or "SSE stream closed by server"
+                self._sse_cv.notify_all()
+
+    def _dispatch(self, event: str, data: str) -> None:
+        if event == "endpoint" and data:
+            from urllib.parse import urljoin
+            with self._sse_cv:
+                self._endpoint = urljoin(self.spec["url"], data.strip())
+                self._sse_cv.notify_all()
+            return
+        if event != "message" or not data:
+            return
+        try:
+            msg = json.loads(data)
+        except ValueError:
+            return
+        if isinstance(msg, dict) and msg.get("id") is not None:
+            with self._sse_cv:
+                self._responses[msg["id"]] = msg
+                self._sse_cv.notify_all()
+
+    def alive(self) -> bool:
+        return self._dead is None
+
+    def close(self) -> None:
+        self._dead = self._dead or "closed"
+        # Shut the raw socket down FIRST: response.close() blocks on the buffer
+        # lock held by the reader thread's in-flight blocking read, deadlocking
+        # the caller (session reset / connector reload). shutdown() unblocks
+        # that read with EOF, the reader exits, and close() is then safe.
+        if self._sock is not None:
+            try:
+                import socket as _socket
+                self._sock.shutdown(_socket.SHUT_RDWR)
+            except Exception:  # noqa: BLE001 — already closed / never connected
+                pass
+        try:
+            self._stream.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _rpc(self, payload: dict, timeout: int) -> dict | None:
+        import requests
+        r = requests.post(self._endpoint, json=payload,
+                          headers=self._headers(), timeout=_HTTP_TIMEOUT)
+        if r.status_code >= 400:
+            raise McpError(f"MCP SSE endpoint returned {r.status_code}: {r.text[:200]}")
+        if "id" not in payload:          # notification — nothing comes back
+            return None
+        want = payload["id"]
+        with self._sse_cv:
+            self._sse_cv.wait_for(lambda: want in self._responses or self._dead,
+                                  timeout=timeout)
+            if want in self._responses:
+                return self._responses.pop(want)
+        raise McpError(self._dead or f"MCP SSE response timed out after {timeout}s")
 
 
 # --------------------------------------------------------------------------- #

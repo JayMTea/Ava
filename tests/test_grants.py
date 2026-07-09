@@ -23,6 +23,27 @@ actions:
   - { id: drop_thing,   method: POST,   path: /api/things/delete }
   - { id: gated_thing,  method: POST,   path: /api/gated, confirm: true }
   - { id: costly_read,  method: GET,    path: /api/export, access: write }
+  - { id: open_valve,   method: POST,   path: /api/valve, access: physical }
+"""
+
+# A device connector with dynamically-discovered tools (MCP-style) classified
+# by the manifest's dynamic_access patterns — the Home Assistant shape.
+DEVICE = """\
+id: hub
+role: device
+mcp: { url: "http://127.0.0.1:1/sse" }
+dynamic_access:
+  GetLiveContext: read
+  "Vacuum*": write
+  "*": physical
+"""
+
+# A device connector that declares NO dynamic_access — unknown tools must
+# still land on the safe default (physical), not silently become grantable.
+BAREDEV = """\
+id: baredev
+role: device
+mcp: { url: "http://127.0.0.1:1/sse" }
 """
 
 
@@ -40,6 +61,8 @@ class TierTests(unittest.TestCase):
             p.start()
         grants._cache.update(data=None, mtime=0.0)
         _write(self.tmp, "app", APP)
+        _write(self.tmp, "hub", DEVICE)
+        _write(self.tmp, "baredev", BAREDEV)
         connectors.load(force=True)
 
     def tearDown(self):
@@ -80,6 +103,30 @@ class TierTests(unittest.TestCase):
         self.assertFalse(connectors.grantable("app", "drop_thing"))     # destructive
         self.assertFalse(connectors.grantable("app", "gated_thing"))    # author gate
         self.assertFalse(connectors.grantable("app", "list_things"))    # read
+        self.assertFalse(connectors.grantable("app", "open_valve"))     # physical
+
+    # --- the physical tier (real-world actuation is never silent) ------------
+    def test_physical_is_declared_never_inferred(self):
+        self.assertEqual(connectors.action_access("app", "open_valve"), "physical")
+        # a plain POST stays write — physical only comes from a declaration
+        self.assertEqual(connectors.action_access("app", "make_thing"), "write")
+
+    def test_physical_asks_even_when_granted(self):
+        grants.grant("app", "open_valve")   # a rogue grant must not bypass
+        self.assertTrue(connectors.needs_confirm("app", "open_valve"))
+
+    def test_dynamic_access_patterns_classify_mcp_tools(self):
+        self.assertEqual(connectors.action_access("hub", "GetLiveContext"), "read")
+        self.assertEqual(connectors.action_access("hub", "VacuumStart"), "write")
+        self.assertEqual(connectors.action_access("hub", "HassTurnOn"), "physical")
+        self.assertFalse(connectors.needs_confirm("hub", "GetLiveContext"))
+        self.assertTrue(connectors.needs_confirm("hub", "HassTurnOn"))
+        self.assertFalse(connectors.grantable("hub", "HassTurnOn"))
+
+    def test_device_unknown_dynamic_tools_default_to_physical(self):
+        self.assertEqual(connectors.action_access("baredev", "mystery_verb"), "physical")
+        grants.grant("baredev", "mystery_verb")   # rogue grant must not bypass
+        self.assertTrue(connectors.needs_confirm("baredev", "mystery_verb"))
 
     # --- capability grouping (the permissions sheet) --------------------------
     def test_capability_from_path_skips_api_prefix_and_params(self):
