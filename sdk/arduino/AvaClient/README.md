@@ -8,6 +8,15 @@ AvaClient speaks the two contracts Ava already uses for device connectors (see
 [`docs/DEVICE_CONNECTORS.md`](../../../docs/DEVICE_CONNECTORS.md)); it does not
 add anything to Ava's core.
 
+## Your device, your firmware
+
+AvaClient is an **optional convenience library, provided as-is**. **You own your
+device and its firmware** — writing it, flashing it, testing it on real hardware,
+and keeping it working. Ava's responsibility ends at the documented HTTP contract
+(the push and pull endpoints); Ava does **not** build, flash, test, or maintain
+device firmware, and ships no board-specific code. Use this library if it helps,
+or adapt/replace it freely — anything that honors the contract works.
+
 ## Install
 
 - **Arduino IDE:** Sketch → Include Library → Add .ZIP Library… → select this
