@@ -70,11 +70,11 @@ function ApprovalsBanner() {
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared bits
 // ─────────────────────────────────────────────────────────────────────────────
-type TabId = 'overview' | 'models' | 'agent' | 'connectors' | 'voice' | 'memory' | 'budgets' | 'history' | 'system';
+type TabId = 'overview' | 'hardware' | 'agent' | 'connectors' | 'voice' | 'memory' | 'budgets' | 'history' | 'system';
 
 const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: 'overview', label: 'Overview', icon: 'gauge' },
-  { id: 'models', label: 'Models', icon: 'cloud' },
+  { id: 'hardware', label: 'Hardware', icon: 'chart' },
   { id: 'agent', label: 'Agent', icon: 'bot' },
   { id: 'connectors', label: 'Connectors', icon: 'panel' },
   { id: 'voice', label: 'Voice', icon: 'mic' },
@@ -106,12 +106,14 @@ function Overview({ onGo }: { onGo: (t: TabId) => void }) {
   const [agent, setAgent] = useState<AgentStatus | null>(null);
   const [conns, setConns] = useState<HubConnector[]>([]);
   const [backends, setBackends] = useState<BackendProbe | null>(null);
+  const [hw, setHw] = useState<HardwareInfo | null>(null);
 
   useEffect(() => {
     hub.system().then(setSys).catch(() => {});
     hub.agentStatus().then(setAgent).catch(() => {});
     hub.connectors().then((r) => setConns(r.connectors)).catch(() => {});
     hub.backends().then(setBackends).catch(() => {});
+    hub.hardware().then(setHw).catch(() => {});
   }, []);
 
   const engineUp = backends && (backends.vllm || backends.ollama);
@@ -132,20 +134,20 @@ function Overview({ onGo }: { onGo: (t: TabId) => void }) {
     <>
       <Panel title="Welcome" subtitle="Set up and control everything from here — no terminal required.">
         <p className="hub-note" style={{ border: 0, padding: 0, background: 'none' }}>
-          Each tab configures one piece: your <b>model</b>, the <b>agent</b> runtime that gives Ava
-          tools and memory, the <b>connectors</b> that wire in your apps, and <b>system</b> settings
+          Each tab configures one piece: your <b>hardware</b>, the <b>agent</b> — its model (brain),
+          tools, and memory — the <b>connectors</b> that wire in your apps, and <b>system</b> settings
           like self-editing governance. Changes are written to <b>ava.yaml</b> — never to source.
         </p>
       </Panel>
 
       <div className="hub-section" />
       <div className="db-grid db-grid-2">
-        {card('models', 'cloud', 'Model',
-          engineUp ? <Badge tone="ok">local engine up</Badge> : <Badge tone="warn">not detected</Badge>,
-          'inference backend & model')}
-        {card('agent', 'bot', 'Agent runtime',
+        {card('hardware', 'chart', 'Hardware',
+          hw ? <Badge tone="accent">{hw.tier} tier</Badge> : <Badge>detecting…</Badge>,
+          hw?.gpu ? hw.gpu : 'GPU · memory · model tier')}
+        {card('agent', 'bot', 'Agent',
           agent?.available ? <Badge tone="ok">{agent.name} ready</Badge> : <Badge tone="warn">not provisioned</Badge>,
-          'tools · memory · sandbox')}
+          engineUp ? 'model (engine up) · tools · memory' : 'model · tools · memory · sandbox')}
         {card('connectors', 'panel', 'Connectors',
           <Badge tone="accent">{enabledConns} enabled</Badge>,
           'apps Ava monitors & drives')}
@@ -160,29 +162,22 @@ function Overview({ onGo }: { onGo: (t: TabId) => void }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Models
 // ─────────────────────────────────────────────────────────────────────────────
-function ModelsPanel({ onRestart }: { onRestart: () => void }) {
+function HardwarePanel() {
   const [hw, setHw] = useState<HardwareInfo | null>(null);
 
   useEffect(() => { hub.hardware().then(setHw).catch(() => {}); }, []);
 
   return (
-    <>
-      <Panel title="Your hardware" subtitle="Detected automatically — picks a sensible model tier.">
-        {hw ? (
-          <dl className="hub-kv">
-            <dt>Compute</dt><dd>{hw.gpu || 'No local GPU detected'}</dd>
-            <dt>Usable memory</dt><dd>{hw.fit_gb != null ? `${hw.fit_gb} GB (${hw.source || 'detected'})` : '—'}</dd>
-            <dt>Recommended tier</dt><dd><Badge tone="accent">{hw.tier}</Badge> &nbsp;<span style={{ color: 'var(--muted)' }}>{hw.hint}</span></dd>
-          </dl>
-        ) : <EmptyState text="Detecting hardware…" />}
-      </Panel>
-
-      <div className="hub-section" />
-      <BrainManager onRestart={onRestart} />
-
-      <div className="hub-section" />
-      <ModelStorePanel />
-    </>
+    <Panel title="Your hardware"
+      subtitle="Detected automatically — it sets the recommended model tier. Pick and download the model itself under the Agent tab.">
+      {hw ? (
+        <dl className="hub-kv">
+          <dt>Compute</dt><dd>{hw.gpu || 'No local GPU detected'}</dd>
+          <dt>Usable memory</dt><dd>{hw.fit_gb != null ? `${hw.fit_gb} GB (${hw.source || 'detected'})` : '—'}</dd>
+          <dt>Recommended tier</dt><dd><Badge tone="accent">{hw.tier}</Badge> &nbsp;<span style={{ color: 'var(--muted)' }}>{hw.hint}</span></dd>
+        </dl>
+      ) : <EmptyState text="Detecting hardware…" />}
+    </Panel>
   );
 }
 
@@ -608,7 +603,7 @@ function BenchPanel() {
 // ─────────────────────────────────────────────────────────────────────────────
 // Agent
 // ─────────────────────────────────────────────────────────────────────────────
-function AgentPanel() {
+function AgentPanel({ onRestart }: { onRestart: () => void }) {
   const [st, setSt] = useState<AgentStatus | null>(null);
   const [steps, setSteps] = useState<{ step: string; ok: boolean; detail: string }[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -628,6 +623,7 @@ function AgentPanel() {
   }, [load]);
 
   return (
+    <>
     <Panel
       title="Agent runtime"
       subtitle="NemoClaw gives Ava a sandbox, tools, egress policies, and persistent memory. Without it, chat still works (tool-less)."
@@ -670,6 +666,13 @@ function AgentPanel() {
         </div>
       )}
     </Panel>
+
+    <div className="hub-section" />
+    <BrainManager onRestart={onRestart} />
+
+    <div className="hub-section" />
+    <ModelStorePanel />
+    </>
   );
 }
 
@@ -1928,7 +1931,7 @@ export function HubView() {
         <div className="hub-head" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
           <div>
             <h2>Set up {brand}</h2>
-            <p>Configure your model, agent, apps, and system — all from here, written to your config, nothing to source.</p>
+            <p>Configure your hardware, agent, apps, and system — all from here, written to your config, nothing to source.</p>
           </div>
           <form method="post" action="/logout" style={{ flexShrink: 0 }}>
             <button type="submit" className="hub-btn ghost sm">
@@ -1949,8 +1952,8 @@ export function HubView() {
         </div>
 
         {tab === 'overview' && <Overview onGo={setTab} />}
-        {tab === 'models' && <ModelsPanel onRestart={notifyRestart} />}
-        {tab === 'agent' && <AgentPanel />}
+        {tab === 'hardware' && <HardwarePanel />}
+        {tab === 'agent' && <AgentPanel onRestart={notifyRestart} />}
         {tab === 'connectors' && <ConnectorsPanel />}
         {tab === 'voice' && <VoicePanel onRestart={notifyRestart} />}
         {tab === 'memory' && <MemoryPanel />}
