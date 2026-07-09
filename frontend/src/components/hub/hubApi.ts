@@ -168,9 +168,35 @@ export interface NewConnectorBody {
   base_url?: string;
   token_env?: string;
   confirm?: boolean;
+  role?: string;      // 'device' — enables the push flow + Devices grouping
+  ingest?: boolean;   // let the app push readings/events with its ingest token
   actions?: { id: string; method: string; path: string; description?: string; confirm?: boolean }[];
   mcp?: { url?: string; command?: string; token_env?: string; sandbox?: string };
   discover?: { base?: string; list?: string; call?: string; token_env?: string };
+}
+export interface IngestToken {
+  ok: boolean;
+  token?: string;
+  enabled?: boolean;
+  url?: string;       // the push endpoint, e.g. /api/connectors/<id>/events
+  error?: string;
+}
+export interface DeployResult {
+  ok: boolean;
+  deployed?: boolean;
+  steps?: { step: string; ok: boolean; detail: string }[];
+  detail?: string;
+  error?: string;
+}
+export interface DeviceEvent {
+  ts: number;
+  cid: string;
+  type: string;
+  name: string;
+  value?: number | string;
+  unit?: string;
+  message?: string;
+  severity?: string;
 }
 export interface ProbeResult {
   ok: boolean;
@@ -294,6 +320,16 @@ export const hub = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }),
+  ingestToken: (id: string) =>
+    req<IngestToken>(`/api/hub/connectors/${encodeURIComponent(id)}/ingest-token`),
+  lastEvent: (id: string) =>
+    req<{ ok: boolean; event: DeviceEvent | null }>(
+      `/api/hub/connectors/${encodeURIComponent(id)}/last-event`),
+  deployConnector: (id: string) =>
+    req<DeployResult>(`/api/hub/connectors/${encodeURIComponent(id)}/deploy`, { method: 'POST' }),
+  deleteConnector: (id: string) =>
+    req<{ ok: boolean; error?: string }>(
+      `/api/hub/connectors/${encodeURIComponent(id)}/delete`, { method: 'POST' }),
 
   // Inference backends — the multi-model brain manager
   backendList: () => req<BackendList>('/api/hub/models/backends'),

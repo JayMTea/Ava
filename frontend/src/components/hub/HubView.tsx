@@ -5,8 +5,8 @@ import { api } from '../../lib/api';
 import { hub } from './hubApi';
 import type {
   AgentStatus, AuditEvent, Backend, BackendList, BackendProbe, BackendTestResult, BenchResult,
-  BenchStatus, CostSettings, EnrollResult, GenerateResult, HardwareInfo, HubConnector,
-  MemoryCounts, MemoryItem, ModelStore, NewConnectorBody, PendingApproval, ProbeResult,
+  BenchStatus, CostSettings, DeviceEvent, EnrollResult, GenerateResult, HardwareInfo, HubConnector,
+  IngestToken, MemoryCounts, MemoryItem, ModelStore, NewConnectorBody, PendingApproval, ProbeResult,
   PullStatus, SystemInfo, VoiceStatus,
 } from './hubApi';
 
@@ -676,28 +676,51 @@ function AgentPanel() {
 // ─────────────────────────────────────────────────────────────────────────────
 // Connectors
 // ─────────────────────────────────────────────────────────────────────────────
-function ConnectorRow({ c }: { c: HubConnector }) {
+function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void }) {
   const [gen, setGen] = useState<GenerateResult | null>(null);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
+  const [err, setErr] = useState('');
+  const [token, setToken] = useState<IngestToken | null>(null);
+
+  const hasAgentSurface = c.actions > 0 || (c.mcp && c.renders_policy);
 
   const preview = useCallback(async () => {
-    setBusy(true); setMsg('');
+    setBusy(true); setMsg(''); setErr('');
     try { setGen(await hub.generate(c.id, false)); setOpen(true); }
-    catch (e) { setMsg((e as Error).message); }
+    catch (e) { setErr((e as Error).message); }
     setBusy(false);
   }, [c.id]);
 
-  const write = useCallback(async () => {
-    setBusy(true); setMsg('');
+  const deploy = useCallback(async () => {
+    setBusy(true); setMsg(''); setErr('');
     try {
-      const r = await hub.generate(c.id, true);
-      setGen(r);
-      setMsg(`Wrote ${r.wrote?.length || 0} file(s). Run \`cd agent && ./install.sh\` to deploy into the sandbox.`);
-    } catch (e) { setMsg((e as Error).message); }
+      const r = await hub.deployConnector(c.id);
+      if (r.ok) setMsg(r.detail || (r.deployed ? 'Deployed into the agent sandbox.' : 'Done.'));
+      else setErr(r.detail || r.steps?.find((s) => !s.ok)?.detail || 'deploy failed');
+      onChanged();
+    } catch (e) { setErr((e as Error).message); }
     setBusy(false);
+  }, [c.id, onChanged]);
+
+  const showToken = useCallback(async () => {
+    setErr('');
+    try {
+      const t = await hub.ingestToken(c.id);
+      if (t.ok) setToken(t); else setErr(t.error || 'no token');
+    } catch (e) { setErr((e as Error).message); }
   }, [c.id]);
+
+  const remove = useCallback(async () => {
+    if (!window.confirm(`Remove connector “${c.label}”? This deletes its manifest.`)) return;
+    setBusy(true); setErr('');
+    try {
+      const r = await hub.deleteConnector(c.id);
+      if (r.ok) onChanged(); else setErr(r.error || 'could not remove');
+    } catch (e) { setErr((e as Error).message); }
+    setBusy(false);
+  }, [c.id, c.label, onChanged]);
 
   return (
     <div style={{ borderBottom: '1px solid var(--line)', padding: '12px 0' }}>
@@ -714,18 +737,41 @@ function ConnectorRow({ c }: { c: HubConnector }) {
             {c.renders_policy && (c.has_policy ? <Badge tone="ok">policy ok</Badge> : <Badge tone="warn">policy stale</Badge>)}
           </div>
         </div>
-        {(c.actions > 0 || (c.mcp && c.renders_policy)) && (
-          <div className="hub-row-actions">
+        <div className="hub-row-actions">
+          <button className="hub-btn ghost sm" onClick={showToken} disabled={busy} title="Show the push token a device presents to send readings/events">
+            <Icon name="lock" />Push token
+          </button>
+          {hasAgentSurface && (
             <button className="hub-btn ghost sm" onClick={preview} disabled={busy}>
               <Icon name="code" />Preview
             </button>
-            <button className="hub-btn sm" onClick={write} disabled={busy}>
-              <Icon name="check" />Generate & deploy
+          )}
+          {hasAgentSurface && (
+            <button className="hub-btn sm" onClick={deploy} disabled={busy}>
+              <Icon name="check" />{busy ? 'Deploying…' : 'Deploy'}
             </button>
-          </div>
-        )}
+          )}
+          <button className="hub-btn ghost sm" onClick={remove} disabled={busy} aria-label="Remove connector" title="Remove connector">
+            <Icon name="trash" />
+          </button>
+        </div>
       </div>
       {msg && <div className="hub-msg ok" style={{ marginTop: 8 }}>{msg}</div>}
+      {err && <div className="hub-msg err" style={{ marginTop: 8 }}>{err}</div>}
+      {token && (
+        <div className="hub-note" style={{ marginTop: 8 }}>
+          <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--muted)', marginBottom: 6 }}>
+            Your device sends this as <code>Authorization: Bearer …</code> when it POSTs to <code>{token.url}</code>. Keep it secret — treat it like a password.
+          </div>
+          <div className="hub-fieldrow">
+            <input className="hub-input" readOnly value={token.token || ''} style={{ flex: 1, fontFamily: 'monospace' }}
+              onFocus={(e) => e.currentTarget.select()} />
+            <button className="hub-btn ghost sm" style={{ flex: '0 0 auto' }}
+              onClick={() => navigator.clipboard?.writeText(token.token || '')}><Icon name="copy" />Copy</button>
+            <button className="hub-btn ghost sm" style={{ flex: '0 0 auto' }} onClick={() => setToken(null)}>Hide</button>
+          </div>
+        </div>
+      )}
       {gen && open && (
         <div style={{ marginTop: 10 }}>
           {gen.policy && (
@@ -773,9 +819,11 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
   const [isolate, setIsolate] = useState(true);
   const [dockerAvail, setDockerAvail] = useState(true);
   const [confirmAll, setConfirmAll] = useState(false);
+  const [isDevice, setIsDevice] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [done, setDone] = useState('');
+  const [verify, setVerify] = useState<{ cid: string; name: string } | null>(null);
 
   useEffect(() => {
     hub.system().then((s) => { setDockerAvail(s.docker); setIsolate(s.docker); }).catch(() => {});
@@ -787,7 +835,7 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
 
   const reset = () => {
     setName(''); setReach(''); setTokenEnv(''); setHealth('');
-    setProbe(null); setProbeErr(''); setActions([]);
+    setProbe(null); setProbeErr(''); setActions([]); setIsDevice(false);
   };
   const setAction = (i: number, patch: Partial<ActionDraft>) =>
     setActions((a) => a.map((x, j) => (j === i ? { ...x, ...patch } : x)));
@@ -811,8 +859,9 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
 
   const create = useCallback(async () => {
     setBusy(true); setMsg(''); setDone('');
+    const nm = name.trim();
     const body: NewConnectorBody = {
-      id, label: name.trim() || undefined, probe: health.trim() || undefined,
+      id, label: nm || undefined, probe: health.trim() || undefined,
     };
     const tenv = tokenEnv.trim() || undefined;
     if (probe?.kind === 'mcp') {
@@ -823,29 +872,36 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
     } else if (probe?.kind === 'discover') {
       body.discover = { base: reach.trim(), token_env: tenv };
       if (confirmAll) body.confirm = true;
-    } else {
+    } else if (!isDevice) {
       body.base_url = reach.trim() || undefined;
       body.token_env = tenv;
       body.actions = actions.filter((a) => a.id.trim() && a.path.trim());
     }
+    if (isDevice) { body.role = 'device'; body.ingest = true; }
     try {
       const r = await hub.newConnector(body);
-      if (!r.ok) setMsg(r.error || 'could not create connector');
-      else { setDone(`Connected “${name.trim()}”. Preview / Generate & deploy below.`); reset(); onCreated(); }
+      if (!r.ok) { setMsg(r.error || 'could not create connector'); }
+      else if (isDevice) { setVerify({ cid: id, name: nm }); reset(); onCreated(); }
+      else { setDone(`Connected “${nm}”. Preview / Deploy below.`); reset(); onCreated(); }
     } catch (e) { setMsg((e as Error).message); }
     setBusy(false);
-  }, [id, name, health, reach, isUrl, tokenEnv, probe, actions, isolate, dockerAvail, confirmAll, onCreated]);
+  }, [id, name, health, reach, isUrl, tokenEnv, probe, actions, isolate, dockerAvail, confirmAll, isDevice, onCreated]);
 
   const found = probe && (probe.kind === 'mcp' || probe.kind === 'discover');
   const manual = probe && (probe.kind === 'rest' || probe.kind === 'unknown');
-  const canCreate = validId && !!probe && (found || (manual && actions.some((a) => a.id.trim() && a.path.trim())));
+  const canCreate = validId && (isDevice
+    ? true
+    : !!probe && (found || (manual && actions.some((a) => a.id.trim() && a.path.trim()))));
 
   if (!open) {
     return (
-      <div className="hub-btn-row" style={{ marginTop: 0 }}>
-        <button className="hub-btn" onClick={() => setOpen(true)}><Icon name="plus" />Connect an app</button>
-        {done && <span className="hub-msg ok" style={{ marginTop: 0, alignSelf: 'center' }}>{done}</span>}
-      </div>
+      <>
+        <div className="hub-btn-row" style={{ marginTop: 0 }}>
+          <button className="hub-btn" onClick={() => setOpen(true)}><Icon name="plus" />Connect an app or device</button>
+          {done && <span className="hub-msg ok" style={{ marginTop: 0, alignSelf: 'center' }}>{done}</span>}
+        </div>
+        {verify && <DeviceVerify cid={verify.cid} name={verify.name} onClose={() => setVerify(null)} />}
+      </>
     );
   }
   return (
@@ -865,8 +921,20 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
             </div>)}
       </div>
 
+      <label className="hub-check" style={{ marginTop: 4 }}>
+        <input type="checkbox" checked={isDevice} onChange={(e) => setIsDevice(e.target.checked)} />
+        <span className="hub-check-main">
+          <span className="hub-check-title">This is a device (sensor / hardware)</span>
+          <span className="hub-check-sub">
+            Ava will let it push readings and events, and you'll get a push token after connecting.
+            Wire your Arduino/ESP32/hub with the <code>AvaClient</code> SDK (<code>sdk/</code>). A web
+            address below is optional — add one only if Ava should also read or command it on demand.
+          </span>
+        </span>
+      </label>
+
       <div className="hub-field">
-        <label>Where is your app?</label>
+        <label>{isDevice ? 'Where is your device app? (optional)' : 'Where is your app?'}</label>
         <div className="hub-fieldrow">
           <input className="hub-input" style={{ flex: 3 }} value={reach}
             onChange={(e) => { setReach(e.target.value); setProbe(null); setProbeErr(''); }}
@@ -877,7 +945,9 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
           </button>
         </div>
         <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--muted)', marginTop: 5 }}>
-          Paste its web address, or a command that starts it. Ava checks what it is — you don't have to know.
+          {isDevice
+            ? 'Leave blank for a push-only device. Add the address of its pull server (or the host adapter) if Ava should read or command it.'
+            : "Paste its web address, or a command that starts it. Ava checks what it is — you don't have to know."}
         </div>
       </div>
 
@@ -964,10 +1034,44 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
         <button className="hub-btn" onClick={create} disabled={busy || !canCreate}>
           <Icon name="check" />{busy ? 'Connecting…' : 'Connect app'}
         </button>
-        {!probe && reach.trim() && <span className="hub-msg" style={{ marginTop: 0, alignSelf: 'center', color: 'var(--muted)' }}>Click Detect first.</span>}
+        {!probe && !isDevice && reach.trim() && <span className="hub-msg" style={{ marginTop: 0, alignSelf: 'center', color: 'var(--muted)' }}>Click Detect first.</span>}
       </div>
       {msg && <div className="hub-msg err">{msg}</div>}
+      {verify && <DeviceVerify cid={verify.cid} name={verify.name} onClose={() => setVerify(null)} />}
     </Panel>
+  );
+}
+
+// After a device is connected, watch for its first pushed reading so the user
+// sees it come alive — the terminal-free proof that wiring worked.
+function DeviceVerify({ cid, name, onClose }: { cid: string; name: string; onClose: () => void }) {
+  const [ev, setEv] = useState<DeviceEvent | null>(null);
+  useEffect(() => {
+    let live = true;
+    const tick = () => hub.lastEvent(cid).then((r) => { if (live && r.event) setEv(r.event); }).catch(() => {});
+    tick();
+    const h = setInterval(() => { if (live && !ev) tick(); }, 2500);
+    return () => { live = false; clearInterval(h); };
+  }, [cid, ev]);
+  const okBorder = 'color-mix(in srgb, var(--ok) 40%, transparent)';
+  return (
+    <div className="hub-note" style={{ marginTop: 12, borderColor: ev ? okBorder : undefined }}>
+      {ev ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span style={{ color: 'var(--ok)', display: 'inline-flex' }}><Icon name="check" /></span>
+          <b>Receiving data from {name}.</b>
+          <span style={{ color: 'var(--muted)' }}>
+            Last: {ev.name}{ev.value !== undefined ? ` = ${ev.value}${ev.unit ? ` ${ev.unit}` : ''}` : ''}.
+          </span>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ display: 'inline-flex', color: 'var(--muted)' }}><Icon name="refresh" /></span>
+          <span>Waiting for the first reading from <b>{name}</b>… copy its <b>push token</b> from the list below into your board, then it appears here.</span>
+        </div>
+      )}
+      <button className="hub-btn ghost sm" style={{ marginTop: 8 }} onClick={onClose}>Done</button>
+    </div>
   );
 }
 
@@ -987,10 +1091,12 @@ function ConnectorsPanel() {
       >
         {conns == null ? <EmptyState text="Loading connectors…" />
           : conns.length === 0 ? <EmptyState text="No connectors yet — create one above." />
-            : conns.map((c) => <ConnectorRow key={c.id} c={c} />)}
+            : conns.map((c) => <ConnectorRow key={c.id} c={c} onChanged={load} />)}
         <div className="hub-note" style={{ marginTop: 16 }}>
-          After <b>Generate &amp; deploy</b>, run <b>cd agent &amp;&amp; ./install.sh</b> once to load the new
-          tools into the sandbox. Full schema: <b>docs/CONNECTOR_SDK.md</b>.
+          <b>Push token</b> reveals the secret a device sends its readings with. <b>Deploy</b> loads a
+          connector's tools into the agent so Ava can read or command it (if the sandbox isn't
+          reachable from here, run <b>cd agent &amp;&amp; ./install.sh</b> on the agent host). Full schema:
+          <b> docs/CONNECTOR_SDK.md</b>; hardware: <b>docs/DEVICE_CONNECTORS.md</b>.
         </div>
       </Panel>
     </>

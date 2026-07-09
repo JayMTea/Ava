@@ -719,6 +719,8 @@ async def connector_new(body: dict):
     manifest: dict = {"id": cid, "label": label, "kind": kind, "enabled": True}
     if body.get("confirm"):  # connector-level "require my approval for every action"
         manifest["confirm"] = True
+    if str(body.get("role") or "").lower() == "device":
+        manifest["role"] = "device"  # groups it under Devices; enables the push flow
 
     probe = str(body.get("probe") or "").strip()
     base_url = str(body.get("base_url") or "").strip()
@@ -797,6 +799,10 @@ async def connector_new(body: dict):
                 egress["hosts"] = [f"{u.hostname}:{port}"]
         manifest["egress"] = egress or {"routes": []}
 
+    # Device push channel — the app may POST events with its ingest token.
+    if body.get("ingest"):
+        manifest["ingest"] = {"enabled": True}
+
     d = os.path.join(settings.home("connectors"), cid)
     path = os.path.join(d, "connector.yaml")
     try:
@@ -845,6 +851,113 @@ def generate_connector(cid: str, write: int = 0):
                 f.write(t["source"])
             wrote.append(os.path.relpath(tp, settings.CODE_ROOT))
     return {"ok": True, "policy": policy_yaml, "tools": tools, "wrote": wrote}
+
+
+@router.get("/connectors/{cid}/ingest-token")
+def connector_ingest_token(cid: str):
+    """The inbound push token a device app presents (Authorization: Bearer …) to
+    POST events — the same value as `ava device token <cid>`, surfaced in the UI so
+    a non-technical user never needs a terminal. Returned only for a known connector."""
+    from . import internal
+    if not any(x["id"] == cid for x in connectors.all()):
+        return JSONResponse({"ok": False, "error": f"unknown connector '{cid}'"},
+                            status_code=404)
+    return {"ok": True, "token": internal.ingest_token(cid),
+            "enabled": connectors.ingest_enabled(cid),
+            "url": f"/api/connectors/{cid}/events"}
+
+
+@router.get("/connectors/{cid}/last-event")
+def connector_last_event(cid: str):
+    """Most recent pushed event for a connector — powers the 'waiting for the first
+    reading…' verify step so the user sees their device come alive without a terminal."""
+    from . import devices as _devices
+    rows = _devices.recent(cid, limit=1)
+    return {"ok": True, "event": rows[0] if rows else None}
+
+
+@router.post("/connectors/{cid}/delete")
+def delete_connector(cid: str):
+    """Remove a user-added connector (its manifest + any generated tools/policy).
+    Built-in connectors shipped in the repo are not removable from here."""
+    import shutil
+    if not _ID_RE.match(cid):
+        return JSONResponse({"ok": False, "error": "bad id"}, status_code=400)
+    user_dir = os.path.join(settings.home("connectors"), cid)
+    if not os.path.isdir(user_dir):
+        if any(x["id"] == cid for x in connectors.all()):
+            return JSONResponse({"ok": False, "error":
+                                 f"'{cid}' is a built-in connector and can't be deleted here"},
+                                status_code=400)
+        return JSONResponse({"ok": False, "error": f"unknown connector '{cid}'"},
+                            status_code=404)
+    try:
+        shutil.rmtree(user_dir)
+    except OSError as e:
+        return JSONResponse({"ok": False, "error": f"could not remove: {e}"},
+                            status_code=500)
+    # Best-effort cleanup of generated agent surface so the sandbox can be re-synced.
+    tdir = os.path.join(settings.CODE_ROOT, "agent", "mcp_server_content", "connectors", cid)
+    pol = os.path.join(settings.CODE_ROOT, "agent", "policies", "generated", f"{cid}.yaml")
+    try:
+        if os.path.isdir(tdir):
+            shutil.rmtree(tdir)
+    except OSError:
+        pass
+    try:
+        if os.path.isfile(pol):
+            os.remove(pol)
+    except OSError:
+        pass
+    connectors.load(force=True)
+    return {"ok": True}
+
+
+@router.post("/connectors/{cid}/deploy")
+def deploy_connector(cid: str):
+    """One-button version of `ava connector generate` + `cd agent && ./install.sh`:
+    render + write this connector's tools and egress policy, then load them into the
+    agent sandbox. Push-only devices need no deploy (they work the moment they have a
+    token), so we say so rather than pretend to do work."""
+    m = {x["id"]: x for x in connectors.all()}.get(cid)
+    if not m:
+        return JSONResponse({"ok": False, "error": f"unknown connector '{cid}'"},
+                            status_code=404)
+    steps: list[dict] = []
+    gen = generate_connector(cid, write=1)
+    if isinstance(gen, JSONResponse):
+        return gen
+    steps.append({"step": "render", "ok": True,
+                  "detail": f"wrote {len(gen.get('wrote') or [])} file(s)"})
+
+    # Nothing for the sandbox to load? Then this is a push-only device.
+    if not gen.get("policy") and not gen.get("tools"):
+        return {"ok": True, "deployed": False, "steps": steps,
+                "detail": "Nothing to deploy — this device only pushes events, which "
+                          "works as soon as it has its token."}
+
+    rt = runtime.configured()
+    if getattr(rt, "name", "") != "nemoclaw" or not rt.available():
+        steps.append({"step": "install", "ok": False,
+                      "detail": "The agent sandbox isn't reachable from here. Run "
+                                "`cd agent && ./install.sh` on the agent host."})
+        return {"ok": False, "deployed": False, "steps": steps,
+                "detail": "Wrote the files, but couldn't reach the agent sandbox to load them."}
+
+    install = os.path.join(settings.CODE_ROOT, "agent", "install.sh")
+    try:
+        cp = subprocess.run(["bash", install], stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, timeout=600)
+        ok = cp.returncode == 0
+        tail = cp.stdout.decode(errors="ignore")[-300:]
+        steps.append({"step": "install", "ok": ok,
+                      "detail": "agent/install.sh" if ok else f"rc={cp.returncode}: {tail}"})
+        return {"ok": ok, "deployed": ok, "steps": steps,
+                "detail": "Deployed into the agent sandbox." if ok
+                          else "install.sh failed — see steps."}
+    except Exception as e:  # noqa: BLE001
+        steps.append({"step": "install", "ok": False, "detail": str(e)})
+        return {"ok": False, "deployed": False, "steps": steps, "detail": "deploy failed"}
 
 
 # --------------------------------------------------------------------------- #
