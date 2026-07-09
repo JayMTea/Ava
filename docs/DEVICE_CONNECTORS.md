@@ -16,8 +16,16 @@ directions:
 A **device connector** is just a normal [connector](CONNECTOR_SDK.md) whose
 `connector.yaml` adds an `ingest:` block (push) and usually an `actions.discover`
 block (pull). Everything else in the Connector SDK (health probe, left-rail UI,
-egress policy) still applies. For the guided, task-first version of this page,
-see [Connect your devices](CONNECT_YOUR_DEVICES.md).
+egress policy) still applies.
+
+Here is the whole flow, end to end, narrated (sound on):
+
+<video controls playsinline preload="metadata"
+       style="width:100%;border-radius:8px"
+       aria-label="Narrated screen recording: connecting a sensing device to Ava end to end">
+  <source src="../assets/connect-device-tour.mp4" type="video/mp4">
+  Your browser can't play video. <a href="../assets/connect-device-tour.mp4">Download the walkthrough</a>.
+</video>
 
 ---
 

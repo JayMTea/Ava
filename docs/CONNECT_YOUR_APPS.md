@@ -93,8 +93,8 @@ ava connector policies myapp --write    # generate its egress policy
 
 - Full manifest reference, with a runnable worked example:
   [App connectors](CONNECTOR_SDK.md)
-- Hardware and sensors (Arduino, ESP32, smart-home hubs):
-  [Connect your devices](CONNECT_YOUR_DEVICES.md)
+- Sensing devices (Arduino, ESP32, smart-home hubs):
+  [Device connectors](DEVICE_CONNECTORS.md)
 
 ---
 
