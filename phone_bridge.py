@@ -551,6 +551,11 @@ async def app_api_proxy(cid: str, path: str, request: Request):
     headers = {"content-type": request.headers.get("content-type", "application/json")}
     if cfg["token"]:
         headers["Authorization"] = "Bearer " + cfg["token"]
+    elif request.headers.get("authorization"):
+        # No server-side token to inject — pass the app's OWN session through
+        # (an embedded SPA with its own login sends its bearer on every call;
+        # dropping it logs the user straight back out).
+        headers["Authorization"] = request.headers["authorization"]
     body = await request.body() if request.method in ("POST", "PATCH", "PUT") else None
 
     def _do():
@@ -585,15 +590,20 @@ async def app_ui_proxy(cid: str, path: str, request: Request):
     url = f"{meta['url'].rstrip('/')}/{path}"
     params = dict(request.query_params)
     body = await request.body() if request.method in ("POST", "PATCH", "PUT") else None
+    # Pass the app's OWN auth through: an embedded SPA with its own login sends
+    # its bearer on every call — dropping it logs the user straight back out.
+    fwd = {}
+    if request.headers.get("authorization"):
+        fwd["Authorization"] = request.headers["authorization"]
 
     def _do():
         if request.method in ("POST", "PATCH", "PUT"):
             ct = request.headers.get("content-type", "application/json")
             return requests.request(request.method, url, params=params, data=body,
-                                    headers={"content-type": ct}, timeout=180)
+                                    headers={"content-type": ct, **fwd}, timeout=180)
         if request.method == "DELETE":
-            return requests.delete(url, params=params, timeout=60)
-        return requests.get(url, params=params, timeout=60)
+            return requests.delete(url, params=params, headers=fwd or None, timeout=60)
+        return requests.get(url, params=params, headers=fwd or None, timeout=60)
 
     try:
         r = await run_in_threadpool(_do)
