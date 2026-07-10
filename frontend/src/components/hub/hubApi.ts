@@ -55,6 +55,7 @@ export interface HubConnector {
   actions: number;
   mcp: boolean;
   discover?: boolean;  // dynamic tool facade (GET /tools + POST /call)
+  app?: boolean;       // has a ui: block — an embedded APP tile
   has_policy: boolean;
   has_tools: boolean;
   renders_policy: boolean;

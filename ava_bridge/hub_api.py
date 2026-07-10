@@ -279,6 +279,9 @@ def list_connectors():
             "actions": len(actions),
             "mcp": connectors._mcp_spec(m) is not None,
             "discover": connectors._discover_spec(m) is not None,
+            # The two connect surfaces (the doctrine: an app is a UI, a tool
+            # facade, or both — never raw endpoints): ui block => APP tile.
+            "app": isinstance(m.get("ui"), dict),
             "has_policy": os.path.exists(os.path.join(pol_dir, f"{cid}.yaml")),
             "has_tools": has_tools,
             "renders_policy": connectors.render_egress_policy(cid) is not None,

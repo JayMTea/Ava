@@ -838,21 +838,17 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
 
   return (
     <div style={{ borderBottom: '1px solid var(--line)', padding: '12px 0', opacity: c.enabled ? 1 : 0.6 }}>
-      <div className="hub-row" style={{ border: 0, padding: 0 }}>
-        <div className="hub-row-main">
-          <div className="hub-row-title">
-            {c.label} <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 'var(--fs-xs)' }}>· {c.kind}</span>
-          </div>
-          <div className="hub-row-sub" style={{ display: 'flex', gap: 6, marginTop: 5, flexWrap: 'wrap' }}>
-            {c.enabled ? <Badge tone="ok">enabled</Badge> : <Badge tone="warn">disabled</Badge>}
-            {c.builtin && <Badge>built-in</Badge>}
-            {c.mcp && <Badge tone="accent">MCP server</Badge>}
-            {c.actions > 0 && <Badge tone="accent">{c.actions} action{c.actions === 1 ? '' : 's'}</Badge>}
-            {c.actions > 0 && (c.has_tools ? <Badge tone="ok">tools ok</Badge> : <Badge tone="warn">tools stale</Badge>)}
-            {c.renders_policy && (c.has_policy ? <Badge tone="ok">policy ok</Badge> : <Badge tone="warn">policy stale</Badge>)}
-          </div>
+      {/* Header line: name + identity (APP = embedded UI tile, MCP = agent
+          tools). Buttons wrap below on narrow panels instead of overflowing
+          into the badge column. Status badges get their own full-width line. */}
+      <div className="hub-row" style={{ border: 0, padding: 0, flexWrap: 'wrap', rowGap: 8 }}>
+        <div className="hub-row-main" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span className="hub-row-title" style={{ whiteSpace: 'nowrap' }}>{c.label}</span>
+          {c.app && <Badge tone="accent">APP</Badge>}
+          {(c.mcp || c.discover || c.actions > 0) && <Badge tone="accent">MCP</Badge>}
+          <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 'var(--fs-xs)' }}>· {c.kind}</span>
         </div>
-        <div className="hub-row-actions">
+        <div className="hub-row-actions" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           <button className="hub-btn ghost sm" onClick={showToken} disabled={busy} title="Show the push token a device presents to send readings/events">
             <Icon name="lock" />Push token
           </button>
@@ -889,6 +885,13 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
             </button>
           )}
         </div>
+      </div>
+      <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+        {c.enabled ? <Badge tone="ok">enabled</Badge> : <Badge tone="warn">disabled</Badge>}
+        {c.builtin && <Badge>built-in</Badge>}
+        {c.actions > 0 && <Badge tone="accent">{c.actions} action{c.actions === 1 ? '' : 's'}</Badge>}
+        {c.actions > 0 && (c.has_tools ? <Badge tone="ok">tools ok</Badge> : <Badge tone="warn">tools stale</Badge>)}
+        {c.renders_policy && (c.has_policy ? <Badge tone="ok">policy ok</Badge> : <Badge tone="warn">policy stale</Badge>)}
       </div>
       {editText != null && (
         <div style={{ marginTop: 10 }}>
