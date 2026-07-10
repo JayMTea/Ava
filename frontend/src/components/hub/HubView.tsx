@@ -1336,6 +1336,9 @@ function ConnectorsPanel() {
   const [loadErr, setLoadErr] = useState('');
   const [badManifests, setBadManifests] = useState<ConnectorLoadError[]>([]);
   const load = useCallback(() => {
+    // Connect/edit/remove may have changed the app registry — tell the shell
+    // so a new tile appears in the rail without a page refresh.
+    window.dispatchEvent(new Event('ava:apps-changed'));
     hub.connectors()
       .then((r) => { setConns(r.connectors.filter(isExternalApp)); setBadManifests(r.errors || []); setLoadErr(''); })
       .catch((e) => { setLoadErr((e as Error).message || 'could not load connectors'); });

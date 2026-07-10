@@ -51,10 +51,15 @@ function viewFromHash(): View | null {
 
 export default function App() {
   const chat = useChat();
-  // Left-rail apps, derived server-side from connector `ui:` blocks.
+  // Left-rail apps, derived server-side from connector `ui:` blocks. Loaded at
+  // boot and re-fetched when the Hub connects/removes an app (ava:apps-changed)
+  // — a new tile appears without a page refresh.
   const [apps, setApps] = useState<AppEntry[]>([]);
   useEffect(() => {
-    api.apps().then((r) => setApps(r.apps)).catch(() => setApps([]));
+    const load = () => api.apps().then((r) => setApps(r.apps)).catch(() => setApps([]));
+    load();
+    window.addEventListener('ava:apps-changed', load);
+    return () => window.removeEventListener('ava:apps-changed', load);
   }, []);
   // Branding (name/tagline) — config-driven so a fork re-brands with no code edits.
   const [brand, setBrand] = useState('Ava');
