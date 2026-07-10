@@ -1007,6 +1007,7 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
   const [confirmAll, setConfirmAll] = useState(false);
   const [isDevice, setIsDevice] = useState(false);
   const [addToRail, setAddToRail] = useState(false);
+  const [uiUrl, setUiUrl] = useState('');   // split apps: UI at a different address
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [done, setDone] = useState('');
@@ -1022,7 +1023,7 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
 
   const reset = () => {
     setName(''); setReach(''); setTokenEnv(''); setHealth('');
-    setProbe(null); setProbeErr(''); setActions([]); setIsDevice(false); setAddToRail(false);
+    setProbe(null); setProbeErr(''); setActions([]); setIsDevice(false); setAddToRail(false); setUiUrl('');
   };
   const setAction = (i: number, patch: Partial<ActionDraft>) =>
     setActions((a) => a.map((x, j) => (j === i ? { ...x, ...patch } : x)));
@@ -1082,6 +1083,9 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
     }
     if (isDevice) { body.role = 'device'; body.ingest = true; }
     if (addToRail && probe?.has_ui && !isDevice) body.ui = true;
+    if (!probe?.has_ui && !isDevice && uiUrl.trim().toLowerCase().startsWith('http')) {
+      body.ui_url = uiUrl.trim();   // split app: UI served from a different address
+    }
     const jit = probe?.kind === 'rest' && (probe.actions?.length || 0) > 0 && !confirmAll;
     try {
       const r = await hub.newConnector(body);
@@ -1095,7 +1099,7 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
       }
     } catch (e) { setMsg((e as Error).message); }
     setBusy(false);
-  }, [id, name, health, reach, isUrl, tokenEnv, probe, actions, isolate, dockerAvail, confirmAll, isDevice, addToRail, onCreated]);
+  }, [id, name, health, reach, isUrl, tokenEnv, probe, actions, isolate, dockerAvail, confirmAll, isDevice, addToRail, uiUrl, onCreated]);
 
   const found = probe && (probe.kind === 'mcp' || probe.kind === 'discover');
   const manual = probe && (probe.kind === 'rest' || probe.kind === 'unknown');
@@ -1268,6 +1272,18 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
             </span>
           </span>
         </label>
+      )}
+
+      {probe && !probe.has_ui && !isDevice && (
+        <div className="hub-field" style={{ maxWidth: 420 }}>
+          <label>Web UI address <span style={{ opacity: 0.7 }}>(optional — if this app's UI runs at a different address)</span></label>
+          <input className="hub-input" value={uiUrl} onChange={(e) => setUiUrl(e.target.value)}
+            placeholder="http://127.0.0.1:8081" />
+          <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--muted)', marginTop: 5 }}>
+            Split apps (an SPA container in front of an API container) get a sidebar tile too —
+            Ava embeds the UI from here and routes its /api calls to the address above.
+          </div>
+        </div>
       )}
 
       <div className="hub-btn-row">

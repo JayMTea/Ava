@@ -962,8 +962,20 @@ async def connector_new(body: dict):
     if body.get("ui"):
         ui_url = base_url or str((disc_in or {}).get("base") or "").strip()
         if ui_url:
-            manifest["ui"] = {"label": label, "icon": "panel",
+            manifest["ui"] = {"label": label, "icon": "grid",
                               "embed": "iframe", "url": ui_url}
+    # Split-container apps (nginx SPA + separate API port): the UI lives at a
+    # DIFFERENT address than the tool surface. ui.api routes the embedded UI's
+    # /api calls to the API origin — /apps/<id>/api/<p> is reconstructed as
+    # <api base>/api/<p>, which is the identity mapping for any UI that calls
+    # /api/* paths (the only ones this proxy route matches).
+    ui_url2 = str(body.get("ui_url") or "").strip()
+    if ui_url2:
+        manifest["ui"] = {"label": label, "icon": "grid",
+                          "embed": "iframe", "url": ui_url2}
+        api_base = base_url or str((disc_in or {}).get("base") or "").strip()
+        if api_base and api_base.rstrip("/") != ui_url2.rstrip("/"):
+            manifest["ui"]["api"] = {"base": api_base, "prefix": "/api"}
 
     actions = []
     # Cap matches the probe's discovery limit — a silently-dropped tail would

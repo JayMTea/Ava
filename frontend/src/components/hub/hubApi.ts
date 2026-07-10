@@ -175,6 +175,7 @@ export interface NewConnectorBody {
   role?: string;      // 'device' — enables the push flow + Devices grouping
   ingest?: boolean;   // let the app push readings/events with its ingest token
   ui?: boolean;       // write the embedded-app ui: block (sidebar tile + iframe proxy)
+  ui_url?: string;    // split-container apps: the UI lives at a different address
   actions?: { id: string; method: string; path: string; description?: string; confirm?: boolean; access?: string }[];
   mcp?: { url?: string; command?: string; token_env?: string; sandbox?: string };
   discover?: { base?: string; list?: string; call?: string; token_env?: string };
