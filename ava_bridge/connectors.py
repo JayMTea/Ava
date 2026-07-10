@@ -614,6 +614,34 @@ export default {{
 """
 
 
+_undeployed_cache: Dict[str, object] = {"ts": 0.0, "list": None}
+
+
+def undeployed() -> List[dict]:
+    """Enabled connectors with an agent surface whose generated tools are NOT
+    on disk (the Hub's "tools stale" state — so definitely not in the sandbox).
+    Feeds the chat-turn awareness note: Ava must tell the user to Deploy rather
+    than shrug or pretend. Cached ~30s; tool_files renders per connector."""
+    now = time.time()
+    if _undeployed_cache["list"] is not None and now - float(_undeployed_cache["ts"]) < 30:
+        return _undeployed_cache["list"]  # type: ignore[return-value]
+    root = os.path.join(config.ROOT, "agent", "mcp_server_content", "connectors")
+    out = []
+    for m in load():
+        files = tool_files(m["id"])
+        if not files:
+            continue
+        # NB: an explicit loop — this module defines all() (the registry
+        # accessor), which shadows the builtin.
+        for t in files:
+            if not os.path.exists(os.path.join(root, m["id"], t["name"])):
+                out.append({"id": m["id"], "label": m.get("label", m["id"]),
+                            "tools": len(files)})
+                break
+    _undeployed_cache.update(ts=now, list=out)
+    return out
+
+
 def tool_files(cid: str) -> List[dict]:
     """The canonical agent-tool set for a connector: find/call meta tools for
     dynamic (mcp/discover) or large static connectors, else one tool per

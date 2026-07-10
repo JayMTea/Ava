@@ -171,9 +171,39 @@ def _prune_turns(max_age: float = 3600.0):
             state.turns.pop(k, None)
 
 
+def _tooling_note(direct: bool) -> str:
+    """A one-paragraph awareness note prepended to the turn so Ava answers
+    honestly about tools she does NOT have — instead of shrugging or
+    hallucinating a tool call. Two cases: connected apps whose tools were
+    never deployed into the sandbox, and the tool-less direct runtime."""
+    from . import connectors
+    try:
+        missing = connectors.undeployed()
+    except Exception:  # noqa: BLE001 — awareness must never break a turn
+        missing = []
+    if direct:
+        apps = ", ".join(m["label"] for m in missing) or None
+        return ("[note for Ava — not from the user: the agent runtime is not "
+                "active, so you have NO app tools this turn"
+                + (f" (connected apps: {apps})" if apps else "")
+                + ". If the question needs an app's data or actions, say so "
+                "plainly and point the user to Setup → Agent to provision the "
+                "runtime. Never invent tool results.]\n\n")
+    if not missing:
+        return ""
+    apps = ", ".join(f"{m['label']} ({m['tools']} tools)" for m in missing)
+    return ("[note for Ava — not from the user: these connected apps' tools "
+            f"are NOT deployed to your sandbox yet: {apps}. You cannot use "
+            "them this turn. If the user's request needs one of these apps, "
+            "explain that they must open Setup → Connectors and click Deploy "
+            "on that app first (Preview shows what gets loaded). Never invent "
+            "tool results.]\n\n")
+
+
 def _run_turn_direct(tid: str, agent_text: str, chat_id: str):
     """Degraded path: no agent runtime — talk to the inference router directly.
     No sandbox, so no live chain-of-thought polling; just the reply."""
+    agent_text = _tooling_note(direct=True) + agent_text
     try:
         reply, tools = chat_direct(agent_text, history=history_for(chat_id))
     except Exception as e:  # noqa: BLE001
@@ -203,6 +233,7 @@ def _run_turn(tid: str, agent_text: str, sid: str, chat_id: str):
         return
     after = _session_line_count(sid) + 1
     threading.Thread(target=_poll_turn_steps, args=(tid, sid, after), daemon=True).start()
+    agent_text = _tooling_note(direct=False) + agent_text
     t0 = time.time()
     tools: list[str] = []
     try:
