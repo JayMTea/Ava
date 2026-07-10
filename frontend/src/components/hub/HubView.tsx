@@ -846,7 +846,6 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
           <span className="hub-row-title" style={{ whiteSpace: 'nowrap' }}>{c.label}</span>
           {c.app && <Badge tone="accent">APP</Badge>}
           {(c.mcp || c.discover || c.actions > 0) && <Badge tone="accent">MCP</Badge>}
-          <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 'var(--fs-xs)' }}>· {c.kind}</span>
         </div>
         <div className="hub-row-actions" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           <button className="hub-btn ghost sm" onClick={showToken} disabled={busy} title="Show the push token a device presents to send readings/events">
