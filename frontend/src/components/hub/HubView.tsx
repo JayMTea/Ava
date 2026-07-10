@@ -1099,9 +1099,14 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
 
   const found = probe && (probe.kind === 'mcp' || probe.kind === 'discover');
   const manual = probe && (probe.kind === 'rest' || probe.kind === 'unknown');
+  // A UI-only connect is legitimate: the app serves a web page but no
+  // discoverable tools (e.g. an SPA container whose API lives elsewhere) —
+  // the sidebar tile IS the product; tools can be added later via Edit.
+  const uiOnly = !!probe?.has_ui && addToRail;
   const canCreate = validId && (isDevice
     ? true
-    : !!probe && (found || (manual && actions.some((a) => a.id.trim() && a.path.trim()))));
+    : !!probe && (found || (manual && (uiOnly
+        || actions.some((a) => a.id.trim() && a.path.trim())))));
 
   // JIT consent (docs/dev/CONNECTOR_DISCOVERY_UX_PLAN.md): when the API was
   // auto-read there is nothing to review at connect time — reads run silently,
