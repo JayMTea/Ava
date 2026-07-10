@@ -121,6 +121,7 @@ _FASTAPI_TAIL = '''
 # closure-local Request/model lands in query params instead of the body.
 from fastapi import Request  # noqa: E402
 from fastapi.responses import JSONResponse  # noqa: E402
+from starlette.concurrency import run_in_threadpool  # noqa: E402
 
 
 def register(app) -> None:
@@ -139,8 +140,11 @@ def register(app) -> None:
         except Exception:  # noqa: BLE001
             return JSONResponse({"error": "invalid json"}, status_code=400)
         body = body if isinstance(body, dict) else {}
-        data, status = _dispatch(str(body.get("name") or ""),
-                                 body.get("arguments") or {})
+        # Threadpool on purpose: handlers are sync and often do blocking IO —
+        # including HTTP back to THIS app. Dispatching on the event loop would
+        # starve it and deadlock any self-call.
+        data, status = await run_in_threadpool(
+            _dispatch, str(body.get("name") or ""), body.get("arguments") or {})
         return JSONResponse(data, status_code=status)
 '''
 
@@ -311,7 +315,7 @@ __UI_BLOCK__'''
 _UI_ON = '''# Your app's own web UI, embedded in Ava's left rail (same-origin proxy).
 ui:
   label: __LABEL__
-  icon: panel
+  icon: grid
   embed: iframe
   url: "http://127.0.0.1:__PORT__"
 '''
@@ -319,7 +323,7 @@ ui:
 _UI_OFF = '''# Uncomment to embed your app's web UI as a tile in Ava's left rail:
 # ui:
 #   label: __LABEL__
-#   icon: panel
+#   icon: grid
 #   embed: iframe
 #   url: "http://127.0.0.1:__PORT__"
 '''
