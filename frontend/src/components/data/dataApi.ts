@@ -46,6 +46,24 @@ export interface LogEvent {
 
 export type LogName = 'audit' | 'performance' | 'devices';
 
+export interface IntegrityResult {
+  ts: number;
+  ok: boolean;
+  detail: string;
+}
+
+export interface DbHealth {
+  path: string;
+  bytes: number;
+  reclaimable: number;
+  last_check: IntegrityResult | null;
+}
+
+export interface MaintenanceInfo {
+  db: DbHealth;
+  retention: { days: number; choices: number[] };
+}
+
 export const dataApi = {
   stores: () => req<StoresResponse>('/api/data/stores', { cache: 'no-store' }),
   chats: () => req<{ chats: ChatRow[] }>('/api/data/chats', { cache: 'no-store' }),
@@ -54,4 +72,12 @@ export const dataApi = {
     req<{ events: LogEvent[] }>(
       `/api/data/logs/${name}/tail?n=${n}${kind ? `&kind=${encodeURIComponent(kind)}` : ''}`,
       { cache: 'no-store' }),
+  maintenance: () => req<MaintenanceInfo>('/api/data/maintenance', { cache: 'no-store' }),
+  integrity: () =>
+    req<{ ok: boolean; result: IntegrityResult; db: DbHealth }>(
+      '/api/data/maintenance/integrity', { method: 'POST' }),
+  vacuum: () =>
+    req<{ ok: boolean; before: number; after: number; db: DbHealth }>(
+      '/api/data/maintenance/vacuum', { method: 'POST' }),
+  // The everything-archive is a plain download link: /api/data/export
 };

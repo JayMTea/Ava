@@ -11,14 +11,17 @@ auth._PUBLIC_PATHS — no middleware change).
 """
 from __future__ import annotations
 
+import io
 import json
 import os
 import re
+import sqlite3
 import time
+import zipfile
 from collections import deque
 
 from fastapi import APIRouter
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, Response
 
 from . import audit, devices, settings, state
 
@@ -276,3 +279,113 @@ def log_tail(name: str, n: int = 100, kind: str = ""):
         return {"events": devices.recent(None, limit=n)}
     return JSONResponse({"error": "unknown log (audit|performance|devices)"},
                         status_code=404)
+
+
+# --------------------------------------------------------------------------- #
+# Maintenance — memory.db health plus the everything-archive. Retention stays
+# on POST /api/hub/system/retention (settings.save_patch, restart to apply).
+# --------------------------------------------------------------------------- #
+_INTEGRITY_KV = "data_page.integrity_last"
+
+
+def _db_stats() -> dict:
+    from . import memory_store
+    path = memory_store.db_path()
+    size, _mtime = _file_stats(path)
+    reclaimable = 0
+    try:
+        con = sqlite3.connect(path, timeout=5)
+        try:
+            page = con.execute("PRAGMA page_size").fetchone()[0]
+            free = con.execute("PRAGMA freelist_count").fetchone()[0]
+            reclaimable = int(page) * int(free)
+        finally:
+            con.close()
+    except sqlite3.Error:
+        pass
+    last = None
+    raw = memory_store.kv_get(_INTEGRITY_KV)
+    if raw:
+        try:
+            last = json.loads(raw)
+        except ValueError:
+            last = None
+    return {"path": _rel(path), "bytes": size,
+            "reclaimable": reclaimable, "last_check": last}
+
+
+@router.get("/maintenance")
+def maintenance():
+    return {"db": _db_stats(),
+            "retention": {"days": settings.data_retention_days(),
+                          "choices": list(settings.DATA_RETENTION_CHOICES)}}
+
+
+@router.post("/maintenance/integrity")
+def maintenance_integrity():
+    """PRAGMA integrity_check on memory.db; the result is kept for the panel."""
+    from . import memory_store
+    path = memory_store.db_path()
+    try:
+        con = sqlite3.connect(path, timeout=30)
+        try:
+            rows = [str(r[0]) for r in con.execute("PRAGMA integrity_check")]
+        finally:
+            con.close()
+    except sqlite3.Error as e:
+        rows = [str(e)]
+    ok = rows == ["ok"]
+    result = {"ts": time.time(), "ok": ok,
+              "detail": "ok" if ok else "; ".join(rows)[:500]}
+    memory_store.kv_set(_INTEGRITY_KV, json.dumps(result))
+    audit.record("data_maintenance", action="integrity_check", ok=ok)
+    return {"ok": ok, "result": result, "db": _db_stats()}
+
+
+@router.post("/maintenance/vacuum")
+def maintenance_vacuum():
+    """VACUUM memory.db — returns bytes before/after so the win is visible."""
+    from . import memory_store
+    path = memory_store.db_path()
+    before, _m = _file_stats(path)
+    try:
+        # Plain autocommit connection: VACUUM cannot run inside a transaction.
+        con = sqlite3.connect(path, timeout=30)
+        try:
+            con.execute("VACUUM")
+        finally:
+            con.close()
+    except sqlite3.Error as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+    after, _m = _file_stats(path)
+    audit.record("data_maintenance", action="vacuum", before=before, after=after)
+    return {"ok": True, "before": before, "after": after, "db": _db_stats()}
+
+
+@router.get("/export")
+def export_archive():
+    """Everything readable, one .zip: memories, chats, the audit ledger, and
+    ava.yaml. Secrets/keys are never included; media stays on disk (a full
+    backup is a copy of $AVA_HOME)."""
+    from . import memory_store
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("memory.json",
+                   json.dumps(memory_store.export_all(), ensure_ascii=False, indent=2))
+        with state.chats_lock:
+            chats_json = json.dumps(state.chats, ensure_ascii=False, indent=2, default=str)
+        z.writestr("chats.json", chats_json)
+        for arc, path in (("audit.jsonl", os.path.join(settings.logs_dir(), "audit.jsonl")),
+                          ("ava.yaml", str(settings.CONFIG_PATH))):
+            if os.path.isfile(path):
+                z.write(path, arc)
+        z.writestr("manifest.json", json.dumps({
+            "exported": time.time(),
+            "contents": ["memory.json", "chats.json", "audit.jsonl", "ava.yaml"],
+            "note": ("Secrets and keys are never exported. Media is not bundled — "
+                     "for a full backup, copy the AVA_HOME folder."),
+        }, indent=2))
+    data = buf.getvalue()
+    audit.record("data_export", target="archive", bytes=len(data))
+    return Response(content=data, media_type="application/zip",
+                    headers={"Content-Disposition": 'attachment; filename="ava-export.zip"'})

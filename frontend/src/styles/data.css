@@ -85,3 +85,27 @@
 }
 .data-store-foot .db-pill { margin-left: auto; }
 .data-store-foot .db-linkbtn + .db-pill { margin-left: auto; }
+
+/* Icon-led notes: hub-note is plain block; this variant ranges icon + text. */
+.data-note { display: flex; gap: 10px; align-items: flex-start; }
+.data-note svg { margin-top: 2px; color: var(--accent-tint); }
+
+/* Maintenance tab — four panels, two columns collapsing like .data-stores. */
+.data-maint {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-3);
+}
+@media (max-width: 900px) { .data-maint { grid-template-columns: 1fr; } }
+.data-maint .db-panel { margin: 0; }
+
+.data-kv {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  font-size: var(--fs-sm);
+  padding: 6px 0;
+}
+.data-kv + .data-kv { border-top: 1px solid var(--line); }
+.data-kv > span { color: var(--muted); }
+.data-kv > b { font-weight: var(--fw-medium); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; text-align: right; }

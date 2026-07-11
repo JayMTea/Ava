@@ -4,20 +4,22 @@ import { EmptyState, Panel, StatCard, ago, fmtClock, fmtInt } from '../dashboard
 import { useLiveResource } from '../../hooks/useLive';
 import { MemoryPanel } from '../hub/MemoryPanel';
 import { api } from '../../lib/api';
+import { hub } from '../hub/hubApi';
 import { dataApi } from './dataApi';
-import type { ChatRow, DataStore, LogEvent, LogName } from './dataApi';
+import type { ChatRow, DataStore, LogEvent, LogName, MaintenanceInfo, StoresResponse } from './dataApi';
 
 // Data — the transparency page: everything Ava keeps on disk, one card per
 // store, with the memory browser as the flagship tab. The backend returns
 // facts; the owner-facing copy lives here (same split as dashboard/metrics.ts).
 
-type TabId = 'overview' | 'memory' | 'chats' | 'logs';
+type TabId = 'overview' | 'memory' | 'chats' | 'logs' | 'maintenance';
 
 const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: 'overview', label: 'Overview', icon: 'grid' },
   { id: 'memory', label: 'Memory', icon: 'db' },
   { id: 'chats', label: 'Chats', icon: 'chats' },
   { id: 'logs', label: 'Logs', icon: 'activity' },
+  { id: 'maintenance', label: 'Maintenance', icon: 'sliders' },
 ];
 
 // Which tab a store card's "Browse →" opens.
@@ -139,7 +141,7 @@ function ChatsTab() {
             </div>
           )}
       </Panel>
-      <div className="hub-note">
+      <div className="hub-note data-note">
         <Icon name="info" />
         <span>Deleting a chat is permanent and is recorded in the <b>audit ledger</b>. Exports include messages, attachment names, and generated-image links.</span>
       </div>
@@ -235,6 +237,138 @@ function LogsTab() {
   );
 }
 
+function retentionLabel(days: number): string {
+  if (days === 0) return 'Forever';
+  if (days === 365) return '1 y';
+  if (days === 730) return '2 y';
+  return `${days} d`;
+}
+
+function MaintenanceTab({ stores }: { stores: StoresResponse | null }) {
+  const [info, setInfo] = useState<MaintenanceInfo | null>(null);
+  const [busy, setBusy] = useState<'' | 'integrity' | 'vacuum' | 'retention'>('');
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [restart, setRestart] = useState(false);
+
+  useEffect(() => {
+    dataApi.maintenance().then(setInfo).catch(() => {});
+  }, []);
+
+  const runIntegrity = useCallback(async () => {
+    setBusy('integrity'); setMsg(null);
+    try {
+      const r = await dataApi.integrity();
+      setInfo((i) => (i ? { ...i, db: r.db } : i));
+      setMsg({ ok: r.ok, text: r.ok ? 'Integrity check passed.' : `Integrity check failed: ${r.result.detail}` });
+    } catch (e) { setMsg({ ok: false, text: (e as Error).message }); }
+    setBusy('');
+  }, []);
+
+  const runVacuum = useCallback(async () => {
+    setBusy('vacuum'); setMsg(null);
+    try {
+      const r = await dataApi.vacuum();
+      setInfo((i) => (i ? { ...i, db: r.db } : i));
+      const saved = r.before - r.after;
+      setMsg({ ok: true, text: saved > 0 ? `Compacted — reclaimed ${fmtBytes(saved)}.` : 'Compacted — already tight.' });
+    } catch (e) { setMsg({ ok: false, text: (e as Error).message }); }
+    setBusy('');
+  }, []);
+
+  const setRetention = useCallback(async (days: number) => {
+    setBusy('retention'); setMsg(null);
+    try {
+      await hub.setRetention(days);
+      setInfo((i) => (i ? { ...i, retention: { ...i.retention, days } } : i));
+      setRestart(true);
+    } catch (e) { setMsg({ ok: false, text: (e as Error).message }); }
+    setBusy('');
+  }, []);
+
+  const db = info?.db;
+  const last = db?.last_check;
+  return (
+    <>
+      {restart && (
+        <div className="hub-restart">
+          <Icon name="refresh" />
+          <span>Saved to <b>ava.yaml</b>. Restart Ava to apply the new retention.</span>
+        </div>
+      )}
+      {msg && <div className={`hub-msg ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
+      <div className="data-maint">
+
+        <Panel title="Retention" subtitle="How long metrics history is kept">
+          {info == null ? <EmptyState text="Loading…" /> : (
+            <>
+              <div className="db-seg">
+                {info.retention.choices.map((c) => (
+                  <button
+                    key={c}
+                    className={'db-seg-btn' + (info.retention.days === c ? ' on' : '')}
+                    disabled={busy === 'retention'}
+                    onClick={() => setRetention(c)}
+                  >{retentionLabel(c)}</button>
+                ))}
+              </div>
+              <div className="hub-note data-note" style={{ marginTop: 14 }}>
+                <Icon name="info" />
+                <span>Applies to <b>performance rollups</b> and <b>hardware history</b>. Chats and memories are never auto-deleted — you stay in charge of those.</span>
+              </div>
+            </>
+          )}
+        </Panel>
+
+        <Panel
+          title="Database health"
+          subtitle={db?.path || 'data/memory.db'}
+          right={last && (
+            <span className={`db-pill ${last.ok ? 'pill-ok' : 'pill-err'}`}>
+              <i className="db-dot" />{last.ok ? 'healthy' : 'check failed'}
+            </span>
+          )}
+        >
+          {db == null ? <EmptyState text="Loading…" /> : (
+            <>
+              <div className="data-kv"><span>Size on disk</span><b>{fmtBytes(db.bytes)}</b></div>
+              <div className="data-kv"><span>Reclaimable</span><b>{fmtBytes(db.reclaimable)}</b></div>
+              <div className="data-kv"><span>Last integrity check</span><b>{last ? `${ago(last.ts)} — ${last.ok ? 'ok' : 'failed'}` : 'never'}</b></div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+                <button className="hub-btn ghost sm" disabled={busy !== ''} onClick={runIntegrity}>
+                  <Icon name="check" />{busy === 'integrity' ? 'Checking…' : 'Check integrity'}
+                </button>
+                <button className="hub-btn ghost sm" disabled={busy !== ''} onClick={runVacuum}>
+                  <Icon name="refresh" />{busy === 'vacuum' ? 'Compacting…' : 'Compact (VACUUM)'}
+                </button>
+              </div>
+            </>
+          )}
+        </Panel>
+
+        <Panel title="Export everything" subtitle="One archive of all your readable data">
+          <p className="data-store-desc" style={{ marginBottom: 12 }}>
+            Memories, chats, the audit ledger, and your settings as a single .zip.
+            Secrets and keys are never included.
+          </p>
+          <a className="hub-btn" href="/api/data/export" download>
+            <Icon name="file" />Export archive
+          </a>
+        </Panel>
+
+        <Panel title="Backup" subtitle="Your whole Ava is one folder">
+          <div className="data-kv"><span>AVA_HOME</span><b style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)' }}>{stores?.home || '…'}</b></div>
+          <div className="data-kv"><span>Total size</span><b>{stores ? fmtBytes(stores.total_bytes) : '…'}</b></div>
+          <div className="hub-note data-note" style={{ marginTop: 12 }}>
+            <Icon name="info" />
+            <span>Copy this folder and you've backed up everything — memories, chats, config, and keys. Restore by pointing <b>AVA_HOME</b> at the copy.</span>
+          </div>
+        </Panel>
+
+      </div>
+    </>
+  );
+}
+
 export function DataView() {
   const [tab, setTab] = useState<TabId>('overview');
   const fetchStores = useCallback(() => dataApi.stores(), []);
@@ -302,6 +436,7 @@ export function DataView() {
         {tab === 'memory' && <MemoryPanel />}
         {tab === 'chats' && <ChatsTab />}
         {tab === 'logs' && <LogsTab />}
+        {tab === 'maintenance' && <MaintenanceTab stores={d} />}
       </div>
     </div>
   );
