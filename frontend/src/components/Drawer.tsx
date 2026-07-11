@@ -131,6 +131,7 @@ export function Drawer({
     { id: 'chat', label: 'Chats', icon: 'chats' },
     { id: 'vitals', label: 'Vitals', icon: 'gauge' },
     { id: 'ops', label: 'Operations', icon: 'activity' },
+    { id: 'data', label: 'Data', icon: 'db' },
     { id: 'hub', label: 'Setup', icon: 'sliders' },
   ];
   const userApps = apps.filter((a) => a.section !== 'core');
@@ -189,6 +190,7 @@ export function Drawer({
             items={[
               { id: 'vitals', label: 'Vitals', icon: 'gauge' },
               { id: 'ops', label: 'Operations', icon: 'activity' },
+              { id: 'data', label: 'Data', icon: 'db' },
               { id: 'hub', label: 'Setup', icon: 'sliders' },
             ]}
             view={view}

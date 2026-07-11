@@ -1,0 +1,87 @@
+/* Data view — the on-disk store inventory. Layout/typography tokens only;
+   all values come from tokens.css (see that file for the palette SSOT). */
+
+.data-home-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  background: var(--wash-5);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  padding: 5px 12px;
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 1;
+}
+.data-home-chip svg { width: 13px; height: 13px; color: var(--accent-tint); flex: none; }
+
+.data-kpis { margin-bottom: var(--sp-5); }
+
+/* One card per store — same surface recipe as .db-panel / .app-card. */
+.data-stores {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-3);
+}
+@media (max-width: 900px) { .data-stores { grid-template-columns: 1fr; } }
+
+.data-store {
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-1);
+  padding: 14px 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: border-color var(--dur-fast) ease;
+}
+.data-store:hover { border-color: var(--accent-line); }
+
+.data-store-head { display: flex; align-items: center; gap: 10px; }
+.data-store-ic {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-sm);
+  background: var(--wash-5);
+  border: 1px solid var(--line);
+  display: grid;
+  place-items: center;
+  color: var(--accent-tint);
+  flex: none;
+}
+.data-store-ic svg { width: 16px; height: 16px; }
+.data-store-name { font-weight: var(--fw-medium); font-size: var(--fs-md); }
+
+.data-store-desc { color: var(--muted); font-size: var(--fs-sm); margin: 0; line-height: 1.45; }
+
+.data-store-path {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  background: var(--wash-3);
+  border-radius: 6px;
+  padding: 4px 8px;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.data-store-meta { display: flex; gap: var(--sp-4); font-size: var(--fs-xs); color: var(--muted); flex-wrap: wrap; }
+.data-store-meta b { color: var(--txt); font-weight: var(--fw-medium); font-variant-numeric: tabular-nums; }
+
+.data-store-foot {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: center;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+  margin-top: auto; /* pin to the card bottom so grid rows align */
+  min-height: 34px;
+}
+.data-store-foot .db-pill { margin-left: auto; }
+.data-store-foot .db-linkbtn + .db-pill { margin-left: auto; }

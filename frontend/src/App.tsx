@@ -12,6 +12,7 @@ import { ActionConsole } from './components/ActionConsole';
 import { VitalsView } from './components/dashboard/VitalsView';
 import { OpsView } from './components/dashboard/OpsView';
 import { HubView } from './components/hub/HubView';
+import { DataView } from './components/data/DataView';
 import { HardwareBubble } from './components/HardwareBubble';
 import { useChat } from './hooks/useChat';
 import { api } from './lib/api';
@@ -21,7 +22,7 @@ import type { AppEntry, Artifact, Attachment } from './lib/types';
 type View = string;
 
 // Built-in tabs that ship in the shell (always present, no connector needed).
-const BUILTIN_VIEWS = ['vitals', 'ops', 'chat', 'hub'];
+const BUILTIN_VIEWS = ['vitals', 'ops', 'data', 'chat', 'hub'];
 
 // Registry of native app views. The core shell ships NONE — personal/first-party
 // apps live in an optional, gitignored overlay (frontend/src/overlay/views/*),
@@ -218,6 +219,7 @@ export default function App() {
           <div id="viewPort">
             {view === 'vitals' && <ViewErrorBoundary label="Vitals"><VitalsView /></ViewErrorBoundary>}
             {view === 'ops' && <ViewErrorBoundary label="Operations"><OpsView /></ViewErrorBoundary>}
+            {view === 'data' && <ViewErrorBoundary label="Data"><DataView /></ViewErrorBoundary>}
             {view === 'hub' && <ViewErrorBoundary label="Setup"><HubView /></ViewErrorBoundary>}
             {view === 'chat' && (
               <ViewErrorBoundary label="Chat">

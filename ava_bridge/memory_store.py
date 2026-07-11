@@ -238,10 +238,12 @@ def counts() -> dict:
         with _conn() as con:
             rows = con.execute("SELECT kind, COUNT(*) n FROM items GROUP BY kind")
             by = {r["kind"]: r["n"] for r in rows}
+            pinned = con.execute(
+                "SELECT COUNT(*) FROM items WHERE pinned=1").fetchone()[0]
         return {"facts": by.get("fact", 0), "doc_chunks": by.get("doc", 0),
-                "total": sum(by.values())}
+                "pinned": pinned, "total": sum(by.values())}
     except Exception:  # noqa: BLE001
-        return {"facts": 0, "doc_chunks": 0, "total": 0}
+        return {"facts": 0, "doc_chunks": 0, "pinned": 0, "total": 0}
 
 
 def export_all() -> dict:
