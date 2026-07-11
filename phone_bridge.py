@@ -1603,10 +1603,14 @@ def chats_get(cid: str):
 @app.delete("/api/chats/{cid}")
 def chats_delete(cid: str):
     with _CHATS_LOCK:
-        existed = _CHATS.pop(cid, None) is not None
-        if existed:
+        gone = _CHATS.pop(cid, None)
+        if gone is not None:
             _chats_persist()
-    return {"ok": existed}
+    if gone is not None:
+        # Same ledger treatment as memory edits: deletions leave a trace.
+        audit.record("chat_delete", id=cid, title=gone.get("title") or "New chat",
+                     messages=len(gone.get("messages") or []))
+    return {"ok": gone is not None}
 
 
 @app.patch("/api/chats/{cid}")

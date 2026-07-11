@@ -27,6 +27,31 @@ export interface StoresResponse {
   stores: DataStore[];
 }
 
+export interface ChatRow {
+  id: string;
+  title: string;
+  created: number;
+  updated: number;
+  messages: number;
+  bytes: number;
+}
+
+// One record of an append-only log; fields beyond ts/kind vary per store
+// (audit kinds, perf categories, device readings) so they stay open.
+export interface LogEvent {
+  ts: number;
+  kind?: string;
+  [k: string]: unknown;
+}
+
+export type LogName = 'audit' | 'performance' | 'devices';
+
 export const dataApi = {
   stores: () => req<StoresResponse>('/api/data/stores', { cache: 'no-store' }),
+  chats: () => req<{ chats: ChatRow[] }>('/api/data/chats', { cache: 'no-store' }),
+  // Export is a plain download link, not a fetch: /api/data/chats/{id}/export[?format=md]
+  logTail: (name: LogName, n = 100, kind = '') =>
+    req<{ events: LogEvent[] }>(
+      `/api/data/logs/${name}/tail?n=${n}${kind ? `&kind=${encodeURIComponent(kind)}` : ''}`,
+      { cache: 'no-store' }),
 };

@@ -11,11 +11,16 @@ auth._PUBLIC_PATHS — no middleware change).
 """
 from __future__ import annotations
 
+import json
 import os
+import re
+import time
+from collections import deque
 
 from fastapi import APIRouter
+from fastapi.responses import JSONResponse, PlainTextResponse
 
-from . import settings, state
+from . import audit, devices, settings, state
 
 router = APIRouter(prefix="/api/data")
 
@@ -173,3 +178,101 @@ def stores():
             "total_bytes": sum(s["bytes"] for s in out),
             "retention_days": settings.data_retention_days(),
             "stores": out}
+
+
+# --------------------------------------------------------------------------- #
+# Chats — summaries with on-disk weight, plus per-chat export.
+# Deletion stays on the existing DELETE /api/chats/{cid} (now audit-logged).
+# --------------------------------------------------------------------------- #
+@router.get("/chats")
+def chats_summary():
+    """Every conversation with its message count and JSON weight, newest first."""
+    out = []
+    with state.chats_lock:
+        for c in state.chats.values():
+            out.append({"id": c["id"], "title": c.get("title") or "New chat",
+                        "created": c.get("created", 0), "updated": c.get("updated", 0),
+                        "messages": len(c.get("messages") or []),
+                        "bytes": len(json.dumps(c, ensure_ascii=False).encode("utf-8"))})
+    out.sort(key=lambda x: x["updated"], reverse=True)
+    return {"chats": out}
+
+
+def _export_name(title: str, ext: str) -> str:
+    slug = re.sub(r"[^a-zA-Z0-9]+", "-", title or "chat").strip("-").lower()[:48] or "chat"
+    return f"ava-chat-{slug}.{ext}"
+
+
+def _chat_markdown(c: dict) -> str:
+    lines = [f"# {c.get('title') or 'New chat'}", ""]
+    for m in c.get("messages") or []:
+        who = "You" if m.get("role") == "user" else "Ava"
+        when = ""
+        if m.get("ts"):
+            when = time.strftime(" · %Y-%m-%d %H:%M", time.localtime(m["ts"]))
+        lines.append(f"**{who}**{when}")
+        lines.append("")
+        if m.get("content"):
+            lines.append(str(m["content"]))
+        if m.get("image"):
+            lines.append(f"![generated image]({m['image']})")
+        for a in m.get("atts") or []:
+            lines.append(f"- attachment: {a.get('filename', '?')}")
+        lines.append("")
+    return "\n".join(lines)
+
+
+@router.get("/chats/{cid}/export")
+def chat_export(cid: str, format: str = "json"):
+    """One conversation as a download — JSON (verbatim) or Markdown (readable)."""
+    with state.chats_lock:
+        c = state.chats.get(cid)
+        # Deep-copy inside the lock so rendering happens on a stable snapshot.
+        c = json.loads(json.dumps(c, ensure_ascii=False, default=str)) if c else None
+    if not c:
+        return JSONResponse({"error": "unknown chat"}, status_code=404)
+    title = c.get("title") or "New chat"
+    if format == "md":
+        return PlainTextResponse(
+            _chat_markdown(c), media_type="text/markdown",
+            headers={"Content-Disposition": f'attachment; filename="{_export_name(title, "md")}"'})
+    return JSONResponse(
+        c, headers={"Content-Disposition": f'attachment; filename="{_export_name(title, "json")}"'})
+
+
+# --------------------------------------------------------------------------- #
+# Log tails — newest-first reads of the append-only stores. Names are a fixed
+# whitelist; there is no arbitrary-path read here.
+# --------------------------------------------------------------------------- #
+def _tail_jsonl(path: str, n: int) -> list[dict]:
+    """Last n parsed records of a JSONL file, newest first (bad lines skipped)."""
+    rows: deque[dict] = deque(maxlen=n)
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                try:
+                    rows.append(json.loads(line))
+                except ValueError:
+                    continue
+    except OSError:
+        return []
+    return list(rows)[::-1]
+
+
+@router.get("/logs/{name}/tail")
+def log_tail(name: str, n: int = 100, kind: str = ""):
+    """Recent events from one log store: audit | performance | devices."""
+    n = max(1, min(int(n), 500))
+    if name == "audit":
+        return {"events": audit.tail(n, kind=kind or None)}
+    if name == "performance":
+        perf_dir = os.environ.get("AVA_PERF_LOG_DIR", settings.logs_dir())
+        rows = _tail_jsonl(os.path.join(perf_dir, "performance.jsonl"), n)
+        if kind:
+            rows = [r for r in rows if r.get("category") == kind]
+        return {"events": rows}
+    if name == "devices":
+        # devices.recent already merges the per-connector JSONL files newest-first.
+        return {"events": devices.recent(None, limit=n)}
+    return JSONResponse({"error": "unknown log (audit|performance|devices)"},
+                        status_code=404)

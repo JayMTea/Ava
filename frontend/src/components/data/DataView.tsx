@@ -1,21 +1,29 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Icon } from '../../lib/icons';
-import { EmptyState, StatCard, ago, fmtInt } from '../dashboard/primitives';
+import { EmptyState, Panel, StatCard, ago, fmtClock, fmtInt } from '../dashboard/primitives';
 import { useLiveResource } from '../../hooks/useLive';
 import { MemoryPanel } from '../hub/MemoryPanel';
+import { api } from '../../lib/api';
 import { dataApi } from './dataApi';
-import type { DataStore } from './dataApi';
+import type { ChatRow, DataStore, LogEvent, LogName } from './dataApi';
 
 // Data — the transparency page: everything Ava keeps on disk, one card per
 // store, with the memory browser as the flagship tab. The backend returns
 // facts; the owner-facing copy lives here (same split as dashboard/metrics.ts).
 
-type TabId = 'overview' | 'memory';
+type TabId = 'overview' | 'memory' | 'chats' | 'logs';
 
 const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: 'overview', label: 'Overview', icon: 'grid' },
   { id: 'memory', label: 'Memory', icon: 'db' },
+  { id: 'chats', label: 'Chats', icon: 'chats' },
+  { id: 'logs', label: 'Logs', icon: 'activity' },
 ];
+
+// Which tab a store card's "Browse →" opens.
+const BROWSE_TAB: Record<string, TabId> = {
+  memory: 'memory', chats: 'chats', audit: 'logs', performance: 'logs', devices: 'logs',
+};
 
 const STORE_META: Record<string, { icon: string; desc: string }> = {
   memory: { icon: 'db', desc: 'Distilled facts Ava has learned about you, plus indexed document chunks. Recalled into chats; every recall and edit lands in the audit ledger.' },
@@ -79,6 +87,154 @@ function StoreCard({ s, onBrowse }: { s: DataStore; onBrowse?: () => void }) {
   );
 }
 
+function ChatsTab() {
+  const [rows, setRows] = useState<ChatRow[] | null>(null);
+  const [msg, setMsg] = useState('');
+  const load = useCallback(() => {
+    setMsg('');
+    dataApi.chats().then((r) => setRows(r.chats)).catch((e) => setMsg((e as Error).message));
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const remove = useCallback(async (c: ChatRow) => {
+    if (!window.confirm(`Delete "${c.title}" (${c.messages} message${c.messages === 1 ? '' : 's'})? This is permanent and is recorded in the audit ledger.`)) return;
+    setRows((xs) => xs?.filter((x) => x.id !== c.id) ?? null);
+    try { await api.deleteChat(c.id); } catch { /* already gone is fine */ }
+    load();
+  }, [load]);
+
+  const total = rows?.reduce((a, c) => a + c.bytes, 0) ?? 0;
+  return (
+    <>
+      <Panel
+        title="Conversations"
+        subtitle={rows ? `${rows.length} chat${rows.length === 1 ? '' : 's'} · ${fmtBytes(total)} in data/chats.json` : 'data/chats.json'}
+        pad={false}
+      >
+        {msg && <div className="hub-msg err" style={{ margin: 12 }}>{msg}</div>}
+        {rows == null ? <EmptyState text="Loading…" />
+          : rows.length === 0 ? <EmptyState text="No chats yet." />
+          : (
+            <div className="db-table-wrap">
+              <table className="db-table">
+                <thead><tr><th>Chat</th><th>Messages</th><th>Updated</th><th>Size</th><th></th></tr></thead>
+                <tbody>
+                  {rows.map((c) => (
+                    <tr key={c.id}>
+                      <td style={{ maxWidth: 340, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.title}</td>
+                      <td>{fmtInt(c.messages)}</td>
+                      <td>{ago(c.updated)}</td>
+                      <td>{fmtBytes(c.bytes)}</td>
+                      <td>
+                        <span style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+                          <a className="hub-btn ghost sm" href={`/api/data/chats/${encodeURIComponent(c.id)}/export`} download title="Export as JSON">JSON</a>
+                          <a className="hub-btn ghost sm" href={`/api/data/chats/${encodeURIComponent(c.id)}/export?format=md`} download title="Export as Markdown">MD</a>
+                          <button className="hub-btn ghost sm" title="Delete chat" onClick={() => remove(c)}><Icon name="trash" /></button>
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+      </Panel>
+      <div className="hub-note">
+        <Icon name="info" />
+        <span>Deleting a chat is permanent and is recorded in the <b>audit ledger</b>. Exports include messages, attachment names, and generated-image links.</span>
+      </div>
+    </>
+  );
+}
+
+const LOG_SOURCES: { id: LogName; label: string }[] = [
+  { id: 'audit', label: 'Audit' },
+  { id: 'performance', label: 'Performance' },
+  { id: 'devices', label: 'Devices' },
+];
+
+const AUDIT_KINDS: { id: string; label: string }[] = [
+  { id: '', label: 'All' },
+  { id: 'turn', label: 'Turns' },
+  { id: 'memory_recall', label: 'Recalls' },
+  { id: 'memory_edit', label: 'Memory edits' },
+  { id: 'grant', label: 'Grants' },
+  { id: 'chat_delete', label: 'Chat deletes' },
+];
+
+const KIND_TONE: Record<string, string> = {
+  turn: 'pill-ok', memory_recall: 'pill-muted', memory_distill: 'pill-muted',
+  memory_edit: 'pill-warn', grant: 'pill-warn', revoke: 'pill-err', chat_delete: 'pill-err',
+};
+
+// One line of detail per event: every field except the ones already shown as
+// their own columns, so nothing in the record is hidden from the owner.
+const DETAIL_SKIP = new Set(['ts', 'iso', 'kind', 'category', 'host', 'seq']);
+function evtDetail(e: LogEvent): string {
+  return Object.entries(e)
+    .filter(([k, v]) => !DETAIL_SKIP.has(k) && v != null && v !== '')
+    .slice(0, 8)
+    .map(([k, v]) => `${k}=${typeof v === 'object' ? JSON.stringify(v) : String(v)}`)
+    .join(' · ');
+}
+
+function LogsTab() {
+  const [source, setSource] = useState<LogName>('audit');
+  const [kind, setKind] = useState('');
+  const fetchTail = useCallback(
+    () => dataApi.logTail(source, 100, source === 'audit' ? kind : ''),
+    [source, kind],
+  );
+  const tail = useLiveResource(fetchTail, 15000);
+  const events = tail.data?.events;
+
+  return (
+    <Panel
+      title="Log tails"
+      subtitle="Newest first, read straight from the append-only files under logs/"
+      pad={false}
+      right={
+        <div className="db-seg">
+          {LOG_SOURCES.map((s) => (
+            <button key={s.id} className={'db-seg-btn' + (source === s.id ? ' on' : '')} onClick={() => setSource(s.id)}>{s.label}</button>
+          ))}
+        </div>
+      }
+    >
+      {source === 'audit' && (
+        <div style={{ padding: '10px 12px 0' }}>
+          <div className="db-seg">
+            {AUDIT_KINDS.map((k) => (
+              <button key={k.id} className={'db-seg-btn' + (kind === k.id ? ' on' : '')} onClick={() => setKind(k.id)}>{k.label}</button>
+            ))}
+          </div>
+        </div>
+      )}
+      {events == null ? <EmptyState text={tail.error ? 'Couldn’t read that log.' : 'Loading…'} />
+        : events.length === 0 ? <EmptyState text="Nothing recorded here yet." />
+        : (
+          <div className="db-table-wrap">
+            <table className="db-table">
+              <thead><tr><th>Time</th><th>Kind</th><th>Detail</th></tr></thead>
+              <tbody>
+                {events.map((e, i) => {
+                  const tag = String(e.kind || e.category || e.type || '—');
+                  return (
+                    <tr key={`${e.ts}-${i}`}>
+                      <td style={{ whiteSpace: 'nowrap' }}>{fmtClock(e.ts)}</td>
+                      <td><span className={`db-pill ${KIND_TONE[tag] || 'pill-muted'}`}><i className="db-dot" />{tag}</span></td>
+                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)', color: 'var(--muted)', overflowWrap: 'anywhere' }}>{evtDetail(e)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+    </Panel>
+  );
+}
+
 export function DataView() {
   const [tab, setTab] = useState<TabId>('overview');
   const fetchStores = useCallback(() => dataApi.stores(), []);
@@ -136,7 +292,7 @@ export function DataView() {
               <h3 className="dash-sec-h">Stores <span className="dash-sec-count">{d.stores.length}</span></h3>
               <div className="data-stores">
                 {d.stores.map((s) => (
-                  <StoreCard key={s.id} s={s} onBrowse={s.id === 'memory' ? () => setTab('memory') : undefined} />
+                  <StoreCard key={s.id} s={s} onBrowse={BROWSE_TAB[s.id] ? () => setTab(BROWSE_TAB[s.id]) : undefined} />
                 ))}
               </div>
             </>
@@ -144,6 +300,8 @@ export function DataView() {
         )}
 
         {tab === 'memory' && <MemoryPanel />}
+        {tab === 'chats' && <ChatsTab />}
+        {tab === 'logs' && <LogsTab />}
       </div>
     </div>
   );
