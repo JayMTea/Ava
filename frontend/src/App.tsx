@@ -7,6 +7,7 @@ import { ChatView } from './components/chat/ChatView';
 import { ArtifactPanel } from './components/artifact/ArtifactPanel';
 import { Lightbox } from './components/chat/Media';
 import { AppFrame } from './components/AppFrame';
+import { ViewErrorBoundary } from './components/ViewErrorBoundary';
 import { ActionConsole } from './components/ActionConsole';
 import { VitalsView } from './components/dashboard/VitalsView';
 import { OpsView } from './components/dashboard/OpsView';
@@ -93,6 +94,15 @@ export default function App() {
     };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
+  }, [view]);
+  // Iframe apps a user has opened this session. Visited frames stay mounted
+  // (hidden, not unmounted) so switching to chat/settings and back doesn't
+  // reload the app and wipe its in-page state — typed prompts, scroll,
+  // running-job progress bars. Lazy: an app loads nothing until first opened.
+  const [openedApps, setOpenedApps] = useState<string[]>([]);
+  useEffect(() => {
+    if (BUILTIN_VIEWS.includes(view)) return;
+    setOpenedApps((prev) => (prev.includes(view) ? prev : [...prev, view]));
   }, [view]);
   const [sidebarOpen, setSidebarOpen] = useState(() => (typeof window !== 'undefined' ? window.innerWidth > 760 : true));
   const [text, setText] = useState('');
@@ -206,32 +216,46 @@ export default function App() {
         <div id="appCol">
           <Header status={chat.status} onMenu={() => setSidebarOpen((o) => !o)} ghost={chat.ghost} onToggleGhost={chat.toggleGhost} showGhost={view === 'chat'} brand={brand} models={chat.models} model={chat.model} onSetModel={chat.setModelMode} />
           <div id="viewPort">
-            {view === 'vitals' && <VitalsView />}
-            {view === 'ops' && <OpsView />}
-            {view === 'hub' && <HubView />}
+            {view === 'vitals' && <ViewErrorBoundary label="Vitals"><VitalsView /></ViewErrorBoundary>}
+            {view === 'ops' && <ViewErrorBoundary label="Operations"><OpsView /></ViewErrorBoundary>}
+            {view === 'hub' && <ViewErrorBoundary label="Setup"><HubView /></ViewErrorBoundary>}
             {view === 'chat' && (
-              <ChatView
-                items={chat.items}
-                currentChatId={chat.currentChatId}
-                onCancelGen={chat.cancelGen}
-                onRetryUser={retryUser}
-                onRetryAva={retryAva}
-                onQuickSay={chat.quickSay}
-                onOpenLightbox={openLightbox}
-                onOpenArtifact={openArtifact}
-              />
+              <ViewErrorBoundary label="Chat">
+                <ChatView
+                  items={chat.items}
+                  currentChatId={chat.currentChatId}
+                  onCancelGen={chat.cancelGen}
+                  onRetryUser={retryUser}
+                  onRetryAva={retryAva}
+                  onQuickSay={chat.quickSay}
+                  onOpenLightbox={openLightbox}
+                  onOpenArtifact={openArtifact}
+                />
+              </ViewErrorBoundary>
             )}
+            {/* Kept-alive iframe apps: every visited frame stays in the tree;
+                only the active one is shown. Unmounting would reload the app
+                and lose whatever the user had in progress inside it. */}
+            {apps
+              .filter((a) => a.embed === 'iframe' && openedApps.includes(a.id))
+              .map((a) => (
+                <ViewErrorBoundary key={a.id} label={a.label} hidden={view !== a.id}>
+                  <AppFrame id={a.id} label={a.label} active={view === a.id} />
+                </ViewErrorBoundary>
+              ))}
             {!BUILTIN_VIEWS.includes(view) && (() => {
               const app = apps.find((a) => a.id === view);
               if (!app) return null; // apps still loading, or unknown id
               if (app.embed === 'native') {
                 const Cmp = NATIVE_VIEWS[app.view || app.id];
-                return Cmp ? <Cmp /> : (
+                return Cmp ? (
+                  <ViewErrorBoundary label={app.label}><Cmp /></ViewErrorBoundary>
+                ) : (
                   <div className="panel-empty">Native view “{app.view || app.id}” is not bundled.</div>
                 );
               }
-              if (app.embed === 'iframe') return <AppFrame id={app.id} label={app.label} />;
-              return <ActionConsole id={app.id} label={app.label} />;
+              if (app.embed === 'iframe') return null; // rendered by the kept-alive block above
+              return <ViewErrorBoundary label={app.label}><ActionConsole id={app.id} label={app.label} /></ViewErrorBoundary>;
             })()}
           </div>
           {view === 'chat' && (

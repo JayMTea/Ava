@@ -111,6 +111,10 @@ export function Drawer({
   // portalled to <body> — the drawer clips overflow — and fixed at the rail's
   // right edge, vertically centered on the hovered button.
   const [tip, setTip] = useState<{ label: string; top: number } | null>(null);
+  // Expanded-panel search: the magnifier in the head row reveals an input that
+  // filters the Recents list by title.
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [query, setQuery] = useState('');
   const tipProps = (label: string) => ({
     onMouseEnter: (e: ReactMouseEvent<HTMLElement>) => {
       const r = e.currentTarget.getBoundingClientRect();
@@ -119,20 +123,21 @@ export function Drawer({
     onMouseLeave: () => setTip(null),
   });
 
-  // Built-in tabs that always ship in the shell. Everything else in the rail is
-  // derived from the connector app registry (/api/apps), so a new app appears by
-  // dropping a connector folder — no edits here. The assistant tab is brand-named.
-  const BUILTIN: { id: string; label: string; icon: string }[] = [
+  // Primary destinations in the expanded panel (claude.ai's Chats / Projects /
+  // Artifacts / Customize slot). Everything else is derived from the connector
+  // app registry (/api/apps), so a new app appears by dropping a connector
+  // folder — no edits here.
+  const NAV: { id: string; label: string; icon: string }[] = [
+    { id: 'chat', label: 'Chats', icon: 'chats' },
     { id: 'vitals', label: 'Vitals', icon: 'gauge' },
     { id: 'ops', label: 'Operations', icon: 'activity' },
-    { id: 'chat', label: `${brand} — Assistant`, icon: 'bot' },
+    { id: 'hub', label: 'Setup', icon: 'sliders' },
   ];
-  // Title for the panel header: built-in label or the active app's label.
-  const titles: Record<string, string> = Object.fromEntries([
-    ...BUILTIN.map((b) => [b.id, b.label]),
-    ['hub', 'Setup'],
-    ...apps.map((a) => [a.id, a.label]),
-  ]);
+  const userApps = apps.filter((a) => a.section !== 'core');
+  const q = query.trim().toLowerCase();
+  const visibleChats = q
+    ? chats.filter((c) => (c.title || 'New chat').toLowerCase().includes(q))
+    : chats;
 
   const railBtn = (id: string, label: string, icon: string) => (
     <button
@@ -172,9 +177,7 @@ export function Drawer({
         <div className="rail-tabs">
           {railBtn('chat', `${brand} — Assistant`, 'bot')}
           {/* App tabs — derived from the connector registry, below the chat icon. */}
-          {apps
-            .filter((a) => a.section !== 'core')
-            .map((a) => railBtn(a.id, a.label, a.icon))}
+          {userApps.map((a) => railBtn(a.id, a.label, a.icon))}
         </div>
         {tip && createPortal(
           <div className="rail-tip" style={{ top: tip.top }}>{tip.label}</div>,
@@ -194,56 +197,110 @@ export function Drawer({
         </div>
       </div>
 
-      {/* Content panel — brand + (for the Assistant tab) the chat history. */}
+      {/* Expanded panel (claude.ai layout): wordmark head with search + collapse,
+          the circled "+ New chat", primary destinations, then the sectioned
+          groups — connected Apps and the Recents chat history. */}
       <div className="side-panel">
         <div className="panel-head">
-          <div className="brand">
-            <span className="brand-mark">
-              <Icon name="bot" />
-            </span>
-            <span className="brand-name">{titles[view] || brand}</span>
+          <span className="brand-word">{brand}</span>
+          <div className="panel-head-actions">
+            <button
+              className={'ibtn' + (searchOpen ? ' on' : '')}
+              title="Search chats"
+              aria-label="Search chats"
+              aria-expanded={searchOpen}
+              onClick={() => { setSearchOpen((o) => !o); if (searchOpen) setQuery(''); }}
+            >
+              <Icon name="search" />
+            </button>
+            <button
+              className="ibtn"
+              title="Close sidebar"
+              aria-label="Close sidebar"
+              onClick={onToggle}
+            >
+              <Icon name="sidebar" />
+            </button>
           </div>
         </div>
 
-        {view === 'chat' ? (
-          <>
-            <button className="newchat-btn" title="New chat" aria-label="New chat" onClick={onNewChat}>
-              <Icon name="plus" />
-              <span>New chat</span>
-            </button>
-            <div className="draw-sub">Recents</div>
-            <div id="chatList">
-              {chats.length === 0 ? (
-                <div className="draw-empty">No conversations yet</div>
-              ) : (
-                chats.map((it) => (
-                  <div
-                    key={it.id}
-                    className={'chatitem' + (it.id === currentChatId ? ' active' : '')}
-                    onClick={() => onOpenChat(it.id)}
-                  >
-                    <div className="ci-main">
-                      <div className="ci-title">{it.title || 'New chat'}</div>
-                    </div>
-                    <button
-                      className="del"
-                      title="Delete chat"
-                      aria-label="Delete chat"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDeleteChat(it.id);
-                      }}
-                    >
-                      <Icon name="trash" />
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
-          </>
-        ) : (
-          <div className="panel-empty">Open the classic view at /legacy.</div>
+        {searchOpen && (
+          <input
+            className="panel-search"
+            type="search"
+            placeholder="Search chats…"
+            value={query}
+            autoFocus
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Escape') { setSearchOpen(false); setQuery(''); } }}
+          />
         )}
+
+        <button className="nav-item nav-new" aria-label="New chat" onClick={onNewChat}>
+          <span className="nav-new-ic"><Icon name="plus" /></span>
+          <span>New chat</span>
+        </button>
+
+        <nav className="nav-list" aria-label="Primary">
+          {NAV.map((it) => (
+            <button
+              key={it.id}
+              className={'nav-item' + (view === it.id ? ' active' : '')}
+              onClick={() => onView(it.id)}
+            >
+              <Icon name={it.icon} className="nav-ic" />
+              <span>{it.label}</span>
+            </button>
+          ))}
+        </nav>
+
+        {userApps.length > 0 && (
+          <>
+            <div className="draw-sub">Apps</div>
+            <nav className="nav-list" aria-label="Apps">
+              {userApps.map((a) => (
+                <button
+                  key={a.id}
+                  className={'nav-item' + (view === a.id ? ' active' : '')}
+                  onClick={() => onView(a.id)}
+                >
+                  <Icon name={a.icon} className="nav-ic" />
+                  <span>{a.label}</span>
+                </button>
+              ))}
+            </nav>
+          </>
+        )}
+
+        <div className="draw-sub">Recents</div>
+        <div id="chatList">
+          {visibleChats.length === 0 ? (
+            <div className="draw-empty">{q ? 'No matching chats' : 'No conversations yet'}</div>
+          ) : (
+            visibleChats.map((it) => (
+              <div
+                key={it.id}
+                className={'chatitem' + (it.id === currentChatId ? ' active' : '')}
+                onClick={() => onOpenChat(it.id)}
+              >
+                <div className="ci-main">
+                  <div className="ci-title">{it.title || 'New chat'}</div>
+                </div>
+                <button
+                  className="del"
+                  title="Delete chat"
+                  aria-label="Delete chat"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDeleteChat(it.id);
+                  }}
+                >
+                  <Icon name="trash" />
+                </button>
+              </div>
+            ))
+          )}
+        </div>
       </div>
     </aside>
   );

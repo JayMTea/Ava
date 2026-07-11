@@ -4,7 +4,12 @@ import { useEffect, useRef, useState } from 'react';
 // SAME-ORIGIN via the bridge's /apps/<id>/ reverse-proxy, so it inherits Ava's
 // session cookie (no cross-origin auth). Ava's current theme is passed as a
 // ?theme= query param; the app may opt in to match Ava's look.
-export function AppFrame({ id, label }: { id: string; label: string }) {
+//
+// The shell keeps visited frames mounted and toggles `active` instead of
+// unmounting, so the app's in-page state (typed prompts, scroll, modals)
+// survives switching to other Ava tabs. Inactive frames are display:none —
+// still loaded, just not laid out.
+export function AppFrame({ id, label, active = true }: { id: string; label: string; active?: boolean }) {
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
   const ref = useRef<HTMLIFrameElement>(null);
 
@@ -23,7 +28,7 @@ export function AppFrame({ id, label }: { id: string; label: string }) {
   const src = `/apps/${encodeURIComponent(id)}/?theme=${theme}&embedded=1&v=1`;
 
   return (
-    <div className="appframe">
+    <div className="appframe" style={active ? undefined : { display: 'none' }}>
       {state === 'loading' && <div className="appframe-status">Loading {label}…</div>}
       {state === 'error' && (
         <div className="appframe-status appframe-error">

@@ -16,7 +16,8 @@ body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica
 /* =========================== LAYOUT / SIDEBAR =========================== */
 #appShell { position:relative; background:var(--bg); }
 
-/* Sidebar = narrow icon rail + content panel (Claude style). In-flow on desktop. */
+/* Sidebar (claude.ai style): expanded = one full-width labeled panel; collapsed
+   = the narrow icon rail. The two swap — they are never shown side by side. */
 #drawer {
   position:relative; transform:none; height:auto; z-index:5;
   width:300px; max-width:300px; flex:0 0 300px;
@@ -24,11 +25,10 @@ body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica
   padding-top:0; transition:width .22s ease, flex-basis .22s ease, max-width .22s ease;
   display:flex; flex-direction:row; overflow:hidden;
 }
-/* Collapsed on desktop: only the content panel tucks away — the icon rail stays
-   pinned (claude.ai style). The panel has a fixed width so it clips under the
-   drawer's overflow:hidden instead of squishing mid-transition. */
+#appShell.nav-open .side-rail { display:none; }
 #appShell.nav-closed #drawer { width:56px; max-width:56px; flex:0 0 56px; }
 #appShell.nav-closed .side-rail { border-right-color:transparent; }
+#appShell.nav-closed .side-panel { display:none; }
 
 /* --- Icon rail --- */
 .side-rail { flex:0 0 56px; display:flex; flex-direction:column; align-items:center;
@@ -72,30 +72,50 @@ body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica
 .rail-menu-item.active { background:var(--accent-soft); color:var(--accent-tint); }
 .rail-menu-item svg { width:18px; height:18px; flex:0 0 auto; }
 
-/* --- Content panel --- */
-.side-panel { flex:0 0 244px; width:244px; min-width:0; display:flex; flex-direction:column; }
-.panel-head { padding:15px 12px 10px; display:flex; align-items:center;
+/* --- Expanded panel (claude.ai layout) --- */
+.side-panel { flex:0 0 300px; width:300px; min-width:0; display:flex; flex-direction:column; }
+
+/* Head row: brand wordmark left, search + collapse icons right. */
+.panel-head { padding:12px 8px 6px 16px; display:flex; align-items:center;
   justify-content:space-between; gap:8px; }
-.panel-head .brand { display:flex; align-items:center; gap:9px; min-width:0; }
-.panel-head .brand-mark { width:24px; height:24px; border-radius:7px; flex:0 0 auto;
-  display:flex; align-items:center; justify-content:center; background:var(--accent); color:#fff; }
-.panel-head .brand-mark svg { width:15px; height:15px; }
-.panel-head .brand-name { font-size:14.5px; font-weight:600; letter-spacing:.2px;
-  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.panel-head .ibtn { color:var(--muted); flex:0 0 auto; }
+.brand-word { font-family:var(--serif); font-size:20px; font-weight:600; letter-spacing:.2px;
+  color:var(--txt); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.panel-head-actions { display:flex; align-items:center; gap:2px; flex:0 0 auto; }
+.panel-head .ibtn { width:34px; height:34px; border-radius:9px; background:transparent;
+  color:var(--muted); }
 .panel-head .ibtn:hover { background:var(--wash-5); color:var(--txt); }
+.panel-head .ibtn.on { background:var(--wash-8); color:var(--txt); }
+.panel-head .ibtn svg { width:18px; height:18px; }
 .panel-empty { color:var(--muted); font-size:13px; padding:14px 14px; line-height:1.5; }
 
-.draw-sub { padding:8px 14px 4px; font-size:11px; color:var(--muted); font-weight:600;
-  text-transform:uppercase; letter-spacing:.06em; }
+/* Search field revealed by the head-row magnifier; filters Recents. */
+.panel-search { margin:4px 12px 2px; padding:7px 11px; border-radius:9px;
+  border:1px solid var(--line); background:var(--input); color:var(--txt);
+  font:inherit; font-size:13px; }
+.panel-search:focus { outline:none; border-color:var(--focus-line); }
+.panel-search::placeholder { color:var(--muted); }
 
-/* New-chat button, in the Assistant panel above Recents (moved off the rail). */
-.newchat-btn { display:flex; align-items:center; gap:8px; margin:10px 12px 2px;
-  padding:9px 12px; border:none; border-radius:9px; cursor:pointer;
-  background:var(--accent); color:#fff; font-size:13px; font-weight:600;
-  transition:background .12s; }
-.newchat-btn:hover { background:var(--accent-hover); }
-.newchat-btn svg { width:16px; height:16px; }
+/* Nav rows: icon + label (Chats / Vitals / Operations / Setup, then Apps). */
+.nav-list { display:flex; flex-direction:column; gap:1px; padding:0 8px; }
+.nav-item { display:flex; align-items:center; gap:11px; margin:0; padding:7px 9px;
+  border:none; border-radius:8px; background:transparent; color:var(--txt); cursor:pointer;
+  font:inherit; font-size:14px; text-align:left; transition:background .12s; }
+.nav-item:hover { background:var(--wash-5); }
+.nav-item.active { background:var(--wash-8); }
+.nav-ic { display:flex; flex:0 0 auto; color:var(--muted); }
+.nav-ic svg { width:18px; height:18px; }
+.nav-item.active .nav-ic { color:var(--txt); }
+
+/* "+ New chat": filled accent circle + label, first row under the head. */
+.nav-item.nav-new { margin:4px 8px 8px; padding:6px 9px; font-weight:600; }
+.nav-new-ic { width:24px; height:24px; border-radius:50%; flex:0 0 auto;
+  display:flex; align-items:center; justify-content:center;
+  background:var(--accent); color:#fff; margin-left:-3px; }
+.nav-new-ic svg { width:14px; height:14px; }
+
+/* Section labels (claude.ai's "Products" / "Starred"): quiet, sentence case. */
+.draw-sub { padding:16px 18px 5px; font-size:12px; color:var(--muted); font-weight:500;
+  text-transform:none; letter-spacing:.01em; }
 
 #chatList { flex:1 1 auto; min-height:0; overflow-y:auto; padding:2px 8px 10px;
   display:flex; flex-direction:column; gap:1px; }
