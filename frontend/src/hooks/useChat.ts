@@ -6,6 +6,17 @@ import { ChatItem, uid } from '../lib/chatItems';
 const GEN_RE =
   /\b(generate|make|create|draw|paint|render|design|show me|give me)\b[^.]*\b(image|picture|photo|painting|drawing|art|portrait|wallpaper|illustration|render)\b/i;
 
+// GEN_RE fires the image generator IMMEDIATELY, skipping Ava's brain. But a
+// message can contain those words while merely TALKING ABOUT images —
+// "help me write a better PROMPT for the image GENERATOR", "how do I ...",
+// "explain ..." — which tripped the greedy "create ... image" match and
+// generated a picture instead of answering. These high-signal tokens rarely
+// appear in a real "render me an image" request, so when one is present we
+// route to Ava instead. Safe either way: Ava's turn can still call
+// run_gpu_job herself, so a genuine request that lands there still renders.
+const GEN_EXCLUDE_RE =
+  /\b(prompts?|expander|generator|explain|reword|rephrase|how\s+(do|can|to))\b/i;
+
 // Play a base64-encoded WAV (Ava's spoken reply) without a round-trip to disk.
 function playWav(b64: string) {
   try {
@@ -305,7 +316,7 @@ export function useChat() {
   // ---- routing: direct image gen vs full Ava turn -------------------------
   const submit = useCallback(
     async (t: string, atts: Attachment[], cid: string, userItemId: string | null) => {
-      const isGen = !atts.length && GEN_RE.test(t);
+      const isGen = !atts.length && GEN_RE.test(t) && !GEN_EXCLUDE_RE.test(t);
       try {
         if (isGen) {
           const m = t.match(/\b(?:of|showing|depicting|with)\b\s+(.*)/i);
