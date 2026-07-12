@@ -6,8 +6,12 @@ import tempfile
 import unittest
 from unittest import mock
 
-# Isolate AVA_HOME so the ledger/tmp files never touch the real store.
-os.environ.setdefault("AVA_HOME", tempfile.mkdtemp())
+# Isolate AVA_HOME so the ledger/tmp files never touch the real store. Assign
+# UNCONDITIONALLY, not setdefault: on a box where Ava runs, AVA_HOME is already
+# in the environment, so setdefault was a no-op and this test wrote fake
+# code_change rows into the REAL logs/audit.jsonl (which once masqueraded as an
+# autonomous learning-pipeline edit). Force a throwaway dir every run.
+os.environ["AVA_HOME"] = tempfile.mkdtemp()
 
 from ava_bridge import alerts, audit, dashboard  # noqa: E402
 

@@ -12,11 +12,13 @@ import time
 import unittest
 from unittest.mock import patch
 
-# Isolate AVA_HOME so the store/ledger never touch the real one. NOTE: this
-# alone is not enough in a full-suite run — another test module may import
-# ava_bridge.settings first, freezing AVA_HOME at the repo root — so every
+# Isolate AVA_HOME so the store/ledger never touch the real one. Assign
+# UNCONDITIONALLY, not setdefault: on a box where Ava runs, AVA_HOME is already
+# set, so setdefault was a no-op and this test could write into the REAL store.
+# NOTE: this alone is not enough in a full-suite run — another test module may
+# import ava_bridge.settings first, freezing AVA_HOME at the repo root — so every
 # test class below ALSO patches memory_store.db_path (see _MemCase).
-os.environ.setdefault("AVA_HOME", tempfile.mkdtemp())
+os.environ["AVA_HOME"] = tempfile.mkdtemp()
 
 from ava_bridge import audit, chat_store, config, learning, memory_store, state  # noqa: E402
 
