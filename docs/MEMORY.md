@@ -10,7 +10,7 @@ for every time it influences a reply.
 
 | Kind | Where it comes from |
 |------|---------------------|
-| **Facts** | Distilled by the learning cycle from recent chats (local-first LLM; see below), or added by hand in the Hub's **Memory** tab ("Teach Ava"). |
+| **Facts** | Distilled by the learning cycle from recent chats (local-first LLM; see below), or added by hand in the **Memory** tab ("Teach Ava") — reachable from both **Setup → Memory** and **Data → Memory**. |
 | **Documents** | Text extracted from files you upload is chunked and indexed at upload time, so a PDF you shared last month is still findable today. |
 
 Everything lives in `$AVA_HOME/data/memory.db` (created `0600`) — SQLite
@@ -45,13 +45,18 @@ recurring people — and stores at most 8 per cycle. One-off tasks and small
 talk are explicitly excluded. A cursor in the store guarantees the same
 messages are never distilled twice.
 
-## Your controls (Hub → Memory)
+## Your controls (Setup → Memory, or Data → Memory — same panel)
 
 - **Search / browse** facts and document chunks.
 - **Teach** — add a fact directly.
 - **Edit** any fact; **pin** anything to make it always rank first.
 - **Forget** — delete an item (or a whole upload's chunks by deleting each).
-- **Export** — the entire store as JSON in one click.
+- **Export** — the entire store as JSON in one click, or bundled with chats,
+  the audit ledger, and your settings via **Data → Maintenance → Export
+  archive** (`GET /api/data/export`).
+- **Inspect the store itself** — **Data → Overview** shows `memory.db` size and
+  counts; **Data → Maintenance** runs an integrity check or compacts it
+  (VACUUM). Both actions land in the audit ledger.
 
 ## Configuration (`ava.yaml`)
 

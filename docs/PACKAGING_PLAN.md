@@ -318,7 +318,7 @@ Move toward a clean monorepo so "core" is shippable and personal bits are option
 ava/
   core/            # bridge, router, agent adapter, config, connector registry
   connectors/      # first-party connectors (gpu-service, …) + SDK
-  web/             # the React SPA (Vitals/Operations/Chat)
+  web/             # the React SPA (Vitals/Operations/Data/Chat)
   agent/           # MCP server + skills + policies (manifest-generated where possible)
   deploy/          # docker-compose, install.sh, profiles, systemd (generated)
   packages/        # optional: voice, biometric, tailscale — off by default

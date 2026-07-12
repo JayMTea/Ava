@@ -47,6 +47,7 @@ Ava herself is unreachable, exactly as you'd expect.
 
 ## Scope
 
-This is the governed-cockpit surface on mobile: chat, dashboards and the
-Setup hub. Voice capture uses the browser microphone (also
-secure-context-gated). There are no push notifications yet.
+This is the governed-cockpit surface on mobile: chat, dashboards, the Data
+page (browse/export everything Ava stores), and the Setup hub. Voice capture
+uses the browser microphone (also secure-context-gated). There are no push
+notifications yet.

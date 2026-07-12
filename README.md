@@ -45,9 +45,14 @@ hardware with the model of your choice (local **vLLM / Ollama / llama.cpp**, or 
 ## The Command Center
 
 Ava's dashboard is the front door: a **Vitals** tab (performance at a glance:
-tokens/sec, time-to-first-token, render times, cost and energy, hardware) and an
+tokens/sec, time-to-first-token, render times, cost and energy, hardware), an
 **Operations** tab (live jobs, background workflows, connectors, alerts, and the
-approval-gated Control Center).
+approval-gated Control Center), and a **Data** tab — the transparency page a
+cloud assistant can't give you: every store Ava keeps (memories, chats, the
+audit ledger, logs, media, even the secrets it will never display), sized and
+inventoried, with search, export (per-chat or one everything-archive), audited
+deletes, and database maintenance. Your whole Ava is one folder (`AVA_HOME`);
+the Data tab shows you exactly what's in it.
 
 <!-- Regenerate this and the site's screenshots/tour with the local capture studio. -->
 ![Ava's Vitals dashboard: performance at a glance](docs/assets/vitals-dashboard.png)

@@ -6,6 +6,32 @@ on-prem project, so versions are dated milestones rather than published releases
 
 ## [Unreleased]
 
+### Added — Data page (the owner's data console)
+- **Data view** (`ava_bridge/data_api.py`, `frontend/src/components/data/`): a
+  built-in tab that inventories everything Ava stores under `$AVA_HOME` —
+  Overview (per-store cards: path, format, size, counts, last write; secrets
+  listed as counts only, never readable), Memory (the same governed browser as
+  Setup → Memory), Chats (per-chat JSON/Markdown export + confirmed delete),
+  Logs (newest-first tails of the audit ledger, performance log, and device
+  streams), Maintenance (retention, `memory.db` integrity check + VACUUM,
+  everything-archive export, one-folder backup story). `GET /api/data/stores`,
+  `/chats`, `/chats/{cid}/export`, `/logs/{name}/tail`, `/maintenance` (+
+  `integrity`/`vacuum` POSTs), `/export` — all behind the same cookie gate.
+- **Everything-archive export** (`GET /api/data/export`) — memories, chats, the
+  audit ledger, and `ava.yaml` as one `.zip`; secrets/keys are never included,
+  media stays on disk (a full backup is a copy of `$AVA_HOME`).
+
+### Changed
+- **Chat deletion is audit-logged** — `DELETE /api/chats/{cid}` now writes a
+  `chat_delete` event to the flight recorder, same as memory edits.
+- **`MemoryPanel` extracted** to `frontend/src/components/hub/MemoryPanel.tsx`,
+  shared by Setup → Memory and Data → Memory (one implementation).
+- `memory_store.counts()` now reports `pinned`.
+
+### Fixed
+- `.hub-note` / `.hub-restart` never sized a leading icon SVG (unbounded glyph);
+  also fixes the Setup page's own restart banner.
+
 ### Added — Setup Hub, MCP, governance & observability
 - **Setup Hub** (`ava_bridge/hub_api.py`, `frontend/.../hub/`): a GUI onboarding &
   control portal — Overview, Models (hardware detect, pull-with-progress, bench),
