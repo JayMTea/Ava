@@ -1806,7 +1806,13 @@ function SystemPanel({ onRestart }: { onRestart: () => void }) {
     try {
       const r = await hub.setApproval(mode);
       if (r.error) setMsg(r.error);
-      else { setSys((s) => (s ? { ...s, code_approval: mode } : s)); onRestart(); }
+      else {
+        setSys((s) => (s ? { ...s, code_approval: mode } : s));
+        // Approval now applies live (no restart); only nudge a restart if the
+        // backend still asks for one.
+        if (r.restart_required) onRestart();
+        else setMsg('Saved — in effect now.');
+      }
     } catch (e) { setMsg((e as Error).message); }
     setBusy(false);
   }, [onRestart]);

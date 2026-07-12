@@ -192,7 +192,11 @@ async def cost_set(request: Request):
 
 @router.post("/system/approval")
 def set_approval(mode: str):
-    """Set code.approval (all|policy|none) for Ava's self-editing agent."""
+    """Set code.approval (all|policy|none) for Ava's self-editing agent.
+
+    Applies LIVE: code_agent reads config.CODE_APPROVAL at call time, so updating
+    it here gates the very next code-change request without a restart (the setting
+    is also persisted to ava.yaml so it survives one)."""
     mode = (mode or "").strip().lower()
     if mode not in ("all", "policy", "none"):
         return JSONResponse({"ok": False, "error": "mode must be all|policy|none"},
@@ -202,7 +206,8 @@ def set_approval(mode: str):
     except Exception as e:  # noqa: BLE001
         return JSONResponse({"ok": False, "error": f"could not write ava.yaml: {e}"},
                             status_code=500)
-    return {"ok": True, "restart_required": True}
+    config.CODE_APPROVAL = mode  # take effect immediately, no restart
+    return {"ok": True, "restart_required": False}
 
 
 @router.post("/system/retention")
