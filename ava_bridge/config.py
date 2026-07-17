@@ -22,6 +22,10 @@ DATA_HOME = os.path.expanduser(os.environ.get("AVA_HOME", ROOT))
 
 RATE = 16000
 
+# Hard ceiling (seconds) on the ffmpeg decode of an uploaded voice clip, so a
+# malformed/huge blob can't wedge the request. Override with AVA_AUDIO_DECODE_TIMEOUT.
+AUDIO_DECODE_TIMEOUT = int(os.environ.get("AVA_AUDIO_DECODE_TIMEOUT", "30"))
+
 MEDIA_DIR = os.path.join(DATA_HOME, "media", "gen")
 UPLOAD_DIR = os.path.join(DATA_HOME, "media", "uploads")
 CHATS_DIR = os.path.join(DATA_HOME, "data")

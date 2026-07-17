@@ -39,8 +39,8 @@ Most AI tools are *one* of these: a chat UI, a local model runner, a voice
 assistant, an agent framework, or an image generator. **Ava is the layer that ties
 them together** into one assistant you actually own: chat, voice, generation, app
 automation, and self-editing, behind a single dashboard, running on your own
-hardware with the model of your choice (local **vLLM / Ollama / llama.cpp**, or a
-**cloud key**).
+hardware with the model of your choice (served locally by **vLLM / Ollama /
+llama.cpp**, or through a **cloud API key**).
 
 ## The Command Center
 
