@@ -1,0 +1,20 @@
+# Ava GPU voice extras — OPTIONAL, opt-in. Powers the natural-voice TTS (Kokoro)
+# and fast STT (Whisper) that run in a SEPARATE GPU sidecar (kokoro_tts.py), not
+# the main bridge. Voice works without these: it defaults to CPU (Piper TTS +
+# faster-whisper STT from requirements-voice.txt) and only uses the GPU path when
+# you run deploy/gpu-voice-serve.sh AND set AVA_TTS=kokoro / AVA_STT=gpu in the
+# bridge env. If the sidecar is down, the bridge transparently falls back to CPU.
+#
+# Needs a CUDA-enabled PyTorch already importable. deploy/gpu-voice-serve.sh
+# builds the sidecar venv with --system-site-packages so it inherits the host's
+# CUDA torch (the same one that serves the model). On a fresh host, install the
+# matching torch first, e.g.:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu124
+#
+# Install:  bash deploy/gpu-voice-serve.sh   (creates .venv-tts + installs these)
+kokoro>=0.9.4
+soundfile
+transformers>=4.44
+accelerate
+fastapi
+uvicorn

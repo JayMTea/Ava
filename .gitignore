@@ -92,3 +92,4 @@ docs-site/site/
 # Personal instance connectors (this box's AVA_HOME = repo root; the shipped
 # template lives in examples/home-assistant/)
 connectors/home-assistant/
+.venv-tts/

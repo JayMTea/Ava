@@ -48,7 +48,7 @@ from ava_bridge.gpu_jobs import (start_image_job, start_upscale_job,
                                    _pickup_image_since, cancel_job)
 from ava_bridge.turns import start_turn
 from ava_bridge.documents import extract_text, _augment, _parse_ids, _safe_name
-from ava_bridge.audio import decode_to_pcm, tts_wav_bytes
+from ava_bridge.audio import decode_to_pcm, tts_wav_bytes, gpu_transcribe
 from ava_bridge.chat_store import (
     _chat_new, _chat_append, _chat_summary, _chat_session, _atts_meta, _chats_persist,
 )
@@ -1323,7 +1323,18 @@ async def talk(audio: UploadFile = File(...), history: str = Form("[]"),
                     "threshold": PHONE_THRESHOLD,
                     "reply": "Sorry, I only respond to the enrolled voice."}
 
-    text = va.transcribe(_state["whisper"], pcm)
+    # Transcribe on the GPU sidecar when enabled (AVA_STT=gpu), falling back to
+    # the local CPU Whisper if that service is unreachable or errors — so a
+    # stopped sidecar slows STT but never breaks voice.
+    text = None
+    if os.environ.get("AVA_STT", "").strip().lower() == "gpu":
+        try:
+            text = gpu_transcribe(pcm)
+        except Exception as e:  # noqa: BLE001 — degrade to CPU, don't fail voice
+            print(f"[ava] GPU STT unavailable ({e}); falling back to CPU Whisper",
+                  flush=True)
+    if text is None:
+        text = va.transcribe(_state["whisper"], pcm)
     if not text:
         return {"accepted": True, "text": "", "reply": "",
                 "sim": round(float(sim), 3) if sim is not None else None,
