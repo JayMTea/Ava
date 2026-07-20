@@ -73,12 +73,14 @@ export function AvaMessage({
   model,
   toolsUsed,
   onRetry,
+  onReplay,
   children,
 }: {
   text: string;
   model?: ModelInfo | null;
   toolsUsed?: string[];
   onRetry?: () => void;
+  onReplay?: () => void;
   children?: React.ReactNode;
 }) {
   const [copied, setCopied] = useState(false);
@@ -122,6 +124,12 @@ export function AvaMessage({
           <button className="msgact" title="Ask Ava the same thing again" onClick={onRetry}>
             <Icon name="refresh" />
             <span>Retry</span>
+          </button>
+        )}
+        {onReplay && (
+          <button className="msgact" title="Replay Ava's spoken reply" onClick={onReplay}>
+            <Icon name="mic" />
+            <span>Replay</span>
           </button>
         )}
       </div>

@@ -229,6 +229,7 @@ export default function App() {
                   onCancelGen={chat.cancelGen}
                   onRetryUser={retryUser}
                   onRetryAva={retryAva}
+                  onReplay={chat.replay}
                   onQuickSay={chat.quickSay}
                   onOpenLightbox={openLightbox}
                   onOpenArtifact={openArtifact}

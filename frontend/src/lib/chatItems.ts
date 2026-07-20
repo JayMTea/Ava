@@ -6,7 +6,7 @@ import type { Artifact, Attachment, CotStep, ModelInfo, Preview } from './types'
 
 export type ChatItem =
   | { kind: 'user'; id: string; text: string; atts: Attachment[]; failed?: boolean }
-  | { kind: 'ava'; id: string; text: string; model?: ModelInfo | null; toolsUsed?: string[]; artifact?: Artifact | null; srcText: string; srcAtts: Attachment[] }
+  | { kind: 'ava'; id: string; text: string; model?: ModelInfo | null; toolsUsed?: string[]; artifact?: Artifact | null; srcText: string; srcAtts: Attachment[]; audio?: string }
   | {
       kind: 'cot';
       id: string;

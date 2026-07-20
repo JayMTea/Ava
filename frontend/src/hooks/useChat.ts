@@ -433,6 +433,9 @@ export function useChat() {
               toolsUsed: j.tools_used || [],
               srcText: j.text || '',
               srcAtts: atts,
+              // Keep the spoken WAV on the item so the message's replay button
+              // can play it again (session-only: not saved with chat history).
+              audio: j.audio,
             });
             history.current.push({ role: 'assistant', content: j.reply });
             history.current = history.current.slice(-12);
@@ -674,6 +677,9 @@ export function useChat() {
     return ctxBase + Math.ceil(chars / 4);
   }, [items, ctxBase, realCtx]);
 
+  // Replay a stored voice reply (base64 WAV) from a message's replay button.
+  const replay = useCallback((b64: string) => playWav(b64), []);
+
   return {
     items,
     cancelGen,
@@ -687,6 +693,7 @@ export function useChat() {
     setArtifact,
     send,
     retry,
+    replay,
     talk,
     openChat,
     newChat,

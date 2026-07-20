@@ -11,6 +11,7 @@ interface Props {
   onCancelGen: (jobId: string, itemId: string) => void;
   onRetryUser: (t: string, atts: import('../../lib/types').Attachment[], id: string) => void;
   onRetryAva: (t: string, atts: import('../../lib/types').Attachment[]) => void;
+  onReplay: (audio: string) => void;
   onQuickSay: (t: string) => void;
   onOpenLightbox: (url: string, onClose?: () => void) => void;
   onOpenArtifact: (a: import('../../lib/types').Artifact) => void;
@@ -29,6 +30,7 @@ export function ChatView({
   onCancelGen,
   onRetryUser,
   onRetryAva,
+  onReplay,
   onQuickSay,
   onOpenLightbox,
   onOpenArtifact,
@@ -116,6 +118,7 @@ export function ChatView({
                     model={it.model}
                     toolsUsed={it.toolsUsed}
                     onRetry={it.srcText ? () => onRetryAva(it.srcText, it.srcAtts) : undefined}
+                    onReplay={it.audio ? () => onReplay(it.audio!) : undefined}
                   >
                     {it.artifact && (
                       <div className="art-chip" onClick={() => onOpenArtifact(it.artifact!)}>
