@@ -226,7 +226,9 @@ class ControlAuthTests(unittest.TestCase):
         client = _mock_client({"backends": backends, "token": "tok"}, handler)
         hdr = {"X-Ava-Router-Token": "tok"}
         r = client.post("/route", json={"mode": "b"}, headers=hdr)
-        self.assertEqual(r.json(), {"ok": True, "mode": "b"})
+        # persisted:false is the honesty flag — a route pick lives in router
+        # memory only and reverts on restart.
+        self.assertEqual(r.json(), {"ok": True, "mode": "b", "persisted": False})
         r = client.post("/route", json={"mode": "nope"}, headers=hdr)
         self.assertEqual(r.status_code, 400)
 

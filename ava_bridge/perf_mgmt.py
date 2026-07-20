@@ -6,12 +6,16 @@ connected app that writes one (image/video render times, backend tokens/sec).
 
 This module gives Ava read-only access to ALL of them at once so she can answer
 "how fast am I generating?" — tokens/sec by model, image steps/sec, render times,
-failovers — without shelling into other projects. It never writes.
+failovers — without shelling into other projects. It never writes perf records;
+its only write is the tiny source *ledger* below, which remembers every perf
+source ever seen so an app's history stays readable after its connector is
+removed (and resumes seamlessly when it's re-added).
 """
 import json
 import os
+import threading
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from . import config, connectors
 
@@ -35,16 +39,138 @@ def _sane_tps(recs: List[dict]) -> List[float]:
             out.append(v)
     return out
 
-# app-key -> the on-disk performance.jsonl each project appends to. Derived from
-# the connector registry (each connector may declare a `perf.path`); the literal
-# dict below is a safety fallback if no connectors are present.
+# --------------------------------------------------------------------------- #
+# Perf sources — LIVE registry view + persistent ledger.
+#
+# `sources()` is the single authority for "which performance.jsonl files exist,
+# and which app does each belong to". It is computed per call (short TTL cache)
+# from two inputs merged together:
+#
+#   1. the connector registry (`connectors.perf_sources()`) — so a connector
+#      added/removed in the Hub changes Vitals immediately, no restart; and
+#   2. an on-disk ledger of every source ever seen — so removing a connector
+#      does NOT erase its history from Vitals, and re-adding it under the same
+#      id resumes the same history (the rollup store keeps absorbing/pruning
+#      remembered files too, so no window of records is ever silently lost).
+#
+# An app may have several files (its own repo log + the bridge-observed action
+# log), hence Dict[app, List[path]]. Values are deduped by realpath in
+# `source_files()` so one file shared by two entries can't double-count.
+#
 # Core-only fallback (no app-specific entries): apps declare their own perf.path
 # in connectors/<id>/connector.yaml and the registry provides them. A fresh fork
 # therefore shows only Ava's own log, never the author's personal apps.
-_FALLBACK_SOURCES: Dict[str, str] = {
-    "ava": os.path.join(config.ROOT, "logs", "performance.jsonl"),
+# --------------------------------------------------------------------------- #
+_FALLBACK_SOURCES: Dict[str, List[str]] = {
+    "ava": [os.path.join(config.ROOT, "logs", "performance.jsonl")],
 }
-SOURCES: Dict[str, str] = connectors.perf_sources() or _FALLBACK_SOURCES
+# Tests (and debugging) may pin the map here; str values are normalised to [str].
+SOURCES_OVERRIDE: Optional[Dict[str, Any]] = None
+# Rebindable in tests, like perf_store's ROLLUP_DIR.
+LEDGER_PATH: str = os.path.join(config.LOGS_DIR, "perf_sources.json")
+
+_SRC_TTL_S = 15.0
+_src_lock = threading.Lock()
+_src_cache: Dict[str, Any] = {"ts": 0.0, "map": None}
+
+
+def _normalize(m: Dict[str, Any]) -> Dict[str, List[str]]:
+    out: Dict[str, List[str]] = {}
+    for app, paths in (m or {}).items():
+        if isinstance(paths, str):
+            paths = [paths]
+        clean = [str(p) for p in (paths or []) if p and isinstance(p, str)]
+        if app and clean:
+            out[str(app)] = clean
+    return out
+
+
+def _load_ledger() -> Dict[str, List[str]]:
+    try:
+        with open(LEDGER_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+        return _normalize((data or {}).get("apps") or {})
+    except (OSError, ValueError, TypeError):
+        # Missing or corrupt ledger must never break the readers — start fresh;
+        # anything still in the connector registry re-registers on the next call.
+        return {}
+
+
+def _save_ledger(apps: Dict[str, List[str]]) -> None:
+    try:
+        os.makedirs(os.path.dirname(LEDGER_PATH), exist_ok=True)
+        tmp = LEDGER_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"version": 1, "apps": apps}, f, indent=1, sort_keys=True)
+        os.replace(tmp, LEDGER_PATH)  # atomic — a crash can't leave half a ledger
+    except OSError:
+        pass  # remembering is best-effort; the live registry still works
+
+
+def refresh_sources() -> None:
+    """Drop the TTL cache so the next `sources()` re-reads the registry at once.
+    Called by the Hub on connector create/delete/toggle/manifest-save."""
+    with _src_lock:
+        _src_cache["map"] = None
+        _src_cache["ts"] = 0.0
+
+
+def register_source(app: str, path: str) -> None:
+    """Remember an out-of-manifest perf source (e.g. the bridge-observed action
+    log for a connector with no `perf:` block) so the readers pick it up."""
+    if not app or not path:
+        return
+    with _src_lock:
+        ledger = _load_ledger()
+        paths = ledger.setdefault(app, [])
+        if path in paths:
+            return
+        paths.append(path)
+        _save_ledger(ledger)
+        _src_cache["map"] = None  # next sources() sees it
+
+
+def sources() -> Dict[str, List[str]]:
+    """app-key -> [performance.jsonl paths]: live connector registry merged with
+    every source remembered in the ledger (live paths first). Cheap (TTL cache)
+    and thread-safe, so every reader can call it per request."""
+    if SOURCES_OVERRIDE is not None:
+        return _normalize(SOURCES_OVERRIDE)
+    with _src_lock:
+        now = time.time()
+        if _src_cache["map"] is not None and now - _src_cache["ts"] < _SRC_TTL_S:
+            return _src_cache["map"]
+        live = _normalize(connectors.perf_sources())
+        ledger = _load_ledger()
+        merged: Dict[str, List[str]] = {}
+        for app in list(live) + [a for a in ledger if a not in live]:
+            seen: List[str] = []
+            for p in live.get(app, []) + ledger.get(app, []):
+                if p not in seen:
+                    seen.append(p)
+            merged[app] = seen
+        # Persist anything new the registry introduced, so history survives a
+        # later disconnect. The fallback is never persisted (it's not user data).
+        if merged and merged != ledger:
+            _save_ledger(merged)
+        result = merged or dict(_FALLBACK_SOURCES)
+        _src_cache.update(ts=now, map=result)
+        return result
+
+
+def source_files() -> List[Tuple[str, str]]:
+    """Flat (app, path) pairs with duplicate files removed (first app wins), so
+    a path shared between two app keys is read — and counted — exactly once."""
+    out: List[Tuple[str, str]] = []
+    seen: set = set()
+    for app, paths in sources().items():
+        for p in paths:
+            key = os.path.realpath(p)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append((app, p))
+    return out
 
 
 def _read_file(path: str, max_rows: int = 5000) -> List[dict]:
@@ -92,6 +218,7 @@ def _summarize(rows: List[dict]) -> dict:
     img: List[dict] = []
     vid: List[dict] = []
     up: List[dict] = []
+    act: List[dict] = []
     for r in rows:
         cat = r.get("category")
         if cat == "llm":
@@ -103,6 +230,8 @@ def _summarize(rows: List[dict]) -> dict:
             vid.append(r)
         elif cat == "upscale":
             up.append(r)
+        elif cat == "action":
+            act.append(r)
     out: Dict[str, Any] = {"records": len(rows)}
     if llm:
         out["llm"] = {
@@ -126,6 +255,14 @@ def _summarize(rows: List[dict]) -> dict:
     if up:
         out["upscale"] = {"count": len(up),
                           "seconds": _stats([r.get("seconds") for r in up])}
+    if act:
+        # Bridge-observed connector-action calls (see app_perf.py). Kept under
+        # `action_seconds` — NOT `seconds` — so API latency never masquerades as
+        # GPU render time in the energy/cost estimators.
+        out["actions"] = {"count": len(act),
+                          "seconds": _stats([r.get("action_seconds") for r in act]),
+                          "errors": sum(1 for r in act
+                                        if isinstance(r.get("status"), int) and r["status"] >= 400)}
     return out
 
 
@@ -141,11 +278,12 @@ def read_performance(app: Optional[str] = None, category: Optional[str] = None,
         limit: number of most-recent records to return verbatim (1-500).
         summary: include the aggregate throughput summary (default True).
     """
-    apps = [app] if app else list(SOURCES)
-    bad = [a for a in apps if a not in SOURCES]
+    srcs = sources()
+    apps = [app] if app else list(srcs)
+    bad = [a for a in apps if a not in srcs]
     if bad:
         return {"ok": False,
-                "error": f"unknown app {bad[0]!r}; valid: {', '.join(SOURCES)}"}
+                "error": f"unknown app {bad[0]!r}; valid: {', '.join(sorted(srcs))}"}
 
     cutoff = None
     if since:
@@ -158,16 +296,25 @@ def read_performance(app: Optional[str] = None, category: Optional[str] = None,
     limit = max(1, min(int(limit or 50), 500))
     rows: List[dict] = []
     present: Dict[str, bool] = {}
+    seen_paths: set = set()
     for a in apps:
-        path = SOURCES[a]
-        present[a] = os.path.isfile(path)
-        for rec in _read_file(path):
-            rec.setdefault("app", a)
-            if category and rec.get("category") != category:
+        present[a] = any(os.path.isfile(p) for p in srcs[a])
+        for path in srcs[a]:
+            rp = os.path.realpath(path)
+            if rp in seen_paths:  # two app keys sharing a file: count it once
                 continue
-            if cutoff is not None and float(rec.get("ts") or 0) < cutoff:
-                continue
-            rows.append(rec)
+            seen_paths.add(rp)
+            for rec in _read_file(path):
+                rec.setdefault("app", a)
+                # Row-level attribution wins over file ownership, so a shared
+                # file's records stay with the app that actually wrote them.
+                if app and rec.get("app") != app:
+                    continue
+                if category and rec.get("category") != category:
+                    continue
+                if cutoff is not None and float(rec.get("ts") or 0) < cutoff:
+                    continue
+                rows.append(rec)
 
     rows.sort(key=lambda r: r.get("ts") or 0)
     result: Dict[str, Any] = {

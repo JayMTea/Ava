@@ -133,6 +133,7 @@ export function StatusPill({ status }: { status: string }) {
   const map: Record<string, string> = {
     up: 'ok', running: 'ok', active: 'ok', done: 'ok',
     down: 'err', error: 'err', failed: 'err',
+    off: 'muted',  // feature turned off by the user — neutral, not an outage
     unknown: 'muted', queued: 'warn', warn: 'warn',
   };
   const tone = map[status] || 'muted';

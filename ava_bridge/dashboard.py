@@ -10,6 +10,7 @@ ops (summary/schedule/services/tools/alerts) · SSE snapshot builder.
 import os
 import time
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional
 
 import requests
@@ -57,16 +58,19 @@ def _parse_dur(s: Optional[str], default: float) -> float:
 
 
 def _all_rows(app=None, category=None, since=None) -> List[dict]:
-    """Raw perf records across apps, filtered + time-sorted."""
+    """Raw perf records across apps, filtered + time-sorted. Sources come from
+    perf_mgmt.sources() — the LIVE connector registry + remembered ledger — so a
+    connector added or removed in the Hub changes these reads immediately, and a
+    removed app's history stays visible."""
     cutoff = _parse_since(since)
-    apps = [app] if app else list(perf_mgmt.SOURCES)
     rows: List[dict] = []
-    for a in apps:
-        path = perf_mgmt.SOURCES.get(a)
-        if not path:
+    for a, path in perf_mgmt.source_files():
+        if app and a != app:
             continue
         for r in perf_mgmt._read_file(path):
             r.setdefault("app", a)
+            if app and r.get("app") != app:  # shared files: rows keep their writer
+                continue
             if category and r.get("category") != category:
                 continue
             if cutoff is not None and float(r.get("ts") or 0) < cutoff:
@@ -348,15 +352,16 @@ def ops_summary() -> dict:
             c[it.get("status") or "?"] += 1
         return dict(c)
 
-    day = time.time() - 86400
-    rows_24h = [r for r in _all_rows(None, None, None) if (r.get("ts") or 0) >= day]
+    # Cached: this endpoint is polled every 6s per open tab, and a full raw
+    # scan across every app's file on each poll doesn't scale with app count.
+    gen_24h = _cached("gen24_count", 15, lambda: len(_all_rows(None, None, "1d")))
     return {
         "ok": True,
         "jobs": {"running": sum(1 for j in jobs if j.get("status") == "running"),
                  "total": len(jobs), "by_status": by_status(jobs)},
         "turns": {"running": sum(1 for t in turns if t.get("status") == "running"),
                   "total": len(turns), "by_status": by_status(turns)},
-        "generations_24h": len(rows_24h),
+        "generations_24h": gen_24h,
         "learning": _learning_brief(),
         "ts": time.time(),
     }
@@ -471,20 +476,36 @@ def _probe(url: str) -> Optional[bool]:
 
 
 def ops_services() -> dict:
+    def check(s: dict) -> dict:
+        # A service whose governing feature the user turned OFF is reported as
+        # "off" — a neutral state — never probed into a red "down". Off-by-
+        # choice and crashed must not look identical on the dashboard.
+        feat = s.get("feature")
+        if feat:
+            from . import features
+            if not features.enabled(feat):
+                return {"name": s["name"], "unit": s.get("unit"),
+                        "systemd": None, "probe_ok": None, "status": "off",
+                        "feature": feat}
+        unit_state = _systemctl(["--user", "is-active", s["unit"]]) if s.get("unit") else None
+        probe_ok = _probe(s["probe"]) if s.get("probe") else None
+        if unit_state == "active" or probe_ok is True:
+            status = "up"
+        elif unit_state in ("inactive", "failed", "deactivating") or probe_ok is False:
+            status = "down"
+        else:
+            status = "unknown"
+        return {"name": s["name"], "unit": s.get("unit"),
+                "systemd": unit_state or None, "probe_ok": probe_ok,
+                "status": status}
+
     def load():
-        out = []
-        for s in (connectors.services() or MONITORED_SERVICES):
-            unit_state = _systemctl(["--user", "is-active", s["unit"]]) if s.get("unit") else None
-            probe_ok = _probe(s["probe"]) if s.get("probe") else None
-            if unit_state == "active" or probe_ok is True:
-                status = "up"
-            elif unit_state in ("inactive", "failed", "deactivating") or probe_ok is False:
-                status = "down"
-            else:
-                status = "unknown"
-            out.append({"name": s["name"], "unit": s.get("unit"),
-                        "systemd": unit_state or None, "probe_ok": probe_ok,
-                        "status": status})
+        svcs = connectors.services() or MONITORED_SERVICES
+        # Probe concurrently: wall-clock is the slowest single check, not the
+        # sum — so one hung app can't stall the services panel (or the
+        # connectors view, which reuses these statuses) for 2s × N services.
+        with ThreadPoolExecutor(max_workers=min(8, max(1, len(svcs)))) as ex:
+            out = list(ex.map(check, svcs))
         return {"ok": True, "services": out,
                 "down": sum(1 for x in out if x["status"] == "down")}
     return _cached("services", 15, load)
@@ -497,16 +518,26 @@ def connectors_info() -> dict:
     (`hub_api.list_connectors`), the **management** view that also lists disabled
     connectors and their edit/deploy state. Two audiences, two shapes — see the
     note on `list_connectors`."""
+    # Live health by service name (15s-cached probe results) so the Vitals apps
+    # panel can show up/down without a second frontend call.
+    smap = {s["name"]: s["status"] for s in (ops_services().get("services") or [])}
+    srcs = perf_mgmt.sources()
     items = []
     for m in connectors.all():
         svc = m.get("service") or {}
         eg = m.get("egress") or {}
+        perf_app = str((m.get("perf") or {}).get("app") or m["id"])
         items.append({
             "id": m["id"],
             "label": m.get("label", m["id"]),
             "kind": m.get("kind", "app"),
             "has_service": bool(svc),
             "has_perf": bool(m.get("perf")),
+            # the app-key its perf records aggregate under (Vitals "by app")
+            "perf_app": perf_app,
+            # true once any of its perf files exist on disk — "reporting yet?"
+            "perf_present": any(os.path.isfile(p) for p in srcs.get(perf_app, [])),
+            "status": smap.get(svc.get("name", m.get("label", m["id"]))) if svc else None,
             "egress_routes": len(eg.get("routes") or []) + len(eg.get("hosts") or []),
             "actions": [a.get("id") for a in (m.get("actions") or [])
                         if isinstance(a, dict) and a.get("id")],
@@ -537,13 +568,16 @@ def build_alert_metrics() -> dict:
     m["mem_used_pct"] = s.get("mem_used_pct")
     disk = _cached("disk", 15, hardware._disk)
     m["disk_free_pct"] = (100 - disk["used_pct"]) if disk.get("used_pct") is not None else None
-    llm_1h = _all_rows(None, "llm", "1h")
+    # ONE cached raw scan feeds every 1h metric below. The SSE producer calls
+    # this every ~5s per client, and the file count grows with each connected
+    # app — re-reading all of them three times per tick doesn't scale.
+    all_1h = _cached("rows_1h", 10, lambda: _all_rows(None, None, "1h"))
+    llm_1h = [r for r in all_1h if r.get("category") == "llm"]
     tps = [r.get("tokens_per_sec") for r in llm_1h
            if isinstance(r.get("tokens_per_sec"), (int, float))]
     m["tokens_per_sec"] = round(sum(tps) / len(tps), 2) if tps else None
     fo = [1 if r.get("failover") else 0 for r in llm_1h]
     m["failover_rate_1h"] = round(sum(fo) / len(fo), 3) if fo else 0
-    all_1h = _all_rows(None, None, "1h")
     errs = [1 if (isinstance(r.get("status"), int) and r["status"] >= 400) else 0
             for r in all_1h]
     m["error_rate_1h"] = round(sum(errs) / len(errs), 3) if errs else 0
@@ -581,7 +615,10 @@ def build_alert_metrics() -> dict:
     idle_tokens = 0
     if not turn_running:
         last = state.interaction.get("ts", 0)
-        for r in _all_rows(None, "llm", "10m"):
+        cutoff_10m = time.time() - 600
+        for r in llm_1h:  # derived from the same cached 1h scan
+            if (r.get("ts") or 0) < cutoff_10m:
+                continue
             ct = r.get("completion_tokens") or 0
             if ct and (r.get("ts") or 0) > last + 120:
                 idle_tokens += int(ct)

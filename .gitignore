@@ -92,4 +92,14 @@ docs-site/site/
 # Personal instance connectors (this box's AVA_HOME = repo root; the shipped
 # template lives in examples/home-assistant/)
 connectors/home-assistant/
+connectors/persona/
+connectors/ava-notes/
 .venv-tts/
+
+# Agent/editor runtime config — drives the local-only marketing/ harness, so it
+# is meaningless (and broken) for anyone else.
+.claude/
+
+# QA e2e deps are a symlink into the local-only marketing/ tree; committing it
+# would bake this box's absolute home path into the repo and break every clone.
+qa/e2e/node_modules

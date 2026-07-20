@@ -106,6 +106,18 @@ body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica
 .nav-ic svg { width:18px; height:18px; }
 .nav-item.active .nav-ic { color:var(--txt); }
 
+/* Connected-app identity dots (lib/appColor.tsx): a subtle per-app color on
+   everything that represents a connected app — sidebar entries, chat tool
+   chips, artifact cards — so it reads as the app's, not Ava's. */
+.app-dot { display:inline-block; width:7px; height:7px; border-radius:50%; flex:0 0 auto; }
+.nav-item .nav-app-dot { margin-left:auto; margin-right:2px; }
+.rail-btn { position:relative; }
+.rail-btn .rail-dot { position:absolute; right:6px; bottom:6px; width:6px; height:6px;
+  box-shadow:0 0 0 2px var(--sidebar); }
+.toolsdrop li .app-dot, .media .cap .app-dot {
+  margin-right:6px; vertical-align:middle; position:relative; top:-1px; }
+.tool-app { margin-left:6px; color:var(--muted); font-size:11px; }
+
 /* "+ New chat": filled accent circle + label, first row under the head. */
 .nav-item.nav-new { margin:4px 8px 8px; padding:6px 9px; font-weight:600; }
 .nav-new-ic { width:24px; height:24px; border-radius:50%; flex:0 0 auto;
@@ -260,6 +272,17 @@ header .sub { display:none; }
   padding:3px 8px; cursor:pointer;
 }
 .gen-cancel:hover { background:var(--wash-8); }
+/* Fix-it link on a failed render — click navigates, hover shows an .info-pop
+   popover saying where it leads. */
+.gen-fixrow { margin:2px 0 8px; }
+.gen-fix {
+  display:inline-block; font-size:12.5px; font-weight:500;
+  color:var(--accent); text-decoration:none;
+  border:1px solid var(--accent-line, var(--line)); border-radius:8px;
+  padding:3px 10px; cursor:pointer;
+}
+.gen-fix:hover { background:var(--wash-8); text-decoration:none; }
+.bubble.sys .gen-fix { margin-left:8px; }
 .gen-prompt { margin:6px 0 8px; }
 .gen-prompt summary { cursor:pointer; color:var(--muted); font-size:12px; }
 .gen-prompt > div {

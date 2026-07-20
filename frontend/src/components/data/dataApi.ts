@@ -18,6 +18,7 @@ export interface DataStore {
   doc_chunks?: number;
   pinned?: number;
   messages?: number;
+  items?: { name: string; what: string }[];  // secrets: names + purpose, never values
 }
 
 export interface StoresResponse {

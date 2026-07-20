@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { dash } from './dashboard/dashApi';
 import { Icon } from '../lib/icons';
+import { appAccent } from '../lib/appColor';
 
 // Fallback surface for a connector that ships no UI (`ui.embed: none`). It shows
 // the agent actions the app exposes — what Ava can do with it — derived from the
@@ -23,7 +24,8 @@ export function ActionConsole({ id, label }: { id: string; label: string }) {
   return (
     <div className="action-console">
       <div className="ac-head">
-        <span className="ac-mark"><Icon name="panel" /></span>
+        {/* App identity accent — this whole surface belongs to the app. */}
+        <span className="ac-mark" style={{ color: appAccent(id) }}><Icon name="panel" /></span>
         <div>
           <div className="ac-title">{label}</div>
           <div className="ac-sub">Ask Ava to use these — this app ships no UI of its own.</div>

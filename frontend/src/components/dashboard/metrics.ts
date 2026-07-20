@@ -12,7 +12,7 @@ export const METRICS: Record<string, string> = {
   throughput:
     'Average generation speed in tokens per second, across all models. Higher means Ava writes replies faster.',
   ttft:
-    'Time to first token — how long after you send a message before Ava starts replying, in milliseconds. Lower feels snappier.',
+    'Time to first token — how long after you send a message before Ava starts replying, in seconds. Lower feels snappier.',
   renders:
     'Number of image and video generations completed in this window.',
   routeErrors:

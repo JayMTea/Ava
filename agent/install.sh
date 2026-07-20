@@ -189,14 +189,29 @@ JS_B64="$(printf %s "$JS" | base64 -w0)"
 "$NEMOCLAW" "$SANDBOX" exec --no-tty -- bash -lc 'AVA_P="$(echo "$0" | base64 -d)" AVA_PROXY="$1" AVA_TOKENS="$3" AVA_SERVERS="$4" node -e "$(echo "$2" | base64 -d)" </dev/null' "$PROMPT_B64" "$PROXY" "$JS_B64" "$TOKENS_JSON" "$SPECS_JSON" 2>&1 | grep -vE "$NOISE" | tail -3
 
 # --- 6. Native skills (core + optional overlay) ------------------------------
+# Portable sha256 (Linux sha256sum / macOS shasum) so the deploy manifest below
+# matches ava_bridge/skills.py's hash of the same SKILL.md.
+_sha256() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}';
+            else shasum -a 256 "$1" | awk '{print $1}'; fi; }
+skills_manifest=""
 for skroot in "$HERE/skills" "$OVERLAY/skills"; do
   [ -d "$skroot" ] || continue
   for sk in "$skroot"/*/; do
     [ -f "${sk}SKILL.md" ] || continue
     echo "[ava] installing skill: $(basename "$sk")…"
     "$NEMOCLAW" "$SANDBOX" skill install "$sk" 2>&1 | grep -vE "$NOISE" | tail -3 || true
+    _name="$(basename "$sk")"; _sum="$(_sha256 "${sk}SKILL.md")"
+    skills_manifest="${skills_manifest:+$skills_manifest,}{\"name\":\"$_name\",\"sha256\":\"$_sum\"}"
   done
 done
+# Record what was deployed INTO the sandbox so the Agent tab can show which
+# skills are live vs newly added in the repo (see ava_bridge/skills.py). Written
+# host-side to $AVA_HOME/data (the same dir the bridge reads).
+DATA_DIR="${AVA_DATA_DIR:-${AVA_HOME:-$HERE/..}/data}"
+if mkdir -p "$DATA_DIR" 2>/dev/null; then
+  printf '[%s]\n' "$skills_manifest" > "$DATA_DIR/skills_deployed.json"
+  echo "[ava] wrote skills deploy manifest -> $DATA_DIR/skills_deployed.json"
+fi
 
 # --- 7. Best-effort gateway refresh (don't block; recover can hang) ----------
 # mcp.* hot-reloads and the agent runs embedded, so a full recover isn't required.

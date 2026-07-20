@@ -25,3 +25,4 @@ extend-exclude = [
 "ava_bridge/log_mgmt.py" = ["F841"]      # legacy staged local
 "phone_bridge.py" = ["E722"]             # legacy best-effort handlers
 "voice_ava.py" = ["E702"]                # terse teardown line
+"qa/*" = ["F821"]                        # CLIENT/ANON globals injected by fixtures

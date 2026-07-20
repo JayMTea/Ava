@@ -31,6 +31,7 @@ export interface PerfSummary {
     image?: { count: number; render_seconds: Stat | null; steps_per_sec: Stat | null };
     video?: { count: number; render_seconds: Stat | null; steps_per_sec: Stat | null };
     upscale?: { count: number; seconds: Stat | null };
+    actions?: { count: number; seconds: Stat | null; errors: number };
   };
 }
 export interface SeriesPoint { t: number; [series: string]: number }
@@ -94,7 +95,8 @@ export interface Alert {
 }
 export interface ConnectorRow {
   id: string; label: string; kind: string; has_service: boolean;
-  has_perf: boolean; egress_routes: number; actions: string[];
+  has_perf: boolean; perf_app: string; perf_present: boolean;
+  status: string | null; egress_routes: number; actions: string[];
 }
 
 // ---- client ---------------------------------------------------------------

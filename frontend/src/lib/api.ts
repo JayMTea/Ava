@@ -27,7 +27,15 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     onUnauthorized();
     throw new Error('unauthorized');
   }
-  if (!r.ok) throw new Error(`${path} -> ${r.status}`);
+  if (!r.ok) {
+    // Surface the server's own error message (and machine-readable code, when
+    // it sends one — see features.preflight) instead of a bare status line, so
+    // callers can show "voice is turned off…" + a fix-it link, not "-> 503".
+    const body = await r.json().catch(() => null) as { error?: string; error_code?: string } | null;
+    const err = new Error(body?.error || `${path} -> ${r.status}`) as Error & { code?: string };
+    if (body?.error_code) err.code = body.error_code;
+    throw err;
+  }
   return (await r.json()) as T;
 }
 
@@ -67,15 +75,13 @@ export const api = {
     const fd = new FormData();
     fd.append('chat_id', chatId);
     return fetch('/api/ghost/discard', { method: 'POST', body: fd, credentials: 'same-origin' }).catch(() => {});
-  },  attachImageToChat: (id: string, url: string, caption: string) => {
-    const fd = new FormData();
-    fd.append('url', url);
-    fd.append('caption', caption || '');
-    return fetch(`/api/chats/${id}/image`, { method: 'POST', body: fd, credentials: 'same-origin' });
   },
 
-  // Turns
-  startTurn: (fd: FormData) => req<{ turn_id?: string; error?: string }>('/api/chat-stream', { method: 'POST', body: fd }),
+  // Turns. /api/chat-stream is the ONE ingress for typed messages: the
+  // server-side intent gate answers {turn_id} (agent turn) or {job} (render).
+  startTurn: (fd: FormData) =>
+    req<{ turn_id?: string; job?: ImageJob; route?: string; error?: string; error_code?: string }>(
+      '/api/chat-stream', { method: 'POST', body: fd }),
   turn: (id: string) => req<TurnStatus>(`/api/turn/${id}`),
   weatherArtifact: (location: string, days: number) =>
     req<Artifact>(`/api/artifact/weather?location=${encodeURIComponent(location)}&days=${days}`),
@@ -86,11 +92,17 @@ export const api = {
   // Jobs / images
   job: (id: string) => req<ImageJob>(`/api/job/${id}`),
   cancelJob: (id: string) => req<{ ok?: boolean; job?: ImageJob; error?: string }>(`/api/job/${id}/cancel`, { method: 'POST' }),
-  upscale: (filename: string) => {
+  // The bridge persists the upscaled image to the chat itself when the job
+  // completes; the caller polls api.job() only to update its own display.
+  upscale: (filename: string, chatId?: string, caption?: string) => {
     const fd = new FormData();
     fd.append('filename', filename);
-    return req<{ url?: string; error?: string }>('/api/upscale', { method: 'POST', body: fd });
+    if (chatId) fd.append('chat_id', chatId);
+    if (caption) fd.append('caption', caption);
+    return req<{ job?: ImageJob; error?: string }>('/api/upscale', { method: 'POST', body: fd });
   },
+  // Tier-0 explicit affordance (a Generate BUTTON, not a sentence) — typed
+  // messages route through startTurn's server-side gate instead.
   generate: (prompt: string, chatId: string, chatText: string) => {
     const fd = new FormData();
     fd.append('prompt', prompt);

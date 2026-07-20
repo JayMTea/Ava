@@ -12,6 +12,7 @@ from zero to a running Ava with no source edits. See docs/PACKAGING_PLAN.md.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import subprocess
@@ -98,6 +99,10 @@ def cmd_doctor(_args) -> int:
         _row(OK if st.get("sandbox_exists") else (BAD if _cfg.AGENT_REQUIRED else WARN),
              "sandbox", f"{st.get('sandbox')} " +
              ("(exists)" if st.get("sandbox_exists") else "(missing — `nemoclaw onboard`)"))
+        if st.get("sandbox_model"):
+            # The model the agent actually thinks with — decided by `nemoclaw
+            # onboard`, not ava.yaml, so doctor must not stay blind to it.
+            _row(OK, "brain", f"{st['sandbox_model']} (sandbox — via `nemoclaw onboard`)")
         if err:
             _row(BAD, "active", f"direct (BLOCKED) — {err}")
         elif rt.name == "direct":
@@ -126,7 +131,21 @@ def cmd_doctor(_args) -> int:
     print("\nInference backends")
     backends = (settings.get("inference.backends", {}) or {})
     if not backends:
-        _row(WARN, "backends", "none configured in ava.yaml")
+        # "None configured" is only a problem when nothing else serves. With an
+        # onboarded agent sandbox, chat thinks with the sandbox model and the
+        # yaml block is an optional fallback — say so instead of warning.
+        sbx_model = None
+        try:
+            from ava_bridge import runtime as _rt
+            sbx_model = (_rt.nemoclaw().sandbox_info() or {}).get("model")
+        except Exception:  # noqa: BLE001
+            pass
+        if sbx_model:
+            _row(OK, "backends",
+                 f"none in ava.yaml — chat thinks with the agent sandbox model "
+                 f"({sbx_model}); a yaml backend is an optional fallback")
+        else:
+            _row(WARN, "backends", "none configured in ava.yaml")
     for name, b in backends.items():
         b = b or {}
         url = b.get("base_url", "")
@@ -167,6 +186,19 @@ def cmd_doctor(_args) -> int:
                  chat_role + ("" if declared else "  ! not a declared backend"))
     except Exception as e:  # noqa: BLE001
         _row(WARN, "inference route", f"probe failed: {e}")
+
+    print("\nIntent routing")
+    try:
+        from ava_bridge import eval_router, turn_router
+        _row(OK, "mode", f"{turn_router.mode()} · router {turn_router.fingerprint()}")
+        cases = eval_router.load_cases()
+        if not cases:
+            _row(WARN, "eval set", "none yet — build one with `ava eval intent mine`")
+        else:
+            need, why = eval_router.needs_rerun()
+            _row(WARN if need else OK, "eval set", f"{len(cases)} cases — {why}")
+    except Exception as e:  # noqa: BLE001
+        _row(WARN, "intent routing", f"probe failed: {e}")
 
     print("\nBridge")
     port = settings.get_int("server.port", 8096, env="AVA_PORT")
@@ -378,7 +410,8 @@ def cmd_verify(_args) -> int:
 
     # 4. Voice / biometric (optional capability)
     print("\nVoice / biometric")
-    voice_on = settings.get_bool("features.voice", False, env="AVA_VOICE")
+    from ava_bridge import features
+    voice_on = features.enabled("voice")
     enrolled = any(os.path.exists(os.path.join(base, "models", "voiceprint.npy"))
                    for base in (settings.AVA_HOME, settings.CODE_ROOT))
     if not voice_on:
@@ -386,6 +419,17 @@ def cmd_verify(_args) -> int:
     else:
         _row(OK if enrolled else WARN, "voiceprint",
              "enrolled" if enrolled else "voice on but no voiceprint — run enrollment")
+        # The flag alone can't prove voice works: check the operative deps too
+        # (same probe the Hub voice panel runs), so this report and the Hub
+        # can't disagree about a voice-on-but-broken install.
+        try:
+            from ava_bridge import voice_enroll
+            d = voice_enroll.deps()
+            deps_ok = bool(d.get("voice") and d.get("ffmpeg"))
+            _row(OK if deps_ok else WARN, "voice deps",
+                 "installed" if deps_ok else (d.get("error") or "missing"))
+        except Exception as e:  # noqa: BLE001
+            _row(WARN, "voice deps", f"probe failed: {e}")
 
     # 5. Inference + health (best-effort; needs services up)
     print("\nInference / health  (best-effort — needs `ava up`)")
@@ -1116,6 +1160,127 @@ def cmd_models(args) -> int:
     return 1
 
 
+# --------------------------------------------------------------------------- #
+def _prompt_label(default: str | None) -> str | None:
+    """Read one label from the owner: Enter accepts the router's suggestion,
+    `s` skips, `q` stops mining. Bare letters map to labels for speed."""
+    from ava_bridge import eval_router
+    shorthand = {"c": "chat", "p": "prompt_help", "n": "image_new",
+                 "r": "image_refine"}
+    menu = "  ".join(f"[{k}]{v}" for k, v in shorthand.items())
+    while True:
+        raw = input(f"    label ({menu})  Enter={default or 'chat'} "
+                    f"· s=skip · q=quit: ").strip().lower()
+        if raw == "":
+            return default or "chat"
+        if raw == "s":
+            return None
+        if raw == "q":
+            return "__quit__"
+        if raw in shorthand:
+            return shorthand[raw]
+        if raw in eval_router.LABELS:
+            return raw
+        print(f"    ? unknown label — pick one of {eval_router.LABELS} (or c/p/n/r)")
+
+
+def cmd_eval(args) -> int:
+    from ava_bridge import eval_router, turn_router
+    if args.target != "intent":
+        print("only `ava eval intent ...` is supported")
+        return 2
+
+    if args.action == "run":
+        cases = eval_router.load_cases()
+        if not cases:
+            _row(WARN, "eval set", "empty — build one with `ava eval intent mine`")
+            return 0
+        print(f"\n{B}Intent eval{X}  ({len(cases)} cases · router "
+              f"{turn_router.fingerprint()} · mode {turn_router.mode()})\n")
+        s = eval_router.score(cases)
+        eval_router.save_result(s)
+        acc = s["accuracy"]
+        _row(OK if acc and acc >= 0.9 else WARN, "accuracy",
+             f"{s['passed']}/{s['total']}  ({acc})")
+        _row(WARN if (s["escalation_rate"] or 0) > 0.25 else OK, "escalation rate",
+             str(s["escalation_rate"]))
+        _row(OK if s["context_distinct"] == s["context_pairs"] else WARN,
+             "context sensitivity",
+             f"{s['context_distinct']}/{s['context_pairs']} paired texts got "
+             "distinct labels")
+        if s.get("prompt_checked"):
+            _row(OK if not s["prompt_failed"] else BAD, "merged-prompt quality",
+                 f"{s['prompt_checked'] - s['prompt_failed']}/{s['prompt_checked']} "
+                 "refine prompts matched their include/exclude checks")
+        if s["confusion"]:
+            print("\n  misroutes (expected->got):")
+            for k, n in s["confusion"].items():
+                _row(BAD, k, f"x{n}")
+        fails = [r for r in s["rows"] if not r["pass"]]
+        if fails:
+            print("\n  failing cases:")
+            for r in fails[:20]:
+                _row(BAD, r["id"] or "?",
+                     f"{r['expect']} got {r['got']}  · {r['text']}")
+        print(f"\n  result saved to {eval_router.result_file()}\n")
+        return 0
+
+    if args.action == "run-fingerprint":  # machine-readable for scripts/doctor
+        need, why = eval_router.needs_rerun()
+        print(json.dumps({"needs_rerun": need, "reason": why,
+                          "fingerprint": turn_router.fingerprint()}))
+        return 0
+
+    if args.action == "mine":
+        cands = eval_router.mine_candidates(getattr(args, "chats", None) or None)
+        added = 0
+        if cands:
+            print(f"\n{B}Mine intent cases{X}  ({len(cands)} new messages from "
+                  "your history)\n")
+            for cand in cands:
+                ctx = cand["context"]
+                suggestion = turn_router.classify(
+                    cand["text"], ctx.get("last_route"),
+                    ctx.get("last_image_prompt"),
+                    recent_user=ctx.get("recent_user"))
+                cue = (f"  [after {ctx['last_route']}]"
+                       if ctx.get("last_route") else "")
+                print(f"  {B}{cand['text'][:100]}{X}{cue}")
+                print(f"    router suggests: {suggestion['route']} "
+                      f"(tier {suggestion['tier']})")
+                label = _prompt_label(suggestion["route"])
+                if label == "__quit__":
+                    break
+                if label is None:
+                    continue
+                eval_router.add_case(
+                    cand["text"], label, last_route=ctx.get("last_route"),
+                    last_image_prompt=ctx.get("last_image_prompt"),
+                    recent_user=ctx.get("recent_user"), source="mined")
+                added += 1
+        else:
+            print("\nNo new messages to label from your history.")
+        # Offer hand-typed cases too (a fresh fork with no history still needs
+        # coverage; also lets you add edge cases you haven't hit yet).
+        print("\nAdd hand-written cases (blank message to finish):")
+        while True:
+            try:
+                text = input("  message: ").strip()
+            except EOFError:
+                break
+            if not text:
+                break
+            label = _prompt_label("chat")
+            if label in (None, "__quit__"):
+                break
+            eval_router.add_case(text, label, source="manual")
+            added += 1
+        _row(OK, "saved", f"{added} case(s) -> {eval_router.eval_file()}")
+        print("  score them any time with `ava eval intent run`\n")
+        return 0
+    return 2
+
+
 def main() -> int:
     p = argparse.ArgumentParser(prog="ava", description="Ava control CLI")
     sub = p.add_subparsers(dest="cmd")
@@ -1165,6 +1330,12 @@ def main() -> int:
     mp.add_argument("--max-tokens", type=int, default=200, dest="max_tokens",
                     help="bench: completion length per model (default 200)")
     mp.set_defaults(func=cmd_models)
+    ep = sub.add_parser("eval", help="build/score your OWN routing eval set (no data ships)")
+    ep.add_argument("target", choices=["intent"], help="what to evaluate")
+    ep.add_argument("action", choices=["mine", "run", "run-fingerprint"],
+                    help="mine: label cases from your history; run: score them")
+    ep.add_argument("--chats", help="path to a chats.json to mine (default: this instance's)")
+    ep.set_defaults(func=cmd_eval)
 
     args = p.parse_args()
     if not getattr(args, "func", None):

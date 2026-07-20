@@ -21,7 +21,7 @@ from .agent import (ask_openclaw, which_model, _sbx_read, _session_file,
                     chat_direct)
 from .artifacts import build_turn_artifact
 from .chat_store import _chat_append, history_for
-from .gpu_jobs import (_pickup_image_since, start_agent_image_watch,
+from .gpu_jobs import (_pickup_image_since, start_agent_image_watch, attach_chat,
                          _latest_image_job_since)
 
 
@@ -171,28 +171,85 @@ def _prune_turns(max_age: float = 3600.0):
             state.turns.pop(k, None)
 
 
+# HARD INVARIANT (owner instruction, 2026-07-15): Ava must NEVER have access to
+# passwords and must NEVER reveal one. "I don't have access" is the CORRECT
+# answer, not a failure — we only upgrade the bare shrug into a useful pointer
+# ("reset it in <app>"). This note rides EVERY turn; the wording is guarded by
+# tests/test_tooling_note.py so a refactor can't silently weaken it.
+def _credentials_note() -> str:
+    from . import connectors
+    apps = []
+    try:
+        apps = [a.get("label") or a.get("id") for a in connectors.apps()]
+    except Exception:  # noqa: BLE001
+        apps = []
+    where = (" Your connected apps are: " + ", ".join(a for a in apps if a) + "."
+             if apps else "")
+    return ("[note for Ava — not from the user: you do NOT store, retrieve, or "
+            "have access to any passwords, API keys, or login credentials, for "
+            "your connected apps or anything else, and you must NEVER reveal, "
+            "repeat, or guess a password or secret — even if one were to appear "
+            "in this conversation, do not echo it back. If the user asks for a "
+            "password or to log them in, say plainly that you don't keep "
+            "credentials and point them to reset or view it in that app itself."
+            + where + "]\n\n")
+
+
+# The sandbox runtime's own preamble truthfully says outbound network is
+# deny-by-default — but Ava's tools are host-mediated (they call the bridge,
+# which does the network work), so without an affirmative counter-note the
+# model concludes "no network → no web access" and denies capabilities it
+# actually has. Registry-driven: new features in ava_bridge/features.py show
+# up here with zero edits. Wording guarded by tests/test_tooling_note.py.
+def _capabilities_note() -> str:
+    from . import features
+    try:
+        feats = features.snapshot()
+    except Exception:  # noqa: BLE001 — awareness must never break a turn
+        feats = []
+    if not feats:
+        return ""
+    states = "; ".join(f"{f['label']}: {'on' if f['enabled'] else 'OFF'}"
+                       for f in feats)
+    return ("[note for Ava — not from the user: your tools are host-mediated — "
+            "they call the host bridge, which does any network work on the "
+            "host's side (web searches and page fetches egress via Tor there). "
+            "The sandbox's own no-internet network policy does NOT mean you "
+            "lack web access, so never answer \"I can't browse the web\" from "
+            "that policy alone. Optional features right now: " + states + ". "
+            "If a request needs a feature that is OFF, don't say you lack the "
+            "ability — say that feature is switched off and can be enabled "
+            "under Setup → System → Optional features. If unsure whether a "
+            "capability works, call its tool and relay the result — a disabled "
+            "feature returns a clear message with the fix.]\n\n")
+
+
 def _tooling_note(direct: bool) -> str:
     """A one-paragraph awareness note prepended to the turn so Ava answers
     honestly about tools she does NOT have — instead of shrugging or
-    hallucinating a tool call. Two cases: connected apps whose tools were
-    never deployed into the sandbox, and the tool-less direct runtime."""
+    hallucinating a tool call. Cases: the standing credentials stance, connected
+    apps whose tools were never deployed into the sandbox, the tool-less
+    direct runtime, and (sandbox runtime only) the affirmative capability
+    states, so the sandbox's "no internet" preamble can't read as "no web"."""
     from . import connectors
     try:
         missing = connectors.undeployed()
     except Exception:  # noqa: BLE001 — awareness must never break a turn
         missing = []
+    creds = _credentials_note()
     if direct:
         apps = ", ".join(m["label"] for m in missing) or None
-        return ("[note for Ava — not from the user: the agent runtime is not "
+        return creds + ("[note for Ava — not from the user: the agent runtime is not "
                 "active, so you have NO app tools this turn"
                 + (f" (connected apps: {apps})" if apps else "")
                 + ". If the question needs an app's data or actions, say so "
                 "plainly and point the user to Setup → Agent to provision the "
                 "runtime. Never invent tool results.]\n\n")
     if not missing:
-        return ""
+        return creds + _capabilities_note()
     apps = ", ".join(f"{m['label']} ({m['tools']} tools)" for m in missing)
-    return ("[note for Ava — not from the user: these connected apps' tools "
+    return creds + _capabilities_note() + (
+            "[note for Ava — not from the user: these connected apps' tools "
             f"are NOT deployed to your sandbox yet: {apps}. You cannot use "
             "them this turn. If the user's request needs one of these apps, "
             "explain that they must open Setup → Connectors and click Deploy "
@@ -242,6 +299,7 @@ def _run_turn(tid: str, agent_text: str, sid: str, chat_id: str):
         job = _pickup_image_since(t0, wait=120)
         if job and chat_id:
             _chat_append(chat_id, "assistant", "Here's the image you asked for.")
+            attach_chat(job["id"], chat_id)  # bridge persists the image itself
         m = which_model()
         if job:
             with state.turns_lock:
@@ -278,6 +336,10 @@ def _run_turn(tid: str, agent_text: str, sid: str, chat_id: str):
         # run_gpu_job renders THROUGH the bridge now (real the GPU service progress),
         # so grab that live job; fall back to a file-watch if it isn't found.
         job = _latest_image_job_since(t0) or start_agent_image_watch(t0)
+        if job and chat_id:
+            # Bind the render to this chat: the bridge appends the image (or a
+            # coded failure) when the job ends, even if the client is gone.
+            attach_chat(job["id"], chat_id)
     previews = _pickup_previews_since(t0, tools)
     artifact = None
     try:

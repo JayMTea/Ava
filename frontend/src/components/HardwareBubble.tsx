@@ -281,12 +281,17 @@ export function HardwareBubble() {
                     <div><b>Status:</b> {statusLabel(selectedModel.status)}</div>
                     <div><b>Source:</b> {selectedModel.source}{selectedModel.pid != null ? ` · PID ${selectedModel.pid}` : ''}</div>
                     <div style={{ marginTop: 7 }}>
-                      <div style={{ fontWeight: 700, marginBottom: 4 }}>Loaded components in memory</div>
+                      <div style={{ fontWeight: 700, marginBottom: 4 }}>Model components</div>
                       {selectedModel.components && selectedModel.components.length > 0 ? (
                         <div style={{ maxHeight: 120, overflow: 'auto', border: '1px solid var(--line)', borderRadius: 8, padding: '5px 7px' }}>
                           {selectedModel.components.map((c, i) => (
                             <div key={i} style={{ fontSize: 11, marginBottom: 2 }}>
-                              {(c.kind_label as string) || c.kind}: {c.name}{c.in_memory === false ? ' (not loaded)' : ''}
+                              {(c.kind_label as string) || c.kind}: {c.name}
+                              {c.in_memory === false
+                                ? ' (configured — not in memory)'
+                                : c.in_memory == null
+                                  ? ' (configured — residency unknown)'
+                                  : ' (in memory)'}
                             </div>
                           ))}
                         </div>

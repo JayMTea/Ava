@@ -10,6 +10,7 @@ export function Header({
   brand = 'Ava',
   models = [],
   model = '',
+  agentModel = null,
   onSetModel,
 }: {
   status: string;
@@ -20,6 +21,7 @@ export function Header({
   brand?: string;
   models?: { id: string; label: string }[];
   model?: string;
+  agentModel?: string | null;
   onSetModel?: (mode: string) => void;
 }) {
   return (
@@ -40,19 +42,28 @@ export function Header({
       </div>
       {/* Right-side controls cluster, pinned to the top-right on every view. */}
       <div className="header-right">
-        {/* Model picker — reflects the backends the user actually configured
-            (ava.yaml inference.backends). Shown on the chat view when >1 brain. */}
+        {/* Model picker — the router backends. With the agent runtime active,
+            turns think with the SANDBOX model and bypass the router, so this
+            control only steers the tool-less fallback path — the title must
+            not promise "which model answers" when it doesn't. */}
         {showGhost && models.length > 0 && (
-          <label className="model-pick" title="Which model answers">
+          <label
+            className="model-pick"
+            title={agentModel
+              ? `Ava answers with ${agentModel.split('/').pop()} (agent sandbox). This picker only sets the fallback model used if the agent is stopped.`
+              : 'Which model answers'}
+          >
             <Icon name="bot" />
             <select
               value={model}
               onChange={(e) => onSetModel?.(e.target.value)}
               disabled={!onSetModel || models.length < 2}
-              aria-label="Select model"
+              aria-label={agentModel ? 'Select fallback model' : 'Select model'}
             >
               {models.map((m) => (
-                <option key={m.id} value={m.id}>{m.label || m.id}</option>
+                <option key={m.id} value={m.id}>
+                  {(m.label || m.id) + (agentModel ? ' · fallback' : '')}
+                </option>
               ))}
             </select>
           </label>

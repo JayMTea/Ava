@@ -20,7 +20,7 @@ from fastapi import APIRouter, Request, UploadFile
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
-from . import audit, config, connectors, runtime, settings
+from . import audit, config, connectors, features, perf_mgmt, runtime, settings
 from .version import __version__
 
 router = APIRouter(prefix="/api/hub")
@@ -127,13 +127,28 @@ def system():
         "code_approval": config.CODE_APPROVAL,
         "learning_enabled": config.LEARNING_ENABLED,
         "learning_interval_h": config.LEARNING_INTERVAL_H,
-        "voice": settings.get_bool("features.voice", False, env="AVA_VOICE"),
+        # Legacy per-feature booleans (existing consumers) + the registry
+        # snapshot the Optional-features panel renders from — one source
+        # (features.REGISTRY), so a new capability appears here automatically.
+        "voice": features.enabled("voice"),
         "voiceprint": voiceprint,
-        "web_search": settings.get_bool("features.web_search", False),
-        "image": settings.get_bool("features.image", True),
+        "web_search": features.enabled("web_search"),
+        "image": features.enabled("image"),
+        "features": features.snapshot(),
         "docker": bool(__import__("shutil").which("docker")),
         "retention_days": settings.data_retention_days(),
         "retention_choices": list(settings.DATA_RETENTION_CHOICES),
+        # Editable keys currently shadowed by env vars: a yaml write from the
+        # UI "works" but the env value wins again on the next boot. Surfacing
+        # the active overrides is the only way the UI can say WHY.
+        "env_overrides": {k: v for k, v in {
+            "code_approval": settings.env_override("AVA_CODE_APPROVAL"),
+            "retention_days": settings.env_override("AVA_DATA_RETENTION_DAYS"),
+            "voice": settings.env_override("AVA_VOICE"),
+            "voice_threshold": settings.env_override("AVA_PHONE_THRESHOLD"),
+            "agent_enabled": settings.env_override("AVA_AGENT_ENABLED"),
+            "learning": settings.env_override("AVA_LEARNING"),
+        }.items() if v},
     }
 
 
@@ -207,7 +222,10 @@ def set_approval(mode: str):
         return JSONResponse({"ok": False, "error": f"could not write ava.yaml: {e}"},
                             status_code=500)
     config.CODE_APPROVAL = mode  # take effect immediately, no restart
-    return {"ok": True, "restart_required": False}
+    return {"ok": True, "restart_required": False,
+            # Honest caveat: with the env var set, this live value reverts to
+            # the env's on the next boot — the security gate silently flips.
+            "env_override": settings.env_override("AVA_CODE_APPROVAL")}
 
 
 @router.post("/system/retention")
@@ -228,7 +246,8 @@ def set_retention(days: int):
     except Exception as e:  # noqa: BLE001
         return JSONResponse({"ok": False, "error": f"could not write ava.yaml: {e}"},
                             status_code=500)
-    return {"ok": True, "restart_required": True}
+    return {"ok": True, "restart_required": True,
+            "env_override": settings.env_override("AVA_DATA_RETENTION_DAYS")}
 
 
 # --------------------------------------------------------------------------- #
@@ -240,7 +259,97 @@ def agent_status():
     st["runtime"] = config.AGENT_RUNTIME
     st["required"] = config.AGENT_REQUIRED
     st["tools"] = bool(st.get("available"))
+    # Distinguish "turned off by config" from "configured but not working".
+    # nemoclaw.available() returns False either way, so without this the Hub
+    # can't tell the operator whether to flip a switch or fix an install.
+    st["enabled"] = config.AGENT_ENABLED
+    st["enabled_env_override"] = settings.env_override("AVA_AGENT_ENABLED")
     return st
+
+
+@router.get("/agent/skills")
+def agent_skills():
+    """The agent's skills, auto-discovered from agent/skills + the overlay (drop
+    a folder → it appears; no registration). Each carries its deploy state
+    (deployed/stale/undeployed/unknown) so the UI shows what's actually live in
+    the sandbox vs newly added. See ava_bridge/skills.py."""
+    from . import skills
+    return {"skills": skills.catalog(), "errors": skills.load_errors(),
+            "summary": skills.summary(), "category_order": skills.category_order()}
+
+
+@router.get("/agent/skills/{skill_id}")
+def agent_skill_detail(skill_id: str):
+    """The full SKILL.md markdown of one skill — lazy-loaded when the UI expands
+    a card, so the list endpoint stays light as skills grow."""
+    from . import skills
+    detail = skills.body(skill_id)
+    if not detail:
+        return JSONResponse({"error": "unknown skill"}, status_code=404)
+    return detail
+
+
+@router.post("/agent/skills/categories/rename")
+async def agent_skills_rename_category(request: Request):
+    """Rename a skill category (Hub UI inline edit). Applies an owner override
+    to every skill whose effective category matches, so it also works on groups
+    that only exist via author frontmatter hints. Persists to ava.yaml
+    `skills.categories` — never a source edit."""
+    from . import skills
+    body = await request.json()
+    old = str(body.get("from") or "")
+    new = str(body.get("to") or "")
+    if not old.strip() or not new.strip():
+        return JSONResponse({"ok": False, "error": "both 'from' and 'to' are required"},
+                            status_code=400)
+    return {"ok": True, "renamed": skills.rename_category(old, new)}
+
+
+@router.post("/agent/skills/categories/order")
+async def agent_skills_category_order(request: Request):
+    """Persist the owner's category order (Hub UI drag-to-reorder). The stored
+    list also registers owner-created categories that hold no skills yet."""
+    from . import skills
+    body = await request.json()
+    order = body.get("order")
+    if not isinstance(order, list):
+        return JSONResponse({"ok": False, "error": "'order' must be a list"},
+                            status_code=400)
+    return {"ok": True, "order": skills.set_category_order(order)}
+
+
+@router.post("/agent/skills/categories/new")
+async def agent_skills_category_new(request: Request):
+    """Create an owner category (may start empty — it lives in the order list
+    until skills are dragged in)."""
+    from . import skills
+    body = await request.json()
+    if not skills.create_category(str(body.get("name") or "")):
+        return JSONResponse({"ok": False, "error": "a category needs a name"},
+                            status_code=400)
+    return {"ok": True}
+
+
+@router.post("/agent/skills/categories/delete")
+async def agent_skills_category_delete(request: Request):
+    """Delete a category; any skills still filed under it fall back to their
+    author hint or the General bucket (the UI only offers this on empty groups)."""
+    from . import skills
+    if not skills.delete_category(str((await request.json()).get("name") or "")):
+        return JSONResponse({"ok": False, "error": "unknown category"}, status_code=404)
+    return {"ok": True}
+
+
+@router.post("/agent/skills/{skill_id}/category")
+async def agent_skill_set_category(skill_id: str, request: Request):
+    """Recategorize one skill (Hub UI drag-and-drop). Writes the owner-owned
+    `skills.categories` map in ava.yaml; null/empty clears the override."""
+    from . import skills
+    body = await request.json()
+    category = body.get("category")
+    if not skills.set_category(skill_id, None if category is None else str(category)):
+        return JSONResponse({"ok": False, "error": "unknown skill"}, status_code=404)
+    return {"ok": True}
 
 
 @router.post("/agent/provision")
@@ -287,6 +396,9 @@ def list_connectors():
             # The two connect surfaces (the doctrine: an app is a UI, a tool
             # facade, or both — never raw endpoints): ui block => APP tile.
             "app": isinstance(m.get("ui"), dict),
+            # Rail identity, for the Appearance picker (null = uses the auto-pick).
+            "icon": (m.get("ui") or {}).get("icon") if isinstance(m.get("ui"), dict) else None,
+            "color": str((m["ui"]).get("color")) if isinstance(m.get("ui"), dict) and (m["ui"]).get("color") else None,
             "has_policy": os.path.exists(os.path.join(pol_dir, f"{cid}.yaml")),
             "has_tools": has_tools,
             "renders_policy": connectors.render_egress_policy(cid) is not None,
@@ -625,7 +737,7 @@ def backends_delete(bid: str):
 def voice_status():
     from . import voice_enroll
     st = voice_enroll.status()
-    st["enabled"] = settings.get_bool("features.voice", False, env="AVA_VOICE")
+    st["enabled"] = features.enabled("voice")
     return st
 
 
@@ -687,7 +799,8 @@ def voice_threshold(value: float):
     except Exception as e:  # noqa: BLE001
         return JSONResponse({"ok": False, "error": f"could not write ava.yaml: {e}"},
                             status_code=500)
-    return {"ok": True, "restart_required": True}
+    return {"ok": True, "restart_required": True,
+            "env_override": settings.env_override("AVA_PHONE_THRESHOLD")}
 
 
 # --------------------------------------------------------------------------- #
@@ -1028,6 +1141,14 @@ async def connector_new(body: dict):
     if body.get("ingest"):
         manifest["ingest"] = {"enabled": True}
 
+    # Every Hub-created connector gets a perf source by default, so it shows in
+    # Vitals from its first proxied call (app_perf.py writes here). The path is
+    # OUTSIDE $AVA_HOME/connectors/<id> on purpose: deleting the connector keeps
+    # its history, and re-adding the same id resumes it. Apps that keep their own
+    # SDK perf log can point `perf.path` elsewhere by editing the manifest.
+    manifest["perf"] = {"app": cid,
+                        "path": "${AVA_LOGS}/apps/%s/performance.jsonl" % cid}
+
     d = os.path.join(settings.home("connectors"), cid)
     path = os.path.join(d, "connector.yaml")
     try:
@@ -1039,7 +1160,8 @@ async def connector_new(body: dict):
     except OSError as e:
         return JSONResponse({"ok": False, "error": f"could not write manifest: {e}"},
                             status_code=500)
-    connectors.load(force=True)  # pick it up without a restart
+    connectors.load(force=True)   # pick it up without a restart
+    perf_mgmt.refresh_sources()   # …and let Vitals see its perf source now
     if disc_in or mcp_in:
         # Seed the JIT tier cache (ava-tools/1 `access`) so the app's declared
         # tiers apply from the very first agent call — best-effort; a down app
@@ -1141,6 +1263,7 @@ def delete_connector(cid: str):
     except OSError:
         pass
     connectors.load(force=True)
+    perf_mgmt.refresh_sources()
     return {"ok": True}
 
 
@@ -1223,7 +1346,72 @@ def set_connector_enabled(cid: str, body: dict):
     except OSError as e:
         return JSONResponse({"ok": False, "error": f"could not update: {e}"}, status_code=500)
     connectors.load(force=True)
+    perf_mgmt.refresh_sources()
     return {"ok": True, "enabled": m["enabled"]}
+
+
+# Rail identity: a glyph name (see frontend lib/icons), and a color that is
+# either an author's brand #hex or one of Ava's theme-aware palette slots
+# (`var(--app-accent-N)`, which the Hub picker writes so the accent still
+# adapts between light and dark). Validated before the file is touched, so a
+# bad value can never land in YAML.
+_ICON_RE = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
+_COLOR_RE = re.compile(r"^(?:#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})"
+                       r"|var\(--app-accent-[0-7]\))$")
+
+
+@router.post("/connectors/{cid}/appearance")
+def set_connector_appearance(cid: str, body: dict):
+    """Patch a user app's rail identity — `ui.icon` and/or `ui.color` — in its
+    manifest, the single source of truth `apps()` reads for /api/apps. Only keys
+    present in the body are touched; a null/empty value CLEARS that key so the
+    tile falls back to the frontend's stable auto-pick. Built-in connectors are
+    read-only here, and a connector with no `ui:` block has no tile to restyle."""
+    import yaml as _yaml
+    if not _ID_RE.match(cid):
+        return JSONResponse({"ok": False, "error": "bad id"}, status_code=400)
+    path = _user_manifest_path(cid)
+    if not os.path.isfile(path):
+        if any(x["id"] == cid for x in connectors.catalog()):
+            return JSONResponse({"ok": False, "error":
+                                 f"'{cid}' is a built-in connector and can't be restyled here"},
+                                status_code=400)
+        return JSONResponse({"ok": False, "error": f"unknown connector '{cid}'"},
+                            status_code=404)
+    has_icon, icon = "icon" in body, body.get("icon")
+    has_color, color = "color" in body, body.get("color")
+    if not (has_icon or has_color):
+        return JSONResponse({"ok": False, "error": "nothing to update"}, status_code=400)
+    if has_icon and icon not in (None, "") and not _ICON_RE.match(str(icon)):
+        return JSONResponse({"ok": False, "error": "bad icon name"}, status_code=400)
+    if has_color and color not in (None, "") and not _COLOR_RE.match(str(color)):
+        return JSONResponse({"ok": False, "error": "color must be a #hex value"}, status_code=400)
+    try:
+        with open(path, encoding="utf-8") as f:
+            m = _yaml.safe_load(f) or {}
+        if not isinstance(m, dict):
+            return JSONResponse({"ok": False, "error": "manifest is not a mapping"},
+                                status_code=400)
+        ui = m.get("ui")
+        if not isinstance(ui, dict):
+            return JSONResponse({"ok": False, "error":
+                                 "this connector has no app tile to restyle"},
+                                status_code=400)
+        for key, present, value in (("icon", has_icon, icon), ("color", has_color, color)):
+            if not present:
+                continue
+            if value in (None, ""):
+                ui.pop(key, None)          # clear -> tile falls back to auto-pick
+            else:
+                ui[key] = str(value)
+        m["ui"] = ui
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("# Managed by the Setup Hub — edit freely.\n")
+            _yaml.safe_dump(m, f, sort_keys=False)
+    except OSError as e:
+        return JSONResponse({"ok": False, "error": f"could not update: {e}"}, status_code=500)
+    connectors.load(force=True)
+    return {"ok": True, "icon": ui.get("icon"), "color": ui.get("color")}
 
 
 @router.get("/connectors/{cid}/manifest")
@@ -1282,6 +1470,7 @@ def put_connector_manifest(cid: str, body: dict):
     except OSError as e:
         return JSONResponse({"ok": False, "error": f"could not write: {e}"}, status_code=500)
     connectors.load(force=True)
+    perf_mgmt.refresh_sources()
     return {"ok": True}
 
 

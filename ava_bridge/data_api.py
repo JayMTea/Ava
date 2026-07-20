@@ -80,6 +80,30 @@ def _rel(path: str) -> str:
         return path
 
 
+# Human labels for the secrets inventory. Known filenames get an exact purpose;
+# anything else falls back to a name-shape heuristic. Only NAMES are labelled —
+# no value is ever read.
+_SECRET_LABELS = {
+    ".secret": "Session signing key",
+    ".internal_token": "Internal API token",
+    "auth_password": "Login password (hashed)",
+    "router_token": "Internal router token",
+}
+
+
+def _secret_purpose(name: str) -> str:
+    if name in _SECRET_LABELS:
+        return _SECRET_LABELS[name]
+    low = name.lower()
+    if "password" in low:
+        return "Password (hashed)"
+    if "token" in low:
+        return "Access token"
+    if "key" in low or "api" in low or "secret" in low:
+        return "Backend API key"
+    return "Secret"
+
+
 def _store(sid: str, label: str, path: str, fmt: str, *, size: int = 0,
            count: int | None = None, last_write: float | None = None,
            locked: bool = False, managed: bool = False, **extra) -> dict:
@@ -162,20 +186,23 @@ def stores():
     out.append(_store("uploads", "Uploads", up_dir, "files", size=size,
                       count=files, last_write=mtime))
 
-    # Secrets & keys — inventoried for transparency, never readable from here.
-    n_secrets = 0
-    for p in (os.path.join(data_dir, ".secret"),
-              os.path.join(data_dir, ".internal_token"),
-              os.path.join(data_dir, "auth_password")):
-        if os.path.isfile(p):
-            n_secrets += 1
+    # Secrets & keys — inventoried for transparency. We surface each secret's
+    # NAME and purpose so the owner knows exactly what's held; the values are
+    # never opened, displayed, or exported.
+    secret_items: list[dict] = []
+    for fname in (".secret", ".internal_token", "auth_password"):
+        if os.path.isfile(os.path.join(data_dir, fname)):
+            secret_items.append({"name": fname, "what": _secret_purpose(fname)})
     try:
-        n_secrets += sum(1 for n in os.listdir(settings.secrets_dir())
-                         if os.path.isfile(os.path.join(settings.secrets_dir(), n)))
+        sdir = settings.secrets_dir()
+        for n in sorted(os.listdir(sdir)):
+            if os.path.isfile(os.path.join(sdir, n)):
+                secret_items.append({"name": n, "what": _secret_purpose(n)})
     except OSError:
         pass
     out.append(_store("secrets", "Secrets & keys", settings.secrets_dir(),
-                      "locked", count=n_secrets, locked=True))
+                      "locked", count=len(secret_items), locked=True,
+                      items=secret_items))
 
     return {"home": str(settings.AVA_HOME),
             "total_bytes": sum(s["bytes"] for s in out),

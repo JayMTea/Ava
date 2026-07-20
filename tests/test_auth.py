@@ -83,9 +83,25 @@ class GateTests(unittest.TestCase):
         for path in ("/login", "/api/health", "/favicon.ico"):
             self.assertEqual(self.client.get(path).status_code, 200)
 
-    def test_internal_bypasses_cookie_gate(self):
-        # /internal/* enforces its OWN bearer check downstream; the gate lets it by.
-        self.assertEqual(self.client.get("/internal/model").status_code, 200)
+    def test_internal_requires_a_valid_token_at_the_gate(self):
+        # /internal/* bypasses the COOKIE gate but the middleware validates the
+        # internal token before routing — otherwise FastAPI's 422 validation
+        # errors would answer unauthenticated callers and leak route schemas.
+        from ava_bridge import internal
+        self.assertEqual(self.client.get("/internal/model").status_code, 401)
+        self.assertEqual(self.client.get(
+            "/internal/model",
+            headers={"X-Ava-Internal-Token": "wrong"}).status_code, 401)
+        # A valid root token reaches the handler (cookie still not needed).
+        r = self.client.get(
+            "/internal/model",
+            headers={"X-Ava-Internal-Token": config.INTERNAL_TOKEN})
+        self.assertEqual(r.status_code, 200)
+        # A derived capability-group token also passes the gate.
+        r = self.client.get(
+            "/internal/model",
+            headers={"X-Ava-Internal-Token": internal._derived_token("system")})
+        self.assertEqual(r.status_code, 200)
 
     def test_internal_prefix_not_overmatched(self):
         # A path merely STARTING with the string "/internal" must NOT bypass.

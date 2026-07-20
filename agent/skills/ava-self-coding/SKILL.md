@@ -1,5 +1,6 @@
 ---
 name: "ava-self-coding"
+icon: code
 description: "How Ava changes and fixes her OWN source code by handing the task to Claude via her code_change_request tool. Use whenever the user asks Ava to change, add, fix, refactor, or improve something in her app/backend/UI/tools, OR when Ava notices a bug, error, traceback, or broken behavior in herself and wants to repair it. Claude edits the repo directly with the owner's ANTHROPIC_API_KEY: safe files apply automatically; protected files (auth, config, egress policy, deploy scripts) go to the user's approval bucket on the Learning page; secrets and biometrics are never touched. Trigger keywords - change your code, fix yourself, fix the bug, update the app, edit the UI, add a feature, refactor, you have an error, self-fix, modify the backend, change how you work."
 ---
 

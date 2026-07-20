@@ -69,18 +69,33 @@ def _router_headers() -> dict:
 
 
 def which_model() -> dict | None:
-    """Ask the router which brain served the most recent completion (for the UI
-    pill). Best-effort — None if the router is unreachable or idle."""
+    """Which brain served the most recent completion (for the UI pill).
+
+    The router only knows about completions it proxied. When the NemoClaw agent
+    is active, turns run inside the sandbox and never touch the router — so on
+    a router miss we fall back to the sandbox's own model (cached in the
+    runtime), otherwise the pill goes blank while Ava is plainly answering.
+    Best-effort — None only when neither source knows."""
     try:
         r = requests.get(config.ROUTER_WHICH_URL, timeout=3, headers=_router_headers())
         d = r.json() or {}
     except Exception:  # noqa: BLE001 — the pill is purely informational
-        return None
-    if not d.get("id"):
-        return None
-    return {"id": d.get("id"), "label": d.get("label"), "model": d.get("model"),
-            "prompt_tokens": d.get("prompt_tokens"),
-            "total_tokens": d.get("total_tokens")}
+        d = {}
+    if d.get("id"):
+        return {"id": d.get("id"), "label": d.get("label"), "model": d.get("model"),
+                "prompt_tokens": d.get("prompt_tokens"),
+                "total_tokens": d.get("total_tokens")}
+    rt = runtime.active()
+    if rt.name == "nemoclaw":
+        try:
+            info = rt.sandbox_info() or {}
+        except Exception:  # noqa: BLE001
+            info = {}
+        model = info.get("model")
+        if model:
+            return {"id": "agent-sandbox", "label": str(model).split("/")[-1],
+                    "model": model, "prompt_tokens": None, "total_tokens": None}
+    return None
 
 
 def get_route() -> dict | None:

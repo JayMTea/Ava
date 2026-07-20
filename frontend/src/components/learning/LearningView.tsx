@@ -348,6 +348,7 @@ export function LearningView({ embedded = false }: { embedded?: boolean } = {}) 
   // are currently connected, so the grid can't leak stale/foreign projects.
   const [connectedApps, setConnectedApps] = useState<Set<string>>(new Set());
 
+  const [learningEnabled, setLearningEnabled] = useState(true);
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -359,6 +360,8 @@ export function LearningView({ embedded = false }: { embedded?: boolean } = {}) 
       ]);
       setCodeCycles(code.cycles || []);
       setChatCycles(chat.cycles || []);
+      const en = (code as { enabled?: boolean }).enabled;
+      setLearningEnabled(en !== false);
       setConnectedApps(new Set((apps.apps || []).map((a) => a.id)));
     } catch (e) {
       setError((e as Error).message);
@@ -540,7 +543,9 @@ export function LearningView({ embedded = false }: { embedded?: boolean } = {}) 
                 <Icon name="panel" /> Apps
               </div>
               {buckets.length === 0 ? (
-                <div className="lv-state">No activity yet. Ava will add proposals as she works across apps.</div>
+                <div className="lv-state">{learningEnabled
+                  ? 'No activity yet. Ava will add proposals as she works across apps.'
+                  : 'Learning is turned off (features.learning: false) — no proposals will be generated. Enable it in Setup → System to let Ava suggest improvements.'}</div>
               ) : (
                 <div className="app-grid">
                   {buckets.map((b) => (

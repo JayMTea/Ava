@@ -138,8 +138,14 @@ def load_backends() -> list:
     except Exception:  # noqa: BLE001 — never let config break the router
         cfg = primary = fallback = None
     if not isinstance(cfg, dict) or not cfg:
+        # Nothing configured: serve the env/built-in default so a fresh install
+        # works — but STAMP it implicit so UIs can say "built-in default"
+        # instead of presenting it as a configured, user-chosen backend.
         env_b = _env_backend()
-        return [env_b] if env_b else list(_LEGACY_BACKENDS)
+        out = [env_b] if env_b else [dict(b) for b in _LEGACY_BACKENDS]
+        for b in out:
+            b["implicit"] = True
+        return out
     order: list = []
     for n in (primary, fallback):
         if n in cfg and n not in order:
@@ -482,14 +488,20 @@ def create_app(backends: list | None = None, *, token: str | None = None,
 
     @app.get("/route")
     async def get_route():
-        """Current model choice + the selectable backends (chat dropdown)."""
+        """Current model choice + the selectable backends (chat dropdown).
+        `implicit` marks the env/built-in fallback served when nothing is
+        configured — UIs label it "default" rather than user-chosen."""
         return {"mode": state.mode,
                 "backends": [{"id": b["id"], "label": b["label"],
-                              "model": b["model"]} for b in state.backends]}
+                              "model": b["model"],
+                              "implicit": bool(b.get("implicit"))}
+                             for b in state.backends]}
 
     @app.post("/route")
     async def set_route(request: Request):
-        """Pick which backend the router prefers as primary."""
+        """Pick which backend the router prefers as primary. The pick lives in
+        router memory only (`persisted: false`) — it reverts on restart; a
+        durable brain choice is the Hub model manager's job."""
         try:
             body = await request.json()
         except Exception:  # noqa: BLE001
@@ -497,7 +509,7 @@ def create_app(backends: list | None = None, *, token: str | None = None,
         m = str((body or {}).get("mode", "")).strip()
         if m in {b["id"] for b in state.backends}:
             state.mode = m
-            return {"ok": True, "mode": state.mode}
+            return {"ok": True, "mode": state.mode, "persisted": False}
         return JSONResponse({"error": f"unknown mode {m!r}"}, status_code=400)
 
     @app.get("/fit")

@@ -18,6 +18,7 @@ import re
 import os
 from collections import deque
 from pathlib import Path
+from urllib.parse import urlparse
 
 import requests
 
@@ -31,56 +32,49 @@ except Exception:  # noqa: BLE001
 _MAPS_CACHE: dict[int, dict] = {}
 
 
-def _short_model_name(model: str | None, runtime: str | None = None,
-                      backend: str | None = None) -> str:
+def _short_model_name(model: str | None, runtime: str | None = None) -> str:
+    """Display name for a model, derived from its actual id — never assumed.
+
+    No hardcoded model identities here: a name we can't read stays a generic
+    runtime-flavoured label, so a fork serving any model is labeled honestly.
+    Friendly display labels come from the backend config (see _loaded_models),
+    not from pattern-matching ids.
+    """
     m = (model or "").strip()
     ml = m.lower()
     rl = (runtime or "").lower()
 
-    if "omni" in ml or ("nemotron" in ml and ("nano" in ml or "30b" in ml)):
-        return "open-model 30B"
-    if "hunyuan" in ml:
-        return "Hunyuan Video"
-    if ml.endswith(".safetensors") and "gpumodel" in ml:
-        return "the GPU model checkpoint"
-
-    if ml in {"vllm::enginecore", "enginecore"}:
-        if backend == "omni":
-            return "open-model 30B"
-        return "vLLM model"
-    if ml in {"python", "python3"} or ml.endswith("/python") or ml.endswith("/python3"):
-        if "gpusvc" in rl:
+    # Worker-process names and placeholders carry no model identity.
+    is_placeholder = (
+        ml in {"", "(unavailable)", "(model not exposed)", "vllm::enginecore", "enginecore",
+               "python", "python3"}
+        or ml.endswith(("/python", "/python3"))
+    )
+    if is_placeholder:
+        if "gpusvc" in rl or "gpusvc" in ml:
             return "the GPU service"
-        return "Model"
-
-    # Never show vague placeholders in the UI.
-    if ml in {"(unavailable)", "(model not exposed)", ""}:
-        if backend == "omni":
-            return "open-model 30B"
-        if "gpusvc" in rl:
-            return "the GPU service"
-        if "vllm" in rl:
+        if any(k in rl or k in ml for k in ("vllm", "enginecore")):
             return "vLLM model"
         return "Model"
 
-    # Trim very long model ids down to the tail segment.
-    if "/" in m:
-        m = m.split("/")[-1]
+    # HF-style org/name ids and file paths: the tail segment is the name.
+    m = m.replace("\\", "/").split("/")[-1]
+    if _is_model_file(m):
+        m = m.rsplit(".", 1)[0]
     return m
 
 
-def _short_runtime_name(name: str | None, model: str | None = None,
-                        backend: str | None = None) -> str:
+def _short_runtime_name(name: str | None, model: str | None = None) -> str:
     n = (name or "").strip()
     nl = n.lower()
     ml = (model or "").lower()
 
     if "gpusvc" in nl or "gpusvc" in ml:
         return "the GPU service"
-    if backend == "omni" or "vllm-open" in nl or "vllm-super" in nl:
-        return "vLLM Omni"
-    if "enginecore" in nl:
-        return "vLLM Engine"
+    if "vllm" in nl or "enginecore" in nl:
+        return "vLLM"
+    if "ollama" in nl:
+        return "Ollama"
     if "python" in nl:
         return "Python runtime"
     return n or "runtime"
@@ -151,6 +145,17 @@ def _simple_component_name(kind: str, name: str) -> str:
     elif low.endswith(".pth"):
         n = n[:-4]
     return n or "Model"
+
+
+def _proc_maps_readable(pid: int) -> bool:
+    """Whether we can actually observe this process's memory maps. Decides if an
+    empty component scan means "nothing loaded" (readable) or "unknown" (not)."""
+    try:
+        with open(f"/proc/{pid}/maps") as f:
+            f.readline()
+        return True
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _read_mapped_model_components(pid: int) -> list[dict]:
@@ -257,8 +262,11 @@ def _attach_components(rows: list[dict]) -> list[dict]:
             if not comps:
                 comps = _read_open_model_components(pid)
 
-        # Fallback: still show a readable gpusvc stack even when /proc mapping
-        # visibility is restricted on this host/container boundary.
+        # Fallback: no model files observed in the process, so show the
+        # CONFIGURED gpusvc stack — labeled truthfully, never as resident. If we
+        # could read the memory maps, an empty scan means "really not loaded"
+        # (gpusvc frees weights when idle); if visibility is restricted
+        # (container boundary), residency is unknown (None), not asserted.
         if (not comps) and "gpusvc" in runtime:
             try:  # same resolution gpu_service uses (env -> ava.yaml -> the GPU model base)
                 import gpu_service
@@ -266,26 +274,29 @@ def _attach_components(rows: list[dict]) -> list[dict]:
             except Exception:  # noqa: BLE001
                 ckpt = os.environ.get("AVA_GPU_MODEL", "gpu_model_base")
             upscaler = os.environ.get("AVA_UPSCALE_MODEL", "refiner_x4plus.pth")
+            observable = isinstance(pid, int) and pid > 0 and _proc_maps_readable(pid)
+            resident = False if observable else None
             comps = [
                 {
                     "name": _simple_component_name("checkpoints", ckpt),
                     "kind": "checkpoints",
                     "kind_label": _component_kind_label("checkpoints"),
                     "path": None,
-                    "in_memory": item.get("status") == "loaded",
+                    "in_memory": resident,
                 },
                 {
                     "name": _simple_component_name("upscale_models", upscaler),
                     "kind": "upscale_models",
                     "kind_label": _component_kind_label("upscale_models"),
                     "path": None,
-                    "in_memory": item.get("status") == "loaded",
+                    "in_memory": resident,
                 },
             ]
 
-        if (not comps) and source == "vllm-api" and model:
+        if (not comps) and model and (source == "api" or item.get("backend")):
             comps = [{
-                "name": _simple_component_name("served-model", model),
+                "name": _simple_component_name("served-model",
+                                               str(item.get("model_id") or model)),
                 "kind": "served-model",
                 "kind_label": _component_kind_label("served-model"),
                 "path": None,
@@ -361,22 +372,27 @@ def _gpu_process_util() -> dict[int, float]:
     return out
 
 
-def _extract_model(cmdline: str) -> str | None:
+def _extract_model_names(cmdline: str) -> list[str]:
+    """Every model id named on a command line (--model, --served-model-name, …)."""
     if not cmdline:
-        return None
+        return []
     pats = [
-        r"--model\s+([^\s]+)",
-        r"--model=([^\s]+)",
-        r"--served-model-name\s+([^\s]+)",
-        r"--served-model-name=([^\s]+)",
-        r"--ckpt_name\s+([^\s]+)",
-        r"--ckpt_name=([^\s]+)",
+        r"--model[= ]([^\s]+)",
+        r"--served-model-name[= ]([^\s]+)",
+        r"--ckpt_name[= ]([^\s]+)",
     ]
+    out: list[str] = []
     for p in pats:
-        m = re.search(p, cmdline)
-        if m:
-            return m.group(1).strip('"\'')
-    return None
+        for m in re.finditer(p, cmdline):
+            v = m.group(1).strip('"\'')
+            if v and v not in out:
+                out.append(v)
+    return out
+
+
+def _extract_model(cmdline: str) -> str | None:
+    names = _extract_model_names(cmdline)
+    return names[0] if names else None
 
 
 def _proc_cmdline(pid: int) -> str:
@@ -386,6 +402,41 @@ def _proc_cmdline(pid: int) -> str:
         return raw.decode("utf-8", errors="ignore")
     except Exception:  # noqa: BLE001
         return ""
+
+
+def _proc_ppid(pid: int) -> int | None:
+    try:
+        with open(f"/proc/{pid}/status") as f:
+            for line in f:
+                if line.startswith("PPid:"):
+                    return int(line.split()[1]) or None
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
+def _resolve_owner(pid: int, cmd: str) -> tuple[int, str, str | None]:
+    """(owner_pid, owner_cmdline, model_id) for a GPU compute process.
+
+    Engine workers (vLLM's EngineCore, forked dataloaders, …) run with bare
+    cmdlines; the launcher that declared `--model …` is an ancestor. Walking up
+    the tree lets sibling workers of one engine collapse into a single entry
+    and names the model from what was actually launched — never a guess.
+    """
+    model = _extract_model(cmd)
+    if model:
+        return pid, cmd, model
+    cur = pid
+    for _ in range(6):
+        parent = _proc_ppid(cur)
+        if not parent or parent == 1:
+            break
+        pcmd = _proc_cmdline(parent)
+        model = _extract_model(pcmd)
+        if model:
+            return parent, pcmd, model
+        cur = parent
+    return pid, cmd, None
 
 
 def _parse_mem_mb(s: str | None) -> float | None:
@@ -412,7 +463,13 @@ def _parse_mem_mb(s: str | None) -> float | None:
 
 
 def _gpu_model_processes() -> list[dict]:
-    """Active GPU compute processes with inferred model id + memory."""
+    """Active GPU compute processes, grouped per engine, with inferred model.
+
+    One inference engine usually appears as several GPU processes (a launcher
+    plus workers it forks). Rows are grouped by the owning process that named
+    the model on its command line, so an engine is one entry no matter how
+    many workers it spawns, and the model id is read — never assumed.
+    """
     smi = shutil.which("nvidia-smi")
     if not smi:
         return []
@@ -421,8 +478,8 @@ def _gpu_model_processes() -> list[dict]:
         "--query-compute-apps=pid,process_name,used_memory",
         "--format=csv,noheader,nounits",
     ], timeout=4)
-    rows = []
     util_by_pid = _gpu_process_util()
+    groups: dict[int, dict] = {}
     for line in out.splitlines():
         parts = [p.strip() for p in line.split(",")]
         if len(parts) < 3:
@@ -434,27 +491,39 @@ def _gpu_model_processes() -> list[dict]:
         proc = parts[1] or "process"
         mem_mb = _num(parts[2])
         cmd = _proc_cmdline(pid)
-        model = _extract_model(cmd) or proc
-        runtime_ctx = f"{proc} {cmd}".strip()
-        short_model = _short_model_name(model, runtime=runtime_ctx)
-        runtime_name = _short_runtime_name(runtime_ctx, model=model)
-        # Ava runs ONE always-on vLLM engine (open-model 30B). It reports as a bare
-        # "VLLM::EngineCore" process with no --model in the name, so label it
-        # directly instead of showing a generic "vLLM model".
-        rc = runtime_ctx.lower()
-        if ("enginecore" in rc or "vllm" in rc) and mem_mb:
-            short_model, runtime_name = "open-model 30B", "vLLM Omni"
+        owner, owner_cmd, model = _resolve_owner(pid, cmd)
+        g = groups.setdefault(owner, {
+            "model_id": None, "owner_cmd": "", "mem_mb": None, "util": None,
+            "top_pid": pid, "top_mem": -1.0, "ctx": [],
+        })
+        if model and not g["model_id"]:
+            g["model_id"], g["owner_cmd"] = model, owner_cmd
+        if mem_mb is not None:
+            g["mem_mb"] = (g["mem_mb"] or 0.0) + mem_mb
+        u = util_by_pid.get(pid)
+        if u is not None:
+            g["util"] = max(g["util"] or 0.0, u)
+        if (mem_mb or 0.0) > g["top_mem"]:
+            g["top_mem"], g["top_pid"] = (mem_mb or 0.0), pid
+        g["ctx"].append(f"{proc} {cmd}".strip())
+    rows = []
+    for owner, g in groups.items():
+        runtime_ctx = " ".join(filter(None, [g["owner_cmd"], *g["ctx"]]))
+        model = g["model_id"]
+        mem_mb = g["mem_mb"]
         rows.append({
-            "id": f"pid:{pid}",
-            "name": runtime_name,
-            "model": short_model,
+            "id": f"pid:{owner}",
+            "name": _short_runtime_name(runtime_ctx, model=model),
+            "model": _short_model_name(model, runtime=runtime_ctx),
+            "model_id": model,
             "memory_mb": mem_mb,
             "memory_gb": round(mem_mb / 1024, 2) if mem_mb is not None else None,
-            "gpu_util": util_by_pid.get(pid),
-            "pid": pid,
+            "gpu_util": g["util"],
+            # Surface the worker actually holding the weights (largest member).
+            "pid": g["top_pid"],
             "status": "loaded",
             "source": "nvidia-smi",
-            "cmd": cmd[:300],
+            "cmd": (g["owner_cmd"] or (g["ctx"][0] if g["ctx"] else ""))[:300],
         })
     rows.sort(key=lambda x: x.get("memory_mb") or 0, reverse=True)
     return rows
@@ -510,6 +579,7 @@ def _docker_model_containers() -> list[dict]:
             "id": f"ctr:{n}",
             "name": runtime_name,
             "model": short_model,
+            "model_id": model,
             "memory_mb": mem_mb,
             "memory_gb": round(mem_mb / 1024, 2) if mem_mb is not None else None,
             "gpu_util": None,
@@ -522,79 +592,115 @@ def _docker_model_containers() -> list[dict]:
     return out
 
 
+def _configured_backends() -> list[dict]:
+    """Local inference backends Ava is configured to use.
+
+    Read from the router's registry (ava.yaml `inference.backends` → env →
+    built-in default), so this module never hardcodes a model identity — a
+    fork that reconfigures its backends reconfigures this monitor with them.
+    Cloud endpoints are excluded: the monitor reports THIS box's memory.
+    """
+    try:  # lazy import: keeps this module importable standalone
+        from . import router_app
+        backends = router_app.load_backends()
+    except Exception:  # noqa: BLE001 — telemetry must not depend on the router
+        return []
+    local = []
+    for b in backends:
+        host = urlparse(str(b.get("url") or "")).hostname or ""
+        if host in {"127.0.0.1", "localhost", "::1", "0.0.0.0"}:
+            local.append(b)
+    return local
+
+
+def _match_backend_row(rows: list[dict], served_ids: list[str]) -> dict | None:
+    """The process/container row already representing one of these model ids."""
+    cands = set()
+    for s in served_ids:
+        s = (s or "").strip().lower()
+        if s:
+            cands.add(s)
+            cands.add(s.rsplit("/", 1)[-1])
+    if not cands:
+        return None
+    for r in rows:
+        names = _extract_model_names(r.get("cmd") or "")
+        if r.get("model_id"):
+            names.append(str(r["model_id"]))
+        for n in names:
+            n = n.lower()
+            if n in cands or n.rsplit("/", 1)[-1] in cands:
+                return r
+    return None
+
+
 def _loaded_models() -> list[dict]:
     procs = _gpu_model_processes()
-    dock = _docker_model_containers()
-    by_runtime = {x.get("name"): x for x in (procs + dock)}
+    rows = procs if procs else _docker_model_containers()
 
-    out = list(procs) if procs else list(dock)
-
-    # Fallback: query the Omni engine's /v1/models so we can still show what's
-    # loaded even when process-level GPU telemetry is unavailable on this platform.
-    omni_url = os.environ.get("AVA_OMNI_URL", "http://127.0.0.1:8002/v1").rstrip("/")
-    backends = [
-        ("omni", omni_url),
-    ]
-    _BACKEND_MODEL = {"omni": "open-model 30B"}
-    # If process telemetry already named a backend's model (from the GPU process
-    # list above), don't add a second API-sourced entry for it — that duplication
-    # is what showed the model twice in the picker.
-    present_models = {x.get("model") for x in out}
-    seen_ids = {x.get("id") for x in out}
-    for bid, base in backends:
-        if _BACKEND_MODEL.get(bid) in present_models:
-            continue
-        models = []
-        status = "offline"
+    # Cross-check each configured local backend's /v1/models: the row serving
+    # it gets tagged (and takes the config's display label), engines invisible
+    # to process telemetry still get a row, and a configured-but-unreachable
+    # engine is surfaced as offline. Identity comes from config or the live
+    # API — never from guessing what a GPU process "probably" is.
+    for b in _configured_backends():
+        served: list[str] = []
+        reachable = False
         try:
-            r = requests.get(f"{base}/models", timeout=1.5)
+            r = requests.get(f"{str(b.get('url', '')).rstrip('/')}/models", timeout=1.5)
             if r.ok:
+                reachable = True
                 data = r.json().get("data") or []
-                models = [str(x.get("id") or "").strip() for x in data if str(x.get("id") or "").strip()]
-                status = "loaded" if models else "empty"
+                served = [str(x.get("id") or "").strip() for x in data
+                          if str(x.get("id") or "").strip()]
         except Exception:  # noqa: BLE001
             pass
 
-        if not models:
-            mid = f"{bid}:unknown"
-            if mid in seen_ids:
-                continue
-            out.append({
-                "id": mid,
-                "name": _short_runtime_name(f"vllm-{bid}", backend=bid),
-                "model": _short_model_name(None, runtime=f"vllm-{bid}", backend=bid),
-                "memory_mb": None,
-                "memory_gb": None,
-                "gpu_util": None,
-                "pid": None,
-                "status": status,
-                "source": "vllm-api",
-                "cmd": "",
-            })
-            seen_ids.add(mid)
+        label = str(b.get("label") or "").strip()
+        row = _match_backend_row(rows, served or [str(b.get("model") or "")])
+        if row is None and served:
+            # Engine is up but no process exposed a model id (bare workers on a
+            # platform without /proc, container boundaries, …): claim the one
+            # unnamed row of the same engine kind rather than duplicating it.
+            engine = str(b.get("engine") or "").lower()
+            row = next((x for x in rows
+                        if not x.get("model_id")
+                        and engine and engine in str(x.get("name", "")).lower()), None)
+            if row is not None:
+                row["model_id"] = served[0]
+                row["model"] = _short_model_name(served[0], runtime=row.get("name"))
+
+        if row is not None:
+            row["backend"] = b.get("id")
+            if label:
+                row["model"] = label
             continue
 
-        runtime = by_runtime.get(f"vllm-{bid}")
-        for m in models:
-            mid = f"{bid}:{m}"
-            if mid in seen_ids:
-                continue
-            out.append({
-                "id": mid,
-                "name": _short_runtime_name(f"vllm-{bid}", model=m, backend=bid),
-                "model": _short_model_name(m, runtime=f"vllm-{bid}", backend=bid),
-                "memory_mb": runtime.get("memory_mb") if runtime else None,
-                "memory_gb": runtime.get("memory_gb") if runtime else None,
-                "gpu_util": runtime.get("gpu_util") if runtime else None,
-                "pid": runtime.get("pid") if runtime else None,
-                "status": "loaded",
-                "source": "vllm-api",
-                "cmd": runtime.get("cmd", "") if runtime else "",
+        if served:
+            for mid in served:
+                rows.append({
+                    "id": f"{b.get('id')}:{mid}",
+                    "name": _short_runtime_name(str(b.get("engine") or ""), model=mid),
+                    "model": label if label and len(served) == 1 else _short_model_name(mid),
+                    "model_id": mid,
+                    "memory_mb": None, "memory_gb": None, "gpu_util": None, "pid": None,
+                    "status": "loaded", "source": "api", "cmd": "",
+                    "backend": b.get("id"),
+                })
+        else:
+            rows.append({
+                "id": f"{b.get('id')}:offline",
+                "name": _short_runtime_name(str(b.get("engine") or "")),
+                "model": label or _short_model_name(str(b.get("model") or ""),
+                                                    runtime=str(b.get("engine") or "")),
+                "model_id": b.get("model") or None,
+                "memory_mb": None, "memory_gb": None, "gpu_util": None, "pid": None,
+                "status": "empty" if reachable else "offline", "source": "api", "cmd": "",
+                "backend": b.get("id"),
             })
-            seen_ids.add(mid)
 
-    out.sort(key=lambda x: x.get("memory_mb") or 0, reverse=True)
-    return _attach_components(out)
+    rows.sort(key=lambda x: x.get("memory_mb") or 0, reverse=True)
+    return _attach_components(rows)
 
 
 def _mem() -> dict:
@@ -645,11 +751,15 @@ def _disk(path: str = "/") -> dict:
             "used_pct": round(100 * u.used / u.total) if u.total else None}
 
 
-def _model_role(model) -> str:
-    """What a loaded model is FOR, so a GPU spike on it is self-explanatory."""
+def _model_role(model, backend_id: str | None = None) -> str:
+    """What a loaded model is FOR, so a GPU spike on it is self-explanatory.
+
+    A row tagged with a configured inference backend IS Ava's brain — that
+    comes from config, not from pattern-matching the model's name.
+    """
+    if backend_id:
+        return "Ava's brain (chat inference)"
     m = (model or "").lower()
-    if "omni" in m or "nemotron" in m or "30b" in m:
-        return "Ava's always-on brain (chat + multimodal)"
     if "gpusvc" in m:
         return "Image & video rendering"
     if "hunyuan" in m or "wan" in m:
@@ -719,7 +829,7 @@ def stats() -> dict:
     """One live snapshot of the device's hardware."""
     models = _loaded_models()
     for m in models:
-        m["role"] = _model_role(m.get("model"))
+        m["role"] = _model_role(m.get("model_id") or m.get("model"), m.get("backend"))
     return {"gpu": _gpu(), "mem": _mem(), "disk": _disk(),
             "cpu": {"util": _cpu()}, "models": models,
             "jobs": _active_jobs(),

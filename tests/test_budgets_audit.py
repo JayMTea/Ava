@@ -45,6 +45,7 @@ class TestBudgetMetrics(unittest.TestCase):
              mock.patch.object(dashboard, "_all_rows", return_value=[]), \
              mock.patch.object(dashboard, "ops_services", return_value={"down": 0}):
             dashboard.invalidate_cost_cache()
+            dashboard._cache.pop("rows_1h", None)  # metrics share one cached scan
             return dashboard.build_alert_metrics()
 
     def test_dormant_without_budget(self):
@@ -73,7 +74,8 @@ class TestIdleBurn(unittest.TestCase):
     def test_idle_tokens_counted_when_away_and_zero_when_active(self):
         from ava_bridge import state
         now = 1_000_000.0
-        rows = [{"ts": now, "completion_tokens": 9000}]  # a big background generation
+        # a big background generation (category tags the row in the shared scan)
+        rows = [{"ts": now, "category": "llm", "completion_tokens": 9000}]
         base = {"budgets": {}, "prices": {}, "nominal_gpu_watts": 180}
         day = {"spend_usd": 0, "energy_kwh": 0, "power_measured": False}
 
@@ -81,10 +83,11 @@ class TestIdleBurn(unittest.TestCase):
             with mock.patch.object(dashboard, "_cost_cfg", return_value=base), \
                  mock.patch.object(dashboard, "perf_cost", side_effect=lambda since="1d", **k: day), \
                  mock.patch.object(dashboard, "_all_rows",
-                                   side_effect=lambda a, c, s: rows if c == "llm" else []), \
+                                   side_effect=lambda a, c, s: rows), \
                  mock.patch.object(dashboard, "ops_services", return_value={"down": 0}), \
                  mock.patch.object(dashboard.time, "time", return_value=now + 30):
                 dashboard.invalidate_cost_cache()
+                dashboard._cache.pop("rows_1h", None)  # metrics share one cached scan
                 return dashboard.build_alert_metrics()
 
         # Last interaction was long ago (>120s before the row) -> counted as idle burn.

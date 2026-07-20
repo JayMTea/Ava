@@ -36,7 +36,7 @@ const STORE_META: Record<string, { icon: string; desc: string }> = {
   devices: { icon: 'activity', desc: 'Sensor readings and events from connected devices, one rotated stream per connector.' },
   media_gen: { icon: 'image', desc: 'Images and video Ava has generated. Nothing here is auto-deleted yet.' },
   uploads: { icon: 'attach', desc: 'Files you’ve shared with Ava in chat. Document text is indexed into Memory; the originals stay here.' },
-  secrets: { icon: 'lock', desc: 'Login password, session key, internal tokens, and backend API keys. Listed for transparency — never displayed, exported, or browsable.' },
+  secrets: { icon: 'lock', desc: 'Login password, session key, internal tokens, and backend API keys. Names are listed for transparency — the values are never displayed, exported, or browsable.' },
 };
 
 const FORMAT_TONE: Record<DataStore['format'], string> = {
@@ -67,6 +67,16 @@ function StoreCard({ s, onBrowse }: { s: DataStore; onBrowse?: () => void }) {
       </div>
       {meta.desc && <p className="data-store-desc">{meta.desc}</p>}
       <div className="data-store-path">{s.path}</div>
+      {s.items && s.items.length > 0 && (
+        <ul className="data-secrets">
+          {s.items.map((it) => (
+            <li key={it.name}>
+              <code>{it.name}</code>
+              <span>{it.what}</span>
+            </li>
+          ))}
+        </ul>
+      )}
       <div className="data-store-meta">
         {!s.locked && <span><b>{fmtBytes(s.bytes)}</b> on disk</span>}
         {s.count != null && <span><b>{fmtInt(s.count)}</b> {s.locked ? 'items held' : s.id === 'devices' ? 'streams' : 'items'}</span>}

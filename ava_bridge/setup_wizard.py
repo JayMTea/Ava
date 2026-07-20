@@ -16,7 +16,7 @@ import os
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
-from . import config, connectors, settings
+from . import config, connectors, features, settings
 
 router = APIRouter()
 
@@ -149,8 +149,10 @@ async def api_save(request: Request):
 
     feats = body.get("features") or {}
     if isinstance(feats, dict):
+        # Whitelist = the feature registry, so a newly registered capability's
+        # toggle works here with no further wiring.
         patch["features"] = {k: bool(v) for k, v in feats.items()
-                             if k in ("voice", "web_search", "image")}
+                             if k in features.REGISTRY}
 
     enabled = body.get("connectors")
     if isinstance(enabled, list):

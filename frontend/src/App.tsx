@@ -16,6 +16,7 @@ import { DataView } from './components/data/DataView';
 import { HardwareBubble } from './components/HardwareBubble';
 import { useChat } from './hooks/useChat';
 import { api } from './lib/api';
+import { registerApps } from './lib/appColor';
 import type { AppEntry, Artifact, Attachment } from './lib/types';
 
 // A view id is one of the built-in tabs or an app id from /api/apps.
@@ -58,7 +59,10 @@ export default function App() {
   // — a new tile appears without a page refresh.
   const [apps, setApps] = useState<AppEntry[]>([]);
   useEffect(() => {
-    const load = () => api.apps().then((r) => setApps(r.apps)).catch(() => setApps([]));
+    const load = () => api.apps().then((r) => {
+      setApps(r.apps);
+      registerApps(r.apps); // lets any component attribute tools/URLs to an app
+    }).catch(() => setApps([]));
     load();
     window.addEventListener('ava:apps-changed', load);
     return () => window.removeEventListener('ava:apps-changed', load);
@@ -105,7 +109,19 @@ export default function App() {
     if (BUILTIN_VIEWS.includes(view)) return;
     setOpenedApps((prev) => (prev.includes(view) ? prev : [...prev, view]));
   }, [view]);
-  const [sidebarOpen, setSidebarOpen] = useState(() => (typeof window !== 'undefined' ? window.innerWidth > 760 : true));
+  // Sidebar open/collapsed: remember the user's choice across reloads. On mobile
+  // the sidebar is a full-screen overlay, so always start closed there and never
+  // persist that transient state (it must not leak into the desktop preference).
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    if (window.innerWidth <= 760) return false;
+    const stored = localStorage.getItem('ava.sidebarOpen');
+    return stored == null ? true : stored === '1';
+  });
+  useEffect(() => {
+    if (typeof window === 'undefined' || window.innerWidth <= 760) return;
+    try { localStorage.setItem('ava.sidebarOpen', sidebarOpen ? '1' : '0'); } catch { /* storage unavailable */ }
+  }, [sidebarOpen]);
   const [text, setText] = useState('');
   const [codeMode, setCodeMode] = useState(false);
   const [artWidth, setArtWidth] = useState('50%');
@@ -215,7 +231,7 @@ export default function App() {
         />
 
         <div id="appCol">
-          <Header status={chat.status} onMenu={() => setSidebarOpen((o) => !o)} ghost={chat.ghost} onToggleGhost={chat.toggleGhost} showGhost={view === 'chat'} brand={brand} models={chat.models} model={chat.model} onSetModel={chat.setModelMode} />
+          <Header status={chat.status} onMenu={() => setSidebarOpen((o) => !o)} ghost={chat.ghost} onToggleGhost={chat.toggleGhost} showGhost={view === 'chat'} brand={brand} models={chat.models} model={chat.model} agentModel={chat.agentModel} onSetModel={chat.setModelMode} />
           <div id="viewPort">
             {view === 'vitals' && <ViewErrorBoundary label="Vitals"><VitalsView /></ViewErrorBoundary>}
             {view === 'ops' && <ViewErrorBoundary label="Operations"><OpsView /></ViewErrorBoundary>}

@@ -129,6 +129,25 @@ def get_bool(dotted: str, default: bool, env: str | None = None) -> bool:
     return str(v).strip().lower() not in ("0", "false", "no", "off", "")
 
 
+def env_override(env: str) -> str | None:
+    """The env var NAME when it is currently set (and therefore shadows the
+    ava.yaml key an editor writes), else None. Editors surface this so "I saved
+    it but it reverted after restart" has a visible cause instead of being a
+    silent env-beats-yaml mystery."""
+    return env if os.environ.get(env) not in (None, "") else None
+
+
+def explicitly_false(dotted: str, env: str | None = None) -> bool:
+    """True only when the user EXPLICITLY turned a flag off (yaml false / env
+    0|false|no|off). Unset is NOT off — runtime gates use this so installs that
+    never wrote the key keep working, while a deliberate "off" is honored
+    instead of being decorative."""
+    v = get(dotted, None, env)
+    if v is None:
+        return False
+    return str(v).strip().lower() in ("0", "false", "no", "off")
+
+
 # How long accumulated telemetry/history (perf rollups, hardware samples) is
 # retained. One knob, surfaced in Setup → System. Default ~6 months.
 DATA_RETENTION_DEFAULT_DAYS = 183

@@ -3,19 +3,11 @@ import { api, sleep } from '../lib/api';
 import type { Artifact, Attachment, HistoryEntry } from '../lib/types';
 import { ChatItem, uid } from '../lib/chatItems';
 
-const GEN_RE =
-  /\b(generate|make|create|draw|paint|render|design|show me|give me)\b[^.]*\b(image|picture|photo|painting|drawing|art|portrait|wallpaper|illustration|render)\b/i;
-
-// GEN_RE fires the image generator IMMEDIATELY, skipping Ava's brain. But a
-// message can contain those words while merely TALKING ABOUT images —
-// "help me write a better PROMPT for the image GENERATOR", "how do I ...",
-// "explain ..." — which tripped the greedy "create ... image" match and
-// generated a picture instead of answering. These high-signal tokens rarely
-// appear in a real "render me an image" request, so when one is present we
-// route to Ava instead. Safe either way: Ava's turn can still call
-// run_gpu_job herself, so a genuine request that lands there still renders.
-const GEN_EXCLUDE_RE =
-  /\b(prompts?|expander|generator|explain|reword|rephrase|how\s+(do|can|to))\b/i;
+// Routing lives SERVER-SIDE now (ava_bridge/turn_router.py): every typed
+// message posts to /api/chat-stream, which answers {turn_id} for an agent turn
+// or {job} for a render. The old client-side GEN_RE heuristic (and the
+// exception list it kept accreting) is retired — this file carries zero
+// routing knowledge.
 
 // Play a base64-encoded WAV (Ava's spoken reply) without a round-trip to disk.
 function playWav(b64: string) {
@@ -47,6 +39,9 @@ export function useChat() {
   const [realCtx, setRealCtx] = useState<number | null>(null);
   const [model, setModelState] = useState('');
   const [models, setModels] = useState<{ id: string; label: string }[]>([]);
+  // Set when the agent runtime is active: chat turns think with the SANDBOX
+  // model and bypass the router, so the picker only steers the fallback path.
+  const [agentModel, setAgentModel] = useState<string | null>(null);
 
   const history = useRef<HistoryEntry[]>([]);
   const chatIdRef = useRef<string | null>(null);
@@ -159,7 +154,9 @@ export function useChat() {
           } else if (j.status === 'done' && j.url) {
             remove(gid);
             push({ kind: 'image', id: uid(), url: j.url, caption: job.prompt, allowUpscale: true });
-            if (chatId) api.attachImageToChat(chatId, j.url, job.prompt || '').then(() => loadChats()).catch(() => {});
+            // The bridge already persisted the image to the chat when the job
+            // finished (gpu_jobs._finalize_job) — just refresh the list.
+            if (chatId) loadChats();
           } else {
             patch(gid, (it) =>
               it.kind === 'gen'
@@ -167,6 +164,7 @@ export function useChat() {
                     ...it,
                     status: 'error',
                     error: j.error || 'unknown',
+                    errorCode: j.error_code,
                     cancelable: false,
                     stage: j.stage || 'error',
                     elapsedSec: (Date.now() - t0) / 1000,
@@ -232,8 +230,15 @@ export function useChat() {
         fd.append('attachments', JSON.stringify(atts.map((a) => a.id)));
         fd.append('chat_id', cid);
         const start = await api.startTurn(fd);
+        if (start.job) {
+          // The server-side intent gate routed this to the image pipeline.
+          remove(cotId);
+          pollJob(start.job, cid);
+          return;
+        }
         if (!start.turn_id) {
-          patch(cotId, (it) => (it.kind === 'cot' ? { ...it, status: 'error', error: start.error || 'could not start' } : it));
+          remove(cotId);
+          push({ kind: 'sys', id: uid(), text: start.error || 'could not start', icon: 'alert', code: start.error_code });
           failUser();
           return;
         }
@@ -310,34 +315,24 @@ export function useChat() {
         failUser();
       }
     },
-    [push, patch, pollJob],
+    [push, patch, remove, pollJob],
   );
 
-  // ---- routing: direct image gen vs full Ava turn -------------------------
+  // ---- submit: one path — the server-side gate picks the pipeline ----------
   const submit = useCallback(
     async (t: string, atts: Attachment[], cid: string, userItemId: string | null) => {
-      const isGen = !atts.length && GEN_RE.test(t) && !GEN_EXCLUDE_RE.test(t);
       try {
-        if (isGen) {
-          const m = t.match(/\b(?:of|showing|depicting|with)\b\s+(.*)/i);
-          const prompt = (m ? m[1] : t).trim();
-          const j = await api.generate(prompt, cid, t);
-          if (j.job) {
-            push({ kind: 'ava', id: uid(), text: 'Creating that now…', srcText: t, srcAtts: atts });
-            pollJob(j.job, cid);
-          } else {
-            push({ kind: 'sys', id: uid(), text: j.error || 'could not start', icon: 'alert' });
-            if (userItemId) patch(userItemId, (it) => (it.kind === 'user' ? { ...it, failed: true } : it));
-          }
-        } else {
-          await runAvaTurn(t, atts, cid, userItemId);
-        }
+        await runAvaTurn(t, atts, cid, userItemId);
       } catch (e) {
-        push({ kind: 'sys', id: uid(), text: 'network error: ' + (e as Error).message, icon: 'alert' });
+        // req() folds the server's own error body into the thrown error (plus
+        // a fix-it code when the backend sent one) — only a transport failure
+        // is really a "network error".
+        const code = (e as { code?: string }).code;
+        push({ kind: 'sys', id: uid(), text: (code ? '' : 'network error: ') + (e as Error).message, icon: 'alert', code });
         if (userItemId) patch(userItemId, (it) => (it.kind === 'user' ? { ...it, failed: true } : it));
       }
     },
-    [push, patch, pollJob, runAvaTurn],
+    [push, patch, runAvaTurn],
   );
 
   const send = useCallback(
@@ -406,7 +401,7 @@ export function useChat() {
         fd.append('chat_id', cid);
         const j = await api.talk(fd);
         if (j.error) {
-          push({ kind: 'sys', id: uid(), text: j.error, icon: 'alert' });
+          push({ kind: 'sys', id: uid(), text: j.error, icon: 'alert', code: j.error_code });
         } else if (j.accepted === false) {
           push({
             kind: 'sys',
@@ -445,7 +440,8 @@ export function useChat() {
           if (j.job) pollJob(j.job, cid);
         }
       } catch (e) {
-        push({ kind: 'sys', id: uid(), text: 'network error: ' + (e as Error).message, icon: 'alert' });
+        const code = (e as { code?: string }).code;
+        push({ kind: 'sys', id: uid(), text: (code ? '' : 'network error: ') + (e as Error).message, icon: 'alert', code });
       }
       setBusyBoth(false);
       setStatus('hold the mic to talk');
@@ -476,6 +472,10 @@ export function useChat() {
             next.push({ kind: 'user', id: uid(), text: m.content || '', atts: m.atts || [] });
           } else if (m.image) {
             next.push({ kind: 'image', id: uid(), url: m.image, caption: m.content || '', allowUpscale: true });
+          } else if (m.error_code) {
+            // A render (or other job) that ended in a coded failure — replay it
+            // as the same fix-it system line the live UI would have shown.
+            next.push({ kind: 'sys', id: uid(), text: m.content || 'failed', icon: 'alert', code: m.error_code });
           } else {
             // Durable chain-of-thought: replay the saved reasoning above the
             // reply, exactly as it appeared live (collapsed, status done).
@@ -639,7 +639,14 @@ export function useChat() {
       .getModel()
       .then((r) => {
         if (r.mode) setModelState(r.mode);
-        if (r.backends) setModels(r.backends.map((b) => ({ id: b.id, label: b.label })));
+        if (r.backends) {
+          setModels(r.backends.map((b) => ({
+            id: b.id,
+            // A built-in/env default is not a user-chosen backend — say so.
+            label: b.implicit ? `${b.label} (default)` : b.label,
+          })));
+        }
+        setAgentModel(r.agent_model || null);
       })
       .catch(() => {});
   }, []);
@@ -709,6 +716,7 @@ export function useChat() {
     ctxMax,
     model,
     models,
+    agentModel,
     setModelMode,
   };
 }

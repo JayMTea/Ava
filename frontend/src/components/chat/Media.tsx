@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { Preview } from '../../lib/types';
 import { Icon } from '../../lib/icons';
 import { api } from '../../lib/api';
+import { AppDot, appAccent, appForUrl } from '../../lib/appColor';
 import { ProgressBar } from '../../lib/ProgressBar';
+import { fixForCode, type FixAction } from '../../lib/fixes';
 
 const BLUR_DELAY_MS = 30000;
 
@@ -92,7 +95,9 @@ export function Lightbox({ url, onClose, info }: { url: string; onClose: () => v
     if (e.touches.length === 0) c.mode = 'none';
   };
 
-  const src = url.split('?')[0] + '?t=' + Date.now();
+  // No cache-buster: generated images are immutable (a filename's bytes never
+  // change), so the browser can and should cache the full image.
+  const src = url.split('?')[0];
   const zoomed = t.scale > 1;
   return (
     <div
@@ -156,7 +161,6 @@ export function ImageMessage({
   onOpen: (url: string, onClose: () => void) => void;
 }) {
   const [blurred, setBlurred] = useState(false);
-  const [dim, setDim] = useState('');
   const [upscaling, setUpscaling] = useState(false);
   const [displayUrl, setDisplayUrl] = useState(url);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -173,14 +177,28 @@ export function ImageMessage({
   }, []);
 
   const open = () => onOpen(displayUrl, arm);
+  // Inline bubbles load a small cached WebP thumbnail (backend /thumb route),
+  // not the full 16 MB 4K PNG; the lightbox (open()) still opens the full image.
+  const thumbUrl = displayUrl.startsWith('/media/')
+    ? '/thumb/' + displayUrl.slice('/media/'.length)
+    : displayUrl;
 
   const upscale = async () => {
     setUpscaling(true);
     try {
-      const j = await api.upscale(displayUrl.split('?')[0].split('/').pop() || '');
-      if (j.url) {
-        setDisplayUrl(j.url);
-        if (chatId) api.attachImageToChat(chatId, j.url, caption || '').catch(() => {});
+      // /api/upscale is an async job: poll it until the 4K render lands. The
+      // bridge persists the result to the chat itself; we only update the view.
+      const start = await api.upscale(displayUrl.split('?')[0].split('/').pop() || '', chatId || undefined, caption || '');
+      const jobId = start.job?.id;
+      const deadline = Date.now() + 5 * 60 * 1000;
+      while (jobId && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 1000));
+        const j = await api.job(jobId);
+        if (j.status === 'done' && j.url) {
+          setDisplayUrl(j.url);
+          break;
+        }
+        if (j.status === 'error') break;
       }
     } catch {
       /* ignore */
@@ -192,16 +210,11 @@ export function ImageMessage({
     <div className="media">
       <div className={'imgbox' + (blurred ? ' blurred' : '')}>
         <img
-          src={displayUrl + (displayUrl.indexOf('?') < 0 ? '?t=' : '&t=') + Date.now()}
+          src={thumbUrl}
           loading="lazy"
           alt={caption || ''}
           onClick={open}
-          onLoad={(e) => {
-            const im = e.currentTarget;
-            if (im.naturalWidth) setDim(`${im.naturalWidth}\u00d7${im.naturalHeight}`);
-          }}
         />
-        {dim && <div className="dim">{dim}</div>}
         <div className="privacy" onClick={open}>
           <Icon name="eyeOff" />
           <span>Tap to view</span>
@@ -220,10 +233,45 @@ export function ImageMessage({
   );
 }
 
+// The fix-it link: click navigates, hover/focus shows a popover saying where
+// it leads (reuses the dashboard's .info-pop, portalled to <body> so the chat
+// bubble can't clip it). Fixes are derived from the error code's PATTERN by
+// lib/fixes.ts, so any newly registered capability gets this automatically.
+export function FixLink({ fix }: { fix: FixAction }) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState({ x: 0, y: 0 });
+  const ref = useRef<HTMLAnchorElement>(null);
+  const show = () => {
+    const r = ref.current?.getBoundingClientRect();
+    if (r) setPos({ x: r.left + r.width / 2, y: r.top });
+    setOpen(true);
+  };
+  return (
+    <>
+      <a
+        ref={ref}
+        className="gen-fix"
+        href={`#${fix.hash}`}
+        onMouseEnter={show}
+        onMouseLeave={() => setOpen(false)}
+        onFocus={show}
+        onBlur={() => setOpen(false)}
+      >
+        {fix.label} →
+      </a>
+      {open && createPortal(
+        <div className="info-pop" role="tooltip" style={{ left: pos.x, top: pos.y }}>{fix.tip}</div>,
+        document.body,
+      )}
+    </>
+  );
+}
+
 export function GenProgress({
   progress,
   status,
   error,
+  errorCode,
   prompt,
   stage,
   elapsedSec,
@@ -234,6 +282,7 @@ export function GenProgress({
   progress: number;
   status: 'running' | 'done' | 'error';
   error?: string;
+  errorCode?: string;
   prompt?: string;
   stage?: string;
   elapsedSec?: number;
@@ -244,6 +293,7 @@ export function GenProgress({
   const pct = Math.max(0, Math.min(100, Math.round(progress || 0)));
   const stageLabel = stage || (pct <= 0 ? 'queued' : pct >= 75 ? 'upscaling' : 'rendering');
   const elapsed = elapsedSec != null ? `${Math.max(0, Math.round(elapsedSec))}s` : null;
+  const fix = status === 'error' ? fixForCode(errorCode) : undefined;
   return (
     <div className="gen">
       <div className="lab">
@@ -254,6 +304,7 @@ export function GenProgress({
             : `generating image… ${pct}%`}
         </span>
       </div>
+      {fix && <div className="gen-fixrow"><FixLink fix={fix} /></div>}
       {status === 'running' && (
         <div className="gen-meta">
           <span>{stageLabel}</span>
@@ -293,17 +344,25 @@ export function PreviewCard({
   const cap = [preview.persona || 'preview', preview.theme, preview.seed != null ? 'seed ' + preview.seed : null]
     .filter(Boolean)
     .join(' · ');
+  // Pickup cards come from a connected app (the /apps/<id> proxy URL says
+  // which) — carry the app's identity accent so the artifact reads as the
+  // app's work, not Ava's.
+  const app = appForUrl(disp);
   return (
     <div className="media">
       <div className="imgbox">
         <img
           loading="lazy"
           alt={cap}
-          src={disp + (disp.indexOf('?') < 0 ? '?t=' : '&t=') + Date.now()}
+          src={disp}
           onClick={() => onOpen(disp)}
         />
       </div>
-      <div className="cap">{cap}</div>
+      <div className="cap">
+        {app && <AppDot accent={appAccent(app)} />}
+        {cap}
+        {app && <span className="tool-app">{app.label}</span>}
+      </div>
       <div className="imgactions">
         <button
           type="button"

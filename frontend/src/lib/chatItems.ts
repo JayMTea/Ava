@@ -23,6 +23,7 @@ export type ChatItem =
       progress: number;
       status: 'running' | 'done' | 'error';
       error?: string;
+      errorCode?: string;
       prompt?: string;
       stage?: string;
       elapsedSec?: number;
@@ -31,7 +32,7 @@ export type ChatItem =
     }
   | { kind: 'image'; id: string; url: string; caption?: string; allowUpscale?: boolean }
   | { kind: 'preview'; id: string; preview: Preview }
-  | { kind: 'sys'; id: string; text: string; icon?: string };
+  | { kind: 'sys'; id: string; text: string; icon?: string; code?: string };
 
 export function uid(): string {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36);

@@ -1,6 +1,9 @@
 import { useState } from 'react';
 import type { Attachment, ModelInfo } from '../../lib/types';
 import { Icon } from '../../lib/icons';
+import { fixForCode } from '../../lib/fixes';
+import { AppDot, appAccent, appForTool } from '../../lib/appColor';
+import { FixLink } from './Media';
 
 async function copyText(s: string): Promise<boolean> {
   try {
@@ -101,9 +104,18 @@ export function AvaMessage({
           <details className="toolsdrop">
             <summary>{`Tools used (${toolsUsed.length})`}</summary>
             <ul>
-              {toolsUsed.map((t, i) => (
-                <li key={`${t}:${i}`}>{String(t).replace(/^.*__/, '')}</li>
-              ))}
+              {toolsUsed.map((t, i) => {
+                // Connected-app tools carry the app's identity accent + label
+                // so it's clear the capability is the app's, not Ava's.
+                const app = appForTool(t);
+                return (
+                  <li key={`${t}:${i}`}>
+                    {app && <AppDot accent={appAccent(app)} />}
+                    {String(t).replace(/^.*__/, '')}
+                    {app && <span className="tool-app">{app.label}</span>}
+                  </li>
+                );
+              })}
             </ul>
           </details>
         )}
@@ -138,7 +150,9 @@ export function AvaMessage({
   );
 }
 
-export function SysMessage({ text, icon }: { text: string; icon?: string }) {
+export function SysMessage({ text, icon, code }: { text: string; icon?: string; code?: string }) {
+  // A coded error (e.g. "voice_off") gets a guided-fix link next to the text.
+  const fix = fixForCode(code);
   return (
     <div className="bubble sys">
       {icon && (
@@ -147,6 +161,7 @@ export function SysMessage({ text, icon }: { text: string; icon?: string }) {
         </span>
       )}
       <span>{text}</span>
+      {fix && <FixLink fix={fix} />}
     </div>
   );
 }

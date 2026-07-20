@@ -1,5 +1,6 @@
 ---
 name: "ava-knowledge"
+icon: file
 description: "How Ava reads files the user uploaded — documents, PDFs, spreadsheets, and images — by calling her list_documents and read_document tools. Use whenever the user refers to a file, document, PDF, attachment, spreadsheet, resume, contract, or image they shared, or asks Ava to summarize, read, quote, check, or answer questions about something they uploaded. Trigger keywords - the file I uploaded, this document, the PDF, the attachment, the spreadsheet, read it, summarize this, what does it say, the doc I sent, that image I shared."
 ---
 

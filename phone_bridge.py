@@ -35,31 +35,34 @@ import voice_ava as va
 # The Experience plane is now a thin face over the ava_bridge package; each module
 # owns one concern. Routes below only authenticate, serve, capture input, and
 # forward to Ava-the-agent. See ava_bridge/__init__.py for the map.
-from ava_bridge import config, state
+from ava_bridge import config, settings, state
 from ava_bridge.version import version as _ava_version
 from ava_bridge.config import (
     RATE, MEDIA_DIR, UPLOAD_DIR, MAX_UPLOAD_BYTES, MAX_DOC_CHARS,
     OC_SESSION, PHONE_THRESHOLD, COOKIE_NAME, IMAGE_EXTS,
 )
 from ava_bridge.agent import (run_turn as _agent_run_turn, _warm_openclaw,
-                              discard_session, get_route, set_route, which_model)
+                              discard_session, get_route, runtime_available,
+                              set_route, which_model)
 from ava_bridge.chat_store import history_for as _history_for
 from ava_bridge.gpu_jobs import (start_image_job, start_upscale_job,
-                                   _pickup_image_since, cancel_job)
+                                   _pickup_image_since, cancel_job, attach_chat)
 from ava_bridge.turns import start_turn
 from ava_bridge.documents import extract_text, _augment, _parse_ids, _safe_name
 from ava_bridge.audio import decode_to_pcm, tts_wav_bytes, gpu_transcribe
 from ava_bridge.chat_store import (
     _chat_new, _chat_append, _chat_summary, _chat_session, _atts_meta, _chats_persist,
+    last_render_context, recent_user_text,
 )
+from ava_bridge import turn_router
 from ava_bridge.auth import (
     auth_gate, _is_authed, _set_session_cookie, _login_locked, _login_record,
     current_password, needs_setup, set_password,
 )
-from ava_bridge import internal, architecture, learning_mgmt, log_mgmt, config_mgmt, policy_mgmt, perf_mgmt
+from ava_bridge import features, internal, architecture, learning_mgmt, log_mgmt, config_mgmt, policy_mgmt, perf_mgmt
 from ava_bridge import audit, approvals
 from ava_bridge import memory_store
-from ava_bridge import dashboard, connectors, perf_store, devices
+from ava_bridge import dashboard, connectors, perf_store, devices, app_perf
 from ava_bridge import arch_watch
 from ava_bridge import code_agent
 from ava_bridge import hardware
@@ -106,6 +109,25 @@ if SPA_PAGE is not None:
     app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIST, "assets")), name="assets")
 app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+
+
+@app.get("/thumb/{name}")
+def media_thumb(name: str, w: int = 1024):
+    """Small WebP thumbnail of a generated image for fast inline chat display —
+    the full 4K PNG is 16 MB+, the bubble shows it at ~500px. Lazy + disk-cached
+    (immutable: a filename's bytes never change); falls back to the full image
+    if thumbnailing isn't possible. See gpu_jobs.ensure_thumbnail."""
+    from ava_bridge.gpu_jobs import ensure_thumbnail
+    thumb = ensure_thumbnail(name, w)
+    if thumb:
+        return FileResponse(thumb, media_type="image/webp",
+                            headers={"Cache-Control": "public, max-age=31536000, immutable"})
+    full = os.path.join(MEDIA_DIR, os.path.basename(name))
+    if os.path.isfile(full):
+        return FileResponse(full)
+    return JSONResponse({"error": "not found"}, status_code=404)
+
+
 # Step-zero auth gate for the whole Experience plane (see ava_bridge/auth.py).
 app.middleware("http")(auth_gate)
 
@@ -308,13 +330,40 @@ except Exception:  # noqa: BLE001 — no overlay (fork) or a broken overlay: cor
     pass
 
 
+def _resolved_model() -> str:
+    """The brain this instance is actually using — the agent sandbox model when
+    that runtime is active, else the configured chat backend, else the legacy
+    env default. /api/health feeds the client token counter, so this must track
+    reality rather than the standalone AVA_MODEL constant (which advertised
+    Omni regardless of what was configured)."""
+    try:
+        from ava_bridge import runtime as _runtime
+        rt = _runtime.active()
+        if rt.name == "nemoclaw":
+            m = (rt.sandbox_info(wait=False) or {}).get("model")
+            if m:
+                return m
+    except Exception:  # noqa: BLE001 — health must never fail on a probe
+        pass
+    try:
+        backs = settings.get("inference.backends") or {}
+        if isinstance(backs, dict) and backs:
+            primary = settings.get("inference.primary")
+            b = backs.get(primary) or next(iter(backs.values()))
+            if isinstance(b, dict) and b.get("model"):
+                return str(b["model"])
+    except Exception:  # noqa: BLE001
+        pass
+    return va.AVA_MODEL
+
+
 @app.get("/api/health")
 def health():
     # Public (pre-auth) endpoint: expose only what the unauthenticated client
     # needs for the token counter; keep speaker-gate internals private.
     return {
         "ok": True,
-        "model": va.AVA_MODEL,
+        "model": _resolved_model(),
         "ctx_max": config.CTX_MAX,
         "ctx_base": config.CTX_BASE,
         "brand": config.AVA_NAME,
@@ -413,6 +462,16 @@ async def api_ops_connectors():
     return await run_in_threadpool(dashboard.connectors_info)
 
 
+def _timed_connector_call(fn, cid: str, tool: str, args: dict) -> tuple:
+    """Run one connector call and record its latency/status in the app's
+    bridge-owned perf log — this is how a Hub-connected app shows up in Vitals
+    without writing its own performance.jsonl."""
+    t0 = time.time()
+    data, status = fn(cid, tool, args)
+    app_perf.record_action(cid, tool, time.time() - t0, status)
+    return data, status
+
+
 @app.api_route("/internal/connector/{cid}/{action}", methods=["POST", "GET"])
 async def internal_connector(cid: str, action: str, request: Request):
     """Generic connector-action proxy: forwards a generated tool's call to the
@@ -443,7 +502,8 @@ async def internal_connector(cid: str, action: str, request: Request):
             audit.record("egress", connector=cid, tool=name, status=f"blocked:{gate}")
             return JSONResponse({"error": f"not run — awaiting-approval {gate}"}, status_code=403)
         data, status = await run_in_threadpool(
-            connectors.call_discovered, cid, name, body.get("arguments") or {})
+            _timed_connector_call, connectors.call_discovered, cid, name,
+            body.get("arguments") or {})
         # Egress record for the flight recorder: the agent reached out to a
         # connector/MCP tool. This is the closest in-process egress signal we
         # have (the sandbox's network denials live in openclaw, not here).
@@ -458,7 +518,8 @@ async def internal_connector(cid: str, action: str, request: Request):
     if gate not in ("skip", "approved"):
         audit.record("egress", connector=cid, tool=action, status=f"blocked:{gate}")
         return JSONResponse({"error": f"not run — awaiting-approval {gate}"}, status_code=403)
-    data, status = await run_in_threadpool(connectors.call_action, cid, action, args)
+    data, status = await run_in_threadpool(
+        _timed_connector_call, connectors.call_action, cid, action, args)
     audit.record("egress", connector=cid, tool=action, status=status)
     return JSONResponse(data, status_code=status)
 
@@ -698,9 +759,30 @@ async def api_stream_ops(request: Request):
 
 @app.get("/api/model")
 async def api_model_get():
-    """Current model choice + selectable backends for the chat dropdown."""
-    r = await run_in_threadpool(get_route)
-    return r or {"mode": None, "backends": []}
+    """Current model choice + selectable backends for the chat dropdown.
+
+    When the agent runtime is active, chat turns are served by the SANDBOX
+    model and bypass the router entirely — so the router pick below only
+    governs the tool-less fallback path. `agent_model` lets the picker say so
+    instead of promising "which model answers" while changing nothing."""
+    def _load():
+        r = get_route() or {}
+        if not isinstance(r, dict):
+            r = {}
+        # Normalize even a foreign/unauthorized router reply to the contract.
+        r.setdefault("mode", None)
+        r.setdefault("backends", [])
+        try:
+            from ava_bridge import runtime as _runtime
+            rt = _runtime.active()
+            if rt.name == "nemoclaw":
+                r["agent_model"] = (rt.sandbox_info(wait=False) or {}).get("model")
+            else:
+                r["agent_model"] = None
+        except Exception:  # noqa: BLE001
+            r["agent_model"] = None
+        return r
+    return await run_in_threadpool(_load)
 
 
 @app.post("/api/model")
@@ -820,6 +902,15 @@ async def internal_run_gpu_job(request: Request):
     if mdl and str(mdl).strip():
         kw["model"] = str(mdl).strip()
     job_id = start_image_job(prompt, source="agent", **kw)
+    with _JOBS_LOCK:
+        job = _JOBS.get(job_id) or {}
+    if job.get("status") == "error":
+        # Born errored (feature off / the GPU service down): tell Ava's tool the truth
+        # so she explains what happened and how to fix it, instead of promising
+        # an image that will never arrive.
+        return {"error": job.get("error") or "GPU workloads unavailable",
+                "error_code": job.get("error_code"),
+                "job": {"id": job_id, "kind": "image", "status": "error"}}
     return {"job": {"id": job_id, "kind": "image", "status": "running"}}
 
 
@@ -1238,6 +1329,15 @@ async def internal_code_change(request: Request):
 async def internal_web_search(request: Request):
     if not internal.authorized(request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
+    # features.web_search is the single switch for BOTH web routes — same
+    # convention as image renders: a deliberate OFF must actually stop the
+    # path, with a coded error the chat turns into a fix-it link. Coded errors
+    # ship as HTTP 200 like run-gpu-job's: the sandbox tool helper (curl
+    # --fail) swallows non-200 bodies, and the message must reach Ava so she
+    # can tell the user how to fix it.
+    pf = features.preflight("web_search")
+    if pf:
+        return {"error": pf[1], "error_code": pf[0]}
     try:
         body = await request.json()
     except Exception:  # noqa: BLE001
@@ -1246,6 +1346,8 @@ async def internal_web_search(request: Request):
     count = (body or {}).get("count")
     try:
         return JSONResponse(await run_in_threadpool(web_access.search, query, count))
+    except web_access.SearchUnreachableError as e:
+        return {"error": str(e), "error_code": "web_search_down"}
     except web_access.WebAccessError as e:
         return JSONResponse({"error": str(e)}, status_code=400)
     except Exception as e:  # noqa: BLE001
@@ -1256,6 +1358,9 @@ async def internal_web_search(request: Request):
 async def internal_web_fetch(request: Request):
     if not internal.authorized(request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
+    pf = features.preflight("web_search")  # guarded fetch rides the same switch
+    if pf:
+        return {"error": pf[1], "error_code": pf[0]}  # 200: see /internal/web/search
     try:
         body = await request.json()
     except Exception:  # noqa: BLE001
@@ -1273,6 +1378,15 @@ async def internal_web_fetch(request: Request):
 @app.post("/api/talk")
 async def talk(audio: UploadFile = File(...), history: str = Form("[]"),
                attachments: str = Form("[]"), chat_id: str = Form("")):
+    # Honor a DELIBERATE off (yaml features.voice:false / AVA_VOICE=0) — the
+    # toggle the wizard and Hub write must actually gate this endpoint, not be
+    # decorative. Unset stays permissive so installs that never wrote the key
+    # (where voice works purely because the deps are installed) keep working.
+    if features.explicitly_off("voice"):
+        return JSONResponse(
+            {"error": "voice is turned off in settings (features.voice)",
+             "error_code": "voice_off"},
+            status_code=503)
     _ensure_loaded()
     if _state["voice_unavailable"]:
         return JSONResponse(
@@ -1356,13 +1470,16 @@ async def talk(audio: UploadFile = File(...), history: str = Form("[]"),
                                        history=_history_for(chat_id))
     except Exception as e:  # noqa: BLE001
         # The turn may have timed out *after* the image tool rendered — salvage
-        # the finished picture so it still appears on the user's screen.
-        job = _pickup_image_since(t0, wait=120)
+        # the finished picture so it still appears on the user's screen. Only
+        # the full agent runtime can have rendered one: on the tool-less direct
+        # floor this wait would just hang a failed chat for two minutes.
+        job = _pickup_image_since(t0, wait=120) if runtime_available() else None
         if job:
             reply = "Here's the image you asked for."
             m = which_model()
             if chat_id:
                 _chat_append(chat_id, "assistant", reply, model=m, tools_used=tools)
+                attach_chat(job["id"], chat_id)  # bridge persists the image itself
             return {
                 "accepted": True, "text": text, "reply": reply, "sim": sim_out,
                 "audio": base64.b64encode(tts_wav_bytes(reply)).decode(),
@@ -1388,6 +1505,8 @@ async def talk(audio: UploadFile = File(...), history: str = Form("[]"),
         job = _pickup_image_since(t0, wait=120)
         if job:
             resp["job"] = job
+            if chat_id:
+                attach_chat(job["id"], chat_id)
     return resp
 
 
@@ -1411,12 +1530,16 @@ async def generate(prompt: str = Form(...), width: int = Form(1024),
         return JSONResponse({"error": "empty prompt"}, status_code=400)
     if chat_id:
         _chat_append(chat_id, "user", (chat_text or prompt).strip())
-    job_id = start_image_job(prompt, width=width, height=height, steps=steps)
+    # chat_id rides the job: the bridge persists the outcome (image or coded
+    # error) when the render ends — the client only paints progress.
+    job_id = start_image_job(prompt, chat_id=chat_id or None,
+                             width=width, height=height, steps=steps)
     return {"job": {"id": job_id, "kind": "image", "prompt": prompt}}
 
 
 @app.post("/api/upscale")
-async def upscale(filename: str = Form(...)):
+async def upscale(filename: str = Form(...), chat_id: str = Form(""),
+                  caption: str = Form("")):
     """Optionally upscale a generated image ~4x (the refiner) to ~4K."""
     name = os.path.basename(filename.strip())
     if not name or not name.lower().endswith(".png"):
@@ -1424,7 +1547,8 @@ async def upscale(filename: str = Form(...)):
     src = os.path.join(MEDIA_DIR, name)
     if not os.path.isfile(src):
         return JSONResponse({"error": "image not found"}, status_code=404)
-    job_id = start_upscale_job(src)
+    job_id = start_upscale_job(src, chat_id=chat_id.strip() or None,
+                               caption=caption.strip() or None)
     return {"job": {"id": job_id, "kind": "upscale"}}
 
 
@@ -1467,12 +1591,14 @@ async def talk_text(text: str = Form(...), history: str = Form("[]"),
         reply, tools = _agent_run_turn(agent_text, session_id=sid,
                                        history=_history_for(chat_id))
     except Exception as e:  # noqa: BLE001
-        # Salvage an image the tool may have rendered before the turn timed out.
-        job = _pickup_image_since(t0, wait=120)
+        # Salvage an image the tool may have rendered before the turn timed out
+        # (only possible on the full agent runtime — see /api/talk above).
+        job = _pickup_image_since(t0, wait=120) if runtime_available() else None
         if job:
             m = which_model()
             if chat_id:
                 _chat_append(chat_id, "assistant", "Here's the image you asked for.", model=m, tools_used=tools)
+                attach_chat(job["id"], chat_id)  # bridge persists the image itself
             return {"reply": "Here's the image you asked for.", "job": job, "model": m, "tools_used": tools}
         return JSONResponse({"error": f"Ava unreachable: {e}"}, status_code=502)
     m = which_model()
@@ -1483,19 +1609,50 @@ async def talk_text(text: str = Form(...), history: str = Form("[]"),
         job = _pickup_image_since(t0, wait=120)
         if job:
             resp["job"] = job
+            if chat_id:
+                attach_chat(job["id"], chat_id)
     return resp
 
 
 @app.post("/api/chat-stream")
 async def chat_stream(text: str = Form(...), history: str = Form("[]"),
                       attachments: str = Form("[]"), chat_id: str = Form("")):
-    """Start an Ava turn and stream her live reasoning via /api/turn/{id}."""
+    """The ONE ingress for typed messages. The server-side intent gate
+    (ava_bridge/turn_router.py) picks the pipeline — the frontend carries zero
+    routing knowledge. Returns {"turn_id"} for an agent turn or {"job"} for a
+    render; either way the outcome is persisted server-side (Phase 1)."""
     text = text.strip()
     ids = _parse_ids(attachments)
     if not text and not ids:
         return JSONResponse({"error": "empty text"}, status_code=400)
+    gate_route = None
+    # Tier 1: attachments ride the agent turn (documents/images need tools).
+    if text and not ids:
+        last_route, last_prompt = last_render_context(chat_id)
+        recent_user = recent_user_text(chat_id)
+        d = await run_in_threadpool(turn_router.classify, text,
+                                    last_route, last_prompt, recent_user, chat_id)
+        gate_route = d["route"]
+        if turn_router.PIPELINES.get(d["route"]) == "image":
+            blocked = turn_router.policy_check(d["route"], text)  # Phase-4 seam
+            if blocked:
+                code, msg = blocked
+                if chat_id:
+                    _chat_append(chat_id, "user", text)
+                    _chat_append(chat_id, "assistant", msg, error_code=code)
+                return {"error": msg, "error_code": code}
+            if chat_id:
+                _chat_append(chat_id, "user", text)
+            job_id = start_image_job(d["image_prompt"], chat_id=chat_id or None)
+            return {"job": {"id": job_id, "kind": "image",
+                            "prompt": d["image_prompt"]},
+                    "route": d["route"]}
     agent_text = _augment(text, ids)
     agent_text = memory_store.augment_with_recall(agent_text, text, chat_id)
+    # prompt_help shares the agent pipeline with chat, but gets the edit-don't-
+    # execute hint so Ava refines the prompt instead of running it (July-11 fix).
+    if gate_route == "prompt_help":
+        agent_text = turn_router.PROMPT_HELP_HINT + agent_text
     sid = _chat_session(chat_id) if chat_id else OC_SESSION
     if chat_id:
         _chat_append(chat_id, "user", text, _atts_meta(ids))
@@ -1640,9 +1797,15 @@ def chats_rename(cid: str, title: str = Form(...)):
 @app.post("/api/chats/{cid}/image")
 def chats_image(cid: str, url: str = Form(...), caption: str = Form(""),
                 models: str = Form("")):
+    """DEPRECATED — the bridge persists render outcomes itself now
+    (gpu_jobs._finalize_job). Kept for stale cached clients (PWA service
+    worker) and deduped so a client that still posts can't double-append."""
     with _CHATS_LOCK:
-        if cid not in _CHATS:
+        c = _CHATS.get(cid)
+        if not c:
             return JSONResponse({"error": "unknown chat"}, status_code=404)
+        if any(m.get("image") == url for m in c.get("messages", [])[-8:]):
+            return {"ok": True, "deduped": True}
     img_models = None
     if models:
         try:
@@ -1688,6 +1851,9 @@ def learning_code_state():
             "context": "code",
             "cycles": cycles,
             "last_cycle": state.code_learning_state.get("last_cycle"),
+            # Lets the UI say "learning is off" instead of promising proposals
+            # that a disabled scheduler will never produce.
+            "enabled": config.LEARNING_ENABLED,
         }
 
 
@@ -1700,6 +1866,7 @@ def learning_chat_state():
             "context": "chat",
             "cycles": cycles,
             "last_cycle": state.chat_learning_state.get("last_cycle"),
+            "enabled": config.LEARNING_ENABLED,
         }
 
 

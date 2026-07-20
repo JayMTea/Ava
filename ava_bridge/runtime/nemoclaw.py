@@ -18,6 +18,11 @@ import time
 from .base import AgentRuntime
 from .. import config
 
+try:  # perf_log lives at the repo root; best-effort only (same as router_app).
+    import perf_log
+except Exception:  # noqa: BLE001
+    perf_log = None
+
 
 def _find_key(obj, key):
     """Depth-first search for the first value of `key` in a nested dict/list."""
@@ -43,6 +48,7 @@ class NemoClawRuntime(AgentRuntime):
 
     def __init__(self):
         self._avail_cache = {"ts": 0.0, "ok": None}
+        self._info_cache = {"ts": 0.0, "info": None}
 
     # ---- identity / plumbing ------------------------------------------------
     @property
@@ -86,6 +92,7 @@ class NemoClawRuntime(AgentRuntime):
             f'--message "$__AVA_MSG" '
             f"--thinking {shlex.quote(config.OC_THINKING)} --json 2>/dev/null"
         )
+        _t0 = time.time()
         cp = subprocess.run(
             self._base("exec", "--no-tty", "--", "bash", "-lc", inner),
             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=config.OC_TIMEOUT,
@@ -100,7 +107,38 @@ class NemoClawRuntime(AgentRuntime):
             reply = _find_key(data, "finalAssistantRawText") or ""
         ts = _find_key(data, "toolSummary")
         tools = ts.get("tools") if isinstance(ts, dict) else None
+        self._log_turn_perf(time.time() - _t0, data)
         return reply.strip(), (tools or [])
+
+    def _log_turn_perf(self, seconds: float, data) -> None:
+        """One honest `llm` perf record per agent turn. Agent turns bypass the
+        inference router (the historical sole writer of llm records), so
+        without this the Vitals throughput/routing panels stay empty forever
+        on a default install while the user chats all day. Only facts we have
+        are recorded: duration, the sandbox model, and token usage when the
+        runtime reports it — nothing fabricated. Never raises into a turn."""
+        if perf_log is None:
+            return
+        try:
+            info = self.sandbox_info(wait=False) or {}
+            model = info.get("model")
+            usage = _find_key(data, "usage")
+            usage = usage if isinstance(usage, dict) else {}
+            ct = usage.get("completion_tokens") or usage.get("output_tokens")
+            pt = usage.get("prompt_tokens") or usage.get("input_tokens")
+            perf_log.log_perf(
+                "llm",
+                served_model=model,
+                served_label=(str(model).split("/")[-1] if model else "agent sandbox"),
+                gen_seconds=round(seconds, 3),
+                source="agent",
+                prompt_tokens=pt if isinstance(pt, int) else None,
+                completion_tokens=ct if isinstance(ct, int) else None,
+                tokens_per_sec=(perf_log.tok_per_sec(ct, seconds)
+                                if isinstance(ct, int) else None),
+            )
+        except Exception:  # noqa: BLE001 — telemetry must never break a turn
+            pass
 
     def warm(self) -> None:
         if not self.available():
@@ -151,6 +189,49 @@ class NemoClawRuntime(AgentRuntime):
             return self.sandbox in names
         except Exception:  # noqa: BLE001
             return self.sandbox in out
+
+    def sandbox_info(self, wait: bool = True) -> dict | None:
+        """{model, provider} of THIS sandbox from `nemoclaw list --json` — the
+        model the agent actually thinks with. That is decided by `nemoclaw
+        onboard`, NOT by ava.yaml's inference block, so the Hub must read it
+        from here or "Ava's brain" lies to the user. Cached ~120s; None when
+        the CLI can't answer (result cached too, so a dead CLI isn't re-polled
+        on every status call).
+
+        ``wait=False`` (hot paths like the public /api/health) never blocks:
+        it serves the cache and, when stale, refreshes in a daemon thread."""
+        now = time.time()
+        c = self._info_cache
+        if now - c["ts"] < 120:
+            return c["info"]
+        if not wait:
+            if not c.get("refreshing"):
+                c["refreshing"] = True
+
+                def _bg():
+                    try:
+                        self.sandbox_info(wait=True)
+                    finally:
+                        c["refreshing"] = False
+                import threading
+                threading.Thread(target=_bg, daemon=True,
+                                 name="nemoclaw-info-refresh").start()
+            return c["info"]
+        info = None
+        if self.cli and os.path.exists(self.cli):
+            rc, out = self._run([self.cli, "list", "--json"], timeout=15)
+            if rc == 0:
+                try:
+                    data = json.loads(out[out.find("{"):] or "{}")
+                    for s in (data.get("sandboxes") or []):
+                        if isinstance(s, dict) and s.get("name") == self.sandbox:
+                            info = {"model": s.get("model"),
+                                    "provider": s.get("provider")}
+                            break
+                except Exception:  # noqa: BLE001 — a CLI format change must not break status
+                    info = None
+        c.update(ts=now, info=info)
+        return info
 
     def provision(self, auto_install: bool = False) -> dict:
         """Make NemoClaw ready, idempotently:
@@ -221,8 +302,13 @@ class NemoClawRuntime(AgentRuntime):
 
     def status(self) -> dict:
         cli_ok = bool(self.cli) and os.path.exists(self.cli)
+        info = self.sandbox_info() or {}
         out = {"name": self.name, "available": self.available(),
                "cli": self.cli if cli_ok else None, "sandbox": self.sandbox,
+               # What the agent actually thinks with (set by `nemoclaw onboard`)
+               # — surfaced so the Hub's brain panel reflects reality.
+               "sandbox_model": info.get("model"),
+               "sandbox_provider": info.get("provider"),
                "sandbox_exists": None, "health": None}
         if cli_ok:
             out["sandbox_exists"] = self._sandbox_exists()

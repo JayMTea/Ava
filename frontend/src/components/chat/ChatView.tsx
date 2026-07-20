@@ -132,7 +132,7 @@ export function ChatView({
                   </AvaMessage>
                 );
               case 'sys':
-                return <SysMessage key={it.id} text={it.text} icon={it.icon} />;
+                return <SysMessage key={it.id} text={it.text} icon={it.icon} code={it.code} />;
               case 'cot':
                 return (
                   <ChainOfThought
@@ -151,6 +151,7 @@ export function ChatView({
                     progress={it.progress}
                     status={it.status}
                     error={it.error}
+                    errorCode={it.errorCode}
                     prompt={it.prompt}
                     stage={it.stage}
                     elapsedSec={it.elapsedSec}

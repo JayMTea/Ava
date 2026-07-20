@@ -1,5 +1,6 @@
 ---
 name: "ava-architecture"
+icon: panel
 description: "How Ava reads and updates her OWN system architecture — the single source of truth (SSOT) that her diagrams and docs are generated from — using her get_architecture, describe_component, check_drift, sync_diagrams, and update_architecture tools. Use whenever the user asks how Ava's system, services, ports, tools, capabilities, layers, network, or diagrams work; asks to change/add/remove a service or tool; asks whether the diagrams are accurate or up to date; or asks Ava to update her architecture. Trigger keywords - your architecture, the diagrams, the system diagram, the network map, how are you built, what services, which ports, your tools, the SSOT, update the diagram, is the diagram accurate, drift, keep the docs in sync."
 ---
 

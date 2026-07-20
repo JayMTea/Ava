@@ -3,6 +3,7 @@ import type { MouseEvent as ReactMouseEvent } from 'react';
 import { createPortal } from 'react-dom';
 import type { AppEntry, ChatSummary } from '../lib/types';
 import { Icon } from '../lib/icons';
+import { AppDot, appAccent, appIcon } from '../lib/appColor';
 
 // Rail foot flyout: the sliders icon reveals the "system" destinations (Vitals,
 // Operations, Setup) as a hover/click pop-up, so the rail itself stays just chat
@@ -140,7 +141,9 @@ export function Drawer({
     ? chats.filter((c) => (c.title || 'New chat').toLowerCase().includes(q))
     : chats;
 
-  const railBtn = (id: string, label: string, icon: string) => (
+  // `accent` marks connected-app tabs with the app's identity color (a small
+  // corner dot), so app destinations read as the app's, not Ava's.
+  const railBtn = (id: string, label: string, icon: string, accent?: string) => (
     <button
       key={id}
       className={'rail-btn' + (view === id ? ' active' : '')}
@@ -149,6 +152,7 @@ export function Drawer({
       onClick={() => onView(id)}
     >
       <Icon name={icon} />
+      {accent && <AppDot accent={accent} className="rail-dot" />}
     </button>
   );
 
@@ -178,7 +182,7 @@ export function Drawer({
         <div className="rail-tabs">
           {railBtn('chat', `${brand} — Assistant`, 'bot')}
           {/* App tabs — derived from the connector registry, below the chat icon. */}
-          {userApps.map((a) => railBtn(a.id, a.label, a.icon))}
+          {userApps.map((a) => railBtn(a.id, a.label, appIcon(a), appAccent(a)))}
         </div>
         {tip && createPortal(
           <div className="rail-tip" style={{ top: tip.top }}>{tip.label}</div>,
@@ -266,8 +270,9 @@ export function Drawer({
                   className={'nav-item' + (view === a.id ? ' active' : '')}
                   onClick={() => onView(a.id)}
                 >
-                  <Icon name={a.icon} className="nav-ic" />
+                  <Icon name={appIcon(a)} className="nav-ic" />
                   <span>{a.label}</span>
+                  <AppDot accent={appAccent(a)} className="nav-app-dot" />
                 </button>
               ))}
             </nav>

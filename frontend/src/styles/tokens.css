@@ -73,6 +73,21 @@
   --chart-grid:#3b3a36;  /* = --line */
   --chart-axis:#9a968c;  /* = --muted */
 
+  /* ---- Connected-app identity accents ----
+     Stable per-app colors: every UI element that represents a connected app
+     (sidebar entries, chat tool chips, artifact cards) carries one of these so
+     it visibly belongs to the app, not to Ava. Assigned by hashing the app id
+     (frontend/src/lib/appColor.tsx); a connector may override via `ui.color`.
+     Hues deliberately avoid the accent blue and the ok/warn/err semantics.   */
+  --app-accent-0:#a996f2;  /* violet */
+  --app-accent-1:#8ea8f5;  /* indigo */
+  --app-accent-2:#62bfe0;  /* cyan */
+  --app-accent-3:#4ec9b4;  /* teal */
+  --app-accent-4:#b3c25f;  /* olive */
+  --app-accent-5:#e59a5c;  /* orange */
+  --app-accent-6:#ea86ba;  /* rose */
+  --app-accent-7:#cf8ee8;  /* magenta */
+
   /* ---- Radius ---- */
   --r-sm:8px;
   --r-md:12px;
@@ -156,6 +171,16 @@
   --chart-6:#73706a;
   --chart-grid:#e5e2d9;
   --chart-axis:#73706a;
+
+  /* app identity accents — deepened for legibility on light surfaces */
+  --app-accent-0:#6b46c1;
+  --app-accent-1:#3b5bdb;
+  --app-accent-2:#0b7285;
+  --app-accent-3:#0f766e;
+  --app-accent-4:#66761b;
+  --app-accent-5:#b35c1e;
+  --app-accent-6:#b03572;
+  --app-accent-7:#8f36b8;
 
   /* softer elevation on a light canvas */
   --shadow-1:0 1px 2px rgba(0,0,0,.08);

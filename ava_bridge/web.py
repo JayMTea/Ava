@@ -40,6 +40,11 @@ class WebAccessError(Exception):
     """Raised for blocked/invalid web requests (surfaced to Ava as an error)."""
 
 
+class SearchUnreachableError(WebAccessError):
+    """SearXNG didn't answer — the feature is on but its engine is down
+    (maps to the web_search_down fix-it code, not a plain refusal)."""
+
+
 # Hostnames that must never be fetched even without resolving them (so we don't
 # have to leak a DNS query to check). Covers loopback, link-local metadata and
 # common internal TLDs.
@@ -154,7 +159,7 @@ def search(query: str, count: int | None = None) -> dict:
             r.raise_for_status()
             data = r.json()
     except httpx.HTTPError as e:
-        raise WebAccessError(f"search backend unreachable: {e}") from e
+        raise SearchUnreachableError(f"search backend unreachable: {e}") from e
     results = []
     for item in (data.get("results") or [])[:limit]:
         results.append({

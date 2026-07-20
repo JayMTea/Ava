@@ -44,7 +44,15 @@ kind: app                     # core | inference | media | app
 
 ui:                           # OPTIONAL — declare it to get a left-rail tile
   label: My CRM
-  icon: grid                  # a key in frontend/src/lib/icons.tsx (unknown = no icon, safe)
+  icon: grid                  # optional — a key in frontend/src/lib/icons.tsx.
+                              #   Omit for a stable auto icon derived from the app
+                              #   id, so apps that declare none still differ.
+  color: "#7c5cff"            # optional identity accent: Ava marks everything that
+                              #   belongs to your app (sidebar dot, chat tool chips,
+                              #   cards) with this color. Omit for a stable auto
+                              #   color derived from the app id.
+                              # Both are also pickable in the GUI — Setup →
+                              #   Connectors → Appearance writes them back here.
   section: apps               # rail group: core | apps  (default apps)
   order: 50                   # sort order within the section
   embed: iframe               # native | iframe | none  (see §3)
@@ -61,7 +69,13 @@ service:                      # OPTIONAL — dashboard health row
 
 perf:                         # OPTIONAL — a performance.jsonl source for the dashboard
   app: mycrm
-  path: "${AVA_HOME}/connectors/mycrm/performance.jsonl"
+  path: "${AVA_LOGS}/apps/mycrm/performance.jsonl"
+  # Hub-created connectors get exactly this block by default, and the bridge
+  # records every proxied action call there (latency + status) — so a new app
+  # shows in Vitals from its first call with no code changes. Keep the path
+  # OUTSIDE $AVA_HOME/connectors/<id>: history then survives disconnect and
+  # resumes when the same id is re-added. If your app writes its own SDK
+  # perf log (tokens/sec, render times), point `path` at that file instead.
 
 auth:                         # OPTIONAL — bearer token for your app's API (static actions)
   token_env: MYCRM_API_TOKEN
@@ -335,6 +349,55 @@ presumed to actuate until the author says otherwise. See the
 the sandbox. The generic proxy routes for your actions (and `__tools`/`__call`)
 are allow-listed automatically.
 
+### Agent skills (`SKILL.md`) — auto-surfaced in the Agent tab
+
+A **skill** is a folder with a `SKILL.md` that coaches the model on *when and
+how* to use its tools (progressive disclosure). Skills live in
+`agent/skills/<id>/` (shipped) or `<overlay>/skills/<id>/` (private); every one
+is deployed into the sandbox by `agent/install.sh` (`nemoclaw skill install`).
+
+The filesystem is the single source of truth — **drop a folder and it appears**
+in **Setup → Agent → Skills** with no registration. `ava_bridge/skills.py` globs
+both locations and reads each SKILL.md's YAML frontmatter:
+
+```yaml
+---
+name: ava-weather              # required
+description: >                 # required — the model-facing trigger text
+  How Ava answers weather questions via her get_weather tool. Use whenever…
+title: Weather                 # optional — owner-facing card title (else derived from name)
+summary: Live weather & forecasts.   # optional — one-liner (else the first sentence of description)
+icon: cloud                    # optional — one of the app icon names
+tools: [get_weather]           # optional — else inferred from the description
+---
+```
+
+Only `name` + `description` are required; everything else is **derived
+automatically** (title humanized from the name, summary cut from the
+description, tools inferred). The card also shows a **deploy state** —
+`live` / `edited · re-provision` / `not deployed · re-provision` — computed by
+comparing the repo SKILL.md against the `data/skills_deployed.json` manifest that
+`install.sh` writes, so a just-added skill honestly reads "re-provision" until
+you run `ava agent provision`. A convention guard
+(`tests/test_skill_frontmatter.py`) fails CI if a shipped SKILL.md lacks valid
+frontmatter.
+
+**Categories are owner-owned, never shipped.** Skills carry no category by
+default — the product imposes no taxonomy, so every fork defines its own. Group
+skills in the Agent → Skills panel via `ava.yaml` (per-instance, gitignored):
+
+```yaml
+skills:
+  categories:                  # skill id/dir → your label
+    ava-weather: Daily
+    my-custom-skill: Work
+```
+
+With fewer than two categories defined the panel groups by **source** (Core
+skills / Your skills) instead; add categories and it regroups by them. A guard
+(`test_shipped_skills_declare_no_category`) keeps the shipped skills
+taxonomy-free.
+
 ---
 
 ## 6. What's derived automatically
@@ -345,6 +408,8 @@ From that one manifest, with nothing hand-maintained in Ava's core:
 - **Ops dashboard health row** ← `service.probe`
 - **Dashboard performance source** ← `perf`
 - **Agent tools** ← `actions` (declared or discovered) or `mcp` (live from the server)
+- **Agent skills panel** ← `agent/skills/*/SKILL.md` (drop a folder → it shows in
+  Setup → Agent → Skills, with its deploy state)
 - **Agent egress policy** ← `egress` + `actions` + `mcp`
 - **Browser data-proxy** ← `ui.api`
 - **Chat quick-cards** ← `chat_pickup` (after a turn used one of your tools,
@@ -356,6 +421,30 @@ From that one manifest, with nothing hand-maintained in Ava's core:
 
 The `chat_pickup` / `jobs` / `model_hints` field shapes are documented inline in
 [`connectors/_template/connector.yaml`](../connectors/_template/connector.yaml).
+
+### Optional-feature switches and guided-fix error codes
+
+A service can name the `features.*` flag that governs it (`service.feature:
+image`). When the user turns that feature off, the dashboard paints the service
+as **off** (a neutral state), never as a red "down".
+
+If your capability should be a user-facing switch, register it in
+`ava_bridge/features.py` and gate its execution path with
+`features.preflight(key, probe=...)`. That one registry entry gives you, with
+no further wiring:
+
+- a checkbox on **Setup → System → Optional features** (and the setup-save
+  whitelist accepts its toggle),
+- regular machine-readable error codes — `<key>_off` (switch off) and
+  `<key>_down` (switch on, backing service unreachable) — which the chat UI
+  turns into a guided **fix-it link** (hover explains where it leads; click
+  deep-links to the right page). The frontend resolves fixes from the code
+  *pattern* (`frontend/src/lib/fixes.ts`), so no frontend change is needed,
+- a self-contained plain-text message ("Enable it under Setup → System →
+  Optional features…"), so agent tools that simply relay `error` already tell
+  the user what to do. Return coded errors from `/internal/*` routes as HTTP
+  200 bodies (`{"error": ..., "error_code": ...}`) — the sandbox tool helper
+  uses `curl --fail` and would swallow the body on a non-2xx status.
 
 ---
 

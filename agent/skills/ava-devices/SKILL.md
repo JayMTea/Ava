@@ -1,5 +1,6 @@
 ---
 name: "ava-devices"
+icon: gauge
 description: "How Ava reads and reports on the user's own connected devices and sensors. Use whenever the user asks about their hardware/sensors — a reading (temperature, humidity, motion, door, light, power), what a device is doing, whether anything happened, the latest event, or to control a device (turn on/off, set, toggle). Trigger keywords - sensor, device, Arduino, Nicla, Portenta, ESP32, board, greenhouse, garage, motion, temperature reading, did anything happen, latest reading, turn on, turn off, toggle, relay, pump, light, smart home."
 ---
 

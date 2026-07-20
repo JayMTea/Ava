@@ -1,8 +1,7 @@
 ---
 name: ava-email-read
 description: Read your own learning digest emails and references
-category: learning
-icon: email
+icon: chats
 ---
 
 # Ava Email Reading Skill

@@ -37,13 +37,47 @@ export interface SavePayload {
 export interface AgentStatus {
   name: string;
   available: boolean;
+  enabled: boolean;      // agent.enabled / AVA_AGENT_ENABLED — the on/off switch
   runtime: string;
   required: boolean;
   cli: string | null;
   sandbox: string | null;
   sandbox_exists: boolean | null;
+  // What the agent actually thinks with (set by `nemoclaw onboard`, not by
+  // ava.yaml's inference block) — the Hub's brain panel pins this as the
+  // effective brain while the agent is active.
+  sandbox_model: string | null;
+  sandbox_provider: string | null;
+  enabled_env_override?: string | null;  // e.g. "AVA_AGENT_ENABLED" when env-forced
   health: unknown;
   tools: boolean;
+}
+
+// A skill = one SKILL.md capability file the agent runtime loads. Auto-
+// discovered from the filesystem (agent/skills + overlay), so adding a folder
+// surfaces it here with no registration. `deployed` is the honest per-skill
+// state: whether it's actually live in the sandbox vs newly added in the repo.
+export interface Skill {
+  id: string;
+  title: string;
+  summary: string;
+  description: string;
+  category: string | null;
+  icon: string | null;
+  app?: string | null; // connector id the skill drives (SKILL.md `app:`) —
+  // needed when tool names are discovered dynamically and carry no prefix
+  tools: string[];
+  source: 'core' | 'overlay';
+  deployed: 'deployed' | 'stale' | 'undeployed' | 'unknown';
+}
+
+export interface SkillList {
+  skills: Skill[];
+  errors: { id: string; path: string; error: string }[];
+  summary: { total: number; deployed: number; stale: number; unknown: number };
+  // Owner-owned category order; also registers created-but-still-empty
+  // categories (ava.yaml skills.category_order).
+  category_order?: string[];
 }
 
 // ---- Connectors (Hub view) --------------------------------------------------
@@ -51,7 +85,6 @@ export interface HubConnector {
   id: string;
   label: string;
   kind: string;
-  status: string; // up | down | unknown | n/a
   actions: number;
   mcp: boolean;
   discover?: boolean;  // dynamic tool facade (GET /tools + POST /call)
@@ -61,6 +94,8 @@ export interface HubConnector {
   renders_policy: boolean;
   enabled: boolean;
   builtin?: boolean;   // shipped in the repo — read-only (no edit/disable/delete)
+  icon?: string | null;  // manifest ui.icon (null = stable auto-pick)
+  color?: string | null; // manifest ui.color (null = stable auto-pick)
 }
 export interface ConnectorLoadError { id: string; path: string; error: string }
 export interface ManifestResult { ok: boolean; yaml?: string; editable?: boolean; error?: string }
@@ -297,6 +332,13 @@ export interface MemoryCounts {
 }
 
 // ---- System -----------------------------------------------------------------
+export interface FeatureEntry {
+  key: string;      // features.<key> in ava.yaml
+  label: string;
+  sub: string;
+  enabled: boolean;
+}
+
 export interface SystemInfo {
   brand: string;
   version: string;
@@ -307,9 +349,15 @@ export interface SystemInfo {
   voiceprint: boolean;
   web_search: boolean;
   image: boolean;
+  // The capability registry (ava_bridge/features.py) — the Optional features
+  // panel renders straight from this, so new capabilities appear automatically.
+  features: FeatureEntry[];
   docker: boolean;
   retention_days: number;        // 0 == keep forever
   retention_choices: number[];
+  // Editable keys currently shadowed by env vars (name -> env var). A yaml
+  // write "succeeds" but the env value wins again on the next boot.
+  env_overrides?: Record<string, string>;
 }
 
 export const hub = {
@@ -326,6 +374,42 @@ export const hub = {
 
   // Agent
   agentStatus: () => req<AgentStatus>('/api/hub/agent/status'),
+  agentSkills: () => req<SkillList>('/api/hub/agent/skills'),
+  agentSkill: (id: string) =>
+    req<{ id: string; title: string; body: string }>(`/api/hub/agent/skills/${encodeURIComponent(id)}`),
+  setSkillCategory: (id: string, category: string | null) =>
+    req<{ ok: boolean; error?: string }>(
+      `/api/hub/agent/skills/${encodeURIComponent(id)}/category`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category }),
+      }),
+  renameSkillCategory: (from: string, to: string) =>
+    req<{ ok: boolean; renamed?: number; error?: string }>(
+      '/api/hub/agent/skills/categories/rename', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from, to }),
+      }),
+  setSkillCategoryOrder: (order: string[]) =>
+    req<{ ok: boolean; order?: string[]; error?: string }>(
+      '/api/hub/agent/skills/categories/order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order }),
+      }),
+  createSkillCategory: (name: string) =>
+    req<{ ok: boolean; error?: string }>('/api/hub/agent/skills/categories/new', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    }),
+  deleteSkillCategory: (name: string) =>
+    req<{ ok: boolean; error?: string }>('/api/hub/agent/skills/categories/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    }),
   agentProvision: () =>
     req<{ ok: boolean; steps: { step: string; ok: boolean; detail: string }[]; detail: string }>(
       '/api/hub/agent/provision',
@@ -341,6 +425,15 @@ export const hub = {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled }),
+      }),
+  // Rail identity. Only the keys passed are touched; null clears one back to
+  // the stable auto-pick (see lib/appColor).
+  setAppearance: (id: string, patch: { icon?: string | null; color?: string | null }) =>
+    req<{ ok: boolean; icon?: string | null; color?: string | null; error?: string }>(
+      `/api/hub/connectors/${encodeURIComponent(id)}/appearance`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
       }),
   getManifest: (id: string) =>
     req<ManifestResult>(`/api/hub/connectors/${encodeURIComponent(id)}/manifest`),

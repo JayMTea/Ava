@@ -1,5 +1,6 @@
 ---
 name: "ava-web"
+icon: cloud
 description: "How Ava searches and reads the live web safely. Use whenever the user asks about current events, recent facts, prices, product specs, documentation, people, news, or anything that may have changed since training, or asks Ava to 'look it up', 'search', 'google', 'check online', or 'read this page/link'. Trigger keywords - search, google, look up, web, online, latest, news, current, price, docs, link, URL, read this page, what's new, find out."
 ---
 

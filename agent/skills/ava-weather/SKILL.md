@@ -1,5 +1,6 @@
 ---
 name: "ava-weather"
+icon: cloud
 description: "How Ava answers anything about live weather, temperature, or forecasts by calling her get_weather tool. Use whenever the user asks about the weather, temperature, how hot or cold it is, rain, wind, humidity, conditions, the forecast, whether to bring a jacket or umbrella, or what it's like outside — for their home or anywhere else. Trigger keywords - weather, temperature, forecast, how hot, how cold, is it raining, will it rain, wind, humidity, sunny, cloudy, outside right now, jacket, umbrella, climate today."
 ---
 

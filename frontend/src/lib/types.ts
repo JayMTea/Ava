@@ -8,7 +8,8 @@ export type Role = 'user' | 'assistant';
 export interface AppEntry {
   id: string;
   label: string;
-  icon: string;
+  icon?: string | null; // manifest ui.icon glyph name (null = stable auto-pick, see appIcon)
+  color?: string | null; // manifest ui.color identity accent (null = auto)
   section: 'core' | 'apps' | string;
   order: number;
   embed: 'native' | 'iframe' | 'none';
@@ -56,6 +57,7 @@ export interface ImageJob {
   updated?: number;
   cancelled?: boolean;
   error?: string;
+  error_code?: string;  // machine-readable ("image_off", "gpusvc_down") — drives the fix-it link
 }
 
 export interface HardwareStats {
@@ -83,6 +85,8 @@ export interface HardwareStats {
     id: string;
     name: string;
     model: string;
+    model_id?: string | null;
+    backend?: string | null;
     memory_mb: number | null;
     memory_gb: number | null;
     gpu_util?: number | null;
@@ -99,7 +103,9 @@ export interface HardwareStats {
       kind: string;
       kind_label?: string;
       path?: string | null;
-      in_memory?: boolean;
+      // true = observed resident; false = observed NOT resident (configured
+      // only); null/absent = residency unknown (process not observable).
+      in_memory?: boolean | null;
     }>;
   }>;
   jobs?: Array<{
@@ -170,11 +176,15 @@ export interface ModelBackend {
   id: string;
   label: string;
   model: string;
+  implicit?: boolean;   // built-in/env default served when nothing is configured
 }
 
 export interface ModelRoute {
   mode: string | null;
   backends: ModelBackend[];
+  // The agent sandbox's model when that runtime is active — chat turns think
+  // with THIS and bypass the router, so the picker only steers the fallback.
+  agent_model?: string | null;
 }
 
 // ---- Chats -----------------------------------------------------------------
@@ -194,6 +204,7 @@ export interface ChatMessage {
   steps?: CotStep[];
   url?: string;
   caption?: string;
+  error_code?: string; // machine-readable ("image_off", "gpusvc_down") — drives the fix-it link
 }
 
 export interface ChatDetail {
@@ -210,6 +221,7 @@ export interface TalkResponse {
   tools_used?: string[];
   note?: string;
   error?: string;
+  error_code?: string;  // machine-readable (e.g. "voice_off") — drives the fix-it link
   sim?: number | null;
   threshold?: number;
   audio?: string; // base64 WAV of Ava's spoken reply
@@ -267,6 +279,7 @@ export interface LearningState {
   context: LearnContext;
   cycles: LearningCycle[];
   last_cycle?: string | null;
+  enabled?: boolean;   // features.learning — off means no proposals will ever come
 }
 
 export interface LearningActionResult {

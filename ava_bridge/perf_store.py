@@ -180,8 +180,10 @@ def _segments(path: str) -> List[str]:
 
 
 def _iter_finalized(lo: float, hi: float):
-    """Raw records with lo <= ts < hi across every app source (+ rotated segments)."""
-    for app, path in perf_mgmt.SOURCES.items():
+    """Raw records with lo <= ts < hi across every app source (+ rotated segments).
+    Uses the live+remembered source list, so a removed connector's raw files keep
+    being absorbed into rollups — its history is preserved, not stranded."""
+    for app, path in perf_mgmt.source_files():
         for seg in _segments(path):
             for r in _read_all(seg):
                 ts = float(r.get("ts") or 0)
@@ -337,7 +339,7 @@ def _prune_raw(cutoff: float) -> int:
     """Delete rotated segments (.1..N — never the live file) fully older than cutoff;
     they've been absorbed into rollups, so this bounds disk without losing history."""
     removed = 0
-    for _app, path in perf_mgmt.SOURCES.items():
+    for _app, path in perf_mgmt.source_files():
         for i in range(1, KEEP + 1):
             seg = f"{path}.{i}"
             if not os.path.exists(seg):

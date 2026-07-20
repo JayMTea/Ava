@@ -139,7 +139,7 @@ _PUBLIC_PATHS = {"/login", "/logout", "/setup", "/api/health", "/favicon.ico",
 # to /login when unauthenticated. Overlay route modules may append their own
 # prefixes at register() time (same extension pattern as internal._TOKEN_GROUPS
 # and access_policy._PROJECT_DENY).
-API_PREFIXES = ["/api", "/apps", "/media", "/uploads"]
+API_PREFIXES = ["/api", "/apps", "/media", "/uploads", "/thumb"]
 
 
 def _is_ingest(path: str) -> bool:
@@ -151,12 +151,21 @@ def _is_ingest(path: str) -> bool:
 
 async def auth_gate(request: Request, call_next):
     path = request.url.path
-    # /internal/* is the sandbox-tool callback surface; it enforces its own
-    # bearer-token check (see ava_bridge/internal.py), so it bypasses the
-    # cookie gate rather than redirecting to /login. The device-event ingest
-    # endpoint bypasses the same way for the same reason (its own bearer check).
-    if (path in _PUBLIC_PATHS or path == "/internal" or path.startswith("/internal/")
-            or _is_ingest(path) or _is_authed(request)):
+    # /internal/* is the sandbox-tool callback surface; per-route handlers do
+    # the SCOPED check (ava_bridge/internal.authorized), but the token must be
+    # valid before the request reaches routing at all — otherwise FastAPI's
+    # parameter validation answers unauthenticated callers (422s that leak the
+    # route's schema) ahead of any auth check.
+    if path == "/internal" or path.startswith("/internal/"):
+        from . import config as _config, internal
+        tok = request.headers.get("x-ava-internal-token", "")
+        if not (_config.INTERNAL_TOKEN and tok
+                and internal._token_group(tok) is not None):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        return await call_next(request)
+    # The device-event ingest endpoint bypasses the cookie gate the same way:
+    # callers are apps, not browsers, with their own per-connector bearer check.
+    if path in _PUBLIC_PATHS or _is_ingest(path) or _is_authed(request):
         return await call_next(request)
     if any(path == p or path.startswith(p + "/") for p in API_PREFIXES):
         return JSONResponse({"error": "auth required"}, status_code=401)

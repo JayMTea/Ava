@@ -157,7 +157,10 @@ def load_errors() -> List[dict]:
 
 
 def services() -> List[dict]:
-    """Service-matrix entries for the dashboard (name / unit / probe / kind)."""
+    """Service-matrix entries for the dashboard (name / unit / probe / kind).
+    `feature` optionally names the features.* flag that governs this service —
+    when the user turned that feature off, a dead probe means "off by choice",
+    not "down", and the dashboard must not paint it red."""
     out = []
     for m in load():
         s = m.get("service")
@@ -168,6 +171,7 @@ def services() -> List[dict]:
             "name": s.get("name", m.get("label", m["id"])),
             "unit": s.get("unit"),
             "probe": _expand(s.get("probe")),
+            "feature": s.get("feature"),
             "kind": m.get("kind", "app"),
         })
     return out
@@ -672,7 +676,12 @@ def apps() -> List[dict]:
         out.append({
             "id": m["id"],
             "label": ui.get("label") or m.get("label") or m["id"],
-            "icon": ui.get("icon") or "grid",
+            # None (not "grid") when undeclared: the frontend's appIcon() then
+            # picks a STABLE per-app glyph by hashing the id, so apps that don't
+            # declare ui.icon still differ from each other — mirrors how
+            # appAccent() varies the color. Passing "grid" here would defeat that.
+            "icon": ui.get("icon") or None,
+            "color": str(ui["color"]) if ui.get("color") else None,
             "section": ui.get("section") or "apps",
             "order": ui.get("order", 100),
             "embed": embed,

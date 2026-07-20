@@ -79,7 +79,8 @@ def _chat_append(cid: str, role: str, content: str,
                  model: dict | None = None,
                  img_models: list | None = None,
                  tools_used: list[str] | None = None,
-                 steps: list | None = None) -> None:
+                 steps: list | None = None,
+                 error_code: str | None = None) -> None:
     with state.chats_lock:
         c = state.chats.get(cid)
         if not c:
@@ -89,6 +90,10 @@ def _chat_append(cid: str, role: str, content: str,
             msg["atts"] = atts
         if image:
             msg["image"] = image
+        if error_code:
+            # machine-readable ("image_off", "gpusvc_down") — the chat UI derives
+            # the guided-fix link from the code pattern (frontend/src/lib/fixes.ts)
+            msg["error_code"] = error_code
         if img_models:
             msg["img_models"] = img_models
         if model:
@@ -105,6 +110,45 @@ def _chat_append(cid: str, role: str, content: str,
                 and c.get("title") in (None, "", "New chat")):
             c["title"] = content.strip()[:48]
         _chats_persist()
+
+
+def last_render_context(cid: str) -> tuple[str | None, str | None]:
+    """(last_route, last_image_prompt) for the intent gate: what did the
+    assistant last produce in this chat? An image message → ("image", its
+    prompt/caption); any other assistant reply → ("chat", None); an empty or
+    unknown chat → (None, None)."""
+    if not cid:
+        return None, None
+    with state.chats_lock:
+        c = state.chats.get(cid)
+        msgs = list(c.get("messages", [])) if c else []
+    for m in reversed(msgs):
+        if m.get("role") != "assistant":
+            continue
+        if m.get("image"):
+            return "image", (m.get("content") or "").strip() or None
+        if m.get("error_code"):
+            continue  # a failed render verdict isn't a conversational turn
+        return "chat", None
+    return None, None
+
+
+def recent_user_text(cid: str, limit: int = 240) -> str:
+    """The user's PREVIOUS message in this chat — conversation context for the
+    intent gate. The gate runs before the current message is stored, so the last
+    user message here is the prior one; it lets the gate classify context-
+    dependent follow-ups (a pasted prompt after "help me write a prompt", "keep
+    it general", "that same scene") that are ambiguous in isolation. Empty if
+    none."""
+    if not cid:
+        return ""
+    with state.chats_lock:
+        c = state.chats.get(cid)
+        msgs = list(c.get("messages", [])) if c else []
+    for m in reversed(msgs):
+        if m.get("role") == "user":
+            return (m.get("content") or "").strip()[:limit]
+    return ""
 
 
 def history_for(cid: str, limit: int = 20) -> list[dict]:

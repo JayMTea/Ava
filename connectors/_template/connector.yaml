@@ -16,11 +16,15 @@ service:
   name: My App
   probe: "http://127.0.0.1:9000/health"   # optional HTTP health check
   # unit: myapp.service                     # optional systemd user unit
+  # feature: image                          # optional features.* flag governing this
+  #                                         #   service: off -> neutral "off", not red "down"
 
 # --- Performance source (optional) ------------------------------------------
 # perf:
 #   app: myapp
-#   path: "${AVA_HOME}/connectors/myapp/performance.jsonl"
+#   path: "${AVA_LOGS}/apps/myapp/performance.jsonl"
+#   # keep this OUTSIDE $AVA_HOME/connectors/<id> so Vitals history survives
+#   # removing the connector (re-adding the same id resumes it)
 
 # --- Left-rail app surface (optional) ---------------------------------------
 # Declare `ui:` and your app appears in Ava's left rail. `embed` picks how the
@@ -28,6 +32,9 @@ service:
 # ui:
 #   label: "My App"
 #   icon: grid             # a key in frontend/src/lib/icons.tsx (unknown = no icon)
+#   color: "#7c5cff"       # optional identity accent Ava shows wherever this app
+#                          #   appears (sidebar dot, chat tool chips, cards).
+#                          #   Omit for a stable auto color derived from the id.
 #   section: apps          # rail group: core | apps  (default apps)
 #   order: 50              # sort order within the section
 #   embed: iframe          # native | iframe | none

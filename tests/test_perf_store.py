@@ -48,19 +48,20 @@ class PerfStoreTests(unittest.TestCase):
         self._saved = {
             "ROLLUP_DIR": ps.ROLLUP_DIR, "_WATERMARK": ps._WATERMARK,
             "HOT_WINDOW_S": ps.HOT_WINDOW_S, "HOURLY_RETENTION_S": ps.HOURLY_RETENTION_S,
-            "DAILY_RETENTION_S": ps.DAILY_RETENTION_S, "SOURCES": perf_mgmt.SOURCES,
+            "DAILY_RETENTION_S": ps.DAILY_RETENTION_S,
+            "SOURCES_OVERRIDE": perf_mgmt.SOURCES_OVERRIDE,
         }
         ps.ROLLUP_DIR = os.path.join(self.tmp, "rollups")
         ps._WATERMARK = os.path.join(ps.ROLLUP_DIR, ".watermark")
         ps.HOT_WINDOW_S = 2 * HOUR       # anything >2h old is cold
         ps.HOURLY_RETENTION_S = 90 * DAY
         ps.DAILY_RETENTION_S = 0         # forever
-        perf_mgmt.SOURCES = {"ava": self.live}
+        perf_mgmt.SOURCES_OVERRIDE = {"ava": self.live}
 
     def tearDown(self):
         for k, v in self._saved.items():
-            if k == "SOURCES":
-                perf_mgmt.SOURCES = v
+            if k == "SOURCES_OVERRIDE":
+                perf_mgmt.SOURCES_OVERRIDE = v
             else:
                 setattr(ps, k, v)
         shutil.rmtree(self.tmp, ignore_errors=True)

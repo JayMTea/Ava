@@ -9,7 +9,7 @@ import os
 import secrets
 import shutil
 
-from . import settings
+from . import features, settings
 
 # Repo root = parent of this package directory (phone_bridge.py lives there).
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -163,7 +163,7 @@ if CODE_APPROVAL not in ("all", "policy", "none"):
 # --- Self-analysis / learning cycles ---------------------------------------- #
 # Ava periodically analyzes her own code activity + chat history (local-first)
 # and parks improvement proposals for approval. See ava_bridge/learning.py.
-LEARNING_ENABLED = settings.get_bool("features.learning", True, env="AVA_LEARNING")
+LEARNING_ENABLED = features.enabled("learning")
 LEARNING_INTERVAL_H = settings.get_int("learning.interval_hours", 24,
                                        env="AVA_LEARNING_INTERVAL_H")
 
@@ -172,7 +172,7 @@ LEARNING_INTERVAL_H = settings.get_int("learning.interval_hours", 24,
 # owner + uploaded-document chunks, folded into chat turns as recall context
 # and audit-logged. Inspect/edit/export in the Hub Memory tab. See
 # ava_bridge/memory_store.py and docs/MEMORY.md.
-MEMORY_ENABLED = settings.get_bool("features.memory", True, env="AVA_MEMORY")
+MEMORY_ENABLED = features.enabled("memory")
 MEMORY_RECALL_K = settings.get_int("memory.recall_k", 4, env="AVA_MEMORY_RECALL_K")
 MEMORY_RECALL_MAX_CHARS = settings.get_int("memory.recall_max_chars", 2000,
                                            env="AVA_MEMORY_RECALL_MAX_CHARS")

@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 import { dash } from './dashApi';
 import { useLiveResource } from '../../hooks/useLive';
 import {
-  BarList, Donut, EmptyState, Gauge, InfoTip, Panel, RangeSelector, Skeleton, StatCard, TimeSeries,
+  BarList, Donut, EmptyState, Gauge, InfoTip, Panel, RangeSelector, Skeleton, StatCard, StatusPill, TimeSeries,
   fmtInt, fmtNum,
 } from './primitives';
 import { RANGE_MAP, type RangeKey } from './ranges';
@@ -15,6 +15,7 @@ export function VitalsView() {
   const tokSeries = useLiveResource(
     useCallback(() => dash.perfSeries('tokens_per_sec', tr.bucket, tr.since, undefined, 'llm'), [tr]), tr.pollMs);
   const cost = useLiveResource(useCallback(() => dash.perfCost('7d', 'app'), []), 30000);
+  const conns = useLiveResource(useCallback(() => dash.connectors(), []), 15000);
   const budget = useLiveResource(useCallback(() => dash.budget(), []), 30000);
   const [hwRange, setHwRange] = useState<RangeKey>('day');
   const hr = RANGE_MAP[hwRange];
@@ -54,6 +55,12 @@ export function VitalsView() {
     { name: 'Upscale s', value: s?.upscale?.seconds?.avg ?? 0 },
   ].filter((b) => b.value > 0);
   const costBy = Object.entries(cost.data?.by || {}).map(([name, v]) => ({ name, value: v.energy_kwh }));
+  // Connected apps: external apps only (same rule as the Connectors page —
+  // core/inference/media are infrastructure, not apps), live from the registry:
+  // an app added or removed in Connectors appears/disappears here immediately,
+  // with an honest "no metrics yet" until its first record arrives.
+  const apps = (conns.data?.connectors || [])
+    .filter((c) => !['core', 'inference', 'media'].includes(c.kind));
 
   return (
     <div className="db-view">
@@ -77,7 +84,7 @@ export function VitalsView() {
         <StatCard label="Throughput" value={fmtNum(tokAvg, 1)} unit="tok/s" help={METRICS.throughput}
           tone={tokAvg == null ? 'default' : tokAvg < 15 ? 'warn' : 'ok'}
           hint={`${fmtInt(tokN)} completions`} />
-        <StatCard label="TTFT" value={fmtNum(ttftAvg, 0)} unit="ms" hint="time to first token" help={METRICS.ttft} />
+        <StatCard label="TTFT" value={fmtNum(ttftAvg == null ? null : ttftAvg / 1000, 2)} unit="s" hint="time to first token" help={METRICS.ttft} />
         <StatCard label="Renders" value={fmtInt((s?.image?.count || 0) + (s?.video?.count || 0))}
           hint={`${fmtInt(s?.upscale?.count || 0)} upscales`} help={METRICS.renders} />
         <StatCard label="Route Errors" value={fmtInt(failovers)}
@@ -133,7 +140,9 @@ export function VitalsView() {
             tokSeries.data && tokSeries.data.points.length ?
               <TimeSeries points={tokSeries.data.points} series={tokSeries.data.series} unit=""
                 xTickFmt={tr.tick} xTipFmt={tr.tip} /> :
-              <EmptyState text="No inference recorded yet — chat with Ava to populate this." />}
+              <EmptyState text={(s?.llm && Object.keys(s.llm).length) || s?.records
+                ? 'Turns are recorded, but no token-rate samples in this range — the agent runtime reports tokens/sec only when its endpoint returns usage.'
+                : 'No inference recorded yet — chat with Ava to populate this.'} />}
         </Panel>
         <Panel title={<>Model routing <InfoTip text={METRICS.modelShare} label="Model routing" /></>}
           subtitle="share of completions served">
@@ -153,6 +162,39 @@ export function VitalsView() {
             <EmptyState text="No energy data yet." />}
         </Panel>
       </div>
+
+      {/* Connected apps — auto-populates from the connector registry */}
+      <Panel title="Connected apps"
+        subtitle="live from Connectors — each app appears here the moment it's added">
+        {apps.length ? (
+          <div className="db-conn-grid">
+            {apps.map((c) => {
+              const activity = cost.data?.by?.[c.perf_app];
+              return (
+                <div key={c.id} className="db-conn">
+                  <div className="db-conn-top">
+                    <span className="db-conn-name">{c.label}</span>
+                    {c.status ? <StatusPill status={c.status} /> :
+                      <span className="db-conn-kind">{c.kind}</span>}
+                  </div>
+                  <div className="db-conn-meta">
+                    {activity?.n
+                      ? [`${fmtInt(activity.n)} calls (7d)`,
+                        activity.energy_kwh > 0 ? `${fmtNum(activity.energy_kwh, 3)} kWh` : '',
+                        c.actions.length ? `${c.actions.length} actions` : '']
+                        .filter(Boolean).join(' · ')
+                      : c.perf_present
+                        ? 'connected · no activity in 7d'
+                        : 'connected · no metrics yet — history starts with its first call'}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : conns.data
+          ? <EmptyState text="No apps connected yet — add one on the Connectors page and it will appear here." />
+          : <Skeleton />}
+      </Panel>
 
       {/* Hardware */}
       <Panel title={<>Hardware <InfoTip text={METRICS.hardwareSeries} label="Hardware telemetry" /></>}

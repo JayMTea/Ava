@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Icon } from '../../lib/icons';
+import {
+  ACCENT_SLOTS, APP_ICONS, AppDot, appAccent, appById, appForTool, appIcon, appsForTools,
+} from '../../lib/appColor';
+import { MarkdownLite } from '../../lib/markdown';
 import { EmptyState, Panel } from '../dashboard/primitives';
 import { api } from '../../lib/api';
 import { MemoryPanel } from './MemoryPanel';
@@ -8,7 +12,7 @@ import type {
   AgentStatus, AuditEvent, Backend, BackendList, BackendProbe, BackendTestResult, BenchResult,
   BenchStatus, ConnectorLoadError, CostSettings, DeviceEvent, EnrollResult, GenerateResult,
   GrantAction, HardwareInfo, HubConnector, IngestToken, ModelStore,
-  NewConnectorBody, PendingApproval, ProbeResult, PullStatus, SystemInfo, VoiceStatus,
+  NewConnectorBody, PendingApproval, ProbeResult, PullStatus, Skill, SkillList, SystemInfo, VoiceStatus,
 } from './hubApi';
 
 // Engine presets for the "add a model" form: label + default OpenAI-compatible
@@ -97,7 +101,26 @@ const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: 'system', label: 'System', icon: 'sliders' },
 ];
 
-function Badge({ tone, children }: { tone?: 'ok' | 'warn' | 'err' | 'accent'; children: React.ReactNode }) {
+// The Hub sub-tab is kept in the URL hash as a second segment (#hub/<tab>) so a
+// refresh or a bookmark lands back where you were. App.tsx's top-level router
+// reads only the FIRST segment (`viewFromHash` does split('/')[0]), so this
+// segment is invisible to it — no coupling, no fight over the hash.
+const TAB_IDS = TABS.map((t) => t.id);
+
+function tabFromHash(): TabId {
+  if (typeof window === 'undefined') return 'overview';
+  const parts = window.location.hash.replace(/^#\/?/, '').split('/');
+  if (parts[0] !== 'hub') return 'overview';
+  return (TAB_IDS as string[]).includes(parts[1]) ? (parts[1] as TabId) : 'overview';
+}
+
+function writeTabHash(t: TabId): void {
+  // Overview is the default, so keep its URL clean as plain #hub.
+  const next = t === 'overview' ? 'hub' : `hub/${t}`;
+  if (window.location.hash.replace(/^#\/?/, '') !== next) window.location.hash = next;
+}
+
+function Badge({ tone, children }: { tone?: 'ok' | 'warn' | 'err' | 'accent' | 'muted'; children: React.ReactNode }) {
   return <span className={'hub-badge' + (tone ? ' ' + tone : '')}><i />{children}</span>;
 }
 
@@ -165,7 +188,9 @@ function Overview({ onGo }: { onGo: (t: TabId) => void }) {
           hw ? <Badge tone="accent">{hw.tier} tier</Badge> : <Badge>detecting…</Badge>,
           hw?.gpu ? hw.gpu : 'GPU · memory · model tier')}
         {card('agent', 'bot', 'Agent',
-          agent?.available ? <Badge tone="ok">{agent.name} ready</Badge> : <Badge tone="warn">not provisioned</Badge>,
+          agent?.available ? <Badge tone="ok">{agent.name} ready</Badge>
+            : agent?.enabled === false ? <Badge tone="muted">disabled</Badge>
+              : <Badge tone="warn">not provisioned</Badge>,
           engineUp ? 'model (engine up) · tools · memory' : 'model · tools · memory · sandbox')}
         {card('connectors', 'panel', 'Connectors',
           <Badge tone="accent">{enabledConns} enabled</Badge>,
@@ -220,6 +245,14 @@ function BrainManager({ onRestart }: { onRestart: () => void }) {
   const [makeBrain, setMakeBrain] = useState(false);
   const [test, setTest] = useState<BackendTestResult | null>(null);
   const [testing, setTesting] = useState(false);
+  // The agent sandbox's own model: while the agent runtime is active, THAT is
+  // what chat turns think with — the backends below only serve the tool-less
+  // fallback and router roles. Without pinning it here, this panel reads
+  // "no model linked" on a machine where Ava is plainly answering.
+  const [agent, setAgent] = useState<AgentStatus | null>(null);
+  // The router's live route: when nothing is configured it serves a built-in
+  // default (`implicit`) — with the agent off, THAT is the operative brain.
+  const [route, setRoute] = useState<{ backends?: { id: string; label: string; model: string; implicit?: boolean }[] } | null>(null);
 
   const preset = ENGINE_PRESETS.find((p) => p.value === engine) ?? ENGINE_PRESETS[0];
   const isCloud = !!preset.cloud;
@@ -228,6 +261,8 @@ function BrainManager({ onRestart }: { onRestart: () => void }) {
   useEffect(() => {
     load();
     hub.backends().then(setBe).catch(() => {});
+    hub.agentStatus().then(setAgent).catch(() => {});
+    api.getModel().then(setRoute).catch(() => {});
   }, [load]);
 
   const resetForm = useCallback(() => {
@@ -295,6 +330,14 @@ function BrainManager({ onRestart }: { onRestart: () => void }) {
   }, [load, onRestart]);
 
   const backends = list?.backends ?? [];
+  // While the agent runtime is active, ITS sandbox model is what chat turns
+  // actually think with (set by `nemoclaw onboard`) — pin it as the effective
+  // brain so this panel never claims "no model" on a working install.
+  const agentBrain = agent?.available && agent.sandbox_model ? agent : null;
+  // Agent off + nothing configured: the router still serves its built-in
+  // default, so chat works — show that instead of "no model linked".
+  const routerDefault = !agentBrain && backends.length === 0
+    ? (route?.backends || []).find((b) => b.implicit) || null : null;
 
   return (
     <Panel
@@ -302,9 +345,46 @@ function BrainManager({ onRestart }: { onRestart: () => void }) {
       subtitle="Link any model — a local engine (Ollama, MLX, LM Studio, llama.cpp, vLLM) or any OpenAI-compatible cloud provider — and pick which one Ava thinks with."
       right={<button className="hub-btn sm" onClick={openAdd}><Icon name="sparkles" />Add a model</button>}
     >
+      {agentBrain && (
+        <div className="hub-model-list" style={{ marginBottom: backends.length || showForm ? 10 : 0 }}>
+          <div className="hub-opt sel" style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'default' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <b style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                {agentBrain.sandbox_model!.split('/').pop()}
+                <Badge tone="accent">brain</Badge>
+                <Badge tone="muted">agent sandbox</Badge>
+              </b>
+              <small style={{ color: 'var(--muted)', wordBreak: 'break-all' }}>
+                {agentBrain.sandbox_model} · {agentBrain.sandbox_provider || 'sandbox provider'} · sandbox “{agentBrain.sandbox}”
+                — the agent thinks with this; change it via <b>nemoclaw onboard</b>.
+                Models linked below serve the tool-less fallback and other roles.
+              </small>
+            </div>
+          </div>
+        </div>
+      )}
+      {routerDefault && (
+        <div className="hub-model-list" style={{ marginBottom: showForm ? 10 : 0 }}>
+          <div className="hub-opt sel" style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'default' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <b style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                {routerDefault.label}
+                <Badge tone="accent">brain</Badge>
+                <Badge tone="muted">built-in default</Badge>
+              </b>
+              <small style={{ color: 'var(--muted)', wordBreak: 'break-all' }}>
+                {routerDefault.model} — nothing is configured, so the router serves this
+                default. Add a model below to choose your own.
+              </small>
+            </div>
+          </div>
+        </div>
+      )}
       {list == null ? <EmptyState text="Loading models…" />
         : backends.length === 0 && !showForm
-          ? <EmptyState text="No model linked yet — click “Add a model” to connect Ava's brain." />
+          ? (routerDefault ? null : <EmptyState text={agentBrain
+              ? 'No fallback model linked — optional: add one so chat still works if the agent runtime is stopped.'
+              : 'No model linked yet — click “Add a model” to connect Ava\'s brain.'} />)
           : (
             <div className="hub-model-list">
               {backends.map((b) => (
@@ -313,7 +393,9 @@ function BrainManager({ onRestart }: { onRestart: () => void }) {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <b style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       {b.label}
-                      {b.is_brain && <Badge tone="accent">brain</Badge>}
+                      {b.is_brain && (agentBrain
+                        ? <Badge tone="muted">fallback brain</Badge>
+                        : <Badge tone="accent">brain</Badge>)}
                     </b>
                     <small style={{ color: 'var(--muted)', wordBreak: 'break-all' }}>
                       {b.engine} · {b.model || 'no model set'} · {b.base_url}
@@ -364,7 +446,7 @@ function BrainManager({ onRestart }: { onRestart: () => void }) {
           {test && (
             <div className={'hub-msg ' + (test.ok ? 'ok' : 'err')}>
               {test.ok
-                ? `✓ Connected${test.ms != null ? ` (${test.ms} ms)` : ''}${test.reply ? ` — replied “${test.reply}”` : ''}`
+                ? `✓ Connected${test.ms != null ? ` (${(test.ms / 1000).toFixed(2)} s)` : ''}${test.reply ? ` — replied “${test.reply}”` : ''}`
                 : `✗ ${test.error || 'failed'}`}
             </div>
           )}
@@ -520,9 +602,9 @@ function BenchTable({ results, winner }: { results: BenchResult[]; winner?: stri
                   kind="tok" markTitle="interactive ≥ 15 tok/s" />
               </div>
               <div className="bench-metric">
-                <div className="bench-metric-head"><b>{r.ttft_ms}</b> ms TTFT</div>
+                <div className="bench-metric-head"><b>{r.ttft_ms != null ? (r.ttft_ms / 1000).toFixed(2) : '—'}</b> s TTFT</div>
                 <BenchBar pct={clampPct((1 - (r.ttft_ms || 0) / maxTtft) * 100)} mark={ttftMark}
-                  kind="ttft" markTitle="snappy ≤ 500 ms" />
+                  kind="ttft" markTitle="snappy ≤ 0.5 s" />
               </div>
             </>
           ) : (
@@ -646,18 +728,38 @@ function AgentPanel({ onRestart }: { onRestart: () => void }) {
     <Panel
       title="Agent runtime"
       subtitle="NemoClaw gives Ava a sandbox, tools, egress policies, and persistent memory. Without it, chat still works (tool-less)."
-      right={st ? (st.available ? <Badge tone="ok">active</Badge> : <Badge tone="warn">not ready</Badge>) : null}
+      right={st ? (
+        st.available ? <Badge tone="ok">active</Badge>
+          : st.enabled === false ? <Badge tone="muted">disabled</Badge>
+            : <Badge tone="warn">not ready</Badge>
+      ) : null}
     >
       {st ? (
         <dl className="hub-kv">
           <dt>Configured</dt><dd>{st.runtime}{st.required ? ' · required' : ''}</dd>
           <dt>CLI</dt><dd>{st.cli || <span style={{ color: 'var(--warn)' }}>not installed</span>}</dd>
           <dt>Sandbox</dt><dd>{st.sandbox} {st.sandbox_exists ? <Badge tone="ok">exists</Badge> : <Badge tone="warn">missing</Badge>}</dd>
-          <dt>Tools</dt><dd>{st.tools ? <Badge tone="ok">available</Badge> : <Badge tone="warn">unavailable</Badge>}</dd>
+          <dt>Tools</dt><dd>{
+            st.tools ? <Badge tone="ok">available</Badge>
+              : st.enabled === false ? <Badge tone="muted">disabled</Badge>
+                : <Badge tone="warn">unavailable</Badge>
+          }</dd>
         </dl>
       ) : <EmptyState text="Loading agent status…" />}
 
-      {st && !st.cli && (
+      {st && st.enabled === false ? (
+        <div className="hub-note" style={{ marginTop: 14 }}>
+          The agent is <b>turned off for this instance</b>{' '}
+          {st.enabled_env_override
+            ? <>— forced by the <code>{st.enabled_env_override}</code> env var in this
+              instance's launch command, which shadows <code>ava.yaml</code>. Remove it
+              and restart to get tools, memory, and skills.</>
+            : <>(<code>agent.enabled: false</code> in ava.yaml) — so chat runs tool-less
+              by design, and the CLI/sandbox rows above are just what's present on the
+              host. Enable it in <b>System</b> and restart to get tools, memory, and
+              skills.</>}
+        </div>
+      ) : st && !st.cli && (
         <div className="hub-note" style={{ marginTop: 14 }}>
           The NemoClaw CLI isn't installed. Run <b>ava agent provision --install</b> in a terminal
           (it installs the CLI, then guides <b>nemoclaw onboard</b>), then click Re-check below.
@@ -687,11 +789,508 @@ function AgentPanel({ onRestart }: { onRestart: () => void }) {
     </Panel>
 
     <div className="hub-section" />
+    <SkillsPanel />
+
+    <div className="hub-section" />
     <BrainManager onRestart={onRestart} />
 
     <div className="hub-section" />
     <ModelStorePanel />
     </>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Skills — the agent's SKILL.md capabilities, auto-discovered from the filesystem
+// (agent/skills + overlay). Adding a folder surfaces it here with no code change;
+// each skill shows what it does, the tools it uses, and whether it's actually
+// deployed into the sandbox vs newly added in the repo.
+const SKILL_ICONS = new Set([
+  'image', 'chart', 'code', 'grid', 'cloud', 'calendar', 'chats', 'megaphone',
+  'sparkles', 'graduation', 'bot', 'db', 'gauge', 'search', 'panel',
+]);
+
+function skillDeployBadge(state: Skill['deployed']) {
+  switch (state) {
+    case 'deployed':
+      return <Badge tone="ok">live</Badge>;
+    case 'stale':
+      return <Badge tone="warn">edited · re-provision</Badge>;
+    case 'undeployed':
+      return <Badge tone="warn">not deployed · re-provision</Badge>;
+    default:
+      return <Badge tone="muted">provision to load</Badge>;
+  }
+}
+
+// How the list is sectioned adapts to what the OWNER has categorized — the
+// product ships no taxonomy (categories live in ava.yaml, not shipped skills):
+//   • any category present   → group by category ("General" bucket last)
+//   • otherwise, mixed source → group by source (Core skills / Your skills)
+//   • single source, no cats  → flat list
+// so a fresh fork looks clean, and the very first drag-to-categorize switches
+// the view over to category grouping. Only category groups are drop targets
+// and renamable — the source/flat groupings are derived, not owner data.
+type SkillGroupMode = 'category' | 'source' | 'flat';
+function groupSkills(skills: Skill[], order: string[]): { mode: SkillGroupMode; groups: [string, Skill[]][] } {
+  const cats = new Set(skills.map((s) => s.category).filter(Boolean) as string[]);
+  if (cats.size >= 1 || order.length >= 1) {
+    const map = new Map<string, Skill[]>();
+    // Owner-created categories exist even while empty — seed them so a fresh
+    // "New category" shows up as a drop target immediately.
+    for (const c of order) map.set(c, []);
+    for (const s of skills) {
+      const cat = s.category || 'General';
+      (map.get(cat) ?? map.set(cat, []).get(cat)!).push(s);
+    }
+    // Owner order first, then unordered labels alphabetically, General last.
+    const pos = new Map(order.map((c, i) => [c, i]));
+    const groups = [...map.entries()].sort(([a], [b]) => {
+      if (a === 'General') return 1;
+      if (b === 'General') return -1;
+      const pa = pos.has(a) ? pos.get(a)! : Number.POSITIVE_INFINITY;
+      const pb = pos.has(b) ? pos.get(b)! : Number.POSITIVE_INFINITY;
+      return pa !== pb ? pa - pb : a.localeCompare(b);
+    });
+    return { mode: 'category', groups };
+  }
+  const bySource = new Map<string, Skill[]>();
+  for (const s of skills) (bySource.get(s.source) ?? bySource.set(s.source, []).get(s.source)!).push(s);
+  if (bySource.size >= 2) {
+    const groups: [string, Skill[]][] = [];
+    if (bySource.get('core')) groups.push(['Core skills', bySource.get('core')!]);
+    if (bySource.get('overlay')) groups.push(['Your skills', bySource.get('overlay')!]);
+    return { mode: 'source', groups };
+  }
+  return { mode: 'flat', groups: [['', skills]] };
+}
+
+function SkillRow({ s, open, onToggle, body, dragging, onDragStart, onDragEnd }: {
+  s: Skill; open: boolean; onToggle: () => void; body: string | null | undefined;
+  dragging: boolean;
+  onDragStart: (e: React.DragEvent<HTMLDivElement>) => void;
+  onDragEnd: () => void;
+}) {
+  // Skills that drive a connected app's tools carry the app's identity dot
+  // (title + tool chips), so app-backed capabilities read as the app's.
+  // SKILL.md `app:` is authoritative (dynamic connectors' tool names carry no
+  // prefix); otherwise attribute from the `<connectorId>_` tool convention.
+  const declaredApp = appById(s.app);
+  const skillApps = declaredApp ? [declaredApp] : appsForTools(s.tools);
+  return (
+    <div
+      className={'skill-row' + (open ? ' open' : '') + (dragging ? ' dragging' : '')}
+      data-skill={s.id}
+      draggable
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+    >
+      <button className="skill-head" onClick={onToggle} aria-expanded={open}>
+        <span className="skill-icon">
+          <Icon name={s.icon && SKILL_ICONS.has(s.icon) ? s.icon : 'sparkles'} />
+        </span>
+        <span className="skill-head-main">
+          <span className="skill-title">
+            {s.title}
+            {skillApps.map((a) => <AppDot key={a.id} accent={appAccent(a)} title={a.label} />)}
+            {s.source === 'overlay' && <span className="skill-tag">private</span>}
+          </span>
+          <span className="skill-summary">{s.summary || s.description}</span>
+        </span>
+        {skillDeployBadge(s.deployed)}
+        <span className={'skill-chevron' + (open ? ' open' : '')}><Icon name="expand" /></span>
+      </button>
+      {open && (
+        <div className="skill-detail">
+          {s.tools.length > 0 && (
+            <div className="skill-tools">
+              <span className="skill-tools-label">tools</span>
+              {s.tools.map((t) => {
+                // With a declared app the author says these tools are the
+                // app's (their names carry no prefix to match on).
+                const app = declaredApp ?? appForTool(t);
+                return (
+                  <code className="skill-tool" key={t}>
+                    {app && <AppDot accent={appAccent(app)} title={app.label} />}
+                    {t}
+                  </code>
+                );
+              })}
+            </div>
+          )}
+          {body === undefined ? (
+            <div className="skill-doc-loading">Loading skill…</div>
+          ) : body === null ? (
+            <div className="hub-msg err">Couldn’t read this skill’s file.</div>
+          ) : (
+            <div className="skill-doc"><MarkdownLite text={body} /></div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SkillsPanel() {
+  const [data, setData] = useState<SkillList | null>(null);
+  const [err, setErr] = useState('');
+  const [note, setNote] = useState('');
+  const [query, setQuery] = useState('');
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [bodies, setBodies] = useState<Record<string, string | null>>({});
+  // Groups render collapsed until the owner opens them, so a long skill list
+  // scans as a table of contents. A live filter overrides this — matches must
+  // be visible, so searching temporarily expands everything.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dropCat, setDropCat] = useState<string | null>(null);
+  // A category header being dragged to reorder, and where it would land.
+  const [dragCat, setDragCat] = useState<string | null>(null);
+  const [catDrop, setCatDrop] = useState<{ cat: string; before: boolean } | null>(null);
+  const [editingCat, setEditingCat] = useState<string | null>(null);
+  const [editVal, setEditVal] = useState('');
+  // The inline "name a category" form: {skill} after a drop on the new-category
+  // zone (file the skill there once named), {} from the New category button.
+  const [newCat, setNewCat] = useState<{ skill?: string } | null>(null);
+  const [newCatVal, setNewCatVal] = useState('');
+
+  const refresh = useCallback(
+    () => hub.agentSkills().then(setData).catch((e) => setErr((e as Error).message)),
+    []);
+  useEffect(() => { refresh(); }, [refresh]);
+
+  const toggle = useCallback(async (s: Skill) => {
+    if (openId === s.id) { setOpenId(null); return; }
+    setOpenId(s.id);
+    if (bodies[s.id] === undefined) {
+      try {
+        const d = await hub.agentSkill(s.id);
+        setBodies((b) => ({ ...b, [s.id]: d.body }));
+      } catch {
+        setBodies((b) => ({ ...b, [s.id]: null }));
+      }
+    }
+  }, [openId, bodies]);
+
+  const moveSkill = useCallback(async (id: string, cat: string) => {
+    setNote('');
+    // Optimistic: reflect the drop immediately, then confirm with a refetch.
+    setData((d) => d && ({
+      ...d, skills: d.skills.map((s) => (s.id === id ? { ...s, category: cat } : s)),
+    }));
+    setExpanded((x) => new Set(x).add(cat));
+    try {
+      const r = await hub.setSkillCategory(id, cat);
+      if (!r.ok) setNote(r.error || 'Couldn’t move that skill.');
+    } catch (e) {
+      setNote((e as Error).message);
+    }
+    refresh();
+  }, [refresh]);
+
+  const renameCat = useCallback(async (from: string, to: string) => {
+    setEditingCat(null);
+    const clean = to.trim();
+    if (!clean || clean === from) return;
+    setNote('');
+    try {
+      const r = await hub.renameSkillCategory(from, clean);
+      if (!r.ok) setNote(r.error || 'Couldn’t rename that category.');
+      // Carry the open/closed state over to the new name.
+      setExpanded((x) => {
+        if (!x.has(from)) return x;
+        const n = new Set(x); n.delete(from); n.add(clean);
+        return n;
+      });
+    } catch (e) {
+      setNote((e as Error).message);
+    }
+    refresh();
+  }, [refresh]);
+
+  const createCat = useCallback(async (name: string) => {
+    setNote('');
+    setExpanded((x) => new Set(x).add(name));
+    try {
+      const r = await hub.createSkillCategory(name);
+      if (!r.ok) setNote(r.error || 'Couldn’t create that category.');
+    } catch (e) {
+      setNote((e as Error).message);
+    }
+    refresh();
+  }, [refresh]);
+
+  const removeCat = useCallback(async (name: string) => {
+    setNote('');
+    setData((d) => d && ({
+      ...d, category_order: (d.category_order ?? []).filter((c) => c !== name),
+    }));
+    try {
+      const r = await hub.deleteSkillCategory(name);
+      if (!r.ok) setNote(r.error || 'Couldn’t delete that category.');
+    } catch (e) {
+      setNote((e as Error).message);
+    }
+    refresh();
+  }, [refresh]);
+
+  const q = query.trim().toLowerCase();
+  const filtered = (data?.skills ?? []).filter((s) =>
+    !q || s.title.toLowerCase().includes(q) || s.summary.toLowerCase().includes(q) ||
+    (s.category ?? '').toLowerCase().includes(q) || s.tools.some((t) => t.toLowerCase().includes(q)));
+  const { mode, groups } = groupSkills(filtered, data?.category_order ?? []);
+  // While searching, an owner-created-but-empty category is just noise — show
+  // only groups with matches.
+  const shownGroups = q ? groups.filter(([, list]) => list.length > 0) : groups;
+
+  // Persist a category reorder: rebuild the full visible order (minus the
+  // pinned General bucket) with the dragged category in its new slot.
+  const applyReorder = (target: string, before: boolean) => {
+    if (!dragCat || dragCat === target) { setDragCat(null); setCatDrop(null); return; }
+    const current = groups.map(([c]) => c).filter((c) => c !== 'General');
+    const list = current.filter((c) => c !== dragCat);
+    let idx = target === 'General' ? list.length : list.indexOf(target);
+    if (idx < 0) idx = list.length;
+    else if (!before) idx += 1;
+    list.splice(idx, 0, dragCat);
+    setDragCat(null); setCatDrop(null); setNote('');
+    setData((d) => d && ({ ...d, category_order: list }));
+    hub.setSkillCategoryOrder(list)
+      .then((r) => { if (!r.ok) setNote(r.error || 'Couldn’t save the order.'); })
+      .catch((e) => setNote((e as Error).message))
+      .finally(() => { void refresh(); });
+  };
+
+  const renderRows = (list: Skill[]) => (
+    <div className="skill-list">
+      {list.map((s) => (
+        <SkillRow
+          key={`${s.source}:${s.id}`}
+          s={s}
+          open={openId === s.id}
+          onToggle={() => toggle(s)}
+          body={openId === s.id ? bodies[s.id] : undefined}
+          dragging={dragId === s.id}
+          onDragStart={(e) => {
+            e.dataTransfer.setData('text/plain', s.id);
+            e.dataTransfer.effectAllowed = 'move';
+            setDragId(s.id);
+          }}
+          onDragEnd={() => { setDragId(null); setDropCat(null); }}
+        />
+      ))}
+    </div>
+  );
+
+  // Drop targets: category groups take skill drops (file it there) AND
+  // category drops (reorder — top half inserts before, bottom half after).
+  // The "new category" zone (key '+') takes skill drops only.
+  const isBefore = (e: React.DragEvent<HTMLDivElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    return e.clientY < r.top + r.height / 2;
+  };
+  const dropProps = (cat: string) => ({
+    onDragOver: (e: React.DragEvent<HTMLDivElement>) => {
+      if (dragId) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        setDropCat(cat);
+      } else if (dragCat && dragCat !== cat && cat !== '+') {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        setCatDrop({ cat, before: cat !== 'General' && isBefore(e) });
+      }
+    },
+    onDragLeave: (e: React.DragEvent<HTMLDivElement>) => {
+      if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+        setDropCat((c) => (c === cat ? null : c));
+        setCatDrop((c) => (c?.cat === cat ? null : c));
+      }
+    },
+    onDrop: (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      if (dragCat) {
+        if (cat !== '+') applyReorder(cat, cat !== 'General' && isBefore(e));
+        return;
+      }
+      const id = e.dataTransfer.getData('text/plain') || dragId;
+      setDragId(null); setDropCat(null);
+      if (!id) return;
+      if (cat === '+') { setNewCat({ skill: id }); setNewCatVal(''); } else void moveSkill(id, cat);
+    },
+  });
+
+  const right = data ? (
+    <Badge tone="accent">{data.summary.total} skill{data.summary.total === 1 ? '' : 's'}</Badge>
+  ) : null;
+
+  // One naming form, two homes: inline in the top toolbar (New category
+  // button) or under the drop zone when a dragged skill is waiting on a name.
+  const newCatForm = (
+    <form
+      className="skill-newcat-form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        const pending = newCat;
+        setNewCat(null);
+        const name = newCatVal.trim();
+        if (!name) return;
+        if (pending?.skill) void moveSkill(pending.skill, name);
+        else void createCat(name);
+      }}
+    >
+      <input
+        className="hub-input"
+        placeholder="New category name…"
+        value={newCatVal}
+        autoFocus
+        onChange={(e) => setNewCatVal(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Escape') setNewCat(null); }}
+      />
+      <button className="hub-btn sm" type="submit" disabled={!newCatVal.trim()}>Create</button>
+      <button className="hub-btn ghost sm" type="button" onClick={() => setNewCat(null)}>Cancel</button>
+    </form>
+  );
+
+  return (
+    <Panel
+      title="Skills"
+      subtitle="Capabilities your agent loads. Drop a folder in agent/skills (or your overlay) and it appears here automatically; expand one to read its full instructions, and re-provision to deploy it into the sandbox. Categories are yours: create your own, drag skills between them, drag headers to reorder, rename with the pencil."
+      right={right}
+    >
+      {err ? (
+        <div className="hub-msg err">{err}</div>
+      ) : !data ? (
+        <EmptyState text="Loading skills…" />
+      ) : data.skills.length === 0 ? (
+        <EmptyState text="No skills found under agent/skills." />
+      ) : (
+        <>
+          <div className="skill-toolbar">
+            {data.skills.length > 6 && (
+              <input
+                className="hub-input skill-search"
+                placeholder="Filter skills…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+            )}
+            {newCat && !newCat.skill ? (
+              newCatForm
+            ) : (
+              <button
+                className="hub-btn ghost sm skill-newcat-btn"
+                onClick={() => { setNewCat({}); setNewCatVal(''); }}
+              >
+                <Icon name="plus" />New category
+              </button>
+            )}
+          </div>
+          {filtered.length === 0 ? (
+            <EmptyState text="No skills match your filter." />
+          ) : mode === 'flat' ? (
+            renderRows(groups[0][1])
+          ) : (
+            shownGroups.map(([cat, list]) => {
+              const isOpen = !!q || expanded.has(cat);
+              const canDrop = mode === 'category';
+              return (
+                <div
+                  className={'skill-group'
+                    + (canDrop && dropCat === cat ? ' drop-target' : '')
+                    + (catDrop?.cat === cat ? (catDrop.before ? ' reorder-before' : ' reorder-after') : '')}
+                  key={cat}
+                  data-cat={cat}
+                  {...(canDrop ? dropProps(cat) : {})}
+                >
+                  <div
+                    className="skill-group-head"
+                    draggable={canDrop && cat !== 'General' && !q && editingCat !== cat}
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData('text/x-ava-category', cat);
+                      e.dataTransfer.effectAllowed = 'move';
+                      setDragCat(cat);
+                    }}
+                    onDragEnd={() => { setDragCat(null); setCatDrop(null); }}
+                  >
+                    {editingCat === cat ? (
+                      <input
+                        className="skill-group-edit"
+                        value={editVal}
+                        autoFocus
+                        onChange={(e) => setEditVal(e.target.value)}
+                        onBlur={() => renameCat(cat, editVal)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') renameCat(cat, editVal);
+                          if (e.key === 'Escape') setEditingCat(null);
+                        }}
+                      />
+                    ) : (
+                      <>
+                        <button
+                          className="skill-group-toggle"
+                          onClick={() => setExpanded((x) => {
+                            const n = new Set(x);
+                            if (n.has(cat)) n.delete(cat); else n.add(cat);
+                            return n;
+                          })}
+                          aria-expanded={isOpen}
+                        >
+                          <span className={'skill-caret' + (isOpen ? ' open' : '')}>
+                            <Icon name="chevronDown" />
+                          </span>
+                          <span className="skill-group-title">{cat}</span>
+                          <span className="skill-group-count">{list.length}</span>
+                        </button>
+                        {mode === 'category' && (
+                          <button
+                            className="skill-group-rename"
+                            title={`Rename “${cat}”`}
+                            aria-label={`Rename category ${cat}`}
+                            onClick={() => { setEditingCat(cat); setEditVal(cat); }}
+                          >
+                            <Icon name="pencil" />
+                          </button>
+                        )}
+                        {mode === 'category' && cat !== 'General' && list.length === 0 && (
+                          <button
+                            className="skill-group-rename skill-group-del"
+                            title={`Delete “${cat}”`}
+                            aria-label={`Delete category ${cat}`}
+                            onClick={() => void removeCat(cat)}
+                          >
+                            <Icon name="trash" />
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                  {isOpen && (list.length > 0 ? renderRows(list) : (
+                    <div className="skill-empty-hint">No skills here yet — drag one in.</div>
+                  ))}
+                </div>
+              );
+            })
+          )}
+          {dragId && !newCat && (
+            <div
+              className={'skill-newcat-zone' + (dropCat === '+' ? ' drop-target' : '')}
+              {...dropProps('+')}
+            >
+              Drop here to file under a new category
+            </div>
+          )}
+          {newCat?.skill && newCatForm}
+        </>
+      )}
+      {note && <div className="hub-msg err" style={{ marginTop: 12 }}>{note}</div>}
+      {data && data.errors.length > 0 && (
+        <div className="hub-msg err" style={{ marginTop: 12 }}>
+          {data.errors.length} skill file{data.errors.length === 1 ? '' : 's'} couldn’t be read:{' '}
+          {data.errors.map((e) => e.id).join(', ')}
+        </div>
+      )}
+    </Panel>
   );
 }
 
@@ -770,8 +1369,24 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
   const [token, setToken] = useState<IngestToken | null>(null);
   const [editText, setEditText] = useState<string | null>(null);
   const [showPerms, setShowPerms] = useState(false);
+  const [showLook, setShowLook] = useState(false);
 
   const hasAgentSurface = c.actions > 0 || ((c.mcp || c.discover) && c.renders_policy);
+
+  // Rail identity. Writes ui.icon / ui.color to the manifest (the source of
+  // truth /api/apps reads); null clears one back to the stable auto-pick.
+  // `ava:apps-changed` makes the sidebar redraw without a reload.
+  const setLook = useCallback(async (patch: { icon?: string | null; color?: string | null }) => {
+    setBusy(true); setErr(''); setMsg('');
+    try {
+      const r = await hub.setAppearance(c.id, patch);
+      if (r.ok) {
+        window.dispatchEvent(new Event('ava:apps-changed'));
+        onChanged();
+      } else setErr(r.error || 'could not update appearance');
+    } catch (e) { setErr((e as Error).message); }
+    setBusy(false);
+  }, [c.id, onChanged]);
 
   const toggleEnabled = useCallback(async () => {
     setBusy(true); setErr('');
@@ -874,6 +1489,13 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
               {c.enabled ? 'Disable' : 'Enable'}
             </button>
           )}
+          {c.app && !c.builtin && (
+            <button className="hub-btn ghost sm" onClick={() => setShowLook((v) => !v)} disabled={busy}
+              aria-expanded={showLook}
+              title="Pick this app's sidebar icon and accent color">
+              <Icon name={appIcon({ id: c.id, icon: c.icon })} />Appearance
+            </button>
+          )}
           {!c.builtin && (
             <button className="hub-btn ghost sm" onClick={openEdit} disabled={busy} title="Edit this connector's manifest">
               <Icon name="pencil" />Edit
@@ -887,12 +1509,60 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
         </div>
       </div>
       <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
-        {c.enabled ? <Badge tone="ok">enabled</Badge> : <Badge tone="warn">disabled</Badge>}
+        {c.enabled ? <Badge tone="ok">enabled</Badge> : <Badge tone="muted">disabled</Badge>}
         {c.builtin && <Badge>built-in</Badge>}
         {c.actions > 0 && <Badge tone="accent">{c.actions} action{c.actions === 1 ? '' : 's'}</Badge>}
         {c.actions > 0 && (c.has_tools ? <Badge tone="ok">tools ok</Badge> : <Badge tone="warn">tools stale</Badge>)}
         {c.renders_policy && (c.has_policy ? <Badge tone="ok">policy ok</Badge> : <Badge tone="warn">policy stale</Badge>)}
       </div>
+      {showLook && (
+        <div className="app-look" style={{ marginTop: 10 }}>
+          <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--muted)', marginBottom: 6 }}>
+            How <b>{c.label}</b> looks in the sidebar. Unset uses a stable pick from the
+            app’s id, so every app differs without configuring anything.
+          </div>
+          <div className="app-look-row">
+            {APP_ICONS.map((n) => (
+              <button
+                key={n}
+                className={'app-look-ic' + (c.icon === n ? ' on' : '')}
+                style={{ color: appAccent({ id: c.id, color: c.color }) }}
+                disabled={busy}
+                aria-label={`Icon: ${n}`}
+                aria-pressed={c.icon === n}
+                title={n}
+                onClick={() => setLook({ icon: n })}
+              >
+                <Icon name={n} />
+              </button>
+            ))}
+          </div>
+          <div className="app-look-row" style={{ marginTop: 8 }}>
+            {ACCENT_SLOTS.map((i) => {
+              const v = `var(--app-accent-${i})`;
+              return (
+                <button
+                  key={i}
+                  className={'app-look-sw' + (c.color === v ? ' on' : '')}
+                  style={{ background: v }}
+                  disabled={busy}
+                  aria-label={`Accent color ${i + 1}`}
+                  aria-pressed={c.color === v}
+                  onClick={() => setLook({ color: v })}
+                />
+              );
+            })}
+          </div>
+          <div className="hub-btn-row" style={{ marginTop: 8 }}>
+            <button className="hub-btn ghost sm" disabled={busy || (!c.icon && !c.color)}
+              onClick={() => setLook({ icon: null, color: null })}
+              title="Clear both overrides — back to the automatic icon and color">
+              <Icon name="refresh" />Reset to auto
+            </button>
+            <button className="hub-btn ghost sm" onClick={() => setShowLook(false)} disabled={busy}>Done</button>
+          </div>
+        </div>
+      )}
       {editText != null && (
         <div style={{ marginTop: 10 }}>
           <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--muted)', marginBottom: 6 }}>
@@ -1507,7 +2177,7 @@ function VoicePanel({ onRestart }: { onRestart: () => void }) {
             <dt>Voice feature</dt>
             <dd>{st.enabled ? <Badge tone="ok">on</Badge> : (
               <span>
-                <Badge tone="warn">off</Badge>{' '}
+                <Badge tone="muted">off</Badge>{' '}
                 <button className="hub-btn ghost sm" style={{ marginLeft: 8 }} onClick={enableVoice} disabled={busy}>Enable</button>
               </span>
             )}</dd>
@@ -1843,6 +2513,8 @@ function SystemPanel({ onRestart }: { onRestart: () => void }) {
     { id: 'none', title: 'Auto-apply', sub: 'Trusted box — all non-secret edits commit automatically.' },
   ];
 
+  const overrides = Object.entries(sys?.env_overrides || {});
+
   return (
     <>
       <Panel title="About" subtitle="Your instance">
@@ -1852,6 +2524,16 @@ function SystemPanel({ onRestart }: { onRestart: () => void }) {
             <dt>Version</dt><dd>{sys.version}</dd>
           </dl>
         ) : <EmptyState text="Loading…" />}
+        {overrides.length > 0 && (
+          <div className="hub-note" style={{ marginTop: 14 }}>
+            <b>Environment overrides active:</b> {overrides.map(([k, v]) => (
+              <span key={k} style={{ marginRight: 8 }}><code>{v}</code> ({k.replace(/_/g, ' ')})</span>
+            ))}
+            — these env vars shadow ava.yaml, so edits to the matching settings
+            below apply live but revert to the env value on restart. Unset the
+            variable in your launch command/unit to make yaml wins stick.
+          </div>
+        )}
       </Panel>
 
       <div className="hub-section" />
@@ -1890,46 +2572,34 @@ function SystemPanel({ onRestart }: { onRestart: () => void }) {
 
       <div className="hub-section" />
       <Panel title="Optional features" subtitle="All off by default so a fresh install stays minimal.">
-        {sys && (
-          <>
-            <label className="hub-check">
-              <input type="checkbox" checked={sys.image} disabled={busy}
-                onChange={(e) => saveFeatures({ image: e.target.checked })} />
-              <span className="hub-check-main">
-                <span className="hub-check-title">Image / video generation</span>
-                <span className="hub-check-sub">via the the GPU service connector</span>
-              </span>
-            </label>
-            <label className="hub-check">
-              <input type="checkbox" checked={sys.web_search} disabled={busy}
-                onChange={(e) => saveFeatures({ web_search: e.target.checked })} />
-              <span className="hub-check-main">
-                <span className="hub-check-title">Web search</span>
-                <span className="hub-check-sub">self-hosted SearXNG + guarded fetch</span>
-              </span>
-            </label>
-            <label className="hub-check">
-              <input type="checkbox" checked={sys.voice} disabled={busy}
-                onChange={(e) => saveFeatures({ voice: e.target.checked })} />
-              <span className="hub-check-main">
-                <span className="hub-check-title">Voice</span>
-                <span className="hub-check-sub">
-                  push-to-talk (needs requirements-voice.txt).{' '}
-                  {sys.voice && (sys.voiceprint
+        {sys && (sys.features || []).map((f) => (
+          // Rendered straight from the backend capability registry
+          // (ava_bridge/features.py) — a newly registered capability gets its
+          // checkbox here with no UI change. Per-key extras (like the voice
+          // enrollment badge) hang off the key below.
+          <label className="hub-check" key={f.key}>
+            <input type="checkbox" checked={f.enabled} disabled={busy}
+              onChange={(e) => saveFeatures({ [f.key]: e.target.checked })} />
+            <span className="hub-check-main">
+              <span className="hub-check-title">{f.label}</span>
+              <span className="hub-check-sub">
+                {f.sub}
+                {f.key === 'voice' && f.enabled && (
+                  <>{' '}{sys.voiceprint
                     ? <Badge tone="ok">voiceprint enrolled</Badge>
-                    : <Badge tone="warn">no voiceprint — enroll on the Voice tab</Badge>)}
-                </span>
+                    : <Badge tone="warn">no voiceprint — enroll on the Voice tab</Badge>}</>
+                )}
               </span>
-            </label>
-          </>
-        )}
+            </span>
+          </label>
+        ))}
       </Panel>
 
       <div className="hub-section" />
       <Panel title="Learning" subtitle="Periodic local-first self-analysis that parks improvement proposals for your approval.">
         {sys && (
           <dl className="hub-kv">
-            <dt>Status</dt><dd>{sys.learning_enabled ? <Badge tone="ok">on · every {sys.learning_interval_h}h</Badge> : <Badge tone="warn">off</Badge>}</dd>
+            <dt>Status</dt><dd>{sys.learning_enabled ? <Badge tone="ok">on · every {sys.learning_interval_h}h</Badge> : <Badge tone="muted">off</Badge>}</dd>
             <dt>Proposals</dt><dd><span style={{ color: 'var(--muted)' }}>Review &amp; run cycles on the Operations → Control Center page.</span></dd>
           </dl>
         )}
@@ -1943,7 +2613,15 @@ function SystemPanel({ onRestart }: { onRestart: () => void }) {
 // Main
 // ─────────────────────────────────────────────────────────────────────────────
 export function HubView() {
-  const [tab, setTab] = useState<TabId>('overview');
+  // Tab lives in the URL hash so it survives a refresh (#hub/<tab>).
+  const [tab, setTabState] = useState<TabId>(() => tabFromHash());
+  const setTab = useCallback((t: TabId) => { setTabState(t); writeTabHash(t); }, []);
+  // Back/forward and manual hash edits move the tab too.
+  useEffect(() => {
+    const onHash = () => setTabState(tabFromHash());
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
   const [restart, setRestart] = useState(false);
   const [brand, setBrand] = useState('Ava');
   useEffect(() => { api.brand().then((b) => b?.name && setBrand(b.name)).catch(() => {}); }, []);
