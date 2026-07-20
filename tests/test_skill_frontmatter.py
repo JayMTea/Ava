@@ -5,6 +5,7 @@ a malformed or metadata-less SKILL.md would appear as a broken card. This is the
 runs anywhere (no bridge, no sandbox) and fails with instructions.
 """
 import pathlib
+import re
 import subprocess
 
 import pytest
@@ -48,6 +49,26 @@ def test_every_shipped_skill_has_valid_frontmatter():
     assert not bad, (
         "these SKILL.md files lack valid frontmatter (need a `name:` and "
         f"`description:` between --- fences so the Agent tab can show them): {bad}"
+    )
+
+
+@pytest.mark.skipif(yaml is None, reason="pyyaml not installed")
+def test_shipped_skill_icons_exist_in_the_icon_set():
+    # A skill may only name a glyph the frontend actually ships: an unknown name
+    # renders nothing, silently, in the Agent tab (an `icon: email` once did
+    # exactly that — the set has no envelope). Guard: every declared icon must be
+    # a key of ICONS in frontend/src/lib/icons.tsx.
+    icons_src = (ROOT / "frontend/src/lib/icons.tsx").read_text(encoding="utf-8")
+    known = set(re.findall(r"^  ([A-Za-z][A-Za-z0-9_]*):$", icons_src, re.M))
+    assert known, "could not parse ICONS from frontend/src/lib/icons.tsx"
+    offenders = []
+    for f in _tracked_skill_files():
+        icon = (_frontmatter(f.read_text(encoding="utf-8")) or {}).get("icon")
+        if icon and icon not in known:
+            offenders.append(f"{f.parent.name} (icon: {icon})")
+    assert not offenders, (
+        "these skills declare an icon the frontend does not ship, so their card "
+        f"renders no glyph: {offenders}. Use one of: {sorted(known)}"
     )
 
 

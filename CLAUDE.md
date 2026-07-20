@@ -44,7 +44,10 @@ Any user-facing optional capability lives in `ava_bridge/features.py`:
   `ui.color` back to the manifest — the single source of truth.
 - Frontend changes only take effect via the built bundle: run
   `cd frontend && npm run build` (includes tsc). Verify UI changes with the
-  `verify` skill (headless Chromium + mocked fixtures in `marketing/`).
+  whole-app suite: `qa/run.sh --backend` (pytest tiers, no browser) or
+  `qa/run.sh` for the Playwright tier against a real bridge subprocess. The
+  fixture-contract test additionally needs an owner-local capture harness and
+  skips cleanly without it.
 - Python: `ruff check`, tests with `python -m pytest tests/ -q`.
 - Convention guards follow the `tests/test_diagram_sync.py` style: static
   scans over `git ls-files` that run anywhere, failing with instructions.
