@@ -8,12 +8,14 @@ import { MarkdownLite } from '../../lib/markdown';
 import { ago, EmptyState, Panel } from '../dashboard/primitives';
 import { api } from '../../lib/api';
 import { MemoryPanel } from './MemoryPanel';
+import { useAction, useResource } from './hooks';
+import { HubMessage } from './ui/HubMessage';
 import { hub } from './hubApi';
 import type {
-  AgentStatus, AuditEvent, Backend, BackendList, BackendProbe, BackendTestResult, BenchResult,
-  BenchStatus, ConnectorLoadError, CostSettings, DeviceEvent, EnrollResult, GenerateResult,
-  GrantAction, HardwareInfo, HubConnector, IngestToken, ModelStore,
-  NewConnectorBody, PendingApproval, ProbeResult, PullStatus, Skill, SkillList, SystemInfo, VoiceStatus,
+  AuditEvent, Backend, BackendTestResult, BenchResult,
+  CostSettings, DeviceEvent, EnrollResult, GenerateResult,
+  GrantAction, HubConnector, IngestToken,
+  NewConnectorBody, PendingApproval, ProbeResult, PullStatus, Skill, SkillList,
 } from './hubApi';
 
 // Engine presets for the "add a model" form: label + default OpenAI-compatible
@@ -145,20 +147,13 @@ const isExternalApp = (c: HubConnector): boolean => !INTERNAL_KINDS.has(c.kind);
 // Overview
 // ─────────────────────────────────────────────────────────────────────────────
 function Overview({ onGo }: { onGo: (t: TabId) => void }) {
-  const [sys, setSys] = useState<SystemInfo | null>(null);
-  const [agent, setAgent] = useState<AgentStatus | null>(null);
-  const [conns, setConns] = useState<HubConnector[]>([]);
-  const [backends, setBackends] = useState<BackendProbe | null>(null);
-  const [hw, setHw] = useState<HardwareInfo | null>(null);
+  const { data: sys } = useResource(() => hub.system());
+  const { data: agent } = useResource(() => hub.agentStatus());
+  const { data: connsData } = useResource(() => hub.connectors());
+  const { data: backends } = useResource(() => hub.backends());
+  const { data: hw } = useResource(() => hub.hardware());
 
-  useEffect(() => {
-    hub.system().then(setSys).catch(() => {});
-    hub.agentStatus().then(setAgent).catch(() => {});
-    hub.connectors().then((r) => setConns(r.connectors)).catch(() => {});
-    hub.backends().then(setBackends).catch(() => {});
-    hub.hardware().then(setHw).catch(() => {});
-  }, []);
-
+  const conns = connsData?.connectors ?? [];
   const engineUp = backends && (backends.vllm || backends.ollama);
   const enabledConns = conns.filter((c) => c.enabled && isExternalApp(c)).length;
 
@@ -209,9 +204,7 @@ function Overview({ onGo }: { onGo: (t: TabId) => void }) {
 // Models
 // ─────────────────────────────────────────────────────────────────────────────
 function HardwarePanel() {
-  const [hw, setHw] = useState<HardwareInfo | null>(null);
-
-  useEffect(() => { hub.hardware().then(setHw).catch(() => {}); }, []);
+  const { data: hw } = useResource(() => hub.hardware());
 
   return (
     <Panel title="Your hardware"
@@ -242,8 +235,6 @@ function HardwarePanel() {
 // (local engines or any cloud provider), test each before committing, and pick
 // which one is Ava's brain. Cloud keys go to the secrets store, never ava.yaml.
 function BrainManager({ onRestart }: { onRestart: () => void }) {
-  const [list, setList] = useState<BackendList | null>(null);
-  const [be, setBe] = useState<BackendProbe | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [showForm, setShowForm] = useState(false);
@@ -258,25 +249,20 @@ function BrainManager({ onRestart }: { onRestart: () => void }) {
   const [makeBrain, setMakeBrain] = useState(false);
   const [test, setTest] = useState<BackendTestResult | null>(null);
   const [testing, setTesting] = useState(false);
+
+  const { data: list, reload: load } = useResource(() => hub.backendList());
+  const { data: be } = useResource(() => hub.backends());
   // The agent sandbox's own model: while the agent runtime is active, THAT is
   // what chat turns think with — the backends below only serve the tool-less
   // fallback and router roles. Without pinning it here, this panel reads
   // "no model linked" on a machine where Ava is plainly answering.
-  const [agent, setAgent] = useState<AgentStatus | null>(null);
+  const { data: agent } = useResource(() => hub.agentStatus());
   // The router's live route: when nothing is configured it serves a built-in
   // default (`implicit`) — with the agent off, THAT is the operative brain.
-  const [route, setRoute] = useState<{ backends?: { id: string; label: string; model: string; implicit?: boolean }[] } | null>(null);
+  const { data: route } = useResource(() => api.getModel());
 
   const preset = ENGINE_PRESETS.find((p) => p.value === engine) ?? ENGINE_PRESETS[0];
   const isCloud = !!preset.cloud;
-
-  const load = useCallback(() => { hub.backendList().then(setList).catch(() => {}); }, []);
-  useEffect(() => {
-    load();
-    hub.backends().then(setBe).catch(() => {});
-    hub.agentStatus().then(setAgent).catch(() => {});
-    api.getModel().then(setRoute).catch(() => {});
-  }, [load]);
 
   const resetForm = useCallback(() => {
     setEditing(null); setId(''); setEngine('ollama');
@@ -486,13 +472,12 @@ function BrainManager({ onRestart }: { onRestart: () => void }) {
 }
 
 function ModelStorePanel() {
-  const [store, setStore] = useState<ModelStore | null>(null);
+  const { data: store, reload: load } = useResource(() => hub.models());
   const [pull, setPull] = useState<PullStatus | null>(null);
   const [msg, setMsg] = useState('');
   const logRef = useRef<HTMLPreElement>(null);
 
-  const load = useCallback(() => { hub.models().then(setStore).catch(() => {}); }, []);
-  useEffect(() => { load(); hub.pullStatus().then(setPull).catch(() => {}); }, [load]);
+  useEffect(() => { hub.pullStatus().then(setPull).catch(() => {}); }, []);
 
   // Poll while a pull runs; refresh the list when it finishes.
   useEffect(() => {
@@ -630,11 +615,9 @@ function BenchTable({ results, winner }: { results: BenchResult[]; winner?: stri
 }
 
 function BenchPanel() {
-  const [bench, setBench] = useState<BenchStatus | null>(null);
+  const { data: bench, setData: setBench } = useResource(() => hub.benchStatus());
   const [prompt, setPrompt] = useState('');
   const [msg, setMsg] = useState('');
-  const load = useCallback(() => { hub.benchStatus().then(setBench).catch(() => {}); }, []);
-  useEffect(() => { load(); }, [load]);
   useEffect(() => {
     if (bench?.status !== 'running') return;
     const t = setInterval(() => hub.benchStatus().then(setBench).catch(() => {}), 1200);
@@ -731,14 +714,12 @@ function StatRow({ label, value, tone }: { label: string; value: React.ReactNode
 }
 
 function AgentPanel({ onRestart }: { onRestart: () => void }) {
-  const [st, setSt] = useState<AgentStatus | null>(null);
+  const { data: st, reload: load } = useResource(() => hub.agentStatus());
   const [steps, setSteps] = useState<{ step: string; ok: boolean; detail: string }[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [detail, setDetail] = useState('');
 
-  const load = useCallback(() => { hub.agentStatus().then(setSt).catch(() => {}); }, []);
-  useEffect(() => { load(); }, [load]);
-
+  // Provision is bespoke — it renders a step list, not a one-line message.
   const provision = useCallback(async () => {
     setBusy(true); setSteps(null); setDetail('');
     try {
@@ -2066,18 +2047,15 @@ function DeviceVerify({ cid, name, onClose }: { cid: string; name: string; onClo
 }
 
 function ConnectorsPanel() {
-  const [conns, setConns] = useState<HubConnector[] | null>(null);
-  const [loadErr, setLoadErr] = useState('');
-  const [badManifests, setBadManifests] = useState<ConnectorLoadError[]>([]);
-  const load = useCallback(() => {
-    // Connect/edit/remove may have changed the app registry — tell the shell
-    // so a new tile appears in the rail without a page refresh.
+  // The fetcher fires `ava:apps-changed` on mount and every reload (connect /
+  // edit / remove may have changed the app registry) so the rail redraws
+  // without a page refresh — same as the old hand-rolled load.
+  const { data: raw, error: loadErr, reload: load } = useResource(() => {
     window.dispatchEvent(new Event('ava:apps-changed'));
-    hub.connectors()
-      .then((r) => { setConns(r.connectors.filter(isExternalApp)); setBadManifests(r.errors || []); setLoadErr(''); })
-      .catch((e) => { setLoadErr((e as Error).message || 'could not load connectors'); });
-  }, []);
-  useEffect(() => { load(); }, [load]);
+    return hub.connectors();
+  });
+  const conns = raw ? raw.connectors.filter(isExternalApp) : null;
+  const badManifests = raw?.errors ?? [];
   return (
     <>
       <NewConnectorForm onCreated={load} />
@@ -2171,7 +2149,10 @@ const ENROLL_PHRASES = [
 ];
 
 function VoicePanel({ onRestart }: { onRestart: () => void }) {
-  const [st, setSt] = useState<VoiceStatus | null>(null);
+  // Status loads via the shared hook; the recording flow below keeps its own
+  // busy/msg state — it's a bespoke state machine (clip capture, mic errors),
+  // not a one-shot action, and all its messages are errors.
+  const { data: st, reload: load } = useResource(() => hub.voiceStatus());
   const [clips, setClips] = useState<Blob[]>([]);
   const [result, setResult] = useState<EnrollResult | null>(null);
   const [testSim, setTestSim] = useState<number | null>(null);
@@ -2179,9 +2160,6 @@ function VoicePanel({ onRestart }: { onRestart: () => void }) {
   const [msg, setMsg] = useState('');
   const rec = useRecorder();
   const [mode, setMode] = useState<'enroll' | 'test' | null>(null);
-
-  const load = useCallback(() => { hub.voiceStatus().then(setSt).catch(() => {}); }, []);
-  useEffect(() => { load(); }, [load]);
 
   const toggleRecord = useCallback(async (m: 'enroll' | 'test') => {
     setMsg('');
@@ -2399,38 +2377,31 @@ function BudgetMeter({ label, used, cap, unit, rate }: {
 }
 
 function BudgetsPanel() {
-  const [c, setC] = useState<CostSettings | null>(null);
+  const { data: c, reload } = useResource(() => hub.cost());
   const [rate, setRate] = useState('');
   const [du, setDu] = useState('');
   const [mu, setMu] = useState('');
   const [dk, setDk] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState('');
+  const { busy, message, run } = useAction();
 
-  const load = useCallback(() => {
-    hub.cost().then((r) => {
-      setC(r);
-      setRate(String(r.electricity_rate_per_kwh ?? ''));
-      setDu(r.budgets.daily_usd != null ? String(r.budgets.daily_usd) : '');
-      setMu(r.budgets.monthly_usd != null ? String(r.budgets.monthly_usd) : '');
-      setDk(r.budgets.daily_kwh != null ? String(r.budgets.daily_kwh) : '');
-    }).catch(() => {});
-  }, []);
-  useEffect(() => { load(); }, [load]);
+  // Seed the editable fields from the loaded settings (and re-seed after a save).
+  useEffect(() => {
+    if (!c) return;
+    setRate(String(c.electricity_rate_per_kwh ?? ''));
+    setDu(c.budgets.daily_usd != null ? String(c.budgets.daily_usd) : '');
+    setMu(c.budgets.monthly_usd != null ? String(c.budgets.monthly_usd) : '');
+    setDk(c.budgets.daily_kwh != null ? String(c.budgets.daily_kwh) : '');
+  }, [c]);
 
-  const save = useCallback(async () => {
-    setBusy(true); setMsg('');
+  const save = () => run(async () => {
     const num = (s: string) => (s.trim() === '' ? null : Number(s));
-    try {
-      const r = await hub.saveCost({
-        electricity_rate_per_kwh: rate.trim() === '' ? 0 : Number(rate),
-        budgets: { daily_usd: num(du), monthly_usd: num(mu), daily_kwh: num(dk) },
-      } as Partial<CostSettings>);
-      if (r.error) setMsg(r.error);
-      else { setMsg('Saved.'); load(); }
-    } catch (e) { setMsg((e as Error).message); }
-    setBusy(false);
-  }, [rate, du, mu, dk, load]);
+    const r = await hub.saveCost({
+      electricity_rate_per_kwh: rate.trim() === '' ? 0 : Number(rate),
+      budgets: { daily_usd: num(du), monthly_usd: num(mu), daily_kwh: num(dk) },
+    } as Partial<CostSettings>);
+    if (r.error) return r.error;
+    reload();
+  }, 'Saved.');
 
   const anyCap = c && (c.budgets.daily_usd != null || c.budgets.monthly_usd != null || c.budgets.daily_kwh != null);
 
@@ -2476,7 +2447,7 @@ function BudgetsPanel() {
         <div className="hub-btn-row">
           <button className="hub-btn" onClick={save} disabled={busy}><Icon name="check" />{busy ? 'Saving…' : 'Save budgets'}</button>
         </div>
-        {msg && <div className={'hub-msg' + (msg === 'Saved.' ? ' ok' : ' err')}>{msg}</div>}
+        <HubMessage message={message} />
 
         <div className="conn-legend">
           <div className="conn-legend-title">How budgets work</div>
@@ -2575,14 +2546,9 @@ const HISTORY_CATS: { id: string; label: string; kinds: string[] }[] = [
 ];
 
 function HistoryPanel() {
-  const [events, setEvents] = useState<AuditEvent[] | null>(null);
   const [cat, setCat] = useState('');
-  const [err, setErr] = useState('');
-  const load = useCallback(() => {
-    setErr('');
-    hub.audit(300).then((r) => setEvents(r.events)).catch((e) => setErr((e as Error).message));
-  }, []);
-  useEffect(() => { load(); }, [load]);
+  const { data: audit, error: err, reload: load } = useResource(() => hub.audit(300));
+  const events = audit?.events ?? null;
 
   const kinds = HISTORY_CATS.find((c) => c.id === cat)?.kinds ?? [];
   const shown = events && (kinds.length ? events.filter((e) => kinds.includes(e.kind)) : events);
@@ -2677,50 +2643,30 @@ const APPROVALS: { id: string; title: string; sub: string; icon: string }[] = [
 ];
 
 function SystemPanel({ onRestart }: { onRestart: () => void }) {
-  const [sys, setSys] = useState<SystemInfo | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState('');
-  const [msgOk, setMsgOk] = useState(false);
-  const note = (text: string, ok = false) => { setMsg(text); setMsgOk(ok); };
+  const { data: sys, reload, setData: setSys } = useResource(() => hub.system());
+  const { busy, message, setMessage, run } = useAction();
 
-  const load = useCallback(() => { hub.system().then(setSys).catch(() => {}); }, []);
-  useEffect(() => { load(); }, [load]);
+  const setApproval = (mode: string) => run(async () => {
+    const r = await hub.setApproval(mode);
+    if (r.error) return r.error;
+    setSys((s) => (s ? { ...s, code_approval: mode } : s));
+    // Approval now applies live (no restart); only nudge a restart if the
+    // backend still asks for one — and only claim "in effect now" when it is.
+    if (r.restart_required) onRestart();
+    else setMessage({ text: 'Saved — in effect now.', ok: true });
+  });
 
-  const setApproval = useCallback(async (mode: string) => {
-    setBusy(true); setMsg('');
-    try {
-      const r = await hub.setApproval(mode);
-      if (r.error) note(r.error);
-      else {
-        setSys((s) => (s ? { ...s, code_approval: mode } : s));
-        // Approval now applies live (no restart); only nudge a restart if the
-        // backend still asks for one.
-        if (r.restart_required) onRestart();
-        else note('Saved — in effect now.', true);
-      }
-    } catch (e) { note((e as Error).message); }
-    setBusy(false);
-  }, [onRestart]);
+  const saveFeatures = (patch: Record<string, boolean>) => run(async () => {
+    const r = await hub.save({ features: patch });
+    if (r.error) return r.error;
+    reload(); onRestart();
+  });
 
-  const saveFeatures = useCallback(async (patch: Record<string, boolean>) => {
-    setBusy(true); setMsg('');
-    try {
-      const r = await hub.save({ features: patch });
-      if (r.error) note(r.error);
-      else { load(); onRestart(); }
-    } catch (e) { note((e as Error).message); }
-    setBusy(false);
-  }, [load, onRestart]);
-
-  const setRetention = useCallback(async (days: number) => {
-    setBusy(true); setMsg('');
-    try {
-      const r = await hub.setRetention(days);
-      if (r.error) note(r.error);
-      else { setSys((s) => (s ? { ...s, retention_days: days } : s)); onRestart(); }
-    } catch (e) { note((e as Error).message); }
-    setBusy(false);
-  }, [onRestart]);
+  const setRetention = (days: number) => run(async () => {
+    const r = await hub.setRetention(days);
+    if (r.error) return r.error;
+    setSys((s) => (s ? { ...s, retention_days: days } : s)); onRestart();
+  });
 
   const overrides = Object.entries(sys?.env_overrides || {});
 
@@ -2819,7 +2765,7 @@ function SystemPanel({ onRestart }: { onRestart: () => void }) {
           </dl>
         )}
       </Panel>
-      {msg && <div className={'hub-msg ' + (msgOk ? 'ok' : 'err')}>{msg}</div>}
+      <HubMessage message={message} />
     </>
   );
 }

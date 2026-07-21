@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Icon } from '../../lib/icons';
 import { RowMenu, type MenuAction } from '../../lib/RowMenu';
 import { EmptyState, Panel } from '../dashboard/primitives';
+import { useAction, useResource } from './hooks';
+import { HubMessage } from './ui/HubMessage';
 import { hub } from './hubApi';
-import type { MemoryCounts, MemoryItem } from './hubApi';
+import type { MemoryItem } from './hubApi';
 
 // Memory — everything Ava remembers long-term, readable and correctable.
 // Facts come from the learning cycle's distiller or manual entry; doc chunks
@@ -22,59 +24,50 @@ function memoryType(m: MemoryItem): { icon: string; label: string } {
 }
 
 export function MemoryPanel() {
-  const [items, setItems] = useState<MemoryItem[] | null>(null);
-  const [counts, setCounts] = useState<MemoryCounts | null>(null);
-  const [enabled, setEnabled] = useState(true);
   const [q, setQ] = useState('');
   const [query, setQuery] = useState(''); // committed search
   const [kind, setKind] = useState('');
   const [newFact, setNewFact] = useState('');
   const [editId, setEditId] = useState<number | null>(null);
   const [editText, setEditText] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState('');
+  const { data: mem, reload, setData: setMem, error } = useResource(() => hub.memory(query, kind), [query, kind]);
+  const { busy, message, run } = useAction();
 
-  const load = useCallback(() => {
-    setMsg('');
-    hub.memory(query, kind).then((r) => {
-      setItems(r.items); setCounts(r.counts); setEnabled(r.enabled);
-    }).catch((e) => setMsg((e as Error).message));
-  }, [query, kind]);
-  useEffect(() => { load(); }, [load]);
+  const items = mem?.items ?? null;
+  const counts = mem?.counts ?? null;
+  const enabled = mem?.enabled ?? true;
+  const patchItems = (fn: (xs: MemoryItem[]) => MemoryItem[]) =>
+    setMem((m) => (m ? { ...m, items: fn(m.items) } : m));
 
-  const add = useCallback(async () => {
+  const add = () => {
     const text = newFact.trim();
     if (!text) return;
-    setBusy(true); setMsg('');
-    try {
+    run(async () => {
       const r = await hub.addMemory(text);
-      if (r.error) setMsg(r.error);
-      else { setNewFact(''); load(); }
-    } catch (e) { setMsg((e as Error).message); }
-    setBusy(false);
-  }, [newFact, load]);
+      if (r.error) return r.error;
+      setNewFact(''); reload();
+    });
+  };
 
-  const saveEdit = useCallback(async () => {
+  const saveEdit = () => {
     if (editId == null) return;
-    setBusy(true); setMsg('');
-    try {
+    run(async () => {
       const r = await hub.updateMemory(editId, { text: editText });
-      if (r.error) setMsg(r.error);
-      else { setEditId(null); load(); }
-    } catch (e) { setMsg((e as Error).message); }
-    setBusy(false);
-  }, [editId, editText, load]);
+      if (r.error) return r.error;
+      setEditId(null); reload();
+    });
+  };
 
-  const togglePin = useCallback(async (m: MemoryItem) => {
-    setItems((xs) => xs?.map((x) => (x.id === m.id ? { ...x, pinned: !m.pinned } : x)) ?? null);
-    try { await hub.updateMemory(m.id, { pinned: !m.pinned }); } catch { load(); }
-  }, [load]);
+  const togglePin = async (m: MemoryItem) => {
+    patchItems((xs) => xs.map((x) => (x.id === m.id ? { ...x, pinned: !m.pinned } : x)));
+    try { await hub.updateMemory(m.id, { pinned: !m.pinned }); } catch { reload(); }
+  };
 
-  const remove = useCallback(async (m: MemoryItem) => {
-    setItems((xs) => xs?.filter((x) => x.id !== m.id) ?? null);
+  const remove = async (m: MemoryItem) => {
+    patchItems((xs) => xs.filter((x) => x.id !== m.id));
     try { await hub.deleteMemory(m.id); } catch { /* already gone is fine */ }
-    load();
-  }, [load]);
+    reload();
+  };
 
   const FILTERS: { id: string; label: string }[] = [
     { id: '', label: 'All' }, { id: 'fact', label: 'Facts' }, { id: 'doc', label: 'Documents' },
@@ -116,7 +109,7 @@ export function MemoryPanel() {
             <a className="hub-btn ghost sm" href="/api/hub/memory/export" download>
               <Icon name="file" />Export
             </a>
-            <button className="hub-btn ghost sm" onClick={load}><Icon name="refresh" />Refresh</button>
+            <button className="hub-btn ghost sm" onClick={reload}><Icon name="refresh" />Refresh</button>
           </span>
         }
       >
@@ -139,7 +132,8 @@ export function MemoryPanel() {
             </span>
           )}
         </div>
-        {msg && <div className="hub-msg err">{msg}</div>}
+        {error && <div className="hub-msg err">{error}</div>}
+        <HubMessage message={message} />
         {items == null ? <EmptyState text="Loading…" />
           : items.length === 0 ? (
             <EmptyState text={query
