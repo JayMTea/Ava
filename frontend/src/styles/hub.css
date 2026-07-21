@@ -182,6 +182,25 @@
 .hub-btn svg { width: 15px; height: 15px; }
 .hub-btn-row { display: flex; gap: 10px; margin-top: var(--sp-4); flex-wrap: wrap; }
 
+/* ---- identity tile (shared primitive — see ui/Tile.tsx) ---------------- */
+/* One rounded tinted glyph, sized by --tile-size, tinted by a semantic tone or
+   an explicit inline color (connectors pass their per-app accent). Replaces the
+   seven near-identical per-panel `-ic` classes. */
+.tile {
+  flex: 0 0 auto;
+  width: var(--tile-size, 30px); height: var(--tile-size, 30px);
+  border-radius: calc(var(--tile-size, 30px) * 0.26);
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--muted); background: var(--wash-6);
+}
+.tile svg { width: 52%; height: 52%; }
+.tile.tone-accent { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.tile.tone-ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 13%, transparent); }
+.tile.tone-warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 13%, transparent); }
+.tile.tone-err { color: var(--err); background: color-mix(in srgb, var(--err) 13%, transparent); }
+.tile.tone-info { color: var(--info); background: color-mix(in srgb, var(--info) 13%, transparent); }
+.tile.tone-muted { color: var(--muted); background: var(--wash-6); }
+
 /* ---- connector row (Connectors page) ----------------------------------- */
 /* One primary action + a couple of quiet ones + a "⋯" kebab. The action cluster
    can shrink and WRAP (flex 0 1 auto, not the old flex-shrink:0 that pinned it to
@@ -190,11 +209,6 @@
 .conn-row { border-bottom: 1px solid var(--line); padding: 14px 0; }
 .conn-row:last-child { border-bottom: 0; }
 .conn-head { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
-.conn-ic {
-  flex: 0 0 auto; width: 34px; height: 34px; border-radius: 9px;
-  display: inline-flex; align-items: center; justify-content: center;
-}
-.conn-ic svg { width: 18px; height: 18px; }
 .conn-id { flex: 1 1 240px; min-width: 0; }
 .conn-title-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .conn-title { color: var(--txt); font-size: var(--fs-sm); font-weight: var(--fw-medium); }
@@ -211,7 +225,7 @@
 .conn-stat.warn { color: var(--warn); }
 /* Dim only the identity when disabled — the Enable CTA in the action cluster
    stays at full strength so the way back on is never greyed out. */
-.conn-row.off .conn-ic,
+.conn-row.off .tile,
 .conn-row.off .conn-id { opacity: 0.55; }
 .conn-actions {
   flex: 0 1 auto; min-width: 0; margin-left: auto;
@@ -230,35 +244,35 @@
 
 /* Legend — a scannable term/description grid, not a paragraph pile-up. Each
    term echoes its button (icon + name) so the reference reads at a glance. */
-.conn-legend { margin-top: var(--sp-4); border-top: 1px solid var(--line); padding-top: var(--sp-4); }
-.conn-legend-title {
+.legend { margin-top: var(--sp-4); border-top: 1px solid var(--line); padding-top: var(--sp-4); }
+.legend-title {
   font-size: var(--fs-xs); font-weight: var(--fw-medium); color: var(--muted);
   text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px;
 }
-.conn-legend-grid {
+.legend-grid {
   display: grid; grid-template-columns: max-content 1fr; gap: 11px 16px;
   align-items: baseline; margin: 0;
 }
-.conn-legend-term {
+.legend-term {
   display: inline-flex; align-items: center; gap: 7px; white-space: nowrap;
   color: var(--txt); font-size: var(--fs-sm); font-weight: var(--fw-medium);
 }
-.conn-legend-term svg { width: 14px; height: 14px; color: var(--muted); flex: 0 0 auto; }
-.conn-legend-desc { margin: 0; color: var(--muted); font-size: var(--fs-xs); line-height: 1.55; }
-.conn-legend-desc b { color: var(--txt); font-weight: var(--fw-medium); }
-.conn-legend-foot {
+.legend-term svg { width: 14px; height: 14px; color: var(--muted); flex: 0 0 auto; }
+.legend-desc { margin: 0; color: var(--muted); font-size: var(--fs-xs); line-height: 1.55; }
+.legend-desc b { color: var(--txt); font-weight: var(--fw-medium); }
+.legend-foot {
   margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line);
   display: grid; gap: 4px; color: var(--muted); font-size: var(--fs-xs); line-height: 1.55;
 }
-.conn-legend-foot b { color: var(--txt); font-weight: var(--fw-medium); }
-.conn-legend-foot code {
+.legend-foot b { color: var(--txt); font-weight: var(--fw-medium); }
+.legend-foot code {
   font-family: var(--font-mono); font-size: 0.9em; color: var(--txt);
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-sm);
   padding: 1px 6px;
 }
 @media (max-width: 520px) {
-  .conn-legend-grid { grid-template-columns: 1fr; gap: 3px 0; }
-  .conn-legend-desc { margin-bottom: 10px; }
+  .legend-grid { grid-template-columns: 1fr; gap: 3px 0; }
+  .legend-desc { margin-bottom: 10px; }
 }
 
 /* ---- memory rows (Memory page) — same row grammar as connectors: typed
@@ -269,13 +283,7 @@
   padding: 13px 0; border-bottom: 1px solid var(--line);
 }
 .mem-row:last-child { border-bottom: 0; }
-.mem-ic {
-  flex: 0 0 auto; width: 30px; height: 30px; border-radius: 8px; margin-top: 1px;
-  display: inline-flex; align-items: center; justify-content: center;
-  color: var(--muted); background: var(--wash-6);
-}
-.mem-ic svg { width: 15px; height: 15px; }
-.mem-ic.pinned { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.mem-tile { margin-top: 1px; }
 .mem-body { flex: 1 1 300px; min-width: 0; }
 .mem-text { color: var(--txt); font-size: var(--fs-sm); line-height: 1.5; overflow-wrap: anywhere; }
 .mem-meta {
@@ -339,18 +347,7 @@
   padding: 12px 0; border-bottom: 1px solid var(--line);
 }
 .hist-row:last-child { border-bottom: 0; }
-.hist-ic {
-  flex: 0 0 auto; width: 28px; height: 28px; border-radius: 8px; margin-top: 1px;
-  display: inline-flex; align-items: center; justify-content: center;
-  color: var(--muted); background: var(--wash-6);
-}
-.hist-ic svg { width: 15px; height: 15px; }
-.hist-ic.tone-ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 13%, transparent); }
-.hist-ic.tone-accent { color: var(--accent); background: color-mix(in srgb, var(--accent) 13%, transparent); }
-.hist-ic.tone-warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 13%, transparent); }
-.hist-ic.tone-err { color: var(--err); background: color-mix(in srgb, var(--err) 13%, transparent); }
-.hist-ic.tone-info { color: var(--info); background: color-mix(in srgb, var(--info) 13%, transparent); }
-.hist-ic.tone-muted { color: var(--muted); background: var(--wash-6); }
+.hist-tile { margin-top: 1px; }
 .hist-body { flex: 1 1 auto; min-width: 0; }
 .hist-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .hist-title { color: var(--txt); font-size: var(--fs-sm); font-weight: var(--fw-medium); }
@@ -370,13 +367,6 @@
 .sys-gov-opt:hover:not(:disabled) { border-color: var(--muted); }
 .sys-gov-opt:disabled { opacity: 0.6; cursor: default; }
 .sys-gov-opt.sel { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
-.sys-gov-ic {
-  flex: 0 0 auto; width: 34px; height: 34px; border-radius: 9px;
-  display: inline-flex; align-items: center; justify-content: center;
-  color: var(--muted); background: var(--wash-6);
-}
-.sys-gov-opt.sel .sys-gov-ic { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
-.sys-gov-ic svg { width: 17px; height: 17px; }
 .sys-gov-txt { flex: 1 1 auto; min-width: 0; }
 .sys-gov-txt b { display: block; font-size: var(--fs-sm); font-weight: var(--fw-medium); }
 .sys-gov-txt small { color: var(--muted); font-size: var(--fs-xs); }
@@ -397,13 +387,6 @@
   padding: 12px 0; border-bottom: 1px solid var(--line); cursor: pointer;
 }
 .sys-feat:last-child { border-bottom: 0; }
-.sys-feat-ic {
-  flex: 0 0 auto; width: 32px; height: 32px; border-radius: 8px;
-  display: inline-flex; align-items: center; justify-content: center;
-  color: var(--muted); background: var(--wash-6);
-}
-.sys-feat.on .sys-feat-ic { color: var(--accent); background: color-mix(in srgb, var(--accent) 13%, transparent); }
-.sys-feat-ic svg { width: 16px; height: 16px; }
 .sys-feat-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .sys-feat-title { color: var(--txt); font-size: var(--fs-sm); font-weight: var(--fw-medium); }
 .sys-feat-sub { color: var(--muted); font-size: var(--fs-xs); }
@@ -448,12 +431,6 @@
   transition: border-color var(--dur-fast), background var(--dur-fast);
 }
 .ov-card:hover { border-color: var(--muted); background: var(--panel2); }
-.ov-card-ic {
-  flex: 0 0 auto; width: 40px; height: 40px; border-radius: 10px;
-  display: inline-flex; align-items: center; justify-content: center;
-  color: var(--accent); background: color-mix(in srgb, var(--accent) 13%, transparent);
-}
-.ov-card-ic svg { width: 20px; height: 20px; }
 .ov-card-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
 .ov-card-title { color: var(--txt); font-size: var(--fs-sm); font-weight: var(--fw-medium); }
 .ov-card-val { display: flex; }
@@ -469,12 +446,6 @@
   background: color-mix(in srgb, var(--accent) 8%, transparent);
   border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
 }
-.hw-hero-ic {
-  flex: 0 0 auto; width: 42px; height: 42px; border-radius: 11px;
-  display: inline-flex; align-items: center; justify-content: center;
-  color: var(--accent); background: color-mix(in srgb, var(--accent) 15%, transparent);
-}
-.hw-hero-ic svg { width: 22px; height: 22px; }
 .hw-hero-body { min-width: 0; }
 .hw-hero-tier { color: var(--txt); font-size: var(--fs-lg); font-weight: var(--fw-medium); text-transform: capitalize; }
 .hw-hero-hint { color: var(--muted); font-size: var(--fs-xs); margin-top: 2px; }

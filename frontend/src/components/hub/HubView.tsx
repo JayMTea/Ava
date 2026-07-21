@@ -10,6 +10,8 @@ import { api } from '../../lib/api';
 import { MemoryPanel } from './MemoryPanel';
 import { useAction, useResource } from './hooks';
 import { HubMessage } from './ui/HubMessage';
+import { Legend } from './ui/Legend';
+import { Tile, type Tone } from './ui/Tile';
 import { hub } from './hubApi';
 import type {
   AuditEvent, Backend, BackendTestResult, BenchResult,
@@ -159,7 +161,7 @@ function Overview({ onGo }: { onGo: (t: TabId) => void }) {
 
   const card = (t: TabId, icon: string, title: string, value: React.ReactNode, sub: string) => (
     <button className="ov-card" onClick={() => onGo(t)}>
-      <span className="ov-card-ic" aria-hidden="true"><Icon name={icon} /></span>
+      <Tile icon={icon} tone="accent" size={40} />
       <span className="ov-card-body">
         <span className="ov-card-title">{title}</span>
         <span className="ov-card-val">{value}</span>
@@ -212,7 +214,7 @@ function HardwarePanel() {
       {hw ? (
         <>
           <div className="hw-hero">
-            <span className="hw-hero-ic" aria-hidden="true"><Icon name="chart" /></span>
+            <Tile icon="chart" tone="accent" size={42} />
             <div className="hw-hero-body">
               <div className="hw-hero-tier">{hw.tier} tier</div>
               <div className="hw-hero-hint">{hw.hint}</div>
@@ -1507,10 +1509,7 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
   return (
     <div className={'conn-row' + (c.enabled ? '' : ' off')}>
       <div className="conn-head">
-        <span className="conn-ic" aria-hidden="true"
-          style={{ color: accent, background: `color-mix(in srgb, ${accent} 15%, transparent)` }}>
-          <Icon name={appIcon(ident)} />
-        </span>
+        <Tile icon={appIcon(ident)} color={accent} size={34} />
         <div className="conn-id">
           <div className="conn-title-row">
             <span className="conn-title">{c.label}</span>
@@ -2079,32 +2078,19 @@ function ConnectorsPanel() {
           : conns == null ? <EmptyState text="Loading connectors…" />
             : conns.length === 0 ? <EmptyState text="No connectors yet — create one above." />
               : conns.map((c) => <ConnectorRow key={c.id} c={c} onChanged={load} />)}
-        <div className="conn-legend">
-          <div className="conn-legend-title">What the actions do</div>
-          <dl className="conn-legend-grid">
-            <dt className="conn-legend-term"><Icon name="check" />Deploy</dt>
-            <dd className="conn-legend-desc">
-              Appears only when a connector's tools or egress policy are out of date — regenerates them into the
-              agent so Ava can use it. Up-to-date connectors read <b>deployed</b>; redeploy anytime from the ⋯ menu.
-            </dd>
-            <dt className="conn-legend-term"><Icon name="lock" />Permissions</dt>
-            <dd className="conn-legend-desc">
-              What Ava may do here — reads run silently, writes ask once, destructive actions always ask.
-            </dd>
-            <dt className="conn-legend-term"><Icon name="code" />Preview</dt>
-            <dd className="conn-legend-desc">
-              The tools and egress policy generated from the manifest, without touching the agent.
-            </dd>
-            <dt className="conn-legend-term"><Icon name="more" />More</dt>
-            <dd className="conn-legend-desc">
-              Push token, appearance, manifest editor, and disable&nbsp;/&nbsp;remove.
-            </dd>
-          </dl>
-          <div className="conn-legend-foot">
+        <Legend
+          title="What the actions do"
+          items={[
+            { icon: 'check', term: 'Deploy', desc: <>Appears only when a connector's tools or egress policy are out of date — regenerates them into the agent so Ava can use it. Up-to-date connectors read <b>deployed</b>; redeploy anytime from the ⋯ menu.</> },
+            { icon: 'lock', term: 'Permissions', desc: 'What Ava may do here — reads run silently, writes ask once, destructive actions always ask.' },
+            { icon: 'code', term: 'Preview', desc: 'The tools and egress policy generated from the manifest, without touching the agent.' },
+            { icon: 'more', term: 'More', desc: <>Push token, appearance, manifest editor, and disable&nbsp;/&nbsp;remove.</> },
+          ]}
+          foot={<>
             <div>Agent host unreachable from here? Run <code>cd agent &amp;&amp; ./install.sh</code> there to deploy.</div>
             <div>Docs — connectors: <b>docs/CONNECTOR_SDK.md</b> · hardware: <b>docs/DEVICE_CONNECTORS.md</b></div>
-          </div>
-        </div>
+          </>}
+        />
       </Panel>
     </>
   );
@@ -2449,19 +2435,15 @@ function BudgetsPanel() {
         </div>
         <HubMessage message={message} />
 
-        <div className="conn-legend">
-          <div className="conn-legend-title">How budgets work</div>
-          <dl className="conn-legend-grid">
-            <dt className="conn-legend-term"><Icon name="cloud" />Cloud $</dt>
-            <dd className="conn-legend-desc">Real API spend — only calls to a cloud model cost money. Everything Ava runs locally is free.</dd>
-            <dt className="conn-legend-term"><Icon name="gauge" />Local energy</dt>
-            <dd className="conn-legend-desc">GPU electricity at your rate{c && !c.power_measured ? ', estimated from GPU load until a power meter is present' : ''}.</dd>
-            <dt className="conn-legend-term"><Icon name="alert" />Alerts, not blocks</dt>
-            <dd className="conn-legend-desc">Nothing is ever stopped. Hitting a cap raises an alert on the <b>Operations</b> page at 80% and 100%.</dd>
-            <dt className="conn-legend-term"><Icon name="activity" />Idle-burn watch</dt>
-            <dd className="conn-legend-desc">Always on — flags more than ~5k tokens generated in 10 minutes while you're away ("what did it spend while I slept").</dd>
-          </dl>
-        </div>
+        <Legend
+          title="How budgets work"
+          items={[
+            { icon: 'cloud', term: 'Cloud $', desc: 'Real API spend — only calls to a cloud model cost money. Everything Ava runs locally is free.' },
+            { icon: 'gauge', term: 'Local energy', desc: `GPU electricity at your rate${c && !c.power_measured ? ', estimated from GPU load until a power meter is present' : ''}.` },
+            { icon: 'alert', term: 'Alerts, not blocks', desc: <>Nothing is ever stopped. Hitting a cap raises an alert on the <b>Operations</b> page at 80% and 100%.</> },
+            { icon: 'activity', term: 'Idle-burn watch', desc: 'Always on — flags more than ~5k tokens generated in 10 minutes while you\'re away ("what did it spend while I slept").' },
+          ]}
+        />
       </Panel>
     </>
   );
@@ -2475,7 +2457,7 @@ function BudgetsPanel() {
 // raw event names. Tone: accent = the agent changed something, warn/err =
 // permission or destructive, ok = a normal turn, muted = passive/system.
 // Unknown kinds fall back to a humanised label so nothing renders bare.
-const EVENT_META: Record<string, { icon: string; label: string; tone: string }> = {
+const EVENT_META: Record<string, { icon: string; label: string; tone: Tone }> = {
   turn: { icon: 'chats', label: 'Chat turn', tone: 'ok' },
   code_change: { icon: 'code', label: 'Self-edit', tone: 'accent' },
   egress: { icon: 'code', label: 'Tool call', tone: 'info' },
@@ -2579,7 +2561,7 @@ function HistoryPanel() {
               const detail = eventDetail(e);
               return (
                 <div key={i} className="hist-row">
-                  <span className={`hist-ic tone-${m.tone}`} aria-hidden="true"><Icon name={m.icon} /></span>
+                  <Tile icon={m.icon} tone={m.tone} size={28} className="hist-tile" />
                   <div className="hist-body">
                     <div className="hist-head">
                       <span className="hist-title">{m.label}</span>
@@ -2594,24 +2576,17 @@ function HistoryPanel() {
             })}
           </div>
         )}
-      <div className="conn-legend">
-        <div className="conn-legend-title">What's in the ledger</div>
-        <dl className="conn-legend-grid">
-          <dt className="conn-legend-term"><Icon name="chats" />Chats</dt>
-          <dd className="conn-legend-desc">Every message Ava answered — the model, tools used, and how long it took.</dd>
-          <dt className="conn-legend-term"><Icon name="code" />Self-edits</dt>
-          <dd className="conn-legend-desc">Changes the agent made to its own code, the commit, and who approved it.</dd>
-          <dt className="conn-legend-term"><Icon name="db" />Memory</dt>
-          <dd className="conn-legend-desc">Recalls folded into a reply, plus facts distilled from chats or edited by you.</dd>
-          <dt className="conn-legend-term"><Icon name="lock" />Permissions</dt>
-          <dd className="conn-legend-desc">Connector grants, revokes, and one-off approvals.</dd>
-          <dt className="conn-legend-term"><Icon name="activity" />System</dt>
-          <dd className="conn-legend-desc">Intent routing, media jobs, and data export / maintenance.</dd>
-        </dl>
-        <div className="conn-legend-foot">
-          <div>Append-only — nothing here can be altered after the fact. The full audit with export lives on the <b>Data</b> page.</div>
-        </div>
-      </div>
+      <Legend
+        title="What's in the ledger"
+        items={[
+          { icon: 'chats', term: 'Chats', desc: 'Every message Ava answered — the model, tools used, and how long it took.' },
+          { icon: 'code', term: 'Self-edits', desc: 'Changes the agent made to its own code, the commit, and who approved it.' },
+          { icon: 'db', term: 'Memory', desc: 'Recalls folded into a reply, plus facts distilled from chats or edited by you.' },
+          { icon: 'lock', term: 'Permissions', desc: 'Connector grants, revokes, and one-off approvals.' },
+          { icon: 'activity', term: 'System', desc: 'Intent routing, media jobs, and data export / maintenance.' },
+        ]}
+        foot={<div>Append-only — nothing here can be altered after the fact. The full audit with export lives on the <b>Data</b> page.</div>}
+      />
     </Panel>
   );
 }
@@ -2700,7 +2675,7 @@ function SystemPanel({ onRestart }: { onRestart: () => void }) {
             return (
               <button key={a.id} className={'sys-gov-opt' + (on ? ' sel' : '')}
                 disabled={busy} aria-pressed={on} onClick={() => setApproval(a.id)}>
-                <span className="sys-gov-ic"><Icon name={a.icon} /></span>
+                <Tile icon={a.icon} tone={on ? 'accent' : 'muted'} size={34} />
                 <span className="sys-gov-txt"><b>{a.title}</b><small>{a.sub}</small></span>
                 {on ? <span className="sys-gov-check"><Icon name="check" />Current</span> : <span className="sys-gov-pick">Use</span>}
               </button>
@@ -2738,7 +2713,7 @@ function SystemPanel({ onRestart }: { onRestart: () => void }) {
           // row here with no UI change. Per-key extras (like the voice
           // enrollment badge) hang off the key below.
           <label className={'sys-feat' + (f.enabled ? ' on' : '')} key={f.key}>
-            <span className="sys-feat-ic" aria-hidden="true"><Icon name={featureIcon(f.key)} /></span>
+            <Tile icon={featureIcon(f.key)} tone={f.enabled ? 'accent' : 'muted'} size={32} />
             <span className="sys-feat-main">
               <span className="sys-feat-title">{f.label}</span>
               <span className="sys-feat-sub">

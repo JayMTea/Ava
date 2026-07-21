@@ -4,6 +4,8 @@ import { RowMenu, type MenuAction } from '../../lib/RowMenu';
 import { EmptyState, Panel } from '../dashboard/primitives';
 import { useAction, useResource } from './hooks';
 import { HubMessage } from './ui/HubMessage';
+import { Legend } from './ui/Legend';
+import { Tile } from './ui/Tile';
 import { hub } from './hubApi';
 import type { MemoryItem } from './hubApi';
 
@@ -153,9 +155,7 @@ export function MemoryPanel() {
                 ];
                 return (
                   <div key={m.id} className="mem-row">
-                    <span className={'mem-ic' + (m.pinned ? ' pinned' : '')} aria-hidden="true">
-                      <Icon name={m.pinned ? 'pin' : t.icon} />
-                    </span>
+                    <Tile icon={m.pinned ? 'pin' : t.icon} tone={m.pinned ? 'accent' : 'muted'} size={30} className="mem-tile" />
                     <div className="mem-body">
                       {editing ? (
                         <div className="mem-edit">
@@ -201,22 +201,16 @@ export function MemoryPanel() {
               })}
             </div>
           )}
-        <div className="conn-legend">
-          <div className="conn-legend-title">How memory works</div>
-          <dl className="conn-legend-grid">
-            <dt className="conn-legend-term"><Icon name="sparkles" />Learned</dt>
-            <dd className="conn-legend-desc">Facts the learning cycle distils from your chats automatically.</dd>
-            <dt className="conn-legend-term"><Icon name="user" />Added by you</dt>
-            <dd className="conn-legend-desc">Facts you typed in above — kept verbatim.</dd>
-            <dt className="conn-legend-term"><Icon name="file" />Documents</dt>
-            <dd className="conn-legend-desc">Chunks of files you uploaded, searched the same way as facts.</dd>
-            <dt className="conn-legend-term"><Icon name="pin" />Pin</dt>
-            <dd className="conn-legend-desc">Keeps a memory ranked first whenever it's relevant to a message.</dd>
-          </dl>
-          <div className="conn-legend-foot">
-            <div>Every recall Ava uses in a reply is logged under <b>History</b>. <b>Export</b> downloads everything as JSON.</div>
-          </div>
-        </div>
+        <Legend
+          title="How memory works"
+          items={[
+            { icon: 'sparkles', term: 'Learned', desc: 'Facts the learning cycle distils from your chats automatically.' },
+            { icon: 'user', term: 'Added by you', desc: 'Facts you typed in above — kept verbatim.' },
+            { icon: 'file', term: 'Documents', desc: 'Chunks of files you uploaded, searched the same way as facts.' },
+            { icon: 'pin', term: 'Pin', desc: 'Keeps a memory ranked first whenever it\'s relevant to a message.' },
+          ]}
+          foot={<div>Every recall Ava uses in a reply is logged under <b>History</b>. <b>Export</b> downloads everything as JSON.</div>}
+        />
       </Panel>
     </>
   );
