@@ -182,24 +182,40 @@
 .hub-btn svg { width: 15px; height: 15px; }
 .hub-btn-row { display: flex; gap: 10px; margin-top: var(--sp-4); flex-wrap: wrap; }
 
+/* ---- one tone system ---------------------------------------------------- */
+/* A `.tone-*` class sets --tone; every tone consumer (tile, status dot, meter
+   fill, status text) reads var(--tone) instead of re-listing ok/warn/err/…
+   colours per component. */
+.tone-ok { --tone: var(--ok); }
+.tone-warn { --tone: var(--warn); }
+.tone-err { --tone: var(--err); }
+.tone-accent { --tone: var(--accent); }
+.tone-info { --tone: var(--info); }
+.tone-muted { --tone: var(--muted); }
+
 /* ---- identity tile (shared primitive — see ui/Tile.tsx) ---------------- */
-/* One rounded tinted glyph, sized by --tile-size, tinted by a semantic tone or
-   an explicit inline color (connectors pass their per-app accent). Replaces the
+/* One rounded tinted glyph, sized by --tile-size, tinted by --tone or an
+   explicit inline color (connectors pass their per-app accent). Replaces the
    seven near-identical per-panel `-ic` classes. */
 .tile {
   flex: 0 0 auto;
   width: var(--tile-size, 30px); height: var(--tile-size, 30px);
   border-radius: calc(var(--tile-size, 30px) * 0.26);
   display: inline-flex; align-items: center; justify-content: center;
-  color: var(--muted); background: var(--wash-6);
+  color: var(--tone, var(--muted));
+  background: color-mix(in srgb, var(--tone, var(--muted)) 13%, transparent);
 }
 .tile svg { width: 52%; height: 52%; }
-.tile.tone-accent { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
-.tile.tone-ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 13%, transparent); }
-.tile.tone-warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 13%, transparent); }
-.tile.tone-err { color: var(--err); background: color-mix(in srgb, var(--err) 13%, transparent); }
-.tile.tone-info { color: var(--info); background: color-mix(in srgb, var(--info) 13%, transparent); }
-.tile.tone-muted { color: var(--muted); background: var(--wash-6); }
+.tile.tone-muted { background: var(--wash-6); }  /* neutral wash, not a grey tint */
+
+/* ---- shared row bits ---------------------------------------------------- */
+/* A "·" separator in a quiet meta line, and the overflow-safe trailing action
+   cluster (flex 0 1 auto so it shrinks and WRAPS, never overflowing the card). */
+.meta-sep { opacity: 0.4; }
+.row-actions {
+  flex: 0 1 auto; min-width: 0; margin-left: auto;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end;
+}
 
 /* ---- connector row (Connectors page) ----------------------------------- */
 /* One primary action + a couple of quiet ones + a "⋯" kebab. The action cluster
@@ -216,21 +232,13 @@
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   margin-top: 5px; color: var(--muted); font-size: var(--fs-xs);
 }
-.conn-sep { opacity: 0.4; }
-.conn-stat { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.conn-stat { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; color: var(--tone, var(--muted)); }
 .conn-stat i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .conn-stat svg { width: 13px; height: 13px; }
-.conn-stat.ok { color: var(--ok); }
-.conn-stat.off { color: var(--muted); }
-.conn-stat.warn { color: var(--warn); }
 /* Dim only the identity when disabled — the Enable CTA in the action cluster
    stays at full strength so the way back on is never greyed out. */
 .conn-row.off .tile,
 .conn-row.off .conn-id { opacity: 0.55; }
-.conn-actions {
-  flex: 0 1 auto; min-width: 0; margin-left: auto;
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end;
-}
 .hub-kebab { padding: 6px 8px; }
 .hub-kebab svg { width: 16px; height: 16px; }
 
@@ -292,10 +300,6 @@
 }
 .mem-pinned { display: inline-flex; align-items: center; gap: 4px; color: var(--accent); }
 .mem-pinned svg { width: 12px; height: 12px; }
-.mem-actions {
-  flex: 0 1 auto; min-width: 0; margin-left: auto;
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end;
-}
 .mem-pin.on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
 .mem-pin.on svg { color: var(--accent); }
 .mem-edit { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -309,18 +313,12 @@
 }
 .bud-meter-label { color: var(--txt); min-width: 0; }
 .bud-meter-val { white-space: nowrap; }
-.bud-meter-val b { font-weight: var(--fw-medium); }
+/* capped meters carry a tone-* class (→ --tone); an uncapped meter carries none,
+   so the value falls back to txt and the fill to no colour. */
+.bud-meter-val b { font-weight: var(--fw-medium); color: var(--tone, var(--txt)); }
 .bud-cap { color: var(--muted); }
 .bud-track { height: 8px; border-radius: 999px; background: var(--wash-6); overflow: hidden; }
-.bud-fill { height: 100%; border-radius: 999px; transition: width .3s ease; }
-.bud-tone-ok { color: var(--ok); }
-.bud-tone-warn { color: var(--warn); }
-.bud-tone-err { color: var(--err); }
-.bud-tone-muted { color: var(--txt); }
-.bud-fill.bud-tone-ok { background: var(--ok); }
-.bud-fill.bud-tone-warn { background: var(--warn); }
-.bud-fill.bud-tone-err { background: var(--err); }
-.bud-fill.bud-tone-muted { background: transparent; }
+.bud-fill { height: 100%; border-radius: 999px; transition: width .3s ease; background: var(--tone); }
 .bud-meter-foot {
   display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap;
   margin-top: 5px; color: var(--muted); font-size: var(--fs-xs);
@@ -401,11 +399,7 @@
   border-bottom: 1px solid var(--line);
 }
 .stat-row:last-child { border-bottom: 0; }
-.stat-row-dot { width: 8px; height: 8px; border-radius: 50%; align-self: center; background: var(--muted); }
-.stat-row-dot.tone-ok { background: var(--ok); }
-.stat-row-dot.tone-warn { background: var(--warn); }
-.stat-row-dot.tone-err { background: var(--err); }
-.stat-row-dot.tone-muted { background: var(--muted); }
+.stat-row-dot { width: 8px; height: 8px; border-radius: 50%; align-self: center; background: var(--tone, var(--muted)); }
 .stat-row-label { color: var(--muted); }
 .stat-row-val { color: var(--txt); min-width: 0; overflow-wrap: anywhere; }
 .stat-row-val .hub-btn { margin-left: 8px; }

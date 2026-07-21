@@ -1519,19 +1519,19 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
           </div>
           <div className="conn-meta">
             {c.enabled
-              ? <span className="conn-stat ok" title="Ava can use this connector"><i />enabled</span>
-              : <span className="conn-stat off" title="Turned off — Ava won't use it"><i />disabled</span>}
-            {c.actions > 0 && <><span className="conn-sep">·</span><span>{c.actions} action{c.actions === 1 ? '' : 's'}</span></>}
+              ? <span className="conn-stat tone-ok" title="Ava can use this connector"><i />enabled</span>
+              : <span className="conn-stat tone-muted" title="Turned off — Ava won't use it"><i />disabled</span>}
+            {c.actions > 0 && <><span className="meta-sep">·</span><span>{c.actions} action{c.actions === 1 ? '' : 's'}</span></>}
             {hasAgentSurface && c.enabled && (
-              <><span className="conn-sep">·</span>
+              <><span className="meta-sep">·</span>
               {deployed
-                ? <span className="conn-stat ok" title="Tools and egress policy are up to date in the agent"><Icon name="check" />deployed</span>
-                : <span className="conn-stat warn" title={`${drift || 'tools'} out of date — Deploy regenerates ${drift ? 'them' : 'the tools'} into the agent`}><Icon name="alert" />needs deploy</span>}
+                ? <span className="conn-stat tone-ok" title="Tools and egress policy are up to date in the agent"><Icon name="check" />deployed</span>
+                : <span className="conn-stat tone-warn" title={`${drift || 'tools'} out of date — Deploy regenerates ${drift ? 'them' : 'the tools'} into the agent`}><Icon name="alert" />needs deploy</span>}
               </>
             )}
           </div>
         </div>
-        <div className="conn-actions">
+        <div className="row-actions">
           {!c.enabled && !c.builtin ? (
             <button className="hub-btn sm" onClick={toggleEnabled} disabled={busy}>
               <Icon name="check" />{busy ? 'Enabling…' : 'Enable'}
@@ -2342,17 +2342,20 @@ function BudgetMeter({ label, used, cap, unit, rate }: {
   const fmt = (n: number) => (unit === '$' ? fmtMoney(n) : `${n.toFixed(2)} kWh`);
   const remaining = has ? Math.max(0, (cap as number) - used) : 0;
   const energyCost = unit === 'kWh' && rate ? used * rate : null;
+  // Capped meters carry a tone; an uncapped one carries none so its value falls
+  // back to txt and its (zero-width) fill to no colour.
+  const toneClass = has ? `tone-${tone}` : '';
   return (
     <div className="bud-meter">
       <div className="bud-meter-head">
         <span className="bud-meter-label">{label}</span>
         <span className="bud-meter-val">
-          <b className={`bud-tone-${tone}`}>{fmt(used)}</b>
+          <b className={toneClass}>{fmt(used)}</b>
           <span className="bud-cap">{has ? ` / ${fmtCap(cap as number, unit)}` : ' · no cap set'}</span>
         </span>
       </div>
       <div className="bud-track" aria-hidden="true">
-        <div className={`bud-fill bud-tone-${tone}`} style={{ width: `${pct}%` }} />
+        <div className={`bud-fill ${toneClass}`} style={{ width: `${pct}%` }} />
       </div>
       <div className="bud-meter-foot">
         <span>{energyCost != null ? `≈ ${fmtMoney(energyCost)} today at your rate` : ' '}</span>

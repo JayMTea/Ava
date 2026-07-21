@@ -173,10 +173,10 @@ export function MemoryPanel() {
                           <div className="mem-text">{m.text}</div>
                           <div className="mem-meta">
                             <span>{t.label}</span>
-                            <span className="conn-sep">·</span>
+                            <span className="meta-sep">·</span>
                             <span>{new Date((m.updated || m.created) * 1000).toLocaleDateString()}</span>
                             {m.pinned && (
-                              <><span className="conn-sep">·</span>
+                              <><span className="meta-sep">·</span>
                               <span className="mem-pinned"><Icon name="pin" />pinned</span></>
                             )}
                           </div>
@@ -184,7 +184,7 @@ export function MemoryPanel() {
                       )}
                     </div>
                     {!editing && (
-                      <div className="mem-actions">
+                      <div className="row-actions">
                         <button
                           className={'hub-btn ghost sm mem-pin' + (m.pinned ? ' on' : '')}
                           aria-pressed={m.pinned}
