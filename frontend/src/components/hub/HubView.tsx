@@ -9,8 +9,11 @@ import { ago, EmptyState, Panel } from '../dashboard/primitives';
 import { api } from '../../lib/api';
 import { MemoryPanel } from './MemoryPanel';
 import { useAction, useResource } from './hooks';
+import { type TabId, isExternalApp } from './shared';
+import { Badge } from './ui/Badge';
 import { HubMessage } from './ui/HubMessage';
 import { Legend } from './ui/Legend';
+import { StatRow } from './ui/StatRow';
 import { Tile, type Tone } from './ui/Tile';
 import { hub } from './hubApi';
 import type {
@@ -92,7 +95,6 @@ function ApprovalsBanner() {
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared bits
 // ─────────────────────────────────────────────────────────────────────────────
-type TabId = 'overview' | 'hardware' | 'agent' | 'connectors' | 'voice' | 'memory' | 'budgets' | 'history' | 'system';
 
 const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: 'overview', label: 'Overview', icon: 'gauge' },
@@ -125,10 +127,6 @@ function writeTabHash(t: TabId): void {
   if (window.location.hash.replace(/^#\/?/, '') !== next) window.location.hash = next;
 }
 
-function Badge({ tone, children }: { tone?: 'ok' | 'warn' | 'err' | 'accent' | 'muted'; children: React.ReactNode }) {
-  return <span className={'hub-badge' + (tone ? ' ' + tone : '')}><i />{children}</span>;
-}
-
 function RestartBanner({ show }: { show: boolean }) {
   if (!show) return null;
   return (
@@ -138,12 +136,6 @@ function RestartBanner({ show }: { show: boolean }) {
     </div>
   );
 }
-
-// Kinds that are internal plumbing (bridge, inference router) or models
-// (vLLM Omni, the GPU service) — they run behind the scenes / live in the Models tab,
-// not on the Connectors page, which is only for external apps the user wires in.
-const INTERNAL_KINDS = new Set(['core', 'inference', 'media']);
-const isExternalApp = (c: HubConnector): boolean => !INTERNAL_KINDS.has(c.kind);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Overview
@@ -701,19 +693,6 @@ function BenchPanel() {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Agent
-// ─────────────────────────────────────────────────────────────────────────────
-// A status-board row: a tone dot + label + value, so a panel's checks scan
-// top-to-bottom instead of as a mixed pile of badges and inline text. Shared by
-// the Agent runtime and Voice gate panels.
-function StatRow({ label, value, tone }: { label: string; value: React.ReactNode; tone: 'ok' | 'warn' | 'err' | 'muted' }) {
-  return (
-    <div className="stat-row">
-      <span className={`stat-row-dot tone-${tone}`} aria-hidden="true" />
-      <span className="stat-row-label">{label}</span>
-      <span className="stat-row-val">{value}</span>
-    </div>
-  );
-}
 
 function AgentPanel({ onRestart }: { onRestart: () => void }) {
   const { data: st, reload: load } = useResource(() => hub.agentStatus());
