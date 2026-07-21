@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Icon } from '../../lib/icons';
+import { RowMenu, type MenuAction } from '../../lib/RowMenu';
 import { EmptyState, Panel } from '../dashboard/primitives';
 import { hub } from './hubApi';
 import type { MemoryCounts, MemoryItem } from './hubApi';
@@ -8,11 +9,16 @@ import type { MemoryCounts, MemoryItem } from './hubApi';
 // Facts come from the learning cycle's distiller or manual entry; doc chunks
 // from uploads. Recalls that influenced a turn are in History (memory_recall).
 // Shared by Setup → Memory and the Data page, so both stay one implementation.
-function memorySourceLabel(m: MemoryItem): string {
-  if (m.source === 'distilled') return 'learned from chats';
-  if (m.source === 'manual') return 'added by you';
-  if (m.source.startsWith('upload:')) return m.source.slice(7);
-  return m.source || m.kind;
+//
+// Each row is typed by where it came from — the same "identity glyph + text +
+// quiet meta line + one visible action + ⋯ menu" grammar as a connector row, so
+// the two pages read as one system. Colour is spent only on the pinned state.
+function memoryType(m: MemoryItem): { icon: string; label: string } {
+  if (m.kind === 'doc' || m.source.startsWith('upload:'))
+    return { icon: 'file', label: m.source.startsWith('upload:') ? m.source.slice(7) : 'document' };
+  if (m.source === 'distilled') return { icon: 'sparkles', label: 'learned from chats' };
+  if (m.source === 'manual') return { icon: 'user', label: 'added by you' };
+  return { icon: 'db', label: m.source || m.kind };
 }
 
 export function MemoryPanel() {
@@ -100,6 +106,8 @@ export function MemoryPanel() {
         </div>
       </Panel>
 
+      <div className="hub-section" />
+
       <Panel
         title="What Ava remembers"
         subtitle="Her long-term memory: facts distilled from chats plus uploaded-document content. Everything is yours to correct, pin, delete, or export — and every recall she uses in a reply is logged under History."
@@ -139,51 +147,82 @@ export function MemoryPanel() {
               : 'Nothing here yet. Facts appear as the learning cycle distills your chats; documents as you upload them; or teach her one above.'} />
           ) : (
             <div>
-              {items.map((m) => (
-                <div key={m.id} className="hub-row">
-                  <div className="hub-row-main" style={{ minWidth: 0 }}>
-                    {editId === m.id ? (
-                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                        <input
-                          className="hub-input" style={{ flex: '1 1 260px' }}
-                          value={editText} autoFocus
-                          onChange={(e) => setEditText(e.target.value)}
-                          onKeyDown={(e) => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditId(null); }}
-                        />
-                        <button className="hub-btn sm" onClick={saveEdit} disabled={busy}><Icon name="check" />Save</button>
-                        <button className="hub-btn ghost sm" onClick={() => setEditId(null)}><Icon name="close" />Cancel</button>
+              {items.map((m) => {
+                const t = memoryType(m);
+                const editing = editId === m.id;
+                const menu: MenuAction[] = [
+                  ...(m.kind === 'fact'
+                    ? [{ label: 'Edit', icon: 'pencil', onClick: () => { setEditId(m.id); setEditText(m.text); } }]
+                    : []),
+                  { label: 'Copy text', icon: 'copy', onClick: () => navigator.clipboard?.writeText(m.text) },
+                  { label: 'Forget', icon: 'trash', danger: true, onClick: () => remove(m) },
+                ];
+                return (
+                  <div key={m.id} className="mem-row">
+                    <span className={'mem-ic' + (m.pinned ? ' pinned' : '')} aria-hidden="true">
+                      <Icon name={m.pinned ? 'pin' : t.icon} />
+                    </span>
+                    <div className="mem-body">
+                      {editing ? (
+                        <div className="mem-edit">
+                          <input
+                            className="hub-input" style={{ flex: '1 1 240px' }}
+                            value={editText} autoFocus
+                            onChange={(e) => setEditText(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditId(null); }}
+                          />
+                          <button className="hub-btn sm" onClick={saveEdit} disabled={busy}><Icon name="check" />Save</button>
+                          <button className="hub-btn ghost sm" onClick={() => setEditId(null)}><Icon name="close" />Cancel</button>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="mem-text">{m.text}</div>
+                          <div className="mem-meta">
+                            <span>{t.label}</span>
+                            <span className="conn-sep">·</span>
+                            <span>{new Date((m.updated || m.created) * 1000).toLocaleDateString()}</span>
+                            {m.pinned && (
+                              <><span className="conn-sep">·</span>
+                              <span className="mem-pinned"><Icon name="pin" />pinned</span></>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                    {!editing && (
+                      <div className="mem-actions">
+                        <button
+                          className={'hub-btn ghost sm mem-pin' + (m.pinned ? ' on' : '')}
+                          aria-pressed={m.pinned}
+                          title={m.pinned ? 'Unpin' : 'Pin — always ranks first in recall'}
+                          onClick={() => togglePin(m)}
+                        >
+                          <Icon name="pin" />{m.pinned ? 'Pinned' : 'Pin'}
+                        </button>
+                        <RowMenu actions={menu} />
                       </div>
-                    ) : (
-                      <>
-                        <div className="hub-row-title" style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                          {m.pinned && <span style={{ color: 'var(--accent)', display: 'inline-flex', flexShrink: 0, alignSelf: 'center' }}><Icon name="pin" /></span>}
-                          <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{m.text}</span>
-                        </div>
-                        <div className="hub-row-sub">
-                          {memorySourceLabel(m)} · {new Date((m.updated || m.created) * 1000).toLocaleDateString()}
-                        </div>
-                      </>
                     )}
                   </div>
-                  {editId !== m.id && (
-                    <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-                      <button className="hub-btn ghost sm" title={m.pinned ? 'Unpin' : 'Pin (always ranks first)'} onClick={() => togglePin(m)}>
-                        <Icon name="pin" />
-                      </button>
-                      {m.kind === 'fact' && (
-                        <button className="hub-btn ghost sm" title="Edit" onClick={() => { setEditId(m.id); setEditText(m.text); }}>
-                          <Icon name="pencil" />
-                        </button>
-                      )}
-                      <button className="hub-btn ghost sm" title="Forget" onClick={() => remove(m)}>
-                        <Icon name="trash" />
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
+        <div className="conn-legend">
+          <div className="conn-legend-title">How memory works</div>
+          <dl className="conn-legend-grid">
+            <dt className="conn-legend-term"><Icon name="sparkles" />Learned</dt>
+            <dd className="conn-legend-desc">Facts the learning cycle distils from your chats automatically.</dd>
+            <dt className="conn-legend-term"><Icon name="user" />Added by you</dt>
+            <dd className="conn-legend-desc">Facts you typed in above — kept verbatim.</dd>
+            <dt className="conn-legend-term"><Icon name="file" />Documents</dt>
+            <dd className="conn-legend-desc">Chunks of files you uploaded, searched the same way as facts.</dd>
+            <dt className="conn-legend-term"><Icon name="pin" />Pin</dt>
+            <dd className="conn-legend-desc">Keeps a memory ranked first whenever it's relevant to a message.</dd>
+          </dl>
+          <div className="conn-legend-foot">
+            <div>Every recall Ava uses in a reply is logged under <b>History</b>. <b>Export</b> downloads everything as JSON.</div>
+          </div>
+        </div>
       </Panel>
     </>
   );

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Icon } from '../../lib/icons';
+import { RowMenu, type MenuAction } from '../../lib/RowMenu';
 import {
   ACCENT_SLOTS, APP_ICONS, AppDot, appAccent, appById, appForTool, appIcon, appsForTools,
 } from '../../lib/appColor';
 import { MarkdownLite } from '../../lib/markdown';
-import { EmptyState, Panel } from '../dashboard/primitives';
+import { ago, EmptyState, Panel } from '../dashboard/primitives';
 import { api } from '../../lib/api';
 import { MemoryPanel } from './MemoryPanel';
 import { hub } from './hubApi';
@@ -162,13 +163,14 @@ function Overview({ onGo }: { onGo: (t: TabId) => void }) {
   const enabledConns = conns.filter((c) => c.enabled && isExternalApp(c)).length;
 
   const card = (t: TabId, icon: string, title: string, value: React.ReactNode, sub: string) => (
-    <button className="hub-opt" onClick={() => onGo(t)} style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-      <span style={{ color: 'var(--accent)', display: 'inline-flex' }}><Icon name={icon} /></span>
-      <span style={{ minWidth: 0 }}>
-        <b>{title}</b>
-        <div style={{ marginTop: 3 }}>{value}</div>
-        <small>{sub}</small>
+    <button className="ov-card" onClick={() => onGo(t)}>
+      <span className="ov-card-ic" aria-hidden="true"><Icon name={icon} /></span>
+      <span className="ov-card-body">
+        <span className="ov-card-title">{title}</span>
+        <span className="ov-card-val">{value}</span>
+        <span className="ov-card-sub">{sub}</span>
       </span>
+      <span className="ov-card-go" aria-hidden="true"><Icon name="arrowRight" /></span>
     </button>
   );
 
@@ -183,7 +185,7 @@ function Overview({ onGo }: { onGo: (t: TabId) => void }) {
       </Panel>
 
       <div className="hub-section" />
-      <div className="db-grid db-grid-2">
+      <div className="ov-cards">
         {card('hardware', 'chart', 'Hardware',
           hw ? <Badge tone="accent">{hw.tier} tier</Badge> : <Badge>detecting…</Badge>,
           hw?.gpu ? hw.gpu : 'GPU · memory · model tier')}
@@ -215,11 +217,22 @@ function HardwarePanel() {
     <Panel title="Your hardware"
       subtitle="Detected automatically — it sets the recommended model tier. Pick and download the model itself under the Agent tab.">
       {hw ? (
-        <dl className="hub-kv">
-          <dt>Compute</dt><dd>{hw.gpu || 'No local GPU detected'}</dd>
-          <dt>Usable memory</dt><dd>{hw.fit_gb != null ? `${hw.fit_gb} GB (${hw.source || 'detected'})` : '—'}</dd>
-          <dt>Recommended tier</dt><dd><Badge tone="accent">{hw.tier}</Badge> &nbsp;<span style={{ color: 'var(--muted)' }}>{hw.hint}</span></dd>
-        </dl>
+        <>
+          <div className="hw-hero">
+            <span className="hw-hero-ic" aria-hidden="true"><Icon name="chart" /></span>
+            <div className="hw-hero-body">
+              <div className="hw-hero-tier">{hw.tier} tier</div>
+              <div className="hw-hero-hint">{hw.hint}</div>
+            </div>
+          </div>
+          <dl className="hub-kv" style={{ marginTop: 16 }}>
+            <dt>Compute</dt><dd>{hw.gpu || 'No local GPU detected'}</dd>
+            <dt>Usable memory</dt><dd>{hw.fit_gb != null ? `${hw.fit_gb} GB · ${hw.source || 'detected'}` : '—'}</dd>
+          </dl>
+          <div className="hub-note" style={{ marginTop: 14 }}>
+            The tier sets which models Ava recommends. Pick and download one under the <b>Agent</b> tab.
+          </div>
+        </>
       ) : <EmptyState text="Detecting hardware…" />}
     </Panel>
   );
@@ -704,6 +717,19 @@ function BenchPanel() {
 // ─────────────────────────────────────────────────────────────────────────────
 // Agent
 // ─────────────────────────────────────────────────────────────────────────────
+// A status-board row: a tone dot + label + value, so a panel's checks scan
+// top-to-bottom instead of as a mixed pile of badges and inline text. Shared by
+// the Agent runtime and Voice gate panels.
+function StatRow({ label, value, tone }: { label: string; value: React.ReactNode; tone: 'ok' | 'warn' | 'err' | 'muted' }) {
+  return (
+    <div className="stat-row">
+      <span className={`stat-row-dot tone-${tone}`} aria-hidden="true" />
+      <span className="stat-row-label">{label}</span>
+      <span className="stat-row-val">{value}</span>
+    </div>
+  );
+}
+
 function AgentPanel({ onRestart }: { onRestart: () => void }) {
   const [st, setSt] = useState<AgentStatus | null>(null);
   const [steps, setSteps] = useState<{ step: string; ok: boolean; detail: string }[] | null>(null);
@@ -735,16 +761,20 @@ function AgentPanel({ onRestart }: { onRestart: () => void }) {
       ) : null}
     >
       {st ? (
-        <dl className="hub-kv">
-          <dt>Configured</dt><dd>{st.runtime}{st.required ? ' · required' : ''}</dd>
-          <dt>CLI</dt><dd>{st.cli || <span style={{ color: 'var(--warn)' }}>not installed</span>}</dd>
-          <dt>Sandbox</dt><dd>{st.sandbox} {st.sandbox_exists ? <Badge tone="ok">exists</Badge> : <Badge tone="warn">missing</Badge>}</dd>
-          <dt>Tools</dt><dd>{
-            st.tools ? <Badge tone="ok">available</Badge>
-              : st.enabled === false ? <Badge tone="muted">disabled</Badge>
-                : <Badge tone="warn">unavailable</Badge>
-          }</dd>
-        </dl>
+        <div className="stat-rows">
+          <StatRow label="Runtime"
+            value={`${st.runtime}${st.required ? ' · required' : ''}`}
+            tone={st.available ? 'ok' : st.enabled === false ? 'muted' : 'warn'} />
+          <StatRow label="CLI"
+            value={st.cli || 'not installed'}
+            tone={st.cli ? 'ok' : 'warn'} />
+          <StatRow label="Sandbox"
+            value={st.sandbox ? `${st.sandbox}${st.sandbox_exists ? '' : ' · missing'}` : 'none'}
+            tone={st.sandbox_exists ? 'ok' : 'warn'} />
+          <StatRow label="Tools"
+            value={st.tools ? 'available' : st.enabled === false ? 'disabled' : 'unavailable'}
+            tone={st.tools ? 'ok' : st.enabled === false ? 'muted' : 'warn'} />
+        </div>
       ) : <EmptyState text="Loading agent status…" />}
 
       {st && st.enabled === false ? (
@@ -789,10 +819,10 @@ function AgentPanel({ onRestart }: { onRestart: () => void }) {
     </Panel>
 
     <div className="hub-section" />
-    <SkillsPanel />
+    <BrainManager onRestart={onRestart} />
 
     <div className="hub-section" />
-    <BrainManager onRestart={onRestart} />
+    <SkillsPanel />
 
     <div className="hub-section" />
     <ModelStorePanel />
@@ -955,7 +985,17 @@ function SkillsPanel() {
   const [newCatVal, setNewCatVal] = useState('');
 
   const refresh = useCallback(
-    () => hub.agentSkills().then(setData).catch((e) => setErr((e as Error).message)),
+    // Normalise the payload so a partial or errored response (missing summary or
+    // skills) can never crash the whole Setup view via the error boundary — a
+    // malformed body renders as "no skills", not a blank error page.
+    () => hub.agentSkills().then((d) => setData({
+      skills: d?.skills ?? [],
+      errors: d?.errors ?? [],
+      summary: d?.summary ?? {
+        total: (d?.skills ?? []).length, deployed: 0, stale: 0, unknown: 0,
+      },
+      category_order: d?.category_order,
+    })).catch((e) => setErr((e as Error).message)),
     []);
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -1452,23 +1492,78 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
     setBusy(false);
   }, [c.id, c.label, onChanged]);
 
+  // Identity: this row *represents a connected app*, so it carries the app's
+  // own icon + accent (CLAUDE.md → connected-app identity accents), never Ava's.
+  const ident = { id: c.id, icon: c.icon, color: c.color };
+  const accent = appAccent(ident);
+
+  // Deploy state. A connector is "deployed" only when everything it renders is
+  // current: its tools (if it declares actions) and its egress policy (if it
+  // renders one). Anything out of date — including never-deployed — is drift,
+  // and drift is the *only* time the primary Deploy button appears. Deployed &
+  // current rows offer a quiet Redeploy in the ⋯ menu instead.
+  const toolsCurrent = c.actions === 0 || c.has_tools;
+  const policyCurrent = !c.renders_policy || c.has_policy;
+  const deployed = hasAgentSurface && toolsCurrent && policyCurrent;
+  const needsDeploy = hasAgentSurface && !deployed;
+  const drift = [
+    c.actions > 0 && !c.has_tools ? 'tools' : null,
+    c.renders_policy && !c.has_policy ? 'policy' : null,
+  ].filter(Boolean).join(' + ');
+
+  // Secondary + destructive actions collapse into the "⋯" so the visible row is
+  // at most: one primary + Permissions + Preview + the kebab. Enable is promoted
+  // to the primary slot when the connector is off (its most likely next action).
+  const menuActions: MenuAction[] = [
+    { label: 'Push token', icon: 'lock', onClick: showToken },
+    ...(deployed ? [{ label: busy ? 'Redeploying…' : 'Redeploy', icon: 'refresh', onClick: deploy, disabled: busy }] : []),
+    ...(c.app && !c.builtin ? [{ label: 'Appearance', icon: appIcon(ident), onClick: () => setShowLook((v) => !v) }] : []),
+    ...(!c.builtin ? [{ label: 'Edit manifest', icon: 'pencil', onClick: openEdit }] : []),
+    ...(c.enabled && !c.builtin ? [{ label: 'Disable', icon: 'eyeOff', onClick: toggleEnabled, disabled: busy }] : []),
+    ...(!c.builtin ? [{ label: 'Remove', icon: 'trash', onClick: remove, danger: true, disabled: busy }] : []),
+  ];
+
   return (
-    <div style={{ borderBottom: '1px solid var(--line)', padding: '12px 0', opacity: c.enabled ? 1 : 0.6 }}>
-      {/* Header line: name + identity (APP = embedded UI tile, MCP = agent
-          tools). Buttons wrap below on narrow panels instead of overflowing
-          into the badge column. Status badges get their own full-width line. */}
-      <div className="hub-row" style={{ border: 0, padding: 0, flexWrap: 'wrap', rowGap: 8 }}>
-        <div className="hub-row-main" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <span className="hub-row-title" style={{ whiteSpace: 'nowrap' }}>{c.label}</span>
-          {c.app && <Badge tone="accent">APP</Badge>}
-          {(c.mcp || c.discover || c.actions > 0) && <Badge tone="accent">MCP</Badge>}
+    <div className={'conn-row' + (c.enabled ? '' : ' off')}>
+      <div className="conn-head">
+        <span className="conn-ic" aria-hidden="true"
+          style={{ color: accent, background: `color-mix(in srgb, ${accent} 15%, transparent)` }}>
+          <Icon name={appIcon(ident)} />
+        </span>
+        <div className="conn-id">
+          <div className="conn-title-row">
+            <span className="conn-title">{c.label}</span>
+            {c.app && <Badge tone="accent">APP</Badge>}
+            {(c.mcp || c.discover || c.actions > 0) && <Badge tone="accent">MCP</Badge>}
+            {c.builtin && <Badge>built-in</Badge>}
+          </div>
+          <div className="conn-meta">
+            {c.enabled
+              ? <span className="conn-stat ok" title="Ava can use this connector"><i />enabled</span>
+              : <span className="conn-stat off" title="Turned off — Ava won't use it"><i />disabled</span>}
+            {c.actions > 0 && <><span className="conn-sep">·</span><span>{c.actions} action{c.actions === 1 ? '' : 's'}</span></>}
+            {hasAgentSurface && c.enabled && (
+              <><span className="conn-sep">·</span>
+              {deployed
+                ? <span className="conn-stat ok" title="Tools and egress policy are up to date in the agent"><Icon name="check" />deployed</span>
+                : <span className="conn-stat warn" title={`${drift || 'tools'} out of date — Deploy regenerates ${drift ? 'them' : 'the tools'} into the agent`}><Icon name="alert" />needs deploy</span>}
+              </>
+            )}
+          </div>
         </div>
-        <div className="hub-row-actions" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-          <button className="hub-btn ghost sm" onClick={showToken} disabled={busy} title="Show the push token a device presents to send readings/events">
-            <Icon name="lock" />Push token
-          </button>
+        <div className="conn-actions">
+          {!c.enabled && !c.builtin ? (
+            <button className="hub-btn sm" onClick={toggleEnabled} disabled={busy}>
+              <Icon name="check" />{busy ? 'Enabling…' : 'Enable'}
+            </button>
+          ) : needsDeploy ? (
+            <button className="hub-btn sm" onClick={deploy} disabled={busy}
+              title={`${drift || 'This connector'} out of date — regenerate into the agent`}>
+              <Icon name="check" />{busy ? 'Deploying…' : 'Deploy'}
+            </button>
+          ) : null}
           {hasAgentSurface && c.enabled && (
-            <button className="hub-btn ghost sm" onClick={() => setShowPerms((v) => !v)}
+            <button className="hub-btn ghost sm" onClick={() => setShowPerms((v) => !v)} aria-expanded={showPerms}
               title="What Ava may do in this app — reads run silently, writes ask once, destructive always asks">
               <Icon name="lock" />Permissions
             </button>
@@ -1478,42 +1573,8 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
               <Icon name="code" />Preview
             </button>
           )}
-          {hasAgentSurface && c.enabled && (
-            <button className="hub-btn sm" onClick={deploy} disabled={busy}>
-              <Icon name="check" />{busy ? 'Deploying…' : 'Deploy'}
-            </button>
-          )}
-          {!c.builtin && (
-            <button className="hub-btn ghost sm" onClick={toggleEnabled} disabled={busy}
-              title={c.enabled ? 'Stop Ava from using this connector' : 'Turn this connector back on'}>
-              {c.enabled ? 'Disable' : 'Enable'}
-            </button>
-          )}
-          {c.app && !c.builtin && (
-            <button className="hub-btn ghost sm" onClick={() => setShowLook((v) => !v)} disabled={busy}
-              aria-expanded={showLook}
-              title="Pick this app's sidebar icon and accent color">
-              <Icon name={appIcon({ id: c.id, icon: c.icon })} />Appearance
-            </button>
-          )}
-          {!c.builtin && (
-            <button className="hub-btn ghost sm" onClick={openEdit} disabled={busy} title="Edit this connector's manifest">
-              <Icon name="pencil" />Edit
-            </button>
-          )}
-          {!c.builtin && (
-            <button className="hub-btn ghost sm" onClick={remove} disabled={busy} aria-label="Remove connector" title="Remove connector">
-              <Icon name="trash" />
-            </button>
-          )}
+          <RowMenu actions={menuActions} disabled={busy} />
         </div>
-      </div>
-      <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
-        {c.enabled ? <Badge tone="ok">enabled</Badge> : <Badge tone="muted">disabled</Badge>}
-        {c.builtin && <Badge>built-in</Badge>}
-        {c.actions > 0 && <Badge tone="accent">{c.actions} action{c.actions === 1 ? '' : 's'}</Badge>}
-        {c.actions > 0 && (c.has_tools ? <Badge tone="ok">tools ok</Badge> : <Badge tone="warn">tools stale</Badge>)}
-        {c.renders_policy && (c.has_policy ? <Badge tone="ok">policy ok</Badge> : <Badge tone="warn">policy stale</Badge>)}
       </div>
       {showLook && (
         <div className="app-look" style={{ marginTop: 10 }}>
@@ -2040,15 +2101,31 @@ function ConnectorsPanel() {
           : conns == null ? <EmptyState text="Loading connectors…" />
             : conns.length === 0 ? <EmptyState text="No connectors yet — create one above." />
               : conns.map((c) => <ConnectorRow key={c.id} c={c} onChanged={load} />)}
-        <div className="hub-note" style={{ marginTop: 16, display: 'grid', gap: 6 }}>
-          <div><b>Push token</b> — reveals the secret a device presents to send its readings and events.</div>
-          <div><b>Permissions</b> — what Ava may do in this app: reads run silently, writes ask once, destructive actions always ask.</div>
-          <div><b>Preview</b> — shows the tools and egress policy generated from the manifest, without touching the agent.</div>
-          <div>
-            <b>Deploy</b> — loads the connector's tools into the agent so Ava can read or command it
-            (if the sandbox isn't reachable from here, run <b>cd agent &amp;&amp; ./install.sh</b> on the agent host).
+        <div className="conn-legend">
+          <div className="conn-legend-title">What the actions do</div>
+          <dl className="conn-legend-grid">
+            <dt className="conn-legend-term"><Icon name="check" />Deploy</dt>
+            <dd className="conn-legend-desc">
+              Appears only when a connector's tools or egress policy are out of date — regenerates them into the
+              agent so Ava can use it. Up-to-date connectors read <b>deployed</b>; redeploy anytime from the ⋯ menu.
+            </dd>
+            <dt className="conn-legend-term"><Icon name="lock" />Permissions</dt>
+            <dd className="conn-legend-desc">
+              What Ava may do here — reads run silently, writes ask once, destructive actions always ask.
+            </dd>
+            <dt className="conn-legend-term"><Icon name="code" />Preview</dt>
+            <dd className="conn-legend-desc">
+              The tools and egress policy generated from the manifest, without touching the agent.
+            </dd>
+            <dt className="conn-legend-term"><Icon name="more" />More</dt>
+            <dd className="conn-legend-desc">
+              Push token, appearance, manifest editor, and disable&nbsp;/&nbsp;remove.
+            </dd>
+          </dl>
+          <div className="conn-legend-foot">
+            <div>Agent host unreachable from here? Run <code>cd agent &amp;&amp; ./install.sh</code> there to deploy.</div>
+            <div>Docs — connectors: <b>docs/CONNECTOR_SDK.md</b> · hardware: <b>docs/DEVICE_CONNECTORS.md</b></div>
           </div>
-          <div>Full schema: <b>docs/CONNECTOR_SDK.md</b>; hardware: <b>docs/DEVICE_CONNECTORS.md</b>.</div>
         </div>
       </Panel>
     </>
@@ -2170,23 +2247,25 @@ function VoicePanel({ onRestart }: { onRestart: () => void }) {
       <Panel
         title="Voice & biometric gate"
         subtitle="Everything runs on your machine: local speech-to-text, local TTS, and a speaker-verification gate so Ava answers your voice only."
-        right={st ? (st.enrolled ? <Badge tone="ok">voiceprint enrolled</Badge> : <Badge tone="warn">not enrolled</Badge>) : null}
+        right={st ? (
+          !st.enabled ? <Badge tone="muted">voice off</Badge>
+            : st.enrolled ? <Badge tone="ok">gate closed</Badge>
+              : <Badge tone="err">gate open</Badge>
+        ) : null}
       >
         {st == null ? <EmptyState text="Loading voice status…" /> : (
-          <dl className="hub-kv">
-            <dt>Voice feature</dt>
-            <dd>{st.enabled ? <Badge tone="ok">on</Badge> : (
-              <span>
-                <Badge tone="muted">off</Badge>{' '}
-                <button className="hub-btn ghost sm" style={{ marginLeft: 8 }} onClick={enableVoice} disabled={busy}>Enable</button>
-              </span>
-            )}</dd>
-            <dt>Dependencies</dt>
-            <dd>{st.deps_ok ? <Badge tone="ok">installed</Badge>
-              : <span style={{ color: 'var(--warn)' }}>{st.deps_error}</span>}</dd>
-            <dt>Gate threshold</dt>
-            <dd>{st.threshold} <span style={{ color: 'var(--muted)' }}>(cosine similarity — applied from enrollment below, or voice.threshold in ava.yaml)</span></dd>
-          </dl>
+          <div className="stat-rows">
+            <StatRow label="Voice feature" tone={st.enabled ? 'ok' : 'muted'}
+              value={st.enabled ? 'on' : (
+                <>off<button className="hub-btn ghost sm" onClick={enableVoice} disabled={busy}>Enable</button></>
+              )} />
+            <StatRow label="Voiceprint" tone={st.enrolled ? 'ok' : 'warn'}
+              value={st.enrolled ? 'enrolled' : 'not enrolled — record clips below'} />
+            <StatRow label="Dependencies" tone={st.deps_ok ? 'ok' : 'warn'}
+              value={st.deps_ok ? 'installed' : (st.deps_error || 'missing')} />
+            <StatRow label="Gate threshold" tone="muted"
+              value={<>{st.threshold} <span style={{ color: 'var(--muted)' }}>cosine similarity · set from enrollment, or voice.threshold in ava.yaml</span></>} />
+          </div>
         )}
         {st?.enabled && !st.enrolled && (
           <div className="hub-restart" style={{ marginTop: 14, marginBottom: 0 }}>
@@ -2199,9 +2278,9 @@ function VoicePanel({ onRestart }: { onRestart: () => void }) {
 
       <div className="hub-section" />
       <Panel title="Enroll your voice" subtitle="Record a few clips of natural speech; Ava builds an averaged voiceprint (nothing is uploaded anywhere — it stays on this machine).">
-        <div className="hub-note">
-          {ENROLL_PHRASES.map((p, i) => <div key={i}>· {p}</div>)}
-        </div>
+        <ul className="voice-tips">
+          {ENROLL_PHRASES.map((p, i) => <li key={i}>{p}</li>)}
+        </ul>
 
         <div className="hub-btn-row">
           <button
@@ -2282,19 +2361,38 @@ function meterTone(pct: number): 'ok' | 'warn' | 'err' {
   return pct >= 100 ? 'err' : pct >= 80 ? 'warn' : 'ok';
 }
 
-function BudgetBar({ label, used, cap, unit }: { label: string; used: number; cap: number | null; unit: string }) {
-  if (!cap) return null;
-  const pct = Math.min(100, Math.round((used / cap) * 100));
-  const tone = meterTone((used / cap) * 100);
-  const col = tone === 'err' ? 'var(--err)' : tone === 'warn' ? 'var(--warn)' : 'var(--ok)';
+const fmtMoney = (n: number) => `$${n.toFixed(2)}`;
+const fmtCap = (n: number, unit: '$' | 'kWh') => (unit === '$' ? `$${n}` : `${n} kWh`);
+
+// A budget meter row: usage against a cap with a live track, remaining, and %.
+// Unlike the old bar it ALWAYS renders — so you see today's spend/energy even
+// before any cap is set (the track just reads "no cap set"), and the energy row
+// converts kWh to money at your rate so the two costs read in the same terms.
+function BudgetMeter({ label, used, cap, unit, rate }: {
+  label: string; used: number; cap: number | null; unit: '$' | 'kWh'; rate?: number;
+}) {
+  const has = cap != null && cap > 0;
+  const ratio = has ? used / (cap as number) : 0;
+  const pct = has ? Math.min(100, Math.round(ratio * 100)) : 0;
+  const tone = has ? meterTone(ratio * 100) : 'muted';
+  const fmt = (n: number) => (unit === '$' ? fmtMoney(n) : `${n.toFixed(2)} kWh`);
+  const remaining = has ? Math.max(0, (cap as number) - used) : 0;
+  const energyCost = unit === 'kWh' && rate ? used * rate : null;
   return (
-    <div style={{ margin: '10px 0' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-sm)', marginBottom: 4 }}>
-        <span style={{ color: 'var(--muted)' }}>{label}</span>
-        <span><b style={{ color: col }}>{unit === '$' ? `$${used.toFixed(2)}` : `${used.toFixed(2)} ${unit}`}</b> <span style={{ color: 'var(--muted)' }}>/ {unit === '$' ? `$${cap}` : `${cap} ${unit}`}</span></span>
+    <div className="bud-meter">
+      <div className="bud-meter-head">
+        <span className="bud-meter-label">{label}</span>
+        <span className="bud-meter-val">
+          <b className={`bud-tone-${tone}`}>{fmt(used)}</b>
+          <span className="bud-cap">{has ? ` / ${fmtCap(cap as number, unit)}` : ' · no cap set'}</span>
+        </span>
       </div>
-      <div style={{ height: 8, borderRadius: 999, background: 'var(--panel2)', overflow: 'hidden' }}>
-        <div style={{ width: `${pct}%`, height: '100%', background: col, transition: 'width .3s' }} />
+      <div className="bud-track" aria-hidden="true">
+        <div className={`bud-fill bud-tone-${tone}`} style={{ width: `${pct}%` }} />
+      </div>
+      <div className="bud-meter-foot">
+        <span>{energyCost != null ? `≈ ${fmtMoney(energyCost)} today at your rate` : ' '}</span>
+        <span>{has ? `${fmt(remaining)} left · ${pct}%` : 'set a cap below to meter it'}</span>
       </div>
     </div>
   );
@@ -2334,46 +2432,64 @@ function BudgetsPanel() {
     setBusy(false);
   }, [rate, du, mu, dk, load]);
 
+  const anyCap = c && (c.budgets.daily_usd != null || c.budgets.monthly_usd != null || c.budgets.daily_kwh != null);
+
   return (
     <>
-      <Panel title="Spend & energy meter" subtitle="Today's usage against your caps. Cloud API $ is real; local generation is free (energy only).">
+      <Panel title="Today's spend & energy" subtitle="Live usage against your caps. Cloud API calls cost real money; local generation only costs electricity.">
         {c ? (
-          (c.budgets.daily_usd || c.budgets.monthly_usd || c.budgets.daily_kwh) ? (
-            <>
-              <BudgetBar label="Cloud spend today" used={c.daily_spend_usd} cap={c.budgets.daily_usd} unit="$" />
-              <BudgetBar label={`GPU energy today${c.power_measured ? '' : ' (est.)'}`} used={c.daily_energy_kwh} cap={c.budgets.daily_kwh} unit="kWh" />
-              {c.budgets.monthly_usd != null && (
-                <div className="hub-note" style={{ marginTop: 10 }}>
-                  Monthly cap ${c.budgets.monthly_usd} — alerts fire at 80% and 100% (Operations page).
-                </div>
-              )}
-            </>
-          ) : <EmptyState text="No budgets set yet — add one below to turn on the meter and alerts." />
+          <>
+            <BudgetMeter label="Cloud spend today" used={c.daily_spend_usd} cap={c.budgets.daily_usd} unit="$" />
+            <BudgetMeter label={`GPU energy today${c.power_measured ? '' : ' (est.)'}`} used={c.daily_energy_kwh} cap={c.budgets.daily_kwh} unit="kWh" rate={c.electricity_rate_per_kwh} />
+            {c.budgets.monthly_usd != null && (
+              <div className="bud-monthly">
+                <Icon name="calendar" />
+                <span>Monthly cloud cap <b>{fmtMoney(c.budgets.monthly_usd)}</b> — alerts fire at 80% and 100% on the <b>Operations</b> page.</span>
+              </div>
+            )}
+            {!anyCap && (
+              <div className="bud-monthly">
+                <Icon name="info" />
+                <span>No caps set yet — usage is shown above; add a cap below to turn on the meter and alerts.</span>
+              </div>
+            )}
+          </>
         ) : <EmptyState text="Loading…" />}
       </Panel>
 
       <div className="hub-section" />
-      <Panel title="Set budgets" subtitle="Leave a field blank to disable that budget. Alerts appear on the Operations page; nothing is ever blocked automatically.">
-        <div className="hub-field" style={{ maxWidth: 320 }}>
-          <label>Electricity rate ({c?.currency || '$'} / kWh)</label>
+      <Panel title="Set budgets" subtitle="Blank = that budget is off. Nothing is ever blocked — caps only drive alerts on the Operations page.">
+        <div className="hub-field" style={{ maxWidth: 340 }}>
+          <label>Electricity rate ({c?.currency || '$'} per kWh)</label>
           <input className="hub-input" value={rate} onChange={(e) => setRate(e.target.value)} placeholder="0.15" inputMode="decimal" />
+          <div className="bud-field-hint">Turns GPU energy into a dollar figure. Leave at 0 to show energy in kWh only.</div>
         </div>
+        <div className="bud-caps-head">Caps <span>— leave blank to disable</span></div>
         <div className="hub-fieldrow">
-          <div className="hub-field"><label>Daily cloud $ cap</label>
+          <div className="hub-field"><label>Daily cloud spend</label>
             <input className="hub-input" value={du} onChange={(e) => setDu(e.target.value)} placeholder="none" inputMode="decimal" /></div>
-          <div className="hub-field"><label>Monthly cloud $ cap</label>
+          <div className="hub-field"><label>Monthly cloud spend</label>
             <input className="hub-input" value={mu} onChange={(e) => setMu(e.target.value)} placeholder="none" inputMode="decimal" /></div>
-          <div className="hub-field"><label>Daily energy cap (kWh)</label>
+          <div className="hub-field"><label>Daily energy (kWh)</label>
             <input className="hub-input" value={dk} onChange={(e) => setDk(e.target.value)} placeholder="none" inputMode="decimal" /></div>
         </div>
         <div className="hub-btn-row">
           <button className="hub-btn" onClick={save} disabled={busy}><Icon name="check" />{busy ? 'Saving…' : 'Save budgets'}</button>
         </div>
         {msg && <div className={'hub-msg' + (msg === 'Saved.' ? ' ok' : ' err')}>{msg}</div>}
-        <div className="hub-note" style={{ marginTop: 14 }}>
-          <b>Idle-burn watch</b> is always on: if the agent generates more than ~5k tokens
-          in 10 minutes while you're away, Operations raises an alert — the "what did it
-          spend while I slept" signal.
+
+        <div className="conn-legend">
+          <div className="conn-legend-title">How budgets work</div>
+          <dl className="conn-legend-grid">
+            <dt className="conn-legend-term"><Icon name="cloud" />Cloud $</dt>
+            <dd className="conn-legend-desc">Real API spend — only calls to a cloud model cost money. Everything Ava runs locally is free.</dd>
+            <dt className="conn-legend-term"><Icon name="gauge" />Local energy</dt>
+            <dd className="conn-legend-desc">GPU electricity at your rate{c && !c.power_measured ? ', estimated from GPU load until a power meter is present' : ''}.</dd>
+            <dt className="conn-legend-term"><Icon name="alert" />Alerts, not blocks</dt>
+            <dd className="conn-legend-desc">Nothing is ever stopped. Hitting a cap raises an alert on the <b>Operations</b> page at 80% and 100%.</dd>
+            <dt className="conn-legend-term"><Icon name="activity" />Idle-burn watch</dt>
+            <dd className="conn-legend-desc">Always on — flags more than ~5k tokens generated in 10 minutes while you're away ("what did it spend while I slept").</dd>
+          </dl>
         </div>
       </Panel>
     </>
@@ -2383,71 +2499,153 @@ function BudgetsPanel() {
 // ─────────────────────────────────────────────────────────────────────────────
 // History — the flight recorder (durable audit ledger)
 // ─────────────────────────────────────────────────────────────────────────────
-function evtColor(kind: string): string {
-  return kind === 'code_change' ? 'var(--accent)' : kind === 'egress' ? 'var(--info)' : 'var(--ok)';
+// Every audit kind the backend records → a typed identity (glyph + tone) and a
+// human label, so the ledger reads like the connectors/memory lists instead of
+// raw event names. Tone: accent = the agent changed something, warn/err =
+// permission or destructive, ok = a normal turn, muted = passive/system.
+// Unknown kinds fall back to a humanised label so nothing renders bare.
+const EVENT_META: Record<string, { icon: string; label: string; tone: string }> = {
+  turn: { icon: 'chats', label: 'Chat turn', tone: 'ok' },
+  code_change: { icon: 'code', label: 'Self-edit', tone: 'accent' },
+  egress: { icon: 'code', label: 'Tool call', tone: 'info' },
+  memory_recall: { icon: 'db', label: 'Memory recall', tone: 'muted' },
+  memory_distill: { icon: 'sparkles', label: 'Memory distilled', tone: 'accent' },
+  memory_edit: { icon: 'pencil', label: 'Memory edit', tone: 'warn' },
+  grant: { icon: 'lock', label: 'Permission granted', tone: 'warn' },
+  revoke: { icon: 'lock', label: 'Permission revoked', tone: 'err' },
+  approval: { icon: 'check', label: 'Approval', tone: 'warn' },
+  route: { icon: 'activity', label: 'Intent routed', tone: 'muted' },
+  job: { icon: 'image', label: 'Media job', tone: 'ok' },
+  data_export: { icon: 'file', label: 'Data export', tone: 'muted' },
+  data_maintenance: { icon: 'db', label: 'Data maintenance', tone: 'muted' },
+};
+const humanize = (s: string) => s.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
+function eventMeta(kind: string) {
+  return EVENT_META[kind] || { icon: 'info', label: humanize(kind), tone: 'muted' };
 }
-function evtSummary(e: AuditEvent): string {
-  if (e.kind === 'turn') return `Chat turn · ${e.status}${e.tools?.length ? ' · tools: ' + e.tools.join(', ') : ' · no tools'}${e.duration_s ? ` · ${e.duration_s}s` : ''}`;
-  if (e.kind === 'code_change') return `Self-edit · ${e.outcome}${e.commit ? ' · ' + e.commit : ''}${e.paths?.length ? ' · ' + e.paths.length + ' file(s)' : ''}${e.approved_by ? ' · approved by ' + e.approved_by : ''}`;
-  if (e.kind === 'egress') return `Tool call · ${e.connector}/${e.tool} → ${e.status}`;
-  if (e.kind === 'memory_recall') return `Memory recall · ${e.count ?? '?'} item(s) folded into a turn`;
-  if (e.kind === 'memory_distill') return `Memory distilled · ${e.added ?? '?'} new fact(s) from ${e.messages ?? '?'} messages`;
-  if (e.kind === 'memory_edit') return `Memory ${e.action} · item #${e.id}`;
-  return e.kind;
+// The kind-specific facts (everything except the label + timestamp), joined for
+// the quiet meta line under the title.
+function eventDetail(e: AuditEvent): string {
+  const s = (v: unknown) => (v == null || v === '' ? '' : String(v));
+  const bits: string[] = [];
+  switch (e.kind) {
+    case 'turn':
+      bits.push(s(e.status), s(e.model), e.duration_s ? `${e.duration_s}s` : '',
+        e.tools?.length ? e.tools.join(', ') : 'no tools');
+      break;
+    case 'code_change':
+      bits.push(humanize(s(e.outcome)), s(e.commit),
+        e.paths?.length ? `${e.paths.length} file${e.paths.length === 1 ? '' : 's'}` : '',
+        e.approved_by ? `approved by ${e.approved_by}` : '');
+      break;
+    case 'egress':
+      bits.push(`${s(e.connector)}/${s(e.tool)}`, s(e.status));
+      break;
+    case 'memory_recall':
+      bits.push(`${s(e.count) || '?'} item(s) folded into a turn`);
+      break;
+    case 'memory_distill':
+      bits.push(`${s(e.added) || '?'} new fact(s) from ${s(e.messages) || '?'} messages`);
+      break;
+    case 'memory_edit':
+      bits.push(`${s(e.action) || 'edit'} · item #${s(e.id)}`);
+      break;
+    case 'grant': case 'revoke':
+      bits.push(s(e.connector), s(e.tool) || s(e.action));
+      break;
+    case 'route':
+      bits.push(s(e.label), s(e.tier));
+      break;
+    default:
+      bits.push(humanize(s(e.outcome)), s(e.status));
+  }
+  return bits.filter(Boolean).join(' · ');
 }
+
+// Client-side categories — a single audit kind is too fine-grained to filter
+// well server-side (Memory spans recall/distill/edit; Permissions span
+// grant/revoke/approval), so we fetch the whole tail once and group here.
+const HISTORY_CATS: { id: string; label: string; kinds: string[] }[] = [
+  { id: '', label: 'All', kinds: [] },
+  { id: 'turn', label: 'Chats', kinds: ['turn'] },
+  { id: 'code', label: 'Self-edits', kinds: ['code_change'] },
+  { id: 'memory', label: 'Memory', kinds: ['memory_recall', 'memory_distill', 'memory_edit'] },
+  { id: 'perms', label: 'Permissions', kinds: ['grant', 'revoke', 'approval'] },
+  { id: 'system', label: 'System', kinds: ['route', 'job', 'egress', 'data_export', 'data_maintenance'] },
+];
 
 function HistoryPanel() {
   const [events, setEvents] = useState<AuditEvent[] | null>(null);
-  const [kind, setKind] = useState('');
+  const [cat, setCat] = useState('');
   const [err, setErr] = useState('');
   const load = useCallback(() => {
     setErr('');
-    hub.audit(300, kind).then((r) => setEvents(r.events)).catch((e) => setErr((e as Error).message));
-  }, [kind]);
+    hub.audit(300).then((r) => setEvents(r.events)).catch((e) => setErr((e as Error).message));
+  }, []);
   useEffect(() => { load(); }, [load]);
 
-  const FILTERS: { id: string; label: string }[] = [
-    { id: '', label: 'All' }, { id: 'turn', label: 'Chat turns' },
-    { id: 'code_change', label: 'Self-edits' }, { id: 'egress', label: 'Tool calls' },
-    { id: 'memory_recall', label: 'Memory' },
-  ];
+  const kinds = HISTORY_CATS.find((c) => c.id === cat)?.kinds ?? [];
+  const shown = events && (kinds.length ? events.filter((e) => kinds.includes(e.kind)) : events);
+  const count = (c: { id: string; kinds: string[] }) =>
+    !events ? 0 : c.kinds.length ? events.filter((e) => c.kinds.includes(e.kind)).length : events.length;
 
   return (
     <Panel
       title="Flight recorder"
-      subtitle="A durable, append-only record of everything the agent did — turns, self-edits, and tool calls. Survives restarts (logs/audit.jsonl)."
+      subtitle="A durable, append-only record of everything the agent did. Survives restarts and the agent can't rewrite it (logs/audit.jsonl)."
       right={<button className="hub-btn ghost sm" onClick={load}><Icon name="refresh" />Refresh</button>}
     >
       <div className="hub-tabs" style={{ marginBottom: 14, borderBottom: 0 }}>
-        {FILTERS.map((f) => (
-          <button key={f.id} className={'hub-tab' + (kind === f.id ? ' active' : '')} onClick={() => setKind(f.id)}>{f.label}</button>
+        {HISTORY_CATS.map((f) => (
+          <button key={f.id} className={'hub-tab' + (cat === f.id ? ' active' : '')} onClick={() => setCat(f.id)}>
+            {f.label}{events && <span className="hist-tab-n">{count(f)}</span>}
+          </button>
         ))}
       </div>
       {err && <div className="hub-msg err">{err}</div>}
       {events == null ? <EmptyState text="Loading…" />
-        : events.length === 0 ? <EmptyState text="No events recorded yet. Actions will appear here as the agent works." />
-          : (
-            <div>
-              {events.map((e, i) => (
-                <div key={i} className="hub-row">
-                  <div className="hub-row-main">
-                    <div className="hub-row-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <i style={{ width: 7, height: 7, borderRadius: '50%', background: evtColor(e.kind), flexShrink: 0 }} />
-                      {evtSummary(e)}
+        : shown && shown.length === 0 ? (
+          <EmptyState text={cat ? 'No events in this category yet.' : 'No events recorded yet. Actions will appear here as the agent works.'} />
+        ) : (
+          <div>
+            {shown!.map((e, i) => {
+              const m = eventMeta(e.kind);
+              const detail = eventDetail(e);
+              return (
+                <div key={i} className="hist-row">
+                  <span className={`hist-ic tone-${m.tone}`} aria-hidden="true"><Icon name={m.icon} /></span>
+                  <div className="hist-body">
+                    <div className="hist-head">
+                      <span className="hist-title">{m.label}</span>
+                      <span className="hist-time" title={new Date(e.ts * 1000).toLocaleString()}>{ago(e.ts)}</span>
                     </div>
-                    {(e.error || e.request) && (
-                      <div className="hub-row-sub" style={{ color: e.error ? 'var(--err)' : 'var(--muted)' }}>
-                        {e.error ? `error: ${e.error}` : e.request}
-                      </div>
-                    )}
-                  </div>
-                  <div className="hub-row-sub" style={{ flexShrink: 0, whiteSpace: 'nowrap' }}>
-                    {new Date(e.ts * 1000).toLocaleString()}
+                    {e.request && <div className="hist-req">“{e.request}”</div>}
+                    {detail && <div className="hist-detail">{detail}</div>}
+                    {e.error && <div className="hist-detail err">error: {e.error}</div>}
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
+              );
+            })}
+          </div>
+        )}
+      <div className="conn-legend">
+        <div className="conn-legend-title">What's in the ledger</div>
+        <dl className="conn-legend-grid">
+          <dt className="conn-legend-term"><Icon name="chats" />Chats</dt>
+          <dd className="conn-legend-desc">Every message Ava answered — the model, tools used, and how long it took.</dd>
+          <dt className="conn-legend-term"><Icon name="code" />Self-edits</dt>
+          <dd className="conn-legend-desc">Changes the agent made to its own code, the commit, and who approved it.</dd>
+          <dt className="conn-legend-term"><Icon name="db" />Memory</dt>
+          <dd className="conn-legend-desc">Recalls folded into a reply, plus facts distilled from chats or edited by you.</dd>
+          <dt className="conn-legend-term"><Icon name="lock" />Permissions</dt>
+          <dd className="conn-legend-desc">Connector grants, revokes, and one-off approvals.</dd>
+          <dt className="conn-legend-term"><Icon name="activity" />System</dt>
+          <dd className="conn-legend-desc">Intent routing, media jobs, and data export / maintenance.</dd>
+        </dl>
+        <div className="conn-legend-foot">
+          <div>Append-only — nothing here can be altered after the fact. The full audit with export lives on the <b>Data</b> page.</div>
+        </div>
+      </div>
     </Panel>
   );
 }
@@ -2463,10 +2661,27 @@ function retentionLabel(days: number): string {
   return RETENTION_LABELS[days] || (days > 0 ? `${days} days` : 'Forever');
 }
 
+// Optional-feature capability key → a typed glyph, so each feature row carries
+// an identity like the connector/memory rows. Unknown keys fall back to sliders.
+const FEATURE_ICONS: Record<string, string> = {
+  image: 'image', web_search: 'search', voice: 'mic', memory: 'db', code: 'code',
+};
+const featureIcon = (key: string) => FEATURE_ICONS[key] || 'sliders';
+
+// Self-editing modes, safest → most permissive, each with a glyph that reads its
+// posture at a glance (locked / selective / hands-off).
+const APPROVALS: { id: string; title: string; sub: string; icon: string }[] = [
+  { id: 'all', title: 'All changes need approval', icon: 'lock', sub: 'Safest. Every edit Ava makes to its own code waits for you.' },
+  { id: 'policy', title: 'Only sensitive paths', icon: 'sliders', sub: 'Auth/config/deploy edits are gated; routine edits auto-commit to git.' },
+  { id: 'none', title: 'Auto-apply', icon: 'bot', sub: 'Trusted box — all non-secret edits commit automatically.' },
+];
+
 function SystemPanel({ onRestart }: { onRestart: () => void }) {
   const [sys, setSys] = useState<SystemInfo | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
+  const [msgOk, setMsgOk] = useState(false);
+  const note = (text: string, ok = false) => { setMsg(text); setMsgOk(ok); };
 
   const load = useCallback(() => { hub.system().then(setSys).catch(() => {}); }, []);
   useEffect(() => { load(); }, [load]);
@@ -2475,15 +2690,15 @@ function SystemPanel({ onRestart }: { onRestart: () => void }) {
     setBusy(true); setMsg('');
     try {
       const r = await hub.setApproval(mode);
-      if (r.error) setMsg(r.error);
+      if (r.error) note(r.error);
       else {
         setSys((s) => (s ? { ...s, code_approval: mode } : s));
         // Approval now applies live (no restart); only nudge a restart if the
         // backend still asks for one.
         if (r.restart_required) onRestart();
-        else setMsg('Saved — in effect now.');
+        else note('Saved — in effect now.', true);
       }
-    } catch (e) { setMsg((e as Error).message); }
+    } catch (e) { note((e as Error).message); }
     setBusy(false);
   }, [onRestart]);
 
@@ -2491,9 +2706,9 @@ function SystemPanel({ onRestart }: { onRestart: () => void }) {
     setBusy(true); setMsg('');
     try {
       const r = await hub.save({ features: patch });
-      if (r.error) setMsg(r.error);
+      if (r.error) note(r.error);
       else { load(); onRestart(); }
-    } catch (e) { setMsg((e as Error).message); }
+    } catch (e) { note((e as Error).message); }
     setBusy(false);
   }, [load, onRestart]);
 
@@ -2501,17 +2716,11 @@ function SystemPanel({ onRestart }: { onRestart: () => void }) {
     setBusy(true); setMsg('');
     try {
       const r = await hub.setRetention(days);
-      if (r.error) setMsg(r.error);
+      if (r.error) note(r.error);
       else { setSys((s) => (s ? { ...s, retention_days: days } : s)); onRestart(); }
-    } catch (e) { setMsg((e as Error).message); }
+    } catch (e) { note((e as Error).message); }
     setBusy(false);
   }, [onRestart]);
-
-  const APPROVALS: { id: string; title: string; sub: string }[] = [
-    { id: 'all', title: 'All changes need approval', sub: 'Safest. Every edit Ava makes to its own code waits for you.' },
-    { id: 'policy', title: 'Only sensitive paths', sub: 'Auth/config/deploy edits are gated; routine edits auto-commit to git.' },
-    { id: 'none', title: 'Auto-apply', sub: 'Trusted box — all non-secret edits commit automatically.' },
-  ];
 
   const overrides = Object.entries(sys?.env_overrides || {});
 
@@ -2522,6 +2731,7 @@ function SystemPanel({ onRestart }: { onRestart: () => void }) {
           <dl className="hub-kv">
             <dt>Name</dt><dd>{sys.brand}</dd>
             <dt>Version</dt><dd>{sys.version}</dd>
+            <dt>Runtime</dt><dd>{sys.docker ? 'Docker container' : 'Native process'}</dd>
           </dl>
         ) : <EmptyState text="Loading…" />}
         {overrides.length > 0 && (
@@ -2538,14 +2748,18 @@ function SystemPanel({ onRestart }: { onRestart: () => void }) {
 
       <div className="hub-section" />
       <Panel title="Self-editing governance" subtitle="How Ava's code-change agent applies edits to its own repo (secrets, models/ and .git are always denied).">
-        <div className="hub-opts" style={{ gridTemplateColumns: '1fr' }}>
-          {APPROVALS.map((a) => (
-            <button key={a.id} className={'hub-opt' + (sys?.code_approval === a.id ? ' sel' : '')}
-              disabled={busy} onClick={() => setApproval(a.id)}>
-              <b>{a.title}{sys?.code_approval === a.id ? ' — current' : ''}</b>
-              <small>{a.sub}</small>
-            </button>
-          ))}
+        <div className="sys-gov">
+          {APPROVALS.map((a) => {
+            const on = sys?.code_approval === a.id;
+            return (
+              <button key={a.id} className={'sys-gov-opt' + (on ? ' sel' : '')}
+                disabled={busy} aria-pressed={on} onClick={() => setApproval(a.id)}>
+                <span className="sys-gov-ic"><Icon name={a.icon} /></span>
+                <span className="sys-gov-txt"><b>{a.title}</b><small>{a.sub}</small></span>
+                {on ? <span className="sys-gov-check"><Icon name="check" />Current</span> : <span className="sys-gov-pick">Use</span>}
+              </button>
+            );
+          })}
         </div>
       </Panel>
 
@@ -2553,7 +2767,7 @@ function SystemPanel({ onRestart }: { onRestart: () => void }) {
       <Panel title="Data retention" subtitle="How long Ava keeps performance metrics and hardware history. Older data is pruned automatically; the dashboard's time-range filters can only reach back as far as this.">
         {sys ? (
           <>
-            <div className="hub-field" style={{ maxWidth: 320 }}>
+            <div className="hub-field" style={{ maxWidth: 340 }}>
               <label>Keep data for</label>
               <select className="hub-select" value={sys.retention_days} disabled={busy}
                 onChange={(e) => setRetention(Number(e.target.value))}>
@@ -2571,18 +2785,17 @@ function SystemPanel({ onRestart }: { onRestart: () => void }) {
       </Panel>
 
       <div className="hub-section" />
-      <Panel title="Optional features" subtitle="All off by default so a fresh install stays minimal.">
-        {sys && (sys.features || []).map((f) => (
+      <Panel title="Optional features" subtitle="All off by default so a fresh install stays minimal — turn on only what you need.">
+        {sys ? (sys.features || []).map((f) => (
           // Rendered straight from the backend capability registry
           // (ava_bridge/features.py) — a newly registered capability gets its
-          // checkbox here with no UI change. Per-key extras (like the voice
+          // row here with no UI change. Per-key extras (like the voice
           // enrollment badge) hang off the key below.
-          <label className="hub-check" key={f.key}>
-            <input type="checkbox" checked={f.enabled} disabled={busy}
-              onChange={(e) => saveFeatures({ [f.key]: e.target.checked })} />
-            <span className="hub-check-main">
-              <span className="hub-check-title">{f.label}</span>
-              <span className="hub-check-sub">
+          <label className={'sys-feat' + (f.enabled ? ' on' : '')} key={f.key}>
+            <span className="sys-feat-ic" aria-hidden="true"><Icon name={featureIcon(f.key)} /></span>
+            <span className="sys-feat-main">
+              <span className="sys-feat-title">{f.label}</span>
+              <span className="sys-feat-sub">
                 {f.sub}
                 {f.key === 'voice' && f.enabled && (
                   <>{' '}{sys.voiceprint
@@ -2591,8 +2804,10 @@ function SystemPanel({ onRestart }: { onRestart: () => void }) {
                 )}
               </span>
             </span>
+            <input type="checkbox" className="sys-feat-check" checked={f.enabled} disabled={busy}
+              onChange={(e) => saveFeatures({ [f.key]: e.target.checked })} />
           </label>
-        ))}
+        )) : <EmptyState text="Loading…" />}
       </Panel>
 
       <div className="hub-section" />
@@ -2604,7 +2819,7 @@ function SystemPanel({ onRestart }: { onRestart: () => void }) {
           </dl>
         )}
       </Panel>
-      {msg && <div className="hub-msg err">{msg}</div>}
+      {msg && <div className={'hub-msg ' + (msgOk ? 'ok' : 'err')}>{msg}</div>}
     </>
   );
 }
