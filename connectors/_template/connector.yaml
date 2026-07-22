@@ -52,6 +52,10 @@ service:
 #     base: "http://127.0.0.1:9000"
 #     prefix: "/api"
 #     token_env: MYAPP_API_TOKEN
+# Every token_env here (and below) is the NAME of an env var, never the value.
+# Set the value once as a real env var, OR paste it in Setup → Connectors and Ava
+# saves it 0600 under $AVA_HOME/secrets/env/<NAME> — never in this file, never
+# shown to the agent, reused on every redeploy. See docs/CONNECTOR_SDK.md.
 
 # --- Chat pickup (optional) ---------------------------------------------------
 # After a turn used one of the named tools, Ava polls your app's log for

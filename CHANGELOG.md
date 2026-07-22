@@ -21,6 +21,27 @@ on-prem project, so versions are dated milestones rather than published releases
   audit ledger, and `ava.yaml` as one `.zip`; secrets/keys are never included,
   media stays on disk (a full backup is a copy of `$AVA_HOME`).
 
+### Added — Connector credentials (paste once, never re-prompt)
+- **Save an app's token once, reuse it on every deploy.** The connect form now
+  takes the actual **Access token / API key** (a password field), not just the
+  name of an env var. Ava writes it `0600` to a new server-side store
+  (`$AVA_HOME/secrets/env/<NAME>`, keyed by the manifest's `token_env`), so it
+  survives restarts and every **redeploy** — you're never asked for it again.
+  Forkers never touch `.env`: paste a value without naming a variable and Ava
+  derives a stable one (`<CID>_TOKEN`). New `settings.env_secret` /
+  `set_env_secret` / `clear_env_secret`; `POST /api/hub/connectors/{cid}/secret`
+  sets/clears it; `list_connectors` reports `auth_env` / `auth_set` so a row reads
+  **credential saved** or **needs a token**, with *Add / Update / Clear credential*
+  in the ⋯ menu.
+- **Invariant preserved (Ava-never-has-passwords).** The value is resolved only
+  on the bridge, host-side, when an egress request is built — never placed in the
+  global environment, never inherited by a subprocess (incl. the sandboxed
+  agent), never written to the manifest or the generated tools. A real
+  environment variable of the same name still wins. Every connector auth read
+  (`connectors._auth_headers` / `_discover_headers` / `app_api` / `${VAR}`
+  expansion, and `mcp_client` HTTP/SSE headers) routes through the one resolver;
+  guarded by `tests/test_connector_secrets.py`.
+
 ### Changed
 - **Chat deletion is audit-logged** — `DELETE /api/chats/{cid}` now writes a
   `chat_delete` event to the flight recorder, same as memory edits.

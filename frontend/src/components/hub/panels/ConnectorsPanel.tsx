@@ -87,6 +87,8 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
   const [editText, setEditText] = useState<string | null>(null);
   const [showPerms, setShowPerms] = useState(false);
   const [showLook, setShowLook] = useState(false);
+  const [showCred, setShowCred] = useState(false);
+  const [credVal, setCredVal] = useState('');
 
   const hasAgentSurface = c.actions > 0 || ((c.mcp || c.discover) && c.renders_policy);
 
@@ -169,6 +171,21 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
     setBusy(false);
   }, [c.id, c.label, onChanged]);
 
+  // Save (or clear, value: '') the app's credential to Ava's server-side secret
+  // store, keyed by the manifest's token_env NAME. Persists across restarts and
+  // every redeploy — no more re-entering a password; the agent never sees it.
+  const saveCred = useCallback(async (value: string) => {
+    setBusy(true); setMsg(''); setErr('');
+    try {
+      const r = await hub.setConnectorSecret(c.id, value);
+      if (r.ok) {
+        setMsg(value.trim() ? "Credential saved — you won't be asked for it again on deploy." : 'Credential cleared.');
+        setCredVal(''); setShowCred(false); onChanged();
+      } else setErr(r.error || 'could not save credential');
+    } catch (e) { setErr((e as Error).message); }
+    setBusy(false);
+  }, [c.id, onChanged]);
+
   // Identity: this row *represents a connected app*, so it carries the app's
   // own icon + accent (CLAUDE.md → connected-app identity accents), never Ava's.
   const ident = { id: c.id, icon: c.icon, color: c.color };
@@ -193,6 +210,7 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
   // to the primary slot when the connector is off (its most likely next action).
   const menuActions: MenuAction[] = [
     { label: 'Push token', icon: 'lock', onClick: showToken },
+    ...(c.auth_env ? [{ label: c.auth_set ? 'Update credential' : 'Add credential', icon: 'lock', onClick: () => setShowCred((v) => !v) }] : []),
     ...(deployed ? [{ label: busy ? 'Redeploying…' : 'Redeploy', icon: 'refresh', onClick: deploy, disabled: busy }] : []),
     ...(c.app && !c.builtin ? [{ label: 'Appearance', icon: appIcon(ident), onClick: () => setShowLook((v) => !v) }] : []),
     ...(!c.builtin ? [{ label: 'Edit manifest', icon: 'pencil', onClick: openEdit }] : []),
@@ -221,6 +239,13 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
               {deployed
                 ? <span className="conn-stat tone-ok" title="Tools and egress policy are up to date in the agent"><Icon name="check" />deployed</span>
                 : <span className="conn-stat tone-warn" title={`${drift || 'tools'} out of date — Deploy regenerates ${drift ? 'them' : 'the tools'} into the agent`}><Icon name="alert" />needs deploy</span>}
+              </>
+            )}
+            {c.auth_env && (
+              <><span className="meta-sep">·</span>
+              {c.auth_set
+                ? <span className="conn-stat tone-ok" title={`Credential saved — Ava signs in with ${c.auth_env}; you won't be re-prompted on deploy`}><Icon name="lock" />credential saved</span>
+                : <span className="conn-stat tone-warn" title={`Needs a token (${c.auth_env}) — add it so Ava can sign in`}><Icon name="alert" />needs a token</span>}
               </>
             )}
           </div>
@@ -331,6 +356,26 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
           </div>
         </div>
       )}
+      {showCred && c.auth_env && (
+        <div className="hub-note" style={{ marginTop: 8 }}>
+          <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--muted)', marginBottom: 6 }}>
+            Paste {c.label}'s token / API key. Saved once to Ava's private secret store as{' '}
+            <code>{c.auth_env}</code> — never in the manifest, never shown to the AI, and reused on every deploy.
+          </div>
+          <div className="hub-fieldrow">
+            <input className="hub-input" type="password" autoComplete="off" value={credVal} style={{ flex: 1 }}
+              placeholder={c.auth_set ? 'enter a new value to replace it' : 'paste token'}
+              onChange={(e) => setCredVal(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && credVal.trim()) saveCred(credVal.trim()); }} />
+            <button className="hub-btn sm" style={{ flex: '0 0 auto' }} disabled={busy || !credVal.trim()}
+              onClick={() => saveCred(credVal.trim())}><Icon name="check" />{busy ? 'Saving…' : 'Save'}</button>
+            {c.auth_stored && (
+              <button className="hub-btn ghost sm" style={{ flex: '0 0 auto' }} disabled={busy}
+                onClick={() => saveCred('')} title="Remove the saved credential"><Icon name="trash" />Clear</button>
+            )}
+          </div>
+        </div>
+      )}
       {gen && open && (
         <div style={{ marginTop: 10 }}>
           {gen.policy && (
@@ -404,7 +449,8 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [reach, setReach] = useState('');       // a URL or a start command
-  const [tokenEnv, setTokenEnv] = useState('');
+  const [tokenVal, setTokenVal] = useState(''); // the app's token/API key — saved once, server-side
+  const [tokenEnv, setTokenEnv] = useState(''); // optional: name an existing env var instead
   const [health, setHealth] = useState('');
   const [probing, setProbing] = useState(false);
   const [probe, setProbe] = useState<ProbeResult | null>(null);
@@ -430,7 +476,7 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
   const isUrl = reach.trim().toLowerCase().startsWith('http');
 
   const reset = () => {
-    setName(''); setReach(''); setTokenEnv(''); setHealth('');
+    setName(''); setReach(''); setTokenVal(''); setTokenEnv(''); setHealth('');
     setProbe(null); setProbeErr(''); setActions([]); setIsDevice(false); setAddToRail(false); setUiUrl('');
   };
   const setAction = (i: number, patch: Partial<ActionDraft>) =>
@@ -441,7 +487,11 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
     setProbing(true); setProbe(null); setProbeErr(''); setActions([]);
     try {
       const body = isUrl ? { url: reach.trim() } : { command: reach.trim() };
-      const r = await hub.probeConnector({ ...body, token_env: tokenEnv.trim() || undefined });
+      const r = await hub.probeConnector({
+        ...body,
+        token_env: tokenEnv.trim() || undefined,
+        token_value: tokenVal.trim() || undefined,
+      });
       if (!r.ok) setProbeErr(r.error || 'could not reach it');
       else {
         setProbe(r);
@@ -463,7 +513,7 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
       }
     } catch (e) { setProbeErr((e as Error).message); }
     setProbing(false);
-  }, [reach, isUrl, tokenEnv]);
+  }, [reach, isUrl, tokenEnv, tokenVal]);
 
   const create = useCallback(async () => {
     setBusy(true); setMsg(''); setDone('');
@@ -471,21 +521,23 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
     const body: NewConnectorBody = {
       id, label: nm || undefined, probe: health.trim() || undefined,
     };
-    const tenv = tokenEnv.trim() || undefined;
+    // Credential: the NAME (optional — the backend derives one from the id when
+    // a value is given without a name) and the VALUE (saved once, server-side,
+    // never in the manifest). Sent top-level for every connect mode.
+    body.token_env = tokenEnv.trim() || undefined;
+    body.token_value = tokenVal.trim() || undefined;
     if (probe?.kind === 'mcp') {
       body.mcp = isUrl
-        ? { url: reach.trim(), token_env: tenv }
-        : { command: reach.trim(), token_env: tenv, sandbox: (isolate && dockerAvail) ? 'docker' : undefined };
+        ? { url: reach.trim() }
+        : { command: reach.trim(), sandbox: (isolate && dockerAvail) ? 'docker' : undefined };
       if (confirmAll) body.confirm = true;
     } else if (probe?.kind === 'discover') {
       // Facade paths from /.well-known/ava.json when declared (they may not
       // live at the /tools + /call defaults).
-      body.discover = { base: reach.trim(), token_env: tenv,
-                        list: probe.discover?.list, call: probe.discover?.call };
+      body.discover = { base: reach.trim(), list: probe.discover?.list, call: probe.discover?.call };
       if (confirmAll) body.confirm = true;
     } else if (!isDevice) {
       body.base_url = reach.trim() || undefined;
-      body.token_env = tenv;
       body.actions = actions.filter((a) => a.id.trim() && a.path.trim());
       if (confirmAll) body.confirm = true;
     }
@@ -507,7 +559,7 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
       }
     } catch (e) { setMsg((e as Error).message); }
     setBusy(false);
-  }, [id, name, health, reach, isUrl, tokenEnv, probe, actions, isolate, dockerAvail, confirmAll, isDevice, addToRail, uiUrl, onCreated]);
+  }, [id, name, health, reach, isUrl, tokenEnv, tokenVal, probe, actions, isolate, dockerAvail, confirmAll, isDevice, addToRail, uiUrl, onCreated]);
 
   const found = probe && (probe.kind === 'mcp' || probe.kind === 'discover');
   const manual = probe && (probe.kind === 'rest' || probe.kind === 'unknown');
@@ -586,10 +638,25 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
       </div>
 
       <div className="hub-fieldrow">
-        <div className="hub-field"><label>Access token env var <span style={{ opacity: 0.7 }}>(optional, if it needs auth)</span></label>
-          <input className="hub-input" value={tokenEnv} onChange={(e) => setTokenEnv(e.target.value)} placeholder="MYAPP_TOKEN" /></div>
+        <div className="hub-field"><label>Access token / API key <span style={{ opacity: 0.7 }}>(optional, if it needs auth)</span></label>
+          <input className="hub-input" type="password" autoComplete="off" value={tokenVal}
+            onChange={(e) => setTokenVal(e.target.value)} placeholder="paste your app's token" />
+          <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--muted)', marginTop: 5 }}>
+            Saved once to Ava's private secret store — <b>never</b> written to the manifest or shown to the AI.
+            You won't be asked for it again on deploy. Leave blank if the app needs no login.
+          </div>
+        </div>
         <div className="hub-field"><label>Health check URL <span style={{ opacity: 0.7 }}>(optional — shows if it's online)</span></label>
           <input className="hub-input" value={health} onChange={(e) => setHealth(e.target.value)} placeholder="http://127.0.0.1:9000/health" /></div>
+      </div>
+      <div className="hub-field" style={{ maxWidth: 420 }}>
+        <label>Environment variable name <span style={{ opacity: 0.7 }}>(optional — advanced)</span></label>
+        <input className="hub-input" value={tokenEnv} onChange={(e) => setTokenEnv(e.target.value)}
+          placeholder={validId ? `${id.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_TOKEN` : 'MYAPP_TOKEN'} />
+        <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--muted)', marginTop: 5 }}>
+          Only if you already keep this token in an environment variable (e.g. <code>HASS_TOKEN</code>) and would
+          rather Ava read it from there. Otherwise leave blank — Ava names and stores it for you.
+        </div>
       </div>
 
       {probeErr && <div className="hub-msg err">Couldn't reach it: {probeErr}. Check it's running, or add its actions manually below.</div>}

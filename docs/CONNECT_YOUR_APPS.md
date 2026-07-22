@@ -54,6 +54,16 @@ safety switches appear with them:
 If Ava can't auto-detect the app (a plain web app with no tool list), the form
 lets you describe its actions manually: what it does, the method, and the path.
 
+**If your app needs a login,** paste its token / API key in the **Access token**
+box. Ava saves it once to its own private secret store (`$AVA_HOME/secrets/`) —
+it's **never** written into the app's config file and is never shown to the AI.
+You won't be asked for it again: it's reused automatically every time you deploy
+or redeploy the app. (Already keep the token in an environment variable? Name it
+in the optional *Environment variable name* field instead, and Ava reads it from
+there — a real environment variable always wins.) On the Connectors list an app
+that needs auth shows **credential saved** once it has one, or **needs a token**
+until you add it — use **Add credential** in the row's ⋯ menu any time.
+
 ### Step 3: Click "Connect app"
 
 That's it. The app appears in the Connectors list — enabled, with its actions

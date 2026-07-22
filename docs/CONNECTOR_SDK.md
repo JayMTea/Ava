@@ -78,7 +78,7 @@ perf:                         # OPTIONAL — a performance.jsonl source for the 
   # perf log (tokens/sec, render times), point `path` at that file instead.
 
 auth:                         # OPTIONAL — bearer token for your app's API (static actions)
-  token_env: MYCRM_API_TOKEN
+  token_env: MYCRM_API_TOKEN  #   the NAME of the env var — never the value (see below)
 
 egress:                       # OPTIONAL — what Ava's agent tools may reach
   routes: ["POST /internal/connector/mycrm/create_lead"]
@@ -97,6 +97,29 @@ actions:                      # OPTIONAL — agent tools (see §5)
 `${VAR}` references expand from connector vars (`AVA_HOME`, `AVA_LOGS`,
 `AVA_DATA`, `ROOT`) and then the process environment, so `${MYCRM_API_URL}`
 resolves from Ava's config or env.
+
+### Credentials: the manifest names the token, never holds it
+
+Every auth field above (`auth.token_env`, `mcp.token_env`, `discover.token_env`,
+`ui.api.token_env`, and any `${VAR}`) is the **name of an environment variable**,
+not the secret. The value is resolved on the bridge, host-side, only when a
+request is about to leave for your app — so the sandboxed agent never sees it,
+and it is never written to the manifest. This is the hard **Ava-never-has-
+passwords** invariant.
+
+The value can come from two places, checked in this order:
+
+1. **A real environment variable** (`export MYCRM_API_TOKEN=…`, systemd
+   `EnvironmentFile=`, Docker `environment:`) — always wins.
+2. **Ava's secret store** — paste the token once in **Setup → Connectors** (the
+   *Access token / API key* field on connect, or *Add credential* on an existing
+   row). It's saved `0600` under `$AVA_HOME/secrets/env/<NAME>`, survives restarts
+   and every **redeploy** (you're never re-prompted), and is never exported to a
+   subprocess. Forkers don't have to touch `.env` at all — if you paste a value
+   without naming a variable, Ava derives a stable one (`<CID>_TOKEN`).
+
+Deploy/redeploy only regenerate tools + egress policy; they never read or ask for
+a credential.
 
 ---
 

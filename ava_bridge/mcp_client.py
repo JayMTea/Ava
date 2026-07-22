@@ -31,6 +31,7 @@ import subprocess
 import threading
 import time
 
+from . import settings
 from .version import __version__
 
 PROTOCOL_VERSION = "2025-03-26"
@@ -163,9 +164,9 @@ class _HttpSession(_Session):
     def _headers(self) -> dict:
         h = {"Content-Type": "application/json",
              "Accept": "application/json, text/event-stream"}
-        tenv = self.spec.get("token_env")
-        if tenv and os.environ.get(tenv):
-            h["Authorization"] = "Bearer " + os.environ[tenv]
+        tok = settings.env_secret(self.spec.get("token_env"))
+        if tok:
+            h["Authorization"] = "Bearer " + tok
         if self._mcp_session_id:
             h["Mcp-Session-Id"] = self._mcp_session_id
         return h
@@ -244,9 +245,9 @@ class _SseSession(_Session):
 
     def _headers(self, accept: str = "application/json") -> dict:
         h = {"Accept": accept}
-        tenv = self.spec.get("token_env")
-        if tenv and os.environ.get(tenv):
-            h["Authorization"] = "Bearer " + os.environ[tenv]
+        tok = settings.env_secret(self.spec.get("token_env"))
+        if tok:
+            h["Authorization"] = "Bearer " + tok
         return h
 
     def _reader(self) -> None:

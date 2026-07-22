@@ -55,7 +55,7 @@ def _expand(val):
     for k, v in _VARS.items():
         val = val.replace("${%s}" % k, v or "")
     val = _ENV_VAR.sub(
-        lambda m: os.environ.get(m.group(1)) or (m.group(2) or ""), val)
+        lambda m: settings.env_secret(m.group(1)) or (m.group(2) or ""), val)
     return val
 
 
@@ -398,12 +398,38 @@ def base_url(cid: str) -> str | None:
     return None
 
 
+def auth_env(m: dict) -> str | None:
+    """The env-var NAME a connector uses for its app credential, across every
+    manifest shape — REST ``auth``, an ``mcp`` server, a ``discover`` facade, or
+    a browser data-proxy (``ui.api``). Returns the first declared, or ``None`` if
+    the app needs no auth. The Setup Hub uses this to show whether a credential is
+    saved and to store one keyed by name — the value itself never enters the
+    manifest (see settings.env_secret / the Ava-never-has-passwords invariant)."""
+    if not isinstance(m, dict):
+        return None
+    auth = m.get("auth")
+    if isinstance(auth, dict) and auth.get("token_env"):
+        return str(auth["token_env"])
+    mcp = m.get("mcp")
+    if isinstance(mcp, dict) and mcp.get("token_env"):
+        return str(mcp["token_env"])
+    acts = m.get("actions")
+    if isinstance(acts, dict) and isinstance(acts.get("discover"), dict) \
+            and acts["discover"].get("token_env"):
+        return str(acts["discover"]["token_env"])
+    ui = m.get("ui")
+    if isinstance(ui, dict) and isinstance(ui.get("api"), dict) \
+            and ui["api"].get("token_env"):
+        return str(ui["api"]["token_env"])
+    return None
+
+
 def _auth_headers(cid: str) -> dict:
     """Bearer header for a connector's own API, from a top-level
     ``auth: { token_env: ENV }`` block. Empty if none declared."""
     m = {x["id"]: x for x in load()}.get(cid) or {}
     tenv = (m.get("auth") or {}).get("token_env")
-    tok = os.environ.get(tenv, "") if tenv else ""
+    tok = settings.env_secret(tenv) if tenv else None
     return {"Authorization": "Bearer " + tok} if tok else {}
 
 
@@ -712,7 +738,7 @@ def app_api(cid: str) -> dict | None:
     base = _expand(api.get("base")) or base_url(cid)  # default to the probe host
     if not base:
         return None
-    token = os.environ.get(api["token_env"], "") if api.get("token_env") else ""
+    token = (settings.env_secret(api["token_env"]) or "") if api.get("token_env") else ""
     return {"base": base.rstrip("/"),
             "prefix": str(api.get("prefix") or "").rstrip("/"),
             "token": token}
@@ -770,9 +796,9 @@ def _discover_base(cid: str, spec: dict) -> str | None:
 
 def _discover_headers(spec: dict) -> dict:
     h = {"Content-Type": "application/json"}
-    tenv = spec.get("token_env")
-    if tenv and os.environ.get(tenv):
-        h["Authorization"] = "Bearer " + os.environ[tenv]
+    tok = settings.env_secret(spec.get("token_env"))
+    if tok:
+        h["Authorization"] = "Bearer " + tok
     return h
 
 
