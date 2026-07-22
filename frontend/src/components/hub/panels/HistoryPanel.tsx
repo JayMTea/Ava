@@ -1,37 +1,15 @@
 import { useState } from 'react';
 import { Icon } from '../../../lib/icons';
 import { ago, EmptyState, Panel } from '../../dashboard/primitives';
+import { eventMeta, humanize } from '../events';
 import { useResource } from '../hooks';
 import { hub } from '../hubApi';
 import type { AuditEvent } from '../hubApi';
 import { Legend } from '../ui/Legend';
-import { Tile, type Tone } from '../ui/Tile';
+import { Tile } from '../ui/Tile';
 
-// History — the flight recorder (durable audit ledger).
-// Every audit kind the backend records → a typed identity (glyph + tone) and a
-// human label, so the ledger reads like the connectors/memory lists instead of
-// raw event names. Tone: accent = the agent changed something, warn/err =
-// permission or destructive, ok = a normal turn, muted = passive/system.
-// Unknown kinds fall back to a humanised label so nothing renders bare.
-const EVENT_META: Record<string, { icon: string; label: string; tone: Tone }> = {
-  turn: { icon: 'chats', label: 'Chat turn', tone: 'ok' },
-  code_change: { icon: 'code', label: 'Self-edit', tone: 'accent' },
-  egress: { icon: 'code', label: 'Tool call', tone: 'info' },
-  memory_recall: { icon: 'db', label: 'Memory recall', tone: 'muted' },
-  memory_distill: { icon: 'sparkles', label: 'Memory distilled', tone: 'accent' },
-  memory_edit: { icon: 'pencil', label: 'Memory edit', tone: 'warn' },
-  grant: { icon: 'lock', label: 'Permission granted', tone: 'warn' },
-  revoke: { icon: 'lock', label: 'Permission revoked', tone: 'err' },
-  approval: { icon: 'check', label: 'Approval', tone: 'warn' },
-  route: { icon: 'activity', label: 'Intent routed', tone: 'muted' },
-  job: { icon: 'image', label: 'Media job', tone: 'ok' },
-  data_export: { icon: 'file', label: 'Data export', tone: 'muted' },
-  data_maintenance: { icon: 'db', label: 'Data maintenance', tone: 'muted' },
-};
-const humanize = (s: string) => s.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
-function eventMeta(kind: string) {
-  return EVENT_META[kind] || { icon: 'info', label: humanize(kind), tone: 'muted' };
-}
+// History — the flight recorder (durable audit ledger). Event typing (glyph +
+// label + tone per kind) is shared with the Data → Logs view via hub/events.ts.
 // The kind-specific facts (everything except the label + timestamp), joined for
 // the quiet meta line under the title.
 function eventDetail(e: AuditEvent): string {
