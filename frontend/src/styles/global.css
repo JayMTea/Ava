@@ -1,5 +1,15 @@
   /* Design tokens live in tokens.css (SSOT). */
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  /* Every <Icon> wraps its inline SVG in a `.ico` span. `display:contents` drops
+     that span from layout so the SVG becomes the DIRECT child of its flex-centred
+     container (tile / button / nav row): the container's justify/align then centre
+     the glyph on BOTH axes, and any `width:%` sizing resolves against the
+     container, not the span. Without this the inline SVG inherited the text
+     baseline's descender gap (glyph rides high) and, once blockified, left-aligned
+     in a full-width span. `display:block` keeps it clean in the rare non-flex host. */
+  .ico { display: contents; }
+  .ico > svg { display: block; }
   body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
          background:var(--bg); color:var(--txt); height:100dvh; display:flex; flex-direction:column; }
   

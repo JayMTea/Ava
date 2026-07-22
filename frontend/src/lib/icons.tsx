@@ -94,5 +94,8 @@ export function Icon({ name, className }: { name: keyof typeof ICONS | string; c
   // Connector-declared icon names can drift from this set; fall back to a
   // neutral glyph so nav rows and rail buttons never render an empty gap.
   const svg = ICONS[name] ?? ICONS.grid;
-  return <span className={className} dangerouslySetInnerHTML={{ __html: svg }} />;
+  // Base `ico` class → the wrapped SVG renders as a block (see global.css), so it
+  // never inherits the text baseline's descender gap that otherwise shifts the
+  // glyph up inside a flex-centered tile / button / nav row.
+  return <span className={'ico' + (className ? ' ' + className : '')} dangerouslySetInnerHTML={{ __html: svg }} />;
 }

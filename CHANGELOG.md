@@ -46,6 +46,12 @@ on-prem project, so versions are dated milestones rather than published releases
   enforced going forward by `tests/test_hub_uniformity.py`.
 
 ### Fixed
+- **Icons sat off-centre in every tile / button / nav row** — the `<Icon>`
+  wrapper's inline SVG inherited the text baseline's descender gap, so a
+  flex-centred glyph rode high (and, once blockified, jammed to the left). `<Icon>`
+  now tags its span `.ico` with `display:contents`, dropping the span from layout
+  so the SVG centres directly on both axes inside its flex container — one rule
+  that centres every icon app-wide (verified: vertical/horizontal offset 0).
 - `.hub-note` / `.hub-restart` never sized a leading icon SVG (unbounded glyph);
   also fixes the Setup page's own restart banner.
 - **Agent tab no longer crashes the whole Setup view** on a partial or errored
