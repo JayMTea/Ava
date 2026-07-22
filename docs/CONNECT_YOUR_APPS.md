@@ -56,20 +56,24 @@ lets you describe its actions manually: what it does, the method, and the path.
 
 ### Step 3: Click "Connect app"
 
-That's it. The app appears in the Connectors list with its badges: enabled,
-tools ok, policy ok.
+That's it. The app appears in the Connectors list — enabled, with its actions
+counted and a **needs deploy** marker until its tools and egress policy are
+generated into the agent.
 
-![The Connectors list after connecting: the new app at the top with enabled, 3 actions, tools ok, and policy ok badges](assets/connect-app-3-connected.png)
+![The Connectors list after connecting: the new app at the top, enabled, with its action count and deploy state](assets/connect-app-3-connected.png)
 
-### Step 4: Preview, then Generate & deploy
+### Step 4: Preview, then Deploy
 
-Each row has two buttons:
+The row offers **Preview**, and — while its tools or egress policy are out of
+date — a **Deploy** button (everything else, like the push token, appearance,
+manifest editor, and remove, lives in the row's **⋯** menu):
 
 - **Preview** shows exactly what will be generated: the agent tools and the
   egress security policy (what the app is allowed to reach, and nothing else).
-- **Generate & deploy** writes them. After a deploy, the page shows the one
-  command that loads the new tools into the agent's sandbox
-  (`cd agent && ./install.sh`); run it once and you're done.
+- **Deploy** regenerates them and loads them into the agent's sandbox; the row
+  then reads **deployed** (redeploy any time from the ⋯ menu). If the sandbox
+  isn't reachable from the browser, the page shows the one command that loads
+  them (`cd agent && ./install.sh`); run it once and you're done.
 
 Now ask Ava to use the app: *"create a note about tomorrow's demo"*. The tool
 call shows up in the chat's tool chips and on the Operations page like

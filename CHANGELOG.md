@@ -27,10 +27,32 @@ on-prem project, so versions are dated milestones rather than published releases
 - **`MemoryPanel` extracted** to `frontend/src/components/hub/MemoryPanel.tsx`,
   shared by Setup → Memory and Data → Memory (one implementation).
 - `memory_store.counts()` now reports `pinned`.
+- **Setup UI redesigned onto one system** — all nine Setup tabs
+  (`frontend/src/components/hub/`) share one visual grammar: typed identity
+  tiles, tone-dotted status boards, overflow-safe action rows with a shared "⋯"
+  overflow menu, and structured term/description legends. Connectors' **Deploy**
+  is now state-aware (hidden once a connector's tools + policy are up to date —
+  the row reads *deployed* and offers a quiet *Redeploy* in the ⋯ menu); the row
+  action cluster wraps instead of overflowing the card. Hardware leads with the
+  recommended tier; History types every audit kind with client-side category
+  filters; Voice shows the speaker-gate state (closed / open / off); Budgets'
+  meters always show usage (with an energy→$ readout) even before a cap is set.
+- **Setup frontend refactored for uniformity** — extracted shared data/action
+  hooks (`hub/hooks.ts`: `useResource`/`useAction`) and view primitives
+  (`hub/ui/{Tile,Legend,Badge,StatRow,HubMessage}`), collapsed seven per-panel
+  icon-tile classes and the scattered tone rules into one `.tile` + `--tone`
+  system, and split the `HubView.tsx` monolith into `hub/panels/*.tsx` (one file
+  per tab) behind a thin router (2883 → 175 lines). Behaviour-preserving;
+  enforced going forward by `tests/test_hub_uniformity.py`.
 
 ### Fixed
 - `.hub-note` / `.hub-restart` never sized a leading icon SVG (unbounded glyph);
   also fixes the Setup page's own restart banner.
+- **Agent tab no longer crashes the whole Setup view** on a partial or errored
+  `/api/hub/agent/skills` response — the skills loader normalises the payload and
+  degrades to an empty list instead of throwing to the view error boundary.
+- **Setup → System** optional-feature labels no longer run together (title/sub
+  now stack), and Setup save-confirmations read green instead of the error red.
 
 ### Added — Setup Hub, MCP, governance & observability
 - **Setup Hub** (`ava_bridge/hub_api.py`, `frontend/.../hub/`): a GUI onboarding &
