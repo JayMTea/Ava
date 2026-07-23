@@ -973,10 +973,16 @@ def _probe(url: str, command: str, token_env: str | None,
             tools = data.get("tools") if isinstance(data, dict) else None
             if isinstance(tools, list) and tools:
                 health = str(meta.get("health") or "").strip()
+                # Self-described token name (SDK §3 Single sign-on): prefill the
+                # connect form so the owner pastes only the VALUE, and Ava then
+                # presents it to the agent tools AND the embedded UI.
+                auth_meta = meta.get("auth") if isinstance(meta.get("auth"), dict) else {}
+                token_env_hint = str(auth_meta.get("token_env") or "").strip() or None
                 return {"ok": True, "kind": "discover", "tools": _slim_tools(tools),
                         "label": str(meta.get("label") or "").strip()[:60] or None,
                         "health": (url.rstrip("/") + "/" + health.lstrip("/")) if health else None,
                         "discover": {"list": list_path, "call": call_path},
+                        "token_env": token_env_hint,
                         "has_ui": bool(meta.get("ui")) or _serves_html()}
     except Exception:  # noqa: BLE001
         pass
@@ -1129,6 +1135,12 @@ async def connector_new(body: dict):
         if token_env_name:
             d["token_env"] = token_env_name
         manifest["actions"] = {"discover": d}
+
+    # A token but no mcp/discover block to carry it (a plain iframe or REST app):
+    # record it as top-level `auth.token_env` so Ava can present it to the agent
+    # tools and the embedded UI (SDK §3 Single sign-on).
+    if token_env_name and "mcp" not in manifest and "actions" not in manifest:
+        manifest["auth"] = {"token_env": token_env_name}
 
     # Embedded-app tier (CONNECTOR_SDK.md §3): the app has its own web UI and the
     # user asked for a sidebar tile — Ava reverse-proxies it same-origin under

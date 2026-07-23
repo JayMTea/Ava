@@ -42,6 +42,24 @@ on-prem project, so versions are dated milestones rather than published releases
   expansion, and `mcp_client` HTTP/SSE headers) routes through the one resolver;
   guarded by `tests/test_connector_secrets.py`.
 
+### Added — Single sign-on for embedded apps (connect once, no re-login)
+- **Ava presents a connected app's saved token to its embedded UI**, so an app
+  with its own login never shows you its password screen again after you've
+  connected it. The one credential now does double duty — the agent tools *and*
+  the app's own web page. New `connectors.app_token(cid)` resolves the token
+  (`token_env` → `settings.env_secret`); the same-origin app proxies
+  (`/apps/<id>/…`) inject it as the bearer when the browser has none, and the
+  saved token wins over a stale one left in the app's storage (no 401/login
+  flash). Resolved only on the bridge — never handed to the browser or the
+  sandboxed agent (Ava-never-has-passwords holds).
+- **The app-author contract is a documented two-liner** (CONNECTOR_SDK.md §3
+  *Single sign-on*): accept a static token (named by `token_env`) as a session,
+  and skip your own login when embedded (a non-empty `/apps/<id>` mount). Apps
+  can self-describe the token name in `/.well-known/ava.json`
+  (`auth.token_env`) so the connect form prefills it. The template, `scaffold.py`
+  README, and CONNECT_YOUR_APPS.md all cover it; the two bundled example apps
+  (ava-notes, note-keeper) were conformed to the contract.
+
 ### Changed
 - **Chat deletion is audit-logged** — `DELETE /api/chats/{cid}` now writes a
   `chat_delete` event to the flight recorder, same as memory edits.

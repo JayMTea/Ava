@@ -616,11 +616,16 @@ async def app_api_proxy(cid: str, path: str, request: Request):
     headers = {"content-type": request.headers.get("content-type", "application/json")}
     if cfg["token"]:
         headers["Authorization"] = "Bearer " + cfg["token"]
-    elif request.headers.get("authorization"):
-        # No server-side token to inject — pass the app's OWN session through
-        # (an embedded SPA with its own login sends its bearer on every call;
-        # dropping it logs the user straight back out).
-        headers["Authorization"] = request.headers["authorization"]
+    else:
+        # The connector's saved credential is authoritative (it survives a stale
+        # token in the app's own storage). Only when none is saved do we forward
+        # the app's OWN session — an app with a login but no stored token, where
+        # dropping its bearer would log the user out. '' leaves it unauthenticated.
+        tok = await run_in_threadpool(connectors.app_token, cid)
+        if tok:
+            headers["Authorization"] = "Bearer " + tok
+        elif request.headers.get("authorization"):
+            headers["Authorization"] = request.headers["authorization"]
     body = await request.body() if request.method in ("POST", "PATCH", "PUT") else None
 
     def _do():
@@ -655,10 +660,16 @@ async def app_ui_proxy(cid: str, path: str, request: Request):
     url = f"{meta['url'].rstrip('/')}/{path}"
     params = dict(request.query_params)
     body = await request.body() if request.method in ("POST", "PATCH", "PUT") else None
-    # Pass the app's OWN auth through: an embedded SPA with its own login sends
-    # its bearer on every call — dropping it logs the user straight back out.
+    # Keep the owner signed in to an app they already connected. The connector's
+    # saved credential is authoritative and wins — so a stale token still sitting in
+    # the embedded app's storage can't cause a 401/login flash; only if none is saved
+    # do we forward the app's OWN session (an app with a login but no stored token).
+    # Resolved on the bridge, never handed to the browser (Ava-never-has-passwords).
     fwd = {}
-    if request.headers.get("authorization"):
+    tok = await run_in_threadpool(connectors.app_token, cid)
+    if tok:
+        fwd["Authorization"] = "Bearer " + tok
+    elif request.headers.get("authorization"):
         fwd["Authorization"] = request.headers["authorization"]
 
     def _do():

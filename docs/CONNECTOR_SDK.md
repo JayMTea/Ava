@@ -121,6 +121,10 @@ The value can come from two places, checked in this order:
 Deploy/redeploy only regenerate tools + egress policy; they never read or ask for
 a credential.
 
+The one saved token does double duty: Ava sends it with your **agent tools** and,
+for an `iframe` app, **presents it to the embedded UI** so the owner isn't asked
+to log in to an app they already connected — see *Single sign-on* in §3.
+
 ---
 
 ## 3. The three embed tiers (how your UI renders)
@@ -131,7 +135,7 @@ the app body:
 
 | `embed` | Who it's for | How Ava renders it |
 |---|---|---|
-| **`iframe`** | **Third-party apps** (the common case) | Ava reverse-proxies your app's web UI **same-origin** under `/apps/<id>/` and shows it in an `<iframe>`. Because it's same-origin, your app inherits Ava's session cookie, so there is **no separate login**. Ava's theme is passed as `?theme=light\|dark`. |
+| **`iframe`** | **Third-party apps** (the common case) | Ava reverse-proxies your app's web UI **same-origin** under `/apps/<id>/` and shows it in an `<iframe>`. Same-origin means Ava's session cookie already gates the route, and if your app has its **own** login you make it seamless with one small step — see *Single sign-on* below. Ava's theme is passed as `?theme=light\|dark`. |
 | **`native`** | First-party React views | Renders `NATIVE_VIEWS[view]`, provided by an optional gitignored overlay (`frontend/src/overlay/views/*`). Reserved for apps bundled into the frontend. |
 | **`none`** | Apps with tools but no UI | Ava renders a generic **action console** listing the app's agent actions. |
 
@@ -139,8 +143,10 @@ the app body:
 
 Ava's session cookie is `httpOnly` + `SameSite=Lax` + host-only, so a raw
 `http://127.0.0.1:9000` iframe would receive **no** cookie. Ava proxies your app
-under its **own** origin (`/apps/<id>/`) so the cookie flows and your app is
-authenticated for free. You never handle Ava's auth.
+under its **own** origin (`/apps/<id>/`) so Ava's own cookie gates the route and
+your app's own storage (a session cookie or a `localStorage` token) persists like
+a normal same-origin visit. If your app has **no** auth of its own, you're done —
+Ava's gate is the only door. If it **does** have a login, see the next section.
 
 ### iframe security
 
@@ -177,6 +183,44 @@ with no manifest config, and a top-level visit to `/apps/<id>/` bounces the
 user back into Ava's shell. One more tip from the field: gate your UI build on
 a typecheck (`tsc -b --noEmit && vite build`) — bundlers don't catch unbound
 identifiers, and a broken bundle inside an iframe is painful to debug.
+
+### Single sign-on: apps with their own login
+
+If your app has its **own** password/login, don't make the owner sign in again
+after they've already connected it in Ava. The owner connects **once** (they
+paste your app's token in Setup → Connectors, or it's auto-detected); Ava then
+**presents that saved token on every embedded request** — the same value it uses
+for your agent tools. Two small steps make your app honor it:
+
+1. **Accept a static token as a full session.** Alongside your human login,
+   treat a configured static token (referenced by your manifest's `token_env`,
+   e.g. `auth.token_env: MYAPP_TOKEN`) as authenticated on every route your UI
+   hits. Ava sends it as `Authorization: Bearer <token>` when the browser has no
+   session of its own (a fresh embed). Media tags that can't set headers work too
+   — Ava injects on the proxied request, so a plain `withBase('/media/x')` is
+   authenticated without a `?token=`.
+
+2. **When embedded, skip your own login screen.** You already derive `MOUNT`
+   (above); a non-empty `MOUNT` means "running inside Ava," where Ava's injected
+   token authenticates every call. Start authenticated there and only fall back
+   to your login on a real `401`:
+
+```ts
+export const EMBEDDED: boolean = MOUNT !== '';   // served under /apps/<id>
+// ...
+const [authed, setAuthed] = useState(() => !!getToken() || EMBEDDED);
+// a 401 from any call still clears state and shows Login — the fallback for
+// when Ava holds no token yet (the owner hasn't pasted one).
+```
+
+That's the whole contract. Standalone (direct at your port) your password login
+is unchanged; embedded in Ava it's single sign-on. Ava resolves the token only
+on the bridge when building the request — it never reaches the browser or the
+sandboxed agent (the *Ava-never-has-passwords* invariant, §2).
+
+> **Self-describe it (optional, nicer onboarding).** Advertise the token name in
+> `/.well-known/ava.json` as `"auth": {"token_env": "MYAPP_TOKEN"}` (§5). Ava's
+> connect form then pre-fills the field so the owner just pastes the value.
 
 ---
 

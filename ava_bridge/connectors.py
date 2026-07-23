@@ -744,6 +744,24 @@ def app_api(cid: str) -> dict | None:
             "token": token}
 
 
+def app_token(cid: str) -> str:
+    """The saved credential Ava presents to an embedded app on the owner's behalf,
+    resolved from the connector's declared ``token_env`` (any manifest shape, see
+    ``auth_env``) via ``settings.env_secret``. ``''`` when the app declares no
+    credential or none is saved yet.
+
+    This is what lets "connect the app once" mean the human never re-authenticates
+    to the app's own UI: the same-origin app proxy injects this as the bearer when
+    the browser sends none (a fresh embed has no app session of its own). Resolved
+    only here on the bridge when building the egress request — never handed to the
+    browser or inherited by the sandboxed agent (Ava-never-has-passwords)."""
+    m = {x["id"]: x for x in load()}.get(cid)
+    if not m:
+        return ""
+    name = auth_env(m)
+    return (settings.env_secret(name) or "") if name else ""
+
+
 # --- MCP servers -------------------------------------------------------------
 # Wrap ANY Model Context Protocol server as a connector: the bridge speaks real
 # MCP (JSON-RPC over Streamable HTTP or stdio, see ava_bridge/mcp_client.py),

@@ -64,6 +64,13 @@ there — a real environment variable always wins.) On the Connectors list an ap
 that needs auth shows **credential saved** once it has one, or **needs a token**
 until you add it — use **Add credential** in the row's ⋯ menu any time.
 
+That one saved token also **keeps you signed in to the app itself.** If the app
+has its own password screen, Ava presents the token to its embedded page for you,
+so you connect once and are never asked to log in again when you open it inside
+Ava. (This needs the app to accept that token — apps built to Ava's Connector SDK
+do; if you're building the app, see
+[Single sign-on](CONNECTOR_SDK.md#single-sign-on-apps-with-their-own-login).)
+
 ### Step 3: Click "Connect app"
 
 That's it. The app appears in the Connectors list — enabled, with its actions

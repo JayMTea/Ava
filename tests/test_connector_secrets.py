@@ -115,6 +115,24 @@ class AuthHeaderFromStoreTests(unittest.TestCase):
         src = connectors.render_tool("myapp", action)
         self.assertNotIn(self.SECRET, src)
 
+    def test_app_token_resolves_saved_secret_for_embedded_proxy(self):
+        # app_token is what the same-origin app proxy injects so an embedded app
+        # the owner already connected never shows its own login. '' until saved.
+        self.assertEqual(connectors.app_token("myapp"), "")
+        settings.set_env_secret("MYAPP_TOKEN", self.SECRET)
+        self.assertEqual(connectors.app_token("myapp"), self.SECRET)
+
+    def test_app_token_empty_for_unknown_or_authless_connector(self):
+        self.assertEqual(connectors.app_token("nope"), "")  # no such connector
+        # A connector that declares no token_env yields '' (no auth to present).
+        d = os.path.join(self.builtin, "plain")
+        os.makedirs(d)
+        with open(os.path.join(d, "connector.yaml"), "w", encoding="utf-8") as f:
+            f.write("id: plain\nlabel: Plain\nui:\n  embed: iframe\n"
+                    "  url: http://127.0.0.1:9100\n")
+        connectors.load(force=True)
+        self.assertEqual(connectors.app_token("plain"), "")
+
 
 if __name__ == "__main__":
     unittest.main()

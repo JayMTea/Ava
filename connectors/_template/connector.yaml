@@ -41,7 +41,11 @@ service:
 #   # embed: native — a first-party React view compiled into Ava's bundle:
 #   # view: myapp          #   registry key in frontend App.tsx NATIVE_VIEWS
 #   # embed: iframe — your app serves its OWN web UI; Ava reverse-proxies it
-#   #   same-origin under /apps/myapp/ so it inherits Ava's session cookie:
+#   #   same-origin under /apps/myapp/. If your app has its own login, give it
+#   #   single sign-on: declare `auth.token_env` below, have your app accept that
+#   #   static token as a session, and skip your login screen when embedded
+#   #   (CONNECTOR_SDK.md §3 "Single sign-on"). Ava presents the saved token so
+#   #   the owner connects once and never re-logs-in.
 #   url: "http://127.0.0.1:9000"
 #   # embed: none — no UI; Ava renders a generic action console from `actions`.
 #   #
@@ -56,6 +60,13 @@ service:
 # Set the value once as a real env var, OR paste it in Setup → Connectors and Ava
 # saves it 0600 under $AVA_HOME/secrets/env/<NAME> — never in this file, never
 # shown to the agent, reused on every redeploy. See docs/CONNECTOR_SDK.md.
+
+# --- App credential (optional) ----------------------------------------------
+# The static token Ava presents to your app — for the agent tools AND, for an
+# iframe app with its own login, the embedded UI (SDK §3 "Single sign-on"). Only
+# the NAME lives here; the value is a real env var or the Setup secret store.
+# auth:
+#   token_env: MYAPP_TOKEN
 
 # --- Chat pickup (optional) ---------------------------------------------------
 # After a turn used one of the named tools, Ava polls your app's log for
