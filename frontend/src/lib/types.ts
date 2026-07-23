@@ -65,6 +65,7 @@ export interface HardwareStats {
     name: string | null;
     util: number | null;
     temp: number | null;
+    power: number | null;
     mem_used_mb: number | null;
     mem_total_mb: number | null;
   };
