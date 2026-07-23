@@ -386,6 +386,11 @@ def list_connectors():
         has_tools = bool(expected) and all(
             os.path.exists(os.path.join(tool_root, cid, t["name"]))
             for t in expected)
+        # Credential state — the env-var NAME the app authenticates with (if any),
+        # and whether a value is available (a real env var OR one saved once via
+        # the Hub) so the UI can show "credential saved" and never re-prompt on
+        # redeploy. The value itself is never returned.
+        auth = connectors.auth_env(m)
         out.append({
             "id": cid,
             "label": m.get("label", cid),
@@ -405,8 +410,40 @@ def list_connectors():
             "enabled": bool(m.get("enabled", True)),  # from the manifest
             # User-added connectors are editable/removable; shipped ones are read-only.
             "builtin": not os.path.isdir(os.path.join(user_root, cid)),
+            # Credential status (never the value): the env-var name it uses, and
+            # whether a credential is available / saved in the store.
+            "auth_env": auth,
+            "auth_set": settings.has_env_secret(auth) if auth else False,
+            "auth_stored": settings.env_secret_stored(auth) if auth else False,
         })
     return {"connectors": out, "errors": connectors.load_errors()}
+
+
+@router.post("/connectors/{cid}/secret")
+async def connector_set_secret(cid: str, body: dict):
+    """Save (or clear) a connected app's credential VALUE so redeploy never
+    re-prompts. Keyed by the manifest's ``token_env`` NAME, the value goes to the
+    server-side secret store (``$AVA_HOME/secrets/env/<NAME>``, 0600) — never the
+    manifest, never the agent. An empty value clears it. A real env var of the
+    same name still wins at read time."""
+    m = {x["id"]: x for x in connectors.catalog()}.get(cid)
+    if not m:
+        return JSONResponse({"ok": False, "error": f"unknown connector '{cid}'"},
+                            status_code=404)
+    name = connectors.auth_env(m)
+    if not name:
+        return JSONResponse({"ok": False, "error":
+                             "This app declares no auth token. Add "
+                             "`auth: { token_env: NAME }` via Edit (or reconnect "
+                             "with a token) first."}, status_code=400)
+    value = str(body.get("value") or "")
+    if value.strip():
+        settings.set_env_secret(name, value)
+    else:
+        settings.clear_env_secret(name)
+    return {"ok": True, "auth_env": name,
+            "auth_set": settings.has_env_secret(name),
+            "auth_stored": settings.env_secret_stored(name)}
 
 
 # --------------------------------------------------------------------------- #
@@ -870,15 +907,23 @@ def _actions_from_openapi(spec: dict, limit: int = 50) -> list[dict]:
     return out
 
 
-def _probe(url: str, command: str, token_env: str | None) -> dict:
+def _probe(url: str, command: str, token_env: str | None,
+           token_value: str | None = None) -> dict:
     """Figure out how to talk to an app so the user doesn't have to classify it:
     try MCP (a start command = stdio, or the URL = MCP-over-HTTP), then a
     discovery endpoint (GET <url>/tools). Returns the detected kind + the tools
     we found, or kind='rest' when nothing is auto-discoverable (the caller then
-    asks the user to declare actions — the one thing we can't infer)."""
+    asks the user to declare actions — the one thing we can't infer).
+
+    ``token_value`` is a credential the owner just pasted in the connect form (not
+    yet saved) so the detection call can authenticate; otherwise fall back to the
+    saved/env value resolved from ``token_env``."""
     from . import mcp_client
     import uuid
     cid = "__probe_" + uuid.uuid4().hex[:6]
+    # Credential for the detection request: the just-pasted value wins, else the
+    # value already saved for this env-var name (or a real env var).
+    tok = (token_value or "").strip() or settings.env_secret(token_env)
 
     # 1) A start command is unambiguously an MCP stdio server.
     if command:
@@ -916,9 +961,7 @@ def _probe(url: str, command: str, token_env: str | None) -> dict:
     # most authoritative signal, so it goes first and prefills the whole form.
     try:
         import requests
-        headers = {}
-        if token_env and os.environ.get(token_env):
-            headers["Authorization"] = "Bearer " + os.environ[token_env]
+        headers = {"Authorization": "Bearer " + tok} if tok else {}
         wk = requests.get(url.rstrip("/") + "/.well-known/ava.json",
                           headers=headers, timeout=5)
         meta = wk.json() if wk.status_code == 200 else None
@@ -930,10 +973,16 @@ def _probe(url: str, command: str, token_env: str | None) -> dict:
             tools = data.get("tools") if isinstance(data, dict) else None
             if isinstance(tools, list) and tools:
                 health = str(meta.get("health") or "").strip()
+                # Self-described token name (SDK §3 Single sign-on): prefill the
+                # connect form so the owner pastes only the VALUE, and Ava then
+                # presents it to the agent tools AND the embedded UI.
+                auth_meta = meta.get("auth") if isinstance(meta.get("auth"), dict) else {}
+                token_env_hint = str(auth_meta.get("token_env") or "").strip() or None
                 return {"ok": True, "kind": "discover", "tools": _slim_tools(tools),
                         "label": str(meta.get("label") or "").strip()[:60] or None,
                         "health": (url.rstrip("/") + "/" + health.lstrip("/")) if health else None,
                         "discover": {"list": list_path, "call": call_path},
+                        "token_env": token_env_hint,
                         "has_ui": bool(meta.get("ui")) or _serves_html()}
     except Exception:  # noqa: BLE001
         pass
@@ -952,9 +1001,7 @@ def _probe(url: str, command: str, token_env: str | None) -> dict:
     # 3) Try a discovery endpoint (our list+call facade / FastMCP-style).
     try:
         import requests
-        headers = {}
-        if token_env and os.environ.get(token_env):
-            headers["Authorization"] = "Bearer " + os.environ[token_env]
+        headers = {"Authorization": "Bearer " + tok} if tok else {}
         r = requests.get(url.rstrip("/") + "/tools", headers=headers, timeout=8)
         data = r.json()
         tools = data.get("tools") if isinstance(data, dict) else (
@@ -970,9 +1017,7 @@ def _probe(url: str, command: str, token_env: str | None) -> dict:
     # reviews a list instead of hand-typing endpoints — zero-config.
     try:
         import requests
-        headers = {}
-        if token_env and os.environ.get(token_env):
-            headers["Authorization"] = "Bearer " + os.environ[token_env]
+        headers = {"Authorization": "Bearer " + tok} if tok else {}
         for suffix in ("/openapi.json", "/swagger.json", "/openapi"):
             try:
                 r = requests.get(url.rstrip("/") + suffix, headers=headers, timeout=8)
@@ -1006,7 +1051,8 @@ async def connector_probe(request: Request):
     url = str(body.get("url") or "").strip()
     command = str(body.get("command") or "").strip()
     token_env = str(body.get("token_env") or "").strip() or None
-    return await run_in_threadpool(_probe, url, command, token_env)
+    token_value = str(body.get("token_value") or "")
+    return await run_in_threadpool(_probe, url, command, token_env, token_value)
 
 
 @router.post("/connectors/new")
@@ -1031,6 +1077,21 @@ async def connector_new(body: dict):
     if str(body.get("role") or "").lower() == "device":
         manifest["role"] = "device"  # groups it under Devices; enables the push flow
 
+    # Credential (Ava-never-has-passwords): the manifest stores only the NAME of
+    # an env var (token_env). If the owner pasted the actual VALUE in the connect
+    # form, we save it ONCE to the server-side secret store below — never to the
+    # manifest, never to the agent — so redeploy never re-prompts. When they gave
+    # a value but no name, derive a stable one from the id (e.g. NOTES_TOKEN) so a
+    # forker never has to think about env-var naming.
+    _mcp_body = body.get("mcp") if isinstance(body.get("mcp"), dict) else {}
+    _disc_body = body.get("discover") if isinstance(body.get("discover"), dict) else {}
+    token_env_name = (str(body.get("token_env") or "").strip()
+                      or str(_mcp_body.get("token_env") or "").strip()
+                      or str(_disc_body.get("token_env") or "").strip())
+    token_value = str(body.get("token_value") or "")
+    if token_value and not token_env_name:
+        token_env_name = re.sub(r"[^A-Za-z0-9]", "_", cid).upper() + "_TOKEN"
+
     probe = str(body.get("probe") or "").strip()
     base_url = str(body.get("base_url") or "").strip()
     if probe:
@@ -1053,9 +1114,8 @@ async def connector_new(body: dict):
             return JSONResponse({"ok": False,
                                  "error": "mcp needs a url (http) or a command (stdio)"},
                                 status_code=400)
-        tenv = str(mcp_in.get("token_env") or "").strip()
-        if tenv:
-            mcp["token_env"] = tenv
+        if token_env_name:
+            mcp["token_env"] = token_env_name
         if command and mcp_in.get("sandbox") == "docker":
             mcp["sandbox"] = "docker"          # run the stdio server contained
             if mcp_in.get("image"):
@@ -1072,10 +1132,15 @@ async def connector_new(body: dict):
         b = str(disc_in.get("base") or base_url or "").strip()
         if b:
             d["base"] = b
-        tenv = str(disc_in.get("token_env") or "").strip()
-        if tenv:
-            d["token_env"] = tenv
+        if token_env_name:
+            d["token_env"] = token_env_name
         manifest["actions"] = {"discover": d}
+
+    # A token but no mcp/discover block to carry it (a plain iframe or REST app):
+    # record it as top-level `auth.token_env` so Ava can present it to the agent
+    # tools and the embedded UI (SDK §3 Single sign-on).
+    if token_env_name and "mcp" not in manifest and "actions" not in manifest:
+        manifest["auth"] = {"token_env": token_env_name}
 
     # Embedded-app tier (CONNECTOR_SDK.md §3): the app has its own web UI and the
     # user asked for a sidebar tile — Ava reverse-proxies it same-origin under
@@ -1122,10 +1187,10 @@ async def connector_new(body: dict):
     if actions:
         manifest["actions"] = actions
         # The app's own bearer token (named env var) — so Ava can authenticate
-        # to it. The secret value stays in $AVA_HOME's env, never in the manifest.
-        rest_token = str(body.get("token_env") or "").strip()
-        if rest_token:
-            manifest["auth"] = {"token_env": rest_token}
+        # to it. The secret value stays in the server-side secret store, never in
+        # the manifest (stored below via settings.set_env_secret).
+        if token_env_name:
+            manifest["auth"] = {"token_env": token_env_name}
         egress: dict = {}
         if base_url:  # actions call base_url server-side; allow it for the agent
             from urllib.parse import urlparse
@@ -1160,6 +1225,12 @@ async def connector_new(body: dict):
     except OSError as e:
         return JSONResponse({"ok": False, "error": f"could not write manifest: {e}"},
                             status_code=500)
+    # Save the pasted credential ONCE to the server-side store, keyed by the
+    # env-var name the manifest references. Must precede discover seeding below so
+    # the very first (authenticated) tool-list call can reach the app. A real env
+    # var of the same name still wins at read time (settings.env_secret).
+    if token_value and token_env_name:
+        settings.set_env_secret(token_env_name, token_value)
     connectors.load(force=True)   # pick it up without a restart
     perf_mgmt.refresh_sources()   # …and let Vitals see its perf source now
     if disc_in or mcp_in:
@@ -1168,7 +1239,9 @@ async def connector_new(body: dict):
         # just seeds later, on the next discovery.
         await run_in_threadpool(connectors.discover_tools, cid)
     return {"ok": True, "path": path, "manifest": manifest,
-            "actions": len(actions)}
+            "actions": len(actions),
+            "auth_env": token_env_name or None,
+            "auth_saved": bool(token_value and token_env_name)}
 
 
 @router.post("/connectors/{cid}/generate")

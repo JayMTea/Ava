@@ -33,6 +33,7 @@ shared fixtures — every file is self-contained. Dev deps: `requirements-dev.tx
 | `test_fastapi_compat.py` | Canary for the fastapi/starlette prefixed-router 404 regression |
 | `test_grants.py` | Consent access tiers, grants store, tier-aware gate |
 | `test_hardware_models.py` | Hardware monitor model inventory: engine worker processes merge into one row; model identity read from cmdline/config/API, never assumed from runtime kind |
+| `test_hub_uniformity.py` | Static guard on the Setup (Hub) **frontend** (`frontend/src/components/hub/`): shared `Badge`/`StatRow` aren't re-hand-rolled, no resurrected per-panel classes (icon tiles, action clusters, tone rules), one `.tone-*`/`--tone` system — no build/browser needed |
 | `test_hwinfo.py` | Hardware-abstraction decisions across Apple / CPU-only / no-psutil |
 | `test_mac_setup.py` | Non-CUDA onboarding: a high-RAM Mac must not get the vLLM default |
 | `test_mcp_client.py` | MCP client: real stdio subprocess session, HTTP+SSE stub, Streamable-HTTP, connector integration |

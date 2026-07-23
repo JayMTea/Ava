@@ -182,6 +182,268 @@
 .hub-btn svg { width: 15px; height: 15px; }
 .hub-btn-row { display: flex; gap: 10px; margin-top: var(--sp-4); flex-wrap: wrap; }
 
+/* ---- one tone system ---------------------------------------------------- */
+/* A `.tone-*` class sets --tone; every tone consumer (tile, status dot, meter
+   fill, status text) reads var(--tone) instead of re-listing ok/warn/err/…
+   colours per component. */
+.tone-ok { --tone: var(--ok); }
+.tone-warn { --tone: var(--warn); }
+.tone-err { --tone: var(--err); }
+.tone-accent { --tone: var(--accent); }
+.tone-info { --tone: var(--info); }
+.tone-muted { --tone: var(--muted); }
+
+/* ---- identity tile (shared primitive — see ui/Tile.tsx) ---------------- */
+/* One rounded tinted glyph, sized by --tile-size, tinted by --tone or an
+   explicit inline color (connectors pass their per-app accent). Replaces the
+   seven near-identical per-panel `-ic` classes. */
+.tile {
+  flex: 0 0 auto;
+  width: var(--tile-size, 30px); height: var(--tile-size, 30px);
+  border-radius: calc(var(--tile-size, 30px) * 0.26);
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--tone, var(--muted));
+  background: color-mix(in srgb, var(--tone, var(--muted)) 13%, transparent);
+}
+.tile svg { width: 52%; height: 52%; }
+.tile.tone-muted { background: var(--wash-6); }  /* neutral wash, not a grey tint */
+
+/* ---- shared row bits ---------------------------------------------------- */
+/* A "·" separator in a quiet meta line, and the overflow-safe trailing action
+   cluster (flex 0 1 auto so it shrinks and WRAPS, never overflowing the card). */
+.meta-sep { opacity: 0.4; }
+.row-actions {
+  flex: 0 1 auto; min-width: 0; margin-left: auto;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end;
+}
+
+/* ---- connector row (Connectors page) ----------------------------------- */
+/* One primary action + a couple of quiet ones + a "⋯" kebab. The action cluster
+   can shrink and WRAP (flex 0 1 auto, not the old flex-shrink:0 that pinned it to
+   its single-line width and shoved buttons past the card edge), so the row is
+   overflow-proof at any width. */
+.conn-row { border-bottom: 1px solid var(--line); padding: 14px 0; }
+.conn-row:last-child { border-bottom: 0; }
+.conn-head { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.conn-id { flex: 1 1 240px; min-width: 0; }
+.conn-title-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.conn-title { color: var(--txt); font-size: var(--fs-sm); font-weight: var(--fw-medium); }
+.conn-meta {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-top: 5px; color: var(--muted); font-size: var(--fs-xs);
+}
+.conn-stat { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; color: var(--tone, var(--muted)); }
+.conn-stat i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.conn-stat svg { width: 13px; height: 13px; }
+/* Dim only the identity when disabled — the Enable CTA in the action cluster
+   stays at full strength so the way back on is never greyed out. */
+.conn-row.off .tile,
+.conn-row.off .conn-id { opacity: 0.55; }
+.hub-kebab { padding: 6px 8px; }
+.hub-kebab svg { width: 16px; height: 16px; }
+
+/* Row "⋯" overflow menu — reuses .rail-menu chrome, portalled + fixed. */
+.hub-rowmenu { min-width: 190px; }
+.hub-rowmenu .rail-menu-item svg { color: var(--muted); width: 16px; height: 16px; }
+.hub-rowmenu .rail-menu-item:disabled { opacity: 0.5; cursor: default; }
+.hub-rowmenu .rail-menu-item.danger,
+.hub-rowmenu .rail-menu-item.danger svg { color: var(--err); }
+.hub-rowmenu .rail-menu-item.danger:hover { background: color-mix(in srgb, var(--err) 14%, transparent); }
+
+/* Legend — a scannable term/description grid, not a paragraph pile-up. Each
+   term echoes its button (icon + name) so the reference reads at a glance. */
+.legend { margin-top: var(--sp-4); border-top: 1px solid var(--line); padding-top: var(--sp-4); }
+.legend-title {
+  font-size: var(--fs-xs); font-weight: var(--fw-medium); color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px;
+}
+.legend-grid {
+  display: grid; grid-template-columns: max-content 1fr; gap: 11px 16px;
+  align-items: baseline; margin: 0;
+}
+.legend-term {
+  display: inline-flex; align-items: center; gap: 7px; white-space: nowrap;
+  color: var(--txt); font-size: var(--fs-sm); font-weight: var(--fw-medium);
+}
+.legend-term svg { width: 14px; height: 14px; color: var(--muted); flex: 0 0 auto; }
+.legend-desc { margin: 0; color: var(--muted); font-size: var(--fs-xs); line-height: 1.55; }
+.legend-desc b { color: var(--txt); font-weight: var(--fw-medium); }
+.legend-foot {
+  margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line);
+  display: grid; gap: 4px; color: var(--muted); font-size: var(--fs-xs); line-height: 1.55;
+}
+.legend-foot b { color: var(--txt); font-weight: var(--fw-medium); }
+.legend-foot code {
+  font-family: var(--font-mono); font-size: 0.9em; color: var(--txt);
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-sm);
+  padding: 1px 6px;
+}
+@media (max-width: 520px) {
+  .legend-grid { grid-template-columns: 1fr; gap: 3px 0; }
+  .legend-desc { margin-bottom: 10px; }
+}
+
+/* ---- memory rows (Memory page) — same row grammar as connectors: typed
+   identity glyph + text + quiet meta + one visible action + ⋯ menu. Colour is
+   reserved for the pinned state; the source is typed by glyph, not hue. ------ */
+.mem-row {
+  display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap;
+  padding: 13px 0; border-bottom: 1px solid var(--line);
+}
+.mem-row:last-child { border-bottom: 0; }
+.mem-tile { margin-top: 1px; }
+.mem-body { flex: 1 1 300px; min-width: 0; }
+.mem-text { color: var(--txt); font-size: var(--fs-sm); line-height: 1.5; overflow-wrap: anywhere; }
+.mem-meta {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-top: 4px; color: var(--muted); font-size: var(--fs-xs);
+}
+.mem-pinned { display: inline-flex; align-items: center; gap: 4px; color: var(--accent); }
+.mem-pinned svg { width: 12px; height: 12px; }
+.mem-pin.on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.mem-pin.on svg { color: var(--accent); }
+.mem-edit { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* ---- budgets (Budgets tab) — meters that always show usage, tone by % ---- */
+.bud-meter { margin: 15px 0; }
+.bud-meter:first-child { margin-top: 4px; }
+.bud-meter-head {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+  font-size: var(--fs-sm); margin-bottom: 6px;
+}
+.bud-meter-label { color: var(--txt); min-width: 0; }
+.bud-meter-val { white-space: nowrap; }
+/* capped meters carry a tone-* class (→ --tone); an uncapped meter carries none,
+   so the value falls back to txt and the fill to no colour. */
+.bud-meter-val b { font-weight: var(--fw-medium); color: var(--tone, var(--txt)); }
+.bud-cap { color: var(--muted); }
+.bud-track { height: 8px; border-radius: 999px; background: var(--wash-6); overflow: hidden; }
+.bud-fill { height: 100%; border-radius: 999px; transition: width .3s ease; background: var(--tone); }
+.bud-meter-foot {
+  display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+  margin-top: 5px; color: var(--muted); font-size: var(--fs-xs);
+}
+.bud-monthly {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line);
+  color: var(--muted); font-size: var(--fs-xs);
+}
+.bud-monthly svg { width: 15px; height: 15px; flex: 0 0 auto; color: var(--muted); }
+.bud-monthly b { color: var(--txt); font-weight: var(--fw-medium); }
+.bud-field-hint { color: var(--muted); font-size: var(--fs-xs); margin-top: 5px; }
+.bud-caps-head {
+  margin: 4px 0 8px; font-size: var(--fs-xs); font-weight: var(--fw-medium);
+  color: var(--txt); text-transform: uppercase; letter-spacing: 0.05em;
+}
+.bud-caps-head span { color: var(--muted); font-weight: 400; text-transform: none; letter-spacing: 0; }
+
+/* ---- history / flight recorder (History tab) — typed ledger rows ---- */
+.hist-tab-n { color: var(--muted); font-size: var(--fs-xs); font-weight: 400; }
+.hub-tab.active .hist-tab-n { color: var(--txt); }
+.hist-row {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 12px 0; border-bottom: 1px solid var(--line);
+}
+.hist-row:last-child { border-bottom: 0; }
+.hist-tile { margin-top: 1px; }
+.hist-body { flex: 1 1 auto; min-width: 0; }
+.hist-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.hist-title { color: var(--txt); font-size: var(--fs-sm); font-weight: var(--fw-medium); }
+.hist-time { color: var(--muted); font-size: var(--fs-xs); white-space: nowrap; flex: 0 0 auto; }
+.hist-req { color: var(--txt); font-size: var(--fs-xs); margin-top: 3px; overflow-wrap: anywhere; opacity: 0.85; }
+.hist-detail { color: var(--muted); font-size: var(--fs-xs); margin-top: 3px; overflow-wrap: anywhere; }
+.hist-detail.err { color: var(--err); }
+
+/* ---- system tab: self-editing governance options (icon + title/sub + state) */
+.sys-gov { display: flex; flex-direction: column; gap: 10px; }
+.sys-gov-opt {
+  display: flex; align-items: center; gap: 12px; text-align: left; width: 100%;
+  border: 1px solid var(--inputline); border-radius: var(--r-md); padding: 13px 14px;
+  background: var(--input); color: var(--txt); cursor: pointer; font-family: inherit;
+  transition: border-color var(--dur-fast), background var(--dur-fast);
+}
+.sys-gov-opt:hover:not(:disabled) { border-color: var(--muted); }
+.sys-gov-opt:disabled { opacity: 0.6; cursor: default; }
+.sys-gov-opt.sel { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.sys-gov-txt { flex: 1 1 auto; min-width: 0; }
+.sys-gov-txt b { display: block; font-size: var(--fs-sm); font-weight: var(--fw-medium); }
+.sys-gov-txt small { color: var(--muted); font-size: var(--fs-xs); }
+.sys-gov-check {
+  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px;
+  color: var(--accent); font-size: var(--fs-xs); font-weight: var(--fw-medium); white-space: nowrap;
+}
+.sys-gov-check svg { width: 15px; height: 15px; }
+.sys-gov-pick {
+  flex: 0 0 auto; color: var(--muted); font-size: var(--fs-xs); white-space: nowrap;
+  opacity: 0; transition: opacity var(--dur-fast);
+}
+.sys-gov-opt:hover:not(:disabled) .sys-gov-pick { opacity: 1; }
+
+/* ---- system tab: optional-feature rows (identity glyph + toggle) ---- */
+.sys-feat {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 0; border-bottom: 1px solid var(--line); cursor: pointer;
+}
+.sys-feat:last-child { border-bottom: 0; }
+.sys-feat-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.sys-feat-title { color: var(--txt); font-size: var(--fs-sm); font-weight: var(--fw-medium); }
+.sys-feat-sub { color: var(--muted); font-size: var(--fs-xs); }
+.sys-feat-check { flex: 0 0 auto; width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; }
+.sys-feat-check:disabled { cursor: default; }
+
+/* ---- status-board rows (dot + label + value) — Agent runtime, Voice gate ---- */
+.stat-rows { display: grid; gap: 1px; }
+.stat-row {
+  display: grid; grid-template-columns: 10px 120px 1fr; align-items: baseline;
+  gap: 10px; padding: 8px 0; font-size: var(--fs-sm);
+  border-bottom: 1px solid var(--line);
+}
+.stat-row:last-child { border-bottom: 0; }
+.stat-row-dot { width: 8px; height: 8px; border-radius: 50%; align-self: center; background: var(--tone, var(--muted)); }
+.stat-row-label { color: var(--muted); }
+.stat-row-val { color: var(--txt); min-width: 0; overflow-wrap: anywhere; }
+.stat-row-val .hub-btn { margin-left: 8px; }
+
+/* ---- voice enrollment tips (Voice tab) ---- */
+.voice-tips { margin: 0 0 4px; padding: 0; list-style: none; display: grid; gap: 7px; }
+.voice-tips li {
+  position: relative; padding-left: 20px;
+  color: var(--muted); font-size: var(--fs-sm); line-height: 1.5;
+}
+.voice-tips li::before {
+  content: ''; position: absolute; left: 4px; top: 8px;
+  width: 5px; height: 5px; border-radius: 50%; background: var(--accent);
+}
+
+/* ---- overview: nav cards (icon tile + status + go affordance) ---- */
+.ov-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 640px) { .ov-cards { grid-template-columns: 1fr; } }
+.ov-card {
+  display: flex; align-items: center; gap: 14px; text-align: left; width: 100%;
+  padding: 16px; border: 1px solid var(--inputline); border-radius: var(--r-md);
+  background: var(--input); color: var(--txt); cursor: pointer; font-family: inherit;
+  transition: border-color var(--dur-fast), background var(--dur-fast);
+}
+.ov-card:hover { border-color: var(--muted); background: var(--panel2); }
+.ov-card-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.ov-card-title { color: var(--txt); font-size: var(--fs-sm); font-weight: var(--fw-medium); }
+.ov-card-val { display: flex; }
+.ov-card-sub { color: var(--muted); font-size: var(--fs-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-card-go { flex: 0 0 auto; color: var(--muted); display: inline-flex; transition: transform var(--dur-fast), color var(--dur-fast); }
+.ov-card:hover .ov-card-go { color: var(--txt); transform: translateX(3px); }
+.ov-card-go svg { width: 18px; height: 18px; }
+
+/* ---- hardware: tier hero + supporting specs ---- */
+.hw-hero {
+  display: flex; align-items: center; gap: 14px; padding: 16px;
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
+}
+.hw-hero-body { min-width: 0; }
+.hw-hero-tier { color: var(--txt); font-size: var(--fs-lg); font-weight: var(--fw-medium); text-transform: capitalize; }
+.hw-hero-hint { color: var(--muted); font-size: var(--fs-xs); margin-top: 2px; }
+
 /* ---- app appearance picker (rail icon + accent, per connected app) ---- */
 .app-look {
   border: 1px solid var(--line);

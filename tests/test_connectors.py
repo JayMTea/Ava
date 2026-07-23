@@ -203,6 +203,25 @@ class MetaToolsTests(unittest.TestCase):
         self.assertIn("/internal/connector/app/act0", rules)
         self.assertNotIn("/internal/connector/app/__call", rules)
 
+    def test_policy_name_not_doubled_for_ava_prefixed_id(self):
+        # Regression (ava-notes): a connector id that already starts with "ava-"
+        # must keep that as its egress preset name, not become "ava-ava-<id>".
+        _write(self.tmp, "ava-foo",
+               "id: ava-foo\nbase_url: http://127.0.0.1:9\n"
+               "actions:\n  - id: act0\n    method: GET\n    path: /x\n")
+        connectors.load(force=True)
+        pol = connectors.render_egress_policy("ava-foo")
+        self.assertEqual(pol["preset"]["name"], "ava-foo")
+        self.assertIn("ava-foo", pol["network_policies"])
+        self.assertNotIn("ava-ava-foo", pol["network_policies"])
+
+    def test_policy_name_prefixed_for_plain_id(self):
+        _write(self.tmp, "foo",
+               "id: foo\nbase_url: http://127.0.0.1:9\n"
+               "actions:\n  - id: act0\n    method: GET\n    path: /x\n")
+        connectors.load(force=True)
+        self.assertEqual(connectors.render_egress_policy("foo")["preset"]["name"], "ava-foo")
+
     def test_discover_tools_serves_static_actions_with_search(self):
         self._app(20)
         all_tools = connectors.discover_tools("app")

@@ -54,22 +54,43 @@ safety switches appear with them:
 If Ava can't auto-detect the app (a plain web app with no tool list), the form
 lets you describe its actions manually: what it does, the method, and the path.
 
+**If your app needs a login,** paste its token / API key in the **Access token**
+box. Ava saves it once to its own private secret store (`$AVA_HOME/secrets/`) —
+it's **never** written into the app's config file and is never shown to the AI.
+You won't be asked for it again: it's reused automatically every time you deploy
+or redeploy the app. (Already keep the token in an environment variable? Name it
+in the optional *Environment variable name* field instead, and Ava reads it from
+there — a real environment variable always wins.) On the Connectors list an app
+that needs auth shows **credential saved** once it has one, or **needs a token**
+until you add it — use **Add credential** in the row's ⋯ menu any time.
+
+That one saved token also **keeps you signed in to the app itself.** If the app
+has its own password screen, Ava presents the token to its embedded page for you,
+so you connect once and are never asked to log in again when you open it inside
+Ava. (This needs the app to accept that token — apps built to Ava's Connector SDK
+do; if you're building the app, see
+[Single sign-on](CONNECTOR_SDK.md#single-sign-on-apps-with-their-own-login).)
+
 ### Step 3: Click "Connect app"
 
-That's it. The app appears in the Connectors list with its badges: enabled,
-tools ok, policy ok.
+That's it. The app appears in the Connectors list — enabled, with its actions
+counted and a **needs deploy** marker until its tools and egress policy are
+generated into the agent.
 
-![The Connectors list after connecting: the new app at the top with enabled, 3 actions, tools ok, and policy ok badges](assets/connect-app-3-connected.png)
+![The Connectors list after connecting: the new app at the top, enabled, with its action count and deploy state](assets/connect-app-3-connected.png)
 
-### Step 4: Preview, then Generate & deploy
+### Step 4: Preview, then Deploy
 
-Each row has two buttons:
+The row offers **Preview**, and — while its tools or egress policy are out of
+date — a **Deploy** button (everything else, like the push token, appearance,
+manifest editor, and remove, lives in the row's **⋯** menu):
 
 - **Preview** shows exactly what will be generated: the agent tools and the
   egress security policy (what the app is allowed to reach, and nothing else).
-- **Generate & deploy** writes them. After a deploy, the page shows the one
-  command that loads the new tools into the agent's sandbox
-  (`cd agent && ./install.sh`); run it once and you're done.
+- **Deploy** regenerates them and loads them into the agent's sandbox; the row
+  then reads **deployed** (redeploy any time from the ⋯ menu). If the sandbox
+  isn't reachable from the browser, the page shows the one command that loads
+  them (`cd agent && ./install.sh`); run it once and you're done.
 
 Now ask Ava to use the app: *"create a note about tomorrow's demo"*. The tool
 call shows up in the chat's tool chips and on the Operations page like

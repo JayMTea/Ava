@@ -48,6 +48,14 @@ Any user-facing optional capability lives in `ava_bridge/features.py`:
   `qa/run.sh` for the Playwright tier against a real bridge subprocess. The
   fixture-contract test additionally needs an owner-local capture harness and
   skips cleanly without it.
+- **Setup (Hub) UI is one system.** Every Setup tab lives in its own
+  `frontend/src/components/hub/panels/*.tsx` (HubView.tsx is just the tab
+  router) and builds from the shared pieces, not per-panel copies: the
+  data/action hooks in `hub/hooks.ts` (`useResource`/`useAction` — never a
+  hand-rolled load or a hardcoded `hub-msg err`), the view primitives in
+  `hub/ui/` (`Tile`, `Legend`, `Badge`, `StatRow`, `HubMessage`), and one
+  `.tone-*` → `--tone` colour system in `hub.css` (no per-panel icon-tile or
+  tone-colour classes). `tests/test_hub_uniformity.py` fails a regression.
 - Python: `ruff check`, tests with `python -m pytest tests/ -q`.
 - Convention guards follow the `tests/test_diagram_sync.py` style: static
   scans over `git ls-files` that run anywhere, failing with instructions.

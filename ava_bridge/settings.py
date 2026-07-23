@@ -304,6 +304,82 @@ def delete_backend_key(backend_id: str) -> None:
         pass
 
 
+# ---- connector credentials (env-var-named secrets) ------------------------ #
+# A connector manifest references its app's credential by the NAME of an env var
+# (`auth: { token_env: MYAPP_TOKEN }`), never the value. The value can come from
+# a real environment variable (systemd/compose/shell — which always win) OR be
+# saved once from the Setup Hub under $AVA_HOME/secrets/env/<NAME> (0600). This
+# is the store that makes fork-and-self-host painless: the owner pastes the token
+# once in the UI and never edits `.env`, and it survives every restart + redeploy.
+#
+# INVARIANT (Ava-never-has-passwords): the value is only ever READ here, on the
+# bridge side, when building an egress request. It is never placed into
+# os.environ globally, so no spawned subprocess — including the sandboxed agent
+# runtime — inherits it, and it is never written to the manifest or ava.yaml.
+def _safe_env_name(name: str) -> str:
+    """Filesystem-safe form of an env-var name used as a secrets filename. Env
+    names are ``[A-Za-z_][A-Za-z0-9_]*``; keep the case, strip anything else."""
+    return _re.sub(r"[^A-Za-z0-9_]", "", (name or "").strip())[:64]
+
+
+def _env_secret_path(name: str) -> Path:
+    return Path(secrets_dir()) / "env" / _safe_env_name(name)
+
+
+def env_secret(name: str) -> str | None:
+    """Resolve a connector credential by env-var NAME: a real environment variable
+    wins, else the value saved once via the Hub (``secrets/env/<NAME>``). ``None``
+    if neither is set. The single read-path for connector auth tokens."""
+    if not name:
+        return None
+    v = os.environ.get(name)
+    if v:
+        return v
+    p = _env_secret_path(name)
+    if p.is_file():
+        try:
+            return p.read_text(encoding="utf-8").strip() or None
+        except OSError:
+            return None
+    return None
+
+
+def has_env_secret(name: str) -> bool:
+    """True if a credential is available for this env-var name (real env var OR a
+    saved secret) — lets the Hub show 'credential saved' and never re-prompt."""
+    return bool(env_secret(name))
+
+
+def env_secret_stored(name: str) -> bool:
+    """True if a value is saved in the secrets store specifically (not just a live
+    env var) — so the Hub knows there is a file it can update or clear."""
+    return bool(name) and _env_secret_path(name).is_file()
+
+
+def set_env_secret(name: str, value: str) -> None:
+    """Persist a connector credential 0600 under ``secrets/env/<NAME>``, keyed by
+    the env-var name the manifest references. Written once from the Hub; survives
+    restarts and every redeploy. Never written to the manifest or ava.yaml."""
+    safe = _safe_env_name(name)
+    if not safe or not value:
+        return
+    d = Path(secrets_dir()) / "env"
+    os.makedirs(d, exist_ok=True)
+    p = d / safe
+    p.write_text(value, encoding="utf-8")
+    os.chmod(p, 0o600)
+
+
+def clear_env_secret(name: str) -> None:
+    """Remove a saved connector credential if present (best-effort)."""
+    p = _env_secret_path(name)
+    try:
+        if p.is_file():
+            p.unlink()
+    except OSError:
+        pass
+
+
 def _deep_merge(base: dict, patch: dict) -> dict:
     for k, v in patch.items():
         if isinstance(v, dict) and isinstance(base.get(k), dict):

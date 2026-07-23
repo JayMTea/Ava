@@ -21,16 +21,83 @@ on-prem project, so versions are dated milestones rather than published releases
   audit ledger, and `ava.yaml` as one `.zip`; secrets/keys are never included,
   media stays on disk (a full backup is a copy of `$AVA_HOME`).
 
+### Added — Connector credentials (paste once, never re-prompt)
+- **Save an app's token once, reuse it on every deploy.** The connect form now
+  takes the actual **Access token / API key** (a password field), not just the
+  name of an env var. Ava writes it `0600` to a new server-side store
+  (`$AVA_HOME/secrets/env/<NAME>`, keyed by the manifest's `token_env`), so it
+  survives restarts and every **redeploy** — you're never asked for it again.
+  Forkers never touch `.env`: paste a value without naming a variable and Ava
+  derives a stable one (`<CID>_TOKEN`). New `settings.env_secret` /
+  `set_env_secret` / `clear_env_secret`; `POST /api/hub/connectors/{cid}/secret`
+  sets/clears it; `list_connectors` reports `auth_env` / `auth_set` so a row reads
+  **credential saved** or **needs a token**, with *Add / Update / Clear credential*
+  in the ⋯ menu.
+- **Invariant preserved (Ava-never-has-passwords).** The value is resolved only
+  on the bridge, host-side, when an egress request is built — never placed in the
+  global environment, never inherited by a subprocess (incl. the sandboxed
+  agent), never written to the manifest or the generated tools. A real
+  environment variable of the same name still wins. Every connector auth read
+  (`connectors._auth_headers` / `_discover_headers` / `app_api` / `${VAR}`
+  expansion, and `mcp_client` HTTP/SSE headers) routes through the one resolver;
+  guarded by `tests/test_connector_secrets.py`.
+
+### Added — Single sign-on for embedded apps (connect once, no re-login)
+- **Ava presents a connected app's saved token to its embedded UI**, so an app
+  with its own login never shows you its password screen again after you've
+  connected it. The one credential now does double duty — the agent tools *and*
+  the app's own web page. New `connectors.app_token(cid)` resolves the token
+  (`token_env` → `settings.env_secret`); the same-origin app proxies
+  (`/apps/<id>/…`) inject it as the bearer when the browser has none, and the
+  saved token wins over a stale one left in the app's storage (no 401/login
+  flash). Resolved only on the bridge — never handed to the browser or the
+  sandboxed agent (Ava-never-has-passwords holds).
+- **The app-author contract is a documented two-liner** (CONNECTOR_SDK.md §3
+  *Single sign-on*): accept a static token (named by `token_env`) as a session,
+  and skip your own login when embedded (a non-empty `/apps/<id>` mount). Apps
+  can self-describe the token name in `/.well-known/ava.json`
+  (`auth.token_env`) so the connect form prefills it. The template, `scaffold.py`
+  README, and CONNECT_YOUR_APPS.md all cover it; the two bundled example apps
+  (ava-notes, note-keeper) were conformed to the contract.
+
 ### Changed
 - **Chat deletion is audit-logged** — `DELETE /api/chats/{cid}` now writes a
   `chat_delete` event to the flight recorder, same as memory edits.
 - **`MemoryPanel` extracted** to `frontend/src/components/hub/MemoryPanel.tsx`,
   shared by Setup → Memory and Data → Memory (one implementation).
 - `memory_store.counts()` now reports `pinned`.
+- **Setup UI redesigned onto one system** — all nine Setup tabs
+  (`frontend/src/components/hub/`) share one visual grammar: typed identity
+  tiles, tone-dotted status boards, overflow-safe action rows with a shared "⋯"
+  overflow menu, and structured term/description legends. Connectors' **Deploy**
+  is now state-aware (hidden once a connector's tools + policy are up to date —
+  the row reads *deployed* and offers a quiet *Redeploy* in the ⋯ menu); the row
+  action cluster wraps instead of overflowing the card. Hardware leads with the
+  recommended tier; History types every audit kind with client-side category
+  filters; Voice shows the speaker-gate state (closed / open / off); Budgets'
+  meters always show usage (with an energy→$ readout) even before a cap is set.
+- **Setup frontend refactored for uniformity** — extracted shared data/action
+  hooks (`hub/hooks.ts`: `useResource`/`useAction`) and view primitives
+  (`hub/ui/{Tile,Legend,Badge,StatRow,HubMessage}`), collapsed seven per-panel
+  icon-tile classes and the scattered tone rules into one `.tile` + `--tone`
+  system, and split the `HubView.tsx` monolith into `hub/panels/*.tsx` (one file
+  per tab) behind a thin router (2883 → 175 lines). Behaviour-preserving;
+  enforced going forward by `tests/test_hub_uniformity.py`.
 
 ### Fixed
+- **Icons sat off-centre in every tile / button / nav row** — the `<Icon>`
+  wrapper's inline SVG inherited the text baseline's descender gap, so a
+  flex-centred glyph rode high (and, once blockified, jammed to the left). `<Icon>`
+  now tags its span `.ico` with `display:contents`, dropping the span from layout
+  so the SVG centres directly on both axes inside its flex container — one rule
+  that centres every icon app-wide (verified: vertical/horizontal offset 0).
 - `.hub-note` / `.hub-restart` never sized a leading icon SVG (unbounded glyph);
   also fixes the Setup page's own restart banner.
+- **Agent tab no longer crashes the whole Setup view** on a partial or errored
+  `/api/hub/agent/skills` response — the skills loader normalises the payload and
+  degrades to an empty list instead of throwing to the view error boundary.
+- **Setup → System** optional-feature labels no longer run together (title/sub
+  now stack), and Setup save-confirmations read green instead of the error red.
 
 ### Added — Setup Hub, MCP, governance & observability
 - **Setup Hub** (`ava_bridge/hub_api.py`, `frontend/.../hub/`): a GUI onboarding &

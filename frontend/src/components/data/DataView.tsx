@@ -1,16 +1,25 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Icon } from '../../lib/icons';
-import { EmptyState, Panel, StatCard, ago, fmtClock, fmtInt } from '../dashboard/primitives';
+import { ago, EmptyState, Panel, fmtClock, fmtInt } from '../dashboard/primitives';
 import { useLiveResource } from '../../hooks/useLive';
 import { MemoryPanel } from '../hub/MemoryPanel';
+import { eventMeta } from '../hub/events';
+import { useResource } from '../hub/hooks';
+import type { ActionMsg } from '../hub/hooks';
+import { Badge } from '../hub/ui/Badge';
+import { HubMessage } from '../hub/ui/HubMessage';
+import { Legend } from '../hub/ui/Legend';
+import { Tile } from '../hub/ui/Tile';
 import { api } from '../../lib/api';
 import { hub } from '../hub/hubApi';
 import { dataApi } from './dataApi';
-import type { ChatRow, DataStore, LogEvent, LogName, MaintenanceInfo, StoresResponse } from './dataApi';
+import type { ChatRow, DataStore, LogEvent, LogName, StoresResponse } from './dataApi';
 
-// Data — the transparency page: everything Ava keeps on disk, one card per
-// store, with the memory browser as the flagship tab. The backend returns
-// facts; the owner-facing copy lives here (same split as dashboard/metrics.ts).
+// Data — the transparency page: everything Ava keeps on disk, one row per store,
+// with the memory browser as the flagship tab. Built from the SAME pieces as the
+// Setup (Hub) page — Tile / Badge / Legend / the row grammar / one tone system —
+// so the two read as one product (see hub/ui + hub/events). The backend returns
+// facts; the owner-facing copy lives here.
 
 type TabId = 'overview' | 'memory' | 'chats' | 'logs' | 'maintenance';
 
@@ -22,7 +31,7 @@ const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: 'maintenance', label: 'Maintenance', icon: 'sliders' },
 ];
 
-// Which tab a store card's "Browse →" opens.
+// Which tab a store row's "Browse" opens.
 const BROWSE_TAB: Record<string, TabId> = {
   memory: 'memory', chats: 'chats', audit: 'logs', performance: 'logs', devices: 'logs',
 };
@@ -39,7 +48,7 @@ const STORE_META: Record<string, { icon: string; desc: string }> = {
   secrets: { icon: 'lock', desc: 'Login password, session key, internal tokens, and backend API keys. Names are listed for transparency — the values are never displayed, exported, or browsable.' },
 };
 
-const FORMAT_TONE: Record<DataStore['format'], string> = {
+const FORMAT_TONE: Record<DataStore['format'], 'accent' | 'ok' | 'warn' | 'err'> = {
   sqlite: 'accent', json: 'accent', jsonl: 'ok', files: 'warn', locked: 'err',
 };
 
@@ -52,113 +61,97 @@ function fmtBytes(n: number): string {
   return `${v >= 10 || i === 0 ? Math.round(v) : v.toFixed(1)} ${units[i]}`;
 }
 
-function StoreCard({ s, onBrowse }: { s: DataStore; onBrowse?: () => void }) {
+// ── Overview ────────────────────────────────────────────────────────────────
+function StoreRow({ s, onBrowse }: { s: DataStore; onBrowse?: () => void }) {
   const meta = STORE_META[s.id] || { icon: 'grid', desc: '' };
-  const showEmpty = !s.locked && !s.managed && s.count === 0;
-  const hasFoot = Boolean(onBrowse) || s.id === 'memory' || s.locked || s.managed || showEmpty;
+  const tone = FORMAT_TONE[s.format] || 'muted';
   return (
-    <article className="data-store">
-      <div className="data-store-head">
-        <span className="data-store-ic"><Icon name={meta.icon} /></span>
-        <span className="data-store-name">{s.label}</span>
-        <span className={`hub-badge ${FORMAT_TONE[s.format] || ''}`} style={{ marginLeft: 'auto' }}>
-          <i />{s.format.toUpperCase()}
-        </span>
-      </div>
-      {meta.desc && <p className="data-store-desc">{meta.desc}</p>}
-      <div className="data-store-path">{s.path}</div>
-      {s.items && s.items.length > 0 && (
-        <ul className="data-secrets">
-          {s.items.map((it) => (
-            <li key={it.name}>
-              <code>{it.name}</code>
-              <span>{it.what}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-      <div className="data-store-meta">
-        {!s.locked && <span><b>{fmtBytes(s.bytes)}</b> on disk</span>}
-        {s.count != null && <span><b>{fmtInt(s.count)}</b> {s.locked ? 'items held' : s.id === 'devices' ? 'streams' : 'items'}</span>}
-        {s.last_write != null && <span>written <b>{ago(s.last_write)}</b></span>}
-      </div>
-      {hasFoot && (
-        <div className="data-store-foot">
-          {onBrowse && <button className="db-linkbtn" onClick={onBrowse}>Browse →</button>}
-          {s.id === 'memory' && (
-            <a className="hub-btn ghost sm" href="/api/hub/memory/export" download style={{ marginLeft: 'auto' }}>
-              <Icon name="file" />Export JSON
-            </a>
-          )}
-          {s.locked && <span className="db-pill pill-err"><i className="db-dot" />never leaves this machine</span>}
-          {s.managed && <span className="db-pill pill-ok"><i className="db-dot" />auto-managed</span>}
-          {showEmpty && <span className="db-pill pill-muted"><i className="db-dot" />empty</span>}
+    <div className="data-row">
+      <Tile icon={meta.icon} tone={tone} size={32} className="data-row-tile" />
+      <div className="data-row-body">
+        <div className="data-row-head">
+          <span className="data-row-title">{s.label}</span>
+          <Badge tone={tone}>{s.format.toUpperCase()}</Badge>
+          {s.locked && <Badge tone="err">never leaves this machine</Badge>}
+          {s.managed && <Badge tone="ok">auto-managed</Badge>}
         </div>
-      )}
-    </article>
+        {meta.desc && <div className="data-row-desc">{meta.desc}</div>}
+        <code className="data-row-path">{s.path}</code>
+        {s.items && s.items.length > 0 && (
+          <ul className="data-secrets">
+            {s.items.map((it) => (
+              <li key={it.name}><code>{it.name}</code><span>{it.what}</span></li>
+            ))}
+          </ul>
+        )}
+        <div className="data-row-meta">
+          {!s.locked && <span><b>{fmtBytes(s.bytes)}</b> on disk</span>}
+          {s.count != null && <><span className="meta-sep">·</span><span><b>{fmtInt(s.count)}</b> {s.locked ? 'items held' : s.id === 'devices' ? 'streams' : 'items'}</span></>}
+          {s.last_write != null && <><span className="meta-sep">·</span><span>written <b>{ago(s.last_write)}</b></span></>}
+          {!s.locked && !s.managed && s.count === 0 && <><span className="meta-sep">·</span><span>empty</span></>}
+        </div>
+      </div>
+      <div className="row-actions">
+        {onBrowse && <button className="hub-btn ghost sm" onClick={onBrowse}>Browse<Icon name="arrowRight" /></button>}
+        {s.id === 'memory' && (
+          <a className="hub-btn ghost sm" href="/api/hub/memory/export" download><Icon name="file" />Export</a>
+        )}
+      </div>
+    </div>
   );
 }
 
+// ── Chats ─────────────────────────────────────────────────────────────────────
 function ChatsTab() {
-  const [rows, setRows] = useState<ChatRow[] | null>(null);
-  const [msg, setMsg] = useState('');
-  const load = useCallback(() => {
-    setMsg('');
-    dataApi.chats().then((r) => setRows(r.chats)).catch((e) => setMsg((e as Error).message));
-  }, []);
-  useEffect(() => { load(); }, [load]);
+  const { data, reload, setData, error } = useResource(() => dataApi.chats());
+  const rows = data?.chats ?? null;
 
   const remove = useCallback(async (c: ChatRow) => {
     if (!window.confirm(`Delete "${c.title}" (${c.messages} message${c.messages === 1 ? '' : 's'})? This is permanent and is recorded in the audit ledger.`)) return;
-    setRows((xs) => xs?.filter((x) => x.id !== c.id) ?? null);
+    setData((d) => (d ? { ...d, chats: d.chats.filter((x) => x.id !== c.id) } : d));
     try { await api.deleteChat(c.id); } catch { /* already gone is fine */ }
-    load();
-  }, [load]);
+    reload();
+  }, [reload, setData]);
 
   const total = rows?.reduce((a, c) => a + c.bytes, 0) ?? 0;
   return (
-    <>
-      <Panel
-        title="Conversations"
-        subtitle={rows ? `${rows.length} chat${rows.length === 1 ? '' : 's'} · ${fmtBytes(total)} in data/chats.json` : 'data/chats.json'}
-        pad={false}
-      >
-        {msg && <div className="hub-msg err" style={{ margin: 12 }}>{msg}</div>}
-        {rows == null ? <EmptyState text="Loading…" />
-          : rows.length === 0 ? <EmptyState text="No chats yet." />
-          : (
-            <div className="db-table-wrap">
-              <table className="db-table">
-                <thead><tr><th>Chat</th><th>Messages</th><th>Updated</th><th>Size</th><th></th></tr></thead>
-                <tbody>
-                  {rows.map((c) => (
-                    <tr key={c.id}>
-                      <td style={{ maxWidth: 340, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.title}</td>
-                      <td>{fmtInt(c.messages)}</td>
-                      <td>{ago(c.updated)}</td>
-                      <td>{fmtBytes(c.bytes)}</td>
-                      <td>
-                        <span style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
-                          <a className="hub-btn ghost sm" href={`/api/data/chats/${encodeURIComponent(c.id)}/export`} download title="Export as JSON">JSON</a>
-                          <a className="hub-btn ghost sm" href={`/api/data/chats/${encodeURIComponent(c.id)}/export?format=md`} download title="Export as Markdown">MD</a>
-                          <button className="hub-btn ghost sm" title="Delete chat" onClick={() => remove(c)}><Icon name="trash" /></button>
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+    <Panel
+      title="Conversations"
+      subtitle={rows ? `${rows.length} chat${rows.length === 1 ? '' : 's'} · ${fmtBytes(total)} in data/chats.json` : 'data/chats.json'}
+    >
+      {error && <div className="hub-msg err">{error}</div>}
+      {rows == null ? <EmptyState text="Loading…" />
+        : rows.length === 0 ? <EmptyState text="No chats yet." />
+        : rows.map((c) => (
+          <div key={c.id} className="data-row">
+            <Tile icon="chats" tone="muted" size={30} className="data-row-tile" />
+            <div className="data-row-body">
+              <div className="data-row-title">{c.title}</div>
+              <div className="data-row-meta">
+                <span><b>{fmtInt(c.messages)}</b> message{c.messages === 1 ? '' : 's'}</span>
+                <span className="meta-sep">·</span><span>{fmtBytes(c.bytes)}</span>
+                <span className="meta-sep">·</span><span>updated <b>{ago(c.updated)}</b></span>
+              </div>
             </div>
-          )}
-      </Panel>
-      <div className="hub-note data-note">
-        <Icon name="info" />
-        <span>Deleting a chat is permanent and is recorded in the <b>audit ledger</b>. Exports include messages, attachment names, and generated-image links.</span>
-      </div>
-    </>
+            <div className="row-actions">
+              <a className="hub-btn ghost sm" href={`/api/data/chats/${encodeURIComponent(c.id)}/export`} download title="Export as JSON">JSON</a>
+              <a className="hub-btn ghost sm" href={`/api/data/chats/${encodeURIComponent(c.id)}/export?format=md`} download title="Export as Markdown">MD</a>
+              <button className="hub-btn ghost sm" title="Delete chat" onClick={() => remove(c)}><Icon name="trash" /></button>
+            </div>
+          </div>
+        ))}
+      <Legend
+        title="About your chats"
+        items={[
+          { icon: 'file', term: 'Export', desc: 'JSON or Markdown per chat — messages, attachment names, and generated-image links.' },
+          { icon: 'trash', term: 'Delete', desc: <>Permanent, and recorded in the <b>audit ledger</b> as a <code>chat_delete</code> event.</> },
+        ]}
+      />
+    </Panel>
   );
 }
 
+// ── Logs ──────────────────────────────────────────────────────────────────────
 const LOG_SOURCES: { id: LogName; label: string }[] = [
   { id: 'audit', label: 'Audit' },
   { id: 'performance', label: 'Performance' },
@@ -173,11 +166,6 @@ const AUDIT_KINDS: { id: string; label: string }[] = [
   { id: 'grant', label: 'Grants' },
   { id: 'chat_delete', label: 'Chat deletes' },
 ];
-
-const KIND_TONE: Record<string, string> = {
-  turn: 'pill-ok', memory_recall: 'pill-muted', memory_distill: 'pill-muted',
-  memory_edit: 'pill-warn', grant: 'pill-warn', revoke: 'pill-err', chat_delete: 'pill-err',
-};
 
 // One line of detail per event: every field except the ones already shown as
 // their own columns, so nothing in the record is hidden from the owner.
@@ -204,96 +192,88 @@ function LogsTab() {
     <Panel
       title="Log tails"
       subtitle="Newest first, read straight from the append-only files under logs/"
-      pad={false}
       right={
-        <div className="db-seg">
+        <div className="hub-tabs" style={{ borderBottom: 0, marginBottom: 0 }}>
           {LOG_SOURCES.map((s) => (
-            <button key={s.id} className={'db-seg-btn' + (source === s.id ? ' on' : '')} onClick={() => setSource(s.id)}>{s.label}</button>
+            <button key={s.id} className={'hub-tab' + (source === s.id ? ' active' : '')} onClick={() => setSource(s.id)}>{s.label}</button>
           ))}
         </div>
       }
     >
       {source === 'audit' && (
-        <div style={{ padding: '10px 12px 0' }}>
-          <div className="db-seg">
-            {AUDIT_KINDS.map((k) => (
-              <button key={k.id} className={'db-seg-btn' + (kind === k.id ? ' on' : '')} onClick={() => setKind(k.id)}>{k.label}</button>
-            ))}
-          </div>
+        <div className="hub-tabs" style={{ borderBottom: 0, marginBottom: 10 }}>
+          {AUDIT_KINDS.map((k) => (
+            <button key={k.id} className={'hub-tab' + (kind === k.id ? ' active' : '')} onClick={() => setKind(k.id)}>{k.label}</button>
+          ))}
         </div>
       )}
       {events == null ? <EmptyState text={tail.error ? 'Couldn’t read that log.' : 'Loading…'} />
         : events.length === 0 ? <EmptyState text="Nothing recorded here yet." />
-        : (
-          <div className="db-table-wrap">
-            <table className="db-table">
-              <thead><tr><th>Time</th><th>Kind</th><th>Detail</th></tr></thead>
-              <tbody>
-                {events.map((e, i) => {
-                  const tag = String(e.kind || e.category || e.type || '—');
-                  return (
-                    <tr key={`${e.ts}-${i}`}>
-                      <td style={{ whiteSpace: 'nowrap' }}>{fmtClock(e.ts)}</td>
-                      <td><span className={`db-pill ${KIND_TONE[tag] || 'pill-muted'}`}><i className="db-dot" />{tag}</span></td>
-                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)', color: 'var(--muted)', overflowWrap: 'anywhere' }}>{evtDetail(e)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
+        : events.map((e, i) => {
+          const tag = String(e.kind || e.category || e.type || '—');
+          const m = eventMeta(tag);
+          const detail = evtDetail(e);
+          return (
+            <div key={`${e.ts}-${i}`} className="hist-row">
+              <Tile icon={m.icon} tone={m.tone} size={28} className="hist-tile" />
+              <div className="hist-body">
+                <div className="hist-head">
+                  <span className="hist-title">{m.label}</span>
+                  <span className="hist-time" title={new Date(e.ts * 1000).toLocaleString()}>{fmtClock(e.ts)}</span>
+                </div>
+                {detail && <div className="hist-detail" style={{ fontFamily: 'var(--font-mono)', overflowWrap: 'anywhere' }}>{detail}</div>}
+              </div>
+            </div>
+          );
+        })}
     </Panel>
   );
 }
 
+// ── Maintenance ───────────────────────────────────────────────────────────────
+const RETENTION_LABELS: Record<number, string> = {
+  0: 'Forever', 30: '1 month', 90: '3 months', 183: '6 months', 365: '1 year', 730: '2 years',
+};
 function retentionLabel(days: number): string {
-  if (days === 0) return 'Forever';
-  if (days === 365) return '1 y';
-  if (days === 730) return '2 y';
-  return `${days} d`;
+  return RETENTION_LABELS[days] || (days > 0 ? `${days} days` : 'Forever');
 }
 
 function MaintenanceTab({ stores }: { stores: StoresResponse | null }) {
-  const [info, setInfo] = useState<MaintenanceInfo | null>(null);
+  const { data: info, setData: setInfo } = useResource(() => dataApi.maintenance());
   const [busy, setBusy] = useState<'' | 'integrity' | 'vacuum' | 'retention'>('');
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [message, setMessage] = useState<ActionMsg>(null);
   const [restart, setRestart] = useState(false);
 
-  useEffect(() => {
-    dataApi.maintenance().then(setInfo).catch(() => {});
-  }, []);
-
   const runIntegrity = useCallback(async () => {
-    setBusy('integrity'); setMsg(null);
+    setBusy('integrity'); setMessage(null);
     try {
       const r = await dataApi.integrity();
       setInfo((i) => (i ? { ...i, db: r.db } : i));
-      setMsg({ ok: r.ok, text: r.ok ? 'Integrity check passed.' : `Integrity check failed: ${r.result.detail}` });
-    } catch (e) { setMsg({ ok: false, text: (e as Error).message }); }
+      setMessage({ ok: r.ok, text: r.ok ? 'Integrity check passed.' : `Integrity check failed: ${r.result.detail}` });
+    } catch (e) { setMessage({ ok: false, text: (e as Error).message }); }
     setBusy('');
-  }, []);
+  }, [setInfo]);
 
   const runVacuum = useCallback(async () => {
-    setBusy('vacuum'); setMsg(null);
+    setBusy('vacuum'); setMessage(null);
     try {
       const r = await dataApi.vacuum();
       setInfo((i) => (i ? { ...i, db: r.db } : i));
       const saved = r.before - r.after;
-      setMsg({ ok: true, text: saved > 0 ? `Compacted — reclaimed ${fmtBytes(saved)}.` : 'Compacted — already tight.' });
-    } catch (e) { setMsg({ ok: false, text: (e as Error).message }); }
+      setMessage({ ok: true, text: saved > 0 ? `Compacted — reclaimed ${fmtBytes(saved)}.` : 'Compacted — already tight.' });
+    } catch (e) { setMessage({ ok: false, text: (e as Error).message }); }
     setBusy('');
-  }, []);
+  }, [setInfo]);
 
   const setRetention = useCallback(async (days: number) => {
-    setBusy('retention'); setMsg(null);
+    setBusy('retention'); setMessage(null);
     try {
       await hub.setRetention(days);
       setInfo((i) => (i ? { ...i, retention: { ...i.retention, days } } : i));
       setRestart(true);
-    } catch (e) { setMsg({ ok: false, text: (e as Error).message }); }
+    } catch (e) { setMessage({ ok: false, text: (e as Error).message }); }
     setBusy('');
-  }, []);
+  }, [setInfo]);
 
   const db = info?.db;
   const last = db?.last_check;
@@ -305,80 +285,77 @@ function MaintenanceTab({ stores }: { stores: StoresResponse | null }) {
           <span>Saved to <b>ava.yaml</b>. Restart Ava to apply the new retention.</span>
         </div>
       )}
-      {msg && <div className={`hub-msg ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
-      <div className="data-maint">
+      <HubMessage message={message} />
 
-        <Panel title="Retention" subtitle="How long metrics history is kept">
-          {info == null ? <EmptyState text="Loading…" /> : (
-            <>
-              <div className="db-seg">
+      <Panel title="Data retention" subtitle="How long Ava keeps performance metrics and hardware history.">
+        {info == null ? <EmptyState text="Loading…" /> : (
+          <>
+            <div className="hub-field" style={{ maxWidth: 340 }}>
+              <label>Keep data for</label>
+              <select className="hub-select" value={info.retention.days} disabled={busy === 'retention'}
+                onChange={(e) => setRetention(Number(e.target.value))}>
                 {info.retention.choices.map((c) => (
-                  <button
-                    key={c}
-                    className={'db-seg-btn' + (info.retention.days === c ? ' on' : '')}
-                    disabled={busy === 'retention'}
-                    onClick={() => setRetention(c)}
-                  >{retentionLabel(c)}</button>
+                  <option key={c} value={c}>{retentionLabel(c)}{c === 183 ? ' (default)' : ''}</option>
                 ))}
-              </div>
-              <div className="hub-note data-note" style={{ marginTop: 14 }}>
-                <Icon name="info" />
-                <span>Applies to <b>performance rollups</b> and <b>hardware history</b>. Chats and memories are never auto-deleted — you stay in charge of those.</span>
-              </div>
-            </>
-          )}
-        </Panel>
+              </select>
+            </div>
+            <div className="hub-note" style={{ marginTop: 12 }}>
+              Applies to <b>performance rollups</b> and <b>hardware history</b>. Chats and memories are never
+              auto-deleted — you stay in charge of those. Changing this takes effect after a restart.
+            </div>
+          </>
+        )}
+      </Panel>
 
-        <Panel
-          title="Database health"
-          subtitle={db?.path || 'data/memory.db'}
-          right={last && (
-            <span className={`db-pill ${last.ok ? 'pill-ok' : 'pill-err'}`}>
-              <i className="db-dot" />{last.ok ? 'healthy' : 'check failed'}
-            </span>
-          )}
-        >
-          {db == null ? <EmptyState text="Loading…" /> : (
-            <>
-              <div className="data-kv"><span>Size on disk</span><b>{fmtBytes(db.bytes)}</b></div>
-              <div className="data-kv"><span>Reclaimable</span><b>{fmtBytes(db.reclaimable)}</b></div>
-              <div className="data-kv"><span>Last integrity check</span><b>{last ? `${ago(last.ts)} — ${last.ok ? 'ok' : 'failed'}` : 'never'}</b></div>
-              <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
-                <button className="hub-btn ghost sm" disabled={busy !== ''} onClick={runIntegrity}>
-                  <Icon name="check" />{busy === 'integrity' ? 'Checking…' : 'Check integrity'}
-                </button>
-                <button className="hub-btn ghost sm" disabled={busy !== ''} onClick={runVacuum}>
-                  <Icon name="refresh" />{busy === 'vacuum' ? 'Compacting…' : 'Compact (VACUUM)'}
-                </button>
-              </div>
-            </>
-          )}
-        </Panel>
+      <div className="hub-section" />
+      <Panel
+        title="Database health"
+        subtitle={db?.path || 'data/memory.db'}
+        right={last ? (last.ok ? <Badge tone="ok">healthy</Badge> : <Badge tone="err">check failed</Badge>) : null}
+      >
+        {db == null ? <EmptyState text="Loading…" /> : (
+          <>
+            <dl className="hub-kv">
+              <dt>Size on disk</dt><dd>{fmtBytes(db.bytes)}</dd>
+              <dt>Reclaimable</dt><dd>{fmtBytes(db.reclaimable)}</dd>
+              <dt>Last integrity check</dt><dd>{last ? `${ago(last.ts)} — ${last.ok ? 'ok' : 'failed'}` : 'never'}</dd>
+            </dl>
+            <div className="hub-btn-row">
+              <button className="hub-btn ghost sm" disabled={busy !== ''} onClick={runIntegrity}>
+                <Icon name="check" />{busy === 'integrity' ? 'Checking…' : 'Check integrity'}
+              </button>
+              <button className="hub-btn ghost sm" disabled={busy !== ''} onClick={runVacuum}>
+                <Icon name="refresh" />{busy === 'vacuum' ? 'Compacting…' : 'Compact (VACUUM)'}
+              </button>
+            </div>
+          </>
+        )}
+      </Panel>
 
-        <Panel title="Export everything" subtitle="One archive of all your readable data">
-          <p className="data-store-desc" style={{ marginBottom: 12 }}>
-            Memories, chats, the audit ledger, and your settings as a single .zip.
-            Secrets and keys are never included.
-          </p>
-          <a className="hub-btn" href="/api/data/export" download>
-            <Icon name="file" />Export archive
-          </a>
-        </Panel>
+      <div className="hub-section" />
+      <Panel title="Export everything" subtitle="One archive of all your readable data">
+        <p className="hub-note" style={{ border: 0, padding: 0, background: 'none', marginBottom: 12 }}>
+          Memories, chats, the audit ledger, and your settings as a single .zip. Secrets and keys are never included.
+        </p>
+        <a className="hub-btn" href="/api/data/export" download><Icon name="file" />Export archive</a>
+      </Panel>
 
-        <Panel title="Backup" subtitle="Your whole Ava is one folder">
-          <div className="data-kv"><span>AVA_HOME</span><b style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)' }}>{stores?.home || '…'}</b></div>
-          <div className="data-kv"><span>Total size</span><b>{stores ? fmtBytes(stores.total_bytes) : '…'}</b></div>
-          <div className="hub-note data-note" style={{ marginTop: 12 }}>
-            <Icon name="info" />
-            <span>Copy this folder and you've backed up everything — memories, chats, config, and keys. Restore by pointing <b>AVA_HOME</b> at the copy.</span>
-          </div>
-        </Panel>
-
-      </div>
+      <div className="hub-section" />
+      <Panel title="Backup" subtitle="Your whole Ava is one folder">
+        <dl className="hub-kv">
+          <dt>AVA_HOME</dt><dd><code>{stores?.home || '…'}</code></dd>
+          <dt>Total size</dt><dd>{stores ? fmtBytes(stores.total_bytes) : '…'}</dd>
+        </dl>
+        <div className="hub-note" style={{ marginTop: 12 }}>
+          Copy this folder and you've backed up everything — memories, chats, config, and keys. Restore by
+          pointing <b>AVA_HOME</b> at the copy.
+        </div>
+      </Panel>
     </>
   );
 }
 
+// ── Shell ─────────────────────────────────────────────────────────────────────
 export function DataView() {
   const [tab, setTab] = useState<TabId>('overview');
   const fetchStores = useCallback(() => dataApi.stores(), []);
@@ -386,10 +363,6 @@ export function DataView() {
   // Tolerate a malformed payload (e.g. a proxy error page): render the empty
   // state instead of unmounting the whole view.
   const d = inv.data && Array.isArray(inv.data.stores) ? inv.data : null;
-  const by = (id: string) => d?.stores.find((s) => s.id === id);
-
-  const mediaFiles = (by('media_gen')?.count || 0) + (by('uploads')?.count || 0);
-  const retention = d?.retention_days ?? null;
 
   return (
     <div className="hub view-scroll">
@@ -418,28 +391,14 @@ export function DataView() {
           !d ? (
             <EmptyState text={inv.loading ? 'Measuring stores…' : 'Couldn’t load the store inventory.'} />
           ) : (
-            <>
-              <div className="db-kpis data-kpis">
-                <StatCard label="On disk" value={fmtBytes(d.total_bytes)} tone="accent" hint={`across ${d.stores.length} stores`} />
-                <StatCard label="Memories" value={fmtInt(by('memory')?.count)} hint={`${fmtInt(by('memory')?.pinned ?? 0)} pinned`} />
-                <StatCard label="Chats" value={fmtInt(by('chats')?.count)} hint={`${fmtInt(by('chats')?.messages ?? 0)} messages`} />
-                <StatCard label="Media files" value={fmtInt(mediaFiles)} hint="generated + uploads" />
-                <StatCard label="Audit events" value={fmtInt(by('audit')?.count)} hint="all time" />
-                <StatCard
-                  label="Retention" tone="ok"
-                  value={retention === 0 ? '∞' : fmtInt(retention)}
-                  unit={retention === 0 ? undefined : 'd'}
-                  hint="metrics history"
-                />
-              </div>
-
-              <h3 className="dash-sec-h">Stores <span className="dash-sec-count">{d.stores.length}</span></h3>
-              <div className="data-stores">
-                {d.stores.map((s) => (
-                  <StoreCard key={s.id} s={s} onBrowse={BROWSE_TAB[s.id] ? () => setTab(BROWSE_TAB[s.id]) : undefined} />
-                ))}
-              </div>
-            </>
+            <Panel
+              title="Stores"
+              subtitle={`${d.stores.length} store${d.stores.length === 1 ? '' : 's'} · ${fmtBytes(d.total_bytes)} on disk · metrics kept ${d.retention_days === 0 ? 'forever' : `${d.retention_days} days`}`}
+            >
+              {d.stores.map((s) => (
+                <StoreRow key={s.id} s={s} onBrowse={BROWSE_TAB[s.id] ? () => setTab(BROWSE_TAB[s.id]) : undefined} />
+              ))}
+            </Panel>
           )
         )}
 

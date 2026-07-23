@@ -201,7 +201,7 @@ export function HardwareBubble() {
             <ChipGlyph />
             <span>{gpu?.name || 'Compute'}</span>
           </div>
-          <Metric label="GPU usage" value={pct(gpu?.util)} progress={gpu?.util ?? 0} />
+          <Metric label="GPU util" value={pct(gpu?.util)} progress={gpu?.util ?? 0} />
           {/* What's driving the GPU right now — names the job behind a spike. */}
           <div
             style={{
@@ -246,9 +246,9 @@ export function HardwareBubble() {
             progress={disk?.used_pct ?? 0}
             sub={`${gb(disk?.free_gb)} free`}
           />
-          <Metric label="CPU usage" value={pct(cpu?.util)} progress={cpu?.util ?? 0} />
+          <Metric label="CPU util" value={pct(cpu?.util)} progress={cpu?.util ?? 0} />
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
-            <span style={{ color: 'var(--muted)' }}>Temperature</span>
+            <span style={{ color: 'var(--muted)' }}>GPU temp</span>
             <span style={{ fontWeight: 700, color: tempColor(gpu?.temp) }}>{temp(gpu?.temp)}</span>
           </div>
           <div style={{ marginTop: 10, borderTop: '1px solid var(--line)', paddingTop: 9 }}>

@@ -96,6 +96,9 @@ export interface HubConnector {
   builtin?: boolean;   // shipped in the repo — read-only (no edit/disable/delete)
   icon?: string | null;  // manifest ui.icon (null = stable auto-pick)
   color?: string | null; // manifest ui.color (null = stable auto-pick)
+  auth_env?: string | null;  // env-var NAME the app authenticates with (null = no auth)
+  auth_set?: boolean;        // a credential is available (real env var OR saved once)
+  auth_stored?: boolean;     // a value is saved in Ava's secret store (so it can be cleared)
 }
 export interface ConnectorLoadError { id: string; path: string; error: string }
 export interface ManifestResult { ok: boolean; yaml?: string; editable?: boolean; error?: string }
@@ -206,7 +209,8 @@ export interface NewConnectorBody {
   kind?: string;
   probe?: string;
   base_url?: string;
-  token_env?: string;
+  token_env?: string;   // the NAME of the env var the app authenticates with (optional)
+  token_value?: string; // the actual token — saved once to Ava's secret store, never the manifest
   confirm?: boolean;
   role?: string;      // 'device' — enables the push flow + Devices grouping
   ingest?: boolean;   // let the app push readings/events with its ingest token
@@ -449,17 +453,27 @@ export const hub = {
       method: 'POST',
     }),
   newConnector: (body: NewConnectorBody) =>
-    req<{ ok: boolean; path?: string; actions?: number; error?: string }>('/api/hub/connectors/new', {
+    req<{ ok: boolean; path?: string; actions?: number; auth_env?: string | null; auth_saved?: boolean; error?: string }>('/api/hub/connectors/new', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }),
-  probeConnector: (body: { url?: string; command?: string; token_env?: string }) =>
+  probeConnector: (body: { url?: string; command?: string; token_env?: string; token_value?: string }) =>
     req<ProbeResult>('/api/hub/connectors/probe', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }),
+  // Save (or clear, with value: '') a connected app's credential VALUE so
+  // redeploy never re-prompts. Keyed by the manifest's token_env NAME; the value
+  // goes to Ava's server-side secret store, never the manifest or the agent.
+  setConnectorSecret: (id: string, value: string) =>
+    req<{ ok: boolean; auth_env?: string; auth_set?: boolean; auth_stored?: boolean; error?: string }>(
+      `/api/hub/connectors/${encodeURIComponent(id)}/secret`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value }),
+      }),
   ingestToken: (id: string) =>
     req<IngestToken>(`/api/hub/connectors/${encodeURIComponent(id)}/ingest-token`),
   lastEvent: (id: string) =>

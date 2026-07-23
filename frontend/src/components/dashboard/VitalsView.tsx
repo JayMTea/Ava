@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react';
+import { api } from '../../lib/api';
 import { dash } from './dashApi';
 import { useLiveResource } from '../../hooks/useLive';
 import {
@@ -20,9 +21,10 @@ export function VitalsView() {
   const [hwRange, setHwRange] = useState<RangeKey>('day');
   const hr = RANGE_MAP[hwRange];
   const hw = useLiveResource(useCallback(() => dash.hwHistory(hr.since, hr.bucket), [hr]), hr.pollMs);
-  // Gauges show the instantaneous reading, so they read an always-live day fetch
-  // rather than the charted range (whose last bucket can span a week at 5Y).
-  const hwLive = useLiveResource(useCallback(() => dash.hwHistory('1d', '5m'), []), 5000);
+  // The gauges + the watts readout show the instantaneous reading from the SAME
+  // live snapshot (/api/hardware) the floating hardware bubble uses — so the two
+  // never disagree. (The charted range below still uses the bucketed history.)
+  const live = useLiveResource(useCallback(() => api.hardware(), []), 3000);
 
   const s = summary.data?.summary;
   const llm = s?.llm || {};
@@ -41,8 +43,7 @@ export function VitalsView() {
   const ttftAvg = ttft.length ? ttft.reduce((a, b) => a + b, 0) / ttft.length : null;
 
   const samples = hw.data?.samples || [];
-  const liveSamples = hwLive.data?.samples || [];
-  const latest = liveSamples[liveSamples.length - 1];
+  const lh = live.data;   // live instantaneous hardware snapshot (gauges + watts)
   const hwPoints = samples.map((x) => ({
     t: x.ts, 'GPU util': x.gpu_util ?? 0, 'GPU temp': x.gpu_temp ?? 0,
     'GPU power': x.gpu_power ?? 0, 'Mem %': x.mem_used_pct ?? 0, CPU: x.cpu ?? 0,
@@ -201,17 +202,17 @@ export function VitalsView() {
         subtitle={`live device telemetry · ${hr.label}`}
         right={
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {latest?.gpu_power != null && (
-              <span className="db-panel-right-note">{Math.round(latest.gpu_power)} W</span>
+            {lh?.gpu.power != null && (
+              <span className="db-panel-right-note">{Math.round(lh.gpu.power)} W</span>
             )}
             <RangeSelector value={hwRange} onChange={setHwRange} />
           </div>
         }>
         <div className="db-gauges">
-          <Gauge value={latest?.gpu_util ?? null} label="GPU util" help={METRICS.gpuUtil} />
-          <Gauge value={latest?.gpu_temp ?? null} label="GPU temp" unit="°" max={100} warnAt={78} critAt={88} help={METRICS.gpuTemp} />
-          <Gauge value={latest?.mem_used_pct ?? null} label="Memory" warnAt={85} critAt={95} help={METRICS.memory} />
-          <Gauge value={latest?.cpu ?? null} label="CPU" help={METRICS.cpu} />
+          <Gauge value={lh?.gpu.util ?? null} label="GPU util" help={METRICS.gpuUtil} />
+          <Gauge value={lh?.gpu.temp ?? null} label="GPU temp" unit="°" max={100} warnAt={78} critAt={88} help={METRICS.gpuTemp} />
+          <Gauge value={lh?.mem.used_pct ?? null} label="Memory" warnAt={85} critAt={95} help={METRICS.memory} />
+          <Gauge value={lh?.cpu.util ?? null} label="CPU util" help={METRICS.cpu} />
         </div>
         {hwPoints.length > 1 ? (
           <div style={{ marginTop: 12 }}>
