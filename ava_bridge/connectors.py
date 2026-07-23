@@ -360,7 +360,10 @@ def render_egress_policy(cid: str) -> dict | None:
                           "allowed_ips": list(_PRIVATE_IPS)})
     if not endpoints:
         return None
-    pname = f"ava-{cid}"
+    # Namespace the policy under "ava-", but don't double the prefix for a
+    # connector whose id already starts with it (e.g. "ava-notes" must stay
+    # "ava-notes", not "ava-ava-notes").
+    pname = cid if cid.startswith("ava-") else f"ava-{cid}"
     return {
         "preset": {"name": pname,
                    "description": f"Auto-generated egress for the {m.get('label', cid)} connector"},
