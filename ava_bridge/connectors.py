@@ -427,6 +427,34 @@ def auth_env(m: dict) -> str | None:
     return None
 
 
+TRANSPORTS = ("mcp", "discover", "rest", "none")
+
+
+def transport(m: dict) -> str:
+    """HOW a connector's tools reach Ava — the honest name for its wire protocol:
+
+        mcp       a real Model Context Protocol server (``mcp:``), spoken by
+                  ava_bridge/mcp_client.py
+        discover  the ava-tools/1 HTTP facade (``actions.discover``) — MCP-shaped
+                  but Ava's own protocol, NOT MCP
+        rest      statically declared ``actions:`` proxied to the app's REST API
+        none      no agent surface at all (a UI-only app, or a push-only device)
+
+    Kept as one function because the distinction is easy to fudge and was: the
+    Setup UI used to badge everything with tools as "MCP", which made the label
+    meaningless on every row. Anything showing a transport to the owner reads it
+    from here."""
+    if not isinstance(m, dict):
+        return "none"
+    if _mcp_spec(m):
+        return "mcp"
+    if _discover_spec(m):
+        return "discover"
+    if _static_actions(m):
+        return "rest"
+    return "none"
+
+
 def _auth_headers(cid: str) -> dict:
     """Bearer header for a connector's own API, from a top-level
     ``auth: { token_env: ENV }`` block. Empty if none declared."""

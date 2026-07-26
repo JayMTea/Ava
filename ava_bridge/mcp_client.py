@@ -419,20 +419,42 @@ class _StdioSession(_Session):
 # --------------------------------------------------------------------------- #
 # Public API — mirrors the discover facade so connectors.py routes cleanly
 # --------------------------------------------------------------------------- #
+def _session_lost(e: Exception) -> bool:
+    """True when the server rejected our cached Mcp-Session-Id.
+
+    A stateful Streamable HTTP server (FastMCP, and our own sdk/host/ava_mcp)
+    forgets every session when it restarts, so the first call afterwards fails
+    with 404 "Session not found" even though the server is perfectly healthy.
+    The session is dropped and re-established on the next call, but that meant
+    one bogus "unreachable" after every restart of the app — exactly the false
+    signal the Setup transport chip exists to avoid."""
+    msg = str(e)
+    return "Session not found" in msg or "session not found" in msg
+
+
 def list_tools(cid: str, spec: dict) -> dict:
     """-> {"tools": [{name, description, inputSchema}, ...]} or {"error": ...}."""
-    try:
-        return {"tools": _session(cid, spec).list_tools()}
-    except Exception as e:  # noqa: BLE001 — transport errors become {"error"}
-        reset(cid)
-        return {"error": f"{cid} mcp: {e}"}
+    for retry in (True, False):
+        try:
+            return {"tools": _session(cid, spec).list_tools()}
+        except Exception as e:  # noqa: BLE001 — transport errors become {"error"}
+            reset(cid)
+            if retry and _session_lost(e):
+                continue    # re-handshake against the restarted server
+            return {"error": f"{cid} mcp: {e}"}
 
 
 def call_tool(cid: str, spec: dict, name: str, arguments: dict | None) -> tuple:
     """-> (result, status). MCP tool errors (isError) pass through as data —
     they're the model's to read — transport failures return 502."""
-    try:
-        return _session(cid, spec).call_tool(name, arguments or {}), 200
-    except Exception as e:  # noqa: BLE001 — transport errors become 502
-        reset(cid)
-        return {"error": f"{cid} mcp: {e}"}, 502
+    for retry in (True, False):
+        try:
+            return _session(cid, spec).call_tool(name, arguments or {}), 200
+        except Exception as e:  # noqa: BLE001 — transport errors become 502
+            reset(cid)
+            # Only ever retried on session loss, which the server rejects
+            # BEFORE dispatching the tool — so this cannot double-execute a
+            # side-effecting call. Every other failure is reported as-is.
+            if retry and _session_lost(e):
+                continue
+            return {"error": f"{cid} mcp: {e}"}, 502

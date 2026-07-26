@@ -409,6 +409,40 @@ connector, where they default to `physical`: a device's unknown verbs are
 presumed to actuate until the author says otherwise. See the
 [Home Assistant connector](CONNECT_HOME_ASSISTANT.md) for the worked example.
 
+> **Migrating a facade to MCP? Keep the tiers.** An `ava-tools/1` facade reports
+> `access` per tool; plain MCP has no such field, so a hand-rolled port
+> silently demotes every `read` to `write` and the owner starts getting
+> prompted for things that used to run silently. Either carry `access` through
+> on each `tools/list` entry (what `sdk/host/ava_mcp` does — see below), or
+> restate the tiers here as `dynamic_access` patterns.
+
+### Turn your own app into a real MCP server (`sdk/host/ava_mcp`)
+
+The facade above is the quickest way in, but it is *Ava's* protocol — an app
+that speaks only the facade is wired into Ava and nothing else. The SDK ships a
+stdlib-only adapter that fronts it with genuine MCP, so the same tools answer
+Ava, Claude Desktop, an IDE, or any other client:
+
+```bash
+python -m ava_mcp --facade http://127.0.0.1:8097 --port 9310 \
+                  --token-env MYAPP_TOKEN --auth-env MYAPP_MCP_TOKEN
+```
+
+```yaml
+mcp:
+  url: "http://127.0.0.1:9310/mcp"
+  token_env: MYAPP_MCP_TOKEN
+```
+
+No code changes in the app: run it as a sidecar next to your service. It
+carries each tool's `access` tier through (top-level and mirrored under
+`_meta`), so JIT consent behaves exactly as it did over the facade. A Python
+app that would rather not run a second process can mount `RegistrySource`
+in-process instead. Both credentials are named, never passed on argv:
+`--token-env` is the *app's* token, `--auth-env` guards the MCP endpoint.
+
+Full reference: [`sdk/host/ava_mcp/README.md`](../sdk/host/ava_mcp/README.md).
+
 ### Egress
 
 `ava connector policies <id> --write` renders the connector's egress into

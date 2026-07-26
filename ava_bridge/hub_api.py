@@ -398,9 +398,18 @@ def list_connectors():
             "actions": len(actions),
             "mcp": connectors._mcp_spec(m) is not None,
             "discover": connectors._discover_spec(m) is not None,
+            # HOW its tools arrive — mcp | discover | rest | none. The honest
+            # name for the wire protocol; `mcp` here means a real MCP server,
+            # not "has tools". See connectors.transport().
+            "transport": connectors.transport(m),
             # The two connect surfaces (the doctrine: an app is a UI, a tool
             # facade, or both — never raw endpoints): ui block => APP tile.
             "app": isinstance(m.get("ui"), dict),
+            # Device identity: `role: device` and/or an inbound `ingest:` block.
+            # Setup groups by what a connector IS to the owner, and a device's
+            # defining trait is that it pushes to Ava rather than being visited.
+            "role": str(m.get("role") or "") or None,
+            "ingest": connectors.ingest_enabled(cid),
             # Rail identity, for the Appearance picker (null = uses the auto-pick).
             "icon": (m.get("ui") or {}).get("icon") if isinstance(m.get("ui"), dict) else None,
             "color": str((m["ui"]).get("color")) if isinstance(m.get("ui"), dict) and (m["ui"]).get("color") else None,
@@ -417,6 +426,44 @@ def list_connectors():
             "auth_stored": settings.env_secret_stored(auth) if auth else False,
         })
     return {"connectors": out, "errors": connectors.load_errors()}
+
+
+@router.get("/connectors/{cid}/live")
+def connector_live(cid: str):
+    """Actually talk to <cid> right now and report what came back.
+
+    This is what keeps the Setup UI's transport label honest. `list_connectors`
+    reads the manifest — it can only tell you what a connector *claims*. This
+    performs the real handshake (MCP `initialize` + `tools/list`, or a GET on
+    the ava-tools/1 facade) so the UI can say "MCP · 18 tools" only when Ava
+    genuinely spoke MCP to it a moment ago, and show the transport error when
+    it didn't.
+
+    ``verified`` is the distinction that matters: true means we round-tripped
+    just now; false means the count is declared in the manifest (a `rest`
+    connector has nothing to hand-shake with) and no promise is being made.
+    """
+    m = {x["id"]: x for x in connectors.catalog()}.get(cid)
+    if not m:
+        return {"ok": False, "error": f"no connector {cid}"}
+    kind = connectors.transport(m)
+    base = {"ok": True, "transport": kind, "verified": False,
+            "tools": None, "error": None}
+
+    if not m.get("enabled", True):
+        # Never dial a connector the owner switched off — "disabled" is an
+        # answer, not a failure.
+        return {**base, "ok": False, "error": "disabled"}
+
+    if kind == "rest":
+        return {**base, "tools": len(connectors._static_actions(m))}
+    if kind == "none":
+        return {**base, "tools": 0}
+
+    r = connectors.discover_tools(cid)
+    if isinstance(r, dict) and r.get("error"):
+        return {**base, "ok": False, "error": str(r["error"])[:300]}
+    return {**base, "verified": True, "tools": len(r.get("tools") or [])}
 
 
 @router.post("/connectors/{cid}/secret")
