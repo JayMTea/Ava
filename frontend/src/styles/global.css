@@ -23,9 +23,21 @@
   header .sub { font-size:12px; color:var(--muted); margin-top:3px; }
   
   /* View container: each view fills remaining space (flex:1); switching views doesn't shift layout */
-  #viewPort { flex:1; display:flex; flex-direction:column; overflow:hidden; position:relative; }
+  /* view-transition-name isolates this region so a tab switch cross-fades the
+     CONTENT only (see App.tsx changeView) — the rail/header stay put. */
+  #viewPort { flex:1; display:flex; flex-direction:column; overflow:hidden; position:relative; view-transition-name: viewport; }
   .view { position:absolute; inset:0; display:none !important; flex-direction:column; overflow-y:auto; }
   .view.active { display:flex !important; }
+
+  /* Tab cross-fade: the outgoing view fades out while the incoming one fades up
+     with a small rise. Kept short so navigation still feels instant. */
+  @keyframes vpIn  { from { opacity:0; transform: translateY(10px); } to { opacity:1; transform:none; } }
+  @keyframes vpOut { from { opacity:1; } to { opacity:0; } }
+  ::view-transition-old(viewport) { animation: vpOut .20s ease both; }
+  ::view-transition-new(viewport) { animation: vpIn .34s cubic-bezier(.22,.61,.36,1) both; }
+  @media (prefers-reduced-motion: reduce) {
+    ::view-transition-old(viewport), ::view-transition-new(viewport) { animation: none; }
+  }
   
   #log { padding:14px; gap:10px; }
   #learningView { padding:14px; }
