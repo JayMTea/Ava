@@ -96,10 +96,18 @@ connectors/persona/
 connectors/ava-notes/
 .venv-tts/
 
-# Agent/editor runtime config — drives the local-only marketing/ harness, so it
+# Agent/editor runtime config — drives the local-only demo/ harness, so it
 # is meaningless (and broken) for anyone else.
 .claude/
 
-# QA e2e deps are a symlink into the local-only marketing/ tree; committing it
+# QA e2e deps are a symlink into the local-only demo/ tree; committing it
 # would bake this box's absolute home path into the repo and break every clone.
 qa/e2e/node_modules
+
+# Allocation ledger: live cross-process state (lease locks, breaker counters, per-model
+# records). Runtime, not source — and committing it would ship one box's leases to every
+# clone, where stale records name models that do not exist there.
+run/
+
+# arch.py writes architecture.yaml (already ignored above); its backups are noise.
+agent/docs/architecture.yaml.bak

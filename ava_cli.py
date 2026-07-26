@@ -89,6 +89,65 @@ def cmd_doctor(_args) -> int:
         _row(WARN, "model fit", f"probe failed: {e}")
         avail = None
 
+    # Allocation — which declared models are actually resident, and whether the
+    # box could bring each one up right now. This is where "the unit is active but
+    # the model never loaded" becomes visible instead of silent.
+    print("\nAllocation")
+    try:
+        from ava_bridge import alloc
+        rep = alloc.report()
+        pool = rep["pool"]
+        lz = rep.get("leases") or {}
+        # Advisory vs enforcing is the single most important thing to state plainly:
+        # an operator reading this must never be unsure whether Ava is allowed to act.
+        _row(OK, "mode", "ENFORCING — may release declared models to make room"
+             if rep.get("actuating") else
+             "advisory — decisions recorded to logs/alloc.jsonl, nothing is actuated")
+        led = lz.get("ledger") or {}
+        if led.get("writable") is False:
+            _row(BAD, "ledger", f"not writable: {led.get('dir')} — leases cannot "
+                                "coordinate across processes")
+        elif lz.get("lease_count"):
+            _row(OK, "leases", f"{lz['lease_count']} held · {len(lz.get('owed') or [])} "
+                               f"awaiting restore · ledger on {led.get('fstype')}")
+        for od in (lz.get("overdue") or []):
+            _row(WARN, "overdue", f"lease {od['lease_id']} (pid {od['pid']}) has held "
+                                  f"{', '.join(od['models'] or [])} for {od['age_s']}s")
+        if rep["gating"] == "disabled":
+            _row(WARN, "pool", "memory unreadable — allocation is not gating anything")
+        else:
+            bits = [f"{pool['free_gib']:.0f} GB free of {pool['total_gib']:.0f}",
+                    f"({pool['source']})"]
+            if pool.get("baseline_gib") is not None:
+                bits.append(f"· baseline {pool['baseline_gib']:.0f}")
+            if pool.get("unknown_gib"):
+                bits.append(f"· {pool['unknown_gib']:.0f} held by undeclared processes")
+            _row(OK, "pool", " ".join(bits))
+        if not rep["models"]:
+            _row(OK, "declared", "no models declared — nothing is governed "
+                                 "(add `alloc.models` in ava.yaml to opt in)")
+        for m in rep["models"]:
+            # A declared model that is resident but NOT ready is the dangerous
+            # state: its port is open, so nothing else notices it is serving
+            # nothing. Call that out ahead of anything else.
+            if m["resident"] and m["ready"] is False:
+                mark, detail = BAD, f"resident but NOT ready — {m['detail']}"
+            elif not m["cold_load_ok"]:
+                mark, detail = WARN, f"would not fit now — {m['cold_load_reason']}"
+            elif m["resident"] is None:
+                mark, detail = OK, f"{m['driver']} · {m['detail']}"
+            else:
+                gib = m["resident_gib"]
+                shown = f"{gib:.1f} GB" if gib is not None else "size unknown"
+                state = "resident" if m["resident"] else "not resident"
+                mark, detail = OK, (f"{m['driver']} · {state} · {shown}"
+                                    f"{'' if m['measured'] else ' (declared, unmeasured)'}")
+            _row(mark, m["id"], detail)
+            for prob in m["problems"]:
+                _row(WARN, "", prob)
+    except Exception as e:  # noqa: BLE001 — reporting must never fail doctor
+        _row(WARN, "allocation", f"probe failed: {e}")
+
     print("\nAgent runtime")
     try:
         from ava_bridge import runtime, config as _cfg
@@ -1281,6 +1340,108 @@ def cmd_eval(args) -> int:
     return 2
 
 
+def cmd_alloc(args) -> int:
+    """Inspect and steer model memory allocation.
+
+    `status` and `plan` are read-only. `restore` brings back what the allocator itself
+    released (and nothing else). `reset` clears a model's failure record after you have
+    fixed whatever was wrong; `resume` un-quiesces an allocator that hit its own thrash
+    guard.
+    """
+    from ava_bridge import alloc
+    from ava_bridge.alloc import breaker
+
+    action = args.action
+    if action == "status":
+        rep = alloc.report()
+        lz = rep.get("leases") or {}
+        br = lz.get("breaker") or {}
+        print(f"\n{B}Allocation{X}")
+        print(f"  mode          : {'ENFORCING' if rep.get('actuating') else 'advisory'}"
+              f"{' · evicting' if lz.get('evicting') else ' · eviction off'}")
+        pool = rep["pool"]
+        if rep["gating"] == "disabled":
+            print("  pool          : memory unreadable — not gating")
+        else:
+            print(f"  pool          : {pool['free_gib']} / {pool['total_gib']} GB free"
+                  f" ({pool['source']})"
+                  + (f" · baseline {pool['baseline_gib']}"
+                     if pool.get("baseline_gib") is not None else "")
+                  + (f" · {pool['unknown_gib']} GB undeclared"
+                     if pool.get("unknown_gib") else ""))
+        if br.get("quiesced"):
+            print(f"  {BAD} QUIESCED   : {br.get('quiesce_reason')}")
+        print(f"  actions       : {br.get('actions_in_window', 0)}/{br.get('budget')} "
+              f"in the last {int((br.get('window_s') or 600) / 60)} min")
+        print(f"  leases        : {lz.get('lease_count', 0)} held · "
+              f"{len(lz.get('owed') or [])} awaiting restore")
+        for od in (lz.get("overdue") or []):
+            print(f"  {WARN} overdue    : {od['lease_id']} (pid {od['pid']}) "
+                  f"{od['age_s']}s")
+        if not rep["models"]:
+            print("  declared      : none — add `alloc.models` to ava.yaml to opt in")
+        for m in rep["models"]:
+            bm = (br.get("models") or {}).get(m["id"]) or {}
+            state = ("resident but NOT READY" if m["resident"] and m["ready"] is False
+                     else "resident" if m["resident"]
+                     else "not resident" if m["resident"] is False else "unknown")
+            line = (f"  {m['id']:<16} {m['driver']:<12} {m['priority']:<12} {state}")
+            if m.get("resident_gib") is not None:
+                line += f" · {m['resident_gib']} GB"
+            print(line)
+            if bm.get("given_up"):
+                print(f"      {BAD} gave up after {bm['fails']} attempts: "
+                      f"{bm.get('reason')}")
+                print(f"        fix it, then `ava alloc reset {m['id']}`")
+            elif bm.get("retry_in_s"):
+                print(f"      {WARN} backing off {bm['retry_in_s']}s "
+                      f"({bm.get('fails')} failed attempts)")
+            elif bm.get("deferred"):
+                print(f"      · deferred (not a failure): {bm['deferred']}")
+            for prob in m.get("problems") or []:
+                print(f"      {WARN} {prob}")
+        print()
+        return 0
+
+    if action == "plan":
+        if not args.model:
+            print("usage: ava alloc plan <model-id>")
+            return 2
+        pl = alloc.admit_plan(args.model)
+        print(f"\n{B}Plan for {args.model}{X}")
+        print(f"  admit     : {pl.admit}"
+              + ("" if pl.gated else "  (memory unknown — not gated)"))
+        if pl.need_gib is not None:
+            print(f"  need/free : {pl.need_gib:.0f} / "
+                  f"{(pl.free_gib if pl.free_gib is not None else 0):.0f} GB"
+                  + (f" -> projected {pl.projected_gib:.0f} GB"
+                     if pl.projected_gib is not None else ""))
+        if pl.shortfall_gib:
+            print(f"  shortfall : {pl.shortfall_gib:.0f} GB")
+        for s in pl.steps:
+            kind = "try (cheap)" if s.speculative else "release"
+            print(f"  {kind:<12}: {s.model_id} [{s.mode.value}] — {s.reason}")
+        print(f"  reason    : {pl.reason}\n")
+        return 0
+
+    if action == "restore":
+        ids = alloc.restore_now()
+        print("restored: " + (", ".join(ids) if ids else
+                              "nothing (either nothing is owed, or enforcement is off)"))
+        return 0
+
+    if action == "reset":
+        breaker.reset(args.model)
+        print(f"breaker cleared for {args.model or 'all models (and QUIESCED)'}")
+        return 0
+
+    if action == "resume":
+        breaker.reset(None)
+        print("allocator resumed: breakers and the action budget are cleared")
+        return 0
+    return 2
+
+
 def main() -> int:
     p = argparse.ArgumentParser(prog="ava", description="Ava control CLI")
     sub = p.add_subparsers(dest="cmd")
@@ -1320,6 +1481,12 @@ def main() -> int:
     dp.add_argument("name", nargs="?", help="device connector id (for new / token / events)")
     dp.add_argument("--limit", type=int, default=0, help="max events to show (events)")
     dp.set_defaults(func=cmd_device)
+    ap = sub.add_parser("alloc", help="model memory allocation: status / plan / "
+                                     "restore / reset / resume")
+    ap.add_argument("action", choices=["status", "plan", "restore", "reset", "resume"])
+    ap.add_argument("model", nargs="?", help="plan/reset: the declared model id")
+    ap.set_defaults(func=cmd_alloc)
+
     mp = sub.add_parser("models", help="model store: list / pull / verify / bench")
     mp.add_argument("action", choices=["list", "pull", "verify", "bench"])
     mp.add_argument("name", nargs="?",

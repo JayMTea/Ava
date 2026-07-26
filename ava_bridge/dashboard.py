@@ -590,6 +590,19 @@ def build_alert_metrics() -> dict:
     m["job_stuck_count"] = stuck
     m["service_down_count"] = ops_services().get("down", 0)
 
+    # --- model allocation (dormant until models are declared in alloc.models) ---
+    # A declared model that is running but has no weights loaded answers its port,
+    # so service_down_count above stays 0 and nothing else notices. These metrics
+    # exist to make that state alertable. Cached because the SSE producer calls this
+    # every ~5s per client and a residency probe shells out.
+    try:
+        from .alloc import watch as _alloc_watch
+        m.update(_cached("alloc_metrics", 30, _alloc_watch.metrics))
+    except Exception:  # noqa: BLE001 — allocation is optional; never break the feed
+        m.setdefault("alloc_degraded_count", 0)
+        m.setdefault("alloc_unfit_count", 0)
+        m.setdefault("alloc_unknown_hold_gb", 0)
+
     # --- cost / energy budgets + idle burn (dormant until a budget is set) ---
     cfg = _cost_cfg()
     budgets = cfg.get("budgets") or {}

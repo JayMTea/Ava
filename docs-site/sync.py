@@ -37,6 +37,7 @@ CURATED: dict[str, str] = {
     "CHANGELOG.md": "CHANGELOG.md",
     "deploy/README.md": "deploy/README.md",
     "docs/AGENT_RUNTIME.md": "docs/AGENT_RUNTIME.md",
+    "docs/ALLOCATION.md": "docs/ALLOCATION.md",
     "docs/CONNECT_YOUR_APPS.md": "docs/CONNECT_YOUR_APPS.md",
     "docs/CHOOSE_A_MODEL.md": "docs/CHOOSE_A_MODEL.md",
     "docs/MEMORY.md": "docs/MEMORY.md",

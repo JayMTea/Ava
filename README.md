@@ -6,7 +6,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Self-hosted](https://img.shields.io/badge/self--hosted-yes-success.svg)](deploy/README.md)
-[![Model](https://img.shields.io/badge/model-vLLM%20%7C%20Ollama%20%7C%20cloud-orange.svg)](docs/PACKAGING_PLAN.md)
+[![Engine](https://img.shields.io/badge/engine-vLLM%20%7C%20Ollama%20%7C%20cloud-orange.svg)](docs/PACKAGING_PLAN.md)
 
 **Ava is a self-hosted personal AI operating layer:** a private, plug-and-play hub
 that puts *any* model to work across your **voice**, your **apps**, and your

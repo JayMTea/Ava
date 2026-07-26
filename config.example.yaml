@@ -221,3 +221,122 @@ perf:
   max_rotated_files: 5     # [AVA_PERF_LOG_KEEP] raw segments retained (.1..N) before rollup absorbs them
   max_tok_s: 2000          # [AVA_PERF_MAX_TOK_S] clamp implausible tokens/sec (timing artefacts) to null
   # Live-file rotation size is writer-only (stdlib), set via env: [AVA_PERF_LOG_MAX_BYTES] (default 32MiB)
+
+# ── Model memory allocation: who may hold memory, and who yields to whom ─────
+# A box that runs Ava plus a second model (an image pipeline, a voice sidecar)
+# oversubscribes its memory: each wants tens of GiB of the same pool, so at most
+# one can be resident. Ava checks fit BEFORE a model is brought up, and can free
+# room by releasing models YOU declare below.
+#
+# Nothing here is required. With no `models:` declared, nothing is governed and
+# nothing changes — you opt in one model at a time. Undeclared processes are
+# observed and counted (so the planner never promises memory they hold) but are
+# NEVER started, stopped, or unloaded.
+#
+# Sizing is inherited, not repeated: a model that matches an
+# `inference.backends.<id>` picks up weight_gb / min_free_gb / tier from its
+# existing `fit:` block, and a model matching a connector picks up that
+# connector's unit and health probe. Declare below only what neither can say.
+alloc:
+  enabled: true              # [AVA_ALLOC] off = observe nothing, govern nothing
+  pool:
+    baseline: measure        # `measure` LEARNS this box's non-model memory floor.
+                             #   A number from someone else's machine would be
+                             #   wrong here, so prefer measure; set a GiB value
+                             #   only to pin it.
+    min_free_gib: 4          # [AVA_ALLOC_MIN_FREE] never plan the pool below this
+    speculative_max_s: 15    # cheap, reversible levers (an engine's unload
+                             #   endpoint) are tried before anything is stopped
+  defaults:
+    priority: batch          # for a model that declares none
+  lease:
+    # A caller states a NEED ("I am about to use this model"); it never names a
+    # victim. With enforce false — the default — Ava computes the full decision and
+    # records it to logs/alloc.jsonl, and touches nothing. Leave it off until that
+    # log looks right for your box, then turn it on.
+    enforce: false           # [AVA_ALLOC_ENFORCE] false = decide + record, never act
+    # A SECOND switch, because the two halves of enforcement carry opposite risk.
+    # Waiting or going without is at worst slower; RELEASING something is at worst
+    # taking memory from work in progress. With enforce true and evict false, Ava may
+    # refuse a start that cannot fit and may restore what it previously released, but
+    # will not take memory away from anything. Turn this on last.
+    evict: false             # [AVA_ALLOC_EVICT]
+    cooldown_s: 90           # defer a restore this long, so a burst of requests
+                             #   costs one reload instead of one per request
+    max_hold_s: 3600         # a hold older than this is reported as overdue
+  # Safety limits on Ava's own actions. A supervisor that retries an impossible start
+  # forever is how a box accumulates thousands of restarts; these bound it. Note a
+  # start that cannot fit is DEFERRED, not failed — it never counts against
+  # max_attempts, so a model waiting for room is never given up on.
+  breaker:
+    max_attempts: 6          # consecutive failed actions before giving up on a model
+    max_window_s: 1800       # ...or this long failing, whichever comes first
+    base_backoff_s: 15       # first retry delay; doubles, with jitter
+    max_backoff_s: 1800
+    stability_window_s: 120  # continuous readiness needed to clear a failure record.
+                             #   NOT one success: a crash-loop that looks healthy for
+                             #   a moment would otherwise reset its own counter forever
+    budget_actions: 20       # state-changing actions allowed per window, ALL models
+    budget_window_s: 600     #   and all processes; exceeding it makes the allocator
+    quiesce_cooloff_s: 1800  #   a no-op ("QUIESCED") rather than a loop
+  # Which declared model serves each of Ava's own subsystems. Unset = Ava takes no
+  # lease for that subsystem and behaves exactly as before, so declaring a model
+  # does not silently start gating a code path until you map it here too.
+  # roles:
+  #   image: my-image-engine
+  #
+  # ANOTHER APP ON THE SAME BOX can hold leases too, over the router's /lease
+  # endpoint — it does not need to import Ava. That is how two applications stop
+  # fighting over one pool: exactly one component decides, and the other asks.
+  # The endpoint is token-guarded (it can stop and start models), so the client
+  # sends the router token. See docs: the client is ~150 stdlib-only lines the
+  # other app vendors, on the same terms as any other cross-app file.
+  #
+  #   POST http://127.0.0.1:8010/lease   {"model": "my-image-engine",
+  #                                       "reason": "render", "ttl_s": 300}
+  #     -> {"lease_id": "...", "granted": true, "released": ["my-llm"]}
+  #   POST /lease/<id>/heartbeat          renew; a lease that stops being renewed
+  #                                       is reclaimed, so a killed client cannot
+  #                                       hold memory reserved forever
+  #   DELETE /lease/<id>                  release (and schedule any restore)
+  # models:
+  #   # A container-hosted language model.
+  #   my-llm:
+  #     driver: docker
+  #     priority: interactive        # interactive | batch | background
+  #     driver_config: { container: my-llm, stop_timeout_s: 120 }
+  #     readiness:                   # "the port is open" is NOT ready: an engine
+  #       url: "http://127.0.0.1:8000/v1/models"   # binds long before weights load
+  #       expect: models_contains
+  #     restore: { warm_s: 30, cold_s: 420, debounce_s: 90 }
+  #     # weight_gb/min_free_gb/tier inherited from inference.backends.my-llm.fit
+  #
+  #   # An engine that can drop its weights without stopping — the cheapest lever.
+  #   my-image-engine:
+  #     driver: http-unload
+  #     priority: interactive
+  #     driver_config:
+  #       base: "${AVA_GPU_SERVICE:-http://127.0.0.1:8189}"
+  #       path: /free
+  #       json: { unload_models: true, free_memory: true }
+  #       rss_unit: ava-gpu.service   # where to MEASURE it; the engine's own
+  #                                     #   memory counters are not trustworthy
+  #     release: { unload_s: 8 }
+  #     restore: { auto: false }        # it reloads weights on next use
+  #
+  #   # A checkpoint that lives INSIDE another declared model. `via:` means it is
+  #   # sized and planned in its own right, but released with its host.
+  #   my-checkpoint:
+  #     via: my-image-engine
+  #     weight_gb: 24
+  #     priority: interactive
+  #
+  #   # A service-unit model. `pinned: true` protects it from every eviction.
+  #   my-voice:
+  #     driver: systemd
+  #     priority: background
+  #     weight_gb: 3.4
+  #     driver_config: { unit: my-voice.service }
+  #     readiness:
+  #       url: "http://127.0.0.1:8129/health"
+  #       require: [ok, stt_ready]   # every key must be truthy in the JSON body

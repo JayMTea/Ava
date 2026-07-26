@@ -110,10 +110,32 @@ services:
   # Default brain is Nemotron open-model 30B-A3B (needs a big GPU / ~35GB VRAM).
   # Override AVA_MODEL for a smaller model on constrained GPUs, e.g.
   #   AVA_MODEL=Qwen/Qwen2.5-7B-Instruct
+  # Memory flags are NOT optional on a shared box. Without them vLLM takes ~90% of
+  # the pool and captures CUDA graphs, which on unified-memory hardware (Grace-class,
+  # Apple) leaves nothing for the image engine the `full` profile starts alongside it —
+  # and an uncapped `restart` policy then retries the impossible start forever. That
+  # combination cost 7,997 restarts on the development box. Every value is
+  # env-overridable; see deploy/omni-serve.sh for the measured reasoning.
   vllm:
     profiles: ["gpu", "full"]
     image: vllm/vllm-openai:latest
-    command: ["--model", "${AVA_MODEL:-nvidia/Nemotron-Open-30B-A3B-Reasoning-FP8}", "--trust-remote-code", "--port", "8002"]
+    command:
+      - "--model"
+      - "${AVA_MODEL:-nvidia/Nemotron-Open-30B-A3B-Reasoning-FP8}"
+      - "--trust-remote-code"
+      - "--port"
+      - "8002"
+      # Leave room for a second model. 0.40 fits ~35 GB of FP8 weights plus a KV
+      # cache big enough for tens of concurrent full-context requests.
+      - "--gpu-memory-utilization"
+      - "${AVA_VLLM_GPU_UTIL:-0.40}"
+      # Graph capture spikes transiently across every batch size, including a vision
+      # encoder; that spike is what OOM-kills the engine on a shared pool. Disabling it
+      # costs a few percent of decode speed and is what makes an always-on load fit.
+      - "--enforce-eager"
+      # Bound the KV cache explicitly rather than inheriting the model's maximum.
+      - "--max-model-len"
+      - "${AVA_VLLM_MAX_LEN:-65536}"
     volumes:
       - ${AVA_HOME:-./ava-data}/models/hf:/root/.cache/huggingface
     ports:
@@ -125,7 +147,11 @@ services:
             - driver: nvidia
               count: all
               capabilities: ["gpu"]
-    restart: unless-stopped
+    # `on-failure` with a cap, not `unless-stopped`: a start that cannot fit must not be
+    # retried forever. Ava's allocator (ava.yaml `alloc.models`) is the component that
+    # decides when there is room; a supervisor with no memory awareness and no cap will
+    # fight it. See `ava alloc status`.
+    restart: on-failure
 
   # --- image / video generation (optional) ---
   # Uses the upstream the GPU service image; mount your checkpoints under

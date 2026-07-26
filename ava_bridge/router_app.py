@@ -467,7 +467,13 @@ def create_app(backends: list | None = None, *, token: str | None = None,
         # /which, /route and /fit reveal or change Ava's active brain: always
         # token-guarded. /v1/* additionally requires the token when the router
         # is exposed beyond loopback (see module docstring). /healthz is open.
-        if path in _GUARDED_PATHS and not _authed(request):
+        #
+        # /lease/* is guarded by PREFIX, not exact match, and unconditionally: unlike
+        # /fit it can stop and start models, so an unauthenticated caller could take
+        # Ava's brain down. Prefix matching matters because the sub-paths carry a
+        # lease id (/lease/<id>/heartbeat), which an exact-match list cannot express.
+        if (path in _GUARDED_PATHS or path == "/lease"
+                or path.startswith("/lease/")) and not _authed(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         if v1_auth and path.startswith("/v1/") and not _authed(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
@@ -520,6 +526,97 @@ def create_app(backends: list | None = None, *, token: str | None = None,
         report = model_fit.fit_report(state.backends)
         return {"enabled": True, "mode": state.mode, "last": state.last_fit,
                 **report}
+
+    # --- allocation leases -------------------------------------------------- #
+    # Mounted here rather than as a separate service because router_host already
+    # solves "exactly one instance owns this": it probes /healthz and stands down to
+    # a standalone unit if one is running. So this inherits a single owner, an auth
+    # story, and a port, instead of adding another of each.
+    #
+    # Every handler hands the blocking work to a worker thread. Acquiring takes locks
+    # and writes files, and awaiting that on the event loop would stall inference for
+    # every other caller.
+    def _alloc():
+        from .alloc import broker
+        return broker
+
+    @app.post("/lease")
+    async def lease_acquire(request: Request):
+        """Acquire a lease for a model on behalf of another process.
+
+        Send `"wait": false` and this answers immediately, with `state: "pending"` if
+        a release is still running; poll `GET /lease/{id}` until `ready` is true. That
+        is the shape a networked client wants, because the alternative is holding a
+        request open across a container stop and letting the client's socket timeout
+        decide policy: give up early and it concludes nothing is coordinating, starts
+        coordinating for itself, and two components are now acting on one container.
+        The default stays `true` so a client written against the older contract is
+        never told it may start before the memory is actually free.
+
+        A remote holder cannot prove liveness with a file lock the way a local one
+        does (the lock would belong to this process), so the lease carries a deadline
+        and must be renewed — see POST /lease/{id}/heartbeat.
+        """
+        from starlette.concurrency import run_in_threadpool
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001 — a malformed body is a client error
+            body = {}
+        model = str(body.get("model") or "").strip()
+        if not model:
+            return JSONResponse({"error": "model is required"}, status_code=400)
+        try:
+            out = await run_in_threadpool(
+                _alloc().acquire_api, model,
+                reason=str(body.get("reason") or ""),
+                need_gib=body.get("need_gib"),
+                priority=body.get("priority"),
+                ttl_s=body.get("ttl_s"),
+                holder=str(body.get("holder") or ""),
+                wait=body.get("wait", True) is not False)
+            return out
+        except Exception as e:  # noqa: BLE001 — a client must degrade, not fail
+            return {"lease_id": "", "granted": True, "ready": True,
+                    "state": "active",
+                    "reason": f"allocator unavailable, proceed: {e}",
+                    "released": [], "enforced": False}
+
+    @app.post("/lease/{lease_id}/heartbeat")
+    async def lease_heartbeat(lease_id: str, request: Request):
+        from starlette.concurrency import run_in_threadpool
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001
+            body = {}
+        return await run_in_threadpool(_alloc().heartbeat_api, lease_id,
+                                       ttl_s=body.get("ttl_s"))
+
+    @app.delete("/lease/{lease_id}")
+    async def lease_release(lease_id: str):
+        from starlette.concurrency import run_in_threadpool
+        return await run_in_threadpool(_alloc().release_api, lease_id)
+
+    @app.get("/lease")
+    async def lease_status():
+        """Read-only allocation snapshot. Decides nothing."""
+        from starlette.concurrency import run_in_threadpool
+        return await run_in_threadpool(_alloc().snapshot)
+
+    @app.get("/lease/{lease_id}")
+    async def lease_state(lease_id: str):
+        """Where a deferred acquire has got to. Read-only; actuates nothing.
+
+        `state` is `pending` while a release runs, then `active`; `gone` if the lease no
+        longer exists, which a poller must treat as terminal rather than retryable.
+        """
+        from starlette.concurrency import run_in_threadpool
+        return await run_in_threadpool(_alloc().state_api, lease_id)
+
+    @app.post("/lease/restore")
+    async def lease_restore():
+        """Bring back everything the allocator released that nothing is using."""
+        from starlette.concurrency import run_in_threadpool
+        return {"restored": await run_in_threadpool(_alloc().restore_now)}
 
     @app.get("/healthz")
     async def healthz():

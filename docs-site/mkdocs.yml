@@ -95,5 +95,6 @@ nav:
   - Reference:
       - Security: SECURITY.md
       - Hardware support: docs/HWINFO_VALIDATION.md
+      - Running two models: docs/ALLOCATION.md
       - Memory & recall: docs/MEMORY.md
       - On your phone (PWA): docs/MOBILE.md

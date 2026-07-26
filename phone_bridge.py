@@ -254,6 +254,15 @@ def _startup():
     # Architecture drift watchdog: periodic SSOT check between commits — heals
     # stale diagrams, alerts on structural drift. No-op without a manifest.
     arch_watch.start_scheduler()
+    # Allocation watchdog: polls each declared model's readiness, so "the service is
+    # up but its model never loaded" raises an alert instead of going unnoticed —
+    # that state answers its own port, so no liveness check detects it. No-op until
+    # models are declared in alloc.models.
+    try:
+        from ava_bridge.alloc import watch as alloc_watch
+        alloc_watch.start_scheduler()
+    except Exception as e:  # noqa: BLE001 — optional subsystem; never block boot
+        print(f"[ava-bridge] allocation watchdog unavailable: {e}", flush=True)
 
 
 @app.get("/", response_class=HTMLResponse)

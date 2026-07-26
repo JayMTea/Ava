@@ -22,6 +22,15 @@ shared fixtures — every file is self-contained. Dev deps: `requirements-dev.tx
 
 | File | Covers |
 |---|---|
+| `test_alloc.py` | Allocation: absent config governs nothing, unknown memory never gates, a driver whose tooling is missing degrades to observe-only, and port-open is never "ready" |
+| `test_alloc_api.py` | Lease HTTP surface: every route token-guarded (it can stop models), a remote holder reaped when it stops renewing, a local holder never reaped on a deadline, and an allocator error still answers "proceed" |
+| `test_alloc_breaker.py` | Retry storm bounded (a permanently failing start costs ≤6 attempts, not thousands), a start that cannot fit is deferred not failed, one brief success never clears a crash-loop's record, and the action budget makes the allocator a no-op rather than a loop |
+| `test_alloc_gpumem.py` | Residency oracle: per-process accelerator accounting beats a cgroup figure (which under-reports an engine ~12x), a process tree is summed not just its root, and unreadable stays distinct from holds-nothing |
+| `test_alloc_funnel.py` | Convention guard: GPU work goes through `gpu_service.gpu_lease` (the one `POST /prompt`), so a pipeline added later inherits coordination instead of silently opting out; plus a check that the allowed module really holds the lease |
+| `test_alloc_isolation.py` | Convention guard: an allocation test must redirect the ledger/baseline path it writes to — setting `AVA_HOME` alone is a silent no-op once `settings` has been imported, and fixture names leaked into the real ledger |
+| `test_alloc_lease.py` | Planner decision table (priority, pinned, speculative levers, shortfall), `flock` ownership incl. a forked dead-holder reclaim with no timeout, and advisory mode touching no driver |
+| `test_alloc_measurement.py` | Convention guard: free-memory reads go through the `hwinfo` HAL (only `alloc/capacity.py` calls it) — the misleading sources are named and forbidden |
+| `test_alloc_watch.py` | Allocation watchdog: a running-but-not-loaded model raises a critical alert, unfit is silent until it persists, undeclared memory only alerts when it blocks something, audit records transitions only, dormant until models are declared |
 | `test_approvals.py` | JIT consent semantics (`approvals.needs_confirm`): reads silent, ungranted writes ask, author-confirm always asks |
 | `test_auth.py` | `auth.auth_gate` middleware: cookie HMAC, public vs gated paths, login throttle, internal-token gate on `/internal/*` (401 before validation — never a schema-leaking 422) |
 | `test_backends_manager.py` | Hub multi-backend "brain" manager: add/list/test/set-brain/delete + cloud-key wiring |
@@ -65,6 +74,21 @@ shared fixtures — every file is self-contained. Dev deps: `requirements-dev.tx
   `perf_mgmt.LEDGER_PATH`, `app_perf.APPS_DIR`) in `setUp`/`tearDown`.
 - **Path-seam patching** — when a module caches a path, patch its accessor
   (`test_memory.py` patches `memory_store.db_path`) rather than relying on env.
+  **One seam per destination, not one per subsystem**: allocation writes to
+  *three* places, and redirecting the ledger covers only the first —
+  `ledger._dir` (leases, model state, breaker), `broker._log_path`
+  (`logs/alloc.jsonl`, the decision record an operator reads before enabling
+  enforcement), and `capacity._baseline_path`. Each has leaked into a live box
+  at least once.
+- **Own the threads you start** — a seam only holds while the patch is active,
+  and a deferred acquire actuates on a worker thread that can outlive `setUp`'s
+  cleanup. Join it (`broker.wait_for_actuations()`) from an `addCleanup`
+  registered *after* the patches, so it runs before they are undone. A static
+  guard cannot catch this: the file patches everything correctly and still leaks.
+- **A guard only covers tracked files** — every convention check resolves its
+  inputs with `git ls-files`, so a brand-new file is invisible to all of them
+  until git knows about it (`git add -N` is enough). The whole allocation layer
+  once sat untracked, and its guards passed over an empty file list.
 - **Injectable transports** — never hit the network: `httpx.MockTransport`
   through the seams built for it (`router_app.create_app(transport=…)`,
   `web._make_client`), or a threaded stdlib `http.server` stub.
