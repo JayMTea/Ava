@@ -13,17 +13,13 @@ Mirrors the tests/test_diagram_sync.py convention-guard style.
 """
 import pathlib
 import re
-import subprocess
+from gitfiles import tracked_paths as _tracked
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 HUB = "frontend/src/components/hub"
 CSS = ROOT / "frontend/src/styles/hub.css"
 
 
-def _tracked(pattern: str) -> list[pathlib.Path]:
-    out = subprocess.run(["git", "-C", str(ROOT), "ls-files", pattern],
-                         capture_output=True, text=True, check=True).stdout
-    return [ROOT / line for line in out.splitlines() if line]
 
 
 def test_shared_primitives_are_not_rehandrolled() -> None:

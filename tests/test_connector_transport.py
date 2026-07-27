@@ -15,20 +15,16 @@ Two halves, matching the tests/test_diagram_sync.py convention-guard style
 """
 import pathlib
 import re
-import subprocess
 
 import yaml
 
 from ava_bridge import connectors
+from gitfiles import tracked_paths as _tracked
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 PANEL = ROOT / "frontend/src/components/hub/panels/ConnectorsPanel.tsx"
 
 
-def _tracked(pattern: str) -> list[pathlib.Path]:
-    out = subprocess.run(["git", "-C", str(ROOT), "ls-files", pattern],
-                         capture_output=True, text=True, check=True).stdout
-    return [ROOT / line for line in out.splitlines() if line]
 
 
 # --- the classifier ---------------------------------------------------------

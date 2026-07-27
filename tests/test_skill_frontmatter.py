@@ -6,9 +6,9 @@ runs anywhere (no bridge, no sandbox) and fails with instructions.
 """
 import pathlib
 import re
-import subprocess
 
 import pytest
+from gitfiles import tracked_paths
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -19,9 +19,7 @@ except Exception:  # noqa: BLE001
 
 
 def _tracked_skill_files() -> list[pathlib.Path]:
-    out = subprocess.run(["git", "-C", str(ROOT), "ls-files", "agent/skills/*/SKILL.md"],
-                         capture_output=True, text=True, check=True).stdout
-    return [ROOT / line for line in out.splitlines() if line]
+    return tracked_paths("agent/skills/*/SKILL.md")
 
 
 def _frontmatter(text: str) -> dict | None:

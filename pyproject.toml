@@ -1,0 +1,20 @@
+# Tooling configuration only — deliberately NOT a package definition.
+#
+# There is no [build-system] and no [project] table: Ava is run from a checkout,
+# not pip-installed, and docs/PACKAGING_PLAN.md §0 keeps it that way. Adding
+# packaging metadata here would advertise a `pip install -e .` workflow that
+# nothing else in the repo supports.
+#
+# Ruff keeps its own ruff.toml, which takes precedence over any [tool.ruff] here.
+
+[tool.pytest.ini_options]
+# Put the repo root on sys.path so `pytest tests/` works the same as
+# `python -m pytest tests/`. Without it the bare command fails with
+# ModuleNotFoundError on `ava_bridge` — only the `python -m` form implicitly adds
+# the CWD — which meant the documented invocation worked, every IDE's built-in
+# test runner did not, and the difference looked like a broken checkout.
+pythonpath = ["."]
+testpaths = ["tests"]
+# `qa/` is a separate tier with its own runner (qa/run.sh) and heavier fixtures;
+# it is addressed explicitly rather than swept up by a bare `pytest`.
+norecursedirs = ["qa", "frontend", "overlay", "demo", ".venv", "agent/skills"]

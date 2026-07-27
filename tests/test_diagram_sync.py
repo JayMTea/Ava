@@ -11,15 +11,11 @@ to the site. Deeper manifest-vs-code drift is enforced on the deployment box
 import hashlib
 import pathlib
 import re
-import subprocess
+from gitfiles import tracked_paths as _tracked
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
-def _tracked(pattern: str) -> list[pathlib.Path]:
-    out = subprocess.run(["git", "-C", str(ROOT), "ls-files", pattern],
-                         capture_output=True, text=True, check=True).stdout
-    return [ROOT / line for line in out.splitlines() if line]
 
 
 def test_tracked_svgs_match_their_d2() -> None:
