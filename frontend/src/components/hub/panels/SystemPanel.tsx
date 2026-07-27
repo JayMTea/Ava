@@ -120,7 +120,9 @@ export function SystemPanel({ onRestart }: { onRestart: () => void }) {
       </Panel>
 
       <div className="hub-section" />
-      <Panel title="Optional features" subtitle="All off by default so a fresh install stays minimal — turn on only what you need.">
+      {/* Not "all off by default": features.REGISTRY ships image, learning and
+          memory ON. Saying otherwise made a fresh install look misconfigured. */}
+      <Panel title="Optional features" subtitle="Ava's defaults — turn on what you need, turn off what you don't.">
         {sys ? (sys.features || []).map((f) => (
           // Rendered straight from the backend capability registry
           // (ava_bridge/features.py) — a newly registered capability gets its

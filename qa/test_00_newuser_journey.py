@@ -71,8 +71,20 @@ class TestNewUserJourney(unittest.TestCase):
         self.assertIn("tier", hw)
         self.assertTrue(hw["tier"])  # a model-size tier ("large") or "cloud"
 
+        # The probe used to answer {vllm, ollama, router} from two hardcoded
+        # loopback addresses. Inside the Docker image that is the CONTAINER's
+        # loopback, where the compose engines (vllm:8002 / ollama:11434) are not
+        # — so every Docker first-run reported "no local engine" and the wizard
+        # preselected cloud for someone who had just started a local one. It now
+        # returns the candidates it actually probed, in priority order.
         be = c.get("/api/setup/backends").json()
-        self.assertEqual(set(be) >= {"vllm", "ollama", "router"}, True)
+        self.assertEqual(set(be) >= {"backends", "any_up", "router"}, True)
+        self.assertTrue(be["backends"], "no engine candidates were probed at all")
+        for cand in be["backends"]:
+            self.assertEqual(set(cand) >= {"id", "base_url", "engine", "up"}, True)
+        bases = [x["base_url"] for x in be["backends"]]
+        self.assertIn("http://vllm:8002/v1", bases)      # the compose service…
+        self.assertIn("http://127.0.0.1:8002/v1", bases)  # …and bare metal
 
         cons = c.get("/api/setup/connectors").json()["connectors"]
         self.assertTrue(any(x["id"] == "bridge" for x in cons))
@@ -85,11 +97,29 @@ class TestNewUserJourney(unittest.TestCase):
         })
         self.assertEqual(r.status_code, 200)
         self.assertTrue(r.json()["ok"])
-        # setup.completed persisted -> the wizard now redirects home.
+        # setup.completed persisted…
         from ava_bridge import setup_wizard
         self.assertTrue(setup_wizard.setup_completed())
+        # …but the wizard stays REACHABLE. It used to 303 away once complete,
+        # which combined badly with api_save marking completion before it
+        # validated: a blank model field returned {"ok": true}, set the flag,
+        # wrote no backend, and then locked the only screen that could fix it.
+        # Re-entrant means the worst case is landing here again.
         r = c.get("/setup/wizard", follow_redirects=False)
-        self.assertEqual(r.status_code, 303)
+        self.assertEqual(r.status_code, 200)
+
+    def test_04b_a_blank_model_is_refused_and_claims_nothing(self):
+        """The defect above, asserted directly: an empty field must not be able
+        to mark onboarding done."""
+        c = CLIENT
+        before = c.get("/api/setup/backends").status_code
+        self.assertEqual(before, 200)
+        r = c.post("/api/setup/save", json={
+            "inference": {"mode": "local", "engine": "vllm",
+                          "base_url": "http://127.0.0.1:9999/v1", "model": ""},
+        })
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.json().get("field"), "model")
 
     def test_05_dashboard_shell_loads(self):
         c = CLIENT
