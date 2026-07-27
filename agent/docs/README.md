@@ -32,19 +32,18 @@ Rendered by `arch.py` from the live architecture manifest and drift-checked
 against the running code (services, MCP tools, egress policies), so they show
 the system as it actually is, not as it was once drawn.
 
-**System**: every service, plane by plane. Front doors, the sandboxed agent
-runtime, the category MCP servers, engines, and runtime state.
-
-[![System diagram](diagrams/system.svg)](diagrams/system.svg)
-
-**Network**: who may talk to whom. Ports, loopback binds, and the enumerated
-bridge routes.
-
-[![Network diagram](diagrams/network.svg)](diagrams/network.svg)
-
 **Security**: trust zones and gates, from the internet down to the sandbox.
 
 [![Security diagram](diagrams/security.svg)](diagrams/security.svg)
+
+**System** and **Network** render this install's *actual* topology — device
+labels and whichever private sibling apps are connected — so they are generated
+locally and gitignored rather than committed. Run `python agent/docs/arch.py render`
+to produce `diagrams/system.svg` and `diagrams/network.svg` for your own deployment.
+
+For the app-agnostic picture of how Ava is put together, see
+[docs/assets/architecture.svg](../../docs/assets/architecture.svg), which is
+hand-authored and tracked.
 
 The SSOT manifest (`architecture.yaml`) and the `.d2` sources stay
 **deployment-specific and gitignored**; the rendered SVGs above are committed

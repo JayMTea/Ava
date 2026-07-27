@@ -89,8 +89,6 @@ ASSETS: dict[str, str] = {
     "docs/assets/pwa-install-ios.png": "docs/assets/pwa-install-ios.png",
     "docs/assets/pwa-install-android.png": "docs/assets/pwa-install-android.png",
     "docs/assets/ava-tour.mp4": "docs/assets/ava-tour.mp4",
-    "agent/docs/diagrams/system.svg": "agent/docs/diagrams/system.svg",
-    "agent/docs/diagrams/network.svg": "agent/docs/diagrams/network.svg",
     "agent/docs/diagrams/security.svg": "agent/docs/diagrams/security.svg",
 }
 
