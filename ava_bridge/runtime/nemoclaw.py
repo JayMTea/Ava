@@ -64,15 +64,29 @@ class NemoClawRuntime(AgentRuntime):
 
     # ---- availability -------------------------------------------------------
     def available(self) -> bool:
-        """Enabled in config AND the CLI resolves on disk. Cached ~30s so we
-        don't stat every turn; an install/removal is picked up within 30s."""
+        """Enabled in config AND the CLI resolves on disk AND the sandbox exists.
+        Cached ~30s so we don't probe every turn; an install/removal or an
+        `onboard` is picked up within 30s.
+
+        The sandbox check is not optional. `ava agent provision --install` puts the
+        CLI on disk without onboarding a sandbox, and with only the CLI checked
+        here `runtime.active()` selected this runtime anyway — then every turn ran
+        the full ~120s tool timeout and returned the canned "my tools timed out"
+        reply. The documented behaviour (degrade to tool-less Direct chat) never
+        fired, because the thing gating it reported healthy.
+
+        An indeterminate probe (timeout, CLI error) counts as UNAVAILABLE. That
+        looks like the opposite of this codebase's usual "degrade, never brick"
+        default, but here the graceful degradation IS Direct: a working tool-less
+        assistant beats a runtime that burns two minutes per turn to fail.
+        """
         if not config.AGENT_ENABLED:
             return False
         now = time.time()
         c = self._avail_cache
         if c["ok"] is not None and now - c["ts"] < 30:
             return bool(c["ok"])
-        ok = bool(self.cli) and os.path.exists(self.cli)
+        ok = bool(self.cli) and os.path.exists(self.cli) and self._sandbox_exists(timeout=10)
         c.update(ts=now, ok=ok)
         return ok
 
@@ -177,10 +191,12 @@ class NemoClawRuntime(AgentRuntime):
         except Exception as e:  # noqa: BLE001
             return 1, str(e)
 
-    def _sandbox_exists(self) -> bool:
+    def _sandbox_exists(self, timeout: int = 30) -> bool:
+        """Does `self.sandbox` exist? `timeout` is bounded lower by available(),
+        which runs this on the turn path and must not stall a reply."""
         if not (self.cli and os.path.exists(self.cli)):
             return False
-        rc, out = self._run([self.cli, "list", "--json"], timeout=30)
+        rc, out = self._run([self.cli, "list", "--json"], timeout=timeout)
         if rc != 0:
             return False
         try:
