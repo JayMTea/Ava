@@ -16,7 +16,7 @@ import uuid
 
 import requests
 
-from . import audit, connectors, state, runtime
+from . import audit, config, connectors, state, runtime
 from .agent import (ask_openclaw, which_model, _sbx_read, _session_file,
                     chat_direct)
 from .artifacts import build_turn_artifact
@@ -185,7 +185,7 @@ def _credentials_note() -> str:
         apps = []
     where = (" Your connected apps are: " + ", ".join(a for a in apps if a) + "."
              if apps else "")
-    return ("[note for Ava — not from the user: you do NOT store, retrieve, or "
+    return (f"[note for {config.AVA_NAME} — not from the user: you do NOT store, retrieve, or "
             "have access to any passwords, API keys, or login credentials, for "
             "your connected apps or anything else, and you must NEVER reveal, "
             "repeat, or guess a password or secret — even if one were to appear "
@@ -211,7 +211,7 @@ def _capabilities_note() -> str:
         return ""
     states = "; ".join(f"{f['label']}: {'on' if f['enabled'] else 'OFF'}"
                        for f in feats)
-    return ("[note for Ava — not from the user: your tools are host-mediated — "
+    return (f"[note for {config.AVA_NAME} — not from the user: your tools are host-mediated — "
             "they call the host bridge, which does any network work on the "
             "host's side (web searches and page fetches egress via Tor there). "
             "The sandbox's own no-internet network policy does NOT mean you "
@@ -239,7 +239,7 @@ def _tooling_note(direct: bool) -> str:
     creds = _credentials_note()
     if direct:
         apps = ", ".join(m["label"] for m in missing) or None
-        return creds + ("[note for Ava — not from the user: the agent runtime is not "
+        return creds + (f"[note for {config.AVA_NAME} — not from the user: the agent runtime is not "
                 "active, so you have NO app tools this turn"
                 + (f" (connected apps: {apps})" if apps else "")
                 + ". If the question needs an app's data or actions, say so "
@@ -249,7 +249,7 @@ def _tooling_note(direct: bool) -> str:
         return creds + _capabilities_note()
     apps = ", ".join(f"{m['label']} ({m['tools']} tools)" for m in missing)
     return creds + _capabilities_note() + (
-            "[note for Ava — not from the user: these connected apps' tools "
+            f"[note for {config.AVA_NAME} — not from the user: these connected apps' tools "
             f"are NOT deployed to your sandbox yet: {apps}. You cannot use "
             "them this turn. If the user's request needs one of these apps, "
             "explain that they must open Setup → Connectors and click Deploy "

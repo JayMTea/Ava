@@ -44,7 +44,7 @@ def _system_for(project: str, root: str) -> str:
         return SYSTEM_PROMPT
     label = _project_cfg(project).get("label", project)
     return (
-        f"You are Ava, making a code change to the '{label}' project, a separate "
+        f"You are {config.AVA_NAME}, making a code change to the '{label}' project, a separate "
         f"repository rooted at {root}. You do NOT own this repo, so be extra "
         "careful and conservative.\n\n"
         "Work like a careful senior engineer:\n"
