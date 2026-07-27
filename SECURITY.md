@@ -51,13 +51,33 @@ The bridge (`:8096`) is password-gated by middleware in `ava_bridge/auth.py`:
 - Unauthenticated page requests get a `303` redirect to `/login` (or `/setup` on
   a fresh install); API/media/app requests get a `401` JSON response.
 - Public paths only: `/login`, `/logout`, `/setup`, `/api/health`, `/favicon.ico`.
-- Session: an **HMAC-SHA256 signed cookie** (`exp.sig`, cookie `ava_session`,
-  `HttpOnly` + `Secure` + `SameSite=Lax`, 30-day TTL).
-- Per-IP login **throttle** (8 attempts / 60 s).
+- Session: an **HMAC-SHA256 signed cookie** (`exp.sid.sig`, cookie `ava_session`,
+  `HttpOnly` + `SameSite=Lax`, 30-day TTL). The `sid` segment is what makes
+  **revocation** possible: changing the password calls `auth.rotate_secret()`,
+  which re-keys the HMAC and invalidates every session already issued — so
+  "change my password" logs out a device you no longer hold, instead of only
+  changing what the next login checks.
+- `Secure` is resolved **per request** (`auth.cookie_secure: auto`), not pinned
+  at import. Pinning it on meant the browser silently discarded the cookie over
+  plain HTTP, bouncing LAN and phone users back to `/login` with no error —
+  indistinguishable from a wrong password, on exactly the flow docs/MOBILE.md
+  markets. Behind a proxy the scheme comes from `X-Forwarded-Proto`, believed
+  only from peers in `server.trusted_proxies` (loopback by default).
+- **First-run claim gate.** `/setup` is public by necessity, so on a
+  non-loopback bind anyone reaching the port could otherwise claim the admin
+  password first. At boot with no password set, Ava writes a one-time token to
+  `$AVA_HOME/data/setup_claim` (0600) and prints it. Setup is then allowed from
+  loopback, or from anywhere with a matching `claim` — the Jupyter/Home
+  Assistant pattern. The file is deleted on success. An outright refusal was
+  rejected because a headless box must stay claimable.
+- Per-IP login **throttle** (8 attempts / 60 s), keyed on the real client IP —
+  behind a proxy this is the forwarded address, so one device cannot exhaust the
+  whole LAN's bucket.
 - Password source: env `AVA_PASSWORD`, else the first-run screen writes it `0600`.
 - HMAC key source: env `AVA_SECRET`, else generated `0600` under `$AVA_HOME`.
 
-Tunables: `AVA_PASSWORD`, `AVA_SECRET`, `AVA_SESSION_TTL_DAYS`, `AVA_COOKIE_SECURE`.
+Tunables: `AVA_PASSWORD`, `AVA_SECRET`, `AVA_SESSION_TTL_DAYS`, `AVA_COOKIE_SECURE`,
+`AVA_TRUSTED_PROXIES`.
 
 ## 3. Egress model: least privilege (the sandbox)
 
@@ -108,6 +128,16 @@ from env first, else a generated file under `$AVA_HOME` (default the repo root;
 | `data/.internal_token` | Root secret that derives scoped sandbox→bridge callback bearers |
 | `secrets/router_token` | Guards the inference router's control + LAN-exposed `/v1` |
 | `secrets/inference_key` | Cloud-provider API key, when a cloud backend is used |
+| `data/setup_claim` | One-time first-run claim token; deleted once setup completes |
+
+The **code-change agent cannot read any of these**. `access_policy` was
+originally consulted only on writes, so a prompt-injected agent could
+`read_file(".env")` — which returned `ANTHROPIC_API_KEY` — or, worse, use
+`search("ANTHROPIC_API_KEY")`, whose own directory walk bypassed the path
+resolver entirely and returned the key inline in the match. The deny-list is now
+enforced in `coder._safe()`, which every tool routes through for path resolution,
+so a tool added later inherits the gate; `search` and `list_dir` restate it
+because they walk the tree themselves.
 
 `.venv/`, `models/`, `media/`, `data/`, `secrets/`, `bin/piper/`, `ava.yaml`, and
 `.env` are `.gitignore`d. **Never** commit a secret; never log secret values.
@@ -140,6 +170,10 @@ from env first, else a generated file under `$AVA_HOME` (default the repo root;
 | Compromised / prompt-injected tool | Per-tool egress allow-list (deny by default); blast radius limited to that tool's single destination |
 | SSRF from a tool | Guard proxy rejects non-allow-listed IPs/hosts |
 | Secret leakage | `0600` files, `.gitignore`, never logged |
+| Secret exfiltration via the code agent | `access_policy` deny-list enforced on **reads** in `coder._safe()`, and restated in the two tools that walk the tree themselves |
+| Admin takeover on first run | One-time claim token; `/setup` accepts loopback or a matching token, nothing else |
+| Session theft / lost device | Password change re-keys the session HMAC, invalidating every issued cookie |
+| A pasted connector command reading the bridge's env | Unsandboxed stdio children get a minimal env (`PATH`/`HOME`/`LANG`/`TMPDIR` + declared manifest env), never `os.environ`; probes default to a Docker sandbox and fail closed without it |
 | Biometric/PII exfiltration | Local-only storage, git-excluded, no external inference |
 
 ## 7. Security regression checks

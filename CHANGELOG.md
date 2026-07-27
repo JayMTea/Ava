@@ -6,6 +6,167 @@ on-prem project, so versions are dated milestones rather than published releases
 
 ## [Unreleased]
 
+### Fixed — The documented install could not produce a chat message
+
+An audit of the fork-and-self-host path found the application itself healthy and
+**every defect on the install path**, in `deploy/`, where nothing was tested. The
+common cause: the owner's own box was the only configuration anyone ran.
+
+- **The container bound loopback inside its own netns.** `deploy/Dockerfile` left
+  `AVA_HOST` at `127.0.0.1`, so the published port refused connections while the
+  healthcheck — curling loopback *from inside* the container — reported `healthy`.
+  A forker saw a green container and a dead browser tab. Now `AVA_HOST=0.0.0.0`
+  in the image, with the container boundary doing the containing and compose
+  publishing on `127.0.0.1:8096`.
+- **CI could not have caught it.** `compose-smoke` booted with `docker run
+  --network host`, which puts the container in the runner's own namespace, where
+  a loopback bind *is* reachable. The job now boots through compose on the
+  default bridge network and curls the published port from the runner, asserting
+  both that compose reports healthy **and** that the external request succeeded.
+  `tests/test_ci_covers_deploy.py` fails any reintroduction of `--network host`.
+- **`deploy/local-serve.sh` was untracked** while a tracked script `exec`'d it and
+  six tracked files referenced it. `tests/test_deploy_refs_tracked.py` now fails
+  on any `deploy/*.sh` named in a tracked file but absent from `git ls-files`.
+- **Every profile pointed at the GPU backend.** The `ava` service hardcoded
+  `AVA_BACKEND_URL: http://vllm:8002/v1` for all five profiles while `vllm` only
+  starts under gpu/full, so `--profile cpu` resolved a DNS name that did not
+  exist. Each profile now ships a tracked `deploy/profiles/<name>.env` carrying
+  `COMPOSE_PROFILES` plus its own backend trio, so `up`, `logs`, `down` and
+  `pull` all interpolate identically.
+- **The default model was a 30B checkpoint** needing ~35 GB of weights — the
+  first command the README gives a new user, on hardware no consumer card has,
+  retried forever by an uncapped restart policy. The shipped default is now
+  `Qwen/Qwen2.5-7B-Instruct` in `deploy/default-model.env`, one line to change.
+
+### Added — One table for every model's vLLM flags
+
+`deploy/model-flags.conf` is the single source of truth for per-model
+`--tool-parser`, `--reasoning-parser`, native context length and extra flags;
+`deploy/resolve-model-flags.sh` reads it, both sourceable and runnable. Compose
+and `local-serve.sh` previously carried separate, already-diverging tables, and
+compose had no way to express `--reasoning-parser` at all. The `native_ctx`
+column is what stops `--max-model-len` from being set above what the checkpoint
+supports; it is left blank where the value is not certain, because a wrong entry
+silently caps context instead of failing. `tests/test_model_flags_ssot.py` fails
+if parser vocabulary reappears anywhere but the table and the docs.
+
+### Security — Four ways in, closed
+
+- **First-run takeover.** `/setup` is public and only checked "is setup needed",
+  so on any non-loopback bind the first stranger to reach the port set the admin
+  password. Ava now mints a one-time claim token at `$AVA_HOME/data/setup_claim`
+  (0600) and prints it; setup is allowed from loopback or with a matching token.
+  Not an outright refusal — a headless box must stay claimable.
+- **The code agent could read secrets.** `access_policy` was consulted only on
+  writes, so `read_file(".env")` returned `ANTHROPIC_API_KEY`, and
+  `search("ANTHROPIC_API_KEY")` returned the key inline — `search` walks the tree
+  itself and never touched the path resolver. The deny-list is enforced in
+  `coder._safe()`, which every tool routes through, and restated in the two tools
+  that do their own walk.
+- **Connector Detect handed a pasted command the bridge's environment.**
+  `hub_api._probe` built its spec without a `sandbox` key, so `mcp_client` took
+  the uncontained branch with `{**os.environ}`. Unsandboxed stdio children now
+  get `PATH`/`HOME`/`LANG`/`TMPDIR` plus their manifest's declared env, and the
+  probe defaults to a Docker sandbox, failing closed when Docker is absent.
+- **`/internal` scopes were documented, tested, and not enforced.** 24 of 25
+  handlers passed no scope, so any valid group token reached every route —
+  including `/internal/code-change` from the token held by the server that runs
+  `web_fetch`, which is where prompt injection actually arrives. Enforcement moved
+  into `auth.auth_gate`, deny-by-default for unclassified paths, so a route added
+  later is covered without its author opting in.
+
+### Fixed — Sessions, cookies, and who the client is
+
+- `auth.cookie_secure` is now `true|false|auto` and resolved **per request**. It
+  was `os.environ.get("AVA_COOKIE_SECURE", "1") != "0"` — a string compare where
+  `false` evaluated true — and unconditional, so over plain HTTP the browser
+  discarded the session cookie and the user bounced back to `/login` with no
+  message, indistinguishable from a wrong password. That is the exact flow
+  `docs/MOBILE.md` markets, and `qa/env_recipe.py` pinned the variable to `"0"`,
+  so the suite structurally could not see it.
+- One shared `auth.client_ip()` honours `X-Forwarded-For` only from
+  `server.trusted_proxies`. The login throttle keyed on `request.client.host`, so
+  behind any proxy the entire LAN shared one lockout bucket.
+
+### Fixed — One typo in `ava.yaml` destroyed the file
+
+`_load_config` swallowed the parse error and returned `{}`; `save_patch` then
+merged the patch into nothing and wrote it back, non-atomically. A 13-line config
+with one bad indent plus one Setup toggle became 2 lines. Parse errors now carry
+their line number, surface on `/api/hub/system`, and **refuse the write** (409).
+Writes go through one `os.replace` from a same-dir temp with a `.bak` of the
+prior file. `settings.get_float` was added because `config.py` called bare
+`float()` on `voice.threshold`, where a typo failed bridge boot with a raw
+`ValueError`.
+
+### Fixed — The setup wizard was skipped for everyone who used the CLI
+
+`setup_completed()` returned true when `inference.backends` was non-empty, and the
+shipped template ships one — so `ava setup` marked the box configured before the
+owner had seen a single screen. It is now the completion flag alone, the wizard is
+re-entrant and pre-fills from current config, and `ava setup` writes a minimal
+`ava.yaml` instead of copying the 376-line annotated template (which `safe_dump`
+stripped of every comment on first save). `POST /api/setup/save` validates before
+marking complete, rather than after.
+
+### Fixed — Allocation across reboots, crashes, and concurrent callers
+
+- Monotonic timestamps were persisted with no `boot_id`, so after a reboot the
+  allocator could refuse every request for as long as the previous uptime, in
+  silence. Records now carry `boot_id`; a foreign boot scrubs the clock fields
+  and keeps the failure counts, because a reboot does not repair a broken model.
+- `QUIESCED` was unreachable: the breaker tripped at `> limit` while the budget
+  refused at `>= limit`, so the critical alert could never fire.
+- Release intent is recorded **before** the driver call, so a crash mid-release
+  cannot strand a model down; `_restore` re-checks under the model lock instead
+  of around it; and reservations are credited against the observed pool drop
+  (`need - max(0, free_at_grant - free_now)`) so a loading model is counted once.
+- All three drivers now honour `wait_free`'s return value, which `base.py` had
+  always specified and none implemented. Safe only because `ActionResult.acted`
+  landed first, separating "it is stopped" from "the pool came back".
+
+### Fixed — A broken manifest locked you out of the page that fixes manifests
+
+A scalar `egress:` in any connector raised `AttributeError` from
+`hub_api.list_connectors()` — a 500 on Setup → Connectors, the page containing the
+manifest editor and the error list. Bad blocks are now quarantined **in memory
+only** (never written back), reported through `load_errors()`, and the rest of the
+connector keeps working. `manifest_version: 1` is declared, absent means 1, and a
+newer version still loads with a warning: refusing to load on version mismatch is
+what makes manifests non-portable.
+
+### Fixed — 17 of 21 Setup panels swallowed their own errors
+
+Every panel destructured `{ data }` off `useResource` and dropped `error`, so any
+backend failure rendered Setup as tabs of permanent "Detecting hardware…" — each
+one looking like it was still loading, forever, with the real message sitting
+unread in a variable nobody named. All 21 sites now go through
+`<ResourceState>` / `<ResourceError>`, which take the whole hook result so a panel
+*cannot* omit the error field, with a Try again button. `tests/test_hub_uniformity.py`
+fails a regression.
+
+### Fixed — Keyboard access, and a chat wedge
+
+- `tabIndex` appeared **zero** times repo-wide. Sidebar conversation rows were a
+  `<div onClick>` wrapping an invisible delete button — so the only
+  keyboard-reachable control per row was the one control you could not see. Rows
+  are now two sibling buttons in a wrapper, with `:focus-visible` /
+  `:focus-within` companions to the `opacity: 0` rule, and "Forget" confirms.
+- `useChat.send` awaited `ensureChat()` outside any try/catch, so a failure there
+  skipped `setBusyBoth(false)` and the composer stayed locked until a page reload.
+
+### Added — `ava` is a real command
+
+`pyproject.toml` declares `[project.scripts] ava = "ava_cli:main"`, so
+`pip install -e .` puts on PATH the command `README.md` has always told forkers to
+run. Editable-only and deliberately so: `settings.CODE_ROOT` keeps resolving to
+the checkout, which is what makes `config.example.yaml`, `frontend/dist`,
+`agent/install.sh` and `connectors/_template` resolve at all. The package list is
+an explicit allowlist, never `find:` — the repo root holds `agent/`, `config/`,
+`connectors/` and `data/`, which must not become importable top-level packages.
+`tests/test_cli_entrypoint.py` checks the list from both ends: nothing declared
+that does not exist, and nothing imported by name that is not declared.
+
 ### Added — Model memory allocation (observe phase)
 - **`ava_bridge/alloc/`** — fit-checked memory management for boxes that run Ava
   plus a second model. A box with a language model and an image pipeline

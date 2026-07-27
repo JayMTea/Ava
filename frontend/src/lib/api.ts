@@ -57,7 +57,8 @@ export const api = {
   // floating monitor bubble.
   hardware: () => req<HardwareStats>('/api/hardware', { cache: 'no-store' }),
 
-  // Model status/control: Ava's conversational brain is the always-on open-model model.
+  // Model status/control: Ava's conversational brain is whichever model the
+  // owner configured (Setup -> Models); the route reports the live one.
   getModel: () => req<ModelRoute>('/api/model', { cache: 'no-store' }),
   setModel: (mode: string) => {
     const fd = new FormData();

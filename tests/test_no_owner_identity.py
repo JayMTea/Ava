@@ -44,7 +44,18 @@ _FORBIDDEN: list[tuple[re.Pattern, str]] = [
     # cannot start — and it names one person's hardware in a model-agnostic
     # product. The shipped default lives in deploy/default-model.env; this
     # model stays available as a documented upgrade in docs/CHOOSE_A_MODEL.md.
-    (re.compile(r"Nemotron-Open|open-model|vllm-open", re.I),
+    # Matches the PROSE forms too ("open-model 30B", "the open-model model"), not
+    # just the model id. The first version of this pattern was id-shaped only,
+    # and every human-written sentence walked straight past it — including
+    # README.md's second "Why Ava?" bullet, which told a forker that "Ava's
+    # normal chat runs on the local Nemotron open-model 30B stack", and a Setup
+    # hub hint that still called it "the default". A guard that catches the
+    # machine-readable form and misses the sentence a human reads is backwards.
+    #
+    # Deliberately NOT matching a bare "30B": the parameter count is a model
+    # CLASS, and "~30B-class models" is the fork-neutral phrasing this guard is
+    # trying to produce. What must not appear is the checkpoint's NAME.
+    (re.compile(r"Nemotron-Open|nano[-\s]omni|vllm-open", re.I),
      "the maintainer's personal 30B checkpoint — use the shipped default from "
      "deploy/default-model.env, and document this one as an upgrade instead"),
 ]
@@ -67,6 +78,15 @@ _ALLOW = {
     "tests/test_model_fit.py",
     "tests/test_hardware_models.py",
     "tools/mac_sim_audit.py",
+    # These three name the 30B only to explain WHY the thing next to them is
+    # model-agnostic — the incident is the documentation. Scrubbing the string
+    # would leave a comment saying "deliberately generic" with no reason given,
+    # and the next person to hardcode a checkpoint would have nothing to read.
+    # A guard that deletes the record of the bug it prevents is a bad trade.
+    "connectors/local-llm/connector.yaml",
+    "deploy/docker-compose.yml",
+    # Design history, dated and superseded in place. Same rule as CHANGELOG.md.
+    "docs/PACKAGING_PLAN.md",
 }
 
 

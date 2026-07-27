@@ -14,7 +14,7 @@ export MIC_DEVICE="${MIC_DEVICE:-default}"
 export OUT_DEVICE="${OUT_DEVICE:-}"     # empty = ALSA default; set to plughw:0,3 for TV HDMI
 export PLAYER="${PLAYER:-aplay}"        # aplay (ALSA) | pw-play (PipeWire desktop session)
 
-# ---- Ava backend (local open-model 30B on port 8002) ---------------------------------
+# ---- Ava backend (local LLM engine on port 8002) ------------------------------------
 export AVA_URL="${AVA_URL:-http://localhost:8002/v1/chat/completions}"
 export AVA_MODEL="${AVA_MODEL:-Qwen/Qwen2.5-7B-Instruct}"
 export WHISPER_MODEL="${WHISPER_MODEL:-small.en}"

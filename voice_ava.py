@@ -2,7 +2,7 @@
 """Local voice loop for Ava on the DGX Spark.
 
 Pipeline:  USB mic --(arecord)--> energy VAD --> faster-whisper (STT, CPU)
-           --> Ava (vLLM open-model 30B, port 8002) --> Piper (TTS) --> aplay/pw-play (TV HDMI)
+           --> Ava (local LLM engine, port 8002) --> Piper (TTS) --> aplay/pw-play (TV HDMI)
 
 Everything runs locally. Whisper stays on CPU so it never competes with the
 Omni model for GPU memory.

@@ -76,7 +76,8 @@ OC_THINKING = os.environ.get("AVA_OC_THINKING", "off")
 AGENT_URL = settings.get("agent.url", "http://agent:9100", env="AVA_AGENT_URL")
 
 # Context-window sizing for the chat token counter. CTX_MAX is the model's usable
-# context length (the open-model brain is served at --max-model-len 65536); CTX_BASE
+# context length (override per model; the default matches the shipped model's
+# --max-model-len, and deploy/model-flags.conf clamps it to native_ctx); CTX_BASE
 # is a rough fixed overhead (system prompt + persona + tool schemas) the UI adds to
 # its per-message estimate so the counter tracks OpenClaw's fuller number.
 CTX_MAX = settings.get_int("inference.ctx_max", 65536, env="AVA_CTX_MAX")

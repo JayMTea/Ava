@@ -8,7 +8,7 @@ const BRIDGE = process.env.AVA_BRIDGE_URL || 'http://host.openshell.internal:809
 
 export default {
   name: 'get_active_model',
-  description: 'Report Ava\'s active local LLM route and the most recent open-model 30B reply metadata. Read-only.',
+  description: 'Report Ava\'s active local LLM route and the most recent reply metadata from the configured model. Read-only.',
   inputSchema: {
     type: 'object',
     properties: {},

@@ -161,6 +161,13 @@ cd frontend && npm install && npm run build && cd ..
 
 `ava setup` prints your generated admin password (or pass `--password`).
 
+`./bin/ava` works from the checkout with no install step. To get a plain `ava`
+command on your `PATH` instead, swap the `pip install -r requirements.txt` line
+for `pip install -e .` — it installs the same dependencies and adds the console
+script. Keep the `-e`: Ava runs *from* this checkout, and a non-editable install
+would leave it looking for `frontend/dist`, `config.example.yaml` and
+`agent/install.sh` inside `site-packages`, where they are not.
+
 A healthy run looks like this — `doctor` shows the hardware it detected, and
 `up` prints the address to open:
 

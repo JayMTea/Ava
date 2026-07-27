@@ -290,10 +290,14 @@ def recommend_tier(avail_gb: float) -> tuple:
     """Map available fit-memory (GB) to a concrete model class + example, so a
     user knows what will run on their hardware without guessing. Single source
     of truth for `ava doctor`, `ava models pull --auto` and the setup wizard."""
+    # Name models by CLASS with a widely-available example, never "the default".
+    # This line used to advertise the maintainer's own 30B checkpoint as the
+    # default; the shipped default is Qwen2.5-7B (deploy/default-model.env), so
+    # the hint contradicted both the installer and the "small" tier below it.
     if avail_gb >= 40:
-        return "large", "~30B-class models (e.g. the default Nemotron open-model 30B)"
+        return "large", "~30B-class models (e.g. Qwen2.5 32B, Mixtral 8x7B)"
     if avail_gb >= 20:
-        return "medium", "~13-14B models, or a quantized 30B"
+        return "medium", "~13-14B models (e.g. Qwen2.5 14B), or a quantized 32B"
     if avail_gb >= 12:
         return "small", "~7-8B models (e.g. Llama 3.1 8B, Qwen2.5 7B)"
     if avail_gb >= 6:

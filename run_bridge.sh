@@ -24,7 +24,7 @@ if [ -z "${TS_HOST:-}" ]; then
 fi
 TS_HOST="${TS_HOST:-$(hostname -f 2>/dev/null || hostname)}"
 
-# Ava backend (local open-model 30B on :8002) and TTS voice — same as the desktop loop.
+# Ava backend (local LLM engine on :8002) and TTS voice — same as the desktop loop.
 export AVA_URL="${AVA_URL:-http://localhost:8002/v1/chat/completions}"
 export AVA_MODEL="${AVA_MODEL:-Qwen/Qwen2.5-7B-Instruct}"
 export WHISPER_MODEL="${WHISPER_MODEL:-small.en}"

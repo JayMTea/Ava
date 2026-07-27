@@ -38,6 +38,26 @@ internet. Open that URL on any device in your tailnet and install from
 there. Any other reverse proxy that terminates TLS (Caddy, nginx +
 Let's Encrypt) works the same way.
 
+### Logging in over plain HTTP
+
+Ava decides the session cookie's `Secure` flag per request (`auth.cookie_secure:
+auto`, the default), so signing in at `http://192.168.x.x:8096` works — and
+behind a TLS-terminating proxy the cookie is still marked `Secure`, because the
+bridge reads `X-Forwarded-Proto` from peers listed in `server.trusted_proxies`
+(loopback by default, which covers `tailscale serve` and a same-host Caddy).
+
+Pin it to `true` if you always front Ava with TLS, or to `false` only on a
+network you trust:
+
+```yaml
+auth:
+  cookie_secure: auto   # true | false | auto
+```
+
+If you set `true` and then browse over plain HTTP, the browser drops the cookie
+and every login bounces back to the sign-in screen with no error — that looks
+exactly like a wrong password. `auto` exists to avoid that.
+
 ## What is (and isn't) cached offline
 
 The service worker precaches only the **app shell** — the HTML, JS, CSS and

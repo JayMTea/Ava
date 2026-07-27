@@ -7,7 +7,7 @@ throughput over time:
 
   * LLM completions  (category "llm")     — written by ava_router.py: tokens/sec,
     time-to-first-token, the exact sampling parameters (temperature/top_p/…), how
-    the request was served (vLLM), which local brain answered (open-model) and
+    the request was served (vLLM/Ollama/cloud), which local brain answered and
     whether a failover happened.
   * Image renders    (category "image")   — written by gpu_service.py: checkpoint,
     steps, cfg, sampler/scheduler, resolution, seed, refine_hi settings, steps/sec.

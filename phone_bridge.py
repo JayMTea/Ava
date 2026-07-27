@@ -3,7 +3,7 @@
 
 Pipeline:  phone mic (browser MediaRecorder)
            --> POST /api/talk --> ffmpeg decode --> voiceprint gate (your voice only)
-           --> faster-whisper (STT, CPU) --> Ava (vLLM open-model 30B :8002)
+           --> faster-whisper (STT, CPU) --> Ava (local LLM engine, :8002)
            --> Piper (TTS) --> wav returned to the phone and played in the browser.
 
 Serve it to your phone over Tailscale (TLS + tailnet-only) with run_bridge.sh.
