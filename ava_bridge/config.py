@@ -18,7 +18,14 @@ WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
 # Data root: all runtime state (data/logs/media) lives here. Override with
 # AVA_HOME for portable/packaged installs; defaults to the repo root so the
 # original single-user layout is unchanged. See docs/PACKAGING_PLAN.md.
-DATA_HOME = os.path.expanduser(os.environ.get("AVA_HOME", ROOT))
+#
+# Read from `settings` rather than re-derived here. This module used to compute
+# its own `AVA_HOME or ROOT` root and join onto it, which meant it silently
+# ignored the `paths.*` keys ava.yaml documents: setting `paths.data` relocated
+# chats for skills.py (which asks settings) but not for the bridge (which asked
+# this module), and the two then disagreed about where state lived.
+# tests/test_path_roots.py fails any module that grows a second root.
+DATA_HOME = str(settings.AVA_HOME)
 
 RATE = 16000
 
@@ -26,13 +33,12 @@ RATE = 16000
 # malformed/huge blob can't wedge the request. Override with AVA_AUDIO_DECODE_TIMEOUT.
 AUDIO_DECODE_TIMEOUT = int(os.environ.get("AVA_AUDIO_DECODE_TIMEOUT", "30"))
 
-MEDIA_DIR = os.path.join(DATA_HOME, "media", "gen")
-UPLOAD_DIR = os.path.join(DATA_HOME, "media", "uploads")
-CHATS_DIR = os.path.join(DATA_HOME, "data")
+MEDIA_DIR = settings.media_dir()
+UPLOAD_DIR = settings.upload_dir()
+CHATS_DIR = settings.data_dir()
 CHATS_FILE = os.path.join(CHATS_DIR, "chats.json")
-LOGS_DIR = os.path.join(DATA_HOME, "logs")
-for _d in (MEDIA_DIR, UPLOAD_DIR, CHATS_DIR, LOGS_DIR):
-    os.makedirs(_d, exist_ok=True)
+LOGS_DIR = settings.logs_dir()
+settings.ensure_dirs()
 
 MAX_UPLOAD_BYTES = int(os.environ.get("AVA_MAX_UPLOAD_MB", "25")) * 1024 * 1024
 MAX_DOC_CHARS = int(os.environ.get("AVA_MAX_DOC_CHARS", "24000"))
@@ -270,7 +276,13 @@ def _internal_token() -> str:
     env = os.environ.get("AVA_INTERNAL_TOKEN")
     if env:
         return env
-    path = os.path.join(CHATS_DIR, ".internal_token")
+    # Resolve through settings.data_dir(), NOT the module-local CHATS_DIR: this
+    # file is written host-side by agent/install.sh and read here, so the two must
+    # agree under every path override. CHATS_DIR is `AVA_HOME/data` and silently
+    # ignores `paths.data` / AVA_DATA_DIR, which agent/install.sh and skills.py
+    # both honour — that mismatch made every /internal/* callback 401 on Docker,
+    # where AVA_HOME (/data) and the code root (/app) differ.
+    path = os.path.join(settings.data_dir(), ".internal_token")
     try:
         with open(path, encoding="utf-8") as f:
             tok = f.read().strip()
@@ -279,6 +291,7 @@ def _internal_token() -> str:
     except FileNotFoundError:
         pass
     tok = secrets.token_hex(32)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         f.write(tok + "\n")
     os.chmod(path, 0o600)

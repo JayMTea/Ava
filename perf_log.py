@@ -22,7 +22,10 @@ Knobs (env — this file is stdlib-only and shipped per-app, so it takes NO impo
 from ava_bridge.settings; the packaged installer/compose sets these env vars,
 mirrored in ava.yaml's `perf:` block for documentation):
   AVA_PERF_LOG=0            disable logging entirely
-  AVA_PERF_LOG_DIR=<dir>    override the log directory (default: ./logs)
+  AVA_PERF_LOG_DIR=<dir>    override the log directory. Default follows
+                            AVA_LOGS_DIR, else $AVA_HOME/logs, else ./logs — the
+                            env half of settings.logs_dir(), so the bridge reads
+                            where this writes even when AVA_HOME != the code root.
   AVA_PERF_LOG_MAX_BYTES=N  rotate the live log past this size (default 32MiB)
   AVA_PERF_LOG_KEEP=N       rotated segments to retain (.1 .. .N; default 5). The
                             live file is renamed down the sequence; only segments
@@ -46,7 +49,30 @@ except ImportError:  # pragma: no cover — non-POSIX fallback
     fcntl = None  # type: ignore[assignment]
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-LOG_DIR = os.environ.get("AVA_PERF_LOG_DIR", os.path.join(_HERE, "logs"))
+
+
+def _default_log_dir() -> str:
+    """`$AVA_LOGS_DIR`, else `$AVA_HOME/logs`, else `./logs`.
+
+    Mirrors settings.logs_dir()'s resolution using only the env layer, because
+    this module is stdlib-only by design (see the docstring above) and must not
+    import ava_bridge. Anchoring on __file__ alone wrote the perf history into
+    the code root: on Docker that is the ephemeral container layer (/app) while
+    the bridge reads the mounted volume ($AVA_HOME/logs), so the Data page's
+    Performance store showed 0 bytes forever.
+
+    Residual gap, deliberate: a `paths.logs` set ONLY in ava.yaml is invisible
+    here, since reading it would need a YAML parser. The env vars are this file's
+    documented contract and the installer/compose set them.
+    """
+    for var in ("AVA_LOGS_DIR",):
+        val = os.environ.get(var)
+        if val:
+            return os.path.expanduser(val)
+    return os.path.join(os.path.expanduser(os.environ.get("AVA_HOME", _HERE)), "logs")
+
+
+LOG_DIR = os.environ.get("AVA_PERF_LOG_DIR", _default_log_dir())
 LOG_PATH = os.path.join(LOG_DIR, "performance.jsonl")
 MAX_BYTES = int(os.environ.get("AVA_PERF_LOG_MAX_BYTES", str(32 * 1024 * 1024)))
 KEEP = max(1, int(os.environ.get("AVA_PERF_LOG_KEEP", "5")))
