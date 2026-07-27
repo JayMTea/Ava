@@ -38,11 +38,20 @@ paths:                     # all default under AVA_HOME; override only if needed
 # chat/fast model whose `tier` matches the memory `ava doctor` detects, so a fork
 # on a small GPU downloads something that actually fits. `ava setup` creates the
 # hf/ ollama/ gpusvc/ folders (and a gpusvc/extra_model_paths.yaml) for you.
+#
+# THESE ARE DEFAULTS, NOT REQUIREMENTS. Ava is model-agnostic — put any model you
+# like here (any Hugging Face repo id for vllm, any Ollama tag for ollama) and
+# point `inference.backends` below at whatever serves it. The values shipped here
+# are simply what the author runs and what the docs' numbers were measured on.
 models:
   chat:                    # everyday brain (served via inference.backends above)
     engine: vllm           # vllm|ollama  (Hugging Face hub or Ollama registry)
     id: nvidia/Nemotron-Open-30B-A3B-Reasoning-FP8
     tier: large            # large|medium|small|tiny  (used by --auto)
+    # Swapping this for another vLLM model? deploy/local-serve.sh resolves the
+    # right --tool-call-parser / --reasoning-parser per model family. Confirm with
+    #   AVA_SERVE_DRY_RUN=1 AVA_MODEL=<your model> bash deploy/local-serve.sh
+    # before a long download — a mismatched parser breaks tool calls *silently*.
   fast:                    # smaller fallback for constrained hardware
     engine: ollama
     id: llama3.1:8b
@@ -54,18 +63,25 @@ models:
     url: https://huggingface.co/example/gpu-model
 
 # ── Inference: Ava's single always-on brain. ────────────────────────────────
-# Ava keeps ONE model resident at all times — Nemotron open-model 30B-A3B (FP8),
-# a multimodal MoE (3B active) that's her everyday chat brain AND backs her
-# background capabilities (vision/audio understanding). No scaling models up and
-# down. The router (ava_router.py) fronts it for perf logging + the `/fit` view;
-# add a second backend below only if you want an automatic cloud fallback.
+# Ava keeps ONE model resident at all times — no scaling models up and down. Which
+# model that is, is entirely yours to choose: any OpenAI-compatible endpoint works
+# (vLLM, Ollama, llama.cpp, LM Studio, MLX, or a cloud provider). The router
+# (ava_router.py) fronts it for perf logging + the `/fit` view; add a second
+# backend below only if you want an automatic cloud fallback.
+#
+# The example below is the author's box: Nemotron open-model 30B-A3B (FP8), a
+# multimodal MoE (3B active) serving chat AND the background vision/audio
+# capabilities. A text-only model works fine — those capabilities degrade
+# gracefully rather than breaking. Easiest way to change it is Setup → Models in
+# the UI ("Add a model" → test the connection → save), which writes this block
+# for you; edit by hand only if you prefer.
 inference:
-  primary: local-omni
+  primary: local
   # Logical model roles -> backend ids, so features never name a model inline.
   # Unset roles fall back to `primary`. media roles resolve via `models:` above.
   # roles:
-  #   chat: local-omni         # the conversational brain (direct + agent path)
-  #   fast: local-omni         # utility/classify turns (X-Ava-Workload: fast)
+  #   chat: local               # the conversational brain (direct + agent path)
+  #   fast: local               # utility/classify turns (X-Ava-Workload: fast)
   # The OpenAI-compatible router (embedded in the bridge at startup; a
   # standalone `uvicorn ava_router:app` unit is detected and used instead).
   # router:
@@ -95,7 +111,7 @@ inference:
   # api_key: ""                                            # [AVA_INFERENCE_KEY]
   # ctx_max: 65536                                         # [AVA_CTX_MAX]
   backends:
-    local-omni:
+    local:
       engine: vllm             # vllm | ollama | llamacpp | openai (generic cloud)
       base_url: http://127.0.0.1:8002/v1
       model: nvidia/Nemotron-Open-30B-A3B-Reasoning-FP8
@@ -136,6 +152,24 @@ inference:
     #   base_url: http://127.0.0.1:11434/v1
     #   model: llama3.1:8b
     #   fit: { weight_gb: 6, tier: small, min_free_gb: 3, workloads: [fast, cheap, utility, chat] }
+
+    # ── A different model on vLLM (NVIDIA) ───────────────────────────────────
+    # Replace the `local` backend above with any model vLLM can serve. Two things
+    # have to agree or you get confusing behaviour rather than an error:
+    #   1. `model:` here must match what the server was started with — the router
+    #      sends this string as the OpenAI `model` field.
+    #   2. deploy/local-serve.sh must pick the right --tool-call-parser for it. It
+    #      resolves that from the model family; check before downloading with
+    #        AVA_SERVE_DRY_RUN=1 AVA_MODEL=Qwen/Qwen3-32B-AWQ bash deploy/local-serve.sh
+    #      and override with AVA_TOOL_PARSER / AVA_REASONING_PARSER if the family
+    #      isn't recognised. A wrong parser returns NO tool_calls, silently.
+    # Drop `workloads: [vision, audio]` for a text-only model so the fit layer
+    # doesn't route image/audio turns to something that can't handle them.
+    # local:
+    #   engine: vllm
+    #   base_url: http://127.0.0.1:8002/v1
+    #   model: Qwen/Qwen3-32B-AWQ
+    #   fit: { weight_gb: 20, tier: large, min_free_gb: 8, workloads: [chat, reasoning, code] }
 
 # ── Agent runtime (the MCP host that gives Ava tools + memory) ──────────────
 agent:

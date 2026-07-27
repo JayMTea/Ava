@@ -64,6 +64,51 @@ The same thing from a terminal:
 ava models pull --auto     # fetches a model sized to your hardware (Apple-aware)
 ```
 
+## Serving your own model on vLLM (NVIDIA)
+
+If you run vLLM yourself rather than Ollama or a cloud endpoint, `deploy/local-serve.sh`
+starts the container for whatever model you name:
+
+```bash
+AVA_MODEL=Qwen/Qwen3-32B-AWQ bash deploy/local-serve.sh
+```
+
+Set `AVA_MODEL` in `.env` to make it the default. Then point Ava at it — Setup →
+Models, or the `inference.backends` block in `ava.yaml`. The `model:` there has to
+match what the server was started with, since the router sends that string
+verbatim as the OpenAI `model` field.
+
+**The one thing to get right: the tool-call parser.** vLLM needs
+`--tool-call-parser` to match the format your model emits, and a mismatch does not
+raise an error — vLLM simply returns no `tool_calls`, the call arrives as ordinary
+text, the agent never sees it, and turns run until they time out. It looks like Ava
+is ignoring you.
+
+`local-serve.sh` resolves the parser from the model family (Nemotron, Qwen, Llama,
+Mistral, DeepSeek, GPT-OSS, GLM) so you normally don't think about it. Confirm what
+it picked before committing to a large download:
+
+```bash
+AVA_SERVE_DRY_RUN=1 AVA_MODEL=Qwen/Qwen3-32B-AWQ bash deploy/local-serve.sh
+```
+
+That prints the resolved flags and exits without touching Docker — it won't disturb
+a model you already have running. For a family it doesn't recognise it warns and
+serves *without* tool calling rather than guessing wrong. Check the model card's
+vLLM section and set the parsers yourself:
+
+```bash
+AVA_TOOL_PARSER=hermes AVA_REASONING_PARSER= bash deploy/local-serve.sh
+```
+
+An empty value means "pass no flag"; leaving a variable unset means "use the table".
+Until you've confirmed tool calling works, set `tools: none` on that backend in
+`ava.yaml` so tool turns route elsewhere instead of failing silently.
+
+A text-only model is fine — Ava's vision and audio capabilities degrade gracefully
+rather than breaking. Drop `vision` and `audio` from that backend's `fit.workloads`
+so those turns aren't routed to a model that can't serve them.
+
 ---
 
 **Next step:** [Set up the agent](AGENT_RUNTIME.md), which gives Ava its tools,

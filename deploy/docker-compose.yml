@@ -47,7 +47,9 @@ services:
       # The OpenAI-compatible backend behind the embedded router.
       AVA_BACKEND_URL: ${AVA_BACKEND_URL:-http://vllm:8002/v1}
       AVA_BACKEND_ENGINE: ${AVA_BACKEND_ENGINE:-vllm}
-      AVA_BACKEND_MODEL: ${AVA_MODEL:-nvidia/Nemotron-Open-30B-A3B-Reasoning-FP8}
+      # MUST match the vllm service's --model default: the router sends this
+      # string verbatim as the OpenAI `model` field, so a mismatch is a 404 per turn.
+      AVA_BACKEND_MODEL: ${AVA_MODEL:-Qwen/Qwen2.5-7B-Instruct}
       AVA_INFERENCE_KEY: ${AVA_INFERENCE_KEY:-}
       # the GPU service endpoint for the image pipeline + gpu-service connector (`full`
       # profile only — in other profiles the connector row just shows down).
@@ -78,7 +80,9 @@ services:
       AVA_BRIDGE_URL: http://ava:8096
       AVA_OC_SANDBOX: ${AVA_OC_SANDBOX:-my-assistant}
       AVA_OC_AGENT: ${AVA_OC_AGENT:-main}
-      AVA_BACKEND_MODEL: ${AVA_MODEL:-nvidia/Nemotron-Open-30B-A3B-Reasoning-FP8}
+      # MUST match the vllm service's --model default: the router sends this
+      # string verbatim as the OpenAI `model` field, so a mismatch is a 404 per turn.
+      AVA_BACKEND_MODEL: ${AVA_MODEL:-Qwen/Qwen2.5-7B-Instruct}
       # Override if the sandbox can't auto-resolve the bridge container's IP.
       AVA_BRIDGE_IP: ${AVA_BRIDGE_IP:-}
     volumes:
@@ -107,28 +111,52 @@ services:
     restart: unless-stopped
 
   # --- inference: NVIDIA GPU users ---
-  # Default brain is Nemotron open-model 30B-A3B (needs a big GPU / ~35GB VRAM).
-  # Override AVA_MODEL for a smaller model on constrained GPUs, e.g.
-  #   AVA_MODEL=Qwen/Qwen2.5-7B-Instruct
+  # The default brain here is deliberately SMALL (~16 GB VRAM at the default
+  # utilization) so that `--profile gpu` starts on an ordinary GPU. This is the
+  # first command README.md tells a new user to run; it previously defaulted to a
+  # 30B model needing ~35 GB of weights, which no consumer card can hold, and the
+  # uncapped restart policy below then retried that impossible start forever.
+  #
+  # Scaling UP is the deliberate act, not scaling down. On a big-memory box:
+  #   AVA_MODEL=nvidia/Nemotron-Open-30B-A3B-Reasoning-FP8
+  #   AVA_TOOL_PARSER=qwen3_coder
+  # A *reasoning* model also wants `--reasoning-parser`, which is not templated
+  # here (there is no safe empty default — vLLM rejects a bare flag). Add it in a
+  # docker-compose.override.yml, or use deploy/local-serve.sh, which handles it.
+  #
+  # CHANGING AVA_MODEL MEANS CHANGING AVA_TOOL_PARSER. vLLM needs a parser that
+  # matches the format the model emits, and a mismatch does not raise — it returns
+  # no tool_calls at all, the agent never sees the call, and every turn runs to
+  # timeout. Compose cannot pick the parser for you; deploy/local-serve.sh has the
+  # per-family table and `AVA_SERVE_DRY_RUN=1 AVA_MODEL=... bash deploy/local-serve.sh`
+  # prints the right values for any model. See docs/CHOOSE_A_MODEL.md.
   # Memory flags are NOT optional on a shared box. Without them vLLM takes ~90% of
   # the pool and captures CUDA graphs, which on unified-memory hardware (Grace-class,
   # Apple) leaves nothing for the image engine the `full` profile starts alongside it —
   # and an uncapped `restart` policy then retries the impossible start forever. That
   # combination cost 7,997 restarts on the development box. Every value is
-  # env-overridable; see deploy/omni-serve.sh for the measured reasoning.
+  # env-overridable; see deploy/local-serve.sh for the measured reasoning.
   vllm:
     profiles: ["gpu", "full"]
     image: vllm/vllm-openai:latest
     command:
       - "--model"
-      - "${AVA_MODEL:-nvidia/Nemotron-Open-30B-A3B-Reasoning-FP8}"
+      - "${AVA_MODEL:-Qwen/Qwen2.5-7B-Instruct}"
       - "--trust-remote-code"
       - "--port"
       - "8002"
-      # Leave room for a second model. 0.40 fits ~35 GB of FP8 weights plus a KV
-      # cache big enough for tens of concurrent full-context requests.
+      # Without these two, vLLM returns tool calls as ordinary prose: the agent
+      # sees no tool_calls, retries, and every turn burns its full timeout. The
+      # default pairs with the default model above (Qwen -> hermes, no reasoning
+      # parser). Change the model, change these — see the block above.
+      - "--enable-auto-tool-choice"
+      - "--tool-call-parser"
+      - "${AVA_TOOL_PARSER:-hermes}"
+      # 0.90 suits a GPU dedicated to Ava. Lower it to ~0.40 for `--profile full`,
+      # where the GPU service shares the pool, or on unified-memory hardware where the
+      # "GPU" pool is also system RAM.
       - "--gpu-memory-utilization"
-      - "${AVA_VLLM_GPU_UTIL:-0.40}"
+      - "${AVA_VLLM_GPU_UTIL:-0.90}"
       # Graph capture spikes transiently across every batch size, including a vision
       # encoder; that spike is what OOM-kills the engine on a shared pool. Disabling it
       # costs a few percent of decode speed and is what makes an always-on load fit.
@@ -147,11 +175,13 @@ services:
             - driver: nvidia
               count: all
               capabilities: ["gpu"]
-    # `on-failure` with a cap, not `unless-stopped`: a start that cannot fit must not be
+    # `on-failure` WITH a cap, not `unless-stopped`: a start that cannot fit must not be
     # retried forever. Ava's allocator (ava.yaml `alloc.models`) is the component that
     # decides when there is room; a supervisor with no memory awareness and no cap will
     # fight it. See `ava alloc status`.
-    restart: on-failure
+    # The cap is the point — this said `on-failure` with no count while the comment
+    # claimed otherwise, so an under-provisioned GPU restart-looped silently.
+    restart: on-failure:3
 
   # --- image / video generation (optional) ---
   # Uses the upstream the GPU service image; mount your checkpoints under

@@ -50,10 +50,32 @@ except Exception:  # noqa: BLE001
     model_fit = None
 
 # --- defaults / legacy fallback ----------------------------------------------
+# The built-in backend, used only when nothing is configured (no ava.yaml
+# `inference` block and no AVA_BACKEND_URL). AVA_MODEL is the canonical env var —
+# it's what deploy/local-serve.sh serves — with AVA_OMNI_MODEL kept as a legacy
+# alias. A fork that points AVA_MODEL at its own model gets that model here, and a
+# label derived from it, rather than inheriting the author's model name in its UI.
+#
+# The `omni` id below is deliberately NOT renamed: it is the key that existing
+# installs' perf logs and ava.yaml `alloc.models` entries are already written
+# against. The label is what users actually see.
 OMNI_URL = os.environ.get("AVA_OMNI_URL", "http://127.0.0.1:8002/v1").rstrip("/")
-OMNI_MODEL = os.environ.get(
-    "AVA_OMNI_MODEL", "nvidia/Nemotron-Open-30B-A3B-Reasoning-FP8")
-OMNI_LABEL = os.environ.get("AVA_OMNI_LABEL", "open-model 30B")
+OMNI_MODEL = (os.environ.get("AVA_MODEL")
+              or os.environ.get("AVA_OMNI_MODEL")
+              or "nvidia/Nemotron-Open-30B-A3B-Reasoning-FP8")
+
+
+def _label_for_model(model_id: str) -> str:
+    """Readable label for a model id, for when the owner hasn't set one:
+    `nvidia/Nemotron-Open-30B-A3B-Reasoning-FP8` -> `Nemotron 3 open-model
+    30B A3B Reasoning FP8`, `llama3.1:8b` -> `llama3.1:8b`."""
+    name = (model_id or "").rsplit("/", 1)[-1].strip()
+    if not name:
+        return "local model"
+    return name.replace("-", " ").replace("_", " ") if "-" in name or "_" in name else name
+
+
+OMNI_LABEL = os.environ.get("AVA_OMNI_LABEL") or _label_for_model(OMNI_MODEL)
 
 # Statuses that mean "this backend can't serve right now, try the next one".
 _FAILOVER_STATUS = {404, 500, 502, 503, 504}

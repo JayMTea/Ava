@@ -73,10 +73,51 @@ class ResolveAutoTests(unittest.TestCase):
         self.assertIsNone(spec)
 
 
+class InferenceReseedTests(unittest.TestCase):
+    """Which boxes get their inference block rewritten away from the vLLM default.
+
+    Gating this on the platform (the original rule) silently missed small NVIDIA
+    GPUs: `_resolve_auto` downshifts them to the Ollama 'fast' model, so `models
+    pull --auto` fetched that while ava.yaml still named the full-size vLLM
+    default — one model on disk, a different dead endpoint configured.
+    """
+
+    def test_big_nvidia_keeps_the_shipped_default(self):
+        with mock.patch("ava_bridge.hwinfo.platform_id", return_value="linux-nvidia"):
+            spec, why = ava_cli._inference_reseed(_manifest(), "large")
+        self.assertIsNone(spec)
+        self.assertIsNone(why)
+
+    def test_small_nvidia_is_reseeded_to_what_it_downloads(self):
+        with mock.patch("ava_bridge.hwinfo.platform_id", return_value="linux-nvidia"):
+            spec, why = ava_cli._inference_reseed(_manifest(), "small")
+        self.assertIsNotNone(spec)
+        self.assertEqual(spec["engine"], "ollama")
+        # the reason must name size, not servability — vLLM does run on this box
+        self.assertIn("too large", why)
+
+    def test_apple_reseeded_for_servability_not_size(self):
+        with mock.patch("ava_bridge.hwinfo.platform_id", return_value="darwin-apple"):
+            spec, why = ava_cli._inference_reseed(_manifest(), "large")
+        self.assertEqual(spec["engine"], "ollama")
+        self.assertIn("won't run here", why)
+
+    def test_cloud_tier_warns_instead_of_seeding(self):
+        with mock.patch("ava_bridge.hwinfo.platform_id", return_value="darwin-apple"):
+            spec, why = ava_cli._inference_reseed(_manifest(), "cloud")
+        self.assertIsNone(spec)
+        self.assertIn("cloud backend", why)
+
+    def test_undetectable_hardware_changes_nothing(self):
+        spec, why = ava_cli._inference_reseed(_manifest(), None)
+        self.assertIsNone(spec)
+        self.assertIsNone(why)
+
+
 class SeedInferenceBackendTests(unittest.TestCase):
     def test_rewrites_vllm_default_to_clean_ollama_block(self):
-        seed = ("inference:\n  primary: local-omni\n  backends:\n"
-                "    local-omni:\n      engine: vllm\n      model: nvidia/whatever\n")
+        seed = ("inference:\n  primary: local\n  backends:\n"
+                "    local:\n      engine: vllm\n      model: nvidia/whatever\n")
         with tempfile.TemporaryDirectory() as d:
             cfg = Path(d) / "ava.yaml"
             cfg.write_text(seed, encoding="utf-8")
@@ -87,8 +128,10 @@ class SeedInferenceBackendTests(unittest.TestCase):
             import yaml
             out = yaml.safe_load(cfg.read_text())
         self.assertEqual(out["inference"]["primary"], "local-ollama")
-        # the dead vLLM backend must be gone, not just deprioritised
-        self.assertNotIn("local-omni", out["inference"]["backends"])
+        # the dead vLLM backend must be gone, not just deprioritised. Asserted as
+        # an exact key set: `local` is a prefix of `local-ollama`, so a bare
+        # assertNotIn would read as a substring check it isn't.
+        self.assertEqual(set(out["inference"]["backends"]), {"local-ollama"})
         b = out["inference"]["backends"]["local-ollama"]
         self.assertEqual(b["engine"], "ollama")
         self.assertEqual(b["model"], "llama3.1:70b")

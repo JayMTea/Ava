@@ -314,25 +314,28 @@ def cmd_setup(args) -> int:
     else:
         _row(OK, "ava.yaml", "already exists")
 
-    # The shipped default backend is vLLM (NVIDIA-only). On a box that can't serve
-    # it (Apple Silicon, CPU-only), rewrite the fresh inference block to point at a
-    # servable local engine — the SAME model `ava models pull --auto` will fetch —
-    # so a Mac user isn't left pointing at a dead vLLM endpoint. Best-effort.
-    if created and _platform_label() not in ("linux-nvidia", "windows-nvidia"):
+    # The shipped default backend serves the `chat` model on vLLM. Reseed the fresh
+    # inference block whenever the model that actually fits THIS box is a different
+    # one, so setup never leaves a user pointing at an endpoint they can't serve:
+    #   * Apple Silicon / CPU-only — vLLM doesn't run there at all.
+    #   * A small NVIDIA GPU — `_resolve_auto` downshifts to the Ollama 'fast' model
+    #     (so `models pull --auto` fetches that), but the inference block would still
+    #     name the vLLM default. The user then downloads one model while Ava talks to
+    #     a different, dead endpoint. Gating on the platform missed this case.
+    # Best-effort throughout: any failure leaves the shipped example in place.
+    if created:
         try:
             tier, _avail = _detected_tier()
-            _role, spec, _note = _resolve_auto(tier, _models_manifest())
         except Exception:  # noqa: BLE001
-            spec = None
-        if spec and spec.get("engine") in _LOCAL_CHAT_ENGINES:
+            tier = None
+        spec, why = _inference_reseed(_models_manifest(), tier)
+        if spec:
             if _seed_inference_backend(spec):
                 _row(OK, "inference",
                      f"seeded {spec['engine']} backend ({spec['id']}) for "
-                     f"{_platform_label()} — the vLLM default won't run here")
-        elif spec is None:
-            _row(WARN, "inference",
-                 f"no local engine fits {_platform_label()}; configure a cloud "
-                 "backend (see config.example.yaml) or install Ollama/MLX")
+                     f"{_platform_label()} — {why}")
+        elif why:
+            _row(WARN, "inference", why)
 
     # model store scaffolding — same hf/ollama/gpusvc layout as the Docker volumes,
     # so a fork's tree matches the author's and `ava models pull` has a home.
@@ -790,6 +793,12 @@ def cmd_device(args) -> int:
 # --------------------------------------------------------------------------- #
 # Model store — scaffold the weights folders and pull the right model for THIS
 # hardware, so a fork reproduces the author's layout with no manual path hunting.
+#
+# _DEFAULT_MODELS is a STARTING POINT, not a requirement. Ava runs on any model its
+# engines can serve; these ids are only what a fresh `ava setup` seeds when the user
+# hasn't chosen yet. The user's `models:` block in ava.yaml overlays this (see
+# _models_manifest), and Setup → Models in the UI rewrites the inference backend
+# outright. Changing a default here changes what NEW installs pull — nothing else.
 _gpusvc_SUBDIRS = ["checkpoints", "loras", "vae", "guidance net", "upscale_models",
                   "embeddings", "clip", "clip_vision", "unet", "weight_models",
                   "text_encoders"]
@@ -1060,11 +1069,49 @@ _LOCAL_CHAT_ENGINES = {"ollama", "llamacpp", "gguf", "mlx", "mlx-lm",
                        "lmstudio", "lm-studio"}
 
 
+def _inference_reseed(manifest: dict, tier: str | None) -> tuple[dict | None, str | None]:
+    """Should `ava setup` replace the shipped vLLM default backend, and why?
+
+    Returns `(spec, reason)` when the model that actually fits this box differs
+    from the shipped `chat` default AND is locally servable — the caller writes it
+    to ava.yaml. Returns `(None, warning)` when nothing local fits at all, and
+    `(None, None)` when the shipped default is already the right choice.
+
+    Two distinct cases reach the first branch, and both used to be missed by
+    gating on the platform alone:
+      * vLLM can't run here (Apple Silicon, CPU-only) — substitute an engine
+        that can.
+      * vLLM runs, but this GPU is too small for the full-size default, so
+        `_resolve_auto` downshifts to the 'fast' role. Without a reseed the user
+        downloads the small model while ava.yaml still names the big one.
+    """
+    if not tier:
+        return None, None
+    try:
+        _role, spec, _note = _resolve_auto(tier, manifest)
+    except Exception:  # noqa: BLE001 — never let detection break setup
+        return None, None
+    if spec is None:
+        return None, (f"no local engine fits {_platform_label()}; configure a "
+                      "cloud backend (see config.example.yaml) or install Ollama/MLX")
+    default_chat = manifest.get("chat") or {}
+    same = (spec.get("id") == default_chat.get("id")
+            and spec.get("engine") == default_chat.get("engine"))
+    if same or spec.get("engine") not in _LOCAL_CHAT_ENGINES:
+        return None, None
+    why = ("the vLLM default won't run here"
+           if not _engine_servable_here(default_chat.get("engine"))
+           else f"the default is too large for this box (tier: {tier})")
+    return spec, why
+
+
 def _seed_inference_backend(spec: dict) -> bool:
     """Rewrite ava.yaml's `inference` block to a single servable local backend
     matching `spec` (engine + model), replacing the vLLM default. Best-effort:
-    returns True only if it rewrote the file. Called only on non-CUDA platforms
-    from `ava setup`, so a Mac never boots pointing at a dead vLLM endpoint."""
+    returns True only if it rewrote the file. Called from `ava setup` whenever the
+    model that fits this box differs from the shipped default — a Mac never boots
+    pointing at a dead vLLM endpoint, and a small NVIDIA GPU is pointed at the
+    downshifted model it actually downloaded rather than the full-size default."""
     try:
         import yaml as _yaml
     except Exception:  # noqa: BLE001 — PyYAML absent; leave the example in place

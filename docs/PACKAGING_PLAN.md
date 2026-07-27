@@ -173,9 +173,9 @@ auth:
   mode: password            # password | oidc | none(dev)
   # secret + password come from the secrets store, never here
 inference:
-  primary: local-omni
+  primary: local
   backends:                 # see §5.2 — declared, not hardcoded ports
-    local-omni:  { engine: vllm, base_url: http://127.0.0.1:8002/v1, model: nvidia/Nemotron-Open-30B-A3B-Reasoning-FP8 }
+    local:  { engine: vllm, base_url: http://127.0.0.1:8002/v1, model: nvidia/Nemotron-Open-30B-A3B-Reasoning-FP8 }
 agent:
   runtime: openclaw
   sandbox: my-assistant     # was hardcoded in 4 places

@@ -24,6 +24,7 @@ if [ -n "$_SCRIPT_DIR" ] && git -C "$_SCRIPT_DIR" rev-parse --show-toplevel >/de
 fi
 
 say() { printf '\033[34m==>\033[0m %s\n' "$*"; }
+warn() { printf '\033[33mWarning:\033[0m %s\n' "$*" >&2; }
 die() { printf '\033[31mError:\033[0m %s\n' "$*" >&2; exit 1; }
 
 # Apple Silicon: Docker Desktop on macOS can't pass the Apple GPU through, so the
@@ -58,9 +59,30 @@ command -v docker >/dev/null 2>&1 || die "Docker is required — https://docs.do
 docker compose version >/dev/null 2>&1 || die "Docker Compose v2 is required."
 
 # Auto-pick a profile from available hardware.
+# Having a GPU is not the same as having enough of one: the gpu profile serves a
+# model on vLLM, and if the weights plus KV cache do not fit, the container fails
+# its start check and Docker retries it. Detecting that here — where we can say so
+# in one sentence — beats letting the user discover it from a restart loop.
 if [ -z "${AVA_PROFILE:-}" ]; then
   if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
     AVA_PROFILE="gpu"
+    _vram_mib="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null \
+                 | tr -d ' ' | sort -rn | head -1)"
+    case "$_vram_mib" in
+      ''|*[!0-9]*) warn "Could not read GPU memory from nvidia-smi — assuming the gpu profile fits." ;;
+      *)
+        say "Detected GPU memory: ${_vram_mib} MiB"
+        # The default model (Qwen2.5-7B-Instruct) is ~15 GB of weights; at the
+        # default 0.90 utilization it wants a ~16 GB card. Below that, CPU is the
+        # honest choice — Ollama on CPU is slow but it actually starts.
+        if [ "$_vram_mib" -lt 16000 ]; then
+          warn "Only ${_vram_mib} MiB of GPU memory — the gpu profile's default model needs ~16 GB."
+          warn "Falling back to the cpu profile. To use the GPU anyway, pick a smaller model:"
+          warn "  AVA_PROFILE=gpu AVA_MODEL=Qwen/Qwen2.5-3B-Instruct ./install.sh"
+          AVA_PROFILE="cpu"
+        fi
+        ;;
+    esac
   else
     AVA_PROFILE="cpu"
   fi

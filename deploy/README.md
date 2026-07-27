@@ -58,7 +58,22 @@ Good to know:
   config, chats, media, logs, models. To back up, copy that folder.
 - **Password**: pin the admin password ahead of time with `AVA_PASSWORD=...` in
   `deploy/.env`; otherwise the first-run screen sets it.
-- **Model**: choose one with `AVA_MODEL=...` (gpu profile) or via `ava.yaml`.
+- **Model**: choose one with `AVA_MODEL=...` (gpu profile) or via `ava.yaml`. The
+  gpu profile defaults to a small model (`Qwen/Qwen2.5-7B-Instruct`, ~16 GB card)
+  so it starts on an ordinary GPU; `install.sh` drops to the cpu profile if
+  `nvidia-smi` reports less. Scaling up is the deliberate act:
+
+  | Variable | Default | Notes |
+  |---|---|---|
+  | `AVA_MODEL` | `Qwen/Qwen2.5-7B-Instruct` | Any model vLLM can serve. |
+  | `AVA_TOOL_PARSER` | `hermes` | **Must match the model.** A mismatch returns no `tool_calls` *silently* and every turn runs to timeout. `AVA_SERVE_DRY_RUN=1 AVA_MODEL=... bash deploy/local-serve.sh` prints the right value. |
+  | `AVA_VLLM_GPU_UTIL` | `0.90` | Fraction of GPU memory vLLM may take. Lower to ~`0.40` for `--profile full`, where the GPU service shares the pool. |
+  | `AVA_VLLM_MAX_LEN` | `65536` | Context ceiling. Must exceed the agent's ~29k-token system context. |
+
+  A *reasoning* model additionally needs `--reasoning-parser`, which compose does
+  not template (vLLM rejects a bare flag, so there is no safe empty default). Add
+  it via `docker-compose.override.yml`, or use `deploy/local-serve.sh`, which
+  resolves both parsers from the model family. See [docs/CHOOSE_A_MODEL.md](../docs/CHOOSE_A_MODEL.md).
 - **Inference backend**: chat flows bridge → embedded router (`:8010` in-container)
   → the profile's engine. Each profile sets `AVA_BACKEND_URL`/`ENGINE`/`MODEL`
   defaults (gpu→vllm, cpu→ollama); for `cloud`, set them plus `AVA_INFERENCE_KEY`
@@ -77,13 +92,17 @@ Published images are **cosign-signed** (Sigstore keyless; the signature proves
 the image came from this repo's release CI). Pull the signed image instead of
 building locally by setting `AVA_IMAGE` in `deploy/.env`, and verify it first:
 
+Replace `<version>` below with a tag that exists — see the repository's Releases
+page. (`release.yml` publishes an image only on a `v*` tag push, so a tag that has
+not been released yet returns 403 from GHCR.)
+
 ```bash
 # Verify the release image (see SECURITY.md §9 for the exact identity regex):
-cosign verify ghcr.io/jaymtea/ava-bridge:v0.1.0 \
-  --certificate-identity-regexp "https://github.com/JayMTea/.+/.github/workflows/release.yml@refs/tags/v0.1.0" \
+cosign verify ghcr.io/<owner>/ava-bridge:<version> \
+  --certificate-identity-regexp "https://github.com/<owner>/.+/.github/workflows/release.yml@refs/tags/<version>" \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 
-echo "AVA_IMAGE=ghcr.io/jaymtea/ava-bridge:v0.1.0" >> deploy/.env
+echo "AVA_IMAGE=ghcr.io/<owner>/ava-bridge:<version>" >> deploy/.env
 docker compose --profile gpu pull && docker compose --profile gpu up -d
 ```
 

@@ -89,7 +89,7 @@ def _exit(patches):
 # realistic Mac backend set (from config.example.yaml's Apple Silicon example,
 # with the Omni brain served via Ollama's OpenAI-compatible API on :11434)
 MAC_BACKENDS = [
-    {"id": "local-omni", "engine": "ollama",
+    {"id": "local", "engine": "ollama",
      "url": "http://127.0.0.1:11434/v1",
      "model": "nemotron-open-model-30b",
      "fit": {"weight_gb": 35, "tier": "large", "min_free_gb": 10,
@@ -156,7 +156,7 @@ def main():
         # chat should land on the big Omni brain
         chat = model_fit.select(MAC_BACKENDS, workload="chat")
         top = chat[0]
-        check("chat routes to the Omni brain", top.backend["id"], "local-omni")
+        check("chat routes to the Omni brain", top.backend["id"], "local")
         check("  ...and it fits in unified memory", top.fits, True, ok=top.fits)
 
         # a fast/utility turn should prefer the small model
@@ -172,7 +172,7 @@ def main():
     _enter(patches)
     try:
         chat = model_fit.select(MAC_BACKENDS, workload="chat", free_gb=8.0)
-        omni = next(c for c in chat if c.backend["id"] == "local-omni")
+        omni = next(c for c in chat if c.backend["id"] == "local")
         small = next(c for c in chat if c.backend["id"] == "mac-fast")
         check("under pressure the Omni brain is SHED (won't OOM the box)",
               omni.fits, False, ok=(not omni.fits))
