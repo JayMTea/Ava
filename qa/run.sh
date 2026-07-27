@@ -4,7 +4,7 @@
 #   qa/run.sh --backend    tiers 1+2 + contracts + CLI only (pytest)
 #   qa/run.sh --e2e        tier 3 (Playwright vs a real bridge) only
 set -u
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 
 PY=".venv/bin/python"
 [ -x "$PY" ] || PY="python3"

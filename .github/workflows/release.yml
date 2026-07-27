@@ -25,7 +25,10 @@ jobs:
       # Container references must be lowercase; the owner may be mixed-case
       # (e.g. JayMTea). Resolve it once and reuse it as $IMAGE / ${{ env.IMAGE }}.
       - name: Resolve lowercase image name
-        run: echo "IMAGE=ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/ava-bridge" >> "$GITHUB_ENV"
+        run: |
+          owner="$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
+          echo "IMAGE=ghcr.io/${owner}/ava-bridge" >> "$GITHUB_ENV"
+          echo "IMAGE_AGENT=ghcr.io/${owner}/ava-agent-runtime" >> "$GITHUB_ENV"
 
       - name: Check the tag is signed (informational)
         run: |
@@ -75,13 +78,43 @@ jobs:
           provenance: true
           sbom: true
 
+      # The `agent` and `full` profiles need this image, and until now no
+      # automation had ever built it, let alone published one — so anyone opting
+      # into the tool-using agent had to build it locally from a Dockerfile that
+      # nothing verified. Same platforms, provenance and SBOM as the bridge.
+      - name: Agent runtime image tags + labels
+        id: meta_agent
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE_AGENT }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+
+      - name: Build & push the agent runtime (multi-arch, SBOM + SLSA provenance)
+        id: build_agent
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: deploy/agent.Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta_agent.outputs.tags }}
+          labels: ${{ steps.meta_agent.outputs.labels }}
+          provenance: true
+          sbom: true
+
       - name: Install cosign
         uses: sigstore/cosign-installer@v3
 
-      - name: Sign the image (keyless / OIDC)
+      - name: Sign the images (keyless / OIDC)
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
-        run: cosign sign --yes "${IMAGE}@${DIGEST}"
+          DIGEST_AGENT: ${{ steps.build_agent.outputs.digest }}
+        run: |
+          cosign sign --yes "${IMAGE}@${DIGEST}"
+          cosign sign --yes "${IMAGE_AGENT}@${DIGEST_AGENT}"
 
       - name: Source SBOM (Syft, CycloneDX)
         uses: anchore/sbom-action@v0

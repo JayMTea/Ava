@@ -13,8 +13,20 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - run: pip install ruff==0.15.14
+      # Install from the pin file, not a second literal. Two pins for one tool
+      # (this said 0.15.14 while requirements-dev.txt said 0.15.20) is a
+      # guaranteed CI-green / local-red divergence.
+      - run: pip install -r requirements-dev.txt
       - run: ruff check .
+
+  shellcheck:
+    # deploy/ is now several hundred lines of shell that every install runs
+    # first. Nothing was linting it.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - run: shellcheck -S warning deploy/*.sh bin/ava qa/run.sh run.sh run_bridge.sh
 
   test:
     runs-on: ubuntu-latest
@@ -98,6 +110,83 @@ jobs:
       - run: pip install -r requirements.txt -r requirements-dev.txt
       - run: bash qa/run.sh --backend
 
+  compose-config:
+    # Fast signal, no images, ~20s. Kept separate from compose-smoke so the
+    # cheap checks are never queued behind a multi-minute build.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install pyyaml
+
+      - name: Every shipped profile must interpolate and validate
+        working-directory: deploy
+        run: |
+          set -euo pipefail
+          for f in profiles/*.env; do
+            p="$(basename "$f" .env)"
+            if [ "$p" = "cloud" ]; then
+              # cloud.env ships its three values EMPTY on purpose, so compose is
+              # supposed to refuse it. Validate it the way a user would: filled in.
+              tmp="$(mktemp)"; cat "$f" > "$tmp"
+              printf 'AVA_BACKEND_URL=https://example.invalid/v1\nAVA_MODEL=stub\n' >> "$tmp"
+              docker compose --env-file "$tmp" config >/dev/null
+              rm -f "$tmp"
+              # ...and assert it DOES refuse when they are left empty.
+              if docker compose --env-file "$f" config >/dev/null 2>&1; then
+                echo "::error::cloud.env validates with empty values — it must fail loudly instead"
+                exit 1
+              fi
+            else
+              docker compose --env-file "$f" config >/dev/null
+            fi
+            echo "  ok: $p"
+          done
+
+      - name: A profile must start the service its own backend URL names
+        # The defect this job exists for: `--profile cpu` pointed the bridge at
+        # http://vllm:8002/v1, and no vllm service exists in that profile.
+        run: python -m pytest tests/test_deploy_compose_contract.py tests/test_model_flags_ssot.py tests/test_dockerfile_bind.py -q
+
+  install-smoke:
+    # deploy/install.sh writes deploy/.env. It previously wrote nothing at all,
+    # which is why the cpu profile shipped with no backend wired. It also has to
+    # never destroy a hand-written secret on re-run.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Writes a valid .env for a profile
+        working-directory: deploy
+        run: |
+          set -euo pipefail
+          AVA_INSTALL_DRY_RUN=1 AVA_PROFILE=cpu bash install.sh
+          grep -q '^COMPOSE_PROFILES=cpu$' .env
+          grep -q '^AVA_BACKEND_URL=http://ollama:11434/v1$' .env
+          docker compose config >/dev/null
+
+      - name: Preserves hand-written values across a re-run
+        working-directory: deploy
+        run: |
+          set -euo pipefail
+          printf 'AVA_PASSWORD=ci-precious\nAVA_INFERENCE_KEY=sk-ci-precious\n' >> .env
+          AVA_INSTALL_DRY_RUN=1 AVA_PROFILE=gpu bash install.sh
+          grep -q 'ci-precious' .env       || { echo "::error::install.sh destroyed AVA_PASSWORD"; exit 1; }
+          grep -q 'sk-ci-precious' .env    || { echo "::error::install.sh destroyed AVA_INFERENCE_KEY"; exit 1; }
+          test "$(grep -c '>>> ava managed' .env)" = "1" \
+            || { echo "::error::install.sh left more than one managed block"; exit 1; }
+          grep -q '^AVA_VLLM_MODEL_FLAGS=' .env \
+            || { echo "::error::gpu profile did not get resolved vLLM flags"; exit 1; }
+
+      - name: Rejects an unknown profile
+        working-directory: deploy
+        run: |
+          if AVA_INSTALL_DRY_RUN=1 AVA_PROFILE=nonsense bash install.sh 2>/dev/null; then
+            echo "::error::install.sh accepted an unknown profile"; exit 1
+          fi
+
   compose-smoke:
     # Docker is the install path README.md recommends first, and NOTHING built or
     # booted it in CI — deploy/agent.Dockerfile had never been built by any
@@ -109,14 +198,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Every profile must interpolate and validate
-        working-directory: deploy
-        run: |
-          for p in cpu gpu cloud full agent; do
-            echo "--- profile: $p"
-            docker compose --profile "$p" config >/dev/null
-          done
-
       - name: Build the bridge image
         run: docker build -f deploy/Dockerfile -t ava/bridge:ci .
 
@@ -125,12 +206,10 @@ jobs:
         # built by CI, so nothing caught a bad layer until someone ran it.
         run: docker build -f deploy/agent.Dockerfile -t ava/agent-runtime:ci .
 
-      - name: Boot the bridge against a stub backend and probe it
-        # `cloud` because it needs no GPU and no model download. The stub only has
-        # to be OpenAI-shaped enough for the router to consider the backend real —
-        # this asserts the container BOOTS and serves, not that inference works.
+      - name: Start the stub backend
+        # OpenAI-shaped enough for the router to consider the backend real. This
+        # asserts the container BOOTS and SERVES, not that inference works.
         run: |
-          set -euo pipefail
           python3 - <<'PY' &
           from http.server import BaseHTTPRequestHandler, HTTPServer
           import json
@@ -153,49 +232,90 @@ jobs:
           PY
           sleep 2
 
+      - name: Boot through docker compose and probe the PUBLISHED port
+        # This step used to `docker run --network host`, which put the container
+        # in the runner's own namespace — the one mode where a process bound to
+        # in-namespace loopback IS reachable at 127.0.0.1. It therefore could not
+        # catch the bug it existed to catch: the image bound 127.0.0.1 inside its
+        # namespace, so the published port refused every connection while the
+        # container reported healthy. It also never exercised `ports:` at all.
+        #
+        # Now: the real compose file, the default bridge network, and a curl from
+        # the RUNNER through the published mapping. Both assertions matter — a
+        # healthy container whose port refuses connections is the exact failure.
+        working-directory: deploy
+        run: |
+          set -euo pipefail
+          cp profiles/cloud.env .env
+          cat >> .env <<'ENV'
+          AVA_BACKEND_URL=http://host.docker.internal:9999/v1
+          AVA_BACKEND_ENGINE=openai
+          AVA_MODEL=stub-model
+          AVA_PASSWORD=ci-compose-pass
+          AVA_HOME=${{ runner.temp }}/ava-home
+          ENV
+          # CI-only: let the container reach the stub on the runner's host.
+          cat > docker-compose.override.yml <<'YML'
+          services:
+            ava:
+              image: ava/bridge:ci
+              extra_hosts:
+                - "host.docker.internal:host-gateway"
+          YML
           mkdir -p "${{ runner.temp }}/ava-home"
-          docker run -d --name ava-ci --network host \
-            -e AVA_HOME=/data \
-            -e AVA_PASSWORD=ci-compose-pass \
-            -e AVA_AGENT_ENABLED=0 \
-            -e AVA_BACKEND_URL=http://127.0.0.1:9999/v1 \
-            -e AVA_BACKEND_ENGINE=openai \
-            -e AVA_BACKEND_MODEL=stub-model \
-            -v "${{ runner.temp }}/ava-home:/data" \
-            ava/bridge:ci
+          docker compose up -d
 
           ok=0
-          for i in $(seq 1 45); do
-            if curl -fsS http://127.0.0.1:8096/api/health >/dev/null 2>&1; then
+          for _ in $(seq 1 60); do
+            if curl -fsS --max-time 3 http://127.0.0.1:8096/api/health >/dev/null 2>&1; then
               ok=1; break
             fi
             sleep 2
           done
           if [ "$ok" != 1 ]; then
-            echo "::error::the bridge container never became healthy"
-            docker logs ava-ci 2>&1 | tail -60
+            echo "::error::the published port never answered — the bridge is unreachable from the host"
+            docker compose ps
+            docker compose logs --tail 60 ava
             exit 1
           fi
-          echo "container health OK"
+          echo "published port answers from the host"
+
+          # A green healthcheck alongside a dead published port is the failure
+          # mode this job missed before, so assert BOTH and say which one broke.
+          state="$(docker compose ps --format json ava | python3 -c 'import json,sys; print(json.loads(sys.stdin.read().strip().splitlines()[0]).get("Health") or "none")')"
+          echo "compose reports health: $state"
+          if [ "$state" = "unhealthy" ]; then
+            echo "::error::container is unhealthy even though the port answered"
+            docker compose logs --tail 60 ava
+            exit 1
+          fi
 
       - name: State must land on the mounted volume, not the image layer
         # The exact class of bug the audit found: writes anchored on the CODE root
         # (/app) instead of AVA_HOME (/data) vanish with the container and are
         # invisible to the bridge, which reads the volume.
+        working-directory: deploy
         run: |
           set -euo pipefail
           test -d "${{ runner.temp }}/ava-home/data" \
             || { echo "::error::AVA_HOME/data was not created on the volume"; exit 1; }
-          if docker exec ava-ci sh -c 'ls /app/data /app/logs 2>/dev/null | head -1' | grep -q .; then
+          if docker compose exec -T ava sh -c 'ls /app/data /app/logs 2>/dev/null | head -1' | grep -q .; then
             echo "::error::runtime state was written to the code root (/app) instead of AVA_HOME"
-            docker exec ava-ci sh -c 'ls -la /app/data /app/logs 2>/dev/null' || true
+            docker compose exec -T ava sh -c 'ls -la /app/data /app/logs 2>/dev/null' || true
             exit 1
           fi
           echo "state is on the volume"
 
+      - name: Tear down cleanly
+        working-directory: deploy
+        run: |
+          docker compose down
+          test -z "$(docker compose ps -q)" || { echo "::error::containers survived compose down"; exit 1; }
+
       - name: Container logs (always)
         if: always()
-        run: docker logs ava-ci 2>&1 | tail -40 || true
+        working-directory: deploy
+        run: docker compose logs --tail 40 ava 2>&1 || true
 
   secrets-scan:
     # Dependabot runs get a read-only token, and the action's PR API calls

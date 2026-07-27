@@ -26,7 +26,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 [ -f "$REPO/.env" ] && set -a && . "$REPO/.env" && set +a
-cd "$REPO"
+cd "$REPO" || exit 1
 
 VENV="${AVA_TTS_VENV:-$REPO/.venv-tts}"
 PORT="${AVA_VOICE_PORT:-8129}"
