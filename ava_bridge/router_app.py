@@ -446,8 +446,28 @@ def _rewrite_body(raw: bytes, is_json: bool, backend: dict, reasoning: str,
     hint = obj.pop("ava_workload", None) or hint
     if hint is not None:
         changed = True
-    if "model" in obj:
-        obj["model"] = backend["model"]
+    # Force the model id to the backend we are forwarding to — including when
+    # the caller sent NO model at all.
+    #
+    # This used to be `if "model" in obj`, which made the "force" only an
+    # overwrite: a request that omitted the field was forwarded verbatim and the
+    # engine answered 400 "model is required". That is every tool-less chat turn
+    # on a fresh install, because DirectRuntime posts {messages, stream} and
+    # nothing else — so a forker with no agent sandbox (i.e. anyone who has not
+    # run `ava agent provision`) got a 400 on their first message, on the cpu
+    # profile and on any other. The router chooses the backend, so the router
+    # owns the model; a caller-supplied value is overridden anyway.
+    #
+    # Only for completions. Other proxied routes (/v1/models and friends) take
+    # no model, and inventing one for them would be a different bug.
+    #
+    # An empty backend model means "this backend serves whatever is asked",
+    # so leave the caller's value alone rather than blanking it — the old code
+    # would rewrite a valid model to "" for any yaml backend declared without a
+    # `model:` key, which fails upstream for the same reason.
+    want = backend.get("model") or ""
+    if want and (is_comp or "model" in obj) and obj.get("model") != want:
+        obj["model"] = want
         changed = True
     # Default reasoning control — only for local vLLM chat completions (the
     # `chat_template_kwargs` field is a vLLM extension; other engines would
