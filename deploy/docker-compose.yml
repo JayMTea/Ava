@@ -35,6 +35,14 @@ services:
     environment:
       AVA_HOME: /data
       AVA_PORT: "8096"
+      # Bind all interfaces INSIDE the container namespace. The `ports:` entry
+      # below is what keeps this host-local — it publishes on 127.0.0.1 only.
+      # Binding loopback in here instead leaves the published port with nothing
+      # behind it while the container's own healthcheck (which curls that same
+      # in-namespace loopback) still reports healthy. deploy/Dockerfile carries
+      # the same value; this restates it so the contract is visible where the
+      # port mapping is. tests/test_dockerfile_bind.py enforces both.
+      AVA_HOST: ${AVA_HOST:-0.0.0.0}
       AVA_PASSWORD: ${AVA_PASSWORD:-}
       # Agent runtime: "direct" (tool-less, default) or "remote" (full agent via
       # the `agent` service below — enable the `agent` profile + set these).

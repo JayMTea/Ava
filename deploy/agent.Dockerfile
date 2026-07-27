@@ -10,7 +10,17 @@ ENV PYTHONUNBUFFERED=1 \
     NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE=1 \
     PATH="/root/.local/bin:/root/.npm-global/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin"
 ARG DOCKER_CLI_VERSION=29.6.1
-ARG NEMOCLAW_INSTALL_TAG=latest
+# The NemoClaw ref the entrypoint installs from. This was `NEMOCLAW_INSTALL_TAG`,
+# which nothing read — the entrypoint has always looked for NEMOCLAW_INSTALL_REF,
+# and with the ARG never plumbed through it fell back to piping the upstream
+# `main` branch into bash at every first container start. Pinned and exported so
+# the same image installs the same agent runtime twice running.
+#
+# Moving it: check https://github.com/NVIDIA/NemoClaw/tags, bump, rebuild.
+# `NEMOCLAW_INSTALL_REF=main` still works as an escape hatch if a pin goes bad.
+# Pinned 2026-07-27.
+ARG NEMOCLAW_INSTALL_REF=v0.0.96
+ENV NEMOCLAW_INSTALL_REF=${NEMOCLAW_INSTALL_REF}
 
 # NOTES (each learned by testing the real thing):
 #  * the npm `nemoclaw` package is an empty STUB — the real CLI comes from
