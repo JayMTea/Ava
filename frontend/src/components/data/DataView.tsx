@@ -34,6 +34,7 @@ const TABS: { id: TabId; label: string; icon: string }[] = [
 // Which tab a store row's "Browse" opens.
 const BROWSE_TAB: Record<string, TabId> = {
   memory: 'memory', chats: 'chats', audit: 'logs', performance: 'logs', devices: 'logs',
+  alloc: 'logs',
 };
 
 const STORE_META: Record<string, { icon: string; desc: string }> = {
@@ -41,6 +42,7 @@ const STORE_META: Record<string, { icon: string; desc: string }> = {
   chats: { icon: 'chats', desc: 'Every conversation — messages, attachments, and which model answered. Open and delete chats from the sidebar.' },
   audit: { icon: 'file', desc: 'Ava’s flight recorder: turns, memory recalls and edits, connector grants. Append-only; browsable under Setup → History.' },
   performance: { icon: 'chart', desc: 'Generation throughput, latency, and energy per turn, with hourly and daily rollups behind the Vitals charts.' },
+  alloc: { icon: 'sliders', desc: 'Every allocation decision: what was asked for, what the pool held, and what (if anything) was released to make room. This is the log you read before letting the allocator act.' },
   hw_history: { icon: 'gauge', desc: 'GPU, memory, and CPU samples at minute and hour resolution — the long-range series behind the Vitals gauges.' },
   devices: { icon: 'activity', desc: 'Sensor readings and events from connected devices, one rotated stream per connector.' },
   media_gen: { icon: 'image', desc: 'Images and video Ava has generated. Nothing here is auto-deleted yet.' },

@@ -160,6 +160,22 @@ def stores():
                       "jsonl", size=perf_size + roll_size,
                       last_write=max(perf_mtime, roll_mtime), managed=True))
 
+    # Allocation decisions — the log an operator reads before allowing the
+    # allocator to act. It grew forever and appeared on no inventory, so the one
+    # file you are told to judge enforcement from was the one nobody could see
+    # the size of. Self-rotating (broker._rotate_log_if_needed), like performance.
+    alloc_size = alloc_mtime = 0
+    for name in ["alloc.jsonl"] + [f"alloc.jsonl.{i}" for i in range(1, 6)]:
+        b, m = _file_stats(os.path.join(logs_dir, name))
+        alloc_size += b
+        alloc_mtime = max(alloc_mtime, m)
+    if alloc_size:
+        alloc_path = os.path.join(logs_dir, "alloc.jsonl")
+        out.append(_store("alloc", "Allocation decisions", alloc_path, "jsonl",
+                          size=alloc_size,
+                          count=_line_count(alloc_path, alloc_size),
+                          last_write=alloc_mtime, managed=True))
+
     # Hardware history — minute/hour telemetry tiers behind the Vitals charts.
     hw_dir = os.path.join(logs_dir, "hw_history")
     size, files, mtime = _tree_stats(hw_dir)

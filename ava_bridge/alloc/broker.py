@@ -872,7 +872,40 @@ def _record(event: str, model_id: str, lid: str, pl: "policy.Plan",
         import json
         path = _log_path()
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        with _lock, open(path, "a", encoding="utf-8") as fh:
-            fh.write(json.dumps(rec, default=str) + "\n")
+        with _lock:
+            _rotate_log_if_needed(path)
+            with open(path, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(rec, default=str) + "\n")
     except Exception:  # noqa: BLE001 — telemetry must never break a render
         pass
+
+
+# Bounded, non-destructive rotation — the same shape perf_log.py uses, for the
+# same reason: this file grew forever. It is small (a few hundred bytes per
+# decision) but it is append-only on a box that makes a decision per render, and
+# nothing ever trimmed it or listed it on the Data page.
+LOG_MAX_BYTES = int(os.environ.get("AVA_ALLOC_LOG_MAX_BYTES", str(8 * 1024 * 1024)))
+LOG_KEEP = int(os.environ.get("AVA_ALLOC_LOG_KEEP", "3"))
+
+
+def _rotate_log_if_needed(path: str) -> None:
+    """alloc.jsonl -> .1, .1 -> .2, … dropping only what ages past LOG_KEEP.
+
+    Shifted highest-first so a segment is never written over an occupied slot.
+    """
+    try:
+        if os.path.getsize(path) < LOG_MAX_BYTES:
+            return
+    except OSError:
+        return
+    with contextlib.suppress(OSError):
+        oldest = f"{path}.{LOG_KEEP}"
+        if os.path.exists(oldest):
+            os.remove(oldest)
+    for i in range(LOG_KEEP - 1, 0, -1):
+        with contextlib.suppress(OSError):
+            src = f"{path}.{i}"
+            if os.path.exists(src):
+                os.replace(src, f"{path}.{i + 1}")
+    with contextlib.suppress(OSError):
+        os.replace(path, f"{path}.1")
