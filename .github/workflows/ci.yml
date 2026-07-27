@@ -83,6 +83,120 @@ jobs:
           AVA_AGENT_ENABLED: "0"
         run: python ava_cli.py verify
 
+  qa:
+    # The qa/ tier (~119 tests) is the only thing that imports phone_bridge.py and
+    # exercises the real ASGI app: auth posture on every route, API contracts,
+    # degradation paths. It was documented in CLAUDE.md as how you verify a change
+    # and then never run by CI, so nothing enforced it. It is hermetic — temp
+    # AVA_HOME, fake LLM/gpusvc servers on free ports, no GPU, no network.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: bash qa/run.sh --backend
+
+  compose-smoke:
+    # Docker is the install path README.md recommends first, and NOTHING built or
+    # booted it in CI — deploy/agent.Dockerfile had never been built by any
+    # automation at all. Every Docker-specific defect found in the July audit (the
+    # internal-token path, perf logs written to the ephemeral layer, an unbuildable
+    # agent image) was downstream of that single gap, and none of them can happen
+    # on the maintainer's bare-metal box.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Every profile must interpolate and validate
+        working-directory: deploy
+        run: |
+          for p in cpu gpu cloud full agent; do
+            echo "--- profile: $p"
+            docker compose --profile "$p" config >/dev/null
+          done
+
+      - name: Build the bridge image
+        run: docker build -f deploy/Dockerfile -t ava/bridge:ci .
+
+      - name: Build the agent-runtime image
+        # Kept separate so a break here is legible: this image had never been
+        # built by CI, so nothing caught a bad layer until someone ran it.
+        run: docker build -f deploy/agent.Dockerfile -t ava/agent-runtime:ci .
+
+      - name: Boot the bridge against a stub backend and probe it
+        # `cloud` because it needs no GPU and no model download. The stub only has
+        # to be OpenAI-shaped enough for the router to consider the backend real —
+        # this asserts the container BOOTS and serves, not that inference works.
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' &
+          from http.server import BaseHTTPRequestHandler, HTTPServer
+          import json
+          class H(BaseHTTPRequestHandler):
+              def _send(self, obj):
+                  b = json.dumps(obj).encode()
+                  self.send_response(200)
+                  self.send_header("Content-Type", "application/json")
+                  self.send_header("Content-Length", str(len(b)))
+                  self.end_headers()
+                  self.wfile.write(b)
+              def do_GET(self):
+                  self._send({"data": [{"id": "stub-model"}]})
+              def do_POST(self):
+                  self._send({"choices": [{"message": {"role": "assistant",
+                                                       "content": "ok"}}]})
+              def log_message(self, *a):
+                  pass
+          HTTPServer(("0.0.0.0", 9999), H).serve_forever()
+          PY
+          sleep 2
+
+          mkdir -p "${{ runner.temp }}/ava-home"
+          docker run -d --name ava-ci --network host \
+            -e AVA_HOME=/data \
+            -e AVA_PASSWORD=ci-compose-pass \
+            -e AVA_AGENT_ENABLED=0 \
+            -e AVA_BACKEND_URL=http://127.0.0.1:9999/v1 \
+            -e AVA_BACKEND_ENGINE=openai \
+            -e AVA_BACKEND_MODEL=stub-model \
+            -v "${{ runner.temp }}/ava-home:/data" \
+            ava/bridge:ci
+
+          ok=0
+          for i in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:8096/api/health >/dev/null 2>&1; then
+              ok=1; break
+            fi
+            sleep 2
+          done
+          if [ "$ok" != 1 ]; then
+            echo "::error::the bridge container never became healthy"
+            docker logs ava-ci 2>&1 | tail -60
+            exit 1
+          fi
+          echo "container health OK"
+
+      - name: State must land on the mounted volume, not the image layer
+        # The exact class of bug the audit found: writes anchored on the CODE root
+        # (/app) instead of AVA_HOME (/data) vanish with the container and are
+        # invisible to the bridge, which reads the volume.
+        run: |
+          set -euo pipefail
+          test -d "${{ runner.temp }}/ava-home/data" \
+            || { echo "::error::AVA_HOME/data was not created on the volume"; exit 1; }
+          if docker exec ava-ci sh -c 'ls /app/data /app/logs 2>/dev/null | head -1' | grep -q .; then
+            echo "::error::runtime state was written to the code root (/app) instead of AVA_HOME"
+            docker exec ava-ci sh -c 'ls -la /app/data /app/logs 2>/dev/null' || true
+            exit 1
+          fi
+          echo "state is on the volume"
+
+      - name: Container logs (always)
+        if: always()
+        run: docker logs ava-ci 2>&1 | tail -40 || true
+
   secrets-scan:
     # Dependabot runs get a read-only token, and the action's PR API calls
     # (comments in v2, listing PR commits in v3) 403 with "Resource not

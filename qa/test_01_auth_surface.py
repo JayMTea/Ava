@@ -16,7 +16,13 @@ from qa import helpers
 
 PUBLIC = {"/login", "/logout", "/setup", "/api/health", "/favicon.ico",
           "/manifest.webmanifest", "/sw.js"}
-API_PREFIXES = ("/api/", "/apps/", "/media/", "/uploads/")
+# Imported, never re-listed. A local copy drifted from the app's own list and
+# went stale on /thumb: the app correctly answered 401 for /thumb/audit while this
+# test demanded a 303 page redirect, so the suite failed on correct behaviour.
+# Importing the source of truth makes that drift impossible.
+from ava_bridge.auth import API_PREFIXES as _APP_API_PREFIXES  # noqa: E402
+
+API_PREFIXES = tuple(f"{p}/" for p in _APP_API_PREFIXES)
 
 
 def _sample_path(route) -> str:
