@@ -227,6 +227,11 @@ features:
   image: true              # GPU workloads via the gpu-service connector
   learning: true           # [AVA_LEARNING] periodic local-first self-analysis:
                            #   parks code/chat improvement proposals for approval
+  memory: true             # [AVA_MEMORY] long-term memory distilled from chats and
+                           #   uploads, recalled when relevant, every recall audit-
+                           #   logged. Turning it OFF is the kill switch for the
+                           #   feature the README leads with — view/correct/delete/
+                           #   export it all from Setup -> Memory (docs/MEMORY.md).
 
 # ── Self-analysis cadence (only used when features.learning is true) ─────────
 learning:

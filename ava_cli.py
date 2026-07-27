@@ -39,6 +39,27 @@ def _probe(url: str) -> bool:
         return False
 
 
+# The whole of a fresh ava.yaml. Deliberately tiny: everything else has a
+# working default, and config.example.yaml is where the options are DOCUMENTED.
+# Comments here are the only ones that survive, because the first Setup save
+# rewrites this file through yaml.safe_dump, which cannot round-trip comments.
+_STARTER_CONFIG = """\
+# Ava's configuration. Machine-written: the Setup UI rewrites this file, so
+# comments you add below will not survive the next save.
+#
+# Every option Ava understands, with explanations, is in config.example.yaml at
+# the repo root — read it there and copy the keys you want into this file.
+#
+# Anything absent uses a working default, so a short file is normal and correct.
+
+server:
+  host: 127.0.0.1        # loopback; see config.example.yaml before widening
+
+setup:
+  completed: false       # the first-run wizard flips this
+"""
+
+
 def _server_port() -> int:
     """The port the bridge listens on, from the one resolver.
 
@@ -310,17 +331,30 @@ def cmd_setup(args) -> int:
             return 1
         _row(OK, "password", f"{Y}{pw}{X}   (saved to {pw_path})")
 
-    # ava.yaml starter
+    # ava.yaml starter — MINIMAL, not a copy of the annotated template.
+    #
+    # This used to `shutil.copyfile(config.example.yaml, ava.yaml)`, which caused
+    # two separate defects:
+    #
+    #   * The template is 370+ lines of explanatory comments, and yaml.safe_dump
+    #     cannot round-trip comments. So the FIRST Setup toggle rewrote the file
+    #     and silently stripped every one of them — the documentation was
+    #     imported into the user's config purely so it could be destroyed.
+    #   * The template ships a live `inference.backends.local`, and
+    #     setup_wizard.setup_completed() treats "any declared backend" as "already
+    #     onboarded" — so every CLI-setup install skipped the first-run wizard
+    #     entirely, without ever showing it.
+    #
+    # config.example.yaml is documentation. ava.yaml is machine-written. Keeping
+    # them separate is what makes both statements true.
     created = False
     if not settings.CONFIG_PATH.is_file():
-        example = os.path.join(settings.CODE_ROOT, "config.example.yaml")
         try:
-            if os.path.isfile(example):
-                shutil.copyfile(example, settings.CONFIG_PATH)
-                created = True
-                _row(OK, "ava.yaml", f"created at {settings.CONFIG_PATH}")
-            else:
-                _row(WARN, "ava.yaml", "template not found; skipped")
+            settings.CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+            settings.CONFIG_PATH.write_text(_STARTER_CONFIG, encoding="utf-8")
+            os.chmod(settings.CONFIG_PATH, 0o600)
+            created = True
+            _row(OK, "ava.yaml", f"created at {settings.CONFIG_PATH}")
         except OSError as e:
             _row(WARN, "ava.yaml", f"skip: {e}")
     else:

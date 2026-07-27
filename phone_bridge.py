@@ -134,6 +134,21 @@ def media_thumb(name: str, w: int = 1024):
 app.middleware("http")(auth_gate)
 
 
+@app.exception_handler(settings.ConfigParseError)
+async def _config_parse_error(request: Request, exc: settings.ConfigParseError):
+    """A refused config write is a 409 with instructions, not a 500.
+
+    Registered once rather than at each of the dozen save_patch/save_config call
+    sites: every one of them wants the same answer, and a handler that has to be
+    remembered per route is a handler that gets forgotten. 409 Conflict because
+    the request is valid — the state on disk is what blocks it.
+    """
+    return JSONResponse(
+        {"ok": False, "error": str(exc), "error_code": "config_unparseable",
+         "config_path": str(settings.CONFIG_PATH)},
+        status_code=409)
+
+
 # --- Authentication routes ---------------------------------------------------
 @app.get("/login", response_class=HTMLResponse)
 def login_get(request: Request):

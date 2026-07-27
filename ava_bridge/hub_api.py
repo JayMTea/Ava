@@ -136,6 +136,13 @@ def system():
         "web_search": features.enabled("web_search"),
         "image": features.enabled("image"),
         "features": features.snapshot(),
+        # "" when ava.yaml is fine. When it is not, EVERY setting on this page
+        # is silently showing its default and no save will be accepted, so the
+        # UI has to say so rather than letting the owner toggle things that
+        # cannot persist. connectors/skills surface their load errors the same
+        # way — see connectors.load_errors().
+        "config_error": settings.load_error(),
+        "config_path": str(settings.CONFIG_PATH),
         "docker": bool(__import__("shutil").which("docker")),
         "retention_days": settings.data_retention_days(),
         "retention_choices": list(settings.DATA_RETENTION_CHOICES),
