@@ -117,19 +117,12 @@ services:
   # 30B model needing ~35 GB of weights, which no consumer card can hold, and the
   # uncapped restart policy below then retried that impossible start forever.
   #
-  # Scaling UP is the deliberate act, not scaling down. On a big-memory box:
-  #   AVA_MODEL=nvidia/Nemotron-Open-30B-A3B-Reasoning-FP8
-  #   AVA_TOOL_PARSER=qwen3_coder
-  # A *reasoning* model also wants `--reasoning-parser`, which is not templated
-  # here (there is no safe empty default — vLLM rejects a bare flag). Add it in a
-  # docker-compose.override.yml, or use deploy/local-serve.sh, which handles it.
+  # Scaling UP is the deliberate act, not scaling down. On a big-memory box, set
+  # AVA_MODEL and re-run deploy/install.sh — it resolves the model's parsers and
+  # context from deploy/model-flags.conf and writes them into deploy/.env. You no
+  # longer pick a parser by hand, and a reasoning model's --reasoning-parser is
+  # no longer untemplatable: see the `command:` note below.
   #
-  # CHANGING AVA_MODEL MEANS CHANGING AVA_TOOL_PARSER. vLLM needs a parser that
-  # matches the format the model emits, and a mismatch does not raise — it returns
-  # no tool_calls at all, the agent never sees the call, and every turn runs to
-  # timeout. Compose cannot pick the parser for you; deploy/local-serve.sh has the
-  # per-family table and `AVA_SERVE_DRY_RUN=1 AVA_MODEL=... bash deploy/local-serve.sh`
-  # prints the right values for any model. See docs/CHOOSE_A_MODEL.md.
   # Memory flags are NOT optional on a shared box. Without them vLLM takes ~90% of
   # the pool and captures CUDA graphs, which on unified-memory hardware (Grace-class,
   # Apple) leaves nothing for the image engine the `full` profile starts alongside it —
@@ -139,31 +132,29 @@ services:
   vllm:
     profiles: ["gpu", "full"]
     image: vllm/vllm-openai:latest
-    command:
-      - "--model"
-      - "${AVA_MODEL:-Qwen/Qwen2.5-7B-Instruct}"
-      - "--trust-remote-code"
-      - "--port"
-      - "8002"
-      # Without these two, vLLM returns tool calls as ordinary prose: the agent
-      # sees no tool_calls, retries, and every turn burns its full timeout. The
-      # default pairs with the default model above (Qwen -> hermes, no reasoning
-      # parser). Change the model, change these — see the block above.
-      - "--enable-auto-tool-choice"
-      - "--tool-call-parser"
-      - "${AVA_TOOL_PARSER:-hermes}"
-      # 0.90 suits a GPU dedicated to Ava. Lower it to ~0.40 for `--profile full`,
-      # where the GPU service shares the pool, or on unified-memory hardware where the
-      # "GPU" pool is also system RAM.
-      - "--gpu-memory-utilization"
-      - "${AVA_VLLM_GPU_UTIL:-0.90}"
-      # Graph capture spikes transiently across every batch size, including a vision
-      # encoder; that spike is what OOM-kills the engine on a shared pool. Disabling it
-      # costs a few percent of decode speed and is what makes an always-on load fit.
-      - "--enforce-eager"
-      # Bound the KV cache explicitly rather than inheriting the model's maximum.
-      - "--max-model-len"
-      - "${AVA_VLLM_MAX_LEN:-65536}"
+    # Per-model flags come from ONE place: deploy/model-flags.conf, resolved by
+    # deploy/resolve-model-flags.sh. This used to be a hardcoded
+    # `--tool-call-parser ${AVA_TOOL_PARSER:-hermes}` here AND a per-family `case`
+    # in deploy/local-serve.sh — two copies of the same knowledge, already drifted,
+    # and the compose one could not express --reasoning-parser at all.
+    #
+    # String form (not a YAML list) on purpose: compose shlex-splits it AFTER
+    # interpolation, so one variable can expand into several flags. That is what
+    # makes "vLLM rejects a bare --reasoning-parser" a non-problem — the flag is
+    # either present with a value or absent from the string entirely.
+    #
+    # The two defaults below are the resolved values for the SHIPPED default model
+    # (deploy/default-model.env), so `docker compose up` works with no .env at all.
+    # tests/test_model_flags_ssot.py asserts they still equal what the resolver
+    # produces, so they cannot drift from the table.
+    command: >-
+      --model ${AVA_MODEL:-Qwen/Qwen2.5-7B-Instruct}
+      --trust-remote-code
+      --port 8002
+      --gpu-memory-utilization ${AVA_VLLM_GPU_UTIL:-0.90}
+      --enforce-eager
+      --max-model-len ${AVA_VLLM_MAX_LEN:-32768}
+      ${AVA_VLLM_MODEL_FLAGS:---enable-auto-tool-choice --tool-call-parser hermes}
     volumes:
       - ${AVA_HOME:-./ava-data}/models/hf:/root/.cache/huggingface
     ports:

@@ -43,7 +43,17 @@ set -uo pipefail
 # so this script has no hardcoded personal paths.
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
-[ -f "$REPO/.env" ] && set -a && . "$REPO/.env" && set +a
+# .env fills in what the environment has NOT already set — the same precedence
+# ava_bridge/settings.py uses (os.environ.setdefault). A plain `set -a; . .env`
+# gives the FILE the last word, which silently defeats the override this script's
+# own header documents (`AVA_MODEL=… bash deploy/local-serve.sh`) the moment
+# someone pins AVA_MODEL in .env. Snapshot the real environment, source, restore.
+if [ -f "$REPO/.env" ]; then
+  _ava_real_env="$(export -p)"
+  set -a; . "$REPO/.env"; set +a
+  eval "$_ava_real_env"
+  unset _ava_real_env
+fi
 
 # Default image is aarch64 (DGX/GB10-class hosts). On x86_64 override it:
 #   VLLM_IMAGE=vllm/vllm-openai:latest ./deploy/local-serve.sh
@@ -67,75 +77,30 @@ RESTART="${AVA_SERVE_RESTART:-${OMNI_RESTART:-unless-stopped}}"
 # 7997 restarts this box once saw. If you declare this container in ava.yaml
 # `alloc.models`, set AVA_SERVE_RESTART=no so Ava is the sole supervisor; `ava doctor`
 # flags the combination.
-CTX="${AVA_SERVE_MAX_LEN:-${OMNI_MAX_LEN:-65536}}"   # must exceed the agent's system-context (~29k tokens of persona + tool schemas)
+# CTX is resolved below, from AVA_SERVE_MAX_LEN clamped to the model's real
+# context. It must exceed the agent's system-context (~29k tokens of persona +
+# tool schemas), and the resolver warns if it does not.
 
 # ── Per-model vLLM flags ──────────────────────────────────────────────────────
-# Keyed by a substring of the model id, lowercased. Each family sets the tool /
-# reasoning parsers and any extra flags that model NEEDS to boot or behave.
+# Resolved from deploy/model-flags.conf, which is the single source of truth for
+# every caller (this script, deploy/install.sh, and the compose vllm service).
+# It used to be an inline `case` here, which meant compose carried a second,
+# already-drifting copy that could not express a reasoning parser at all.
 #
-# Sourced from each model card's vLLM section. If vLLM rejects a name, check the
-# card — do not just drop the flag, because dropping it silently disables tool
-# calling rather than failing loudly.
-lc_model="$(printf '%s' "$MODEL" | tr '[:upper:]' '[:lower:]')"
-family=""; tbl_tool=""; tbl_reason=""; tbl_extra=""
+# The resolver keeps the semantics this script always had: explicit env beats the
+# table, "set to empty" means deliberately pass no flag, and an unknown family
+# serves WITHOUT tool-calling rather than guessing a parser.
+# shellcheck source=deploy/resolve-model-flags.sh
+. "$HERE/resolve-model-flags.sh"
+ava_resolve_model_flags "$MODEL"
 
-case "$lc_model" in
-  *nemotron*omni*)
-    family="nemotron-omni"
-    # Omni emits tool calls in the qwen3_coder XML format (<function=name>
-    # <parameter=x>…), NOT hermes JSON — using `hermes` here returns no tool_calls.
-    tbl_tool="qwen3_coder"; tbl_reason="nemotron_v3"
-    # --enforce-eager: this model captures CUDA graphs across 512 batch sizes
-    #   INCLUDING its vision encoder; that transient spike OOM-killed the engine on
-    #   a 121 GB unified pool. Disabling capture costs ~5-10% decode speed and is
-    #   what makes the always-on load fit.
-    # --max-num-batched-tokens 4096: NemotronH's Mamba cache alignment requires
-    #   this to be >= block_size (2128); the 2048 default trips an assert at boot.
-    tbl_extra="--enforce-eager --max-num-batched-tokens 4096"
-    ;;
-  *nemotron*)
-    family="nemotron"; tbl_tool="hermes"; tbl_reason="nemotron_v3" ;;
-  *qwen3-coder*|*qwen3_coder*)
-    family="qwen3-coder"; tbl_tool="qwen3_coder"; tbl_reason="" ;;
-  *qwen3*)
-    family="qwen3"; tbl_tool="hermes"; tbl_reason="qwen3" ;;
-  *qwen2*|*qwen*)
-    family="qwen"; tbl_tool="hermes"; tbl_reason="" ;;
-  *deepseek*r1*)
-    family="deepseek-r1"; tbl_tool="deepseek_v3"; tbl_reason="deepseek_r1" ;;
-  *deepseek*)
-    family="deepseek"; tbl_tool="deepseek_v3"; tbl_reason="" ;;
-  *llama-4*|*llama4*)
-    family="llama4"; tbl_tool="llama4_pythonic"; tbl_reason="" ;;
-  *llama-3*|*llama3*)
-    family="llama3"; tbl_tool="llama3_json"; tbl_reason="" ;;
-  *mistral*|*magistral*|*devstral*)
-    family="mistral"; tbl_tool="mistral"; tbl_reason="" ;;
-  *gpt-oss*|*gpt_oss*)
-    family="gpt-oss"; tbl_tool="openai"; tbl_reason="openai_gptoss" ;;
-  *glm-4*|*glm4*)
-    family="glm4"; tbl_tool="glm45"; tbl_reason="glm45" ;;
-  *hermes*)
-    family="hermes"; tbl_tool="hermes"; tbl_reason="" ;;
-esac
-
-# Explicit env wins over the table. `${VAR+x}` distinguishes "set to empty"
-# (= deliberately pass no flag) from "unset" (= fall back to the table).
-TOOL_PARSER="${AVA_TOOL_PARSER+x}"
-if [ -n "$TOOL_PARSER" ]; then TOOL_PARSER="$AVA_TOOL_PARSER"; else TOOL_PARSER="$tbl_tool"; fi
-REASON_PARSER="${AVA_REASONING_PARSER+x}"
-if [ -n "$REASON_PARSER" ]; then REASON_PARSER="$AVA_REASONING_PARSER"; else REASON_PARSER="$tbl_reason"; fi
-EXTRA_FLAGS="${AVA_SERVE_EXTRA_FLAGS-$tbl_extra}"
-
-if [ -z "$family" ] && [ -z "${AVA_TOOL_PARSER+x}" ]; then
-  echo "[local-serve] WARNING: no vLLM parser profile for '$MODEL'."
-  echo "[local-serve]   Serving WITHOUT tool-calling rather than guessing a parser —"
-  echo "[local-serve]   a wrong --tool-call-parser returns no tool_calls silently and"
-  echo "[local-serve]   Ava's turns would loop until they time out."
-  echo "[local-serve]   Fix: check the model card's vLLM section, then set e.g."
-  echo "[local-serve]     AVA_TOOL_PARSER=hermes AVA_REASONING_PARSER= bash deploy/local-serve.sh"
-  echo "[local-serve]   and set 'tools: none' on this backend in ava.yaml until you do."
-fi
+family="$AVA_RESOLVED_FAMILY"
+TOOL_PARSER="$AVA_RESOLVED_TOOL_PARSER"
+REASON_PARSER="$AVA_RESOLVED_REASONING_PARSER"
+EXTRA_FLAGS="$AVA_RESOLVED_EXTRA_FLAGS"
+# Clamped to the checkpoint's real context when the table knows it: vLLM RAISES
+# rather than clamping when asked for more than the model supports.
+CTX="$AVA_RESOLVED_MAX_LEN"
 
 # --gpu-memory-utilization. 0.40 (~48.7 GiB of a 121.7 GiB unified pool) is this
 # box's measured value for the 30B Omni, lowered from 0.55 on 2026-07-25 after
