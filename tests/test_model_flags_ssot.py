@@ -167,17 +167,15 @@ def test_local_serve_has_no_inline_table() -> None:
         "the second source of truth this table exists to remove")
 
 
-def test_compose_fallbacks_match_the_resolved_default_model() -> None:
-    """compose ships `:-` defaults so `docker compose up` works with no .env.
-    They are a copy of the resolver's answer for the shipped default, so they are
-    allowed to exist only while they still agree with it."""
+def test_compose_vllm_fallbacks_match_the_resolved_default_model() -> None:
+    """The vllm service keeps `:-` fallbacks for the two flag variables so that
+    setting only AVA_MODEL (to the shipped default) still works. They are a copy
+    of the resolver's answer, so they may exist only while they still agree."""
     model = _default_model()
     resolved = _resolve(model)
     compose = _read("deploy/docker-compose.yml")
 
     offenders: list[str] = []
-    if f"${{AVA_MODEL:-{model}}}" not in compose:
-        offenders.append(f"AVA_MODEL fallback is not {model!r}")
     want_len = resolved.get("AVA_VLLM_MAX_LEN", "")
     if f"${{AVA_VLLM_MAX_LEN:-{want_len}}}" not in compose:
         offenders.append(f"AVA_VLLM_MAX_LEN fallback is not {want_len!r}")
@@ -186,9 +184,56 @@ def test_compose_fallbacks_match_the_resolved_default_model() -> None:
         offenders.append(f"AVA_VLLM_MODEL_FLAGS fallback is not {want_flags!r}")
 
     assert not offenders, (
-        "deploy/docker-compose.yml's inline fallbacks have drifted from what "
+        "deploy/docker-compose.yml's vllm fallbacks have drifted from what "
         f"deploy/resolve-model-flags.sh resolves for {model} (the shipped default "
-        "in deploy/default-model.env). Re-run "
-        f"`deploy/resolve-model-flags.sh --env {model}` and paste the values into "
-        f"the vllm `command:` — {offenders}"
+        f"in deploy/default-model.env). Re-run `deploy/resolve-model-flags.sh "
+        f"--env {model}` and paste the values into the vllm `command:` — {offenders}"
+    )
+
+
+def test_every_profile_pins_the_shipped_default_model() -> None:
+    """A profile that serves a LOCAL engine must name the shipped default, so
+    "change the default model" stays a one-line edit in default-model.env.
+    cloud.env is exempt: its model is the user's provider's, and ships empty."""
+    model = _default_model()
+    offenders: list[str] = []
+    for rel in _tracked("deploy/profiles/*.env"):
+        src = _read(rel)
+        declared = [ln.split("=", 1)[1].strip()
+                    for ln in src.splitlines() if ln.startswith("AVA_MODEL=")]
+        if not declared:
+            offenders.append(f"{rel}: no AVA_MODEL line")
+            continue
+        got = declared[0]
+        engine = next((ln.split("=", 1)[1].strip() for ln in src.splitlines()
+                       if ln.startswith("AVA_BACKEND_ENGINE=")), "")
+        if engine == "openai":
+            continue                      # the user's provider, not ours
+        if engine == "ollama":
+            continue                      # Ollama tags are its own namespace
+        if got != model:
+            offenders.append(f"{rel}: AVA_MODEL={got!r}, expected {model!r}")
+    assert not offenders, (
+        "these profiles name a model other than the shipped default in "
+        "deploy/default-model.env, so changing the default would silently leave "
+        f"them behind — {offenders}"
+    )
+
+
+def test_compose_requires_a_backend_rather_than_guessing_one() -> None:
+    """The `ava` service starts under EVERY profile, so a single global default
+    for the backend trio is wrong for most of them. `http://vllm:8002/v1` pointed
+    `--profile cpu` at a service that profile never starts."""
+    compose = _read("deploy/docker-compose.yml")
+    offenders = [
+        var for var in ("AVA_BACKEND_URL", "AVA_BACKEND_ENGINE")
+        if re.search(rf"{var}:\s*\$\{{{var}:-", compose)
+    ]
+    if re.search(r"AVA_BACKEND_MODEL:\s*\$\{AVA_MODEL:-", compose):
+        offenders.append("AVA_BACKEND_MODEL")
+    assert not offenders, (
+        "these carry a `:-` default in deploy/docker-compose.yml. The bridge runs "
+        "under every profile, so a default that suits one silently misconfigures "
+        "the others — use `${VAR:?<instruction>}` and put the value in "
+        f"deploy/profiles/<profile>.env instead: {offenders}"
     )

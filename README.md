@@ -110,9 +110,17 @@ locked to a single cloud vendor.
 ## Quickstart
 
 ```bash
-# Docker (plug-and-play) — pick a profile for your hardware:
-cd deploy && docker compose --profile gpu up -d   # or: cpu | cloud | full
+# Docker (plug-and-play) — detects your hardware and writes deploy/.env for you:
+cd deploy && ./install.sh
 # open http://localhost:8096 — the first screen prompts you to set an admin password
+```
+
+Or pick the profile yourself:
+
+```bash
+cd deploy
+cp profiles/gpu.env .env      # or: cpu | cloud | full | agent
+docker compose up -d
 ```
 
 **On a Mac (Apple Silicon)?** Run bare metal, not Docker (Docker Desktop can't use

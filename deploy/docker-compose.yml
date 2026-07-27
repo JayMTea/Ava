@@ -1,20 +1,26 @@
-# Ava — self-hosted, plug-and-play. Pick a profile that matches your hardware:
+# Ava — self-hosted, plug-and-play. Pick the profile that matches your hardware,
+# copy it to .env, and start:
 #
-#   docker compose --profile cpu   up -d    # no GPU  -> Ollama for inference
-#   docker compose --profile gpu   up -d    # NVIDIA GPU -> vLLM
-#   docker compose --profile cloud up -d    # bring an API key, no local model
-#   docker compose --profile full  up -d    # GPU + the GPU service (image/video)
+#   cd deploy
+#   cp profiles/gpu.env .env      # or cpu / cloud / full / agent
+#   docker compose up -d
+#
+# Or let deploy/install.sh detect your hardware and write .env for you.
+#
+# The profile lives IN .env (as COMPOSE_PROFILES), not on the command line, so
+# every later `logs` / `down` / `pull` / `exec` sees the same environment that
+# `up` did. Passing `--profile` per invocation instead means a `down` typed
+# without it interpolates different values and may not find its own services.
 #
 # All state lives in one folder (AVA_HOME, default ./ava-data). On first visit
 # the web UI walks you through setting an admin password (no secret to hunt for).
 #
 # Inference: chat flows bridge -> EMBEDDED router (in-process, :8010 inside the
 # ava container) -> the profile's engine — the same product as bare metal, with
-# failover + perf logging + the /which model pill. Each profile declares its
-# backend via AVA_BACKEND_*; override in a .env next to this file if needed:
-#   gpu/full -> AVA_BACKEND_URL=http://vllm:8002/v1     engine vllm   (default)
-#   cpu      -> AVA_BACKEND_URL=http://ollama:11434/v1  engine ollama
-#   cloud    -> set AVA_BACKEND_URL/ENGINE=openai/MODEL + AVA_INFERENCE_KEY
+# failover + perf logging + the /which model pill. Which engine, and which model,
+# comes from the AVA_BACKEND_* trio in deploy/profiles/<profile>.env. The bridge
+# refuses to start rather than guess them: it runs under every profile, so any
+# single default is wrong for most of them.
 # The full tool-using agent (self-coding, connectors) needs the OpenClaw runtime,
 # which is not bundled in this image — see deploy/README.md. (A future agent
 # container only needs network access to ava:8010 + the router token.)
@@ -53,11 +59,20 @@ services:
       # it at ava:8010 (this turns /v1 auth ON; the agent presents the token).
       AVA_ROUTER_HOST: ${AVA_ROUTER_HOST:-127.0.0.1}
       # The OpenAI-compatible backend behind the embedded router.
-      AVA_BACKEND_URL: ${AVA_BACKEND_URL:-http://vllm:8002/v1}
-      AVA_BACKEND_ENGINE: ${AVA_BACKEND_ENGINE:-vllm}
-      # MUST match the vllm service's --model default: the router sends this
-      # string verbatim as the OpenAI `model` field, so a mismatch is a 404 per turn.
-      AVA_BACKEND_MODEL: ${AVA_MODEL:-Qwen/Qwen2.5-7B-Instruct}
+      #
+      # These have NO default on purpose. This service starts under every
+      # profile, so any single default is wrong for most of them: the previous
+      # global `http://vllm:8002/v1` pointed `--profile cpu` at a hostname that
+      # profile never starts, and the bridge then failed every turn against a
+      # DNS name that would never resolve — after a multi-GB pull, with nothing
+      # saying why. `:?` turns that into an instruction at second zero.
+      #
+      # deploy/profiles/*.env carries the right trio for each profile.
+      AVA_BACKEND_URL: ${AVA_BACKEND_URL:?no backend configured — run deploy/install.sh, or `cd deploy && cp profiles/<cpu|gpu|cloud|full|agent>.env .env && docker compose up -d`. For the cloud profile, fill in the empty values in .env.}
+      AVA_BACKEND_ENGINE: ${AVA_BACKEND_ENGINE:?set with AVA_BACKEND_URL — see deploy/profiles/}
+      # The router sends this string verbatim as the OpenAI `model` field, so it
+      # must be what the engine was STARTED with; a mismatch is a 404 per turn.
+      AVA_BACKEND_MODEL: ${AVA_MODEL:?set with AVA_BACKEND_URL — see deploy/profiles/}
       AVA_INFERENCE_KEY: ${AVA_INFERENCE_KEY:-}
       # the GPU service endpoint for the image pipeline + gpu-service connector (`full`
       # profile only — in other profiles the connector row just shows down).
@@ -72,8 +87,9 @@ services:
   # Runs NemoClaw + the RemoteRuntime shim. It mounts the host Docker socket so
   # OpenShell can spawn the agent sandbox — that socket is ROOT-EQUIVALENT on the
   # host, so this is deliberately opt-in. Enable with:
-  #   AVA_AGENT_ENABLED=1  AVA_AGENT_RUNTIME=remote  AVA_ROUTER_HOST=0.0.0.0
-  #   docker compose --profile agent up -d          (or `--profile full`)
+  #   cp profiles/agent.env .env && docker compose up -d   (or profiles/full.env)
+  # That file sets AVA_AGENT_ENABLED / AVA_AGENT_RUNTIME / AVA_ROUTER_HOST,
+  # which only work as a set — enabling one alone leaves the bridge tool-less.
   # See deploy/README.md "Full agent in Docker" for the security caveat + the
   # sandbox<->bridge networking notes.
   agent:
@@ -88,9 +104,12 @@ services:
       AVA_BRIDGE_URL: http://ava:8096
       AVA_OC_SANDBOX: ${AVA_OC_SANDBOX:-my-assistant}
       AVA_OC_AGENT: ${AVA_OC_AGENT:-main}
-      # MUST match the vllm service's --model default: the router sends this
-      # string verbatim as the OpenAI `model` field, so a mismatch is a 404 per turn.
-      AVA_BACKEND_MODEL: ${AVA_MODEL:-Qwen/Qwen2.5-7B-Instruct}
+      # Same value the bridge uses. No `:?` here: `docker compose config`
+      # interpolates EVERY service regardless of profile, so a guard on this one
+      # reports a missing model against `agent` even when the user is on the
+      # cloud profile and has no agent. The `ava` service above always runs and
+      # already enforces it, with a message naming the thing they configured.
+      AVA_BACKEND_MODEL: ${AVA_MODEL}
       # Override if the sandbox can't auto-resolve the bridge container's IP.
       AVA_BRIDGE_IP: ${AVA_BRIDGE_IP:-}
     volumes:
@@ -106,9 +125,9 @@ services:
     restart: unless-stopped
 
   # --- inference: CPU / no-GPU users ---
-  # First run pulls a small model: `docker compose exec ollama ollama pull llama3.2`
-  # then set in .env: AVA_BACKEND_URL=http://ollama:11434/v1
-  #                   AVA_BACKEND_ENGINE=ollama  AVA_MODEL=llama3.2
+  # profiles/cpu.env already wires the bridge to this service. The model store
+  # starts EMPTY, so first run needs one pull (deploy/install.sh does it):
+  #   docker compose exec ollama ollama pull llama3.2
   ollama:
     profiles: ["cpu"]
     image: ollama/ollama:latest
@@ -156,7 +175,7 @@ services:
     # tests/test_model_flags_ssot.py asserts they still equal what the resolver
     # produces, so they cannot drift from the table.
     command: >-
-      --model ${AVA_MODEL:-Qwen/Qwen2.5-7B-Instruct}
+      --model ${AVA_MODEL:?set with AVA_BACKEND_URL — see deploy/profiles/}
       --trust-remote-code
       --port 8002
       --gpu-memory-utilization ${AVA_VLLM_GPU_UTIL:-0.90}

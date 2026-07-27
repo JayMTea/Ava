@@ -33,17 +33,31 @@ Then continue to step two, [picking Ava's brain](../docs/CHOOSE_A_MODEL.md).
 
 ## 1. Docker (recommended)
 
-Requires Docker and Docker Compose v2. Pick the profile that matches your machine:
+Requires Docker and Docker Compose v2.
+
+The easy path — detects your hardware, picks a profile, resolves your model's
+vLLM flags, and waits for the app to actually answer before saying it is done:
+
+```bash
+cd deploy && ./install.sh
+```
+
+Or pick the profile yourself. Copy it to `.env` and start; the profile selection
+lives in the file, so every later `logs` / `down` / `pull` sees the same settings:
 
 ```bash
 cd deploy
+cp profiles/cpu.env   .env   # no GPU  -> Ollama for inference
+cp profiles/gpu.env   .env   # NVIDIA GPU -> vLLM
+cp profiles/cloud.env .env   # bring an API key, no local model (edit .env first)
+cp profiles/full.env  .env   # everything, incl. image/video (the GPU service)
+cp profiles/agent.env .env   # + full tool-using agent (opt-in, see below)
 
-docker compose --profile cpu   up -d   # no GPU  -> Ollama for inference
-docker compose --profile gpu   up -d   # NVIDIA GPU -> vLLM
-docker compose --profile cloud up -d   # bring an API key, no local model
-docker compose --profile full  up -d   # everything, incl. image/video (the GPU service)
-docker compose --profile agent up -d   # + full tool-using agent (opt-in, see below)
+docker compose up -d
 ```
+
+See [profiles/README.md](profiles/README.md) for what each one sets and why the
+profile lives in `.env` rather than on the command line.
 
 Then open **http://localhost:8096**. The first screen prompts you to create an
 admin password, so there is nothing to hunt for in logs.
@@ -65,23 +79,31 @@ Good to know:
 
   | Variable | Default | Notes |
   |---|---|---|
-  | `AVA_MODEL` | `Qwen/Qwen2.5-7B-Instruct` | Any model vLLM can serve. |
-  | `AVA_TOOL_PARSER` | `hermes` | **Must match the model.** A mismatch returns no `tool_calls` *silently* and every turn runs to timeout. `AVA_SERVE_DRY_RUN=1 AVA_MODEL=... bash deploy/local-serve.sh` prints the right value. |
-  | `AVA_VLLM_GPU_UTIL` | `0.90` | Fraction of GPU memory vLLM may take. Lower to ~`0.40` for `--profile full`, where the GPU service shares the pool. |
-  | `AVA_VLLM_MAX_LEN` | `65536` | Context ceiling. Must exceed the agent's ~29k-token system context. |
+  | `AVA_MODEL` | `Qwen/Qwen2.5-7B-Instruct` | Any model vLLM can serve. Set it, then re-run `./install.sh` (or `./resolve-model-flags.sh --env <model> >> .env`) so its parsers follow. |
+  | `AVA_VLLM_GPU_UTIL` | `0.90` | Fraction of GPU memory vLLM may take. `profiles/full.env` lowers it to `0.55`, where the GPU service shares the pool. |
+  | `AVA_VLLM_MAX_LEN` | resolved | Context ceiling, **clamped to what the model actually supports** — vLLM raises rather than clamping, so asking for more than the checkpoint allows means it never boots. |
+  | `AVA_VLLM_MODEL_FLAGS` | resolved | `--tool-call-parser`, `--reasoning-parser` and any model-specific boot flags, as one string. |
 
-  A *reasoning* model additionally needs `--reasoning-parser`, which compose does
-  not template (vLLM rejects a bare flag, so there is no safe empty default). Add
-  it via `docker-compose.override.yml`, or use `deploy/local-serve.sh`, which
-  resolves both parsers from the model family. See [docs/CHOOSE_A_MODEL.md](../docs/CHOOSE_A_MODEL.md).
+  You no longer pick a parser by hand. `deploy/model-flags.conf` maps a model to
+  its parsers and real context length, and `deploy/resolve-model-flags.sh` is the
+  only thing that reads it — `install.sh`, `local-serve.sh` and compose all go
+  through it, so the container and bare-metal paths cannot disagree. A parser
+  that does not match the model returns no `tool_calls` *silently*, and every
+  turn then runs to timeout, so this is the one setting worth getting right.
+  An unknown model family serves without tool-calling rather than guessing.
+  See [docs/CHOOSE_A_MODEL.md](../docs/CHOOSE_A_MODEL.md).
 - **Inference backend**: chat flows bridge → embedded router (`:8010` in-container)
-  → the profile's engine. Each profile sets `AVA_BACKEND_URL`/`ENGINE`/`MODEL`
-  defaults (gpu→vllm, cpu→ollama); for `cloud`, set them plus `AVA_INFERENCE_KEY`
-  in `deploy/.env` (see the compose header).
+  → the profile's engine. `AVA_BACKEND_URL`/`ENGINE`/`MODEL` come from
+  `deploy/profiles/<profile>.env`, which you copy to `deploy/.env`. Compose has
+  **no default** for them and refuses to start without them: the bridge runs
+  under every profile, so any one default is wrong for the others — the old
+  global `http://vllm:8002/v1` pointed the `cpu` profile at a service it never
+  started. For `cloud`, the three values ship empty and you fill them in.
 - **Agent**: the container runs the tool-less assistant by default. For the
   **full tool-using agent** (self-coding, connectors, memory) in Docker, opt into
-  the `agent` profile: set `AVA_AGENT_ENABLED=1 AVA_AGENT_RUNTIME=remote
-  AVA_ROUTER_HOST=0.0.0.0`, then `docker compose --profile agent up -d`. This
+  the `agent` profile: `cp profiles/agent.env .env && docker compose up -d`
+  (that file already sets the `AVA_AGENT_ENABLED` / `AVA_AGENT_RUNTIME` /
+  `AVA_ROUTER_HOST` trio, which all three have to be right together). This
   runs a separate agent container that mounts the host Docker socket, which is
   **root-equivalent** on the host; it is opt-in for that reason. Full setup and
   the security caveat: [AGENT_RUNTIME.md, Full agent in Docker](../docs/AGENT_RUNTIME.md).
@@ -103,7 +125,7 @@ cosign verify ghcr.io/<owner>/ava-bridge:<version> \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 
 echo "AVA_IMAGE=ghcr.io/<owner>/ava-bridge:<version>" >> deploy/.env
-docker compose --profile gpu pull && docker compose --profile gpu up -d
+docker compose pull && docker compose up -d
 ```
 
 One-line install on a fresh box (auto-detects GPU/CPU). Run it from inside your
