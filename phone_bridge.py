@@ -42,17 +42,17 @@ from ava_bridge.config import (
     RATE, MEDIA_DIR, UPLOAD_DIR, MAX_UPLOAD_BYTES, MAX_DOC_CHARS,
     OC_SESSION, PHONE_THRESHOLD, COOKIE_NAME, IMAGE_EXTS,
 )
-from ava_bridge.agent import (run_turn as _agent_run_turn, _warm_openclaw,
+from ava_bridge.agent import (run_turn as _agent_run_turn, warm_openclaw,
                               discard_session, get_route, runtime_available,
                               set_route, which_model)
 from ava_bridge.chat_store import history_for as _history_for
 from ava_bridge.gpu_jobs import (start_image_job, start_upscale_job,
-                                   _pickup_image_since, cancel_job, attach_chat)
+                                   pickup_image_since, cancel_job, attach_chat)
 from ava_bridge.turns import start_turn
-from ava_bridge.documents import extract_text, _augment, _parse_ids, _safe_name
+from ava_bridge.documents import extract_text, augment, parse_ids, safe_name
 from ava_bridge.audio import decode_to_pcm, tts_wav_bytes, gpu_transcribe
 from ava_bridge.chat_store import (
-    _chat_new, _chat_append, _chat_summary, _chat_session, _atts_meta, _chats_persist,
+    _chat_new, chat_append, _chat_summary, _chat_session, _atts_meta, _chats_persist,
     last_render_context, recent_user_text,
 )
 from ava_bridge import turn_router
@@ -326,7 +326,7 @@ def _startup():
               "Install NemoClaw for tools/memory/skills (`ava agent provision`).", flush=True)
     else:
         print(f"[ava-bridge] agent runtime: {rt.name} (full agent — tools + memory + skills).", flush=True)
-    threading.Thread(target=_warm_openclaw, daemon=True).start()
+    threading.Thread(target=warm_openclaw, daemon=True).start()
     # Provide the inference router: embedded in-process unless a standalone
     # unit already owns the port (or config disables it). Same in-process
     # pattern as the samplers below — no extra service on a fresh install.
@@ -1588,12 +1588,12 @@ async def talk(audio: UploadFile = File(...), history: str = Form("[]"),
     sim_out = round(float(sim), 3) if sim is not None else None
 
     # Route through Ava — she decides whether to call the run_gpu_job tool.
-    ids = _parse_ids(attachments)
-    agent_text = _augment(text, ids)
+    ids = parse_ids(attachments)
+    agent_text = augment(text, ids)
     agent_text = memory_store.augment_with_recall(agent_text, text, chat_id)
     sid = _chat_session(chat_id) if chat_id else None
     if chat_id:
-        _chat_append(chat_id, "user", text, _atts_meta(ids))
+        chat_append(chat_id, "user", text, _atts_meta(ids))
     t0 = time.time()
     tools: list[str] = []
     try:
@@ -1604,12 +1604,12 @@ async def talk(audio: UploadFile = File(...), history: str = Form("[]"),
         # the finished picture so it still appears on the user's screen. Only
         # the full agent runtime can have rendered one: on the tool-less direct
         # floor this wait would just hang a failed chat for two minutes.
-        job = _pickup_image_since(t0, wait=120) if runtime_available() else None
+        job = pickup_image_since(t0, wait=120) if runtime_available() else None
         if job:
             reply = "Here's the image you asked for."
             m = which_model()
             if chat_id:
-                _chat_append(chat_id, "assistant", reply, model=m, tools_used=tools)
+                chat_append(chat_id, "assistant", reply, model=m, tools_used=tools)
                 attach_chat(job["id"], chat_id)  # bridge persists the image itself
             return {
                 "accepted": True, "text": text, "reply": reply, "sim": sim_out,
@@ -1622,7 +1622,7 @@ async def talk(audio: UploadFile = File(...), history: str = Form("[]"),
 
     m = which_model()
     if chat_id:
-        _chat_append(chat_id, "assistant", reply, model=m, tools_used=tools)
+        chat_append(chat_id, "assistant", reply, model=m, tools_used=tools)
     resp = {
         "accepted": True,
         "text": text,
@@ -1633,7 +1633,7 @@ async def talk(audio: UploadFile = File(...), history: str = Form("[]"),
         "tools_used": tools,
     }
     if any("run_gpu_job" in t for t in tools):
-        job = _pickup_image_since(t0, wait=120)
+        job = pickup_image_since(t0, wait=120)
         if job:
             resp["job"] = job
             if chat_id:
@@ -1660,7 +1660,7 @@ async def generate(prompt: str = Form(...), width: int = Form(1024),
     if not prompt:
         return JSONResponse({"error": "empty prompt"}, status_code=400)
     if chat_id:
-        _chat_append(chat_id, "user", (chat_text or prompt).strip())
+        chat_append(chat_id, "user", (chat_text or prompt).strip())
     # chat_id rides the job: the bridge persists the outcome (image or coded
     # error) when the render ends — the client only paints progress.
     job_id = start_image_job(prompt, chat_id=chat_id or None,
@@ -1707,15 +1707,15 @@ async def talk_text(text: str = Form(...), history: str = Form("[]"),
                     attachments: str = Form("[]"), chat_id: str = Form("")):
     """Typed chat (no voice gate, no TTS). Ava drives GPU workloads herself."""
     text = text.strip()
-    ids = _parse_ids(attachments)
+    ids = parse_ids(attachments)
     if not text and not ids:
         return JSONResponse({"error": "empty text"}, status_code=400)
 
-    agent_text = _augment(text, ids)
+    agent_text = augment(text, ids)
     agent_text = memory_store.augment_with_recall(agent_text, text, chat_id)
     sid = _chat_session(chat_id) if chat_id else None
     if chat_id:
-        _chat_append(chat_id, "user", text, _atts_meta(ids))
+        chat_append(chat_id, "user", text, _atts_meta(ids))
     t0 = time.time()
     tools: list[str] = []
     try:
@@ -1724,20 +1724,20 @@ async def talk_text(text: str = Form(...), history: str = Form("[]"),
     except Exception as e:  # noqa: BLE001
         # Salvage an image the tool may have rendered before the turn timed out
         # (only possible on the full agent runtime — see /api/talk above).
-        job = _pickup_image_since(t0, wait=120) if runtime_available() else None
+        job = pickup_image_since(t0, wait=120) if runtime_available() else None
         if job:
             m = which_model()
             if chat_id:
-                _chat_append(chat_id, "assistant", "Here's the image you asked for.", model=m, tools_used=tools)
+                chat_append(chat_id, "assistant", "Here's the image you asked for.", model=m, tools_used=tools)
                 attach_chat(job["id"], chat_id)  # bridge persists the image itself
             return {"reply": "Here's the image you asked for.", "job": job, "model": m, "tools_used": tools}
         return JSONResponse({"error": f"Ava unreachable: {e}"}, status_code=502)
     m = which_model()
     if chat_id:
-        _chat_append(chat_id, "assistant", reply, model=m, tools_used=tools)
+        chat_append(chat_id, "assistant", reply, model=m, tools_used=tools)
     resp = {"reply": reply, "model": m, "tools_used": tools}
     if any("run_gpu_job" in t for t in tools):
-        job = _pickup_image_since(t0, wait=120)
+        job = pickup_image_since(t0, wait=120)
         if job:
             resp["job"] = job
             if chat_id:
@@ -1753,7 +1753,7 @@ async def chat_stream(text: str = Form(...), history: str = Form("[]"),
     routing knowledge. Returns {"turn_id"} for an agent turn or {"job"} for a
     render; either way the outcome is persisted server-side (Phase 1)."""
     text = text.strip()
-    ids = _parse_ids(attachments)
+    ids = parse_ids(attachments)
     if not text and not ids:
         return JSONResponse({"error": "empty text"}, status_code=400)
     gate_route = None
@@ -1769,16 +1769,16 @@ async def chat_stream(text: str = Form(...), history: str = Form("[]"),
             if blocked:
                 code, msg = blocked
                 if chat_id:
-                    _chat_append(chat_id, "user", text)
-                    _chat_append(chat_id, "assistant", msg, error_code=code)
+                    chat_append(chat_id, "user", text)
+                    chat_append(chat_id, "assistant", msg, error_code=code)
                 return {"error": msg, "error_code": code}
             if chat_id:
-                _chat_append(chat_id, "user", text)
+                chat_append(chat_id, "user", text)
             job_id = start_image_job(d["image_prompt"], chat_id=chat_id or None)
             return {"job": {"id": job_id, "kind": "image",
                             "prompt": d["image_prompt"]},
                     "route": d["route"]}
-    agent_text = _augment(text, ids)
+    agent_text = augment(text, ids)
     agent_text = memory_store.augment_with_recall(agent_text, text, chat_id)
     # prompt_help shares the agent pipeline with chat, but gets the edit-don't-
     # execute hint so Ava refines the prompt instead of running it (July-11 fix).
@@ -1786,7 +1786,7 @@ async def chat_stream(text: str = Form(...), history: str = Form("[]"),
         agent_text = turn_router.PROMPT_HELP_HINT + agent_text
     sid = _chat_session(chat_id) if chat_id else OC_SESSION
     if chat_id:
-        _chat_append(chat_id, "user", text, _atts_meta(ids))
+        chat_append(chat_id, "user", text, _atts_meta(ids))
     tid = start_turn(agent_text, sid, chat_id)
     return {"turn_id": tid}
 
@@ -1877,7 +1877,7 @@ async def upload(files: List[UploadFile] = File(...)):
                                  f"(max {MAX_UPLOAD_BYTES // (1024 * 1024)} MB)"})
             continue
         aid = uuid.uuid4().hex[:12]
-        safe = _safe_name(uf.filename)
+        safe = safe_name(uf.filename)
         ext = os.path.splitext(safe)[1].lower()
         if ext not in _ALLOWED_UPLOAD_EXTS:
             out.append({"error": f"{uf.filename}: file type '{ext or '?'}' not allowed"})
@@ -1960,7 +1960,7 @@ def chats_image(cid: str, url: str = Form(...), caption: str = Form(""),
                 img_models = parsed
         except (ValueError, TypeError):
             img_models = None
-    _chat_append(cid, "assistant", caption, image=url, img_models=img_models)
+    chat_append(cid, "assistant", caption, image=url, img_models=img_models)
     return {"ok": True}
 
 

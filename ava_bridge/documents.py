@@ -84,13 +84,13 @@ def extract_text(path: str, ext: str) -> str:
     return ""
 
 
-def _safe_name(name: str) -> str:
+def safe_name(name: str) -> str:
     base = os.path.basename(name or "file")
     base = re.sub(r"[^A-Za-z0-9._-]", "_", base)
     return base[:120] or "file"
 
 
-def _parse_ids(raw: str) -> list[str]:
+def parse_ids(raw: str) -> list[str]:
     try:
         v = json.loads(raw or "[]")
         return [str(x) for x in v] if isinstance(v, list) else []
@@ -98,7 +98,7 @@ def _parse_ids(raw: str) -> list[str]:
         return []
 
 
-def _augment(text: str, ids: list[str]) -> str:
+def augment(text: str, ids: list[str]) -> str:
     """Fold uploaded-attachment text into the message sent to Ava."""
     if not ids:
         return text

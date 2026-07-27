@@ -40,12 +40,12 @@ def chat_direct(text: str, history: list[dict] | None = None) -> tuple[str, list
     return runtime.direct().run_turn(text, history=history)
 
 
-def _warm_openclaw():
+def warm_openclaw():
     """Prime the runtime's cold-start cost (no-op for the direct floor)."""
     runtime.active().warm()
 
 
-def _sbx_read(inner: str, timeout: int = 20) -> str:
+def sbx_read(inner: str, timeout: int = 20) -> str:
     """Run a command inside the agent sandbox (for live chain-of-thought).
 
     Uses the CONFIGURED runtime (nemoclaw in-process by default, or the remote
@@ -53,7 +53,7 @@ def _sbx_read(inner: str, timeout: int = 20) -> str:
     return runtime.configured().exec(inner, timeout=timeout)
 
 
-def _session_file(sid: str) -> str | None:
+def session_file(sid: str) -> str | None:
     return runtime.configured().session_file(sid)
 
 
