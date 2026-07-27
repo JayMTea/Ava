@@ -259,9 +259,48 @@ except Exception:  # noqa: BLE001 — no overlay (fork) or a broken overlay
 # ---- Authentication ----------------------------------------------------------
 COOKIE_NAME = "ava_session"
 SESSION_TTL = int(os.environ.get("AVA_SESSION_TTL_DAYS", "30")) * 86400
-# TLS is terminated by Tailscale (https://...:8445), so the browser sees a secure
-# origin -> Secure cookie is correct. Set AVA_COOKIE_SECURE=0 only for http debug.
-COOKIE_SECURE = os.environ.get("AVA_COOKIE_SECURE", "1") != "0"
+
+
+def _resolve_cookie_secure() -> bool | None:
+    """auth.cookie_secure: true|false|auto. None means auto — decide per request.
+
+    This used to be `os.environ.get("AVA_COOKIE_SECURE", "1") != "0"`, which was
+    wrong twice over. It had no ava.yaml key, and it was a bare string compare, so
+    `AVA_COOKIE_SECURE=false` evaluated to True — the opposite of what it says.
+
+    Worse, it was unconditional. A Secure cookie is discarded by the browser over
+    plain http, so on a LAN IP the session silently vanished and the user bounced
+    back to /login with no message anywhere — indistinguishable from a wrong
+    password. That is the flow docs/MOBILE.md markets (install the PWA on your
+    phone), and qa/env_recipe.py pinned this to "0", so the suite could not see it.
+
+    `auto` matches ava_bridge/router_app.py's require_auth resolution: derive it
+    from the request instead of guessing at import. See auth.request_is_secure().
+    """
+    raw = settings.get("auth.cookie_secure", "auto", env="AVA_COOKIE_SECURE")
+    val = str(raw).strip().lower()
+    if val in ("1", "true", "yes", "on"):
+        return True
+    if val in ("0", "false", "no", "off"):
+        return False
+    return None
+
+
+# True = always Secure, False = never, None = auto (per-request scheme).
+# The name is unchanged so `mock.patch.object(config, "COOKIE_SECURE", False)`
+# keeps working in tests/test_password_change.py.
+COOKIE_SECURE = _resolve_cookie_secure()
+
+# Peers whose X-Forwarded-For / X-Forwarded-Proto we believe. Loopback by default,
+# which covers `tailscale serve` and a same-host nginx/Caddy. NEVER trust these
+# headers from an arbitrary peer: behind a loopback proxy every client would
+# otherwise appear to be 127.0.0.1, which would defeat the first-run claim gate
+# and let one LAN device exhaust everyone's login-throttle bucket.
+TRUSTED_PROXIES = tuple(
+    p.strip() for p in str(
+        settings.get("server.trusted_proxies", "127.0.0.1,::1",
+                     env="AVA_TRUSTED_PROXIES")).split(",") if p.strip())
+
 LOGIN_MAX = 8
 LOGIN_WINDOW = 60
 

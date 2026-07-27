@@ -18,7 +18,20 @@ persona:                   # assistant character (agent/persona.txt.tmpl is rend
   adult: false            # [AVA_PERSONA_ADULT]  true = allow explicit/NSFW conversation for the owner
 
 server:
-  host: 0.0.0.0            # [AVA_HOST]
+  # Loopback by default: Ava is a single-tenant appliance with one shared
+  # password, and until you set that password `/setup` is necessarily open. A
+  # wider bind is a deliberate act, not a default. (Docker is unaffected — the
+  # container binds 0.0.0.0 inside its own namespace and publishes on
+  # 127.0.0.1; see deploy/Dockerfile.)
+  #
+  # To reach Ava from your phone, prefer a VPN or a reverse proxy over binding
+  # 0.0.0.0 on an untrusted network. `tailscale serve` needs no change here.
+  host: 127.0.0.1          # [AVA_HOST]
+  # Proxies whose X-Forwarded-For / X-Forwarded-Proto Ava believes. Loopback
+  # covers `tailscale serve` and a same-host nginx/Caddy. Never widen this to a
+  # peer you do not control: those headers decide who the login throttle blames,
+  # and whether the first-run claim gate thinks you are local.
+  trusted_proxies: "127.0.0.1,::1"   # [AVA_TRUSTED_PROXIES]
   port: 8096              # [AVA_PORT]
   public_url: http://localhost:8096   # external URL users reach Ava at
 
@@ -26,6 +39,15 @@ auth:
   mode: password          # password | none  (none = local dev only)
   # The password + signing secret are NOT stored here — they live in
   # $AVA_HOME/secrets/ (auto-generated on first run) or env AVA_PASSWORD / AVA_SECRET.
+  #
+  # Mark the session cookie Secure? true | false | auto  [AVA_COOKIE_SECURE]
+  # `auto` (recommended) sets it only when the request actually arrived over
+  # https — directly, or via X-Forwarded-Proto from a trusted_proxy above.
+  # It matters because a browser DISCARDS a Secure cookie sent over plain http:
+  # forcing it on for a LAN address logs you out on every request with no error
+  # anywhere, which is indistinguishable from a wrong password. Set `true` only
+  # if you terminate TLS somewhere Ava cannot see.
+  cookie_secure: auto
 
 paths:                     # all default under AVA_HOME; override only if needed
   data: null              # [AVA_DATA_DIR]

@@ -30,7 +30,6 @@ def hermetic_env(home: str, llm_url: str, gpusvc_url: str, *,
         "AVA_AGENT_ENABLED": "0",        # DirectRuntime floor (no NemoClaw)
         "AVA_ROUTER_EMBEDDED": "false",  # no in-process inference router
         "AVA_LEARNING": "0",             # no self-analysis cycles
-        "AVA_COOKIE_SECURE": "0",        # tests speak plain http
         "AVA_GPU_REFINE": "0",         # image jobs stop at the base render
         "AVA_ROUTER_CHAT": llm_url,      # DirectRuntime -> fake LLM
         "AVA_GPU_SERVICE": gpusvc_url,          # media jobs -> fake the GPU service

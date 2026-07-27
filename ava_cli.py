@@ -39,6 +39,18 @@ def _probe(url: str) -> bool:
         return False
 
 
+def _server_port() -> int:
+    """The port the bridge listens on, from the one resolver.
+
+    Imported lazily: ava_bridge.config creates directories and writes the
+    internal token at import, which a plain `ava --help` has no business doing.
+    Previously this expression was copied into four call sites, which is how the
+    CLI and the bridge came to disagree about the default bind host.
+    """
+    from ava_bridge import config as _cfg
+    return _cfg.SERVER_PORT
+
+
 # --------------------------------------------------------------------------- #
 # Tier recommendation lives in model_fit so doctor / models pull / the setup
 # wizard share one source of truth.
@@ -260,7 +272,7 @@ def cmd_doctor(_args) -> int:
         _row(WARN, "intent routing", f"probe failed: {e}")
 
     print("\nBridge")
-    port = settings.get_int("server.port", 8096, env="AVA_PORT")
+    port = _server_port()
     _row(OK if _probe(f"http://127.0.0.1:{port}/api/health") else WARN,
          "web app", f"http://127.0.0.1:{port}")
     print()
@@ -350,12 +362,27 @@ def cmd_setup(args) -> int:
 
 # --------------------------------------------------------------------------- #
 def cmd_up(args) -> int:
-    host = args.host or settings.get("server.host", "0.0.0.0", env="AVA_HOST")
-    port = args.port or settings.get_int("server.port", 8096, env="AVA_PORT")
+    # Resolved by ava_bridge.config, not re-derived here. This line used to
+    # default to "0.0.0.0" while config.py defaulted to "127.0.0.1"; `ava up`
+    # is what most people run, so the wider bind is the one that shipped —
+    # against SECURITY.md's own claim and ava_security_check.py's own check.
+    from ava_bridge import config as _cfg
+    host = args.host or _cfg.SERVER_HOST
+    port = args.port or _cfg.SERVER_PORT
     py = sys.executable
     print(f"{B}Starting Ava{X} on http://{host}:{port}  (Ctrl-C to stop)\n")
+    if host not in ("127.0.0.1", "::1", "localhost"):
+        from ava_bridge import auth as _auth
+        if _auth.needs_setup():
+            print(f"{Y}●{X} Binding {host} with NO admin password set. Until you set one, "
+                  "anyone who can reach this port could claim this Ava.")
+            print("  Setup from another machine now requires the claim token printed "
+                  "below; from this machine, just open the URL above.\n")
     cmd = [py, "-m", "uvicorn", "phone_bridge:app", "--host", str(host),
-           "--port", str(port)]
+           "--port", str(port),
+           # See serve.py: only trusted peers may assert scheme/address.
+           "--proxy-headers",
+           "--forwarded-allow-ips", ",".join(_cfg.TRUSTED_PROXIES)]
     return subprocess.call(cmd, cwd=settings.CODE_ROOT)
 
 
@@ -495,7 +522,7 @@ def cmd_verify(_args) -> int:
 
     # 5. Inference + health (best-effort; needs services up)
     print("\nInference / health  (best-effort — needs `ava up`)")
-    port = settings.get_int("server.port", 8096, env="AVA_PORT")
+    port = _server_port()
     _row(OK if _probe(config.ROUTER_CHAT_URL.replace("/v1/chat/completions", "/healthz")) else WARN,
          "router", "up" if _probe(config.ROUTER_CHAT_URL.replace("/v1/chat/completions", "/healthz"))
          else "not reachable (start with `ava up`)")
@@ -762,7 +789,7 @@ def cmd_device(args) -> int:
             print(f"{BAD} usage: ava device token <id>")
             return 1
         tok = internal.ingest_token(args.name)
-        port = settings.get_int("server.port", 8096, env="AVA_PORT")
+        port = _server_port()
         url = f"{settings.get('server.public_url', f'http://localhost:{port}')}"
         ep = f"{url.rstrip('/')}/api/connectors/{args.name}/events"
         print(f"{OK} inbound push token for '{args.name}':\n\n  {tok}\n")

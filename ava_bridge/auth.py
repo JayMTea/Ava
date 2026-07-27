@@ -8,6 +8,7 @@ session store to leak.
 """
 import hashlib
 import hmac
+import ipaddress
 import os
 import secrets
 import time
@@ -149,9 +150,128 @@ def _is_authed(request: Request) -> bool:
     return _valid_token(request.cookies.get(config.COOKIE_NAME, ""))
 
 
-def _set_session_cookie(resp: Response) -> None:
+# --- who is asking, and over what ---------------------------------------------
+
+def _is_loopback(host: str) -> bool:
+    """True only for a host we can PARSE and that is loopback.
+
+    Fails closed on anything unparseable — including Starlette's TestClient, whose
+    `request.client.host` is the literal string "testclient". A gate that treated
+    "cannot parse" as "local" would be open to anything that confused it, so the
+    QA suite passes an explicit client address instead (qa/conftest.py).
+    """
+    if not host:
+        return False
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def client_ip(request: Request) -> str:
+    """The caller's address, honouring X-Forwarded-For ONLY from a trusted peer.
+
+    One resolver for the whole app. It also fixes a live defect: the login
+    throttle keyed on `request.client.host`, so behind any reverse proxy every
+    device on the network shared a single lockout bucket — eight wrong guesses
+    from one phone locked out the house.
+    """
+    peer = (request.client.host if request.client else "") or ""
+    if peer in config.TRUSTED_PROXIES:
+        fwd = request.headers.get("x-forwarded-for", "")
+        if fwd:
+            # Last hop is the one our trusted proxy actually spoke to; earlier
+            # entries are client-supplied and forgeable.
+            return fwd.split(",")[-1].strip() or peer
+    return peer
+
+
+def request_is_secure(request: Request) -> bool:
+    """Did this request reach us over TLS?"""
+    if request.url.scheme == "https":
+        return True
+    peer = (request.client.host if request.client else "") or ""
+    if peer in config.TRUSTED_PROXIES:
+        proto = request.headers.get("x-forwarded-proto", "")
+        if proto:
+            return proto.split(",")[0].strip().lower() == "https"
+    return False
+
+
+def cookie_secure_for(request: Request) -> bool:
+    """Whether to mark the session cookie Secure for THIS request."""
+    if config.COOKIE_SECURE is not None:
+        return bool(config.COOKIE_SECURE)
+    return request_is_secure(request)
+
+
+def _set_session_cookie(resp: Response, request: Request | None = None) -> None:
+    secure = cookie_secure_for(request) if request is not None else bool(config.COOKIE_SECURE)
     resp.set_cookie(config.COOKIE_NAME, _make_token(), max_age=config.SESSION_TTL,
-                    httponly=True, secure=config.COOKIE_SECURE, samesite="lax", path="/")
+                    httponly=True, secure=secure, samesite="lax", path="/")
+
+
+# --- first-run claim ----------------------------------------------------------
+# `/setup` is public (it has to be — there is no password yet) and POST /setup
+# only checked `needs_setup()`. On a non-loopback bind that means the first device
+# on the network to find the box sets the admin password, and the owner is locked
+# out of their own install. Refusing outright is not the answer either: a headless
+# server with no local browser must still be claimable.
+#
+# So: loopback claims freely; anyone else presents a token printed to the server's
+# own console. Same shape as Jupyter's token and Home Assistant's onboarding.
+
+_CLAIM_FILE = os.path.join(config.CHATS_DIR, "setup_claim")
+
+
+def claim_token() -> str:
+    """The current first-run claim token, minting one if absent. Empty once the
+    instance has been claimed (the file is removed when a password is set)."""
+    if not needs_setup():
+        return ""
+    try:
+        with open(_CLAIM_FILE, encoding="utf-8") as f:
+            existing = f.read().strip()
+            if existing:
+                return existing
+    except FileNotFoundError:
+        pass
+    tok = secrets.token_urlsafe(16)
+    try:
+        with open(_CLAIM_FILE, "w", encoding="utf-8", opener=_secure_opener) as f:
+            f.write(tok + "\n")
+        os.chmod(_CLAIM_FILE, 0o600)
+    except OSError:
+        return ""          # unwritable AVA_HOME: never block setup on bookkeeping
+    return tok
+
+
+def clear_claim() -> None:
+    """Called once a password exists — the window is over."""
+    try:
+        os.remove(_CLAIM_FILE)
+    except OSError:
+        pass
+
+
+def may_claim(request: Request) -> bool:
+    """May this caller run first-run setup?"""
+    if _is_loopback(client_ip(request)):
+        return True
+    want = claim_token()
+    if not want:
+        return False
+    got = (request.query_params.get("claim")
+           or request.headers.get("x-ava-setup-claim") or "")
+    return bool(got) and hmac.compare_digest(got.strip(), want)
+
+
+def claim_hint() -> str:
+    """What to tell a remote caller who has no token. Names the file rather than
+    the value: the point is that you must be able to read the server's disk."""
+    return (f"Run this on the machine Ava is installed on:\n"
+            f"    cat {_CLAIM_FILE}\n"
+            f"then open  <this-url>/setup?claim=<token>")
 
 
 def _login_locked(ip: str) -> bool:

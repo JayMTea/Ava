@@ -13,6 +13,7 @@ Everything runs locally on the Spark; nothing leaves the tailnet.
 import base64
 import asyncio
 import hmac
+import html
 import json
 import os
 import threading
@@ -58,6 +59,7 @@ from ava_bridge import turn_router
 from ava_bridge.auth import (
     auth_gate, _is_authed, _set_session_cookie, _login_locked, _login_record,
     current_password, needs_setup, set_password, rotate_secret,
+    client_ip, may_claim, claim_hint, clear_claim, claim_token,
 )
 from ava_bridge import features, internal, architecture, learning_mgmt, log_mgmt, config_mgmt, policy_mgmt, perf_mgmt
 from ava_bridge import audit, approvals
@@ -144,7 +146,7 @@ def login_get(request: Request):
 
 @app.post("/login")
 def login_post(request: Request, password: str = Form("")):
-    ip = request.client.host if request.client else "?"
+    ip = client_ip(request) or "?"
     if _login_locked(ip):
         return HTMLResponse(
             LOGIN_PAGE.replace("<!--MSG-->", "Too many attempts &mdash; wait a minute."),
@@ -153,7 +155,7 @@ def login_post(request: Request, password: str = Form("")):
     if pw and hmac.compare_digest(password, pw):
         _login_record(ip, ok=True)
         resp = RedirectResponse("/", status_code=303)
-        _set_session_cookie(resp)
+        _set_session_cookie(resp, request)
         return resp
     _login_record(ip, ok=False)
     time.sleep(0.5)
@@ -161,11 +163,26 @@ def login_post(request: Request, password: str = Form("")):
         LOGIN_PAGE.replace("<!--MSG-->", "Incorrect password."), status_code=401)
 
 
+def _claim_html() -> str:
+    """The claim instructions, as one HTML line. Escaped because it embeds a
+    filesystem path that comes from AVA_HOME."""
+    return ("Read the claim token on the machine Ava runs on:<br>"
+            f"<code>{html.escape(claim_hint().splitlines()[1].strip())}</code><br>"
+            "then reload this page with <code>?claim=&lt;token&gt;</code>.")
+
+
 @app.get("/setup", response_class=HTMLResponse)
 def setup_get(request: Request):
     """First-run: create the admin password. Only reachable until one is set."""
     if not needs_setup():
         return RedirectResponse("/login", status_code=303)
+    if not may_claim(request):
+        return HTMLResponse(
+            SETUP_PAGE.replace(
+                "<!--MSG-->",
+                "This Ava has not been claimed yet, and you are not connecting "
+                "from the machine it runs on. " + _claim_html()),
+            status_code=403)
     return HTMLResponse(SETUP_PAGE.replace("<!--MSG-->", ""))
 
 
@@ -173,6 +190,14 @@ def setup_get(request: Request):
 def setup_post(request: Request, password: str = Form(""), confirm: str = Form("")):
     if not needs_setup():   # password already set -> can't reset via this screen
         return RedirectResponse("/login", status_code=303)
+    # An unclaimed instance bound off-loopback is otherwise first-come-first-served:
+    # whoever on the network reaches it first sets the admin password and the owner
+    # is locked out of their own box. Loopback callers are trusted; everyone else
+    # proves they can read the server's disk.
+    if not may_claim(request):
+        return HTMLResponse(
+            SETUP_PAGE.replace("<!--MSG-->", "Setup requires the claim token. " + _claim_html()),
+            status_code=403)
     password = (password or "").strip()
     if len(password) < 8:
         return HTMLResponse(
@@ -182,12 +207,13 @@ def setup_post(request: Request, password: str = Form(""), confirm: str = Form("
         return HTMLResponse(
             SETUP_PAGE.replace("<!--MSG-->", "Passwords do not match."), status_code=400)
     set_password(password)
+    clear_claim()       # the window is over; the instance now has an owner
     # Fresh install -> continue into the onboarding wizard (hardware, backend,
     # features, connectors). A pre-existing config skips it (setup_completed()).
     from ava_bridge.setup_wizard import setup_completed
     dest = "/" if setup_completed() else "/setup/wizard"
     resp = RedirectResponse(dest, status_code=303)
-    _set_session_cookie(resp)
+    _set_session_cookie(resp, request)
     return resp
 
 
@@ -234,7 +260,7 @@ async def change_password(request: Request):
     set_password(new)
     revoked = rotate_secret()
     resp = JSONResponse({"ok": True, "revoked_other_sessions": revoked})
-    _set_session_cookie(resp)
+    _set_session_cookie(resp, request)
     return resp
 
 
@@ -263,6 +289,16 @@ def _startup():
     _ensure_loaded()
     gate = "ON" if _state["verifier"] is not None else "OFF"
     print(f"[ava-bridge] ready. speaker gate {gate} (threshold={PHONE_THRESHOLD}).", flush=True)
+    # First run, unclaimed: print the claim token. A browser on this machine
+    # never needs it (loopback claims freely) — this is for the headless case,
+    # where the alternative to a printed token is SSH port-forwarding just to
+    # reach a password form.
+    if needs_setup():
+        _tok = claim_token()
+        if _tok:
+            print("[ava-bridge] NOT YET CLAIMED. From this machine, open "
+                  f"http://localhost:{config.SERVER_PORT}/setup", flush=True)
+            print(f"[ava-bridge]   from anywhere else, use: /setup?claim={_tok}", flush=True)
     # Report the agent runtime and enforce the `agent.required` policy loudly.
     from ava_bridge import runtime
     rt, err = runtime.gate()
