@@ -1,6 +1,8 @@
 # Plan: Device connectors hardening + the Ava device SDK
 
-Status: **Phase 1 complete.** This is the plan of record for making
+Status: **Phases 1–3 complete** (see the phase list below, which has said so for
+some time while this header still read "Phase 1"). This is the plan of record for
+making
 "bring your own Arduino/ESP32/sensor and wire it to Ava" robust and doable
 without a terminal, and for shipping a thin, **board-agnostic** SDK.
 

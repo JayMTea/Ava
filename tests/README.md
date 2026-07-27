@@ -59,6 +59,44 @@ shared fixtures — every file is self-contained. Dev deps: `requirements-dev.tx
 | `test_setup_wizard.py` | `settings.save_patch` + wizard completion gate |
 | `test_tooling_note.py` | Undeployed-tools awareness in turns ("deploy first", never invent results) |
 | `test_web_fetch.py` | SSRF guard: IP/URL validation, redirect-hop revalidation |
+| `test_agent_brain.py` | The agent sandbox's model is the operative brain — surfaced truthfully. |
+| `test_alloc_deferred.py` | A deferred acquire: answer now, make room in the background. |
+| `test_alloc_driver_template.py` | The driver template in docs/ALLOCATION.md must produce a driver that WORKS. |
+| `test_alloc_recovery.py` | What the allocator promises, and what survives a reboot or a crash. |
+| `test_app_appearance.py` | Connected-app rail identity: the auto-varying icon + the Hub's appearance picker endpoint. |
+| `test_ava_mcp_adapter.py` | sdk/host/ava_mcp — the adapter that turns an ava-tools/1 facade into a REAL MCP server. |
+| `test_ci_covers_deploy.py` | CI must exercise the install path README.md recommends first. |
+| `test_cli_entrypoint.py` | The `ava` command must exist, and mean one thing. |
+| `test_code_applier_policy.py` | The decision layer that gates an LLM writing to your source tree. |
+| `test_code_tool_policy.py` | The code agent may not READ what it may not write. |
+| `test_config_template_sync.py` | config.example.yaml is the only documentation of what Ava can be configured to do, so a key the code reads and the template omits is a knob nobody… |
+| `test_connector_codegen.py` | The .mjs the connector generators emit must be valid JavaScript. |
+| `test_connector_scaffold.py` | `ava connector new` must scaffold something that WORKS when you follow it. |
+| `test_connector_secrets.py` | Connector credentials: the VALUE lives server-side (secrets/env/<NAME>, 0600), keyed by the env-var NAME a manifest references — never in the… |
+| `test_connector_transport.py` | Connector transport honesty guard. |
+| `test_deploy_compose_contract.py` | A profile must start the service its own backend URL points at. |
+| `test_deploy_refs_tracked.py` | Every deploy script a tracked file points at must itself be tracked. |
+| `test_dockerfile_bind.py` | The bridge container must bind 0.0.0.0 inside its own network namespace. |
+| `test_example_app.py` | examples/hello-app is the SDK's front door, so it has to actually work. |
+| `test_feature_convention.py` | Convention guard: ALL features.* reads go through ava_bridge/features.py. |
+| `test_features.py` | The optional-feature registry contract (ava_bridge/features.py). |
+| `test_intent_eval.py` | Eval-tooling MECHANICS (Phase 3). Hermetic: regex routing mode (no model), a throwaway AVA_EVALS_DIR, cases built inline — NEVER shipped data.… |
+| `test_internal_scopes.py` | Every /internal route must be classified, and the docs must not overclaim. |
+| `test_media_preflight.py` | Image-render preflight: `features.image` is the single authoritative switch. |
+| `test_media_retention.py` | `data.retention_days` must reach generated media and uploads. |
+| `test_model_flags_ssot.py` | vLLM's per-model flags are resolved in exactly ONE place: deploy/model-flags.conf. |
+| `test_module_boundaries.py` | A name is private or it is shared — it cannot be both. |
+| `test_network_boundary.py` | Who is asking, over what, and may they claim an unowned Ava. |
+| `test_no_blocking_routes.py` | An `async def` route may not do blocking work on the event loop. |
+| `test_no_eval_data.py` | Standing decision (docs/dev/INTENT_ROUTING_AND_RELIABILITY_PLAN.md, Phase 3): the product ships eval TOOLING only — never an eval dataset. No seed… |
+| `test_no_owner_identity.py` | Nothing tracked may carry the owner's identity, a private sibling app, an absolute home path, or a proprietary-tool watermark. |
+| `test_password_change.py` | Changing the admin password from inside the product, and revoking sessions. |
+| `test_path_roots.py` | There is exactly ONE resolver for where runtime state lives: `ava_bridge.settings`. |
+| `test_settings_errors.py` | A broken ava.yaml must be loud, and must never be overwritten. |
+| `test_settings_overrides.py` | Env-override honesty helpers (settings.env_override / explicitly_false). |
+| `test_setup_wizard_flow.py` | The first-run wizard must not lie, and must not lock you out. |
+| `test_skill_frontmatter.py` | Every skill the agent ships must be surfaceable in the UI. The Agent tab auto-discovers skills from their SKILL.md frontmatter… |
+| `test_skills_registry.py` | Skills registry mechanics (ava_bridge/skills.py): discovery, frontmatter derivation, tool extraction, and the deploy-state signal — all against a… |
 
 ## Isolation patterns (use these in new tests)
 

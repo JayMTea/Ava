@@ -354,8 +354,15 @@ ava/
 - [x] Introduce `AVA_HOME` + `ava_bridge/settings.py` (layered config + secrets);
       `config.py` data dirs now resolve under `AVA_HOME` (default = repo root, so
       the personal install is unchanged). `config.example.yaml` added.
-- [ ] Migrate the remaining ~10 hardcoded-path files + the Tailscale IP / sandbox
-      name literals onto `settings`/config.
+- [x] Migrate the remaining ~10 hardcoded-path files + the Tailscale IP / sandbox
+      name literals onto `settings`/config. **Done** — and now enforced rather
+      than remembered: `tests/test_path_roots.py` fails any module that resolves
+      `AVA_HOME` itself or hangs runtime state off the code root, and
+      `tests/test_no_owner_identity.py` fails any tracked file carrying an
+      absolute home path or a CGNAT address. This box stayed unticked long after
+      the work landed, which understated the project to every contributor
+      CLAUDE.md sends here. If a box below looks stale the same way, the guard
+      tests are the cheaper source of truth.
 - [x] Rule adopted: every new path/port/secret goes through config from now on.
 
 **Phase 1 — Configurable single box**

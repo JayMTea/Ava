@@ -1,6 +1,9 @@
 {
   "name": "ava-frontend",
   "private": true,
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
   "version": "0.1.0",
   "type": "module",
   "description": "Ava web app \u2014 Vite + React + TypeScript SPA served by the FastAPI bridge.",
