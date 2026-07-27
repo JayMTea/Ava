@@ -122,12 +122,26 @@ class ReleasePlan:
 
 @dataclass(frozen=True)
 class ActionResult:
-    """Outcome of one actuation. `freed_gib` is MEASURED, never estimated."""
+    """Outcome of one actuation. `freed_gib` is MEASURED, never estimated.
+
+    `ok` and `acted` are different questions, and conflating them strands models.
+    `ok` answers "did the pool actually come back" — a release whose memory the
+    kernel never returned is a failure, which is the whole point of this layer.
+    `acted` answers "did the thing get taken down", which is what decides whether
+    we OWE a restore.
+
+    They diverge exactly where it matters: `docker stop` succeeds, the container
+    is down, and the pool does not drop within the timeout. That is ok=False,
+    acted=True — record the debt, or the model stays stopped forever because
+    nothing believes it was us. Set acted=False only when the actuation never
+    happened (the command failed, the driver declined).
+    """
 
     ok: bool
     freed_gib: float | None = None
     seconds: float = 0.0
     detail: str = ""
+    acted: bool = True
 
 
 @dataclass
@@ -141,7 +155,14 @@ class DriverContext:
 
     model_id: str
     weight_gb: float | None = None
+    # EXACTLY the model's `driver_config:` block, verbatim. Core does not write
+    # into it. It used to merge the spec's `release`/`restore` blocks in here,
+    # which silently clobbered any driver whose own config had keys by those
+    # names — while base.py and spec.py both documented it as opaque and
+    # author-owned. They are separate fields now.
     config: dict = field(default_factory=dict)      # the model's `driver_config:`
+    release: dict = field(default_factory=dict)     # the model's `release:`
+    restore: dict = field(default_factory=dict)     # the model's `restore:`
     readiness: dict = field(default_factory=dict)   # the model's `readiness:`
     free_gib: "callable" = lambda: None             # -> float | None
     wait_free: "callable" = lambda target, **kw: False
@@ -292,7 +313,7 @@ class ModelDriver(ABC):
         cost as zero: that would make stopping a service look cheaper than an
         engine's unload endpoint and get it pulled speculatively. Hence the flag.
         """
-        block = self.ctx.config.get(phase) or {}
+        block = (self.ctx.release if phase == "release" else self.ctx.restore) or {}
         key = f"{mode.value}_s" if phase == "release" else None
         raw = block.get(key) if key else block.get("warm_s", block.get("cold_s"))
         if raw is None:

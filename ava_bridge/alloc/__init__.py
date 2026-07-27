@@ -55,6 +55,7 @@ import time
 from . import capacity, spec
 from .base import DriverContext, Residency
 from .broker import admit_plan, enforcing, lease, restore_now
+from . import drivers as _drivers
 from .drivers import for_spec
 
 __all__ = ["admit", "admit_plan", "lease", "restore_now", "enforcing",
@@ -155,6 +156,11 @@ def report() -> dict:
         # False = advisory: decisions are computed and recorded, nothing is actuated.
         "actuating": _broker.enforcing(),
         "leases": _broker.snapshot(),
+        # Drop-in drivers that failed to load. Empty on a normal install. This
+        # is what makes docs/ALLOCATION.md's "ava doctor names the file and the
+        # reason" true — it was documented before it existed, and a driver with
+        # a typo just silently became the observe floor.
+        "driver_errors": _drivers.load_errors(),
         "platform": pool.platform,
         "pool": {
             "free_gib": _r(pool.free_gib), "total_gib": _r(pool.total_gib),
@@ -191,7 +197,7 @@ def _fits(s: "spec.ModelSpec", free: float) -> tuple[bool, str]:
 def _driver(s: "spec.ModelSpec"):
     ctx = DriverContext(
         model_id=s.id, weight_gb=s.weight_gb,
-        config={**s.driver_config, "release": s.release, "restore": s.restore},
+        config=dict(s.driver_config), release=s.release, restore=s.restore,
         readiness=s.readiness,
         free_gib=capacity.free_gib,
         wait_free=capacity.wait_free,

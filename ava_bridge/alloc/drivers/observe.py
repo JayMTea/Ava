@@ -49,7 +49,9 @@ class ObserveDriver(ModelDriver):
     def release(self, mode: ReleaseMode, *, need_gib: float | None = None,
                 abort: threading.Event | None = None,
                 timeout: float = 180.0) -> ActionResult:
-        return ActionResult(ok=False, freed_gib=None,
+        # acted=False: the floor never touches anything, so it must never leave
+        # the broker owing a restore for a model it did not stop.
+        return ActionResult(ok=False, acted=False, freed_gib=None,
                             detail=f"declined: {self._reason}")
 
     def validate(self) -> list[str]:

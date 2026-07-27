@@ -69,11 +69,28 @@ def for_spec(driver_name: str, ctx: DriverContext) -> ModelDriver:
     return drv
 
 
+_load_errors: list[dict] = []
+
+
+def load_errors() -> list[dict]:
+    """Why a drop-in driver did not load. Same shape as connectors.load_errors()
+    and skills.load_errors(), which solve this exact problem elsewhere.
+
+    This used to be a bare `except Exception: continue`, while the docstring
+    claimed `ava doctor` surfaced the failure. Nothing recorded it, so a driver
+    with a typo simply never existed: the model fell to the observe floor, which
+    is SAFE (it declines every release) but indistinguishable from "I spelled the
+    driver name wrong" — and the only way to diagnose it was to read this file.
+    """
+    _load_user_drivers()
+    return list(_load_errors)
+
+
 def _load_user_drivers() -> None:
     """Import `$AVA_HOME/alloc_drivers/*.py` once; each may call `register()`.
 
     Failures are per-file and non-fatal: one broken drop-in must not cost an
-    operator every other driver, so it is skipped and surfaced by `ava doctor`.
+    operator every other driver. Each is recorded in `load_errors()`.
     """
     global _user_loaded
     if _user_loaded:
@@ -85,19 +102,45 @@ def _load_user_drivers() -> None:
         if not os.path.isdir(d):
             return
         import importlib.util
+        import traceback
         for fn in sorted(os.listdir(d)):
             if not fn.endswith(".py") or fn.startswith(("_", ".")):
                 continue
             path = os.path.join(d, fn)
             try:
                 sp = importlib.util.spec_from_file_location(f"ava_alloc_user_{fn[:-3]}", path)
-                if sp and sp.loader:
-                    mod = importlib.util.module_from_spec(sp)
-                    sp.loader.exec_module(mod)
-                    cls = getattr(mod, "DRIVER", None)
-                    if cls is not None:
-                        register(cls)
-            except Exception:  # noqa: BLE001 — one bad drop-in, not all of them
+                if not (sp and sp.loader):
+                    _load_errors.append({"file": fn, "path": path,
+                                         "error": "not importable as a Python module"})
+                    continue
+                mod = importlib.util.module_from_spec(sp)
+                sp.loader.exec_module(mod)
+            except Exception as e:  # noqa: BLE001 — one bad drop-in, not all of them
+                # The last frames, because an author needs the line number.
+                tail = "".join(traceback.format_exc().splitlines(keepends=True)[-3:])
+                _load_errors.append({"file": fn, "path": path,
+                                     "error": f"{type(e).__name__}: {e}",
+                                     "traceback": tail.strip()})
                 continue
-    except Exception:  # noqa: BLE001 — no settings/home; built-ins are enough
+            # Three more ways to fail that the bare except never covered — and
+            # `DRIVER` missing is probably the commonest first-attempt mistake.
+            cls = getattr(mod, "DRIVER", None)
+            if cls is None:
+                _load_errors.append({"file": fn, "path": path,
+                                     "error": "loaded, but exports no `DRIVER` symbol "
+                                              "(add `DRIVER = MyDriver` at the end)"})
+                continue
+            if not (isinstance(cls, type) and issubclass(cls, ModelDriver)):
+                _load_errors.append({"file": fn, "path": path,
+                                     "error": "`DRIVER` is not a ModelDriver subclass"})
+                continue
+            if not (getattr(cls, "name", "") or "").strip():
+                _load_errors.append({"file": fn, "path": path,
+                                     "error": "`DRIVER` has no `name` — register() drops "
+                                              "it silently, so `driver: <name>` in "
+                                              "ava.yaml could never select it"})
+                continue
+            register(cls)
+    except Exception as e:  # noqa: BLE001 — no settings/home; built-ins are enough
+        _load_errors.append({"file": "-", "path": "", "error": f"{type(e).__name__}: {e}"})
         return

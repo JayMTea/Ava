@@ -79,23 +79,30 @@ class SystemdDriver(ModelDriver):
         before = self.ctx.free_gib()
         rc, out = self._run(["stop", self._unit], timeout=min(120.0, timeout))
         if rc != 0:
-            return ActionResult(ok=False, detail=f"systemctl stop failed: {out.strip()[:200]}")
+            return ActionResult(ok=False, acted=False, detail=f"systemctl stop failed: {out.strip()[:200]}")
         # Verify rather than sleep: the reclaim is asynchronous, and only the
         # measured drop licenses starting something else.
         target = (before or 0.0) + (need_gib or self.ctx.weight_gb or 0.0)
-        self.ctx.wait_free(target, timeout=max(5.0, timeout - (time.monotonic() - t0)),
-                           abort=abort)
+        # ok = did the POOL come back, which is the only thing that licenses
+        # starting something else. The boolean was discarded here, so a stop
+        # whose memory the kernel never returned reported success — the exact
+        # failure base.py's release() contract names. acted=True regardless:
+        # it IS down, so we owe the restore either way.
+        freed = self.ctx.wait_free(
+            target, timeout=max(5.0, timeout - (time.monotonic() - t0)), abort=abort)
         after = self.ctx.free_gib()
-        return ActionResult(ok=True, freed_gib=_delta(before, after),
+        return ActionResult(ok=bool(freed), acted=True, freed_gib=_delta(before, after),
                             seconds=round(time.monotonic() - t0, 2),
-                            detail=f"stopped {self._unit}")
+                            detail=(f"stopped {self._unit}" if freed else
+                                    f"stopped {self._unit}, but the pool did not reach "
+                                    f"the target in time"))
 
     def acquire(self, *, abort: threading.Event | None = None,
                 timeout: float = 600.0) -> ActionResult:
         t0 = time.monotonic()
         rc, out = self._run(["start", self._unit], timeout=60.0)
         if rc != 0:
-            return ActionResult(ok=False, detail=f"systemctl start failed: {out.strip()[:200]}")
+            return ActionResult(ok=False, acted=False, detail=f"systemctl start failed: {out.strip()[:200]}")
         ok = self.wait_ready(timeout=timeout, abort=abort)
         return ActionResult(ok=ok, seconds=round(time.monotonic() - t0, 2),
                             detail="ready" if ok else "started but not ready")

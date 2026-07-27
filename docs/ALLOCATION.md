@@ -193,27 +193,55 @@ anything else, write one file in `$AVA_HOME/alloc_drivers/`:
 from ava_bridge.alloc.base import ModelDriver, ReleaseMode, Residency, ActionResult
 
 class MyEngineDriver(ModelDriver):
-    name = "myengine"
+    name = "myengine"                                   # what `driver:` selects
     RELEASE_MODES = (ReleaseMode.UNLOAD, ReleaseMode.STOP)
 
     def residency(self) -> Residency:
         """Is it holding memory, how much, and is it actually ready?"""
+        gib = my_engine.resident_gib()                  # your control plane
+        return Residency(resident=gib > 0, gib=gib, measured=True,
+                         ready=my_engine.weights_loaded())
 
     def release(self, mode, *, need_gib=None, abort=None, timeout=180.0):
         """Give the memory back. Return only once the pool has ACTUALLY dropped."""
+        before = self.ctx.free_gib()
+        my_engine.stop() if mode is ReleaseMode.STOP else my_engine.unload()
+        freed = self.ctx.wait_free((before or 0) + (need_gib or 0),
+                                   timeout=timeout, abort=abort)
+        after = self.ctx.free_gib()
+        return ActionResult(ok=bool(freed), acted=True,
+                            freed_gib=None if before is None else after - before)
+
+    def acquire(self, *, abort=None, timeout=600.0):
+        """Bring it back. REQUIRED whenever a release option is reversible."""
+        my_engine.start()
+        return ActionResult(ok=my_engine.wait_ready(timeout=timeout))
 
 DRIVER = MyEngineDriver
 ```
 
-Then `driver: myengine` in your model's block. Nothing in Ava's core changes.
+Then `driver: myengine` in your model's block, and drop the file in
+`$AVA_HOME/alloc_drivers/` (created for you by `ava setup`). Nothing in Ava's
+core changes. If it does not load, `ava doctor` names the file and the reason —
+a missing `DRIVER` symbol and a missing `name` are both reported, because both
+would otherwise fail silently.
 
-Two rules worth internalising, because both prevent a specific silent failure:
+Three rules worth internalising, because each prevents a specific silent failure:
 
-- **Report the measured delta, not the estimate.** Memory reclaim is asynchronous;
-  "we ran the stop command" and "the memory is back" are different facts, and only the
-  second one licenses starting something else.
-- **`resident=None` means unknown and must never become `False`.** Memory you cannot
-  see is memory the planner must not promise to free.
+- **Implement `acquire()` if any release option is reversible.** The base class's
+  no-op default exists for engines that reload themselves on next use, and it
+  returns `ok=True` unconditionally — so a driver that stops something but does
+  not override `acquire` gets marked restored without being restarted, and
+  never comes back. If your engine genuinely reloads on demand, say so with
+  `SELF_RESTORING = True` instead, and `validate()` will stop asking.
+- **Report the measured delta, not the estimate**, and let `ok` be whatever
+  `wait_free` returned. Memory reclaim is asynchronous; "we ran the stop
+  command" and "the memory is back" are different facts, and only the second
+  licenses starting something else. Use `acted=True` to say the thing IS down
+  even when the pool did not move — that is what makes Ava owe you a restore
+  rather than leaving it stopped forever.
+- **`resident=None` means unknown and must never become `False`.** Memory you
+  cannot see is memory the planner must not promise to free.
 
 ---
 

@@ -74,17 +74,54 @@ def _path() -> str:
     return os.path.join(ledger._dir(), "breaker.json")
 
 
+# Fields holding CLOCK_MONOTONIC readings. Monotonic time restarts near zero at
+# boot, so a value written before a reboot lands arbitrarily far in the future
+# afterwards — and `allowed()` compares against exactly these.
+_MONOTONIC_FIELDS = ("quiesced_at",)
+_MONOTONIC_MODEL_FIELDS = ("next_attempt_at", "first_fail_at", "last_fail_at",
+                           "given_up_at", "last_success_at", "ready_since")
+
+
+def _scrub_foreign_boot(obj: dict) -> dict:
+    """Drop monotonic timestamps written before this boot, keep the judgements.
+
+    `ledger.live_leases()` already does this for leases; breaker.json and the
+    model-state records did not, so after a reboot the allocator could refuse
+    every action for as long as the previous uptime — silently, because
+    `watch._breaker_alerts` only fires on quiesced/given_up, not on "backing off
+    until a time that will never arrive".
+
+    What survives is deliberate: `fails`, `given_up`, `reason` and `cause` are
+    judgements about a model, and a reboot does not repair a broken model. Only
+    the CLOCKS are meaningless.
+    """
+    if obj.get("boot_id") == ledger.boot_id():
+        return obj
+    out = {k: v for k, v in obj.items() if k not in _MONOTONIC_FIELDS}
+    models = out.get("models")
+    if isinstance(models, dict):
+        out["models"] = {
+            mid: {k: v for k, v in (rec or {}).items()
+                  if k not in _MONOTONIC_MODEL_FIELDS}
+            for mid, rec in models.items() if isinstance(rec, dict)
+        }
+    out["boot_id"] = ledger.boot_id()
+    return out
+
+
 def _read() -> dict:
     try:
         with open(_path(), encoding="utf-8") as fh:
             obj = json.load(fh)
-        return obj if isinstance(obj, dict) else {}
+        return _scrub_foreign_boot(obj) if isinstance(obj, dict) else {}
     except (OSError, ValueError):
         return {}
 
 
 def _write(obj: dict) -> None:
     path = _path()
+    obj = dict(obj)
+    obj["boot_id"] = ledger.boot_id()
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         tmp = f"{path}.tmp{os.getpid()}"
@@ -185,7 +222,14 @@ def record_attempt(model_id: str) -> None:
         cutoff = ledger.now() - window
         obj["actions"] = [t for t in acts if t >= cutoff]
         limit = int(_cfg("budget_actions", BUDGET_ACTIONS))
-        if len(obj["actions"]) > limit:
+        # `>=`, not `>`. Every attempt passes budget_ok() first, which refuses at
+        # `>= limit` — so the count could never EXCEED the limit, and this branch
+        # was unreachable through the normal path. QUIESCED therefore never
+        # happened and the critical `alloc_quiesced` alert could never fire; the
+        # existing test only saw it because it called record_attempt directly.
+        # The action that spends the last unit of budget is the one that trips
+        # the guard, which is also what breaker.py's own docstring describes.
+        if len(obj["actions"]) >= limit:
             obj["quiesced_at"] = ledger.now()
             obj["quiesce_reason"] = (
                 f"{len(obj['actions'])} state-changing actions in "

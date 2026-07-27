@@ -88,19 +88,23 @@ class HttpUnloadDriver(ModelDriver):
         except (urllib.error.URLError, OSError) as e:
             # Unreachable is survivable: the caller proceeds, and the memory wait
             # below simply will not be satisfied by us.
-            return ActionResult(ok=False, detail=f"unload endpoint unreachable: {e}")
+            return ActionResult(ok=False, acted=False, detail=f"unload endpoint unreachable: {e}")
         if not (200 <= code < 300):
-            return ActionResult(ok=False, detail=f"unload returned HTTP {code}")
+            return ActionResult(ok=False, acted=False, detail=f"unload returned HTTP {code}")
 
         # An unload frees an unknown amount, so wait for any measurable improvement
         # rather than a computed target — and cap the wait by the declared cost.
-        declared = _f((self.ctx.config.get("release") or {}).get("unload_s"), 10.0)
-        self.ctx.wait_free((before or 0.0) + 0.5,
-                           timeout=min(timeout, max(5.0, declared * 3)), abort=abort)
+        declared = _f((self.ctx.release or {}).get("unload_s"), 10.0)
+        # The target is any MEASURABLE improvement, so False here genuinely means
+        # the unload did nothing. acted=True: the endpoint accepted it.
+        freed = self.ctx.wait_free(
+            (before or 0.0) + 0.5,
+            timeout=min(timeout, max(5.0, declared * 3)), abort=abort)
         after = self.ctx.free_gib()
-        return ActionResult(ok=True, freed_gib=_delta(before, after),
+        return ActionResult(ok=bool(freed), acted=True, freed_gib=_delta(before, after),
                             seconds=round(time.monotonic() - t0, 2),
-                            detail="unloaded")
+                            detail="unloaded" if freed else
+                                   "unload accepted, but the pool did not move")
 
     # `acquire()` is inherited: an engine with an unload endpoint reloads on next
     # use, so there is genuinely nothing to start.

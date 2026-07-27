@@ -252,7 +252,12 @@ def home(*parts: str) -> str:
 
 
 def ensure_dirs() -> None:
-    for d in (data_dir(), logs_dir(), media_dir(), upload_dir(), secrets_dir()):
+    # alloc_drivers/ is the documented drop-in point for a third-party engine
+    # adapter (docs/ALLOCATION.md). It was never created and no doc said to
+    # mkdir it, so the first step of "add support for your engine" was a
+    # directory that did not exist.
+    for d in (data_dir(), logs_dir(), media_dir(), upload_dir(), secrets_dir(),
+              home("alloc_drivers")):
         os.makedirs(d, exist_ok=True)
 
 

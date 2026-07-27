@@ -246,8 +246,24 @@ def holders_of(model_id: str) -> list[dict]:
 
 
 # --- per-model state (what we owe the box) ----------------------------------- #
+# Monotonic fields in a model-state record. See breaker._scrub_foreign_boot for
+# why these cannot survive a reboot — the same hazard, the same fix.
+_MONOTONIC_STATE_FIELDS = ("at",)
+
+
 def model_state(model_id: str) -> dict:
-    return _read_json(os.path.join("models", f"{model_id}.json")) or {}
+    rec = _read_json(os.path.join("models", f"{model_id}.json")) or {}
+    if rec and rec.get("boot_id") not in (None, boot_id()):
+        # A model we stopped before a reboot is STILL STOPPED — a container with
+        # `--restart no` does not come back on its own — so unlike a lease this
+        # record must survive. Only its clocks are meaningless: zero `at` (an LRU
+        # tie-break) and make any pending restore immediately due, since the
+        # cooldown existed to coalesce a burst and the reboot ended the burst.
+        rec = {k: v for k, v in rec.items() if k not in _MONOTONIC_STATE_FIELDS}
+        if "restore_after" in rec:
+            rec["restore_after"] = now()
+        rec["boot_id"] = boot_id()
+    return rec
 
 
 def set_model_state(model_id: str, **fields) -> dict:
@@ -258,10 +274,33 @@ def set_model_state(model_id: str, **fields) -> dict:
     survives the process that made the promise — a broker that starts and finds a
     released model with no live lease knows to restore it, which in-memory state
     could never tell it.
+
+    Serialised on a per-model `.mut` mutex, because this is a read-modify-write
+    with more than one writer (a lease thread releasing, the watchdog restoring).
+    A lost update here is not cosmetic: dropping `released_by_us` leaves a model
+    Ava stopped looking like one the operator stopped, and every restore path
+    then refuses it — permanently.
+
+    It must NOT be the model's own `models/<id>.lock`. `_release_one` already
+    holds that for the whole actuation, and `flock` conflicts across separate
+    descriptors WITHIN one process (the property `ledger.flock`'s docstring
+    documents and `test_alloc_lease` asserts), so reusing it would self-deadlock
+    on every release until the deadline expired.
     """
+    try:
+        with flock(os.path.join("models", f"{model_id}.mut"), wait_s=2.0):
+            return _set_model_state_unlocked(model_id, fields)
+    except LockBusy:
+        # Bookkeeping must never block an actuation. Degrades to the old
+        # unlocked behaviour, which is what it was doing every time before.
+        return _set_model_state_unlocked(model_id, fields)
+
+
+def _set_model_state_unlocked(model_id: str, fields: dict) -> dict:
     rec = model_state(model_id)
     rec.update(fields)
     rec["schema"] = SCHEMA
+    rec["boot_id"] = boot_id()
     rec["updated"] = time.time()
     _write_json(os.path.join("models", f"{model_id}.json"), rec)
     return rec
@@ -291,9 +330,52 @@ def owed() -> list[dict]:
             continue
         mid = fn[:-5]
         rec = _read_json(os.path.join("models", fn)) or {}
-        if rec.get("released_by_us") and mid not in live:
+        # `releasing` counts as owed: a process that crashed between "I am about
+        # to stop this" and "I stopped it" left only that flag, and believing
+        # only the completed one strands the model down permanently.
+        if (rec.get("released_by_us") or rec.get("releasing")) and mid not in live:
             out.append({"model_id": mid, **rec})
     return out
+
+
+def reserved_gib(free_now: float, *, exclude: str = "") -> float:
+    """Memory already promised to live leases but not yet consumed by them.
+
+    The planner used to work from the raw pool, so two callers asking for two
+    different COLD models inside the same window were both told the room existed.
+    On the deferred HTTP path that window is minutes — which is precisely the
+    scenario `/lease` is documented for.
+
+    The rule is credit-the-drop, not reserve-forever:
+
+        need - max(0, free_at_grant - free_now)
+
+    Immediately after a grant the pool has not moved, so the full `need` is
+    reserved and a second caller sees the truth. Once the model actually loads,
+    the pool drop cancels the reservation exactly — so nothing is double-counted.
+    Double-counting is not cosmetic here: it would drive effective free negative
+    and make the planner over-evict, which is the harm this layer exists to
+    prevent. If some OTHER process consumed the memory, the drop is credited to
+    the wrong lease and we under-reserve, degrading to exactly today's behaviour.
+
+    Clock-free and probe-free: a pure function of the records plus one number.
+    """
+    total = 0.0
+    for rec in live_leases():
+        if not rec.get("granted"):
+            continue
+        if exclude and rec.get("lease_id") == exclude:
+            continue
+        need = rec.get("need_gib")
+        if need is None:
+            continue
+        base = rec.get("free_at_grant")
+        if base is None:
+            total += float(need)            # legacy record: reserve it all
+        else:
+            consumed = max(0.0, float(base) - float(free_now))
+            total += max(0.0, float(need) - consumed)
+    return total
 
 
 def snapshot() -> dict:

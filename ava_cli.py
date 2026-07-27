@@ -156,6 +156,15 @@ def cmd_doctor(_args) -> int:
             if pool.get("unknown_gib"):
                 bits.append(f"· {pool['unknown_gib']:.0f} held by undeclared processes")
             _row(OK, "pool", " ".join(bits))
+        # A drop-in driver that failed to import used to vanish silently: the
+        # model fell to the observe floor, which is safe but indistinguishable
+        # from a typo in `driver:`. docs/ALLOCATION.md promised this row long
+        # before it existed.
+        for err in rep.get("driver_errors") or []:
+            _row(WARN, f"driver {err.get('file', '?')}", err.get("error", ""))
+            if err.get("traceback"):
+                for line in str(err["traceback"]).splitlines()[-2:]:
+                    print(f"      {line.strip()}")
         if not rep["models"]:
             _row(OK, "declared", "no models declared — nothing is governed "
                                  "(add `alloc.models` in ava.yaml to opt in)")

@@ -122,3 +122,8 @@ run/
 
 # arch.py writes architecture.yaml (already ignored above); its backups are noise.
 agent/docs/architecture.yaml.bak
+
+# Drop-in allocation drivers ($AVA_HOME/alloc_drivers). Created by
+# settings.ensure_dirs(); a forker's own engine adapters live here and are
+# theirs, not ours. See docs/ALLOCATION.md.
+alloc_drivers/

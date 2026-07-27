@@ -407,11 +407,32 @@ def _acquire(model_id, need_gib, reason, priority, say, *, defer=False):
                          lease_id=""), ""
         want = need_gib if need_gib is not None else s.need_gib
         rank = spec._RANK.get((priority or s.priority), s.rank)
+        # Measured OUTSIDE every lock: this is a HAL read, and ledger.py's leaf
+        # rule keeps pool.lock free of anything slow.
         free = capacity.free_gib()
-        pl = policy.plan(model_id, need_gib=want, rank=rank, free_gib=free,
-                         candidates=_candidates(specs, exclude=model_id),
-                         speculative_max_s=spec.pool_config().get(
-                             "speculative_max_s", 15.0))
+
+        # Plan against the pool MINUS what live leases have already been promised
+        # but not yet consumed. Without this, two callers for two different cold
+        # models in the same window are both told the room exists — and on the
+        # deferred path that window is minutes.
+        reserved = 0.0
+        try:
+            with ledger.flock("pool.lock", wait_s=1.0):
+                reserved = ledger.reserved_gib(free) if free is not None else 0.0
+                effective = None if free is None else max(0.0, free - reserved)
+                pl = policy.plan(model_id, need_gib=want, rank=rank,
+                                 free_gib=effective,
+                                 candidates=_candidates(specs, exclude=model_id),
+                                 speculative_max_s=spec.pool_config().get(
+                                     "speculative_max_s", 15.0))
+        except ledger.LockBusy:
+            # House rule: a lock we cannot get means proceed uncoordinated,
+            # exactly as before this layer existed.
+            effective = free
+            pl = policy.plan(model_id, need_gib=want, rank=rank, free_gib=free,
+                             candidates=_candidates(specs, exclude=model_id),
+                             speculative_max_s=spec.pool_config().get(
+                                 "speculative_max_s", 15.0))
 
         # Take the lease lock FIRST and keep it for the hold: its being held is what
         # makes this lease live, and the kernel dropping it is what makes a dead
@@ -428,8 +449,12 @@ def _acquire(model_id, need_gib, reason, priority, say, *, defer=False):
         # `reason` stays the caller's ("board render"); the planner's verdict is a
         # separate field, because a poll has to report the decision and the two would
         # otherwise be confused for each other.
+        # `free_at_grant` is what makes the reservation self-cancelling: once the
+        # pool has dropped by this lease's `need_gib`, ledger.reserved_gib()
+        # stops counting it. See its docstring.
         ledger.write_lease(lid, {"models": [model_id], "reason": reason,
                                  "rank": rank, "need_gib": want,
+                                 "free_at_grant": free,
                                  "enforcing": enforcing(), "state": state,
                                  "granted": granted, "verdict": pl.reason})
 
@@ -448,6 +473,7 @@ def _acquire(model_id, need_gib, reason, priority, say, *, defer=False):
                 f"for {model_id}")
 
         _record("grant" if pl.admit else "short", model_id, lid, pl,
+                raw_free_gib=free, reserved_gib=reserved,
                 released=list(released), state=state)
         return Lease(model_id, granted, pl.reason, lease_id=lid,
                      plan=pl, released=released, free_gib=free,
@@ -609,7 +635,7 @@ def _model_lock(model_id: str) -> str:
     return os.path.join("models", f"{model_id}.lock")
 
 
-def _release_one(step, drv, say) -> bool:
+def _release_one(step, drv, say, *, abort=None) -> bool:
     """One release, under the model's lock. True if the memory came back."""
     # Every state-changing action passes the breaker and the global budget first,
     # so neither a broken model nor a thrashing allocator can spend without limit.
@@ -618,15 +644,33 @@ def _release_one(step, drv, say) -> bool:
         say(f"skipping {step.model_id}: {why}")
         return False
     breaker.record_attempt(step.model_id)
-    res = drv.release(step.mode, need_gib=step.expect_gib)
+
+    # INTENT FIRST. Stopping a container and waiting for the kernel to hand the
+    # memory back takes minutes; a crash inside that window used to leave no
+    # record at all, so `_restore` (which gates on `released_by_us`) would refuse
+    # to bring the model back and `watch._state_of` collapsed "stopped but
+    # fitting" into a state with no alert branch. The model stayed down, and
+    # nothing anywhere said we were the reason.
+    ledger.set_model_state(step.model_id, releasing=True,
+                           mode=step.mode.value, intent_at=ledger.now())
+
+    timeout = min(600.0, max(30.0, (getattr(step, "release_s", 0.0) or 10.0) * 3))
+    res = drv.release(step.mode, need_gib=step.expect_gib,
+                      abort=abort, timeout=timeout)
     say(f"{'released' if res.ok else 'could not release'} {step.model_id} "
         f"({step.mode.value}): {res.detail}")
+
+    if res.acted:
+        # It IS down, whether or not the pool came back — so we owe the restore.
+        ledger.set_model_state(step.model_id, released_by_us=True, releasing=False,
+                               mode=step.mode.value, at=ledger.now())
+    else:
+        ledger.set_model_state(step.model_id, releasing=False)   # nothing happened
+
     if not res.ok:
         breaker.record_failure(step.model_id, res.detail, cause="release_failed")
         return False
     breaker.record_success(step.model_id)
-    ledger.set_model_state(step.model_id, released_by_us=True,
-                           mode=step.mode.value, at=ledger.now())
     return True
 
 
@@ -642,7 +686,7 @@ def _restore(model_id: str, say, *, wait: bool = True) -> bool:
     """
     if not enforcing():
         return False
-    if not ledger.released_by_us(model_id):
+    if not _owe_restore(model_id):
         # Never start what we did not stop: an operator's deliberate shutdown, or
         # another supervisor's business.
         return False
@@ -651,6 +695,30 @@ def _restore(model_id: str, say, *, wait: bool = True) -> bool:
         return False
     drv = _driver(s)
     if drv.observe_only:
+        return False
+
+    # Take the model's lock for the actuation. `_execute` wraps every RELEASE in
+    # it, but this ran bare — so the watchdog could be inside `docker start`
+    # while a lease thread issued `docker stop` on the same container, which is
+    # the one thing this layer exists to prevent. Never wait: a restore is not
+    # urgent, and `restore_due` comes round again.
+    #
+    # The `with` is INSIDE the try on purpose: ledger.flock is a
+    # @contextmanager, so LockBusy is raised by __enter__, not by the call.
+    try:
+        with ledger.flock(_model_lock(model_id), wait_s=0.5):
+            return _restore_locked(model_id, s, drv, say)
+    except ledger.LockBusy:
+        say(f"not restoring {model_id}: another actor holds it")
+        return False
+
+
+def _restore_locked(model_id: str, s, drv, say) -> bool:
+    """The actuating half of `_restore`, with the model's lock held."""
+    # Re-check INSIDE the lock. The check above is a TOCTOU: a peer may have
+    # released and restored in the gap, and starting it twice is exactly the
+    # double-actuation the lock is for.
+    if not _owe_restore(model_id):
         return False
 
     ok, why = breaker.allowed(model_id)
@@ -669,8 +737,12 @@ def _restore(model_id: str, say, *, wait: bool = True) -> bool:
         return False
 
     breaker.record_attempt(model_id)
-    res = drv.acquire(timeout=float((s.restore or {}).get("cold_s", 600) or 600))
-    ledger.set_model_state(model_id, released_by_us=not res.ok,
+    abort = threading.Event()
+    res = drv.acquire(abort=abort,
+                      timeout=float((s.restore or {}).get("cold_s", 600) or 600))
+    # `releasing` is cleared either way: whatever we owed, this attempt has
+    # now resolved it or failed loudly.
+    ledger.set_model_state(model_id, released_by_us=not res.ok, releasing=False,
                            restored_at=ledger.now())
     if res.ok:
         breaker.record_success(model_id)
@@ -679,6 +751,18 @@ def _restore(model_id: str, say, *, wait: bool = True) -> bool:
     say(f"{'restored' if res.ok else 'could not restore'} {model_id}: {res.detail}")
     audit.record(kind="alloc.restore", model=model_id, ok=res.ok, detail=res.detail)
     return res.ok
+
+
+def _owe_restore(model_id: str) -> bool:
+    """Do we owe this model a restore?
+
+    `released_by_us` OR `releasing`. The second is what makes a crash mid-release
+    recoverable: a `releasing` record is evidence we MEANT to take it down, and
+    if it turns out to still be running, `drv.acquire` degrades to waiting for it
+    to be ready. Believing only the completed flag is what stranded models.
+    """
+    rec = ledger.model_state(model_id)
+    return bool(rec.get("released_by_us") or rec.get("releasing"))
 
 
 def _candidates(specs: dict, *, exclude: str) -> list:
@@ -702,7 +786,7 @@ def _candidates(specs: dict, *, exclude: str) -> list:
 def _driver(s):
     ctx = DriverContext(
         model_id=s.id, weight_gb=s.weight_gb,
-        config={**s.driver_config, "release": s.release, "restore": s.restore},
+        config=dict(s.driver_config), release=s.release, restore=s.restore,
         readiness=s.readiness, free_gib=capacity.free_gib,
         wait_free=capacity.wait_free)
     return for_spec(s.driver, ctx)
@@ -760,7 +844,8 @@ def _log_path() -> str:
 
 
 def _record(event: str, model_id: str, lid: str, pl: "policy.Plan",
-            released: list | None = None, note: str = "", state: str = "") -> None:
+            released: list | None = None, note: str = "", state: str = "",
+            raw_free_gib: float | None = None, reserved_gib: float | None = None) -> None:
     """Append one decision to `logs/alloc.jsonl`.
 
     This log is the evidence for turning enforcement on: it shows what the allocator
@@ -769,7 +854,12 @@ def _record(event: str, model_id: str, lid: str, pl: "policy.Plan",
     rec = {
         "ts": round(time.time(), 3), "event": event, "model": model_id,
         "lease_id": lid, "enforcing": enforcing(), "admit": pl.admit,
+        # free_gib is what the planner DECIDED on — the pool minus what live
+        # leases were already promised. Both inputs are logged beside it so an
+        # operator reading this file before enabling enforcement can see why a
+        # decision differs from the raw reading `ava alloc status` shows.
         "gated": pl.gated, "free_gib": pl.free_gib, "need_gib": pl.need_gib,
+        "raw_free_gib": raw_free_gib, "reserved_gib": reserved_gib,
         "projected_gib": pl.projected_gib, "shortfall_gib": pl.shortfall_gib,
         "steps": [{"model": s.model_id, "mode": s.mode.value,
                    "expect_gib": s.expect_gib, "speculative": s.speculative,
