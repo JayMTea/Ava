@@ -524,25 +524,21 @@ _pull_job: dict = {"status": "idle", "role": None, "log": deque(maxlen=200),
 _pull_lock = threading.Lock()
 
 
-def _cli_models():
-    """The CLI's model helpers (manifest/dirs/present/tier) — single source of
-    truth shared with `ava models`. Imported lazily to keep bridge boot lean."""
-    sys.path.insert(0, settings.CODE_ROOT) if settings.CODE_ROOT not in sys.path else None
-    import ava_cli
-    return ava_cli
-
-
 @router.get("/models")
 def models_list():
-    cli = _cli_models()
-    manifest = cli._models_manifest()
-    dirs = cli._model_dirs()
-    tier, avail = cli._detected_tier()
+    # `from . import models` — no sys.path injection and no importing the CLI
+    # script from inside the package. The helpers this route needs moved to
+    # ava_bridge/models.py, so `ava models` and Setup → Models are now two
+    # callers of one public API instead of two callers of one private one.
+    from . import models as model_store
+    manifest = model_store.manifest()
+    dirs = model_store.dirs()
+    tier, avail = model_store.detected_tier()
     roles = []
     for role, spec in manifest.items():
         roles.append({"role": role, "id": spec.get("id"),
                       "engine": spec.get("engine"), "tier": spec.get("tier"),
-                      "present": cli._model_present(spec, dirs)})
+                      "present": model_store.present(spec, dirs)})
     return {"roles": roles, "detected_tier": tier,
             "available_gb": round(avail, 0) if avail else None,
             "store": dirs["root"]}

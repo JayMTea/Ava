@@ -76,6 +76,7 @@ def _server_port() -> int:
 # Tier recommendation lives in model_fit so doctor / models pull / the setup
 # wizard share one source of truth.
 from ava_bridge.model_fit import recommend_tier as _recommend_tier  # noqa: E402
+from ava_bridge import models  # noqa: E402
 
 
 def cmd_doctor(_args) -> int:
@@ -892,57 +893,17 @@ def cmd_device(args) -> int:
 # hasn't chosen yet. The user's `models:` block in ava.yaml overlays this (see
 # _models_manifest), and Setup → Models in the UI rewrites the inference backend
 # outright. Changing a default here changes what NEW installs pull — nothing else.
-_gpusvc_SUBDIRS = ["checkpoints", "loras", "vae", "guidance net", "upscale_models",
-                  "embeddings", "clip", "clip_vision", "unet", "weight_models",
-                  "text_encoders"]
-
-_DEFAULT_MODELS = {
-    "chat": {"engine": "vllm",
-             "id": "Qwen/Qwen2.5-7B-Instruct", "tier": "medium"},
-    "fast": {"engine": "ollama", "id": "llama3.1:8b", "tier": "small"},
-    "image": {"engine": "gpu-service", "id": "gpu_model_base",
-              "dest": "checkpoints",
-              "url": "https://huggingface.co/example/gpu-model"
-                     "resolve/main/gpu_model_base"},
-}
-
-# Chat models for boxes that can't serve the vLLM default (Apple Silicon, CPU-only):
-# vLLM needs CUDA/ROCm, so `pull --auto` must never fetch it there. Keyed by the
-# memory tier, mirrors the Apple-Silicon example in config.example.yaml (Ollama's
-# OpenAI-compatible API on :11434 reads the same unified-memory pool).
-_OLLAMA_CHAT = {
-    "large": {"engine": "ollama", "id": "llama3.1:70b", "tier": "large"},
-    "medium": {"engine": "ollama", "id": "llama3.1:8b", "tier": "small"},
-}
-
-
-def _models_manifest() -> dict:
-    """Default roles overlaid with the user's `models:` block. A partial
-    override (e.g. declaring only `image`) must NOT delete the default chat/
-    fast roles — that silently killed `pull --auto`. Set a role to null/false
-    in ava.yaml to genuinely remove it."""
-    m = settings.get("models", None)
-    if not isinstance(m, dict) or not m:
-        return dict(_DEFAULT_MODELS)
-    merged = {**_DEFAULT_MODELS, **m}
-    return {k: v for k, v in merged.items() if isinstance(v, dict)}
-
-
-def _model_dirs() -> dict:
-    base = settings.models_dir()
-    return {"root": base, "hf": os.path.join(base, "hf"),
-            "ollama": os.path.join(base, "ollama"),
-            "gpusvc": os.path.join(base, "gpusvc"),
-            "gguf": os.path.join(base, "gguf")}
-
-
-def ensure_model_dirs() -> dict:
-    d = _model_dirs()
-    for k in ("hf", "ollama", "gpusvc", "gguf"):
-        os.makedirs(d[k], exist_ok=True)
-    for sub in _gpusvc_SUBDIRS:
-        os.makedirs(os.path.join(d["gpusvc"], sub), exist_ok=True)
-    return d
+# Moved to ava_bridge/models.py so the bridge and the CLI share ONE
+# implementation. hub_api used to sys.path-inject the code root and import this
+# script to reach these as private functions; it now imports the module.
+# The underscore aliases below are kept so existing call sites (and the tests
+# that pin this behaviour) keep working unchanged.
+_gpusvc_SUBDIRS = models.gpusvc_SUBDIRS
+_DEFAULT_MODELS = models.DEFAULT_MODELS
+_OLLAMA_CHAT = models.OLLAMA_CHAT
+_models_manifest = models.manifest
+_model_dirs = models.dirs
+ensure_model_dirs = models.ensure_dirs
 
 
 def _write_gpusvc_paths(gpusvc_dir: str) -> str | None:
@@ -960,9 +921,7 @@ def _write_gpusvc_paths(gpusvc_dir: str) -> str | None:
     return p
 
 
-def _hf_present(model_id: str, hf_dir: str) -> bool:
-    safe = "models--" + model_id.replace("/", "--")
-    return any(os.path.isdir(os.path.join(hf_dir, sub, safe)) for sub in ("hub", ""))
+_hf_present = models.hf_present
 
 
 def _pull_hf(model_id: str, hf_dir: str) -> int:
@@ -976,19 +935,11 @@ def _pull_hf(model_id: str, hf_dir: str) -> int:
     return 1
 
 
-def _ollama_env(ollama_dir: str) -> dict:
-    return {**os.environ, "OLLAMA_MODELS": ollama_dir}
+_ollama_env = models.ollama_env
+_LOCAL_CHAT_ENGINES = models.LOCAL_CHAT_ENGINES
 
 
-def _ollama_present(tag: str, ollama_dir: str) -> bool:
-    if not shutil.which("ollama"):
-        return False
-    try:
-        out = subprocess.run(["ollama", "list"], env=_ollama_env(ollama_dir),
-                             capture_output=True, text=True, timeout=10)
-        return tag.split(":")[0] in out.stdout
-    except Exception:  # noqa: BLE001
-        return False
+_ollama_present = models.ollama_present
 
 
 def _pull_ollama(tag: str, ollama_dir: str) -> int:
@@ -1004,8 +955,7 @@ def _gpusvc_target(spec: dict, gpusvc_dir: str) -> str:
                         os.path.basename(spec["id"]))
 
 
-def _gpusvc_present(spec: dict, gpusvc_dir: str) -> bool:
-    return os.path.isfile(_gpusvc_target(spec, gpusvc_dir))
+_gpusvc_present = models.gpusvc_present
 
 
 def _gguf_target(spec: dict, gguf_dir: str) -> str:
@@ -1013,8 +963,7 @@ def _gguf_target(spec: dict, gguf_dir: str) -> str:
     return os.path.join(gguf_dir, name)
 
 
-def _gguf_present(spec: dict, gguf_dir: str) -> bool:
-    return os.path.isfile(_gguf_target(spec, gguf_dir))
+_gguf_present = models.gguf_present
 
 
 def _pull_gguf(spec: dict, gguf_dir: str) -> int:
@@ -1080,17 +1029,7 @@ def _download_url(url: str | None, target: str, label: str) -> int:
         return 1
 
 
-def _model_present(spec: dict, dirs: dict) -> bool:
-    eng = spec.get("engine")
-    if eng == "vllm":
-        return _hf_present(spec["id"], dirs["hf"])
-    if eng == "ollama":
-        return _ollama_present(spec["id"], dirs["ollama"])
-    if eng == "gpu-service":
-        return _gpusvc_present(spec, dirs["gpusvc"])
-    if eng in ("llamacpp", "gguf"):
-        return _gguf_present(spec, dirs["gguf"])
-    return False
+_model_present = models.present
 
 
 def _pull_one(role: str, spec: dict, dirs: dict) -> int:
@@ -1136,30 +1075,10 @@ def _backend_stanza(role: str, spec: dict, dirs: dict) -> str:
     return "\n".join(lines)
 
 
-def _detected_tier() -> tuple[str, float | None]:
-    try:
-        from ava_bridge import hwinfo
-        avail = hwinfo.fit_memory().total_gb
-    except Exception:  # noqa: BLE001
-        avail = None
-    if avail is None:
-        return "cloud", None
-    return _recommend_tier(avail)[0], avail
+_detected_tier = models.detected_tier
 
 
-def _platform_label() -> str:
-    """Coarse platform id for user-facing messages (never raises)."""
-    try:
-        from ava_bridge import hwinfo
-        return hwinfo.platform_id()
-    except Exception:  # noqa: BLE001
-        return "this platform"
-
-
-# Local chat engines Ava can seed a backend for on a non-CUDA box (all serve an
-# OpenAI-compatible API; vLLM is deliberately absent — it needs a CUDA/ROCm GPU).
-_LOCAL_CHAT_ENGINES = {"ollama", "llamacpp", "gguf", "mlx", "mlx-lm",
-                       "lmstudio", "lm-studio"}
+_platform_label = models.platform_label
 
 
 def _inference_reseed(manifest: dict, tier: str | None) -> tuple[dict | None, str | None]:
@@ -1237,47 +1156,10 @@ def _seed_inference_backend(spec: dict) -> bool:
         return False
 
 
-def _engine_servable_here(engine: str | None) -> bool:
-    """Can THIS box actually run a local engine of this type?
-
-    vLLM needs a CUDA/ROCm GPU, so it can't serve on Apple Silicon or a CPU-only
-    box — pulling ~35 GB of FP8 weights there is a trap. Every other local engine
-    (Ollama, llama.cpp, MLX, LM Studio) and all cloud engines run anywhere. When
-    the platform is unknown we don't block (return True) — degrade, never brick.
-    """
-    eng = (engine or "").strip().lower()
-    if eng == "vllm":
-        return _platform_label() in ("linux-nvidia", "windows-nvidia")
-    return True
+_engine_servable_here = models.engine_servable_here
 
 
-def _resolve_auto(tier: str, manifest: dict) -> tuple:
-    """Pick (role, spec, note) for `ava models pull --auto`, platform-aware.
-
-    Guarantees the returned spec's engine is servable on THIS box, so a high-RAM
-    Mac (tier 'large') is never steered into the vLLM-only default it can't run.
-    Substitutes a same-tier Ollama chat model, or downshifts to the servable
-    'fast' role; `note` explains any substitution. Returns (None, None, note) when
-    nothing local is servable (caller should point at a cloud provider)."""
-    role = {"large": "chat", "medium": "chat",
-            "small": "fast", "tiny": "fast"}.get(tier)
-    if not role or role not in manifest:
-        return None, None, None
-    spec = manifest[role]
-    if _engine_servable_here(spec.get("engine")):
-        return role, spec, None
-    plat = _platform_label()
-    blocked = (f"the default '{role}' model ({spec.get('engine')}: "
-               f"{spec.get('id')}) can't be served on {plat}")
-    sub = _OLLAMA_CHAT.get(tier)
-    if sub and _engine_servable_here(sub.get("engine")):
-        return role, sub, (f"{blocked} — substituting {sub['engine']}: "
-                           f"{sub['id']} instead")
-    fast = manifest.get("fast")
-    if fast and _engine_servable_here(fast.get("engine")):
-        return "fast", fast, (f"{blocked} — downshifting to the '{fast.get('engine')}' "
-                              f"model {fast.get('id')}")
-    return None, None, blocked
+_resolve_auto = models.resolve_auto
 
 
 def cmd_models(args) -> int:
