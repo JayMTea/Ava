@@ -57,7 +57,7 @@ from ava_bridge.chat_store import (
 from ava_bridge import turn_router
 from ava_bridge.auth import (
     auth_gate, _is_authed, _set_session_cookie, _login_locked, _login_record,
-    current_password, needs_setup, set_password,
+    current_password, needs_setup, set_password, rotate_secret,
 )
 from ava_bridge import features, internal, architecture, learning_mgmt, log_mgmt, config_mgmt, policy_mgmt, perf_mgmt
 from ava_bridge import audit, approvals
@@ -198,6 +198,46 @@ def logout():
     return resp
 
 
+@app.post("/api/auth/password")
+async def change_password(request: Request):
+    """Change the admin password from inside the product, revoking other sessions.
+
+    Until this existed the only ways to change it were editing data/auth_password
+    by hand or setting AVA_PASSWORD and restarting — neither reachable by someone
+    running Ava as an app rather than as their own repo.
+
+    Rotating the signing secret is what revokes: there is no server-side session
+    store, so a stolen or stale cookie is only invalidated by changing the key
+    that signs it. The caller is re-issued a fresh cookie so changing your own
+    password does not log you out of the tab you did it from.
+    """
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001 — a malformed body is a 400, not a 500
+        return JSONResponse({"ok": False, "error": "expected a JSON body"},
+                            status_code=400)
+    current = str(body.get("current") or "")
+    new = str(body.get("new") or "").strip()
+    if len(new) < 8:
+        return JSONResponse(
+            {"ok": False, "error": "New password must be at least 8 characters."},
+            status_code=400)
+    # compare_digest, not ==, so a wrong guess costs the same time as a right one.
+    if not hmac.compare_digest(current, current_password()):
+        return JSONResponse({"ok": False, "error": "Current password is incorrect."},
+                            status_code=403)
+    if os.environ.get("AVA_PASSWORD"):
+        return JSONResponse(
+            {"ok": False, "error": "AVA_PASSWORD is set in the environment and "
+                                   "takes precedence — change it there instead."},
+            status_code=409)
+    set_password(new)
+    revoked = rotate_secret()
+    resp = JSONResponse({"ok": True, "revoked_other_sessions": revoked})
+    _set_session_cookie(resp)
+    return resp
+
+
 # Lazily-initialised heavy objects (loaded once on first request / startup).
 # Voice (STT + speaker gate) is an OPTIONAL extra — requirements-voice.txt.
 # Without it the bridge boots and serves normally, just voice-less.
@@ -283,10 +323,29 @@ def index():
 # mount doesn't cover them. Served explicitly; both are in auth._PUBLIC_PATHS.
 @app.get("/manifest.webmanifest", include_in_schema=False)
 def pwa_manifest():
+    """The PWA manifest, with the brand applied at request time.
+
+    vite bakes `name`/`short_name` into dist at BUILD time, so a fork that set
+    `brand.name` in ava.yaml still got a home-screen icon labelled "Ava" — the one
+    place branding is most visible and least expected to be wrong. Overriding here
+    keeps the built file as the template and the config as the source of truth,
+    with no rebuild required to re-brand.
+    """
     p = os.path.join(FRONTEND_DIST, "manifest.webmanifest")
     if not os.path.isfile(p):
         return JSONResponse({"error": "not built"}, status_code=404)
-    return FileResponse(p, media_type="application/manifest+json")
+    try:
+        with open(p, encoding="utf-8") as f:
+            man = json.load(f)
+        man["name"] = config.AVA_NAME
+        man["short_name"] = config.AVA_NAME
+        if config.AVA_TAGLINE:
+            man["description"] = config.AVA_TAGLINE
+        return JSONResponse(man, media_type="application/manifest+json")
+    except (OSError, ValueError):
+        # A malformed or unreadable manifest must not break install; serve the
+        # built file untouched rather than 500.
+        return FileResponse(p, media_type="application/manifest+json")
 
 
 @app.get("/sw.js", include_in_schema=False)
@@ -1435,8 +1494,9 @@ async def talk(audio: UploadFile = File(...), history: str = Form("[]"),
             _rms = float(_np.sqrt(_np.mean(_samples * _samples))) if _samples.size else 0.0
             _peak = float(_np.max(_np.abs(_samples))) if _samples.size else 0.0
             _dur = _samples.size / RATE
-            _dbg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                     "logs", "last_talk.wav")
+            # config.LOGS_DIR, not __file__/logs: the latter is the code root,
+            # which on Docker is the ephemeral container layer, not the volume.
+            _dbg_path = os.path.join(config.LOGS_DIR, "last_talk.wav")
             os.makedirs(os.path.dirname(_dbg_path), exist_ok=True)
             with _wave.open(_dbg_path, "wb") as _w:
                 _w.setnchannels(1)
@@ -1724,6 +1784,35 @@ _ALLOWED_UPLOAD_EXTS = {
 }
 
 
+def _store_upload(raw: bytes, aid: str, safe: str, ext: str) -> dict:
+    """Blocking half of /api/upload: disk write, text extraction, memory index.
+
+    Split out so it can run in a threadpool. `extract_text` shells out to
+    `soffice --headless` for office documents with a 150s ceiling, and running
+    that on the event loop froze the whole process for its duration \u2014 every SSE
+    stream, every /apps/{cid} proxy hop, and the login gate with it. One user
+    uploading one .docx was enough; it did not need load to bite.
+    """
+    stored = f"{aid}_{safe}"
+    dest = os.path.join(UPLOAD_DIR, stored)
+    with open(dest, "wb") as f:
+        f.write(raw)
+    is_image = ext in IMAGE_EXTS
+    text = (extract_text(dest, ext) or "").strip()
+    if len(text) > MAX_DOC_CHARS:
+        text = text[:MAX_DOC_CHARS] + "\n\u2026[truncated]"
+    rec = {"id": aid, "filename": safe,
+           "kind": "image" if is_image else "document",
+           "url": f"/uploads/{stored}" if is_image else None,
+           "chars": len(text), "ocr": bool(is_image and text), "text": text}
+    # Long-term memory: index document text so it stays searchable in
+    # future conversations (not just this message). Images skipped unless
+    # OCR found real text.
+    if not is_image or rec["ocr"]:
+        memory_store.index_document(aid, safe, text)
+    return rec
+
+
 @app.post("/api/upload")
 async def upload(files: List[UploadFile] = File(...)):
     """Accept document/image uploads, extract text, stash for the next turn."""
@@ -1742,25 +1831,11 @@ async def upload(files: List[UploadFile] = File(...)):
         if ext not in _ALLOWED_UPLOAD_EXTS:
             out.append({"error": f"{uf.filename}: file type '{ext or '?'}' not allowed"})
             continue
-        stored = f"{aid}_{safe}"
-        dest = os.path.join(UPLOAD_DIR, stored)
-        with open(dest, "wb") as f:
-            f.write(raw)
-        is_image = ext in IMAGE_EXTS
-        text = (extract_text(dest, ext) or "").strip()
-        if len(text) > MAX_DOC_CHARS:
-            text = text[:MAX_DOC_CHARS] + "\n\u2026[truncated]"
-        rec = {"id": aid, "filename": safe,
-               "kind": "image" if is_image else "document",
-               "url": f"/uploads/{stored}" if is_image else None,
-               "chars": len(text), "ocr": bool(is_image and text), "text": text}
+        # Validation above is cheap and stays on the loop; everything that
+        # touches disk, a subprocess or SQLite goes to a worker thread.
+        rec = await run_in_threadpool(_store_upload, raw, aid, safe, ext)
         with _ATTACH_LOCK:
             _ATTACH[aid] = rec
-        # Long-term memory: index document text so it stays searchable in
-        # future conversations (not just this message). Images skipped unless
-        # OCR found real text.
-        if not is_image or rec["ocr"]:
-            memory_store.index_document(aid, safe, text)
         out.append({k: rec[k] for k in ("id", "filename", "kind", "url", "chars", "ocr")})
     return {"attachments": out}
 

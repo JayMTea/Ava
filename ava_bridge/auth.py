@@ -74,21 +74,70 @@ def set_password(pw: str) -> None:
     os.chmod(_PASSWORD_FILE, 0o600)
 
 
-_AUTH_SECRET = _auth_secret()
+_AUTH_SECRET: bytes | None = None
+
+
+def _secret() -> bytes:
+    """The signing key, cached. Read through a function rather than bound once at
+    import so `rotate_secret()` can invalidate every outstanding cookie without a
+    process restart."""
+    global _AUTH_SECRET
+    if _AUTH_SECRET is None:
+        _AUTH_SECRET = _auth_secret()
+    return _AUTH_SECRET
+
+
+def rotate_secret() -> bool:
+    """Mint a new signing key: every cookie signed with the old one stops
+    validating. This is the revoke primitive — there is no server-side session
+    store to evict from, so invalidating the key IS "log everyone out".
+
+    Returns False when AVA_SECRET pins the key in the environment, since the file
+    would be ignored and the caller must not report a revoke that did not happen.
+    """
+    global _AUTH_SECRET
+    if os.environ.get("AVA_SECRET"):
+        return False
+    data = secrets.token_bytes(32)
+    path = os.path.join(config.CHATS_DIR, ".secret")
+    with open(path, "wb", opener=_secure_opener) as f:
+        f.write(data)
+    os.chmod(path, 0o600)
+    _AUTH_SECRET = data
+    return True
+
+
+def _sign(payload: str) -> str:
+    return hmac.new(_secret(), payload.encode(), hashlib.sha256).hexdigest()
 
 
 def _make_token() -> str:
+    """`exp.sid.sig`.
+
+    The `sid` is what makes two sessions distinguishable. Without it the token was
+    just a signed expiry stamp, so every login within the same second produced a
+    byte-identical cookie — two devices shared one indistinguishable session, and
+    "log out my other device" was not expressible. It also gives the cookie
+    entropy that does not depend on the clock.
+    """
     exp = str(int(time.time()) + config.SESSION_TTL)
-    sig = hmac.new(_AUTH_SECRET, exp.encode(), hashlib.sha256).hexdigest()
-    return f"{exp}.{sig}"
+    sid = secrets.token_urlsafe(12)
+    payload = f"{exp}.{sid}"
+    return f"{payload}.{_sign(payload)}"
 
 
 def _valid_token(tok: str) -> bool:
-    if not tok or "." not in tok:
+    # Exactly three parts. Legacy two-part `exp.sig` cookies are rejected rather
+    # than accepted for compatibility: they predate session ids, and honouring
+    # them would keep the weaker format alive indefinitely. The cost is one
+    # re-login per user at upgrade.
+    parts = (tok or "").split(".")
+    if len(parts) != 3:
         return False
-    exp, _, sig = tok.partition(".")
-    good = hmac.new(_AUTH_SECRET, exp.encode(), hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(sig, good):
+    exp, sid, sig = parts
+    if not exp or not sid:
+        return False
+    if not hmac.compare_digest(sig, _sign(f"{exp}.{sid}")):
         return False
     try:
         return int(exp) > int(time.time())
