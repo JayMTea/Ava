@@ -463,7 +463,9 @@ export const hub = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }),
-  probeConnector: (body: { url?: string; command?: string; token_env?: string; token_value?: string }) =>
+  probeConnector: (body: { url?: string; command?: string; token_env?: string;
+                          token_value?: string; sandbox?: string;
+                          allow_unsandboxed?: boolean }) =>
     req<ProbeResult>('/api/hub/connectors/probe', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

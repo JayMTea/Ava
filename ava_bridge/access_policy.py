@@ -28,8 +28,14 @@ _DENY = [
     ".env", ".env.*", "*.env",
     "data/**", "data/*",
     "**/.secret", "**/.internal_token", "**/auth_password",
+    "**/setup_claim",           # the first-run claim token (ava_bridge/auth.py)
+    "secrets", "secrets/**", "secrets/*",   # router_token, inference_key, env/*
     "models/**",                # biometric voiceprint + TTS/ECAPA weights
     ".git/**",
+    ".venv/**",                 # site-packages: writable = arbitrary code on next import
+    "run/**",                   # allocator lease/breaker state
+    "ava.yaml",                 # holds code.approval — writable = self-ungating
+    "connector_grants.yaml",    # the connector consent ledger = self-approval
     "bin/**", "gpusvc/**", "media/**", "logs/**", "enroll/**",
     "*.onnx", "*.npy", "*.ckpt", "*.ort", "*.pem", "*.key",
 ]

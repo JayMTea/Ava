@@ -345,6 +345,27 @@ class _SseSession(_Session):
 # --------------------------------------------------------------------------- #
 # stdio transport (newline-delimited JSON-RPC over a subprocess)
 # --------------------------------------------------------------------------- #
+def _minimal_env(spec: dict) -> dict:
+    """The environment an UNSANDBOXED stdio MCP server gets.
+
+    It used to be `{**os.environ, **spec["env"]}` — the bridge's entire
+    environment, including ANTHROPIC_API_KEY and every connector credential,
+    handed to a command the owner pasted from a README. The connector docs use
+    `npx -y @modelcontextprotocol/server-github` as the worked example, so the
+    pasted string is routinely something fetched from the network at run time.
+
+    A server needs enough to find its interpreter and a writable temp dir; it does
+    not need the host's secrets. Anything it legitimately requires is declared in
+    the manifest's `env:` block, which is the point at which the owner decides.
+    """
+    keep = ("PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "TERM",
+            # Node/Python need these to locate themselves on some installs.
+            "NODE_PATH", "NVM_DIR", "SYSTEMROOT")
+    env = {k: os.environ[k] for k in keep if k in os.environ}
+    env.update(spec.get("env") or {})
+    return env
+
+
 def _docker_wrap(spec: dict) -> list[str]:
     """Wrap a stdio MCP command to run inside a throwaway container, so an
     untrusted server can't touch the host filesystem. Secrets are passed via
@@ -371,7 +392,7 @@ class _StdioSession(_Session):
             popen_env = os.environ            # secrets passed via -e inside the wrap
         else:
             cmd = spec["command"]
-            popen_env = {**os.environ, **(spec.get("env") or {})}
+            popen_env = _minimal_env(spec)
         self._proc = subprocess.Popen(
             cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL, env=popen_env, text=True, bufsize=1)

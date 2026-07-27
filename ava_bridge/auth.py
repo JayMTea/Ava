@@ -328,9 +328,21 @@ async def auth_gate(request: Request, call_next):
     if path == "/internal" or path.startswith("/internal/"):
         from . import config as _config, internal
         tok = request.headers.get("x-ava-internal-token", "")
-        if not (_config.INTERNAL_TOKEN and tok
-                and internal._token_group(tok) is not None):
+        group = internal._token_group(tok) if (_config.INTERNAL_TOKEN and tok) else None
+        if group is None:
             return JSONResponse({"error": "unauthorized"}, status_code=401)
+        # Least privilege, enforced HERE rather than per handler. 24 of 25
+        # handlers passed no scope, so `authorized(scope=)` was documented in
+        # SECURITY.md, agent/install.sh and this file while being enforced
+        # nowhere: any valid group token reached every route, including
+        # /internal/code-change from the group that runs web_fetch. Checking in
+        # the middleware means a route added tomorrow is covered by default —
+        # and an unclassified one is refused rather than silently open.
+        if not internal.group_may(group, path):
+            return JSONResponse(
+                {"error": "forbidden",
+                 "detail": f"the '{group}' capability group may not call {path}"},
+                status_code=403)
         return await call_next(request)
     # The device-event ingest endpoint bypasses the cookie gate the same way:
     # callers are apps, not browsers, with their own per-connector bearer check.

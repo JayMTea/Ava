@@ -515,7 +515,15 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
     if (!reach.trim()) return;
     setProbing(true); setProbe(null); setProbeErr(''); setActions([]);
     try {
-      const body = isUrl ? { url: reach.trim() } : { command: reach.trim() };
+      // Detecting a start command RUNS it, so the isolation choice has to
+      // travel with the request that runs it — not be confirmed afterwards.
+      const body = isUrl
+        ? { url: reach.trim() }
+        : {
+            command: reach.trim(),
+            sandbox: isolate && dockerAvail ? 'docker' : 'none',
+            allow_unsandboxed: !isolate || !dockerAvail,
+          };
       const r = await hub.probeConnector({
         ...body,
         token_env: tokenEnv.trim() || undefined,
@@ -542,7 +550,7 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
       }
     } catch (e) { setProbeErr((e as Error).message); }
     setProbing(false);
-  }, [reach, isUrl, tokenEnv, tokenVal]);
+  }, [reach, isUrl, tokenEnv, tokenVal, isolate, dockerAvail]);
 
   const create = useCallback(async () => {
     setBusy(true); setMsg(''); setDone('');
@@ -659,6 +667,20 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
             <Icon name={probing ? 'refresh' : 'sparkles'} />{probing ? 'Checking…' : 'Detect'}
           </button>
         </div>
+        {!isUrl && reach.trim() && (
+          <label className="hub-check" style={{ marginTop: 10, borderBottom: 0, paddingBottom: 0 }}>
+            <input type="checkbox" checked={isolate && dockerAvail} disabled={!dockerAvail}
+              onChange={(e) => setIsolate(e.target.checked)} />
+            <span className="hub-check-main">
+              <span className="hub-check-title">Run it in an isolated container <span style={{ color: 'var(--ok)' }}>(recommended)</span></span>
+              <span className="hub-check-sub">
+                {dockerAvail
+                  ? 'That looks like a start command, so Detect will RUN it. A container keeps it off your files and away from Ava’s environment (read-only, resource-capped).'
+                  : 'Docker isn’t installed, so this command would run directly on this host with Ava’s environment. Install Docker to contain it, or tick nothing and Detect will refuse.'}
+              </span>
+            </span>
+          </label>
+        )}
         <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--muted)', marginTop: 5 }}>
           {isDevice
             ? 'Leave blank for a push-only device. Add the address of its pull server (or the host adapter) if Ava should read or command it.'
@@ -703,18 +725,11 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
             ))}
           </div>
           {probe!.kind === 'mcp' && !isUrl && (
-            <label className="hub-check" style={{ marginTop: 12, borderBottom: 0, paddingBottom: 0 }}>
-              <input type="checkbox" checked={isolate && dockerAvail} disabled={!dockerAvail}
-                onChange={(e) => setIsolate(e.target.checked)} />
-              <span className="hub-check-main">
-                <span className="hub-check-title">Run it in an isolated container <span style={{ color: 'var(--ok)' }}>(recommended)</span></span>
-                <span className="hub-check-sub">
-                  {dockerAvail
-                    ? 'This server runs on your machine — a container keeps it off your files (read-only, resource-capped).'
-                    : 'Docker isn’t installed, so the server would run directly on the host. Install Docker to contain it.'}
-                </span>
-              </span>
-            </label>
+            <div className="hub-check-sub" style={{ marginTop: 12 }}>
+              {isolate && dockerAvail
+                ? 'Detected inside an isolated container, and it will run that way.'
+                : 'Detected by running it directly on this host.'}
+            </div>
           )}
           <label className="hub-check" style={{ marginTop: probe!.kind === 'mcp' && !isUrl ? 0 : 12, borderBottom: 0, paddingBottom: 0 }}>
             <input type="checkbox" checked={confirmAll} onChange={(e) => setConfirmAll(e.target.checked)} />

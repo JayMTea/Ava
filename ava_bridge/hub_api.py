@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -955,7 +956,8 @@ def _actions_from_openapi(spec: dict, limit: int = 50) -> list[dict]:
 
 
 def _probe(url: str, command: str, token_env: str | None,
-           token_value: str | None = None) -> dict:
+           token_value: str | None = None, *, sandbox: str | None = None,
+           image: str | None = None, allow_unsandboxed: bool = False) -> dict:
     """Figure out how to talk to an app so the user doesn't have to classify it:
     try MCP (a start command = stdio, or the URL = MCP-over-HTTP), then a
     discovery endpoint (GET <url>/tools). Returns the detected kind + the tools
@@ -974,8 +976,24 @@ def _probe(url: str, command: str, token_env: str | None,
 
     # 1) A start command is unambiguously an MCP stdio server.
     if command:
+        # Detection RUNS the command. It used to run it bare, with the bridge's
+        # whole environment, before the owner had made any isolation choice — the
+        # isolation checkbox only rendered after the probe returned. So "paste its
+        # address, click Detect" executed an internet-sourced command on the host.
+        # Default to contained, and refuse rather than silently downgrade.
+        want_sandbox = "docker" if sandbox is None else sandbox
+        if want_sandbox == "docker" and not shutil.which("docker"):
+            if not allow_unsandboxed:
+                return {"ok": False, "needs": "docker", "kind": "mcp",
+                        "error": "This is a start command, so detecting it means "
+                                 "RUNNING it. Docker isn't available to contain "
+                                 "it. Install Docker, or re-run detection with "
+                                 "'run it directly on this host' if you trust "
+                                 "this command."}
+            want_sandbox = "none"
         spec = {"transport": "stdio", "url": None, "command": command.split(),
-                "env": None, "token_env": token_env}
+                "env": None, "token_env": token_env,
+                "sandbox": want_sandbox, "image": image or None}
         try:
             res = mcp_client.list_tools(cid, spec)
         finally:
@@ -1099,7 +1117,15 @@ async def connector_probe(request: Request):
     command = str(body.get("command") or "").strip()
     token_env = str(body.get("token_env") or "").strip() or None
     token_value = str(body.get("token_value") or "")
-    return await run_in_threadpool(_probe, url, command, token_env, token_value)
+    # The isolation choice is a property of HOW to run the command, so it has to
+    # arrive with the request that runs it — not be confirmed afterwards.
+    sandbox = body.get("sandbox")
+    sandbox = str(sandbox).strip().lower() if sandbox is not None else None
+    image = str(body.get("image") or "").strip() or None
+    allow_unsandboxed = bool(body.get("allow_unsandboxed"))
+    return await run_in_threadpool(_probe, url, command, token_env, token_value,
+                                   sandbox=sandbox, image=image,
+                                   allow_unsandboxed=allow_unsandboxed)
 
 
 @router.post("/connectors/new")

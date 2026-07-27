@@ -29,7 +29,7 @@ import uuid
 
 import httpx
 
-from . import config, state
+from . import access_policy, config, state
 
 ROOT = os.path.realpath(config.ROOT)
 
@@ -40,24 +40,41 @@ ROOT = os.path.realpath(config.ROOT)
 # each one. Defaults to ROOT, so Ava's self-edit path is byte-for-byte unchanged.
 import contextvars
 _active_root_var: contextvars.ContextVar[str] = contextvars.ContextVar("code_active_root", default=ROOT)
+_active_project_var: contextvars.ContextVar[str] = contextvars.ContextVar("code_active_project", default="ava")
 
 
 def _active_root() -> str:
     return _active_root_var.get()
 
 
-def set_active_root(root: str):
+def _active_project() -> str:
+    return _active_project_var.get()
+
+
+def set_active_root(root: str, project: str = "ava"):
     """Point the code tools at `root` for the current context; returns a token
-    to pass to reset_active_root() when done."""
-    return _active_root_var.set(os.path.realpath(root))
+    to pass to reset_active_root() when done.
+
+    `project` selects which repo's access policy applies, so the read gate in
+    `_safe()` uses the same rules the write gate already did.
+    """
+    return (_active_root_var.set(os.path.realpath(root)),
+            _active_project_var.set(project))
 
 
 def reset_active_root(token) -> None:
-    _active_root_var.reset(token)
+    # Tuple since projects were added; older single-token callers still work.
+    root_tok, proj_tok = token if isinstance(token, tuple) else (token, None)
+    _active_root_var.reset(root_tok)
+    if proj_tok is not None:
+        _active_project_var.reset(proj_tok)
 
 # Directories that are never worth showing/editing (noise + secrets + binaries).
+# `secrets` is here as well as in access_policy._DENY: this list prunes the walk
+# so search never opens those files at all, and the policy is what refuses a
+# direct request for one by name.
 _SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", "models", "bin",
-              "media", "logs", "gpusvc", "data", "enroll"}
+              "media", "logs", "gpusvc", "data", "enroll", "secrets", "run"}
 
 SYSTEM_PROMPT = (
     f"You are {config.AVA_NAME}, editing your OWN source code in the repository "
@@ -130,12 +147,37 @@ TOOLS = [
 
 # --- path safety -------------------------------------------------------------
 def _safe(rel: str) -> str:
-    """Resolve a repo-relative path and refuse anything outside the repo."""
+    """Resolve a repo-relative path, refuse anything outside the repo, and refuse
+    anything the access policy denies.
+
+    The policy check lives HERE, not in each tool, because every tool must route
+    a path through this function to have a legal path at all — so a tool written
+    tomorrow inherits the gate without its author knowing it exists.
+    `tests/test_code_tool_policy.py` fails any tool that skips it.
+
+    Denied means denied for READS too, deliberately. `access_policy._DENY` is
+    precisely the set of secrets, credentials and biometrics; until now it was
+    consulted only by `classify_edits`, i.e. writes, so the agent could read
+    `.env` (with ANTHROPIC_API_KEY), `data/auth_password` and `secrets/*` and
+    quote them straight back into a chat turn. With `web_fetch` in the same tool
+    loop that is a complete exfiltration path, and `code.approval` does not help:
+    it gates writes, after the loop. A `write=` kwarg was rejected for the same
+    reason the check is here at all — it is a thing a future tool author forgets.
+    """
     root = _active_root()
     rel = (rel or "").strip().lstrip("/")
     p = os.path.realpath(os.path.join(root, rel))
     if p != root and not p.startswith(root + os.sep):
         raise ValueError(f"path escapes the repo: {rel!r}")
+    if p != root:
+        try:
+            verdict = access_policy.classify(os.path.relpath(p, root), _active_project())
+        except Exception:  # noqa: BLE001 — an unreadable policy must fail CLOSED
+            verdict = "denied"
+        if verdict == "denied":
+            # Named, not vague: this string reaches the model and the user, and
+            # "permission denied" with no path reads as a bug rather than a rule.
+            raise PermissionError(f"blocked by access policy: {rel}")
     return p
 
 
@@ -148,11 +190,20 @@ def _tool_list_dir(rel: str) -> str:
     p = _safe(rel)
     if not os.path.isdir(p):
         return f"(not a directory: {rel})"
+    root = _active_root()
+    project = _active_project()
     out = []
     for name in sorted(os.listdir(p)):
         if name in _SKIP_DIRS:
             continue
         full = os.path.join(p, name)
+        # os.listdir bypasses _safe, so filter here too — otherwise a listing is
+        # an inventory of exactly the files the policy exists to hide.
+        try:
+            if access_policy.classify(os.path.relpath(full, root), project) == "denied":
+                continue
+        except Exception:  # noqa: BLE001 — fail closed
+            continue
         out.append(name + "/" if os.path.isdir(full) else name)
     return "\n".join(out) or "(empty)"
 
@@ -177,12 +228,23 @@ def _tool_search(pattern: str, glob: str | None) -> str:
     except re.error as e:
         return f"(bad regex: {e})"
     hits = []
-    for dirpath, dirnames, filenames in os.walk(_active_root()):
+    root = _active_root()
+    project = _active_project()
+    for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
         for fn in filenames:
             if glob and not fnmatch.fnmatch(fn, glob):
                 continue
             full = os.path.join(dirpath, fn)
+            # os.walk + open() never touches _safe, so the gate has to be
+            # restated. Without it, `search("ANTHROPIC")` returned the API key
+            # inline from .env — the file sits at the repo root, in no skipped
+            # directory, and matched like any other text file.
+            try:
+                if access_policy.classify(os.path.relpath(full, root), project) == "denied":
+                    continue
+            except Exception:  # noqa: BLE001 — fail closed
+                continue
             try:
                 if os.path.getsize(full) > config.CODE_MAX_FILE_BYTES:
                     continue

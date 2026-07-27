@@ -71,10 +71,28 @@ generated locally by `agent/docs/arch.py` on installs with the SSOT manifest.
 | `ava-gpusvc` | `run_gpu_job` | `host.openshell.internal:8189` (GET and POST) |
 | `ava-knowledge` | document, image, media-content, web tools | `host.openshell.internal:8096`, enumerated `/internal/...` routes only, plus a scoped `X-Ava-Internal-Token` |
 
-Host callbacks additionally require a scoped `X-Ava-Internal-Token` bearer.
-Scopes are enforced in `ava_bridge/internal.py` and derived in `agent/install.sh`;
-the raw root token is not accepted by default. Private host-gateway IPs are
-reached only because they are explicitly allow-listed past the SSRF guard.
+Host callbacks additionally require a scoped `X-Ava-Internal-Token` bearer,
+derived per capability group in `agent/install.sh`. Which group may call which
+`/internal/*` route is declared in `internal.ROUTE_SCOPES` +
+`security.INTERNAL_SCOPE_GROUPS`, and enforced **in the middleware**
+(`auth.auth_gate` → `internal.group_may`) rather than per handler — so a route
+added later is covered without its author opting in, and a route nobody has
+classified is refused for group tokens rather than left open. The root token
+passes everywhere; it is held by the owner and the CLI, not by the sandbox.
+
+The property that matters: the `content` group holds the token for the MCP server
+that runs `web_fetch`, which is the surface prompt injection actually arrives on.
+It cannot reach `/internal/code-change`, `/internal/config`, `/internal/policies`,
+`/internal/logs` or `/internal/perf`. `tests/test_internal_scopes.py` and
+`qa/test_10_security.py` both assert that directly.
+
+> Until 2026-07-27 this paragraph described a control that existed but was not
+> wired: 24 of 25 handlers passed no scope, so any valid group token reached
+> every route. It is enforced now; the note stays because "documented, tested,
+> and not enforced" is a failure mode worth naming.
+
+Private host-gateway IPs are reached only because they are explicitly
+allow-listed past the SSRF guard.
 
 ## 4. Secret inventory
 
