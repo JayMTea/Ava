@@ -151,7 +151,13 @@ export function MemoryPanel() {
                     ? [{ label: 'Edit', icon: 'pencil', onClick: () => { setEditId(m.id); setEditText(m.text); } }]
                     : []),
                   { label: 'Copy text', icon: 'copy', onClick: () => navigator.clipboard?.writeText(m.text) },
-                  { label: 'Forget', icon: 'trash', danger: true, onClick: () => remove(m) },
+                  // Confirmed like every other destructive action here (chats,
+                  // connectors, models). A memory is distilled from past
+                  // conversations, so there is nothing to re-derive it from.
+                  { label: 'Forget', icon: 'trash', danger: true,
+                    onClick: () => {
+                      if (window.confirm('Forget this memory? Ava cannot recover it.')) remove(m);
+                    } },
                 ];
                 return (
                   <div key={m.id} className="mem-row">

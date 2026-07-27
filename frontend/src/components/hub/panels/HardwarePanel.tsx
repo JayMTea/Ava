@@ -1,17 +1,20 @@
 import { EmptyState, Panel } from '../../dashboard/primitives';
 import { useResource } from '../hooks';
 import { hub } from '../hubApi';
+import { ResourceState } from '../ui/ResourceState';
 import { Tile } from '../ui/Tile';
 
 // Hardware — detected compute + the recommended model tier it implies (the tier
 // is the headline, since it drives which models Ava suggests on the Agent tab).
 export function HardwarePanel() {
-  const { data: hw } = useResource(() => hub.hardware());
+  const hwRes = useResource(() => hub.hardware());
 
   return (
     <Panel title="Your hardware"
       subtitle="Detected automatically — it sets the recommended model tier. Pick and download the model itself under the Agent tab.">
-      {hw ? (
+      <ResourceState r={hwRes} label="your hardware"
+        empty={<EmptyState text="Detecting hardware…" />}>
+        {(hw) => (
         <>
           <div className="hw-hero">
             <Tile icon="chart" tone="accent" size={42} />
@@ -28,7 +31,8 @@ export function HardwarePanel() {
             The tier sets which models Ava recommends. Pick and download one under the <b>Agent</b> tab.
           </div>
         </>
-      ) : <EmptyState text="Detecting hardware…" />}
+        )}
+      </ResourceState>
     </Panel>
   );
 }

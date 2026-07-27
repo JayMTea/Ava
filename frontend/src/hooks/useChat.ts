@@ -360,13 +360,24 @@ export function useChat() {
       setPending([]);
       setBusyBoth(true);
       setStatus('thinking…');
-      const cid = await ensureChat();
-      await submit(t, atts, cid, userItemId);
-      setBusyBoth(false);
-      setStatus('hold the mic to talk');
-      loadChats();
+      // try/finally, because `ensureChat` is a network call OUTSIDE the one
+      // `submit` makes. If it threw — the bridge unreachable on the first send
+      // of a NEW chat — setBusyBoth(false) never ran and the composer stayed
+      // disabled forever; only a page reload recovered. That is reachable during
+      // onboarding, because Setup itself tells you to restart Ava.
+      try {
+        const cid = await ensureChat();
+        await submit(t, atts, cid, userItemId);
+      } catch (e) {
+        push({ kind: 'sys', id: uid(), icon: 'alert', text: `Couldn't reach Ava — ${(e as Error).message}` });
+        if (userItemId) patch(userItemId, (it) => (it.kind === 'user' ? { ...it, failed: true } : it));
+      } finally {
+        setBusyBoth(false);
+        setStatus('hold the mic to talk');
+        loadChats();
+      }
     },
-    [pending, push, ensureChat, submit, loadChats],
+    [pending, push, patch, ensureChat, submit, loadChats],
   );
 
   const retry = useCallback(
@@ -375,13 +386,19 @@ export function useChat() {
       if (userItemId) patch(userItemId, (it) => (it.kind === 'user' ? { ...it, failed: false } : it));
       setBusyBoth(true);
       setStatus('thinking…');
-      const cid = await ensureChat();
-      await submit(t, atts, cid, userItemId);
-      setBusyBoth(false);
-      setStatus('hold the mic to talk');
-      loadChats();
+      try {
+        const cid = await ensureChat();
+        await submit(t, atts, cid, userItemId);
+      } catch (e) {
+        push({ kind: 'sys', id: uid(), icon: 'alert', text: `Couldn't reach Ava — ${(e as Error).message}` });
+        if (userItemId) patch(userItemId, (it) => (it.kind === 'user' ? { ...it, failed: true } : it));
+      } finally {
+        setBusyBoth(false);
+        setStatus('hold the mic to talk');
+        loadChats();
+      }
     },
-    [patch, ensureChat, submit, loadChats],
+    [patch, push, ensureChat, submit, loadChats],
   );
 
   // ---- voice: send a recorded clip through Ava (push-to-talk) -------------

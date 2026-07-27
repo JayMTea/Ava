@@ -73,3 +73,60 @@ def test_one_tone_system() -> None:
         "per-component tone→colour rules found — set a `.tone-*` class and read "
         "var(--tone) instead:\n  " + "\n  ".join(per_component)
     )
+
+
+def test_every_useResource_surfaces_its_error() -> None:
+    """A `useResource` result's `error` must reach the user somehow.
+
+    17 of 21 call sites destructured only `{ data }`, so a backend failure
+    rendered Setup as tabs of permanent "Detecting hardware…" ellipses: every
+    panel looked like it was still loading, forever, with the real error sitting
+    unread in a variable nobody had named. There was no global "cannot reach
+    Ava" banner either, so the whole page simply looked slow.
+
+    Two shapes are accepted, because they suit different panels:
+      * destructure `error` and render it yourself (ConnectorsPanel's pattern), or
+      * bind the WHOLE result and hand it to <ResourceState> / <ResourceError>,
+        which cannot drop the error because there is no field to omit.
+
+    A panel rendering several sections from ONE resource should use the second
+    with a single <ResourceError> at the top — three wrappers would show the same
+    failure three times.
+    """
+    # Deliberately silent, with the reason. Same shape as _ALLOW elsewhere.
+    allow = {
+        # HubView reads /api/hub/system for ONE thing: naming the right restart
+        # command in its banner. A failure there must not become an error the
+        # user cannot act on — the banner simply omits the command, and Overview
+        # (rendered inside it) already surfaces the same fetch failing.
+        "frontend/src/components/hub/HubView.tsx",
+    }
+    offenders = []
+    seen = set()
+    for f in (_tracked("frontend/src/components/**/*.tsx")
+              + _tracked("frontend/src/components/*.tsx")):
+        rel = f.relative_to(ROOT).as_posix()
+        if rel in seen:
+            continue                     # the two globs overlap
+        seen.add(rel)
+        if "/ui/ResourceState.tsx" in rel or rel in allow:
+            continue                     # the component itself, or justified
+        text = f.read_text()
+        surfaces = ("ResourceState" in text) or ("ResourceError" in text)
+        for m in re.finditer(r"^\s*const\s+(\{[^}]*\}|\w+)\s*=\s*useResource\(", text, re.M):
+            binding = m.group(1)
+            line = text[:m.start()].count("\n") + 1
+            if binding.startswith("{"):
+                if "error" not in binding:
+                    offenders.append(
+                        f"{rel}:{line} destructures {binding.strip()} — the error is dropped")
+            elif not surfaces:
+                offenders.append(
+                    f"{rel}:{line} binds `{binding}` but the file renders no "
+                    "<ResourceState>/<ResourceError>")
+    assert not offenders, (
+        "these useResource results can fail with nothing shown to the user — "
+        "either destructure `error` and render it, or pass the whole result to "
+        "<ResourceState r={…}> / <ResourceError r={…}> from hub/ui/ResourceState:\n  "
+        + "\n  ".join(offenders)
+    )

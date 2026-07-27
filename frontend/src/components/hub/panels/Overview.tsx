@@ -4,17 +4,27 @@ import { Panel } from '../../dashboard/primitives';
 import { useResource } from '../hooks';
 import { isExternalApp, type TabId } from '../shared';
 import { hub } from '../hubApi';
+import { ResourceError } from '../ui/ResourceState';
 import { Badge } from '../ui/Badge';
 import { Tile } from '../ui/Tile';
 
 // Overview — a welcome blurb plus a card per configurable piece (hardware,
 // agent, connectors, governance) that navigates to its tab.
 export function Overview({ onGo }: { onGo: (t: TabId) => void }) {
-  const { data: sys } = useResource(() => hub.system());
-  const { data: agent } = useResource(() => hub.agentStatus());
-  const { data: connsData } = useResource(() => hub.connectors());
-  const { data: backends } = useResource(() => hub.backends());
-  const { data: hw } = useResource(() => hub.hardware());
+  // Five resources, one screen. Named so their errors can be surfaced together
+  // below rather than each rendering its own alert — five stacked "couldn't
+  // load" boxes for one dead backend is worse than one.
+  const sysRes = useResource(() => hub.system());
+  const agentRes = useResource(() => hub.agentStatus());
+  const connsRes = useResource(() => hub.connectors());
+  const backendsRes = useResource(() => hub.backends());
+  const hwRes = useResource(() => hub.hardware());
+  const { data: sys } = sysRes;
+  const { data: agent } = agentRes;
+  const { data: connsData } = connsRes;
+  const { data: backends } = backendsRes;
+  const { data: hw } = hwRes;
+  const firstErr = [sysRes, agentRes, connsRes, backendsRes, hwRes].find((r) => r.error);
 
   const conns = connsData?.connectors ?? [];
   const engineUp = backends && (backends.vllm || backends.ollama);
@@ -34,6 +44,7 @@ export function Overview({ onGo }: { onGo: (t: TabId) => void }) {
 
   return (
     <>
+      {firstErr && <ResourceError r={firstErr} label="your setup status" />}
       <Panel title="Welcome" subtitle="Set up and control everything from here — no terminal required.">
         <p className="hub-note" style={{ border: 0, padding: 0, background: 'none' }}>
           Each tab configures one piece: your <b>hardware</b>, the <b>agent</b> — its model (brain),

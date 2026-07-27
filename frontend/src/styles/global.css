@@ -280,7 +280,8 @@
              color:var(--txt); font-size:15px; cursor:pointer; }
   #newChat:active { background:#222838; }
   #chatList { flex:1; overflow-y:auto; padding:2px 8px 16px; display:flex; flex-direction:column; gap:2px; }
-  .chatitem { display:flex; align-items:center; gap:6px; padding:10px; border-radius:10px; cursor:pointer; }
+  .chatitem-wrap { display:flex; align-items:center; gap:6px; padding:10px; border-radius:10px; }
+  .chatitem { display:flex; align-items:center; flex:1 1 auto; min-width:0; cursor:pointer; }
   .chatitem:active, .chatitem.active { background:var(--panel2); }
   .chatitem .ci-main { flex:1; min-width:0; }
   .chatitem .ci-title { font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }

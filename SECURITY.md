@@ -19,6 +19,7 @@ silently fall out of date with reality.
 | Internet / LAN | Untrusted | The bridge binds loopback by default; any wider exposure (a VPN like Tailscale, or a reverse proxy) is the operator's explicit choice |
 | Perimeter | Authenticated | The app **auth gate**: a signed-cookie session, on every request |
 | Host (loopback) | Trusted | App services bind `127.0.0.1`; the inference router's `/v1` requires a bearer token when bound off-loopback; sandbox-only access goes through per-port gateway forwarders |
+| Connector app (iframe) | **Trusted as the owner** | *Nothing.* The app is reverse-proxied SAME-ORIGIN under `/apps/<id>/`, and the iframe keeps `allow-same-origin`, so its JavaScript can call any authenticated Ava API with your session. This is deliberate — it is what gives an embedded app single sign-on — but it means **enabling a connector app is trusting its code as much as Ava's own**. Review a third-party app before enabling it. Tightening the sandbox would break the session inheritance the app proxy is built on; see docs/CONNECTOR_SDK.md §3. |
 | Sandbox (Docker) | Confined | The agent runs in an OpenClaw sandbox with **no ambient egress**; every outbound call passes the SSRF guard and a per-tool allow-list |
 
 ### Using Ava away from home: what Tailscale is, in plain terms

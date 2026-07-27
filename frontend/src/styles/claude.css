@@ -131,16 +131,35 @@ body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica
 
 #chatList { flex:1 1 auto; min-height:0; overflow-y:auto; padding:2px 8px 10px;
   display:flex; flex-direction:column; gap:1px; }
-.chatitem { padding:5px 8px; border-radius:7px; gap:4px; align-items:center; }
-.chatitem:hover { background:var(--wash-5); }
-.chatitem.active { background:var(--wash-8); }
+/* The row is a wrapper holding two sibling BUTTONS (open / delete). It used to
+   be one <div onClick> with the delete button nested inside — a button cannot
+   nest a button — which left the whole list keyboard-unreachable. Visuals are
+   unchanged; the hover/active styling just moved to the wrapper. */
+.chatitem-wrap { display:flex; align-items:center; gap:4px; padding:5px 8px;
+  border-radius:7px; }
+.chatitem-wrap:hover { background:var(--wash-5); }
+.chatitem-wrap.active { background:var(--wash-8); }
+.chatitem { flex:1 1 auto; min-width:0; display:flex; align-items:center;
+  background:none; border:0; padding:0; margin:0; cursor:pointer;
+  color:inherit; font:inherit; text-align:left; }
 .chatitem .ci-main { min-width:0; }
 .chatitem .ci-title { font-size:13px; font-weight:450; line-height:1.35;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.chatitem .del { width:26px; height:26px; border-radius:6px; opacity:0; transition:opacity .12s; }
-.chatitem:hover .del { opacity:1; }
-.chatitem .del:hover { background:var(--wash-7); color:#e88; }
-.chatitem .del svg { width:15px; height:15px; }
+/* :focus-within on the wrapper and :focus-visible on the button itself — without
+   these the delete control stays invisible while focused, so a keyboard user
+   cannot see where they are. That was the actual defect: the only reachable
+   control per row was invisible AND destructive. */
+.chatitem-wrap:focus-within { background:var(--wash-5); }
+.chatitem:focus-visible { outline:2px solid var(--accent, #7c5cff); outline-offset:2px;
+  border-radius:6px; }
+.chatitem-wrap .del { width:26px; height:26px; border-radius:6px; opacity:0;
+  transition:opacity .12s; flex:0 0 auto; }
+.chatitem-wrap:hover .del,
+.chatitem-wrap:focus-within .del,
+.chatitem-wrap .del:focus-visible { opacity:1; }
+.chatitem-wrap .del:hover { background:var(--wash-7); color:#e88; }
+.chatitem-wrap .del:focus-visible { outline:2px solid var(--accent, #7c5cff); outline-offset:2px; }
+.chatitem-wrap .del svg { width:15px; height:15px; }
 .draw-empty { color:var(--muted); font-size:12.5px; text-align:left; padding:10px 14px; }
 
 /* Mobile: sidebar becomes a fixed overlay again (rail included — no pinned rail). */

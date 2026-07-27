@@ -13,6 +13,7 @@ import { Tile } from '../hub/ui/Tile';
 import { api } from '../../lib/api';
 import { hub } from '../hub/hubApi';
 import { dataApi } from './dataApi';
+import { ResourceError } from '../hub/ui/ResourceState';
 import type { ChatRow, DataStore, LogEvent, LogName, StoresResponse } from './dataApi';
 
 // Data — the transparency page: everything Ava keeps on disk, one row per store,
@@ -45,7 +46,7 @@ const STORE_META: Record<string, { icon: string; desc: string }> = {
   alloc: { icon: 'sliders', desc: 'Every allocation decision: what was asked for, what the pool held, and what (if anything) was released to make room. This is the log you read before letting the allocator act.' },
   hw_history: { icon: 'gauge', desc: 'GPU, memory, and CPU samples at minute and hour resolution — the long-range series behind the Vitals gauges.' },
   devices: { icon: 'activity', desc: 'Sensor readings and events from connected devices, one rotated stream per connector.' },
-  media_gen: { icon: 'image', desc: 'Images and video Ava has generated. Nothing here is auto-deleted yet.' },
+  media_gen: { icon: 'image', desc: 'Images and video Ava has generated. Use Reclaim space on the Maintenance tab to prune old files.' },
   uploads: { icon: 'attach', desc: 'Files you’ve shared with Ava in chat. Document text is indexed into Memory; the originals stay here.' },
   secrets: { icon: 'lock', desc: 'Login password, session key, internal tokens, and backend API keys. Names are listed for transparency — the values are never displayed, exported, or browsable.' },
 };
@@ -241,7 +242,8 @@ function retentionLabel(days: number): string {
 }
 
 function MaintenanceTab({ stores }: { stores: StoresResponse | null }) {
-  const { data: info, setData: setInfo } = useResource(() => dataApi.maintenance());
+  const infoRes = useResource(() => dataApi.maintenance());
+  const { data: info, setData: setInfo } = infoRes;
   const [busy, setBusy] = useState<'' | 'integrity' | 'vacuum' | 'retention'>('');
   const [message, setMessage] = useState<ActionMsg>(null);
   const [restart, setRestart] = useState(false);
@@ -281,6 +283,7 @@ function MaintenanceTab({ stores }: { stores: StoresResponse | null }) {
   const last = db?.last_check;
   return (
     <>
+      <ResourceError r={infoRes} label="maintenance status" />
       {restart && (
         <div className="hub-restart">
           <Icon name="refresh" />

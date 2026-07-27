@@ -1,5 +1,6 @@
 import { Icon } from '../../../lib/icons';
 import { EmptyState, Panel } from '../../dashboard/primitives';
+import { ResourceError } from '../ui/ResourceState';
 import { useAction, useResource } from '../hooks';
 import { hub } from '../hubApi';
 import { Badge } from '../ui/Badge';
@@ -32,7 +33,8 @@ const APPROVALS: { id: string; title: string; sub: string; icon: string }[] = [
 ];
 
 export function SystemPanel({ onRestart }: { onRestart: () => void }) {
-  const { data: sys, reload, setData: setSys } = useResource(() => hub.system());
+  const sysRes = useResource(() => hub.system());
+  const { data: sys, reload, setData: setSys } = sysRes;
   const { busy, message, setMessage, run } = useAction();
 
   const setApproval = (mode: string) => run(async () => {
@@ -61,6 +63,7 @@ export function SystemPanel({ onRestart }: { onRestart: () => void }) {
 
   return (
     <>
+      <ResourceError r={sysRes} label="your system settings" />
       <Panel title="About" subtitle="Your instance">
         {sys ? (
           <dl className="hub-kv">

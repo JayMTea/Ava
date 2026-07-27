@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { Icon } from '../../../lib/icons';
 import { EmptyState, Panel } from '../../dashboard/primitives';
+import { ResourceError } from '../ui/ResourceState';
 import { useResource } from '../hooks';
 import { hub } from '../hubApi';
 import type { EnrollResult } from '../hubApi';
@@ -47,7 +48,8 @@ export function VoicePanel({ onRestart }: { onRestart: () => void }) {
   // Status loads via the shared hook; the recording flow below keeps its own
   // busy/msg state — it's a bespoke state machine (clip capture, mic errors),
   // not a one-shot action, and all its messages are errors.
-  const { data: st, reload: load } = useResource(() => hub.voiceStatus());
+  const stRes = useResource(() => hub.voiceStatus());
+  const { data: st, reload: load } = stRes;
   const [clips, setClips] = useState<Blob[]>([]);
   const [result, setResult] = useState<EnrollResult | null>(null);
   const [testSim, setTestSim] = useState<number | null>(null);
@@ -117,6 +119,7 @@ export function VoicePanel({ onRestart }: { onRestart: () => void }) {
 
   return (
     <>
+      <ResourceError r={stRes} label="voice status" />
       <Panel
         title="Voice & biometric gate"
         subtitle="Everything runs on your machine: local speech-to-text, local TTS, and a speaker-verification gate so Ava answers your voice only."
