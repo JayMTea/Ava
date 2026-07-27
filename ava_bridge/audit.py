@@ -13,7 +13,11 @@ writers, best-effort (a ledger failure must never break serving). The agent's
 own edit tools cannot touch it (access_policy denies logs/**).
 
 Read side: `tail(n, kind=...)` for the API/CLI. Rotation is the operator's
-business (logrotate); the app never deletes audit history.
+business; the app never deletes audit history — a ledger that prunes itself is
+not a ledger. `deploy/logrotate.conf` ships the config that implements this
+(~3.7 MB/year measured, so this bounds one file rather than reclaiming space).
+Media and telemetry are the stores that actually grow; those are governed by
+`data.retention_days` (see data_api.prune_media).
 """
 from __future__ import annotations
 
