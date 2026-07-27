@@ -24,9 +24,9 @@ from unittest import mock
 
 os.environ.setdefault("AVA_HOME", tempfile.mkdtemp(prefix="ava-seterr-test-"))
 
-import yaml  # noqa: E402
+import yaml
 
-from ava_bridge import settings  # noqa: E402
+from ava_bridge import settings
 
 BROKEN = """\
 brand:

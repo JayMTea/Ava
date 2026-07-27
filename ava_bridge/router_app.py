@@ -68,7 +68,7 @@ def _default_model() -> str:
     some earlier import happened to have pulled settings in first, which made it
     import-order dependent. Same class tests/test_path_roots.py guards.
     """
-    from . import settings as _s  # noqa: PLC0415 — lazy, avoids an import cycle
+    from . import settings as _s
     return (_s.get("inference.default_model", "", env="AVA_MODEL")
             or os.environ.get("AVA_OMNI_MODEL")
             or "Qwen/Qwen2.5-7B-Instruct")     # deploy/default-model.env

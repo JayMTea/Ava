@@ -28,7 +28,7 @@ import unittest
 
 os.environ.setdefault("AVA_HOME", tempfile.mkdtemp(prefix="ava-scopes-test-"))
 
-from ava_bridge import internal, security  # noqa: E402
+from ava_bridge import internal, security
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 

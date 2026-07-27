@@ -32,8 +32,8 @@ from unittest import mock
 
 os.environ["AVA_HOME"] = tempfile.mkdtemp(prefix="ava-deferred-test-")
 
-from ava_bridge.alloc import broker, capacity, ledger, spec  # noqa: E402
-from ava_bridge.alloc.base import (ActionResult, ReleaseMode,  # noqa: E402
+from ava_bridge.alloc import broker, capacity, ledger, spec
+from ava_bridge.alloc.base import (ActionResult, ReleaseMode,
                                   ReleaseOption, ReleasePlan, Residency)
 
 RELEASE_GIB = 48.0

@@ -77,7 +77,7 @@ class PolicyManager:
                 'protected': PolicyManager.PROTECTED_POLICIES
             }
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — surfaced to the caller as {'ok': False, 'error': …}
             return {'ok': False, 'error': str(e)}
 
     @staticmethod
@@ -117,7 +117,7 @@ class PolicyManager:
 
         except yaml.YAMLError as e:
             return {'ok': False, 'error': f'YAML parse error: {str(e)}'}
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — surfaced to the caller as {'ok': False, 'error': …}
             return {'ok': False, 'error': str(e)}
 
     @staticmethod
@@ -217,7 +217,7 @@ class PolicyManager:
 
         except yaml.YAMLError as e:
             return {'ok': False, 'error': f'YAML error: {str(e)}'}
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — surfaced to the caller as {'ok': False, 'error': …}
             return {'ok': False, 'error': str(e)}
 
     @staticmethod
@@ -276,7 +276,7 @@ class PolicyManager:
                 'rule_count': len(rules)
             }
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — surfaced to the caller as {'ok': False, 'error': …}
             return {'ok': False, 'error': str(e)}
 
 

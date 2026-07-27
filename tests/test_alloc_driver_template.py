@@ -27,7 +27,7 @@ import unittest
 
 os.environ.setdefault("AVA_HOME", tempfile.mkdtemp(prefix="ava-drvtmpl-test-"))
 
-from ava_bridge.alloc.base import (  # noqa: E402
+from ava_bridge.alloc.base import (
     ActionResult, DriverContext, ModelDriver, ReleaseMode, Residency,
 )
 
@@ -76,7 +76,7 @@ def _exec_template():
     src = _template_source()
     # The snippet's own import line names the real module; executing it is the
     # point, so leave it in and let it resolve for real.
-    exec(compile(src, "docs/ALLOCATION.md", "exec"), ns)  # noqa: S102
+    exec(compile(src, "docs/ALLOCATION.md", "exec"), ns)
     return ns
 
 

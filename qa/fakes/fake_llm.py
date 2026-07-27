@@ -34,10 +34,10 @@ class FakeLLM:
         srv = self
 
         class Handler(BaseHTTPRequestHandler):
-            def log_message(self, *a):  # noqa: N802 — stdlib signature
+            def log_message(self, *a):
                 pass
 
-            def do_POST(self):  # noqa: N802
+            def do_POST(self):
                 n = int(self.headers.get("Content-Length") or 0)
                 try:
                     body = json.loads(self.rfile.read(n) or b"{}")

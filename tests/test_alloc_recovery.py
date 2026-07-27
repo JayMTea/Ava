@@ -33,8 +33,8 @@ from unittest import mock
 
 os.environ["AVA_HOME"] = tempfile.mkdtemp(prefix="ava-allocrec-test-")
 
-from ava_bridge.alloc import breaker, broker, ledger  # noqa: E402
-from ava_bridge.alloc.base import (  # noqa: E402
+from ava_bridge.alloc import breaker, broker, ledger
+from ava_bridge.alloc.base import (
     ActionResult, DriverContext, ModelDriver, ReleaseMode, Residency,
 )
 

@@ -24,12 +24,12 @@ from unittest import mock
 
 os.environ["AVA_HOME"] = tempfile.mkdtemp(prefix="ava-alloc-test-")
 
-from ava_bridge import hwinfo, settings  # noqa: E402
-from ava_bridge.alloc import capacity, spec  # noqa: E402
-from ava_bridge.alloc.base import (DriverContext, ModelDriver,  # noqa: E402
+from ava_bridge import hwinfo, settings
+from ava_bridge.alloc import capacity, spec
+from ava_bridge.alloc.base import (DriverContext, ModelDriver,
                                    ReleaseMode, Residency)
-from ava_bridge.alloc.drivers import for_spec  # noqa: E402
-from ava_bridge.alloc.drivers._probe import probe_ready  # noqa: E402
+from ava_bridge.alloc.drivers import for_spec
+from ava_bridge.alloc.drivers._probe import probe_ready
 
 
 def _cfg(patch: dict):

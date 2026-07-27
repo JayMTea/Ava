@@ -21,7 +21,7 @@ import pytest
 from ava_bridge import mcp_client
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "sdk/host"))
-from ava_mcp import FacadeSource, serve_mcp  # noqa: E402
+from ava_mcp import FacadeSource, serve_mcp
 
 TOOLS = [
     {"name": "list_things", "description": "List the things.",
@@ -50,14 +50,14 @@ class _Facade(BaseHTTPRequestHandler):
     def _authed(self):
         return (self.headers.get("Authorization") or "") == "Bearer " + UPSTREAM_TOKEN
 
-    def do_GET(self):  # noqa: N802
+    def do_GET(self):
         if self.path == "/tools":
             if not self._authed():
                 return self._send(401, {"error": "Not authenticated"})
             return self._send(200, {"facade": "ava-tools/1", "tools": TOOLS})
         self._send(404, {"error": "not found"})
 
-    def do_POST(self):  # noqa: N802
+    def do_POST(self):
         if self.path != "/call":
             return self._send(404, {"error": "not found"})
         if not self._authed():

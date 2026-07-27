@@ -31,7 +31,7 @@ from unittest import mock
 
 os.environ["AVA_HOME"] = tempfile.mkdtemp(prefix="ava-breaker-test-")
 
-from ava_bridge.alloc import breaker, ledger  # noqa: E402
+from ava_bridge.alloc import breaker, ledger
 
 
 class BreakerTestCase(unittest.TestCase):

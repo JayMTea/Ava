@@ -20,7 +20,7 @@ from unittest import mock
 
 os.environ["AVA_HOME"] = tempfile.mkdtemp(prefix="ava-gpumem-test-")
 
-from ava_bridge.alloc import gpumem  # noqa: E402
+from ava_bridge.alloc import gpumem
 
 # pid, then MiB — the shape `--query-compute-apps` emits with noheader,nounits.
 SMI_ROWS = "3625815, 44775\n3625099, 170\n2262036, 51557\n"

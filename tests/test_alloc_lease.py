@@ -24,9 +24,9 @@ from unittest import mock
 
 os.environ["AVA_HOME"] = tempfile.mkdtemp(prefix="ava-lease-test-")
 
-from ava_bridge import settings  # noqa: E402
-from ava_bridge.alloc import broker, ledger, policy  # noqa: E402
-from ava_bridge.alloc.base import ReleaseMode, ReleaseOption  # noqa: E402
+from ava_bridge import settings
+from ava_bridge.alloc import broker, ledger, policy
+from ava_bridge.alloc.base import ReleaseMode, ReleaseOption
 
 INTERACTIVE, BATCH, BACKGROUND = 0, 1, 2
 

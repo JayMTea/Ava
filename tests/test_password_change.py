@@ -20,9 +20,9 @@ from unittest import mock
 # creates directories at import time).
 os.environ.setdefault("AVA_HOME", tempfile.mkdtemp(prefix="ava-pwchange-test-"))
 
-from fastapi.testclient import TestClient  # noqa: E402
+from fastapi.testclient import TestClient
 
-from ava_bridge import auth, config  # noqa: E402
+from ava_bridge import auth, config
 
 # Everything below is patched per-test rather than set through the environment at
 # import time. `config` resolves its paths ONCE at first import, so whichever test

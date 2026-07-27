@@ -25,8 +25,8 @@ from unittest import mock
 
 os.environ["AVA_HOME"] = tempfile.mkdtemp(prefix="ava-allocwatch-test-")
 
-from ava_bridge import alerts  # noqa: E402
-from ava_bridge.alloc import ledger, watch  # noqa: E402
+from ava_bridge import alerts
+from ava_bridge.alloc import ledger, watch
 
 
 def _unfit(mid="big", **over):

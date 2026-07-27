@@ -279,7 +279,7 @@ def serve_mcp(source: ToolSource, host: str = "127.0.0.1", port: int = 9300,
             return got.startswith("Bearer ") and secrets.compare_digest(
                 got[7:].strip(), auth_token)
 
-        def do_GET(self):  # noqa: N802
+        def do_GET(self):
             route = self.path.split("?")[0]
             if route == "/health":
                 return self._send(200, {"ok": True, "server": server_name})
@@ -290,7 +290,7 @@ def serve_mcp(source: ToolSource, host: str = "127.0.0.1", port: int = 9300,
                 return self._send(405, {"error": "this MCP endpoint is POST-only"})
             self._send(404, {"error": "not found"})
 
-        def do_POST(self):  # noqa: N802
+        def do_POST(self):
             if self.path.split("?")[0] != mcp_path:
                 return self._send(404, {"error": "not found"})
             if not self._authorized():

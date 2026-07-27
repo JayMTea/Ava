@@ -13,7 +13,7 @@ from unittest import mock
 # autonomous learning-pipeline edit). Force a throwaway dir every run.
 os.environ["AVA_HOME"] = tempfile.mkdtemp()
 
-from ava_bridge import alerts, audit, dashboard  # noqa: E402
+from ava_bridge import alerts, audit, dashboard
 
 
 class TestAuditLedger(unittest.TestCase):

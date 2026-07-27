@@ -106,7 +106,7 @@ def save_learning_state():
                 os.fsync(f.fileno())
             os.replace(tmp, path)
             os.chmod(path, 0o600)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — best-effort persistence; warns and continues
         print(f"Warning: Could not save learning state: {e}")
 
 
@@ -130,7 +130,7 @@ def load_learning_state():
             if "chat" in data:
                 chat_learning_state.update(data["chat"])
         print("Loaded learning state from disk")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — best-effort persistence; warns and continues
         print(f"Warning: Could not load learning state: {e}")
 
 

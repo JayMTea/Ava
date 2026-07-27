@@ -86,7 +86,7 @@ class _SseStub(http.server.BaseHTTPRequestHandler):
     stop = threading.Event()
     seen_auth: list = []
 
-    def log_message(self, *a):  # noqa: D102 — quiet
+    def log_message(self, *a):
         pass
 
     def do_GET(self):

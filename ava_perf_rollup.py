@@ -19,7 +19,7 @@ import sys
 # Repo root on path so `ava_bridge` imports whether run from here or elsewhere.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from ava_bridge import perf_store  # noqa: E402
+from ava_bridge import perf_store
 
 
 def main() -> int:

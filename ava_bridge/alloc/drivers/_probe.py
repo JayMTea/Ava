@@ -37,7 +37,7 @@ def probe_ready(readiness: dict | None) -> bool | None:
         return None
     timeout = _f(r.get("timeout_s"), 5.0)
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as resp:  # noqa: S310 — operator-declared URL
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
             if not (200 <= getattr(resp, "status", 200) < 300):
                 return False
             raw = resp.read(65536)

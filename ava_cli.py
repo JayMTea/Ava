@@ -20,8 +20,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from ava_bridge import settings  # noqa: E402
-from ava_bridge.version import __version__, revision  # noqa: E402
+from ava_bridge import settings
+from ava_bridge.version import __version__, revision
 
 G, Y, R, B, X = "\033[32m", "\033[33m", "\033[31m", "\033[34m", "\033[0m"
 OK, WARN, BAD = f"{G}+{X}", f"{Y}●{X}", f"{R}x{X}"

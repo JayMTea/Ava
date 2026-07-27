@@ -132,7 +132,7 @@ def serve_pull(tools: list[Tool], host: str = "127.0.0.1", port: int = 9001,
             self.end_headers()
             self.wfile.write(data)
 
-        def do_GET(self):  # noqa: N802
+        def do_GET(self):
             path = self.path.split("?")[0]
             if path == "/health":
                 return self._send(200, {"ok": True})
@@ -140,7 +140,7 @@ def serve_pull(tools: list[Tool], host: str = "127.0.0.1", port: int = 9001,
                 return self._send(200, {"tools": [t.spec() for t in tools]})
             self._send(404, {"error": "not found"})
 
-        def do_POST(self):  # noqa: N802
+        def do_POST(self):
             if self.path.split("?")[0] != "/call":
                 return self._send(404, {"error": "not found"})
             try:

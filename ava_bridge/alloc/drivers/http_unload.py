@@ -83,7 +83,7 @@ class HttpUnloadDriver(ModelDriver):
             self._url, data=body, method="POST",
             headers={"Content-Type": "application/json"})
         try:
-            with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310 — operator-declared URL
+            with urllib.request.urlopen(req, timeout=15) as resp:
                 code = getattr(resp, "status", 200)
         except (urllib.error.URLError, OSError) as e:
             # Unreachable is survivable: the caller proceeds, and the memory wait

@@ -14,7 +14,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 try:
     import yaml
-except Exception:  # noqa: BLE001
+except Exception:
     yaml = None
 
 
@@ -30,7 +30,7 @@ def _frontmatter(text: str) -> dict | None:
         return None
     try:
         fm = yaml.safe_load(text[3:end]) if yaml else None
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None
     return fm if isinstance(fm, dict) else None
 

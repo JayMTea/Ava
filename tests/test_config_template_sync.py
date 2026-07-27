@@ -31,7 +31,7 @@ import unittest
 
 os.environ.setdefault("AVA_HOME", tempfile.mkdtemp(prefix="ava-tmplsync-test-"))
 
-from ava_bridge import features  # noqa: E402
+from ava_bridge import features
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 TEMPLATE = ROOT / "config.example.yaml"

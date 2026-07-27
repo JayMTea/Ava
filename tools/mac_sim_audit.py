@@ -22,8 +22,8 @@ from unittest import mock
 # Run from anywhere: put the repo root (this file's grandparent) on the path.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from ava_bridge import hwinfo, model_fit  # noqa: E402
-from ava_bridge import setup_wizard  # noqa: E402
+from ava_bridge import hwinfo, model_fit
+from ava_bridge import setup_wizard
 
 # ── the simulated machine ────────────────────────────────────────────────────
 TOTAL_GB = 256.0          # M3 Ultra Mac Studio, 256 GB unified memory

@@ -65,7 +65,7 @@ class GeneratedMjsParses(unittest.TestCase):
         for label, text in NASTY:
             with self.subTest(case=label):
                 original = connectors.load
-                connectors.load = lambda: [{"id": "demo", "label": text}]  # noqa: E731
+                connectors.load = lambda: [{"id": "demo", "label": text}]
                 try:
                     self._check(connectors.render_find_tool("demo"), f"find/{label}")
                     self._check(connectors.render_call_tool("demo"), f"call/{label}")

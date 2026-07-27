@@ -30,7 +30,7 @@ import unittest
 
 os.environ.setdefault("AVA_HOME", tempfile.mkdtemp(prefix="ava-codepolicy-test-"))
 
-from ava_bridge import access_policy, coder  # noqa: E402
+from ava_bridge import access_policy, coder
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 

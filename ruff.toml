@@ -13,10 +13,30 @@ extend-exclude = [
 ]
 
 [lint]
-# Keep the default select (E4, E7, E9, F). New code is held to this; a small set
-# of pre-existing legacy patterns is ignored per-file below rather than globally,
-# so the standard still applies everywhere else.
+# Default select (E4, E7, E9, F) plus two rules that were being *documented*
+# rather than enforced:
+#
+#   BLE001  — `except Exception`. The repo already had 342 `# noqa: BLE001`
+#             markers, over a hundred carrying a written rationale, for a rule
+#             that was never switched on. The convention was real and the
+#             enforcement was decorative, so a new broad except cost nothing to
+#             add and read as normal.
+#   RUF100  — dead `# noqa`. Necessary alongside BLE001, and worth having on its
+#             own: without it a suppression outlives the problem it suppressed
+#             and quietly widens.
+#
+# These two interlock. With BLE001 off, every `# noqa: BLE001` in the tree is a
+# dead suppression, so RUF100 alone reported 420 errors; enabling both together
+# leaves 0. Turning on only one of them is worse than neither.
+select = ["E4", "E7", "E9", "F", "BLE", "RUF100"]
+
 [lint.per-file-ignores]
+# Broad excepts in tests, QA fakes and diagnostic scripts are not a production
+# risk: a swallowed exception there fails the assertion or prints a warning,
+# rather than turning into a silent None inside a request.
+"tests/*" = ["BLE001"]
+"qa/*" = ["F821", "BLE001"]          # CLIENT/ANON globals injected by fixtures
+"tools/*" = ["BLE001"]
 "agent/docs/arch.py" = ["E741"]          # single-char loop vars in the d2 renderer
 "ava_bridge/coder.py" = ["E402", "E741", "F841"]  # post-guard import + legacy locals
 "ava_bridge/config_mgmt.py" = ["E722"]   # legacy best-effort restore
@@ -25,4 +45,3 @@ extend-exclude = [
 "ava_bridge/log_mgmt.py" = ["F841"]      # legacy staged local
 "phone_bridge.py" = ["E722"]             # legacy best-effort handlers
 "voice_ava.py" = ["E702"]                # terse teardown line
-"qa/*" = ["F821"]                        # CLIENT/ANON globals injected by fixtures

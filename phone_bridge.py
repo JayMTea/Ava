@@ -1194,7 +1194,7 @@ async def internal_learning_chats(request: Request, action: str = "list", chat_i
                     "message_count": len(chat.get("messages", [])),
                 })
             return JSONResponse({"chats": chats[:limit]})
-        except Exception:
+        except Exception:  # noqa: BLE001 — surfaced to the client as a JSON error response
             return JSONResponse({"chats": []})
     
     elif action == "read":
@@ -1223,7 +1223,7 @@ async def internal_learning_chats(request: Request, action: str = "list", chat_i
                 "updated": chat.get("updated"),
                 "messages": messages,
             })
-        except Exception:
+        except Exception:  # noqa: BLE001 — surfaced to the client as a JSON error response
             return JSONResponse({"error": "failed to read chat"}, status_code=500)
     
     else:

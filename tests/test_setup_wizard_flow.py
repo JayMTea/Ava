@@ -27,7 +27,7 @@ from unittest import mock
 
 os.environ.setdefault("AVA_HOME", tempfile.mkdtemp(prefix="ava-wizard-test-"))
 
-from ava_bridge import settings, setup_wizard  # noqa: E402
+from ava_bridge import settings, setup_wizard
 
 
 class _Body:

@@ -27,10 +27,10 @@ from unittest import mock
 
 os.environ["AVA_HOME"] = tempfile.mkdtemp(prefix="ava-allocapi-test-")
 
-from fastapi.testclient import TestClient  # noqa: E402
+from fastapi.testclient import TestClient
 
-from ava_bridge import router_app  # noqa: E402
-from ava_bridge.alloc import broker, ledger  # noqa: E402
+from ava_bridge import router_app
+from ava_bridge.alloc import broker, ledger
 
 TOKEN = "test-router-token"
 BACKENDS = [{"id": "b1", "url": "http://127.0.0.1:9/v1", "model": "m",

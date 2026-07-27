@@ -97,7 +97,7 @@ def _load_user_drivers() -> None:
         return
     _user_loaded = True
     try:
-        from ... import settings  # noqa: PLC0415 — lazy: avoids an import cycle
+        from ... import settings
         d = os.path.join(settings.home(), "alloc_drivers")
         if not os.path.isdir(d):
             return

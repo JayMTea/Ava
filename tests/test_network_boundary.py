@@ -28,9 +28,9 @@ from unittest import mock
 # creates directories at import time).
 os.environ.setdefault("AVA_HOME", tempfile.mkdtemp(prefix="ava-netbound-test-"))
 
-from starlette.requests import Request  # noqa: E402
+from starlette.requests import Request
 
-from ava_bridge import auth, config  # noqa: E402
+from ava_bridge import auth, config
 
 
 def _req(*, client=("192.168.1.50", 40000), scheme="http", headers=None, query=""):

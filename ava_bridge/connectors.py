@@ -1153,5 +1153,5 @@ def action_capability(a: dict) -> str:
     return segs[0] if segs else "general"
 
 
-def all() -> List[dict]:  # noqa: A003 — deliberate registry accessor
+def all() -> List[dict]:
     return load()
