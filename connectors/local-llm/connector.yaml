@@ -1,0 +1,15 @@
+# The local inference server Ava thinks with — whatever engine and model you run.
+#
+# Deliberately model-agnostic. This shipped as `vllm-open` / "vLLM open-model 30B"
+# on a hardcoded 127.0.0.1:8002, which put the author's model and his port on
+# every fork's Setup page — and probed the wrong address from inside a container,
+# where 127.0.0.1 is the bridge, not the inference service. The probe now follows
+# AVA_BACKEND_URL, the variable the compose profiles already set
+# (gpu -> http://vllm:8002/v1, cpu -> http://ollama:11434/v1), and falls back to
+# the bare-metal default when it is unset.
+id: local-llm
+label: Local LLM
+kind: core
+service:
+  name: Local inference server
+  probe: "${AVA_BACKEND_URL:-http://127.0.0.1:8002/v1}/models"

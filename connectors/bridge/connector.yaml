@@ -1,10 +1,13 @@
+# Ava's own HTTP bridge. `unit` and the port both follow configuration rather
+# than being pinned: the port was a literal 8096, so any fork running AVA_PORT on
+# something else saw its own bridge reported as down on the Setup page.
 id: bridge
 label: Bridge
 kind: core
 service:
   name: Bridge
-  unit: ava-bridge.service
-  probe: "http://127.0.0.1:8096/api/health"
+  unit: "${AVA_BRIDGE_UNIT:-ava-bridge.service}"
+  probe: "http://127.0.0.1:${AVA_PORT:-8096}/api/health"
 perf:
   app: ava
   path: "${AVA_LOGS}/performance.jsonl"

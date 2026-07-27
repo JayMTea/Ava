@@ -39,6 +39,7 @@ _VARS = {
 _cache: Dict[str, object] = {"ts": 0.0, "list": None}
 
 
+import json as _json
 import re as _re
 
 _ENV_VAR = _re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
@@ -512,17 +513,21 @@ def render_tool(cid: str, action: dict) -> str:
     """
     aid = action["id"]
     name = f"{cid}_{aid}"
-    desc = (action.get("description") or f"{aid} via the {cid} connector").replace("'", "\\'")
+    # json.dumps, not .replace("'", "\\'"): a JSON string literal is also a valid
+    # JS one, and it escapes newlines, backslashes and quotes. Hand-escaping only
+    # the apostrophe meant a multi-line YAML `description:` emitted an
+    # unterminated JS string — invalid .mjs that fails inside the agent sandbox,
+    # where nobody sees the syntax error. Emits its own quotes.
+    desc = _json.dumps(action.get("description") or f"{aid} via the {cid} connector")
     props = action.get("input") or {}
     schema = {"type": "object", "properties": props, "additionalProperties": False}
-    import json as _json
     return f"""// AUTO-GENERATED from connectors/{cid}/connector.yaml (action: {aid}).
 // Regenerate with:  ava connector tools {cid} --write
 const BRIDGE = process.env.AVA_BRIDGE_URL || 'http://host.openshell.internal:8096';
 
 export default {{
   name: '{name}',
-  description: '{desc}',
+  description: {desc},
   inputSchema: {_json.dumps(schema, indent=2)},
   async handler(args, ctx) {{
     try {{
@@ -595,23 +600,26 @@ def _filter_tools(res: dict, query: str, limit: int) -> dict:
 def render_find_tool(cid: str) -> str:
     """The .mjs source for <cid>_find_tool: search the connector's tool set."""
     m = {x["id"]: x for x in load()}.get(cid) or {}
-    label = (m.get("label") or cid).replace("'", "\\'")
+    label = m.get("label") or cid
     acts = [a for a in _static_actions(m) if a.get("id") and a.get("path")]
     if acts:
         caps = sorted({action_capability(a) for a in acts})
         hint = f"{len(acts)} actions across: {', '.join(caps[:12])}"
     else:
         hint = "its tools are discovered live"
-    desc = (f"Search the {label} app\\'s available actions ({hint}). "
-            f"ALWAYS call this first with a few keywords for what you want to do, "
-            f"then invoke the chosen action with {cid}_call.")
+    # json.dumps escapes the whole string (see render_tool) and emits its own
+    # quotes, so `label` needs no hand-escaping and the apostrophe is literal.
+    desc = _json.dumps(
+        f"Search the {label} app's available actions ({hint}). "
+        f"ALWAYS call this first with a few keywords for what you want to do, "
+        f"then invoke the chosen action with {cid}_call.")
     return f"""// AUTO-GENERATED from connectors/{cid}/connector.yaml (meta: find_tool).
 // Regenerate with:  ava connector tools {cid} --write
 const BRIDGE = process.env.AVA_BRIDGE_URL || 'http://host.openshell.internal:8096';
 
 export default {{
   name: '{cid}_find_tool',
-  description: '{desc}',
+  description: {desc},
   inputSchema: {{
     type: 'object',
     properties: {{
@@ -640,14 +648,17 @@ export default {{
 def render_call_tool(cid: str) -> str:
     """The .mjs source for <cid>_call: invoke one tool found via find_tool."""
     m = {x["id"]: x for x in load()}.get(cid) or {}
-    label = (m.get("label") or cid).replace("'", "\\'")
+    # See render_tool: json.dumps escapes the whole string and emits its quotes.
+    desc = _json.dumps(
+        f"Run one {m.get('label') or cid} action by name — find the name and its "
+        f"input schema with {cid}_find_tool first.")
     return f"""// AUTO-GENERATED from connectors/{cid}/connector.yaml (meta: call).
 // Regenerate with:  ava connector tools {cid} --write
 const BRIDGE = process.env.AVA_BRIDGE_URL || 'http://host.openshell.internal:8096';
 
 export default {{
   name: '{cid}_call',
-  description: 'Run one {label} action by name — find the name and its input schema with {cid}_find_tool first.',
+  description: {desc},
   inputSchema: {{
     type: 'object',
     properties: {{

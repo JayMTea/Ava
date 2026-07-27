@@ -635,6 +635,20 @@
   margin-bottom: var(--sp-3);
 }
 
+/* Generic labelled section inside a Panel. Panel-agnostic on purpose: the
+   Setup UI is one system, so a new panel that needs headed groups uses these
+   rather than minting its own -group/-group-title pair. (.skill-group* below
+   predates this and can migrate onto it.) */
+.hub-group + .hub-group { margin-top: var(--sp-4); }
+.hub-group-title {
+  padding: 6px 2px;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
 /* category section */
 .skill-group + .skill-group { margin-top: var(--sp-3); }
 .skill-group.drop-target {

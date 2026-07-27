@@ -4,7 +4,7 @@ import { RowMenu, type MenuAction } from '../../../lib/RowMenu';
 import { ACCENT_SLOTS, APP_ICONS, appAccent, appIcon } from '../../../lib/appColor';
 import { EmptyState, Panel } from '../../dashboard/primitives';
 import { useResource } from '../hooks';
-import { isExternalApp } from '../shared';
+import { connectorGroup, isExternalApp, type ConnectorGroup } from '../shared';
 import { hub } from '../hubApi';
 import type {
   DeviceEvent, GenerateResult, GrantAction, HubConnector, IngestToken, NewConnectorBody, ProbeResult,
@@ -16,6 +16,33 @@ import { Tile } from '../ui/Tile';
 // Connectors — the external-app registry: per-connector row (deploy state,
 // permissions, preview, ⋯ menu), the JIT permission sheet, and the "connect a
 // new app / device" wizard.
+
+// How a connector's tools reach Ava, rendered verbatim from the backend's
+// `transport` field (ava_bridge/connectors.py transport()). The UI must never
+// re-derive this: the previous badge showed "MCP" for anything with tools at all,
+// so a plain-REST app and a real MCP server looked identical. Identity decides the
+// section (shared.connectorGroup); this is a separate axis shown in the meta line.
+const TRANSPORT_LABEL: Record<string, string> = {
+  mcp: 'MCP',
+  discover: 'tool facade',
+  rest: 'REST',
+  none: '',
+};
+// Sections are identity, not protocol: a device that speaks MCP is still a
+// device. Order runs most-concrete to least.
+const GROUP_ORDER: ConnectorGroup[] = ['devices', 'apps', 'tools'];
+const GROUP_TITLES: Record<ConnectorGroup, string> = {
+  devices: 'Devices',
+  apps: 'Apps',
+  tools: 'Tools',
+};
+
+const TRANSPORT_HINT: Record<string, string> = {
+  mcp: 'A real Model Context Protocol server — Ava speaks MCP to it.',
+  discover: "Ava's own ava-tools/1 HTTP facade — MCP-shaped, but not MCP.",
+  rest: "Statically declared actions proxied to the app's REST API.",
+  none: 'No agent surface — UI-only, or a push-only device.',
+};
 function PermissionsSheet({ cid }: { cid: string }) {
   const [acts, setActs] = useState<GrantAction[] | null>(null);
   const [err, setErr] = useState('');
@@ -225,14 +252,16 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
         <div className="conn-id">
           <div className="conn-title-row">
             <span className="conn-title">{c.label}</span>
-            {c.app && <Badge tone="accent">APP</Badge>}
-            {(c.mcp || c.discover || c.actions > 0) && <Badge tone="accent">MCP</Badge>}
             {c.builtin && <Badge>built-in</Badge>}
           </div>
           <div className="conn-meta">
             {c.enabled
               ? <span className="conn-stat tone-ok" title="Ava can use this connector"><i />enabled</span>
               : <span className="conn-stat tone-muted" title="Turned off — Ava won't use it"><i />disabled</span>}
+            {c.transport && c.transport !== 'none' && (
+              <><span className="meta-sep">·</span>
+              <span title={TRANSPORT_HINT[c.transport]}>{TRANSPORT_LABEL[c.transport]}</span></>
+            )}
             {c.actions > 0 && <><span className="meta-sep">·</span><span>{c.actions} action{c.actions === 1 ? '' : 's'}</span></>}
             {hasAgentSurface && c.enabled && (
               <><span className="meta-sep">·</span>
@@ -838,7 +867,16 @@ export function ConnectorsPanel() {
           ? <div className="hub-msg err">Couldn’t load connectors: {loadErr}. <button className="hub-btn ghost sm" style={{ marginLeft: 8 }} onClick={load}>Retry</button></div>
           : conns == null ? <EmptyState text="Loading connectors…" />
             : conns.length === 0 ? <EmptyState text="No connectors yet — create one above." />
-              : conns.map((c) => <ConnectorRow key={c.id} c={c} onChanged={load} />)}
+              : GROUP_ORDER.map((g) => {
+                const rows = conns.filter((c) => connectorGroup(c) === g);
+                if (rows.length === 0) return null;
+                return (
+                  <div className="hub-group" key={g}>
+                    <div className="hub-group-title">{GROUP_TITLES[g]}</div>
+                    {rows.map((c) => <ConnectorRow key={c.id} c={c} onChanged={load} />)}
+                  </div>
+                );
+              })}
         <Legend
           title="What the actions do"
           items={[

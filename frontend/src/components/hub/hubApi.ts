@@ -89,6 +89,11 @@ export interface HubConnector {
   mcp: boolean;
   discover?: boolean;  // dynamic tool facade (GET /tools + POST /call)
   app?: boolean;       // has a ui: block — an embedded APP tile
+  // HOW this connector's tools reach Ava, classified server-side by
+  // connectors.transport(). The UI renders this verbatim and never re-derives it
+  // — inferring "MCP" from `mcp || discover || actions > 0` labelled every row
+  // with tools as MCP, which made the badge meaningless. See TRANSPORT_LABEL.
+  transport?: 'mcp' | 'discover' | 'rest' | 'none';
   has_policy: boolean;
   has_tools: boolean;
   renders_policy: boolean;
