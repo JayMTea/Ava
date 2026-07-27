@@ -673,10 +673,33 @@ def cmd_connector(args) -> int:
             print(f"{WARN} already exists: {path}")
             return 1
         os.makedirs(d, exist_ok=True)
+        # COPY the reference template rather than emitting a second one. The
+        # inline copy that used to live here had drifted in two ways that both
+        # only bite after you follow its own invitation to uncomment something:
+        #   * its sample action had no `path:`, and both connectors.tool_files()
+        #     and render_egress_policy() require one — so `ava connector tools`
+        #     and `ava connector policies` printed NOTHING, with no error.
+        #   * its perf path pointed inside $AVA_HOME/connectors/<id>/, which the
+        #     reference template explicitly warns against because removing the
+        #     connector then destroys its Vitals history.
+        # One source of truth makes that divergence structurally impossible.
+        src = os.path.join(settings.CODE_ROOT, "connectors", "_template",
+                           "connector.yaml")
+        try:
+            body = open(src, encoding="utf-8").read()
+            body = body.replace("id: myapp", f"id: {args.name}")
+            body = body.replace("label: My App", f"label: {args.name}")
+            body = body.replace("myapp", args.name)
+        except OSError:
+            # A trimmed fork with no connectors/ dir still gets something valid.
+            body = _CONNECTOR_TEMPLATE.replace("NAME", args.name)
         with open(path, "w", encoding="utf-8") as f:
-            f.write(_CONNECTOR_TEMPLATE.replace("NAME", args.name))
+            f.write(body)
         print(f"{OK} created {path}")
         print("   edit it, then restart Ava (or `ava up`) to load the connector.")
+        print("   check what it will generate, before deploying:")
+        print(f"     ava connector tools {args.name}")
+        print(f"     ava connector policies {args.name}")
         return 0
     if args.action == "policies":
         import yaml as _yaml
@@ -875,7 +898,7 @@ _gpusvc_SUBDIRS = ["checkpoints", "loras", "vae", "guidance net", "upscale_model
 
 _DEFAULT_MODELS = {
     "chat": {"engine": "vllm",
-             "id": "nvidia/Nemotron-Open-30B-A3B-Reasoning-FP8", "tier": "large"},
+             "id": "Qwen/Qwen2.5-7B-Instruct", "tier": "medium"},
     "fast": {"engine": "ollama", "id": "llama3.1:8b", "tier": "small"},
     "image": {"engine": "gpu-service", "id": "gpu_model_base",
               "dest": "checkpoints",

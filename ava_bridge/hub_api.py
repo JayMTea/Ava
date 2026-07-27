@@ -389,51 +389,65 @@ def list_connectors():
     out = []
     for m in connectors.catalog():  # includes disabled, so they can be re-enabled
         cid = m["id"]
-        actions = _proxy_actions(m)
-        expected = connectors.tool_files(cid)
-        has_tools = bool(expected) and all(
-            os.path.exists(os.path.join(tool_root, cid, t["name"]))
-            for t in expected)
-        # Credential state — the env-var NAME the app authenticates with (if any),
-        # and whether a value is available (a real env var OR one saved once via
-        # the Hub) so the UI can show "credential saved" and never re-prompt on
-        # redeploy. The value itself is never returned.
-        auth = connectors.auth_env(m)
-        out.append({
-            "id": cid,
-            "label": m.get("label", cid),
-            "kind": m.get("kind", "app"),
-            "actions": len(actions),
-            "mcp": connectors._mcp_spec(m) is not None,
-            "discover": connectors._discover_spec(m) is not None,
-            # HOW its tools arrive — mcp | discover | rest | none. The honest
-            # name for the wire protocol; `mcp` here means a real MCP server,
-            # not "has tools". See connectors.transport().
-            "transport": connectors.transport(m),
-            # The two connect surfaces (the doctrine: an app is a UI, a tool
-            # facade, or both — never raw endpoints): ui block => APP tile.
-            "app": isinstance(m.get("ui"), dict),
-            # Device identity: `role: device` and/or an inbound `ingest:` block.
-            # Setup groups by what a connector IS to the owner, and a device's
-            # defining trait is that it pushes to Ava rather than being visited.
-            "role": str(m.get("role") or "") or None,
-            "ingest": connectors.ingest_enabled(cid),
-            # Rail identity, for the Appearance picker (null = uses the auto-pick).
-            "icon": (m.get("ui") or {}).get("icon") if isinstance(m.get("ui"), dict) else None,
-            "color": str((m["ui"]).get("color")) if isinstance(m.get("ui"), dict) and (m["ui"]).get("color") else None,
-            "has_policy": os.path.exists(os.path.join(pol_dir, f"{cid}.yaml")),
-            "has_tools": has_tools,
-            "renders_policy": connectors.render_egress_policy(cid) is not None,
-            "enabled": bool(m.get("enabled", True)),  # from the manifest
-            # User-added connectors are editable/removable; shipped ones are read-only.
-            "builtin": not os.path.isdir(os.path.join(user_root, cid)),
-            # Credential status (never the value): the env-var name it uses, and
-            # whether a credential is available / saved in the store.
-            "auth_env": auth,
-            "auth_set": settings.has_env_secret(auth) if auth else False,
-            "auth_stored": settings.env_secret_stored(auth) if auth else False,
-        })
+        try:
+            out.append(_connector_row(m, cid, pol_dir, tool_root, user_root))
+        except Exception as e:  # noqa: BLE001
+            # A malformed manifest must never take down THIS page: it holds the
+            # manifest editor and the error list, so breaking it means the only
+            # screen that could fix the connector is the one the connector broke.
+            # connectors._validate is the actual fix; this is the guarantee that
+            # a field it does not yet know about cannot repeat the lockout.
+            out.append({"id": cid, "label": cid, "kind": "app", "error": str(e),
+                        "actions": 0, "enabled": False, "builtin": True})
     return {"connectors": out, "errors": connectors.load_errors()}
+
+
+def _connector_row(m: dict, cid: str, pol_dir: str, tool_root: str,
+                   user_root: str) -> dict:
+    actions = _proxy_actions(m)
+    expected = connectors.tool_files(cid)
+    has_tools = bool(expected) and all(
+        os.path.exists(os.path.join(tool_root, cid, t["name"]))
+        for t in expected)
+    # Credential state — the env-var NAME the app authenticates with (if any),
+    # and whether a value is available (a real env var OR one saved once via
+    # the Hub) so the UI can show "credential saved" and never re-prompt on
+    # redeploy. The value itself is never returned.
+    auth = connectors.auth_env(m)
+    return {
+        "id": cid,
+        "label": m.get("label", cid),
+        "kind": m.get("kind", "app"),
+        "actions": len(actions),
+        "mcp": connectors._mcp_spec(m) is not None,
+        "discover": connectors._discover_spec(m) is not None,
+        # HOW its tools arrive — mcp | discover | rest | none. The honest
+        # name for the wire protocol; `mcp` here means a real MCP server,
+        # not "has tools". See connectors.transport().
+        "transport": connectors.transport(m),
+        # The two connect surfaces (the doctrine: an app is a UI, a tool
+        # facade, or both — never raw endpoints): ui block => APP tile.
+        "app": isinstance(m.get("ui"), dict),
+        # Device identity: `role: device` and/or an inbound `ingest:` block.
+        # Setup groups by what a connector IS to the owner, and a device's
+        # defining trait is that it pushes to Ava rather than being visited.
+        "role": str(m.get("role") or "") or None,
+        "ingest": connectors.ingest_enabled(cid),
+        # Rail identity, for the Appearance picker (null = uses the auto-pick).
+        "icon": (m.get("ui") or {}).get("icon") if isinstance(m.get("ui"), dict) else None,
+        "color": str((m["ui"]).get("color")) if isinstance(m.get("ui"), dict) and (m["ui"]).get("color") else None,
+        "has_policy": os.path.exists(os.path.join(pol_dir, f"{cid}.yaml")),
+        "has_tools": has_tools,
+        "renders_policy": connectors.render_egress_policy(cid) is not None,
+        "enabled": bool(m.get("enabled", True)),  # from the manifest
+        # User-added connectors are editable/removable; shipped ones are read-only.
+        "builtin": not os.path.isdir(os.path.join(user_root, cid)),
+        # Credential status (never the value): the env-var name it uses, and
+        # whether a credential is available / saved in the store.
+        "auth_env": auth,
+        "auth_set": settings.has_env_secret(auth) if auth else False,
+        "auth_stored": settings.env_secret_stored(auth) if auth else False,
+    }
 
 
 @router.get("/connectors/{cid}/live")

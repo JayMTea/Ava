@@ -175,7 +175,7 @@ auth:
 inference:
   primary: local
   backends:                 # see §5.2 — declared, not hardcoded ports
-    local:  { engine: vllm, base_url: http://127.0.0.1:8002/v1, model: nvidia/Nemotron-Open-30B-A3B-Reasoning-FP8 }
+    local:  { engine: vllm, base_url: http://127.0.0.1:8002/v1, model: Qwen/Qwen2.5-7B-Instruct }
 agent:
   runtime: openclaw
   sandbox: my-assistant     # was hardcoded in 4 places

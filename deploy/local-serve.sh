@@ -63,7 +63,7 @@ IMAGE="${VLLM_IMAGE:-vllm/vllm-openai:v0.20.0-aarch64-cu130-ubuntu2404}"
 HF_CACHE="${HF_CACHE:-${AVA_HOME:-$REPO}/models/hf}"
 # AVA_MODEL is the canonical name; AVA_OMNI_MODEL is kept as a legacy alias so
 # existing .env files and the ava-omni.service unit keep working unchanged.
-MODEL="${AVA_MODEL:-${AVA_OMNI_MODEL:-nvidia/Nemotron-Open-30B-A3B-Reasoning-FP8}}"
+MODEL="${AVA_MODEL:-${AVA_OMNI_MODEL:-Qwen/Qwen2.5-7B-Instruct}}"
 PORT="${AVA_SERVE_PORT:-${OMNI_PORT:-8002}}"
 # Container name. Left as `vllm-open` by default because things OUTSIDE this repo
 # reference it by name — note-keeper's timeshare coordinator

@@ -119,8 +119,73 @@ def _load_dir(base: str, errors: list | None = None) -> dict:
                                "error": "not a mapping (expected 'key: value' lines)"})
             continue
         m["id"] = m.get("id") or name
+        _validate(m, path, errors)
         out[m["id"]] = m
     return out
+
+
+# The manifest schema Ava's core actually reads, and the type each block must be.
+# Anything absent is fine; anything present with the WRONG type is quarantined.
+# Derived from what the core actually reads off a manifest, not from what looks
+# tidy — `dynamic_access`, `base_url` and `role` are all live and were missing
+# from a first, guessed version of this table, which then warned about the
+# repo's own shipped connectors.
+_BLOCK_TYPES: dict = {
+    "service": dict, "perf": dict, "ui": dict, "egress": dict, "auth": dict,
+    "mcp": dict, "chat_pickup": dict, "jobs": dict, "discover": dict,
+    "facade": dict, "health": (dict, str), "ingest": dict, "tools": (list, dict),
+    "dynamic_access": (dict, bool), "actions": (list, dict), "model_hints": list,
+    "id": str, "label": str, "kind": str, "role": str, "base_url": str,
+    "token_env": str, "call": str,
+    "enabled": bool, "confirm": bool, "manifest_version": int,
+}
+
+# What this Ava understands. A manifest declaring a NEWER version still loads —
+# forward-compat by ignoring unknown keys is what keeps a fork's manifests
+# portable — it just says so.
+MANIFEST_VERSION = 1
+
+
+def _validate(m: dict, path: str, errors: list | None) -> None:
+    """Type-check the blocks core reads, and QUARANTINE the bad ones in memory.
+
+    Degrade per-block, never per-connector, and never per-page. A scalar where a
+    mapping belonged used to sail through here and raise `AttributeError` deep in
+    a consumer — and for `egress:` that consumer is the Setup -> Connectors page,
+    which holds both the manifest editor and the error list. Breaking it is a
+    self-inflicted lockout: the one screen that could fix the manifest is the one
+    the manifest takes down.
+
+    The deletion is on the IN-MEMORY copy only. The owner's file is never
+    rewritten — they asked for that YAML, and a loader that "repairs" it would
+    lose whatever they were in the middle of writing.
+    """
+    if errors is None:
+        return
+    cid = m.get("id", "?")
+    declared = m.get("manifest_version")
+    if isinstance(declared, int) and declared > MANIFEST_VERSION:
+        errors.append({"id": cid, "path": path, "severity": "warn",
+                       "error": f"written for manifest v{declared}; this Ava "
+                                f"understands v{MANIFEST_VERSION} — unknown blocks "
+                                "are ignored"})
+    for key, want in _BLOCK_TYPES.items():
+        if key not in m:
+            continue
+        if not isinstance(m[key], want):
+            names = (want.__name__ if isinstance(want, type)
+                     else " or ".join(t.__name__ for t in want))
+            errors.append({"id": cid, "path": path, "severity": "error",
+                           "error": f"`{key}:` must be {names} (got "
+                                    f"{type(m[key]).__name__}) — ignoring that block; "
+                                    "see docs/CONNECTOR_SDK.md"})
+            m.pop(key, None)
+    # Unknown top-level keys are how a typo (`egres:`) goes unnoticed forever.
+    for key in list(m):
+        if key not in _BLOCK_TYPES and not key.startswith("x_"):
+            errors.append({"id": cid, "path": path, "severity": "warn",
+                           "error": f"unknown key `{key}:` — ignored. Prefix your own "
+                                    "with `x_` to silence this."})
 
 
 def _merge_all(errors: list | None = None) -> dict:

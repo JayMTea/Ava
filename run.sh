@@ -16,7 +16,7 @@ export PLAYER="${PLAYER:-aplay}"        # aplay (ALSA) | pw-play (PipeWire deskt
 
 # ---- Ava backend (local open-model 30B on port 8002) ---------------------------------
 export AVA_URL="${AVA_URL:-http://localhost:8002/v1/chat/completions}"
-export AVA_MODEL="${AVA_MODEL:-nvidia/Nemotron-Open-30B-A3B-Reasoning-FP8}"
+export AVA_MODEL="${AVA_MODEL:-Qwen/Qwen2.5-7B-Instruct}"
 export WHISPER_MODEL="${WHISPER_MODEL:-small.en}"
 
 # Optional wake word gate (only respond when the word is heard). Empty = respond to any speech.

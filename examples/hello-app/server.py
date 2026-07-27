@@ -44,20 +44,20 @@ def call_tool(name: str, args: dict) -> str:
 PAGE = """<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Hello App</title><style>
-  :root {{ --bg:#ffffff; --fg:#111827; --muted:#6b7280; --card:#f3f4f6; --line:#e5e7eb; }}
-  [data-theme="dark"] {{ --bg:#0b0d10; --fg:#e6e8eb; --muted:#9aa4b2; --card:#15181d; --line:#242a31; }}
-  * {{ box-sizing:border-box; }}
-  body {{ margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  :root { --bg:#ffffff; --fg:#111827; --muted:#6b7280; --card:#f3f4f6; --line:#e5e7eb; }
+  [data-theme="dark"] { --bg:#0b0d10; --fg:#e6e8eb; --muted:#9aa4b2; --card:#15181d; --line:#242a31; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
          background:var(--bg); color:var(--fg); display:flex; min-height:100vh;
-         align-items:center; justify-content:center; padding:24px; }}
-  .card {{ background:var(--card); border:1px solid var(--line); border-radius:16px;
-          padding:32px 36px; max-width:520px; text-align:center; }}
-  h1 {{ margin:0 0 8px; font-size:22px; }}
-  p {{ color:var(--muted); line-height:1.6; margin:8px 0; }}
-  button {{ margin-top:16px; padding:10px 18px; border-radius:10px; border:1px solid var(--line);
-           background:transparent; color:var(--fg); cursor:pointer; font-size:14px; }}
-  code {{ background:var(--bg); padding:2px 6px; border-radius:6px; }}
-  #out {{ margin-top:14px; font-size:13px; color:var(--muted); min-height:18px; }}
+         align-items:center; justify-content:center; padding:24px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:16px;
+          padding:32px 36px; max-width:520px; text-align:center; }
+  h1 { margin:0 0 8px; font-size:22px; }
+  p { color:var(--muted); line-height:1.6; margin:8px 0; }
+  button { margin-top:16px; padding:10px 18px; border-radius:10px; border:1px solid var(--line);
+           background:transparent; color:var(--fg); cursor:pointer; font-size:14px; }
+  code { background:var(--bg); padding:2px 6px; border-radius:6px; }
+  #out { margin-top:14px; font-size:13px; color:var(--muted); min-height:18px; }
 </style></head><body>
   <div class="card">
     <h1>Hello from a third-party app</h1>
@@ -73,12 +73,12 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
   // Match Ava's theme (passed as ?theme=).
   var theme = new URLSearchParams(location.search).get('theme');
   if (theme) document.documentElement.setAttribute('data-theme', theme);
-  async function ping() {{
-    var r = await fetch('call', {{ method:'POST', headers:{{'Content-Type':'application/json'}},
-      body: JSON.stringify({{ name:'hello_ping', arguments:{{}} }}) }});
+  async function ping() {
+    var r = await fetch('call', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ name:'hello_ping', arguments:{} }) });
     var d = await r.json();
     document.getElementById('out').textContent = d.text || JSON.stringify(d);
-  }}
+  }
 </script></body></html>"""
 
 

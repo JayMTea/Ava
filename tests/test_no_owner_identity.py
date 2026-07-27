@@ -39,12 +39,34 @@ _FORBIDDEN: list[tuple[re.Pattern, str]] = [
      "an absolute macOS home path — resolve it through ava_bridge.settings instead"),
     (re.compile(r"\b100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3}\b"),
      "a Tailscale CGNAT address — use a hostname or an env var"),
+    # The maintainer's own checkpoint. It is a 30B model needing ~35 GB of
+    # weights, so shipping it as a DEFAULT hands every forker an install that
+    # cannot start — and it names one person's hardware in a model-agnostic
+    # product. The shipped default lives in deploy/default-model.env; this
+    # model stays available as a documented upgrade in docs/CHOOSE_A_MODEL.md.
+    (re.compile(r"Nemotron-Open|open-model|vllm-open", re.I),
+     "the maintainer's personal 30B checkpoint — use the shipped default from "
+     "deploy/default-model.env, and document this one as an upgrade instead"),
 ]
 
 # Files that legitimately contain an otherwise-forbidden string.
 _ALLOW = {
     # This file necessarily contains every pattern it bans.
     "tests/test_no_owner_identity.py",
+    # Release history is a record of what shipped. Never rewritten to satisfy a
+    # guard — the deferral is the decision, not an oversight.
+    "CHANGELOG.md",
+    # deploy/local-serve.sh's container is named `vllm-open` and things OUTSIDE
+    # this repo reference it by that name (a sibling app's coordinator, and
+    # ava_security_check.py). Renaming it is a coordinated change, not a sed.
+    "deploy/local-serve.sh",
+    "ava_security_check.py",
+    # Fixtures asserting how a 30B model id is LABELLED and sized. The point of
+    # these is the string handling, so the string has to be present.
+    "tests/test_agent_brain.py",
+    "tests/test_model_fit.py",
+    "tests/test_hardware_models.py",
+    "tools/mac_sim_audit.py",
 }
 
 

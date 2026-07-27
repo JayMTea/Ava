@@ -60,15 +60,27 @@ except Exception:  # noqa: BLE001
 # installs' perf logs and ava.yaml `alloc.models` entries are already written
 # against. The label is what users actually see.
 OMNI_URL = os.environ.get("AVA_OMNI_URL", "http://127.0.0.1:8002/v1").rstrip("/")
-OMNI_MODEL = (os.environ.get("AVA_MODEL")
-              or os.environ.get("AVA_OMNI_MODEL")
-              or "nvidia/Nemotron-Open-30B-A3B-Reasoning-FP8")
+def _default_model() -> str:
+    """The model id the built-in fallback backend serves.
+
+    Resolved through `settings`, not a bare os.environ read, because settings is
+    what loads the repo/AVA_HOME .env — a direct read here was correct only when
+    some earlier import happened to have pulled settings in first, which made it
+    import-order dependent. Same class tests/test_path_roots.py guards.
+    """
+    from . import settings as _s  # noqa: PLC0415 — lazy, avoids an import cycle
+    return (_s.get("inference.default_model", "", env="AVA_MODEL")
+            or os.environ.get("AVA_OMNI_MODEL")
+            or "Qwen/Qwen2.5-7B-Instruct")     # deploy/default-model.env
+
+
+OMNI_MODEL = _default_model()
 
 
 def _label_for_model(model_id: str) -> str:
     """Readable label for a model id, for when the owner hasn't set one:
-    `nvidia/Nemotron-Open-30B-A3B-Reasoning-FP8` -> `Nemotron 3 open-model
-    30B A3B Reasoning FP8`, `llama3.1:8b` -> `llama3.1:8b`."""
+    `Qwen/Qwen2.5-7B-Instruct` -> `Qwen2.5 7B Instruct`,
+    `llama3.1:8b` -> `llama3.1:8b`."""
     name = (model_id or "").rsplit("/", 1)[-1].strip()
     if not name:
         return "local model"
