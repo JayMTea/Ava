@@ -7,6 +7,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from .. import settings
+from .. import dashboard
 
 router = APIRouter()
 
@@ -14,7 +15,6 @@ router = APIRouter()
 def cost_get():
     """Current electricity rate, currency, and spend/energy budgets + live
     daily totals (for the Setup hub Budgets editor + the Vitals budget bar)."""
-    from .. import dashboard
     settings_ = dashboard.cost_settings()
     day = dashboard.perf_cost("1d")
     settings_["daily_spend_usd"] = day["spend_usd"]

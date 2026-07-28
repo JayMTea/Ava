@@ -22,6 +22,9 @@ from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from .. import settings
+import time as _t
+from .. import bench
+from .. import models as model_store
 
 router = APIRouter()
 
@@ -40,7 +43,6 @@ def models_list():
     # script from inside the package. The helpers this route needs moved to
     # ava_bridge/models.py, so `ava models` and Setup → Models are now two
     # callers of one public API instead of two callers of one private one.
-    from .. import models as model_store
     manifest = model_store.manifest()
     dirs = model_store.dirs()
     tier, avail = model_store.detected_tier()
@@ -103,7 +105,6 @@ _bench_job: dict = {"status": "idle", "result": None}
 _bench_lock = threading.Lock()
 
 def _run_bench(prompt: str, only, max_tokens: int) -> None:
-    from .. import bench
 
     def on_result(partial, total):
         # Publish a running snapshot so the panel fills row-by-row as each
@@ -126,7 +127,6 @@ def _run_bench(prompt: str, only, max_tokens: int) -> None:
 
 @router.post("/models/bench")
 async def models_bench(request: Request):
-    from .. import bench
     try:
         body = await request.json()
     except Exception:  # noqa: BLE001
@@ -197,7 +197,6 @@ def backends_list():
 def _test_backend(base: str, model: str, key: str) -> dict:
     """One tiny completion against an OpenAI-compatible endpoint. Read-only —
     used to validate a candidate model BEFORE the user commits to saving it."""
-    import time as _t
     try:
         import requests
     except Exception as e:  # noqa: BLE001

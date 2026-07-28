@@ -7,6 +7,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from .. import audit, config
+from .. import memory_store
 
 router = APIRouter()
 
@@ -18,7 +19,6 @@ router = APIRouter()
 @router.get("/memory/export")
 def memory_export():
     """The whole store as a JSON download — your data leaves in one click."""
-    from .. import memory_store
     return JSONResponse(
         memory_store.export_all(),
         headers={"Content-Disposition": 'attachment; filename="ava-memory.json"'})
@@ -26,7 +26,6 @@ def memory_export():
 @router.get("/memory")
 def memory_list(q: str = "", kind: str = "", limit: int = 100, offset: int = 0):
     """List (newest first) or free-text search the memory store."""
-    from .. import memory_store
     if kind not in ("", "fact", "doc"):
         return JSONResponse({"error": "kind must be fact|doc"}, status_code=400)
     items = memory_store.list_items(kind=kind, query=q.strip(),
@@ -37,7 +36,6 @@ def memory_list(q: str = "", kind: str = "", limit: int = 100, offset: int = 0):
 @router.post("/memory")
 async def memory_add(request: Request):
     """Add a manual fact: {"text": ...}. Manual facts rank like any other."""
-    from .. import memory_store
     try:
         body = await request.json()
     except Exception:  # noqa: BLE001
@@ -55,7 +53,6 @@ async def memory_add(request: Request):
 @router.post("/memory/{mid}")
 async def memory_update(mid: int, request: Request):
     """Edit one item: {"text": ...} and/or {"pinned": bool}."""
-    from .. import memory_store
     try:
         body = await request.json()
     except Exception:  # noqa: BLE001
@@ -75,7 +72,6 @@ async def memory_update(mid: int, request: Request):
 
 @router.post("/memory/{mid}/delete")
 def memory_delete(mid: int):
-    from .. import memory_store
     if not memory_store.delete_item(mid):
         return JSONResponse({"ok": False, "error": "not found"}, status_code=404)
     audit.record("memory_edit", action="delete", id=mid)

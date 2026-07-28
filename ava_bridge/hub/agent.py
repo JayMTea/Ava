@@ -10,6 +10,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from .. import config, runtime, settings
+from .. import skills
 
 router = APIRouter()
 
@@ -35,7 +36,6 @@ def agent_skills():
     a folder → it appears; no registration). Each carries its deploy state
     (deployed/stale/undeployed/unknown) so the UI shows what's actually live in
     the sandbox vs newly added. See ava_bridge/skills.py."""
-    from .. import skills
     return {"skills": skills.catalog(), "errors": skills.load_errors(),
             "summary": skills.summary(), "category_order": skills.category_order()}
 
@@ -43,7 +43,6 @@ def agent_skills():
 def agent_skill_detail(skill_id: str):
     """The full SKILL.md markdown of one skill — lazy-loaded when the UI expands
     a card, so the list endpoint stays light as skills grow."""
-    from .. import skills
     detail = skills.body(skill_id)
     if not detail:
         return JSONResponse({"error": "unknown skill"}, status_code=404)
@@ -55,7 +54,6 @@ async def agent_skills_rename_category(request: Request):
     to every skill whose effective category matches, so it also works on groups
     that only exist via author frontmatter hints. Persists to ava.yaml
     `skills.categories` — never a source edit."""
-    from .. import skills
     body = await request.json()
     old = str(body.get("from") or "")
     new = str(body.get("to") or "")
@@ -68,7 +66,6 @@ async def agent_skills_rename_category(request: Request):
 async def agent_skills_category_order(request: Request):
     """Persist the owner's category order (Hub UI drag-to-reorder). The stored
     list also registers owner-created categories that hold no skills yet."""
-    from .. import skills
     body = await request.json()
     order = body.get("order")
     if not isinstance(order, list):
@@ -80,7 +77,6 @@ async def agent_skills_category_order(request: Request):
 async def agent_skills_category_new(request: Request):
     """Create an owner category (may start empty — it lives in the order list
     until skills are dragged in)."""
-    from .. import skills
     body = await request.json()
     if not skills.create_category(str(body.get("name") or "")):
         return JSONResponse({"ok": False, "error": "a category needs a name"},
@@ -91,7 +87,6 @@ async def agent_skills_category_new(request: Request):
 async def agent_skills_category_delete(request: Request):
     """Delete a category; any skills still filed under it fall back to their
     author hint or the General bucket (the UI only offers this on empty groups)."""
-    from .. import skills
     if not skills.delete_category(str((await request.json()).get("name") or "")):
         return JSONResponse({"ok": False, "error": "unknown category"}, status_code=404)
     return {"ok": True}
@@ -100,7 +95,6 @@ async def agent_skills_category_delete(request: Request):
 async def agent_skill_set_category(skill_id: str, request: Request):
     """Recategorize one skill (Hub UI drag-and-drop). Writes the owner-owned
     `skills.categories` map in ava.yaml; null/empty clears the override."""
-    from .. import skills
     body = await request.json()
     category = body.get("category")
     if not skills.set_category(skill_id, None if category is None else str(category)):

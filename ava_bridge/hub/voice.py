@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from .. import features, settings
+from .. import voice_enroll
 
 router = APIRouter()
 
@@ -20,7 +21,6 @@ router = APIRouter()
 # --------------------------------------------------------------------------- #
 @router.get("/voice/status")
 def voice_status():
-    from .. import voice_enroll
     st = voice_enroll.status()
     st["enabled"] = features.enabled("voice")
     return st
@@ -40,7 +40,6 @@ async def _read_clip(f: UploadFile) -> bytes | None:
 async def voice_enroll_ep(files: list[UploadFile]):
     """Build + save the voiceprint from uploaded recordings (any format the
     browser produces — decoded via ffmpeg). Embedding runs in a worker thread."""
-    from .. import voice_enroll
     if len(files) > _MAX_CLIPS:
         return JSONResponse({"ok": False, "error": f"too many clips (max {_MAX_CLIPS})"},
                             status_code=413)
@@ -59,7 +58,6 @@ async def voice_enroll_ep(files: list[UploadFile]):
 @router.post("/voice/test")
 async def voice_test_ep(file: UploadFile):
     """Similarity of one clip against the enrolled voiceprint (gate preview)."""
-    from .. import voice_enroll
     clip = await _read_clip(file)
     if clip is None:
         return JSONResponse({"ok": False, "error": "clip exceeds 25 MB"}, status_code=413)

@@ -29,6 +29,12 @@ from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from .. import connectors, perf_mgmt, runtime, settings
+import uuid
+import yaml as _yaml
+from .. import connectors as _c, grants
+from .. import devices as _devices
+from .. import internal
+from .. import mcp_client
 
 router = APIRouter()
 
@@ -103,7 +109,6 @@ def grants_list(cid: str):
     plus, for an MCP/discover connector, its live dynamic tools (best-effort;
     a down server just means the live set is omitted) — with capability group,
     access tier, and grant state."""
-    from .. import connectors as _c, grants
     granted = grants.for_connector(cid)
     m = {x["id"]: x for x in _c.all()}.get(cid) or {}
     acts = []
@@ -134,7 +139,6 @@ def grants_list(cid: str):
 def grants_add(cid: str, action: str):
     """Pre-grant from the settings page — same rule as the "Always allow"
     prompt: write tier only; destructive/author-gated actions can't be granted."""
-    from .. import connectors as _c, grants
     if not _c.grantable(cid, action):
         return JSONResponse({"ok": False, "error":
                              "this action asks every time and can't be always-allowed"},
@@ -144,7 +148,6 @@ def grants_add(cid: str, action: str):
 
 @router.delete("/connectors/{cid}/grants/{action}")
 def grants_revoke(cid: str, action: str):
-    from .. import grants
     return {"ok": grants.revoke(cid, action)}
 
 # --------------------------------------------------------------------------- #
@@ -306,8 +309,6 @@ def _probe(url: str, command: str, token_env: str | None,
     ``token_value`` is a credential the owner just pasted in the connect form (not
     yet saved) so the detection call can authenticate; otherwise fall back to the
     saved/env value resolved from ``token_env``."""
-    from .. import mcp_client
-    import uuid
     cid = "__probe_" + uuid.uuid4().hex[:6]
     # Credential for the detection request: the just-pasted value wins, else the
     # value already saved for this env-var name (or a real env var).
@@ -470,7 +471,6 @@ async def connector_new(body: dict):
     """Write $AVA_HOME/connectors/<id>/connector.yaml from the Hub's form.
     Refuses to overwrite an existing manifest. The generated file uses the same
     schema as `ava connector new` + docs/CONNECTOR_SDK.md."""
-    import yaml as _yaml
     cid = str(body.get("id", "")).strip().lower()
     if not _ID_RE.match(cid):
         return JSONResponse({"ok": False, "error":
@@ -665,7 +665,6 @@ def generate_connector(cid: str, write: int = 0):
     from its manifest. `write=0` previews; `write=1` writes the files (the same
     output as `ava connector tools|policies --write`) — deploy with
     `cd agent && ./install.sh`."""
-    import yaml as _yaml
     m = {x["id"]: x for x in connectors.all()}.get(cid)
     if not m:
         return JSONResponse({"ok": False, "error": f"unknown connector '{cid}'"},
@@ -698,7 +697,6 @@ def connector_ingest_token(cid: str):
     """The inbound push token a device app presents (Authorization: Bearer …) to
     POST events — the same value as `ava device token <cid>`, surfaced in the UI so
     a non-technical user never needs a terminal. Returned only for a known connector."""
-    from .. import internal
     if not any(x["id"] == cid for x in connectors.all()):
         return JSONResponse({"ok": False, "error": f"unknown connector '{cid}'"},
                             status_code=404)
@@ -710,7 +708,6 @@ def connector_ingest_token(cid: str):
 def connector_last_event(cid: str):
     """Most recent pushed event for a connector — powers the 'waiting for the first
     reading…' verify step so the user sees their device come alive without a terminal."""
-    from .. import devices as _devices
     rows = _devices.recent(cid, limit=1)
     return {"ok": True, "event": rows[0] if rows else None}
 
@@ -718,7 +715,6 @@ def connector_last_event(cid: str):
 def delete_connector(cid: str):
     """Remove a user-added connector (its manifest + any generated tools/policy).
     Built-in connectors shipped in the repo are not removable from here."""
-    import shutil
     if not _ID_RE.match(cid):
         return JSONResponse({"ok": False, "error": "bad id"}, status_code=400)
     user_dir = os.path.join(settings.home("connectors"), cid)
@@ -804,7 +800,6 @@ def _user_manifest_path(cid: str) -> str:
 def set_connector_enabled(cid: str, body: dict):
     """Flip a user connector's `enabled` flag in its manifest (the switch `load()`
     honors). Built-in connectors shipped in the repo are read-only here."""
-    import yaml as _yaml
     if not _ID_RE.match(cid):
         return JSONResponse({"ok": False, "error": "bad id"}, status_code=400)
     path = _user_manifest_path(cid)
@@ -848,7 +843,6 @@ def set_connector_appearance(cid: str, body: dict):
     present in the body are touched; a null/empty value CLEARS that key so the
     tile falls back to the frontend's stable auto-pick. Built-in connectors are
     read-only here, and a connector with no `ui:` block has no tile to restyle."""
-    import yaml as _yaml
     if not _ID_RE.match(cid):
         return JSONResponse({"ok": False, "error": "bad id"}, status_code=400)
     path = _user_manifest_path(cid)
@@ -920,7 +914,6 @@ def get_connector_manifest(cid: str):
 def put_connector_manifest(cid: str, body: dict):
     """Overwrite a user connector's manifest with validated YAML. Rejects invalid
     YAML, non-mappings, id changes, and edits to built-ins (delete+recreate instead)."""
-    import yaml as _yaml
     if not _ID_RE.match(cid):
         return JSONResponse({"ok": False, "error": "bad id"}, status_code=400)
     text = str(body.get("yaml") or "")

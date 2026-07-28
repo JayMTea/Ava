@@ -9,6 +9,7 @@ gate becomes decorative.
 from fastapi import APIRouter
 
 from .. import audit
+from .. import approvals
 
 router = APIRouter()
 
@@ -28,13 +29,11 @@ def audit_log(limit: int = 200, kind: str = ""):
 # --------------------------------------------------------------------------- #
 @router.get("/approvals")
 def approvals_list():
-    from .. import approvals
     return {"pending": approvals.pending()}
 
 @router.post("/approvals/{aid}")
 def approvals_decide(aid: str, decision: str = "approve"):
     """decision: approve (once) | always (approve + durable grant) | deny."""
-    from .. import approvals
     return {"ok": approvals.decide(aid, decision != "deny",
                                    remember=decision == "always")}
 
