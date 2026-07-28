@@ -6,19 +6,15 @@ frontend carries no routing knowledge. It lives here rather than with the media
 routes even though it can start a render, because what it returns is a chat
 turn — the render is one outcome of a chat message, not a separate entry point.
 
-KNOWN DEBT, stated plainly: the handlers below still read and mutate
-state.chats directly in ~11 places instead of going through
-ava_bridge/chat_store.py. That bypass did not appear here — it came with the
-routes from phone_bridge.py, and this extraction moved it rather than fixing it,
-because a router split should be a pure move.
+Persistence goes through ava_bridge/chat_store.py and nothing here touches
+state.chats. That is enforced, not merely intended — tests/test_chat_store_
+boundary.py fails any module but chat_store reaching for it.
 
-It matters because the chat corpus is due to move off a whole-file chats.json
-rewrite onto a real storage engine, and a store that three modules reach past
-cannot have its engine swapped underneath it: you would migrate the data and
-these readers would still see an in-memory dict that is no longer authoritative.
-Closing the bypass here, in data_api.py and in tests/test_memory.py — and adding
-a guard so only chat_store may touch state.chats — is the prerequisite for that
-work, not part of it.
+It matters because the chat corpus is moving off a whole-file chats.json rewrite
+onto a real storage engine, and a store that callers reach past cannot have its
+engine swapped underneath it: you migrate the data and the bypassers keep
+reading an in-memory dict that is no longer authoritative. These handlers used
+to do exactly that in eleven places.
 """
 import json
 
@@ -26,11 +22,12 @@ from fastapi import APIRouter, Form
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
-from . import audit, turn_router, memory_store, state
+from . import audit, turn_router, memory_store
 from .agent import discard_session
 from .chat_store import (atts_meta, chat_append, chat_new, chat_session,
-                         chat_summary, chats_persist, last_render_context,
-                         recent_user_text)
+                         chat_summary, delete, last_render_context,
+                         recent_image_urls, recent_user_text, rename, snapshot,
+                         summaries)
 from .config import OC_SESSION
 from .documents import augment, parse_ids
 from .gpu_jobs import start_image_job
@@ -99,10 +96,7 @@ async def ghost_discard(chat_id: str = Form(...)):
 
 @router.get("/api/chats")
 def chats_list():
-    with state.chats_lock:
-        items = [chat_summary(c) for c in state.chats.values()]
-    items.sort(key=lambda x: x["updated"], reverse=True)
-    return {"chats": items}
+    return {"chats": summaries()}
 
 @router.post("/api/chats")
 def chats_create():
@@ -110,19 +104,15 @@ def chats_create():
 
 @router.get("/api/chats/{cid}")
 def chats_get(cid: str):
-    with state.chats_lock:
-        c = state.chats.get(cid)
-        if not c:
-            return JSONResponse({"error": "unknown chat"}, status_code=404)
-        return {"id": c["id"], "title": c.get("title") or "New chat",
-                "messages": c.get("messages", [])}
+    c = snapshot(cid)
+    if not c:
+        return JSONResponse({"error": "unknown chat"}, status_code=404)
+    return {"id": c["id"], "title": c.get("title") or "New chat",
+            "messages": c.get("messages", [])}
 
 @router.delete("/api/chats/{cid}")
 def chats_delete(cid: str):
-    with state.chats_lock:
-        gone = state.chats.pop(cid, None)
-        if gone is not None:
-            chats_persist()
+    gone = delete(cid)
     if gone is not None:
         # Same ledger treatment as memory edits: deletions leave a trace.
         audit.record("chat_delete", id=cid, title=gone.get("title") or "New chat",
@@ -131,15 +121,10 @@ def chats_delete(cid: str):
 
 @router.patch("/api/chats/{cid}")
 def chats_rename(cid: str, title: str = Form(...)):
-    title = title.strip()[:80]
-    with state.chats_lock:
-        c = state.chats.get(cid)
-        if not c:
-            return JSONResponse({"error": "unknown chat"}, status_code=404)
-        if title:
-            c["title"] = title
-            chats_persist()
-        return chat_summary(c)
+    summary = rename(cid, title)
+    if summary is None:
+        return JSONResponse({"error": "unknown chat"}, status_code=404)
+    return summary
 
 @router.post("/api/chats/{cid}/image")
 def chats_image(cid: str, url: str = Form(...), caption: str = Form(""),
@@ -147,12 +132,11 @@ def chats_image(cid: str, url: str = Form(...), caption: str = Form(""),
     """DEPRECATED — the bridge persists render outcomes itself now
     (gpu_jobs._finalize_job). Kept for stale cached clients (PWA service
     worker) and deduped so a client that still posts can't double-append."""
-    with state.chats_lock:
-        c = state.chats.get(cid)
-        if not c:
-            return JSONResponse({"error": "unknown chat"}, status_code=404)
-        if any(m.get("image") == url for m in c.get("messages", [])[-8:]):
-            return {"ok": True, "deduped": True}
+    recent = recent_image_urls(cid)
+    if recent is None:
+        return JSONResponse({"error": "unknown chat"}, status_code=404)
+    if url in recent:
+        return {"ok": True, "deduped": True}
     img_models = None
     if models:
         try:

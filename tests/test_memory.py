@@ -20,7 +20,7 @@ from unittest.mock import patch
 # test class below ALSO patches memory_store.db_path (see _MemCase).
 os.environ["AVA_HOME"] = tempfile.mkdtemp()
 
-from ava_bridge import audit, chat_store, config, learning, memory_store, state
+from ava_bridge import audit, chat_store, config, learning, memory_store
 
 _TMP = tempfile.mkdtemp(prefix="ava_memtest_")
 _DB = os.path.join(_TMP, "memory.db")
@@ -136,24 +136,29 @@ class TestRecall(_MemCase):
 class TestDistiller(_MemCase):
     def setUp(self):
         super().setUp()
-        with state.chats_lock:
-            state.chats.clear()
+        chat_store.reset()
 
     def _seed_chat(self, n=6):
+        # Built through the store's own API, not by writing state.chats, so this
+        # keeps testing the real path when the backing engine changes.
         now = time.time()
-        with state.chats_lock:
-            state.chats["c1"] = {"id": "c1", "title": "t", "created": now, "updated": now,
-                                 "messages": [
-                                     {"role": "user" if i % 2 == 0 else "assistant",
-                                      "content": f"message {i} about the workshop jetson",
-                                      "ts": now - 100 + i}
-                                     for i in range(n)]}
+        c = chat_store.chat_new("t")
+        cid = c["id"]
+        for i in range(n):
+            chat_store.chat_append(
+                cid, "user" if i % 2 == 0 else "assistant",
+                f"message {i} about the workshop jetson", ts=now - 100 + i)
+        chat_store.rename(cid, "t")
+        return cid
 
     def test_recent_messages(self):
-        self._seed_chat()
+        cid = self._seed_chat()
         msgs = chat_store.recent_messages(0)
         self.assertEqual(len(msgs), 6)
-        self.assertEqual(msgs[0]["chat_id"], "c1")
+        # The id comes from the store now rather than being hand-written, so the
+        # assertion is about which chat the messages belong to, not about a
+        # literal the test itself planted.
+        self.assertEqual(msgs[0]["chat_id"], cid)
         self.assertEqual(msgs, sorted(msgs, key=lambda m: m["ts"]))
         self.assertEqual(chat_store.recent_messages(time.time() + 10), [])
 
