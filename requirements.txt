@@ -16,7 +16,7 @@ PyYAML==6.0.3
 python-multipart==0.0.32
 websocket-client==1.9.0
 numpy==2.5.1
-anthropic==0.116.0
+anthropic==0.120.2
 # Hardware abstraction layer (ava_bridge/hwinfo.py): psutil reads system/unified
 # memory + CPU natively across macOS/Linux/Windows. nvidia-ml-py (NVML) is the
 # native NVIDIA telemetry API; it's import-guarded and simply inactive on non-
@@ -29,7 +29,7 @@ nvidia-ml-py==13.610.43
 # ensure_thumbnail's bare `except` swallowed — every /thumb/<name> quietly
 # served the FULL-size image instead. The gallery still worked, which is why
 # nobody noticed; it just shipped megabytes where it meant to ship kilobytes.
-Pillow==12.2.0
+Pillow==12.3.0
 # Article extraction for web_fetch (ava_bridge/web.py). Same story as Pillow:
 # present here, declared nowhere. Its absence is caught by a best-effort
 # `except`, so a fork silently fell back to crude tag-stripping — web_fetch kept
