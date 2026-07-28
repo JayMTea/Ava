@@ -87,6 +87,12 @@ _ALLOW = {
     "deploy/docker-compose.yml",
     # Design history, dated and superseded in place. Same rule as CHANGELOG.md.
     "docs/PACKAGING_PLAN.md",
+    # The ADR that RECORDS the watermark incident and the revert to ELK. It
+    # quotes the banned string to explain why the decision was superseded —
+    # same rule as the three entries above: a guard that deletes the record of
+    # the bug it prevents is a bad trade. The renders themselves are clean
+    # (agent/docs/arch.py STATIC_D2 now pins elk for both hero diagrams).
+    "agent/docs/adr/0004-tala-layout-engine.md",
 }
 
 
