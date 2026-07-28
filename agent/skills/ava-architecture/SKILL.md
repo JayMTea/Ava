@@ -8,10 +8,15 @@ description: "How Ava reads and updates her OWN system architecture — the sing
 
 Ava's whole system is described by ONE machine-readable manifest,
 `agent/docs/architecture.yaml` (the SSOT). The architecture diagrams
-(`system.svg`, `network.svg`) and the README docs are GENERATED from it, so they
-are always 1:1 with the manifest. Ava has real tools to read this and to change
-it — when she edits the manifest, the diagrams and docs regenerate and commit
+(`system.svg`, `network.svg`, `security.svg`) and the README docs are GENERATED
+from it, so they are always 1:1 with the manifest. Ava has real tools to read this
+and to change it — when she edits the manifest, the diagrams and docs regenerate
 automatically.
+
+Only `security.svg` is committed. `system.svg` and `network.svg` render this
+install's real topology — device labels and connected private apps — so they are
+generated locally and gitignored. Do not `git add` them; `tests/test_no_owner_identity.py`
+fails the build if an identity-bearing artifact becomes tracked.
 
 The diagrams are Ava and Ava is the diagrams: keep them true.
 

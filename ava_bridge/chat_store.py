@@ -74,7 +74,7 @@ def _trim_steps(steps: list | None) -> list | None:
     return out or None
 
 
-def _chat_append(cid: str, role: str, content: str,
+def chat_append(cid: str, role: str, content: str,
                  atts: list | None = None, image: str | None = None,
                  model: dict | None = None,
                  img_models: list | None = None,

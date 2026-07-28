@@ -16,7 +16,13 @@ from qa import helpers
 
 PUBLIC = {"/login", "/logout", "/setup", "/api/health", "/favicon.ico",
           "/manifest.webmanifest", "/sw.js"}
-API_PREFIXES = ("/api/", "/apps/", "/media/", "/uploads/")
+# Imported, never re-listed. A local copy drifted from the app's own list and
+# went stale on /thumb: the app correctly answered 401 for /thumb/audit while this
+# test demanded a 303 page redirect, so the suite failed on correct behaviour.
+# Importing the source of truth makes that drift impossible.
+from ava_bridge.auth import API_PREFIXES as _APP_API_PREFIXES  # noqa: E402
+
+API_PREFIXES = tuple(f"{p}/" for p in _APP_API_PREFIXES)
 
 
 def _sample_path(route) -> str:
@@ -112,6 +118,74 @@ class TestAuthSurface(unittest.TestCase):
         forged = helpers.anon_client()
         forged.cookies.set("ava_session", "9999999999.deadbeef")
         self.assertEqual(forged.get("/api/brand").status_code, 401)
+
+    def test_the_cookie_is_not_secure_over_plain_http(self):
+        """A browser DISCARDS a Secure cookie sent over http, so forcing the flag
+        on for a LAN address logs the user out on every request with no error
+        anywhere — indistinguishable from a wrong password, and exactly the
+        phone/PWA flow docs/MOBILE.md markets.
+
+        This assertion is only meaningful because qa/env_recipe.py no longer pins
+        AVA_COOKIE_SECURE=0: the suite now runs the same `auto` resolution the
+        product ships, so it can actually see a regression here.
+        """
+        anon = helpers.anon_client()
+        from qa.env_recipe import QA_PASSWORD
+        r = anon.post("/login", data={"password": QA_PASSWORD})
+        raw = r.headers.get("set-cookie", "")
+        self.assertIn("ava_session=", raw)
+        self.assertNotIn("Secure", raw)
+
+    def test_the_cookie_is_secure_behind_a_trusted_https_proxy(self):
+        from qa.env_recipe import QA_PASSWORD
+        anon = helpers.anon_client()
+        r = anon.post("/login", data={"password": QA_PASSWORD},
+                      headers={"X-Forwarded-Proto": "https"})
+        raw = r.headers.get("set-cookie", "")
+        self.assertIn("ava_session=", raw)
+        self.assertIn("Secure", raw)
+
+    def test_an_unclaimed_ava_refuses_remote_setup(self):
+        """`/setup` has to be public — there is no password yet — so on a
+        non-loopback bind the first device on the network to find the box got to
+        set the admin password and lock the owner out of their own install.
+
+        Loopback still claims freely (the common case: a browser on the same
+        machine). Anyone else must present the token printed to the server's
+        console, which is a proof that you can read the server's disk.
+        """
+        from unittest import mock
+
+        from fastapi.testclient import TestClient
+
+        import phone_bridge
+        from ava_bridge import auth
+
+        with mock.patch.object(auth, "needs_setup", return_value=True), \
+             mock.patch.object(phone_bridge, "needs_setup", return_value=True):
+            auth.clear_claim()
+            try:
+                remote = TestClient(phone_bridge.app, follow_redirects=False,
+                                    client=("192.168.1.50", 40000))
+                self.assertEqual(remote.get("/setup").status_code, 403)
+                self.assertEqual(
+                    remote.post("/setup", data={"password": "hunter2hunter2",
+                                                "confirm": "hunter2hunter2"}).status_code,
+                    403)
+
+                local = TestClient(phone_bridge.app, follow_redirects=False,
+                                   client=("127.0.0.1", 40001))
+                self.assertEqual(local.get("/setup").status_code, 200)
+
+                token = auth.claim_token()
+                self.assertTrue(token)
+                self.assertEqual(
+                    remote.get(f"/setup?claim={token}").status_code, 200)
+                # A near-miss is still refused.
+                self.assertEqual(
+                    remote.get(f"/setup?claim={token}x").status_code, 403)
+            finally:
+                auth.clear_claim()
 
     def test_logout_clears_cookie(self):
         anon = helpers.anon_client()

@@ -20,7 +20,7 @@ from unittest.mock import patch
 # test class below ALSO patches memory_store.db_path (see _MemCase).
 os.environ["AVA_HOME"] = tempfile.mkdtemp()
 
-from ava_bridge import audit, chat_store, config, learning, memory_store, state  # noqa: E402
+from ava_bridge import audit, chat_store, config, learning, memory_store, state
 
 _TMP = tempfile.mkdtemp(prefix="ava_memtest_")
 _DB = os.path.join(_TMP, "memory.db")

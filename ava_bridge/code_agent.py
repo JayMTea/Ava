@@ -44,7 +44,7 @@ def _system_for(project: str, root: str) -> str:
         return SYSTEM_PROMPT
     label = _project_cfg(project).get("label", project)
     return (
-        f"You are Ava, making a code change to the '{label}' project, a separate "
+        f"You are {config.AVA_NAME}, making a code change to the '{label}' project, a separate "
         f"repository rooted at {root}. You do NOT own this repo, so be extra "
         "careful and conservative.\n\n"
         "Work like a careful senior engineer:\n"
@@ -304,7 +304,7 @@ def run_change_request(request: str, context: str = "", files: list[str] | None 
         return {"status": "error", "errors": [f"project root not found: {root}"],
                 "summary": "", "files_changed": []}
 
-    token = set_active_root(root)
+    token = set_active_root(root, project)
     try:
         edits, reply, _trace = _run_loop(
             request, context, files, model, system=_system_for(project, root))
@@ -521,7 +521,7 @@ def apply_approved_proposal(proposal_id: str) -> dict:
         return {"ok": False, "error": f"unknown project '{project}'"}
 
     pcfg = _project_cfg(project)
-    token = set_active_root(pcfg["root"])
+    token = set_active_root(pcfg["root"], project)
     try:
         # Re-check policy at apply time — never let a denied path through even if
         # it somehow got parked.

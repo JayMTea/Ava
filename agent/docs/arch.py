@@ -68,7 +68,13 @@ _FALLBACK_PALETTES = {
     "orange": dict(stroke="#f57c00", fill="#fff3e0", font="#e65100", nfill="#ffe0b2", nfont="#bf360c"),
     "slate":  dict(stroke="#455a64", fill="#eceff1", font="#263238", nfill="#cfd8dc", nfont="#263238"),
 }
-_FALLBACK_D2 = dict(theme=0, layout="tala", pad=24, stroke_width=2, node_stroke_width=1,
+# layout: `elk`, not `tala`. TALA is proprietary and stamps a 110px "UNLICENSED
+# COPY" watermark across the output when no license is present — which is how three
+# tracked diagrams shipped watermarked for weeks (see tests/test_no_owner_identity.py,
+# which now fails the build on it). ELK is bundled with d2 and free; it is what
+# docs/assets/architecture.svg already used. Set `diagram_style.d2.layout: tala` in
+# the manifest to opt back in if you hold a license.
+_FALLBACK_D2 = dict(theme=0, layout="elk", pad=24, stroke_width=2, node_stroke_width=1,
                     stroke_dash_edge=3, stroke_dash_border=4, bold_containers=True,
                     node_stroke="#cbd5e1", border_radius=8, font_size=14, sheet=None)
 _FALLBACK_ACCENTS = dict(red="#c62828", warn="#f9a825")

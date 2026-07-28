@@ -62,7 +62,10 @@ def _sane_tps(recs: List[dict]) -> List[float]:
 # therefore shows only Ava's own log, never the author's personal apps.
 # --------------------------------------------------------------------------- #
 _FALLBACK_SOURCES: Dict[str, List[str]] = {
-    "ava": [os.path.join(config.ROOT, "logs", "performance.jsonl")],
+    # config.LOGS_DIR (== settings.logs_dir()), not config.ROOT/logs: the latter
+    # is the CODE root, so on any install where AVA_HOME differs it pointed at a
+    # directory perf_log.py never writes to.
+    "ava": [os.path.join(config.LOGS_DIR, "performance.jsonl")],
 }
 # Tests (and debugging) may pin the map here; str values are normalised to [str].
 SOURCES_OVERRIDE: Optional[Dict[str, Any]] = None

@@ -86,7 +86,9 @@ def _rel(path: str) -> str:
 _SECRET_LABELS = {
     ".secret": "Session signing key",
     ".internal_token": "Internal API token",
-    "auth_password": "Login password (hashed)",
+    # NOT hashed — auth.set_password writes the value verbatim, 0600. Saying
+# "hashed" in a security inventory overstated the protection.
+    "auth_password": "Login password (stored 0600, not hashed)",
     "router_token": "Internal router token",
 }
 
@@ -96,7 +98,7 @@ def _secret_purpose(name: str) -> str:
         return _SECRET_LABELS[name]
     low = name.lower()
     if "password" in low:
-        return "Password (hashed)"
+        return "Password (stored 0600, not hashed)"
     if "token" in low:
         return "Access token"
     if "key" in low or "api" in low or "secret" in low:
@@ -158,6 +160,22 @@ def stores():
                       "jsonl", size=perf_size + roll_size,
                       last_write=max(perf_mtime, roll_mtime), managed=True))
 
+    # Allocation decisions — the log an operator reads before allowing the
+    # allocator to act. It grew forever and appeared on no inventory, so the one
+    # file you are told to judge enforcement from was the one nobody could see
+    # the size of. Self-rotating (broker._rotate_log_if_needed), like performance.
+    alloc_size = alloc_mtime = 0
+    for name in ["alloc.jsonl"] + [f"alloc.jsonl.{i}" for i in range(1, 6)]:
+        b, m = _file_stats(os.path.join(logs_dir, name))
+        alloc_size += b
+        alloc_mtime = max(alloc_mtime, m)
+    if alloc_size:
+        alloc_path = os.path.join(logs_dir, "alloc.jsonl")
+        out.append(_store("alloc", "Allocation decisions", alloc_path, "jsonl",
+                          size=alloc_size,
+                          count=_line_count(alloc_path, alloc_size),
+                          last_write=alloc_mtime, managed=True))
+
     # Hardware history — minute/hour telemetry tiers behind the Vitals charts.
     hw_dir = os.path.join(logs_dir, "hw_history")
     size, files, mtime = _tree_stats(hw_dir)
@@ -179,12 +197,14 @@ def stores():
     # Media — generated output and chat uploads (binary blobs).
     gen_dir = settings.media_dir()
     size, files, mtime = _tree_stats(gen_dir)
+    # managed=True now that prune_media() applies data.retention_days here —
+    # the flag tells the Data page this store has automatic retention.
     out.append(_store("media_gen", "Generated media", gen_dir, "files",
-                      size=size, count=files, last_write=mtime))
+                      size=size, count=files, last_write=mtime, managed=True))
     up_dir = settings.upload_dir()
     size, files, mtime = _tree_stats(up_dir)
     out.append(_store("uploads", "Uploads", up_dir, "files", size=size,
-                      count=files, last_write=mtime))
+                      count=files, last_write=mtime, managed=True))
 
     # Secrets & keys — inventoried for transparency. We surface each secret's
     # NAME and purpose so the owner knows exactly what's held; the values are
@@ -341,11 +361,57 @@ def _db_stats() -> dict:
             "reclaimable": reclaimable, "last_check": last}
 
 
+def prune_media(retention_days: int | None = None, *, dry_run: bool = False) -> dict:
+    """Delete generated media and uploads older than `data.retention_days`.
+
+    Media was the one store with no retention at all: `data.retention_days`
+    reached the telemetry stores but never the blobs, and generated images are by
+    far the largest thing Ava writes — the author's own media/out reached 7.9 GB
+    in a month. Everything else was bounded, so the setting *looked* like it
+    governed disk use while the biggest consumer grew forever.
+
+    Mirrors hardware._prune_jsonl's contract: 0 (or None) means keep forever.
+    Returns the counts either way so the UI can show the win before committing.
+    """
+    days = settings.data_retention_days() if retention_days is None else retention_days
+    out = {"days": days, "removed": 0, "bytes": 0, "dry_run": dry_run}
+    if not days or days <= 0:
+        return out
+    cutoff = time.time() - days * 86400
+    for root in (settings.media_dir(), settings.upload_dir()):
+        for dirpath, _dirnames, filenames in os.walk(root):
+            for name in filenames:
+                p = os.path.join(dirpath, name)
+                try:
+                    st = os.stat(p)
+                    if st.st_mtime >= cutoff:
+                        continue
+                    out["removed"] += 1
+                    out["bytes"] += st.st_size
+                    if not dry_run:
+                        os.unlink(p)
+                except OSError:
+                    # A file that vanished or is unreadable is not a failure of
+                    # the sweep; skip it rather than aborting the whole prune.
+                    continue
+    return out
+
+
 @router.get("/maintenance")
 def maintenance():
     return {"db": _db_stats(),
             "retention": {"days": settings.data_retention_days(),
-                          "choices": list(settings.DATA_RETENTION_CHOICES)}}
+                          "choices": list(settings.DATA_RETENTION_CHOICES)},
+            "media_reclaimable": prune_media(dry_run=True)}
+
+
+@router.post("/maintenance/prune-media")
+def maintenance_prune_media():
+    """Apply `data.retention_days` to generated media + uploads."""
+    res = prune_media()
+    audit.record("data_maintenance", action="prune_media",
+                 removed=res["removed"], bytes=res["bytes"], days=res["days"])
+    return {"ok": True, **res}
 
 
 @router.post("/maintenance/integrity")

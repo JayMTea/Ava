@@ -18,7 +18,14 @@ WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
 # Data root: all runtime state (data/logs/media) lives here. Override with
 # AVA_HOME for portable/packaged installs; defaults to the repo root so the
 # original single-user layout is unchanged. See docs/PACKAGING_PLAN.md.
-DATA_HOME = os.path.expanduser(os.environ.get("AVA_HOME", ROOT))
+#
+# Read from `settings` rather than re-derived here. This module used to compute
+# its own `AVA_HOME or ROOT` root and join onto it, which meant it silently
+# ignored the `paths.*` keys ava.yaml documents: setting `paths.data` relocated
+# chats for skills.py (which asks settings) but not for the bridge (which asked
+# this module), and the two then disagreed about where state lived.
+# tests/test_path_roots.py fails any module that grows a second root.
+DATA_HOME = str(settings.AVA_HOME)
 
 RATE = 16000
 
@@ -26,13 +33,12 @@ RATE = 16000
 # malformed/huge blob can't wedge the request. Override with AVA_AUDIO_DECODE_TIMEOUT.
 AUDIO_DECODE_TIMEOUT = int(os.environ.get("AVA_AUDIO_DECODE_TIMEOUT", "30"))
 
-MEDIA_DIR = os.path.join(DATA_HOME, "media", "gen")
-UPLOAD_DIR = os.path.join(DATA_HOME, "media", "uploads")
-CHATS_DIR = os.path.join(DATA_HOME, "data")
+MEDIA_DIR = settings.media_dir()
+UPLOAD_DIR = settings.upload_dir()
+CHATS_DIR = settings.data_dir()
 CHATS_FILE = os.path.join(CHATS_DIR, "chats.json")
-LOGS_DIR = os.path.join(DATA_HOME, "logs")
-for _d in (MEDIA_DIR, UPLOAD_DIR, CHATS_DIR, LOGS_DIR):
-    os.makedirs(_d, exist_ok=True)
+LOGS_DIR = settings.logs_dir()
+settings.ensure_dirs()
 
 MAX_UPLOAD_BYTES = int(os.environ.get("AVA_MAX_UPLOAD_MB", "25")) * 1024 * 1024
 MAX_DOC_CHARS = int(os.environ.get("AVA_MAX_DOC_CHARS", "24000"))
@@ -70,7 +76,8 @@ OC_THINKING = os.environ.get("AVA_OC_THINKING", "off")
 AGENT_URL = settings.get("agent.url", "http://agent:9100", env="AVA_AGENT_URL")
 
 # Context-window sizing for the chat token counter. CTX_MAX is the model's usable
-# context length (the open-model brain is served at --max-model-len 65536); CTX_BASE
+# context length (override per model; the default matches the shipped model's
+# --max-model-len, and deploy/model-flags.conf clamps it to native_ctx); CTX_BASE
 # is a rough fixed overhead (system prompt + persona + tool schemas) the UI adds to
 # its per-message estimate so the counter tracks OpenClaw's fuller number.
 CTX_MAX = settings.get_int("inference.ctx_max", 65536, env="AVA_CTX_MAX")
@@ -90,8 +97,8 @@ OC_NEMOCLAW = (
 # Phone mics differ from the PC enrollment mic, so the gate is a touch more
 # lenient here than the live USB-mic loop. Tune from the Hub Voice tab (writes
 # voice.threshold in ava.yaml) or override with AVA_PHONE_THRESHOLD.
-PHONE_THRESHOLD = float(settings.get("voice.threshold", 0.40,
-                                     env="AVA_PHONE_THRESHOLD"))
+PHONE_THRESHOLD = settings.get_float("voice.threshold", 0.40,
+                                     env="AVA_PHONE_THRESHOLD")
 
 # ---- Inference router --------------------------------------------------------
 # The router (ava_bridge/router_app.py) fronts the declared inference backends.
@@ -253,9 +260,48 @@ except Exception:  # noqa: BLE001 — no overlay (fork) or a broken overlay
 # ---- Authentication ----------------------------------------------------------
 COOKIE_NAME = "ava_session"
 SESSION_TTL = int(os.environ.get("AVA_SESSION_TTL_DAYS", "30")) * 86400
-# TLS is terminated by Tailscale (https://...:8445), so the browser sees a secure
-# origin -> Secure cookie is correct. Set AVA_COOKIE_SECURE=0 only for http debug.
-COOKIE_SECURE = os.environ.get("AVA_COOKIE_SECURE", "1") != "0"
+
+
+def _resolve_cookie_secure() -> bool | None:
+    """auth.cookie_secure: true|false|auto. None means auto — decide per request.
+
+    This used to be `os.environ.get("AVA_COOKIE_SECURE", "1") != "0"`, which was
+    wrong twice over. It had no ava.yaml key, and it was a bare string compare, so
+    `AVA_COOKIE_SECURE=false` evaluated to True — the opposite of what it says.
+
+    Worse, it was unconditional. A Secure cookie is discarded by the browser over
+    plain http, so on a LAN IP the session silently vanished and the user bounced
+    back to /login with no message anywhere — indistinguishable from a wrong
+    password. That is the flow docs/MOBILE.md markets (install the PWA on your
+    phone), and qa/env_recipe.py pinned this to "0", so the suite could not see it.
+
+    `auto` matches ava_bridge/router_app.py's require_auth resolution: derive it
+    from the request instead of guessing at import. See auth.request_is_secure().
+    """
+    raw = settings.get("auth.cookie_secure", "auto", env="AVA_COOKIE_SECURE")
+    val = str(raw).strip().lower()
+    if val in ("1", "true", "yes", "on"):
+        return True
+    if val in ("0", "false", "no", "off"):
+        return False
+    return None
+
+
+# True = always Secure, False = never, None = auto (per-request scheme).
+# The name is unchanged so `mock.patch.object(config, "COOKIE_SECURE", False)`
+# keeps working in tests/test_password_change.py.
+COOKIE_SECURE = _resolve_cookie_secure()
+
+# Peers whose X-Forwarded-For / X-Forwarded-Proto we believe. Loopback by default,
+# which covers `tailscale serve` and a same-host nginx/Caddy. NEVER trust these
+# headers from an arbitrary peer: behind a loopback proxy every client would
+# otherwise appear to be 127.0.0.1, which would defeat the first-run claim gate
+# and let one LAN device exhaust everyone's login-throttle bucket.
+TRUSTED_PROXIES = tuple(
+    p.strip() for p in str(
+        settings.get("server.trusted_proxies", "127.0.0.1,::1",
+                     env="AVA_TRUSTED_PROXIES")).split(",") if p.strip())
+
 LOGIN_MAX = 8
 LOGIN_WINDOW = 60
 
@@ -270,7 +316,13 @@ def _internal_token() -> str:
     env = os.environ.get("AVA_INTERNAL_TOKEN")
     if env:
         return env
-    path = os.path.join(CHATS_DIR, ".internal_token")
+    # Resolve through settings.data_dir(), NOT the module-local CHATS_DIR: this
+    # file is written host-side by agent/install.sh and read here, so the two must
+    # agree under every path override. CHATS_DIR is `AVA_HOME/data` and silently
+    # ignores `paths.data` / AVA_DATA_DIR, which agent/install.sh and skills.py
+    # both honour — that mismatch made every /internal/* callback 401 on Docker,
+    # where AVA_HOME (/data) and the code root (/app) differ.
+    path = os.path.join(settings.data_dir(), ".internal_token")
     try:
         with open(path, encoding="utf-8") as f:
             tok = f.read().strip()
@@ -279,6 +331,7 @@ def _internal_token() -> str:
     except FileNotFoundError:
         pass
     tok = secrets.token_hex(32)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         f.write(tok + "\n")
     os.chmod(path, 0o600)

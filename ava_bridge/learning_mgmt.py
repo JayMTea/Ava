@@ -110,7 +110,7 @@ def update_digest_scripts(script_type: str, updates: dict, content: str = None) 
             else:
                 logger.info(f"No changes needed for {target} digest script")
         
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — surfaced to the caller as an error field
             error_msg = f"Failed to update {target} script: {str(e)}"
             errors.append(error_msg)
             logger.error(error_msg)
@@ -330,7 +330,7 @@ def read_digest_scripts() -> dict:
                     "size": script_path.stat().st_size,
                     "modified": datetime.fromtimestamp(script_path.stat().st_mtime).isoformat(),
                 }
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — surfaced to the caller as an error field
             scripts[script_type] = {"error": str(e)}
     
     return scripts

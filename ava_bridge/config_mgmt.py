@@ -136,7 +136,7 @@ class ConfigManager:
                     'path': str(path)
                 }
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — surfaced to the caller as {'ok': False, 'error': …}
             return {'ok': False, 'error': str(e)}
 
     @staticmethod
@@ -268,7 +268,7 @@ class ConfigManager:
                     'backup': str(backup_path)
                 }
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — surfaced to the caller as {'ok': False, 'error': …}
             # Restore backup on error
             try:
                 backup_path = path.with_suffix(path.suffix + '.bak')

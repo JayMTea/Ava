@@ -15,7 +15,7 @@ hide:
 ## Get running in minutes
 
 ```bash
-cd deploy && docker compose --profile gpu up -d   # or: cpu | cloud | full
+cd deploy && ./install.sh                        # or: cp profiles/gpu.env .env && docker compose up -d
 # open http://localhost:8096 and set an admin password
 ```
 

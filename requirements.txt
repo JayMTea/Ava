@@ -23,3 +23,15 @@ anthropic==0.116.0
 # NVIDIA hosts (Apple Silicon, CPU-only), which fall back to psutil + shell.
 psutil==7.2.2
 nvidia-ml-py==13.610.43
+# Thumbnails (ava_bridge/gpu_jobs.py). Undeclared until 2026-07-28: it was
+# installed transitively on the maintainer's box, so `pip install -r
+# requirements.txt` on a fresh clone produced an ImportError that
+# ensure_thumbnail's bare `except` swallowed — every /thumb/<name> quietly
+# served the FULL-size image instead. The gallery still worked, which is why
+# nobody noticed; it just shipped megabytes where it meant to ship kilobytes.
+Pillow==12.2.0
+# Article extraction for web_fetch (ava_bridge/web.py). Same story as Pillow:
+# present here, declared nowhere. Its absence is caught by a best-effort
+# `except`, so a fork silently fell back to crude tag-stripping — web_fetch kept
+# "working" while handing Ava markup soup instead of clean markdown.
+trafilatura==2.1.0

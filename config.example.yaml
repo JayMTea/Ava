@@ -18,7 +18,20 @@ persona:                   # assistant character (agent/persona.txt.tmpl is rend
   adult: false            # [AVA_PERSONA_ADULT]  true = allow explicit/NSFW conversation for the owner
 
 server:
-  host: 0.0.0.0            # [AVA_HOST]
+  # Loopback by default: Ava is a single-tenant appliance with one shared
+  # password, and until you set that password `/setup` is necessarily open. A
+  # wider bind is a deliberate act, not a default. (Docker is unaffected — the
+  # container binds 0.0.0.0 inside its own namespace and publishes on
+  # 127.0.0.1; see deploy/Dockerfile.)
+  #
+  # To reach Ava from your phone, prefer a VPN or a reverse proxy over binding
+  # 0.0.0.0 on an untrusted network. `tailscale serve` needs no change here.
+  host: 127.0.0.1          # [AVA_HOST]
+  # Proxies whose X-Forwarded-For / X-Forwarded-Proto Ava believes. Loopback
+  # covers `tailscale serve` and a same-host nginx/Caddy. Never widen this to a
+  # peer you do not control: those headers decide who the login throttle blames,
+  # and whether the first-run claim gate thinks you are local.
+  trusted_proxies: "127.0.0.1,::1"   # [AVA_TRUSTED_PROXIES]
   port: 8096              # [AVA_PORT]
   public_url: http://localhost:8096   # external URL users reach Ava at
 
@@ -26,6 +39,15 @@ auth:
   mode: password          # password | none  (none = local dev only)
   # The password + signing secret are NOT stored here — they live in
   # $AVA_HOME/secrets/ (auto-generated on first run) or env AVA_PASSWORD / AVA_SECRET.
+  #
+  # Mark the session cookie Secure? true | false | auto  [AVA_COOKIE_SECURE]
+  # `auto` (recommended) sets it only when the request actually arrived over
+  # https — directly, or via X-Forwarded-Proto from a trusted_proxy above.
+  # It matters because a browser DISCARDS a Secure cookie sent over plain http:
+  # forcing it on for a LAN address logs you out on every request with no error
+  # anywhere, which is indistinguishable from a wrong password. Set `true` only
+  # if you terminate TLS somewhere Ava cannot see.
+  cookie_secure: auto
 
 paths:                     # all default under AVA_HOME; override only if needed
   data: null              # [AVA_DATA_DIR]
@@ -38,11 +60,20 @@ paths:                     # all default under AVA_HOME; override only if needed
 # chat/fast model whose `tier` matches the memory `ava doctor` detects, so a fork
 # on a small GPU downloads something that actually fits. `ava setup` creates the
 # hf/ ollama/ gpusvc/ folders (and a gpusvc/extra_model_paths.yaml) for you.
+#
+# THESE ARE DEFAULTS, NOT REQUIREMENTS. Ava is model-agnostic — put any model you
+# like here (any Hugging Face repo id for vllm, any Ollama tag for ollama) and
+# point `inference.backends` below at whatever serves it. The values shipped here
+# are simply what the author runs and what the docs' numbers were measured on.
 models:
   chat:                    # everyday brain (served via inference.backends above)
     engine: vllm           # vllm|ollama  (Hugging Face hub or Ollama registry)
-    id: nvidia/Nemotron-Open-30B-A3B-Reasoning-FP8
-    tier: large            # large|medium|small|tiny  (used by --auto)
+    id: Qwen/Qwen2.5-7B-Instruct
+    tier: medium           # large|medium|small|tiny  (used by --auto)
+    # Swapping this for another vLLM model? deploy/local-serve.sh resolves the
+    # right --tool-call-parser / --reasoning-parser per model family. Confirm with
+    #   AVA_SERVE_DRY_RUN=1 AVA_MODEL=<your model> bash deploy/local-serve.sh
+    # before a long download — a mismatched parser breaks tool calls *silently*.
   fast:                    # smaller fallback for constrained hardware
     engine: ollama
     id: llama3.1:8b
@@ -54,18 +85,27 @@ models:
     url: https://huggingface.co/example/gpu-model
 
 # ── Inference: Ava's single always-on brain. ────────────────────────────────
-# Ava keeps ONE model resident at all times — Nemotron open-model 30B-A3B (FP8),
-# a multimodal MoE (3B active) that's her everyday chat brain AND backs her
-# background capabilities (vision/audio understanding). No scaling models up and
-# down. The router (ava_router.py) fronts it for perf logging + the `/fit` view;
-# add a second backend below only if you want an automatic cloud fallback.
+# Ava keeps ONE model resident at all times — no scaling models up and down. Which
+# model that is, is entirely yours to choose: any OpenAI-compatible endpoint works
+# (vLLM, Ollama, llama.cpp, LM Studio, MLX, or a cloud provider). The router
+# (ava_router.py) fronts it for perf logging + the `/fit` view; add a second
+# backend below only if you want an automatic cloud fallback.
+#
+# The example below is the SHIPPED DEFAULT (deploy/default-model.env): a 7B model
+# chosen because it fits the ~16 GB card deploy/install.sh green-lights, not
+# because it is the best you can run. Scaling up is the deliberate act — see
+# docs/CHOOSE_A_MODEL.md. A multimodal model additionally serves the background
+# vision/audio capabilities; with a text-only one those degrade gracefully rather
+# than breaking. Easiest way to change it is Setup → Models in
+# the UI ("Add a model" → test the connection → save), which writes this block
+# for you; edit by hand only if you prefer.
 inference:
-  primary: local-omni
+  primary: local
   # Logical model roles -> backend ids, so features never name a model inline.
   # Unset roles fall back to `primary`. media roles resolve via `models:` above.
   # roles:
-  #   chat: local-omni         # the conversational brain (direct + agent path)
-  #   fast: local-omni         # utility/classify turns (X-Ava-Workload: fast)
+  #   chat: local               # the conversational brain (direct + agent path)
+  #   fast: local               # utility/classify turns (X-Ava-Workload: fast)
   # The OpenAI-compatible router (embedded in the bridge at startup; a
   # standalone `uvicorn ava_router:app` unit is detected and used instead).
   # router:
@@ -76,7 +116,7 @@ inference:
   #   require_auth: auto       # [AVA_ROUTER_REQUIRE_AUTH] auto = require a
   #                            #   Bearer/X-Ava-Router-Token on /v1/* iff the
   #                            #   bind host is non-loopback
-  # Reasoning control for a *reasoning* local model (e.g. Nemotron open-model).
+  # Reasoning control for a *reasoning* local model (Nemotron, Qwen3, DeepSeek-R1…).
   # The router injects this as the default vLLM `chat_template_kwargs` on every
   # chat completion. Left unbounded, a reasoning model emits hundreds–~1000
   # internal reasoning tokens per agent step (30–75s weather turns on Omni).
@@ -95,10 +135,10 @@ inference:
   # api_key: ""                                            # [AVA_INFERENCE_KEY]
   # ctx_max: 65536                                         # [AVA_CTX_MAX]
   backends:
-    local-omni:
+    local:
       engine: vllm             # vllm | ollama | llamacpp | openai (generic cloud)
       base_url: http://127.0.0.1:8002/v1
-      model: nvidia/Nemotron-Open-30B-A3B-Reasoning-FP8
+      model: Qwen/Qwen2.5-7B-Instruct
       # tools: native          # native (default) = the endpoint returns real
       #                        #   tool_calls; none = requests carrying `tools`
       #                        #   skip this backend (plain llama.cpp without a
@@ -137,6 +177,24 @@ inference:
     #   model: llama3.1:8b
     #   fit: { weight_gb: 6, tier: small, min_free_gb: 3, workloads: [fast, cheap, utility, chat] }
 
+    # ── A different model on vLLM (NVIDIA) ───────────────────────────────────
+    # Replace the `local` backend above with any model vLLM can serve. Two things
+    # have to agree or you get confusing behaviour rather than an error:
+    #   1. `model:` here must match what the server was started with — the router
+    #      sends this string as the OpenAI `model` field.
+    #   2. deploy/local-serve.sh must pick the right --tool-call-parser for it. It
+    #      resolves that from the model family; check before downloading with
+    #        AVA_SERVE_DRY_RUN=1 AVA_MODEL=Qwen/Qwen3-32B-AWQ bash deploy/local-serve.sh
+    #      and override with AVA_TOOL_PARSER / AVA_REASONING_PARSER if the family
+    #      isn't recognised. A wrong parser returns NO tool_calls, silently.
+    # Drop `workloads: [vision, audio]` for a text-only model so the fit layer
+    # doesn't route image/audio turns to something that can't handle them.
+    # local:
+    #   engine: vllm
+    #   base_url: http://127.0.0.1:8002/v1
+    #   model: Qwen/Qwen3-32B-AWQ
+    #   fit: { weight_gb: 20, tier: large, min_free_gb: 8, workloads: [chat, reasoning, code] }
+
 # ── Agent runtime (the MCP host that gives Ava tools + memory) ──────────────
 agent:
   runtime: nemoclaw        # [AVA_AGENT_RUNTIME] nemoclaw (default) | direct
@@ -171,6 +229,11 @@ features:
   image: true              # GPU workloads via the gpu-service connector
   learning: true           # [AVA_LEARNING] periodic local-first self-analysis:
                            #   parks code/chat improvement proposals for approval
+  memory: true             # [AVA_MEMORY] long-term memory distilled from chats and
+                           #   uploads, recalled when relevant, every recall audit-
+                           #   logged. Turning it OFF is the kill switch for the
+                           #   feature the README leads with — view/correct/delete/
+                           #   export it all from Setup -> Memory (docs/MEMORY.md).
 
 # ── Self-analysis cadence (only used when features.learning is true) ─────────
 learning:
@@ -221,3 +284,122 @@ perf:
   max_rotated_files: 5     # [AVA_PERF_LOG_KEEP] raw segments retained (.1..N) before rollup absorbs them
   max_tok_s: 2000          # [AVA_PERF_MAX_TOK_S] clamp implausible tokens/sec (timing artefacts) to null
   # Live-file rotation size is writer-only (stdlib), set via env: [AVA_PERF_LOG_MAX_BYTES] (default 32MiB)
+
+# ── Model memory allocation: who may hold memory, and who yields to whom ─────
+# A box that runs Ava plus a second model (an image pipeline, a voice sidecar)
+# oversubscribes its memory: each wants tens of GiB of the same pool, so at most
+# one can be resident. Ava checks fit BEFORE a model is brought up, and can free
+# room by releasing models YOU declare below.
+#
+# Nothing here is required. With no `models:` declared, nothing is governed and
+# nothing changes — you opt in one model at a time. Undeclared processes are
+# observed and counted (so the planner never promises memory they hold) but are
+# NEVER started, stopped, or unloaded.
+#
+# Sizing is inherited, not repeated: a model that matches an
+# `inference.backends.<id>` picks up weight_gb / min_free_gb / tier from its
+# existing `fit:` block, and a model matching a connector picks up that
+# connector's unit and health probe. Declare below only what neither can say.
+alloc:
+  enabled: true              # [AVA_ALLOC] off = observe nothing, govern nothing
+  pool:
+    baseline: measure        # `measure` LEARNS this box's non-model memory floor.
+                             #   A number from someone else's machine would be
+                             #   wrong here, so prefer measure; set a GiB value
+                             #   only to pin it.
+    min_free_gib: 4          # [AVA_ALLOC_MIN_FREE] never plan the pool below this
+    speculative_max_s: 15    # cheap, reversible levers (an engine's unload
+                             #   endpoint) are tried before anything is stopped
+  defaults:
+    priority: batch          # for a model that declares none
+  lease:
+    # A caller states a NEED ("I am about to use this model"); it never names a
+    # victim. With enforce false — the default — Ava computes the full decision and
+    # records it to logs/alloc.jsonl, and touches nothing. Leave it off until that
+    # log looks right for your box, then turn it on.
+    enforce: false           # [AVA_ALLOC_ENFORCE] false = decide + record, never act
+    # A SECOND switch, because the two halves of enforcement carry opposite risk.
+    # Waiting or going without is at worst slower; RELEASING something is at worst
+    # taking memory from work in progress. With enforce true and evict false, Ava may
+    # refuse a start that cannot fit and may restore what it previously released, but
+    # will not take memory away from anything. Turn this on last.
+    evict: false             # [AVA_ALLOC_EVICT]
+    cooldown_s: 90           # defer a restore this long, so a burst of requests
+                             #   costs one reload instead of one per request
+    max_hold_s: 3600         # a hold older than this is reported as overdue
+  # Safety limits on Ava's own actions. A supervisor that retries an impossible start
+  # forever is how a box accumulates thousands of restarts; these bound it. Note a
+  # start that cannot fit is DEFERRED, not failed — it never counts against
+  # max_attempts, so a model waiting for room is never given up on.
+  breaker:
+    max_attempts: 6          # consecutive failed actions before giving up on a model
+    max_window_s: 1800       # ...or this long failing, whichever comes first
+    base_backoff_s: 15       # first retry delay; doubles, with jitter
+    max_backoff_s: 1800
+    stability_window_s: 120  # continuous readiness needed to clear a failure record.
+                             #   NOT one success: a crash-loop that looks healthy for
+                             #   a moment would otherwise reset its own counter forever
+    budget_actions: 20       # state-changing actions allowed per window, ALL models
+    budget_window_s: 600     #   and all processes; exceeding it makes the allocator
+    quiesce_cooloff_s: 1800  #   a no-op ("QUIESCED") rather than a loop
+  # Which declared model serves each of Ava's own subsystems. Unset = Ava takes no
+  # lease for that subsystem and behaves exactly as before, so declaring a model
+  # does not silently start gating a code path until you map it here too.
+  # roles:
+  #   image: my-image-engine
+  #
+  # ANOTHER APP ON THE SAME BOX can hold leases too, over the router's /lease
+  # endpoint — it does not need to import Ava. That is how two applications stop
+  # fighting over one pool: exactly one component decides, and the other asks.
+  # The endpoint is token-guarded (it can stop and start models), so the client
+  # sends the router token. See docs: the client is ~150 stdlib-only lines the
+  # other app vendors, on the same terms as any other cross-app file.
+  #
+  #   POST http://127.0.0.1:8010/lease   {"model": "my-image-engine",
+  #                                       "reason": "render", "ttl_s": 300}
+  #     -> {"lease_id": "...", "granted": true, "released": ["my-llm"]}
+  #   POST /lease/<id>/heartbeat          renew; a lease that stops being renewed
+  #                                       is reclaimed, so a killed client cannot
+  #                                       hold memory reserved forever
+  #   DELETE /lease/<id>                  release (and schedule any restore)
+  # models:
+  #   # A container-hosted language model.
+  #   my-llm:
+  #     driver: docker
+  #     priority: interactive        # interactive | batch | background
+  #     driver_config: { container: my-llm, stop_timeout_s: 120 }
+  #     readiness:                   # "the port is open" is NOT ready: an engine
+  #       url: "http://127.0.0.1:8000/v1/models"   # binds long before weights load
+  #       expect: models_contains
+  #     restore: { warm_s: 30, cold_s: 420, debounce_s: 90 }
+  #     # weight_gb/min_free_gb/tier inherited from inference.backends.my-llm.fit
+  #
+  #   # An engine that can drop its weights without stopping — the cheapest lever.
+  #   my-image-engine:
+  #     driver: http-unload
+  #     priority: interactive
+  #     driver_config:
+  #       base: "${AVA_GPU_SERVICE:-http://127.0.0.1:8189}"
+  #       path: /free
+  #       json: { unload_models: true, free_memory: true }
+  #       rss_unit: ava-gpu.service   # where to MEASURE it; the engine's own
+  #                                     #   memory counters are not trustworthy
+  #     release: { unload_s: 8 }
+  #     restore: { auto: false }        # it reloads weights on next use
+  #
+  #   # A checkpoint that lives INSIDE another declared model. `via:` means it is
+  #   # sized and planned in its own right, but released with its host.
+  #   my-checkpoint:
+  #     via: my-image-engine
+  #     weight_gb: 24
+  #     priority: interactive
+  #
+  #   # A service-unit model. `pinned: true` protects it from every eviction.
+  #   my-voice:
+  #     driver: systemd
+  #     priority: background
+  #     weight_gb: 3.4
+  #     driver_config: { unit: my-voice.service }
+  #     readiness:
+  #       url: "http://127.0.0.1:8129/health"
+  #       require: [ok, stt_ready]   # every key must be truthy in the JSON body

@@ -26,6 +26,9 @@ import copy as _copy
 import os
 import re as _re
 import secrets as _secrets
+import shutil as _shutil
+import sys as _sys
+import tempfile as _tempfile
 from pathlib import Path
 
 try:
@@ -84,16 +87,55 @@ if AVA_HOME.resolve() != CODE_ROOT.resolve():
 CONFIG_PATH = AVA_HOME / "ava.yaml"
 
 
-def _load_config() -> dict:
-    if yaml is not None and CONFIG_PATH.is_file():
-        try:
-            return yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8")) or {}
-        except Exception:  # noqa: BLE001 — a broken config must not crash boot
-            return {}
-    return {}
+class ConfigParseError(RuntimeError):
+    """ava.yaml exists but does not parse. Raised by the write paths."""
 
 
-_CFG = _load_config()
+def _load_config() -> tuple[dict, str]:
+    """(config, error). A broken ava.yaml must not crash boot — but it must not
+    be INVISIBLE either, which is what returning a bare {} made it.
+
+    Silent {} meant a broken config was indistinguishable from no config, so
+    every `get()` quietly returned its default. On a box running the allocator
+    with `evict: true`, one bad indent silently reverted it to advisory.
+    """
+    if yaml is None or not CONFIG_PATH.is_file():
+        return {}, ""
+    try:
+        raw = CONFIG_PATH.read_text(encoding="utf-8")
+    except OSError as e:
+        return {}, f"could not read {CONFIG_PATH}: {e}"
+    try:
+        loaded = yaml.safe_load(raw)
+    except Exception as e:  # noqa: BLE001 — any YAML error, reported not swallowed
+        mark = getattr(e, "problem_mark", None)
+        where = f" (line {mark.line + 1}, column {mark.column + 1})" if mark else ""
+        problem = getattr(e, "problem", None) or str(e).splitlines()[0]
+        return {}, f"{problem}{where}"
+    if loaded is None:
+        return {}, ""
+    if not isinstance(loaded, dict):
+        return {}, f"expected a mapping at the top level, got {type(loaded).__name__}"
+    return loaded, ""
+
+
+_CFG, _CFG_ERROR = _load_config()
+
+if _CFG_ERROR:
+    # Printed once, at import, because the alternative is a user staring at
+    # settings that "did not take effect" with nothing anywhere saying why.
+    print(f"[ava] WARNING: {CONFIG_PATH} did not parse — {_CFG_ERROR}", file=_sys.stderr)
+    print("[ava]   Running on defaults. Config WRITES are refused until it is "
+          "fixed, so nothing overwrites what is still in the file.", file=_sys.stderr)
+
+
+def load_error() -> str:
+    """The current ava.yaml parse error, or "" when it is fine.
+
+    Mirrors connectors.load_errors() / skills.load_errors(), which already solve
+    "a config file the user wrote is broken and they need to be told" correctly.
+    """
+    return _CFG_ERROR
 
 
 def _dig(d: dict, dotted: str):
@@ -118,6 +160,20 @@ def get(dotted: str, default=None, env: str | None = None):
 def get_int(dotted: str, default: int, env: str | None = None) -> int:
     try:
         return int(get(dotted, default, env))
+    except (TypeError, ValueError):
+        return default
+
+
+def get_float(dotted: str, default: float, env: str | None = None) -> float:
+    """The missing member of the get_int/get_bool family.
+
+    Without it, callers wrote a bare `float(get(...))` — and ava_bridge/config.py
+    did exactly that for `voice.threshold` at import, so a non-numeric value
+    there raised ValueError while importing config and the bridge did not start,
+    with no line of output naming the setting responsible.
+    """
+    try:
+        return float(get(dotted, default, env))
     except (TypeError, ValueError):
         return default
 
@@ -196,7 +252,12 @@ def home(*parts: str) -> str:
 
 
 def ensure_dirs() -> None:
-    for d in (data_dir(), logs_dir(), media_dir(), upload_dir(), secrets_dir()):
+    # alloc_drivers/ is the documented drop-in point for a third-party engine
+    # adapter (docs/ALLOCATION.md). It was never created and no doc said to
+    # mkdir it, so the first step of "add support for your engine" was a
+    # directory that did not exist.
+    for d in (data_dir(), logs_dir(), media_dir(), upload_dir(), secrets_dir(),
+              home("alloc_drivers")):
         os.makedirs(d, exist_ok=True)
 
 
@@ -389,29 +450,77 @@ def _deep_merge(base: dict, patch: dict) -> dict:
     return base
 
 
-def save_patch(patch: dict) -> dict:
-    """Deep-merge `patch` into $AVA_HOME/ava.yaml and persist it (the single
-    write path for the setup wizard and any future `ava config set`). Seeds from
-    config.example.yaml on first write, refreshes the in-process config, and
-    returns the merged config. Requires PyYAML."""
-    if yaml is None:
-        raise RuntimeError("PyYAML is required to write ava.yaml")
-    current: dict = {}
+def _refuse_if_broken() -> None:
+    """Never overwrite a config we could not read.
+
+    This is the important half. `save_patch` used to re-read from disk, swallow
+    the parse error into `current = {}`, deep-merge the patch into nothing, and
+    write unconditionally — so ONE bad indent plus ONE Setup toggle replaced the
+    whole file with just the toggle. Measured: a 13-line ava.yaml became 2 lines,
+    taking brand, owner and the entire alloc block with it.
+    """
+    cfg, err = _load_config()
+    if err:
+        global _CFG_ERROR
+        _CFG_ERROR = err
+        raise ConfigParseError(
+            f"{CONFIG_PATH} does not parse ({err}). Refusing to write, because "
+            "saving now would replace everything still in that file. Fix the "
+            f"YAML, or restore the backup at {CONFIG_PATH}.bak.")
+    return cfg
+
+
+def _write_config(cfg: dict) -> None:
+    """Atomically replace ava.yaml, keeping one backup.
+
+    Atomic because the previous `write_text` could leave a half-written config on
+    a full disk or a crash — and the file it was truncating is the only copy of
+    the owner's settings. 0600 because ava.yaml carries the owner's name and
+    location, and may carry backend API bases.
+    """
+    os.makedirs(CONFIG_PATH.parent, exist_ok=True)
     if CONFIG_PATH.is_file():
         try:
-            current = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8")) or {}
-        except Exception:  # noqa: BLE001
-            current = {}
-    elif (CODE_ROOT / "config.example.yaml").is_file():
+            _shutil.copy2(CONFIG_PATH, CONFIG_PATH.with_suffix(".yaml.bak"))
+        except OSError:
+            pass                        # a missing backup must not block the save
+    body = yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True)
+    fd, tmp = _tempfile.mkstemp(dir=str(CONFIG_PATH.parent),
+                                prefix=".ava.yaml.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(body)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, CONFIG_PATH)
+    except BaseException:
         try:
-            current = yaml.safe_load(
-                (CODE_ROOT / "config.example.yaml").read_text(encoding="utf-8")) or {}
-        except Exception:  # noqa: BLE001
-            current = {}
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def save_patch(patch: dict) -> dict:
+    """Deep-merge `patch` into $AVA_HOME/ava.yaml and persist it (the single
+    write path for the setup wizard and any future `ava config set`). Refreshes
+    the in-process config and returns the merged result. Requires PyYAML.
+
+    Raises ConfigParseError when the existing file is unreadable — see
+    _refuse_if_broken.
+
+    NOTE: comments do not survive a save (yaml.safe_dump cannot round-trip them).
+    That is why `ava setup` writes a MINIMAL ava.yaml rather than copying the
+    annotated config.example.yaml: the template is documentation, and importing
+    370 lines of it into the user's file just so the first save could strip them
+    was the actual defect. See ava_cli.cmd_setup.
+    """
+    if yaml is None:
+        raise RuntimeError("PyYAML is required to write ava.yaml")
+    current = _refuse_if_broken()
     merged = _deep_merge(current if isinstance(current, dict) else {}, patch)
-    os.makedirs(CONFIG_PATH.parent, exist_ok=True)
-    CONFIG_PATH.write_text(
-        yaml.safe_dump(merged, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    _write_config(merged)
     global _CFG
     _CFG = merged
     return merged
@@ -427,12 +536,16 @@ def current_config() -> dict:
 def save_config(cfg: dict) -> dict:
     """Persist a FULL config dict to ava.yaml and refresh the in-process copy.
     The low-level primitive for edits that must delete keys (which save_patch's
-    deep-merge cannot). Callers typically start from current_config()."""
+    deep-merge cannot). Callers typically start from current_config().
+
+    Refuses on an unparseable file for the same reason save_patch does: callers
+    build their argument from current_config(), which on a broken file is `{}` —
+    so writing it would delete everything.
+    """
     if yaml is None:
         raise RuntimeError("PyYAML is required to write ava.yaml")
-    os.makedirs(CONFIG_PATH.parent, exist_ok=True)
-    CONFIG_PATH.write_text(
-        yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    _refuse_if_broken()
+    _write_config(cfg)
     global _CFG
     _CFG = cfg
     return cfg

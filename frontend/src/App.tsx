@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import type { ComponentType } from 'react';
 import { Drawer } from './components/Drawer';
 import { Header } from './components/Header';
@@ -99,6 +100,17 @@ export default function App() {
     };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
+  }, [view]);
+  // Switch tabs with a smooth cross-fade where the browser supports the View
+  // Transitions API (Chromium/Safari); elsewhere it just swaps. flushSync makes
+  // React apply the view change synchronously inside the transition callback so
+  // the API can snapshot before/after. Honors reduced-motion.
+  const changeView = useCallback((v: View) => {
+    const d = document as Document & { startViewTransition?: (cb: () => void) => void };
+    const reduce = typeof window !== 'undefined'
+      && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (v === view || typeof d.startViewTransition !== 'function' || reduce) { setView(v); return; }
+    d.startViewTransition(() => flushSync(() => setView(v)));
   }, [view]);
   // Iframe apps a user has opened this session. Visited frames stay mounted
   // (hidden, not unmounted) so switching to chat/settings and back doesn't
@@ -212,7 +224,7 @@ export default function App() {
           brand={brand}
           view={view}
           onView={(v) => {
-            setView(v);
+            changeView(v);
             if (isMobile()) setSidebarOpen(false);
           }}
           chats={chat.chats}

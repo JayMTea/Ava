@@ -1,0 +1,90 @@
+# Packaging metadata + tooling config.
+#
+# This file previously carried a deliberate note saying the opposite — no
+# [build-system], no [project], because "Ava is run from a checkout, not
+# pip-installed, and adding packaging metadata would advertise a `pip install -e .`
+# workflow that nothing else in the repo supports."
+#
+# That reasoning was sound and its premise is what changed. README.md and
+# deploy/README.md have always told people to run `ava setup && ava doctor &&
+# ava up`, and with no console script `ava` was "command not found" for every
+# forker — only ./bin/ava (a relative launcher, used by CONTRIBUTING.md but not
+# by the user-facing docs) worked. So either the docs lose the `ava` command or
+# the repo grows one entry point. The install step is now IN those docs, which
+# is the support that was missing.
+#
+# EDITABLE INSTALL ONLY, and that is load-bearing. `pip install -e .` leaves
+# ava_bridge.settings.CODE_ROOT resolving to the clone, so config.example.yaml
+# (copied by `ava setup`), frontend/dist (served by the bridge), agent/install.sh
+# and connectors/_template all resolve exactly as they do today. A non-editable
+# wheel would need package-data plumbing for every one of those and is a separate
+# project — docs/PACKAGING_PLAN.md still holds for that.
+#
+# Ruff keeps its own ruff.toml, which takes precedence over any [tool.ruff] here.
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ava"
+description = "Your private AI: self-hosted, on your hardware, wired to your world."
+readme = "README.md"
+license = { file = "LICENSE" }
+# 3.12 is what CI runs, what deploy/Dockerfile ships, and what ruff targets.
+requires-python = ">=3.12"
+dynamic = ["version", "dependencies"]
+
+[project.scripts]
+# ava_cli.main() already returns int, so no code change was needed for this.
+ava = "ava_cli:main"
+
+[tool.setuptools.dynamic]
+version = { file = "VERSION" }
+# Read from requirements.txt rather than restated here. Two dependency lists for
+# one project is the same failure mode as the two ruff pins CI used to carry.
+dependencies = { file = ["requirements.txt"] }
+
+# EXPLICIT, never `find:`. The repo root also holds agent/, config/, connectors/,
+# data/, docs/ and tools/ — auto-discovery would make those importable top-level
+# packages, shadowing names and sweeping the owner's runtime state into the
+# distribution. tests/test_cli_entrypoint.py fails any package added here that is
+# not a real Python package.
+[tool.setuptools]
+packages = [
+    "ava_bridge",
+    "ava_bridge.alloc",
+    "ava_bridge.alloc.drivers",
+    "ava_bridge.runtime",
+]
+# Top-level modules the bridge and CLI import by name at runtime, plus the
+# launcher scripts. An import-by-name that is NOT listed here resolves fine from
+# the clone (CWD is on sys.path) and raises ModuleNotFoundError everywhere else
+# — `ava verify` did exactly that, from this list's first draft, because
+# ava_cli.py imports ava_learning_digest inside the command body. The editable
+# finder honours this list strictly; it does not fall back to the repo root.
+# tests/test_cli_entrypoint.py re-derives the imported set and fails on a gap.
+py-modules = [
+    "ava_cli",
+    "phone_bridge",
+    "serve",
+    "ava_router",
+    "gpu_service",
+    "kokoro_tts",
+    "perf_log",
+    "speaker",
+    "voice_ava",
+    "ava_learning_digest",
+]
+
+[tool.pytest.ini_options]
+# Put the repo root on sys.path so `pytest tests/` works the same as
+# `python -m pytest tests/`. Without it the bare command fails with
+# ModuleNotFoundError on `ava_bridge` — only the `python -m` form implicitly adds
+# the CWD — which meant the documented invocation worked, every IDE's built-in
+# test runner did not, and the difference looked like a broken checkout.
+pythonpath = ["."]
+testpaths = ["tests"]
+# `qa/` is a separate tier with its own runner (qa/run.sh) and heavier fixtures;
+# it is addressed explicitly rather than swept up by a bare `pytest`.
+norecursedirs = ["qa", "frontend", "overlay", "demo", ".venv", "agent/skills"]

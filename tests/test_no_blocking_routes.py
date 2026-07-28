@@ -1,0 +1,143 @@
+"""An `async def` route may not do blocking work on the event loop.
+
+FastAPI runs a `def` route in a threadpool but an `async def` route directly on
+the loop, so one blocking call inside an async route stalls the entire process —
+every SSE stream, every /apps/{cid} proxy hop, and the login gate — for its full
+duration. `/api/upload` ran `soffice --headless` (150s ceiling) that way, so a
+single user uploading a single .docx could freeze the server. It never needed
+load to bite; it bit at the second concurrent request.
+
+The idiom is already known here: `run_in_threadpool` appears 40+ times in
+phone_bridge.py. That is what makes the exceptions omissions rather than
+ignorance, and what makes a static guard worth having — it catches the next one
+at review time instead of in production.
+
+Scope: only calls that are *directly* in an async route body count. A call inside
+a helper the route awaits is out of scope for a static check; keep blocking work
+in a named sync helper and hand it to run_in_threadpool, as `_store_upload` does.
+"""
+import ast
+import pathlib
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+TARGETS = ["phone_bridge.py", "ava_bridge/hub_api.py", "ava_bridge/data_api.py"]
+
+# Route decorators: @app.get(...), @router.post(...), etc.
+_HTTP_METHODS = {"get", "post", "put", "patch", "delete", "head", "options"}
+
+# Calls that block, matched on the DOTTED name where there is a qualifier.
+# Qualifying matters: `sleep` alone would flag `await asyncio.sleep()`, which is
+# the correct non-blocking form, and `run` alone would flag `asyncio.run`.
+# Deliberately curated — a broad net fires on harmless things and gets suppressed
+# wholesale, which is how a guard dies.
+_BLOCKING = {
+    "subprocess.run": "subprocess.run",
+    "subprocess.check_output": "subprocess.check_output",
+    "subprocess.check_call": "subprocess.check_call",
+    "subprocess.Popen": "subprocess.Popen",
+    "time.sleep": "time.sleep",
+}
+# Bare names: project helpers whose blocking nature is not in doubt.
+_BLOCKING_BARE = {
+    "extract_text": "document text extraction (may shell out to soffice)",
+    "index_document": "SQLite FTS write",
+}
+# `open` is separately handled: reading a small config on the loop is fine, but
+# writing an upload is not. Only flag it when the mode argument is a write mode.
+_WRITE_MODES = {"w", "wb", "a", "ab", "w+", "wb+", "r+b"}
+
+# file:line entries that are reviewed and accepted. Empty on purpose — add here
+# only with a reason, never to silence the guard in bulk.
+_ALLOW: set[str] = set()
+
+
+def _is_route(node: ast.AsyncFunctionDef) -> bool:
+    for d in node.decorator_list:
+        call = d if isinstance(d, ast.Call) else None
+        func = call.func if call else d
+        if isinstance(func, ast.Attribute) and func.attr in _HTTP_METHODS:
+            return True
+    return False
+
+
+def _dotted(f: ast.AST) -> str:
+    """`subprocess.run` for an Attribute on a Name; else the bare trailing name."""
+    if isinstance(f, ast.Attribute):
+        if isinstance(f.value, ast.Name):
+            return f"{f.value.id}.{f.attr}"
+        return f.attr
+    return getattr(f, "id", "")
+
+
+def _walk_shallow(fn: ast.AST):
+    """Like ast.walk, but does NOT descend into nested function bodies.
+
+    A sync helper defined inside a route and handed to run_in_threadpool is the
+    correct pattern, so its body must not be attributed to the route. Only what
+    the route itself executes counts.
+    """
+    stack = list(ast.iter_child_nodes(fn))
+    while stack:
+        n = stack.pop()
+        yield n
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            continue
+        stack.extend(ast.iter_child_nodes(n))
+
+
+def _blocking_calls(fn: ast.AST) -> list[tuple[int, str]]:
+    """(lineno, why) for blocking calls in this body.
+
+    Two exclusions, both meaning "provably not on the loop":
+      * handed to run_in_threadpool (its args are callables, not call nodes)
+      * directly awaited — `await f()` means f is a coroutine by construction
+    """
+    skip: set[int] = set()
+    for n in _walk_shallow(fn):
+        if isinstance(n, ast.Call) and _dotted(n.func).split(".")[-1] == "run_in_threadpool":
+            for a in n.args:
+                skip.add(id(a))
+        elif isinstance(n, ast.Await) and isinstance(n.value, ast.Call):
+            skip.add(id(n.value))
+
+    hits: list[tuple[int, str]] = []
+    for n in _walk_shallow(fn):
+        if not isinstance(n, ast.Call) or id(n) in skip:
+            continue
+        name = _dotted(n.func)
+        bare = name.split(".")[-1]
+        if name in _BLOCKING:
+            hits.append((n.lineno, _BLOCKING[name]))
+        elif bare in _BLOCKING_BARE:
+            hits.append((n.lineno, _BLOCKING_BARE[bare]))
+        elif name == "open":
+            # Unqualified builtin only. `x.open(...)` is ambiguous — wave.open,
+            # zipfile.open and Path.open all exist — and matching it produced
+            # false hits on a debug-only wav dump. Narrow beats noisy: a guard
+            # people trust is one that only fires on real problems.
+            mode = n.args[1] if len(n.args) > 1 else None
+            if isinstance(mode, ast.Constant) and mode.value in _WRITE_MODES:
+                hits.append((n.lineno, f"open(..., {mode.value!r}) — blocking write"))
+    return hits
+
+
+def test_async_routes_do_no_blocking_work() -> None:
+    offenders: list[str] = []
+    for rel in TARGETS:
+        path = ROOT / rel
+        if not path.is_file():
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.AsyncFunctionDef) or not _is_route(node):
+                continue
+            for lineno, why in _blocking_calls(node):
+                entry = f"{rel}:{lineno}"
+                if entry in _ALLOW:
+                    continue
+                offenders.append(f"{entry}: {why}  (in async route {node.name}())")
+    assert not offenders, (
+        "blocking work inside an `async def` route stalls the whole event loop. "
+        "Move it into a sync helper and `await run_in_threadpool(helper, ...)` — "
+        "see _store_upload in phone_bridge.py:\n  " + "\n  ".join(sorted(offenders))
+    )

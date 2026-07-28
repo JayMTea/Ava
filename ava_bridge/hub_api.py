@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -135,6 +136,13 @@ def system():
         "web_search": features.enabled("web_search"),
         "image": features.enabled("image"),
         "features": features.snapshot(),
+        # "" when ava.yaml is fine. When it is not, EVERY setting on this page
+        # is silently showing its default and no save will be accepted, so the
+        # UI has to say so rather than letting the owner toggle things that
+        # cannot persist. connectors/skills surface their load errors the same
+        # way — see connectors.load_errors().
+        "config_error": settings.load_error(),
+        "config_path": str(settings.CONFIG_PATH),
         "docker": bool(__import__("shutil").which("docker")),
         "retention_days": settings.data_retention_days(),
         "retention_choices": list(settings.DATA_RETENTION_CHOICES),
@@ -381,42 +389,103 @@ def list_connectors():
     out = []
     for m in connectors.catalog():  # includes disabled, so they can be re-enabled
         cid = m["id"]
-        actions = _proxy_actions(m)
-        expected = connectors.tool_files(cid)
-        has_tools = bool(expected) and all(
-            os.path.exists(os.path.join(tool_root, cid, t["name"]))
-            for t in expected)
-        # Credential state — the env-var NAME the app authenticates with (if any),
-        # and whether a value is available (a real env var OR one saved once via
-        # the Hub) so the UI can show "credential saved" and never re-prompt on
-        # redeploy. The value itself is never returned.
-        auth = connectors.auth_env(m)
-        out.append({
-            "id": cid,
-            "label": m.get("label", cid),
-            "kind": m.get("kind", "app"),
-            "actions": len(actions),
-            "mcp": connectors._mcp_spec(m) is not None,
-            "discover": connectors._discover_spec(m) is not None,
-            # The two connect surfaces (the doctrine: an app is a UI, a tool
-            # facade, or both — never raw endpoints): ui block => APP tile.
-            "app": isinstance(m.get("ui"), dict),
-            # Rail identity, for the Appearance picker (null = uses the auto-pick).
-            "icon": (m.get("ui") or {}).get("icon") if isinstance(m.get("ui"), dict) else None,
-            "color": str((m["ui"]).get("color")) if isinstance(m.get("ui"), dict) and (m["ui"]).get("color") else None,
-            "has_policy": os.path.exists(os.path.join(pol_dir, f"{cid}.yaml")),
-            "has_tools": has_tools,
-            "renders_policy": connectors.render_egress_policy(cid) is not None,
-            "enabled": bool(m.get("enabled", True)),  # from the manifest
-            # User-added connectors are editable/removable; shipped ones are read-only.
-            "builtin": not os.path.isdir(os.path.join(user_root, cid)),
-            # Credential status (never the value): the env-var name it uses, and
-            # whether a credential is available / saved in the store.
-            "auth_env": auth,
-            "auth_set": settings.has_env_secret(auth) if auth else False,
-            "auth_stored": settings.env_secret_stored(auth) if auth else False,
-        })
+        try:
+            out.append(_connector_row(m, cid, pol_dir, tool_root, user_root))
+        except Exception as e:  # noqa: BLE001
+            # A malformed manifest must never take down THIS page: it holds the
+            # manifest editor and the error list, so breaking it means the only
+            # screen that could fix the connector is the one the connector broke.
+            # connectors._validate is the actual fix; this is the guarantee that
+            # a field it does not yet know about cannot repeat the lockout.
+            out.append({"id": cid, "label": cid, "kind": "app", "error": str(e),
+                        "actions": 0, "enabled": False, "builtin": True})
     return {"connectors": out, "errors": connectors.load_errors()}
+
+
+def _connector_row(m: dict, cid: str, pol_dir: str, tool_root: str,
+                   user_root: str) -> dict:
+    actions = _proxy_actions(m)
+    expected = connectors.tool_files(cid)
+    has_tools = bool(expected) and all(
+        os.path.exists(os.path.join(tool_root, cid, t["name"]))
+        for t in expected)
+    # Credential state — the env-var NAME the app authenticates with (if any),
+    # and whether a value is available (a real env var OR one saved once via
+    # the Hub) so the UI can show "credential saved" and never re-prompt on
+    # redeploy. The value itself is never returned.
+    auth = connectors.auth_env(m)
+    return {
+        "id": cid,
+        "label": m.get("label", cid),
+        "kind": m.get("kind", "app"),
+        "actions": len(actions),
+        "mcp": connectors._mcp_spec(m) is not None,
+        "discover": connectors._discover_spec(m) is not None,
+        # HOW its tools arrive — mcp | discover | rest | none. The honest
+        # name for the wire protocol; `mcp` here means a real MCP server,
+        # not "has tools". See connectors.transport().
+        "transport": connectors.transport(m),
+        # The two connect surfaces (the doctrine: an app is a UI, a tool
+        # facade, or both — never raw endpoints): ui block => APP tile.
+        "app": isinstance(m.get("ui"), dict),
+        # Device identity: `role: device` and/or an inbound `ingest:` block.
+        # Setup groups by what a connector IS to the owner, and a device's
+        # defining trait is that it pushes to Ava rather than being visited.
+        "role": str(m.get("role") or "") or None,
+        "ingest": connectors.ingest_enabled(cid),
+        # Rail identity, for the Appearance picker (null = uses the auto-pick).
+        "icon": (m.get("ui") or {}).get("icon") if isinstance(m.get("ui"), dict) else None,
+        "color": str((m["ui"]).get("color")) if isinstance(m.get("ui"), dict) and (m["ui"]).get("color") else None,
+        "has_policy": os.path.exists(os.path.join(pol_dir, f"{cid}.yaml")),
+        "has_tools": has_tools,
+        "renders_policy": connectors.render_egress_policy(cid) is not None,
+        "enabled": bool(m.get("enabled", True)),  # from the manifest
+        # User-added connectors are editable/removable; shipped ones are read-only.
+        "builtin": not os.path.isdir(os.path.join(user_root, cid)),
+        # Credential status (never the value): the env-var name it uses, and
+        # whether a credential is available / saved in the store.
+        "auth_env": auth,
+        "auth_set": settings.has_env_secret(auth) if auth else False,
+        "auth_stored": settings.env_secret_stored(auth) if auth else False,
+    }
+
+
+@router.get("/connectors/{cid}/live")
+def connector_live(cid: str):
+    """Actually talk to <cid> right now and report what came back.
+
+    This is what keeps the Setup UI's transport label honest. `list_connectors`
+    reads the manifest — it can only tell you what a connector *claims*. This
+    performs the real handshake (MCP `initialize` + `tools/list`, or a GET on
+    the ava-tools/1 facade) so the UI can say "MCP · 18 tools" only when Ava
+    genuinely spoke MCP to it a moment ago, and show the transport error when
+    it didn't.
+
+    ``verified`` is the distinction that matters: true means we round-tripped
+    just now; false means the count is declared in the manifest (a `rest`
+    connector has nothing to hand-shake with) and no promise is being made.
+    """
+    m = {x["id"]: x for x in connectors.catalog()}.get(cid)
+    if not m:
+        return {"ok": False, "error": f"no connector {cid}"}
+    kind = connectors.transport(m)
+    base = {"ok": True, "transport": kind, "verified": False,
+            "tools": None, "error": None}
+
+    if not m.get("enabled", True):
+        # Never dial a connector the owner switched off — "disabled" is an
+        # answer, not a failure.
+        return {**base, "ok": False, "error": "disabled"}
+
+    if kind == "rest":
+        return {**base, "tools": len(connectors._static_actions(m))}
+    if kind == "none":
+        return {**base, "tools": 0}
+
+    r = connectors.discover_tools(cid)
+    if isinstance(r, dict) and r.get("error"):
+        return {**base, "ok": False, "error": str(r["error"])[:300]}
+    return {**base, "verified": True, "tools": len(r.get("tools") or [])}
 
 
 @router.post("/connectors/{cid}/secret")
@@ -455,25 +524,21 @@ _pull_job: dict = {"status": "idle", "role": None, "log": deque(maxlen=200),
 _pull_lock = threading.Lock()
 
 
-def _cli_models():
-    """The CLI's model helpers (manifest/dirs/present/tier) — single source of
-    truth shared with `ava models`. Imported lazily to keep bridge boot lean."""
-    sys.path.insert(0, settings.CODE_ROOT) if settings.CODE_ROOT not in sys.path else None
-    import ava_cli
-    return ava_cli
-
-
 @router.get("/models")
 def models_list():
-    cli = _cli_models()
-    manifest = cli._models_manifest()
-    dirs = cli._model_dirs()
-    tier, avail = cli._detected_tier()
+    # `from . import models` — no sys.path injection and no importing the CLI
+    # script from inside the package. The helpers this route needs moved to
+    # ava_bridge/models.py, so `ava models` and Setup → Models are now two
+    # callers of one public API instead of two callers of one private one.
+    from . import models as model_store
+    manifest = model_store.manifest()
+    dirs = model_store.dirs()
+    tier, avail = model_store.detected_tier()
     roles = []
     for role, spec in manifest.items():
         roles.append({"role": role, "id": spec.get("id"),
                       "engine": spec.get("engine"), "tier": spec.get("tier"),
-                      "present": cli._model_present(spec, dirs)})
+                      "present": model_store.present(spec, dirs)})
     return {"roles": roles, "detected_tier": tier,
             "available_gb": round(avail, 0) if avail else None,
             "store": dirs["root"]}
@@ -908,7 +973,8 @@ def _actions_from_openapi(spec: dict, limit: int = 50) -> list[dict]:
 
 
 def _probe(url: str, command: str, token_env: str | None,
-           token_value: str | None = None) -> dict:
+           token_value: str | None = None, *, sandbox: str | None = None,
+           image: str | None = None, allow_unsandboxed: bool = False) -> dict:
     """Figure out how to talk to an app so the user doesn't have to classify it:
     try MCP (a start command = stdio, or the URL = MCP-over-HTTP), then a
     discovery endpoint (GET <url>/tools). Returns the detected kind + the tools
@@ -927,8 +993,24 @@ def _probe(url: str, command: str, token_env: str | None,
 
     # 1) A start command is unambiguously an MCP stdio server.
     if command:
+        # Detection RUNS the command. It used to run it bare, with the bridge's
+        # whole environment, before the owner had made any isolation choice — the
+        # isolation checkbox only rendered after the probe returned. So "paste its
+        # address, click Detect" executed an internet-sourced command on the host.
+        # Default to contained, and refuse rather than silently downgrade.
+        want_sandbox = "docker" if sandbox is None else sandbox
+        if want_sandbox == "docker" and not shutil.which("docker"):
+            if not allow_unsandboxed:
+                return {"ok": False, "needs": "docker", "kind": "mcp",
+                        "error": "This is a start command, so detecting it means "
+                                 "RUNNING it. Docker isn't available to contain "
+                                 "it. Install Docker, or re-run detection with "
+                                 "'run it directly on this host' if you trust "
+                                 "this command."}
+            want_sandbox = "none"
         spec = {"transport": "stdio", "url": None, "command": command.split(),
-                "env": None, "token_env": token_env}
+                "env": None, "token_env": token_env,
+                "sandbox": want_sandbox, "image": image or None}
         try:
             res = mcp_client.list_tools(cid, spec)
         finally:
@@ -1052,7 +1134,15 @@ async def connector_probe(request: Request):
     command = str(body.get("command") or "").strip()
     token_env = str(body.get("token_env") or "").strip() or None
     token_value = str(body.get("token_value") or "")
-    return await run_in_threadpool(_probe, url, command, token_env, token_value)
+    # The isolation choice is a property of HOW to run the command, so it has to
+    # arrive with the request that runs it — not be confirmed afterwards.
+    sandbox = body.get("sandbox")
+    sandbox = str(sandbox).strip().lower() if sandbox is not None else None
+    image = str(body.get("image") or "").strip() or None
+    allow_unsandboxed = bool(body.get("allow_unsandboxed"))
+    return await run_in_threadpool(_probe, url, command, token_env, token_value,
+                                   sandbox=sandbox, image=image,
+                                   allow_unsandboxed=allow_unsandboxed)
 
 
 @router.post("/connectors/new")
@@ -1216,12 +1306,18 @@ async def connector_new(body: dict):
 
     d = os.path.join(settings.home("connectors"), cid)
     path = os.path.join(d, "connector.yaml")
-    try:
+    def _write_manifest() -> None:
         os.makedirs(d, exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
             f.write("# Generated by the Setup Hub — edit freely.\n"
                     "# Full schema: connectors/_template/connector.yaml + docs/CONNECTOR_SDK.md\n")
             _yaml.safe_dump(manifest, f, sort_keys=False)
+
+    try:
+        # Threadpooled like every other disk write on an async route — see
+        # tests/test_no_blocking_routes.py. run_in_threadpool re-raises, so the
+        # OSError handling below still applies.
+        await run_in_threadpool(_write_manifest)
     except OSError as e:
         return JSONResponse({"ok": False, "error": f"could not write manifest: {e}"},
                             status_code=500)

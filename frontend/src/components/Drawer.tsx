@@ -285,21 +285,41 @@ export function Drawer({
             <div className="draw-empty">{q ? 'No matching chats' : 'No conversations yet'}</div>
           ) : (
             visibleChats.map((it) => (
+              // A real <button>, not a <div onClick>. The row was a div because a
+              // button cannot nest a button — so the fix is to UNNEST rather than
+              // bolt tabIndex + onKeyDown onto a div. Before this, `tabIndex`
+              // appeared zero times in the whole frontend: the only
+              // keyboard-reachable control per row was the delete button, which
+              // is opacity:0 until hover. So a keyboard user could reach exactly
+              // one invisible control per conversation, and it deleted it.
+              // WCAG 2.1.1 Level A, with no alternate route — DataView's chat
+              // rows offer export and delete, but never open.
               <div
                 key={it.id}
-                className={'chatitem' + (it.id === currentChatId ? ' active' : '')}
-                onClick={() => onOpenChat(it.id)}
+                className={'chatitem-wrap' + (it.id === currentChatId ? ' active' : '')}
               >
-                <div className="ci-main">
-                  <div className="ci-title">{it.title || 'New chat'}</div>
-                </div>
                 <button
+                  type="button"
+                  className="chatitem"
+                  aria-current={it.id === currentChatId ? 'page' : undefined}
+                  onClick={() => onOpenChat(it.id)}
+                >
+                  <div className="ci-main">
+                    <div className="ci-title">{it.title || 'New chat'}</div>
+                  </div>
+                </button>
+                <button
+                  type="button"
                   className="del"
                   title="Delete chat"
-                  aria-label="Delete chat"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDeleteChat(it.id);
+                  aria-label={`Delete chat: ${it.title || 'New chat'}`}
+                  onClick={() => {
+                    // Reachable by keyboard now, so a stray Enter must not be
+                    // silent data loss — every other destructive action in the
+                    // app confirms (DataView, ConnectorsPanel, AgentPanel).
+                    if (window.confirm(`Delete "${it.title || 'New chat'}"? This cannot be undone.`)) {
+                      onDeleteChat(it.id);
+                    }
                   }}
                 >
                   <Icon name="trash" />

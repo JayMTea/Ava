@@ -19,7 +19,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from ava_device import AvaDevice, SerialRelay, Tool, serve_pull  # noqa: E402
+from ava_device import AvaDevice, SerialRelay, Tool, serve_pull
 
 AVA_URL = os.environ.get("AVA_URL", "http://localhost:8096")
 AVA_CID = os.environ.get("AVA_CID", "greenhouse")

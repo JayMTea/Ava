@@ -173,9 +173,9 @@ auth:
   mode: password            # password | oidc | none(dev)
   # secret + password come from the secrets store, never here
 inference:
-  primary: local-omni
+  primary: local
   backends:                 # see §5.2 — declared, not hardcoded ports
-    local-omni:  { engine: vllm, base_url: http://127.0.0.1:8002/v1, model: nvidia/Nemotron-Open-30B-A3B-Reasoning-FP8 }
+    local:  { engine: vllm, base_url: http://127.0.0.1:8002/v1, model: Qwen/Qwen2.5-7B-Instruct }
 agent:
   runtime: openclaw
   sandbox: my-assistant     # was hardcoded in 4 places
@@ -354,8 +354,15 @@ ava/
 - [x] Introduce `AVA_HOME` + `ava_bridge/settings.py` (layered config + secrets);
       `config.py` data dirs now resolve under `AVA_HOME` (default = repo root, so
       the personal install is unchanged). `config.example.yaml` added.
-- [ ] Migrate the remaining ~10 hardcoded-path files + the Tailscale IP / sandbox
-      name literals onto `settings`/config.
+- [x] Migrate the remaining ~10 hardcoded-path files + the Tailscale IP / sandbox
+      name literals onto `settings`/config. **Done** — and now enforced rather
+      than remembered: `tests/test_path_roots.py` fails any module that resolves
+      `AVA_HOME` itself or hangs runtime state off the code root, and
+      `tests/test_no_owner_identity.py` fails any tracked file carrying an
+      absolute home path or a CGNAT address. This box stayed unticked long after
+      the work landed, which understated the project to every contributor
+      CLAUDE.md sends here. If a box below looks stale the same way, the guard
+      tests are the cheaper source of truth.
 - [x] Rule adopted: every new path/port/secret goes through config from now on.
 
 **Phase 1 — Configurable single box**

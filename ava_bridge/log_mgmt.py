@@ -170,7 +170,7 @@ class LogManager:
 
         except subprocess.TimeoutExpired:
             return {'ok': False, 'error': 'journalctl timeout'}
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — surfaced to the caller as {'ok': False, 'error': …}
             return {'ok': False, 'error': str(e)}
 
     @staticmethod
@@ -261,7 +261,7 @@ class LogManager:
             else:
                 return {'ok': False, 'error': f'Path not found: {path}'}
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — surfaced to the caller as {'ok': False, 'error': …}
             return {'ok': False, 'error': str(e)}
 
     @staticmethod

@@ -270,5 +270,54 @@ class LoadBackendsTests(unittest.TestCase):
         self.assertEqual(out[1]["engine"], "openai")  # default engine
 
 
+class RewriteBodyModelTests(unittest.TestCase):
+    """The router must FILL IN the model, not only overwrite one that is there.
+
+    The regression: `_rewrite_body` guarded the assignment with
+    `if "model" in obj`, so a caller that omitted the field had its body
+    forwarded verbatim and the upstream engine answered
+    400 {"error": {"message": "model is required"}}.
+
+    DirectRuntime — the tool-less floor every install runs until the agent
+    sandbox is provisioned — posts exactly {"messages": [...], "stream": false}.
+    So on a fresh clone the first chat message returned
+    `400 Client Error: Bad Request for url: .../v1/chat/completions`, on every
+    profile. Found by booting the cpu profile from a clean checkout and actually
+    sending a message; no unit or QA test covered it, because both mock the
+    router rather than proxy through it.
+    """
+
+    BACKEND = {"id": "backend", "url": "http://ollama:11434/v1",
+               "model": "llama3.2", "engine": "ollama", "label": "llama3.2"}
+
+    def _rewrite(self, body, backend=None, is_comp=True):
+        raw = json.dumps(body).encode()
+        out = router_app._rewrite_body(raw, True, backend or self.BACKEND, "", is_comp)
+        return json.loads(out)
+
+    def test_missing_model_is_filled_in_for_completions(self):
+        out = self._rewrite({"messages": [{"role": "user", "content": "hi"}],
+                             "stream": False})
+        self.assertEqual(out["model"], "llama3.2")
+
+    def test_present_model_is_still_forced_to_the_backend(self):
+        out = self._rewrite({"model": "something-else", "messages": []})
+        self.assertEqual(out["model"], "llama3.2")
+
+    def test_non_completion_routes_get_no_invented_model(self):
+        out = self._rewrite({"input": "x"}, is_comp=False)
+        self.assertNotIn("model", out)
+
+    def test_backend_without_a_model_leaves_the_caller_alone(self):
+        """An empty backend model means 'serves whatever is asked'.
+
+        The old code rewrote a valid model id to "" for any yaml backend
+        declared without a `model:` key, which fails upstream the same way.
+        """
+        b = dict(self.BACKEND, model="")
+        out = self._rewrite({"model": "caller-choice", "messages": []}, backend=b)
+        self.assertEqual(out["model"], "caller-choice")
+
+
 if __name__ == "__main__":
     unittest.main()

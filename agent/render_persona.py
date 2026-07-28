@@ -27,7 +27,7 @@ REPO = os.path.dirname(HERE)
 sys.path.insert(0, REPO)
 
 try:
-    from ava_bridge import settings  # noqa: E402
+    from ava_bridge import settings
     _get = settings.get
     _get_bool = settings.get_bool
 except Exception:  # noqa: BLE001 — never let a config import break provisioning

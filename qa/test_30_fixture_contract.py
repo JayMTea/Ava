@@ -1,4 +1,4 @@
-"""Fixture-contract net: the marketing/ Playwright harness verifies the SPA
+"""Fixture-contract net: the demo/ Playwright harness verifies the SPA
 against hand-written fixtures. Nothing stops those fixtures drifting from the
 real API — until this test. For every fixture with a known endpoint, every key
 the fixture promises must exist in the REAL response shape (recursively; list
@@ -13,7 +13,7 @@ import pytest
 from qa import helpers
 
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-FIXTURES = os.path.join(_REPO, "marketing", "fixtures")
+FIXTURES = os.path.join(_REPO, "demo", "fixtures")
 
 # fixture file -> live endpoint. Only pairs whose real endpoint returns the
 # same object are listed; demo-only fixtures (chat-detail, brand variants) are
@@ -87,7 +87,7 @@ def _client(bridge):
 
 
 @pytest.mark.skipif(not os.path.isdir(FIXTURES),
-                    reason="marketing/ harness not present on this machine")
+                    reason="demo/ harness not present on this machine")
 class TestFixtureContract(unittest.TestCase):
     def test_every_mapped_fixture_matches_the_real_shape(self):
         failures = []

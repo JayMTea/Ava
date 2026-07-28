@@ -50,7 +50,10 @@ CONTRACTS = {
     "/api/data/chats": [],
     "/api/data/maintenance": [],
     "/api/setup/hardware": ["tier"],
-    "/api/setup/backends": ["vllm", "ollama", "router"],
+    # Was ["vllm", "ollama", "router"] — two hardcoded loopback probes, which
+    # inside the Docker image meant the CONTAINER's loopback, where the compose
+    # engines are not. Now: the candidates actually probed, in priority order.
+    "/api/setup/backends": ["backends", "any_up", "router"],
     "/api/setup/connectors": ["connectors"],
 }
 

@@ -1,7 +1,7 @@
 """Tier 3 orchestrator — frontend E2E against the REAL bridge (no mocked API).
 
 Boots the fake LLM/gpusvc/app servers and one real bridge subprocess on a fresh
-AVA_HOME, links marketing/node_modules next to the specs (playwright + tsx live
+AVA_HOME, links demo/node_modules next to the specs (playwright + tsx live
 there), then runs each spec in order against the live instance. The first spec
 performs first-run setup, so ordering matters.
 
@@ -29,11 +29,11 @@ if len(sys.argv) > 1:   # debug: run a subset (setup still needed by the rest)
 
 
 def main() -> int:
-    marketing = os.path.join(_REPO, "marketing")
-    node_modules = os.path.join(marketing, "node_modules")
+    demo = os.path.join(_REPO, "demo")
+    node_modules = os.path.join(demo, "node_modules")
     tsx = os.path.join(node_modules, ".bin", "tsx")
     if not os.path.isfile(tsx):
-        print("SKIP: marketing/node_modules not present (run npm install there)")
+        print("SKIP: demo/node_modules not present (run npm install there)")
         return 0
     if not os.path.isfile(os.path.join(_REPO, "frontend", "dist", "index.html")):
         print("SKIP: frontend/dist not built (cd frontend && npm run build)")

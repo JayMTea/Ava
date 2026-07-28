@@ -27,7 +27,8 @@ def anon_client():
     unauthenticated view of the world."""
     from fastapi.testclient import TestClient
     import phone_bridge
-    return TestClient(phone_bridge.app, follow_redirects=False)
+    return TestClient(phone_bridge.app, follow_redirects=False,
+                      client=("127.0.0.1", 50001))
 
 
 def internal_headers(scope: str | None = None) -> dict:

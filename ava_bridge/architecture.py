@@ -45,13 +45,37 @@ def _json(args: list[str], timeout: int = 120) -> dict:
 
 
 def raw_manifest() -> str:
-    with open(MANIFEST, encoding="utf-8") as f:
-        return f.read()
+    """The SSOT manifest's text, or "" when this install has none.
+
+    `agent/docs/architecture.yaml` is gitignored on purpose — every deployment
+    describes its own topology — so it is ABSENT on every fresh clone. Opening it
+    unguarded raised FileNotFoundError straight out of GET /internal/architecture,
+    i.e. a 500 with a traceback the first time the `system` MCP server called it
+    on a new install. Only this box had the file, so only this box worked.
+    """
+    try:
+        with open(MANIFEST, encoding="utf-8") as f:
+            return f.read()
+    except OSError:
+        return ""
 
 
 def summary_payload() -> dict:
-    """Full architecture snapshot + the exact YAML so Ava can read or edit it."""
-    return {"summary": _json(["summary"]), "manifest_yaml": raw_manifest()}
+    """Full architecture snapshot + the exact YAML so Ava can read or edit it.
+
+    With no manifest, answers a CODED error rather than raising. Per CLAUDE.md
+    the code ships as an HTTP 200 body: the sandbox tool helper uses
+    `curl --fail` and swallows non-2xx bodies, so a 4xx here would reach Ava as
+    silence instead of as something she can tell the user how to fix.
+    """
+    manifest = raw_manifest()
+    if not manifest:
+        return {"error": "This install has no architecture manifest yet. Generate "
+                         "one with `python agent/docs/arch.py init`, or write "
+                         "agent/docs/architecture.yaml by hand — it is "
+                         "deployment-local and deliberately not in git.",
+                "error_code": "architecture_unconfigured"}
+    return {"summary": _json(["summary"]), "manifest_yaml": manifest}
 
 
 def describe_payload(name: str) -> dict:

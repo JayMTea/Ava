@@ -31,10 +31,10 @@ class FakeApp:
         srv = self
 
         class Handler(BaseHTTPRequestHandler):
-            def log_message(self, *a):  # noqa: N802
+            def log_message(self, *a):
                 pass
 
-            def do_GET(self):  # noqa: N802
+            def do_GET(self):
                 srv.calls.append({"method": "GET", "path": self.path})
                 if self.path.startswith("/health"):
                     self._send(200, {"ok": True, "app": "qa-fake-app"})
@@ -45,7 +45,7 @@ class FakeApp:
                 else:
                     self._send(404, {"error": "qa-fake-app: " + self.path})
 
-            def do_POST(self):  # noqa: N802
+            def do_POST(self):
                 n = int(self.headers.get("Content-Length") or 0)
                 try:
                     body = json.loads(self.rfile.read(n) or b"{}")

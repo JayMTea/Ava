@@ -18,7 +18,7 @@ import shlex
 
 import requests
 
-from .agent import _sbx_read, _session_file
+from .agent import sbx_read, session_file
 
 GEO_URL = "https://geocoding-api.open-meteo.com/v1/search"
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
@@ -62,9 +62,9 @@ def _extract_weather_args(sid: str, after: int) -> tuple[str | None, int]:
     """
     location, days = None, 7
     try:
-        path = _session_file(sid)
+        path = session_file(sid)
         cmd = f"tail -n +{after} {shlex.quote(path)} 2>/dev/null | head -c 400000"
-        txt = _sbx_read(cmd)
+        txt = sbx_read(cmd)
     except Exception:  # noqa: BLE001
         return location, days
     for line in txt.splitlines():

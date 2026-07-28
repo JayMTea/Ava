@@ -71,7 +71,11 @@ echo "[ava] proxy=$PROXY"
 # (ava_bridge/config.py). Each MCP server receives a derived token for its own
 # capability group. The bridge checks route scopes server-side, so a low-risk
 # tool token cannot call config/policy/code-change endpoints.
-TOKEN_FILE="$HERE/../data/.internal_token"
+# Must resolve to the SAME dir the bridge reads (ava_bridge/config.py
+# _internal_token -> settings.data_dir()). Anchoring on $HERE put it in the code
+# root, which is only correct when AVA_HOME is unset — on Docker the bridge reads
+# /data/data while this wrote /app/data, so every /internal/* callback 401'd.
+TOKEN_FILE="${AVA_DATA_DIR:-${AVA_HOME:-$HERE/..}/data}/.internal_token"
 if [ ! -s "$TOKEN_FILE" ]; then
   mkdir -p "$(dirname "$TOKEN_FILE")"
   ( umask 077; openssl rand -hex 32 > "$TOKEN_FILE" )

@@ -20,8 +20,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from ava_bridge import settings  # noqa: E402
-from ava_bridge.version import __version__, revision  # noqa: E402
+from ava_bridge import settings
+from ava_bridge.version import __version__, revision
 
 G, Y, R, B, X = "\033[32m", "\033[33m", "\033[31m", "\033[34m", "\033[0m"
 OK, WARN, BAD = f"{G}+{X}", f"{Y}●{X}", f"{R}x{X}"
@@ -39,10 +39,44 @@ def _probe(url: str) -> bool:
         return False
 
 
+# The whole of a fresh ava.yaml. Deliberately tiny: everything else has a
+# working default, and config.example.yaml is where the options are DOCUMENTED.
+# Comments here are the only ones that survive, because the first Setup save
+# rewrites this file through yaml.safe_dump, which cannot round-trip comments.
+_STARTER_CONFIG = """\
+# Ava's configuration. Machine-written: the Setup UI rewrites this file, so
+# comments you add below will not survive the next save.
+#
+# Every option Ava understands, with explanations, is in config.example.yaml at
+# the repo root — read it there and copy the keys you want into this file.
+#
+# Anything absent uses a working default, so a short file is normal and correct.
+
+server:
+  host: 127.0.0.1        # loopback; see config.example.yaml before widening
+
+setup:
+  completed: false       # the first-run wizard flips this
+"""
+
+
+def _server_port() -> int:
+    """The port the bridge listens on, from the one resolver.
+
+    Imported lazily: ava_bridge.config creates directories and writes the
+    internal token at import, which a plain `ava --help` has no business doing.
+    Previously this expression was copied into four call sites, which is how the
+    CLI and the bridge came to disagree about the default bind host.
+    """
+    from ava_bridge import config as _cfg
+    return _cfg.SERVER_PORT
+
+
 # --------------------------------------------------------------------------- #
 # Tier recommendation lives in model_fit so doctor / models pull / the setup
 # wizard share one source of truth.
 from ava_bridge.model_fit import recommend_tier as _recommend_tier  # noqa: E402
+from ava_bridge import models  # noqa: E402
 
 
 def cmd_doctor(_args) -> int:
@@ -88,6 +122,74 @@ def cmd_doctor(_args) -> int:
     except Exception as e:  # noqa: BLE001
         _row(WARN, "model fit", f"probe failed: {e}")
         avail = None
+
+    # Allocation — which declared models are actually resident, and whether the
+    # box could bring each one up right now. This is where "the unit is active but
+    # the model never loaded" becomes visible instead of silent.
+    print("\nAllocation")
+    try:
+        from ava_bridge import alloc
+        rep = alloc.report()
+        pool = rep["pool"]
+        lz = rep.get("leases") or {}
+        # Advisory vs enforcing is the single most important thing to state plainly:
+        # an operator reading this must never be unsure whether Ava is allowed to act.
+        _row(OK, "mode", "ENFORCING — may release declared models to make room"
+             if rep.get("actuating") else
+             "advisory — decisions recorded to logs/alloc.jsonl, nothing is actuated")
+        led = lz.get("ledger") or {}
+        if led.get("writable") is False:
+            _row(BAD, "ledger", f"not writable: {led.get('dir')} — leases cannot "
+                                "coordinate across processes")
+        elif lz.get("lease_count"):
+            _row(OK, "leases", f"{lz['lease_count']} held · {len(lz.get('owed') or [])} "
+                               f"awaiting restore · ledger on {led.get('fstype')}")
+        for od in (lz.get("overdue") or []):
+            _row(WARN, "overdue", f"lease {od['lease_id']} (pid {od['pid']}) has held "
+                                  f"{', '.join(od['models'] or [])} for {od['age_s']}s")
+        if rep["gating"] == "disabled":
+            _row(WARN, "pool", "memory unreadable — allocation is not gating anything")
+        else:
+            bits = [f"{pool['free_gib']:.0f} GB free of {pool['total_gib']:.0f}",
+                    f"({pool['source']})"]
+            if pool.get("baseline_gib") is not None:
+                bits.append(f"· baseline {pool['baseline_gib']:.0f}")
+            if pool.get("unknown_gib"):
+                bits.append(f"· {pool['unknown_gib']:.0f} held by undeclared processes")
+            _row(OK, "pool", " ".join(bits))
+        # A drop-in driver that failed to import used to vanish silently: the
+        # model fell to the observe floor, which is safe but indistinguishable
+        # from a typo in `driver:`. docs/ALLOCATION.md promised this row long
+        # before it existed.
+        for err in rep.get("driver_errors") or []:
+            _row(WARN, f"driver {err.get('file', '?')}", err.get("error", ""))
+            if err.get("traceback"):
+                for line in str(err["traceback"]).splitlines()[-2:]:
+                    print(f"      {line.strip()}")
+        if not rep["models"]:
+            _row(OK, "declared", "no models declared — nothing is governed "
+                                 "(add `alloc.models` in ava.yaml to opt in)")
+        for m in rep["models"]:
+            # A declared model that is resident but NOT ready is the dangerous
+            # state: its port is open, so nothing else notices it is serving
+            # nothing. Call that out ahead of anything else.
+            if m["resident"] and m["ready"] is False:
+                mark, detail = BAD, f"resident but NOT ready — {m['detail']}"
+            elif not m["cold_load_ok"]:
+                mark, detail = WARN, f"would not fit now — {m['cold_load_reason']}"
+            elif m["resident"] is None:
+                mark, detail = OK, f"{m['driver']} · {m['detail']}"
+            else:
+                gib = m["resident_gib"]
+                shown = f"{gib:.1f} GB" if gib is not None else "size unknown"
+                state = "resident" if m["resident"] else "not resident"
+                mark, detail = OK, (f"{m['driver']} · {state} · {shown}"
+                                    f"{'' if m['measured'] else ' (declared, unmeasured)'}")
+            _row(mark, m["id"], detail)
+            for prob in m["problems"]:
+                _row(WARN, "", prob)
+    except Exception as e:  # noqa: BLE001 — reporting must never fail doctor
+        _row(WARN, "allocation", f"probe failed: {e}")
 
     print("\nAgent runtime")
     try:
@@ -201,7 +303,7 @@ def cmd_doctor(_args) -> int:
         _row(WARN, "intent routing", f"probe failed: {e}")
 
     print("\nBridge")
-    port = settings.get_int("server.port", 8096, env="AVA_PORT")
+    port = _server_port()
     _row(OK if _probe(f"http://127.0.0.1:{port}/api/health") else WARN,
          "web app", f"http://127.0.0.1:{port}")
     print()
@@ -239,41 +341,57 @@ def cmd_setup(args) -> int:
             return 1
         _row(OK, "password", f"{Y}{pw}{X}   (saved to {pw_path})")
 
-    # ava.yaml starter
+    # ava.yaml starter — MINIMAL, not a copy of the annotated template.
+    #
+    # This used to `shutil.copyfile(config.example.yaml, ava.yaml)`, which caused
+    # two separate defects:
+    #
+    #   * The template is 370+ lines of explanatory comments, and yaml.safe_dump
+    #     cannot round-trip comments. So the FIRST Setup toggle rewrote the file
+    #     and silently stripped every one of them — the documentation was
+    #     imported into the user's config purely so it could be destroyed.
+    #   * The template ships a live `inference.backends.local`, and
+    #     setup_wizard.setup_completed() treats "any declared backend" as "already
+    #     onboarded" — so every CLI-setup install skipped the first-run wizard
+    #     entirely, without ever showing it.
+    #
+    # config.example.yaml is documentation. ava.yaml is machine-written. Keeping
+    # them separate is what makes both statements true.
     created = False
     if not settings.CONFIG_PATH.is_file():
-        example = os.path.join(settings.CODE_ROOT, "config.example.yaml")
         try:
-            if os.path.isfile(example):
-                shutil.copyfile(example, settings.CONFIG_PATH)
-                created = True
-                _row(OK, "ava.yaml", f"created at {settings.CONFIG_PATH}")
-            else:
-                _row(WARN, "ava.yaml", "template not found; skipped")
+            settings.CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+            settings.CONFIG_PATH.write_text(_STARTER_CONFIG, encoding="utf-8")
+            os.chmod(settings.CONFIG_PATH, 0o600)
+            created = True
+            _row(OK, "ava.yaml", f"created at {settings.CONFIG_PATH}")
         except OSError as e:
             _row(WARN, "ava.yaml", f"skip: {e}")
     else:
         _row(OK, "ava.yaml", "already exists")
 
-    # The shipped default backend is vLLM (NVIDIA-only). On a box that can't serve
-    # it (Apple Silicon, CPU-only), rewrite the fresh inference block to point at a
-    # servable local engine — the SAME model `ava models pull --auto` will fetch —
-    # so a Mac user isn't left pointing at a dead vLLM endpoint. Best-effort.
-    if created and _platform_label() not in ("linux-nvidia", "windows-nvidia"):
+    # The shipped default backend serves the `chat` model on vLLM. Reseed the fresh
+    # inference block whenever the model that actually fits THIS box is a different
+    # one, so setup never leaves a user pointing at an endpoint they can't serve:
+    #   * Apple Silicon / CPU-only — vLLM doesn't run there at all.
+    #   * A small NVIDIA GPU — `_resolve_auto` downshifts to the Ollama 'fast' model
+    #     (so `models pull --auto` fetches that), but the inference block would still
+    #     name the vLLM default. The user then downloads one model while Ava talks to
+    #     a different, dead endpoint. Gating on the platform missed this case.
+    # Best-effort throughout: any failure leaves the shipped example in place.
+    if created:
         try:
             tier, _avail = _detected_tier()
-            _role, spec, _note = _resolve_auto(tier, _models_manifest())
         except Exception:  # noqa: BLE001
-            spec = None
-        if spec and spec.get("engine") in _LOCAL_CHAT_ENGINES:
+            tier = None
+        spec, why = _inference_reseed(_models_manifest(), tier)
+        if spec:
             if _seed_inference_backend(spec):
                 _row(OK, "inference",
                      f"seeded {spec['engine']} backend ({spec['id']}) for "
-                     f"{_platform_label()} — the vLLM default won't run here")
-        elif spec is None:
-            _row(WARN, "inference",
-                 f"no local engine fits {_platform_label()}; configure a cloud "
-                 "backend (see config.example.yaml) or install Ollama/MLX")
+                     f"{_platform_label()} — {why}")
+        elif why:
+            _row(WARN, "inference", why)
 
     # model store scaffolding — same hf/ollama/gpusvc layout as the Docker volumes,
     # so a fork's tree matches the author's and `ava models pull` has a home.
@@ -288,12 +406,27 @@ def cmd_setup(args) -> int:
 
 # --------------------------------------------------------------------------- #
 def cmd_up(args) -> int:
-    host = args.host or settings.get("server.host", "0.0.0.0", env="AVA_HOST")
-    port = args.port or settings.get_int("server.port", 8096, env="AVA_PORT")
+    # Resolved by ava_bridge.config, not re-derived here. This line used to
+    # default to "0.0.0.0" while config.py defaulted to "127.0.0.1"; `ava up`
+    # is what most people run, so the wider bind is the one that shipped —
+    # against SECURITY.md's own claim and ava_security_check.py's own check.
+    from ava_bridge import config as _cfg
+    host = args.host or _cfg.SERVER_HOST
+    port = args.port or _cfg.SERVER_PORT
     py = sys.executable
     print(f"{B}Starting Ava{X} on http://{host}:{port}  (Ctrl-C to stop)\n")
+    if host not in ("127.0.0.1", "::1", "localhost"):
+        from ava_bridge import auth as _auth
+        if _auth.needs_setup():
+            print(f"{Y}●{X} Binding {host} with NO admin password set. Until you set one, "
+                  "anyone who can reach this port could claim this Ava.")
+            print("  Setup from another machine now requires the claim token printed "
+                  "below; from this machine, just open the URL above.\n")
     cmd = [py, "-m", "uvicorn", "phone_bridge:app", "--host", str(host),
-           "--port", str(port)]
+           "--port", str(port),
+           # See serve.py: only trusted peers may assert scheme/address.
+           "--proxy-headers",
+           "--forwarded-allow-ips", ",".join(_cfg.TRUSTED_PROXIES)]
     return subprocess.call(cmd, cwd=settings.CODE_ROOT)
 
 
@@ -433,7 +566,7 @@ def cmd_verify(_args) -> int:
 
     # 5. Inference + health (best-effort; needs services up)
     print("\nInference / health  (best-effort — needs `ava up`)")
-    port = settings.get_int("server.port", 8096, env="AVA_PORT")
+    port = _server_port()
     _row(OK if _probe(config.ROUTER_CHAT_URL.replace("/v1/chat/completions", "/healthz")) else WARN,
          "router", "up" if _probe(config.ROUTER_CHAT_URL.replace("/v1/chat/completions", "/healthz"))
          else "not reachable (start with `ava up`)")
@@ -541,10 +674,33 @@ def cmd_connector(args) -> int:
             print(f"{WARN} already exists: {path}")
             return 1
         os.makedirs(d, exist_ok=True)
+        # COPY the reference template rather than emitting a second one. The
+        # inline copy that used to live here had drifted in two ways that both
+        # only bite after you follow its own invitation to uncomment something:
+        #   * its sample action had no `path:`, and both connectors.tool_files()
+        #     and render_egress_policy() require one — so `ava connector tools`
+        #     and `ava connector policies` printed NOTHING, with no error.
+        #   * its perf path pointed inside $AVA_HOME/connectors/<id>/, which the
+        #     reference template explicitly warns against because removing the
+        #     connector then destroys its Vitals history.
+        # One source of truth makes that divergence structurally impossible.
+        src = os.path.join(settings.CODE_ROOT, "connectors", "_template",
+                           "connector.yaml")
+        try:
+            body = open(src, encoding="utf-8").read()
+            body = body.replace("id: myapp", f"id: {args.name}")
+            body = body.replace("label: My App", f"label: {args.name}")
+            body = body.replace("myapp", args.name)
+        except OSError:
+            # A trimmed fork with no connectors/ dir still gets something valid.
+            body = _CONNECTOR_TEMPLATE.replace("NAME", args.name)
         with open(path, "w", encoding="utf-8") as f:
-            f.write(_CONNECTOR_TEMPLATE.replace("NAME", args.name))
+            f.write(body)
         print(f"{OK} created {path}")
         print("   edit it, then restart Ava (or `ava up`) to load the connector.")
+        print("   check what it will generate, before deploying:")
+        print(f"     ava connector tools {args.name}")
+        print(f"     ava connector policies {args.name}")
         return 0
     if args.action == "policies":
         import yaml as _yaml
@@ -700,7 +856,7 @@ def cmd_device(args) -> int:
             print(f"{BAD} usage: ava device token <id>")
             return 1
         tok = internal.ingest_token(args.name)
-        port = settings.get_int("server.port", 8096, env="AVA_PORT")
+        port = _server_port()
         url = f"{settings.get('server.public_url', f'http://localhost:{port}')}"
         ep = f"{url.rstrip('/')}/api/connectors/{args.name}/events"
         print(f"{OK} inbound push token for '{args.name}':\n\n  {tok}\n")
@@ -731,57 +887,23 @@ def cmd_device(args) -> int:
 # --------------------------------------------------------------------------- #
 # Model store — scaffold the weights folders and pull the right model for THIS
 # hardware, so a fork reproduces the author's layout with no manual path hunting.
-_gpusvc_SUBDIRS = ["checkpoints", "loras", "vae", "guidance net", "upscale_models",
-                  "embeddings", "clip", "clip_vision", "unet", "weight_models",
-                  "text_encoders"]
-
-_DEFAULT_MODELS = {
-    "chat": {"engine": "vllm",
-             "id": "nvidia/Nemotron-Open-30B-A3B-Reasoning-FP8", "tier": "large"},
-    "fast": {"engine": "ollama", "id": "llama3.1:8b", "tier": "small"},
-    "image": {"engine": "gpu-service", "id": "gpu_model_base",
-              "dest": "checkpoints",
-              "url": "https://huggingface.co/example/gpu-model"
-                     "resolve/main/gpu_model_base"},
-}
-
-# Chat models for boxes that can't serve the vLLM default (Apple Silicon, CPU-only):
-# vLLM needs CUDA/ROCm, so `pull --auto` must never fetch it there. Keyed by the
-# memory tier, mirrors the Apple-Silicon example in config.example.yaml (Ollama's
-# OpenAI-compatible API on :11434 reads the same unified-memory pool).
-_OLLAMA_CHAT = {
-    "large": {"engine": "ollama", "id": "llama3.1:70b", "tier": "large"},
-    "medium": {"engine": "ollama", "id": "llama3.1:8b", "tier": "small"},
-}
-
-
-def _models_manifest() -> dict:
-    """Default roles overlaid with the user's `models:` block. A partial
-    override (e.g. declaring only `image`) must NOT delete the default chat/
-    fast roles — that silently killed `pull --auto`. Set a role to null/false
-    in ava.yaml to genuinely remove it."""
-    m = settings.get("models", None)
-    if not isinstance(m, dict) or not m:
-        return dict(_DEFAULT_MODELS)
-    merged = {**_DEFAULT_MODELS, **m}
-    return {k: v for k, v in merged.items() if isinstance(v, dict)}
-
-
-def _model_dirs() -> dict:
-    base = settings.models_dir()
-    return {"root": base, "hf": os.path.join(base, "hf"),
-            "ollama": os.path.join(base, "ollama"),
-            "gpusvc": os.path.join(base, "gpusvc"),
-            "gguf": os.path.join(base, "gguf")}
-
-
-def ensure_model_dirs() -> dict:
-    d = _model_dirs()
-    for k in ("hf", "ollama", "gpusvc", "gguf"):
-        os.makedirs(d[k], exist_ok=True)
-    for sub in _gpusvc_SUBDIRS:
-        os.makedirs(os.path.join(d["gpusvc"], sub), exist_ok=True)
-    return d
+#
+# _DEFAULT_MODELS is a STARTING POINT, not a requirement. Ava runs on any model its
+# engines can serve; these ids are only what a fresh `ava setup` seeds when the user
+# hasn't chosen yet. The user's `models:` block in ava.yaml overlays this (see
+# _models_manifest), and Setup → Models in the UI rewrites the inference backend
+# outright. Changing a default here changes what NEW installs pull — nothing else.
+# Moved to ava_bridge/models.py so the bridge and the CLI share ONE
+# implementation. hub_api used to sys.path-inject the code root and import this
+# script to reach these as private functions; it now imports the module.
+# The underscore aliases below are kept so existing call sites (and the tests
+# that pin this behaviour) keep working unchanged.
+_gpusvc_SUBDIRS = models.gpusvc_SUBDIRS
+_DEFAULT_MODELS = models.DEFAULT_MODELS
+_OLLAMA_CHAT = models.OLLAMA_CHAT
+_models_manifest = models.manifest
+_model_dirs = models.dirs
+ensure_model_dirs = models.ensure_dirs
 
 
 def _write_gpusvc_paths(gpusvc_dir: str) -> str | None:
@@ -799,9 +921,7 @@ def _write_gpusvc_paths(gpusvc_dir: str) -> str | None:
     return p
 
 
-def _hf_present(model_id: str, hf_dir: str) -> bool:
-    safe = "models--" + model_id.replace("/", "--")
-    return any(os.path.isdir(os.path.join(hf_dir, sub, safe)) for sub in ("hub", ""))
+_hf_present = models.hf_present
 
 
 def _pull_hf(model_id: str, hf_dir: str) -> int:
@@ -815,19 +935,11 @@ def _pull_hf(model_id: str, hf_dir: str) -> int:
     return 1
 
 
-def _ollama_env(ollama_dir: str) -> dict:
-    return {**os.environ, "OLLAMA_MODELS": ollama_dir}
+_ollama_env = models.ollama_env
+_LOCAL_CHAT_ENGINES = models.LOCAL_CHAT_ENGINES
 
 
-def _ollama_present(tag: str, ollama_dir: str) -> bool:
-    if not shutil.which("ollama"):
-        return False
-    try:
-        out = subprocess.run(["ollama", "list"], env=_ollama_env(ollama_dir),
-                             capture_output=True, text=True, timeout=10)
-        return tag.split(":")[0] in out.stdout
-    except Exception:  # noqa: BLE001
-        return False
+_ollama_present = models.ollama_present
 
 
 def _pull_ollama(tag: str, ollama_dir: str) -> int:
@@ -843,8 +955,7 @@ def _gpusvc_target(spec: dict, gpusvc_dir: str) -> str:
                         os.path.basename(spec["id"]))
 
 
-def _gpusvc_present(spec: dict, gpusvc_dir: str) -> bool:
-    return os.path.isfile(_gpusvc_target(spec, gpusvc_dir))
+_gpusvc_present = models.gpusvc_present
 
 
 def _gguf_target(spec: dict, gguf_dir: str) -> str:
@@ -852,8 +963,7 @@ def _gguf_target(spec: dict, gguf_dir: str) -> str:
     return os.path.join(gguf_dir, name)
 
 
-def _gguf_present(spec: dict, gguf_dir: str) -> bool:
-    return os.path.isfile(_gguf_target(spec, gguf_dir))
+_gguf_present = models.gguf_present
 
 
 def _pull_gguf(spec: dict, gguf_dir: str) -> int:
@@ -919,17 +1029,7 @@ def _download_url(url: str | None, target: str, label: str) -> int:
         return 1
 
 
-def _model_present(spec: dict, dirs: dict) -> bool:
-    eng = spec.get("engine")
-    if eng == "vllm":
-        return _hf_present(spec["id"], dirs["hf"])
-    if eng == "ollama":
-        return _ollama_present(spec["id"], dirs["ollama"])
-    if eng == "gpu-service":
-        return _gpusvc_present(spec, dirs["gpusvc"])
-    if eng in ("llamacpp", "gguf"):
-        return _gguf_present(spec, dirs["gguf"])
-    return False
+_model_present = models.present
 
 
 def _pull_one(role: str, spec: dict, dirs: dict) -> int:
@@ -975,37 +1075,55 @@ def _backend_stanza(role: str, spec: dict, dirs: dict) -> str:
     return "\n".join(lines)
 
 
-def _detected_tier() -> tuple[str, float | None]:
+_detected_tier = models.detected_tier
+
+
+_platform_label = models.platform_label
+
+
+def _inference_reseed(manifest: dict, tier: str | None) -> tuple[dict | None, str | None]:
+    """Should `ava setup` replace the shipped vLLM default backend, and why?
+
+    Returns `(spec, reason)` when the model that actually fits this box differs
+    from the shipped `chat` default AND is locally servable — the caller writes it
+    to ava.yaml. Returns `(None, warning)` when nothing local fits at all, and
+    `(None, None)` when the shipped default is already the right choice.
+
+    Two distinct cases reach the first branch, and both used to be missed by
+    gating on the platform alone:
+      * vLLM can't run here (Apple Silicon, CPU-only) — substitute an engine
+        that can.
+      * vLLM runs, but this GPU is too small for the full-size default, so
+        `_resolve_auto` downshifts to the 'fast' role. Without a reseed the user
+        downloads the small model while ava.yaml still names the big one.
+    """
+    if not tier:
+        return None, None
     try:
-        from ava_bridge import hwinfo
-        avail = hwinfo.fit_memory().total_gb
-    except Exception:  # noqa: BLE001
-        avail = None
-    if avail is None:
-        return "cloud", None
-    return _recommend_tier(avail)[0], avail
-
-
-def _platform_label() -> str:
-    """Coarse platform id for user-facing messages (never raises)."""
-    try:
-        from ava_bridge import hwinfo
-        return hwinfo.platform_id()
-    except Exception:  # noqa: BLE001
-        return "this platform"
-
-
-# Local chat engines Ava can seed a backend for on a non-CUDA box (all serve an
-# OpenAI-compatible API; vLLM is deliberately absent — it needs a CUDA/ROCm GPU).
-_LOCAL_CHAT_ENGINES = {"ollama", "llamacpp", "gguf", "mlx", "mlx-lm",
-                       "lmstudio", "lm-studio"}
+        _role, spec, _note = _resolve_auto(tier, manifest)
+    except Exception:  # noqa: BLE001 — never let detection break setup
+        return None, None
+    if spec is None:
+        return None, (f"no local engine fits {_platform_label()}; configure a "
+                      "cloud backend (see config.example.yaml) or install Ollama/MLX")
+    default_chat = manifest.get("chat") or {}
+    same = (spec.get("id") == default_chat.get("id")
+            and spec.get("engine") == default_chat.get("engine"))
+    if same or spec.get("engine") not in _LOCAL_CHAT_ENGINES:
+        return None, None
+    why = ("the vLLM default won't run here"
+           if not _engine_servable_here(default_chat.get("engine"))
+           else f"the default is too large for this box (tier: {tier})")
+    return spec, why
 
 
 def _seed_inference_backend(spec: dict) -> bool:
     """Rewrite ava.yaml's `inference` block to a single servable local backend
     matching `spec` (engine + model), replacing the vLLM default. Best-effort:
-    returns True only if it rewrote the file. Called only on non-CUDA platforms
-    from `ava setup`, so a Mac never boots pointing at a dead vLLM endpoint."""
+    returns True only if it rewrote the file. Called from `ava setup` whenever the
+    model that fits this box differs from the shipped default — a Mac never boots
+    pointing at a dead vLLM endpoint, and a small NVIDIA GPU is pointed at the
+    downshifted model it actually downloaded rather than the full-size default."""
     try:
         import yaml as _yaml
     except Exception:  # noqa: BLE001 — PyYAML absent; leave the example in place
@@ -1038,47 +1156,10 @@ def _seed_inference_backend(spec: dict) -> bool:
         return False
 
 
-def _engine_servable_here(engine: str | None) -> bool:
-    """Can THIS box actually run a local engine of this type?
-
-    vLLM needs a CUDA/ROCm GPU, so it can't serve on Apple Silicon or a CPU-only
-    box — pulling ~35 GB of FP8 weights there is a trap. Every other local engine
-    (Ollama, llama.cpp, MLX, LM Studio) and all cloud engines run anywhere. When
-    the platform is unknown we don't block (return True) — degrade, never brick.
-    """
-    eng = (engine or "").strip().lower()
-    if eng == "vllm":
-        return _platform_label() in ("linux-nvidia", "windows-nvidia")
-    return True
+_engine_servable_here = models.engine_servable_here
 
 
-def _resolve_auto(tier: str, manifest: dict) -> tuple:
-    """Pick (role, spec, note) for `ava models pull --auto`, platform-aware.
-
-    Guarantees the returned spec's engine is servable on THIS box, so a high-RAM
-    Mac (tier 'large') is never steered into the vLLM-only default it can't run.
-    Substitutes a same-tier Ollama chat model, or downshifts to the servable
-    'fast' role; `note` explains any substitution. Returns (None, None, note) when
-    nothing local is servable (caller should point at a cloud provider)."""
-    role = {"large": "chat", "medium": "chat",
-            "small": "fast", "tiny": "fast"}.get(tier)
-    if not role or role not in manifest:
-        return None, None, None
-    spec = manifest[role]
-    if _engine_servable_here(spec.get("engine")):
-        return role, spec, None
-    plat = _platform_label()
-    blocked = (f"the default '{role}' model ({spec.get('engine')}: "
-               f"{spec.get('id')}) can't be served on {plat}")
-    sub = _OLLAMA_CHAT.get(tier)
-    if sub and _engine_servable_here(sub.get("engine")):
-        return role, sub, (f"{blocked} — substituting {sub['engine']}: "
-                           f"{sub['id']} instead")
-    fast = manifest.get("fast")
-    if fast and _engine_servable_here(fast.get("engine")):
-        return "fast", fast, (f"{blocked} — downshifting to the '{fast.get('engine')}' "
-                              f"model {fast.get('id')}")
-    return None, None, blocked
+_resolve_auto = models.resolve_auto
 
 
 def cmd_models(args) -> int:
@@ -1281,6 +1362,108 @@ def cmd_eval(args) -> int:
     return 2
 
 
+def cmd_alloc(args) -> int:
+    """Inspect and steer model memory allocation.
+
+    `status` and `plan` are read-only. `restore` brings back what the allocator itself
+    released (and nothing else). `reset` clears a model's failure record after you have
+    fixed whatever was wrong; `resume` un-quiesces an allocator that hit its own thrash
+    guard.
+    """
+    from ava_bridge import alloc
+    from ava_bridge.alloc import breaker
+
+    action = args.action
+    if action == "status":
+        rep = alloc.report()
+        lz = rep.get("leases") or {}
+        br = lz.get("breaker") or {}
+        print(f"\n{B}Allocation{X}")
+        print(f"  mode          : {'ENFORCING' if rep.get('actuating') else 'advisory'}"
+              f"{' · evicting' if lz.get('evicting') else ' · eviction off'}")
+        pool = rep["pool"]
+        if rep["gating"] == "disabled":
+            print("  pool          : memory unreadable — not gating")
+        else:
+            print(f"  pool          : {pool['free_gib']} / {pool['total_gib']} GB free"
+                  f" ({pool['source']})"
+                  + (f" · baseline {pool['baseline_gib']}"
+                     if pool.get("baseline_gib") is not None else "")
+                  + (f" · {pool['unknown_gib']} GB undeclared"
+                     if pool.get("unknown_gib") else ""))
+        if br.get("quiesced"):
+            print(f"  {BAD} QUIESCED   : {br.get('quiesce_reason')}")
+        print(f"  actions       : {br.get('actions_in_window', 0)}/{br.get('budget')} "
+              f"in the last {int((br.get('window_s') or 600) / 60)} min")
+        print(f"  leases        : {lz.get('lease_count', 0)} held · "
+              f"{len(lz.get('owed') or [])} awaiting restore")
+        for od in (lz.get("overdue") or []):
+            print(f"  {WARN} overdue    : {od['lease_id']} (pid {od['pid']}) "
+                  f"{od['age_s']}s")
+        if not rep["models"]:
+            print("  declared      : none — add `alloc.models` to ava.yaml to opt in")
+        for m in rep["models"]:
+            bm = (br.get("models") or {}).get(m["id"]) or {}
+            state = ("resident but NOT READY" if m["resident"] and m["ready"] is False
+                     else "resident" if m["resident"]
+                     else "not resident" if m["resident"] is False else "unknown")
+            line = (f"  {m['id']:<16} {m['driver']:<12} {m['priority']:<12} {state}")
+            if m.get("resident_gib") is not None:
+                line += f" · {m['resident_gib']} GB"
+            print(line)
+            if bm.get("given_up"):
+                print(f"      {BAD} gave up after {bm['fails']} attempts: "
+                      f"{bm.get('reason')}")
+                print(f"        fix it, then `ava alloc reset {m['id']}`")
+            elif bm.get("retry_in_s"):
+                print(f"      {WARN} backing off {bm['retry_in_s']}s "
+                      f"({bm.get('fails')} failed attempts)")
+            elif bm.get("deferred"):
+                print(f"      · deferred (not a failure): {bm['deferred']}")
+            for prob in m.get("problems") or []:
+                print(f"      {WARN} {prob}")
+        print()
+        return 0
+
+    if action == "plan":
+        if not args.model:
+            print("usage: ava alloc plan <model-id>")
+            return 2
+        pl = alloc.admit_plan(args.model)
+        print(f"\n{B}Plan for {args.model}{X}")
+        print(f"  admit     : {pl.admit}"
+              + ("" if pl.gated else "  (memory unknown — not gated)"))
+        if pl.need_gib is not None:
+            print(f"  need/free : {pl.need_gib:.0f} / "
+                  f"{(pl.free_gib if pl.free_gib is not None else 0):.0f} GB"
+                  + (f" -> projected {pl.projected_gib:.0f} GB"
+                     if pl.projected_gib is not None else ""))
+        if pl.shortfall_gib:
+            print(f"  shortfall : {pl.shortfall_gib:.0f} GB")
+        for s in pl.steps:
+            kind = "try (cheap)" if s.speculative else "release"
+            print(f"  {kind:<12}: {s.model_id} [{s.mode.value}] — {s.reason}")
+        print(f"  reason    : {pl.reason}\n")
+        return 0
+
+    if action == "restore":
+        ids = alloc.restore_now()
+        print("restored: " + (", ".join(ids) if ids else
+                              "nothing (either nothing is owed, or enforcement is off)"))
+        return 0
+
+    if action == "reset":
+        breaker.reset(args.model)
+        print(f"breaker cleared for {args.model or 'all models (and QUIESCED)'}")
+        return 0
+
+    if action == "resume":
+        breaker.reset(None)
+        print("allocator resumed: breakers and the action budget are cleared")
+        return 0
+    return 2
+
+
 def main() -> int:
     p = argparse.ArgumentParser(prog="ava", description="Ava control CLI")
     sub = p.add_subparsers(dest="cmd")
@@ -1320,6 +1503,12 @@ def main() -> int:
     dp.add_argument("name", nargs="?", help="device connector id (for new / token / events)")
     dp.add_argument("--limit", type=int, default=0, help="max events to show (events)")
     dp.set_defaults(func=cmd_device)
+    ap = sub.add_parser("alloc", help="model memory allocation: status / plan / "
+                                     "restore / reset / resume")
+    ap.add_argument("action", choices=["status", "plan", "restore", "reset", "resume"])
+    ap.add_argument("model", nargs="?", help="plan/reset: the declared model id")
+    ap.set_defaults(func=cmd_alloc)
+
     mp = sub.add_parser("models", help="model store: list / pull / verify / bench")
     mp.add_argument("action", choices=["list", "pull", "verify", "bench"])
     mp.add_argument("name", nargs="?",

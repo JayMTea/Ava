@@ -6,6 +6,475 @@ on-prem project, so versions are dated milestones rather than published releases
 
 ## [Unreleased]
 
+### Fixed — The documented install could not produce a chat message
+
+An audit of the fork-and-self-host path found the application itself healthy and
+**every defect on the install path**, in `deploy/`, where nothing was tested. The
+common cause: the owner's own box was the only configuration anyone ran.
+
+- **The container bound loopback inside its own netns.** `deploy/Dockerfile` left
+  `AVA_HOST` at `127.0.0.1`, so the published port refused connections while the
+  healthcheck — curling loopback *from inside* the container — reported `healthy`.
+  A forker saw a green container and a dead browser tab. Now `AVA_HOST=0.0.0.0`
+  in the image, with the container boundary doing the containing and compose
+  publishing on `127.0.0.1:8096`.
+- **CI could not have caught it.** `compose-smoke` booted with `docker run
+  --network host`, which puts the container in the runner's own namespace, where
+  a loopback bind *is* reachable. The job now boots through compose on the
+  default bridge network and curls the published port from the runner, asserting
+  both that compose reports healthy **and** that the external request succeeded.
+  `tests/test_ci_covers_deploy.py` fails any reintroduction of `--network host`.
+- **`deploy/local-serve.sh` was untracked** while a tracked script `exec`'d it and
+  six tracked files referenced it. `tests/test_deploy_refs_tracked.py` now fails
+  on any `deploy/*.sh` named in a tracked file but absent from `git ls-files`.
+- **Every profile pointed at the GPU backend.** The `ava` service hardcoded
+  `AVA_BACKEND_URL: http://vllm:8002/v1` for all five profiles while `vllm` only
+  starts under gpu/full, so `--profile cpu` resolved a DNS name that did not
+  exist. Each profile now ships a tracked `deploy/profiles/<name>.env` carrying
+  `COMPOSE_PROFILES` plus its own backend trio, so `up`, `logs`, `down` and
+  `pull` all interpolate identically.
+- **The default model was a 30B checkpoint** needing ~35 GB of weights — the
+  first command the README gives a new user, on hardware no consumer card has,
+  retried forever by an uncapped restart policy. The shipped default is now
+  `Qwen/Qwen2.5-7B-Instruct` in `deploy/default-model.env`, one line to change.
+
+### Added — One table for every model's vLLM flags
+
+`deploy/model-flags.conf` is the single source of truth for per-model
+`--tool-parser`, `--reasoning-parser`, native context length and extra flags;
+`deploy/resolve-model-flags.sh` reads it, both sourceable and runnable. Compose
+and `local-serve.sh` previously carried separate, already-diverging tables, and
+compose had no way to express `--reasoning-parser` at all. The `native_ctx`
+column is what stops `--max-model-len` from being set above what the checkpoint
+supports; it is left blank where the value is not certain, because a wrong entry
+silently caps context instead of failing. `tests/test_model_flags_ssot.py` fails
+if parser vocabulary reappears anywhere but the table and the docs.
+
+### Security — Four ways in, closed
+
+- **First-run takeover.** `/setup` is public and only checked "is setup needed",
+  so on any non-loopback bind the first stranger to reach the port set the admin
+  password. Ava now mints a one-time claim token at `$AVA_HOME/data/setup_claim`
+  (0600) and prints it; setup is allowed from loopback or with a matching token.
+  Not an outright refusal — a headless box must stay claimable.
+- **The code agent could read secrets.** `access_policy` was consulted only on
+  writes, so `read_file(".env")` returned `ANTHROPIC_API_KEY`, and
+  `search("ANTHROPIC_API_KEY")` returned the key inline — `search` walks the tree
+  itself and never touched the path resolver. The deny-list is enforced in
+  `coder._safe()`, which every tool routes through, and restated in the two tools
+  that do their own walk.
+- **Connector Detect handed a pasted command the bridge's environment.**
+  `hub_api._probe` built its spec without a `sandbox` key, so `mcp_client` took
+  the uncontained branch with `{**os.environ}`. Unsandboxed stdio children now
+  get `PATH`/`HOME`/`LANG`/`TMPDIR` plus their manifest's declared env, and the
+  probe defaults to a Docker sandbox, failing closed when Docker is absent.
+- **`/internal` scopes were documented, tested, and not enforced.** 24 of 25
+  handlers passed no scope, so any valid group token reached every route —
+  including `/internal/code-change` from the token held by the server that runs
+  `web_fetch`, which is where prompt injection actually arrives. Enforcement moved
+  into `auth.auth_gate`, deny-by-default for unclassified paths, so a route added
+  later is covered without its author opting in.
+
+### Fixed — Sessions, cookies, and who the client is
+
+- `auth.cookie_secure` is now `true|false|auto` and resolved **per request**. It
+  was `os.environ.get("AVA_COOKIE_SECURE", "1") != "0"` — a string compare where
+  `false` evaluated true — and unconditional, so over plain HTTP the browser
+  discarded the session cookie and the user bounced back to `/login` with no
+  message, indistinguishable from a wrong password. That is the exact flow
+  `docs/MOBILE.md` markets, and `qa/env_recipe.py` pinned the variable to `"0"`,
+  so the suite structurally could not see it.
+- One shared `auth.client_ip()` honours `X-Forwarded-For` only from
+  `server.trusted_proxies`. The login throttle keyed on `request.client.host`, so
+  behind any proxy the entire LAN shared one lockout bucket.
+
+### Fixed — One typo in `ava.yaml` destroyed the file
+
+`_load_config` swallowed the parse error and returned `{}`; `save_patch` then
+merged the patch into nothing and wrote it back, non-atomically. A 13-line config
+with one bad indent plus one Setup toggle became 2 lines. Parse errors now carry
+their line number, surface on `/api/hub/system`, and **refuse the write** (409).
+Writes go through one `os.replace` from a same-dir temp with a `.bak` of the
+prior file. `settings.get_float` was added because `config.py` called bare
+`float()` on `voice.threshold`, where a typo failed bridge boot with a raw
+`ValueError`.
+
+### Fixed — The setup wizard was skipped for everyone who used the CLI
+
+`setup_completed()` returned true when `inference.backends` was non-empty, and the
+shipped template ships one — so `ava setup` marked the box configured before the
+owner had seen a single screen. It is now the completion flag alone, the wizard is
+re-entrant and pre-fills from current config, and `ava setup` writes a minimal
+`ava.yaml` instead of copying the 376-line annotated template (which `safe_dump`
+stripped of every comment on first save). `POST /api/setup/save` validates before
+marking complete, rather than after.
+
+### Fixed — Allocation across reboots, crashes, and concurrent callers
+
+- Monotonic timestamps were persisted with no `boot_id`, so after a reboot the
+  allocator could refuse every request for as long as the previous uptime, in
+  silence. Records now carry `boot_id`; a foreign boot scrubs the clock fields
+  and keeps the failure counts, because a reboot does not repair a broken model.
+- `QUIESCED` was unreachable: the breaker tripped at `> limit` while the budget
+  refused at `>= limit`, so the critical alert could never fire.
+- Release intent is recorded **before** the driver call, so a crash mid-release
+  cannot strand a model down; `_restore` re-checks under the model lock instead
+  of around it; and reservations are credited against the observed pool drop
+  (`need - max(0, free_at_grant - free_now)`) so a loading model is counted once.
+- All three drivers now honour `wait_free`'s return value, which `base.py` had
+  always specified and none implemented. Safe only because `ActionResult.acted`
+  landed first, separating "it is stopped" from "the pool came back".
+
+### Fixed — A broken manifest locked you out of the page that fixes manifests
+
+A scalar `egress:` in any connector raised `AttributeError` from
+`hub_api.list_connectors()` — a 500 on Setup → Connectors, the page containing the
+manifest editor and the error list. Bad blocks are now quarantined **in memory
+only** (never written back), reported through `load_errors()`, and the rest of the
+connector keeps working. `manifest_version: 1` is declared, absent means 1, and a
+newer version still loads with a warning: refusing to load on version mismatch is
+what makes manifests non-portable.
+
+### Fixed — 17 of 21 Setup panels swallowed their own errors
+
+Every panel destructured `{ data }` off `useResource` and dropped `error`, so any
+backend failure rendered Setup as tabs of permanent "Detecting hardware…" — each
+one looking like it was still loading, forever, with the real message sitting
+unread in a variable nobody named. All 21 sites now go through
+`<ResourceState>` / `<ResourceError>`, which take the whole hook result so a panel
+*cannot* omit the error field, with a Try again button. `tests/test_hub_uniformity.py`
+fails a regression.
+
+### Fixed — Keyboard access, and a chat wedge
+
+- `tabIndex` appeared **zero** times repo-wide. Sidebar conversation rows were a
+  `<div onClick>` wrapping an invisible delete button — so the only
+  keyboard-reachable control per row was the one control you could not see. Rows
+  are now two sibling buttons in a wrapper, with `:focus-visible` /
+  `:focus-within` companions to the `opacity: 0` rule, and "Forget" confirms.
+- `useChat.send` awaited `ensureChat()` outside any try/catch, so a failure there
+  skipped `setBusyBoth(false)` and the composer stayed locked until a page reload.
+
+### Added — `ava` is a real command
+
+`pyproject.toml` declares `[project.scripts] ava = "ava_cli:main"`, so
+`pip install -e .` puts on PATH the command `README.md` has always told forkers to
+run. Editable-only and deliberately so: `settings.CODE_ROOT` keeps resolving to
+the checkout, which is what makes `config.example.yaml`, `frontend/dist`,
+`agent/install.sh` and `connectors/_template` resolve at all. The package list is
+an explicit allowlist, never `find:` — the repo root holds `agent/`, `config/`,
+`connectors/` and `data/`, which must not become importable top-level packages.
+`tests/test_cli_entrypoint.py` checks the list from both ends: nothing declared
+that does not exist, and nothing imported by name that is not declared.
+
+### Added — Model memory allocation (observe phase)
+- **`ava_bridge/alloc/`** — fit-checked memory management for boxes that run Ava
+  plus a second model. A box with a language model and an image pipeline
+  oversubscribes its memory, so at most one can be resident; this layer answers
+  *"can this model be brought up right now"* before anything tries, and reports
+  what is actually holding memory. It gives `model_fit`'s cold-load predicate
+  (`fits_now(..., assume_loaded=False)`) its first consumer.
+- **Declared, never discovered.** Only models under `alloc.models` in `ava.yaml`
+  are governed. Everything else holding memory is counted (so the planner never
+  promises memory someone else has) and named, but never touched. **An absent
+  `alloc:` block governs nothing** — an install that does not opt in behaves
+  exactly as it did before.
+- **Sizing is inherited, not repeated**: a declared model matching an
+  `inference.backends.<id>` picks up `weight_gb`/`min_free_gb`/`tier` from its
+  existing `fit:` block, and one matching a connector picks up that connector's
+  unit and health probe.
+- **Readiness means resident, not listening.** An engine binds its socket long
+  before its weights load, and a service manager reports "active" the instant exec
+  succeeds — so a model whose warm-up hit an out-of-memory error and carried on is
+  invisible to any liveness check. Declare `readiness.require` and `ava doctor`
+  reports `resident but NOT ready` instead of a green tick.
+- **`ava doctor` → Allocation**: the pool with its source and learned baseline,
+  memory held by undeclared processes, and per-model driver / residency (measured
+  where possible) / cold-load verdict / config problems.
+- **Portable by construction**: all memory reads go through the `hwinfo` HAL, so
+  discrete-GPU, unified-memory, and CPU-only boxes each get the right source, and
+  unreadable memory means *unknown*, which means never gate. A driver whose tooling
+  is absent (no container runtime, no service manager) degrades to observe-only.
+  New engine support is one adapter file — built-ins plus `$AVA_HOME/alloc_drivers/`.
+- Decision recorded in `agent/docs/adr/0005-model-load-allocation.md`. This phase
+  **observes only**; the lease broker that releases memory follows.
+
+### Added — Allocation watchdog (nothing degrades silently)
+- **`ava_bridge/alloc/watch.py`** — polls every declared model on an interval and
+  raises a persistent alert for anything wrong, so a degraded model surfaces on its
+  own instead of only when someone runs `ava doctor`. Uses the same
+  `alerts.push_external` + `ttl = INTERVAL * 1.5` idiom as the architecture
+  watchdog: an alert stays active while the condition persists and **self-clears
+  once it is fixed**, with no acknowledge step.
+- **The alert that matters**: `alloc_degraded_<model>` (critical) fires when a model
+  is running but has no weights loaded. That state answers its own port and reports
+  `active` to the service manager, so no liveness check detects it — the failure it
+  was written for ran for six days on the development box. Also raised: declared but
+  not installed, unable to start for a sustained period (with a grace window,
+  because not fitting while something else holds the pool is the system working),
+  driver misconfiguration, and undeclared processes holding memory while a declared
+  model is blocked.
+- **Alert-rule metrics** `alloc_degraded_count`, `alloc_unfit_count`,
+  `alloc_unknown_hold_gb` in `dashboard.build_alert_metrics()`, with matching rules
+  in `config/alerts.yaml`. Every metric is 0 until models are declared, so the rules
+  stay dormant on an install that has not opted in.
+- **Durable trail**: state changes go to the audit ledger as `alloc.<state>` with
+  the previous state — transitions only, never one row per model per cycle.
+- Started from the bridge alongside the other in-process schedulers; **no-op until
+  models are declared**, so an install that has not opted in pays nothing.
+
+### Added — Allocation leases (advisory)
+- **`ava_bridge/alloc/policy.py`** — the planner, a **pure function**: given a
+  request, the pool, and what each declared model holds, it returns an ordered plan.
+  No I/O, no hardware, no clock, so the whole decision table is table-testable in
+  milliseconds and a fork that disagrees with interactive-wins replaces one function.
+- **Admission first**: if the request already fits, the plan is empty. Coordination
+  schemes that pause a heavy model for *every* request pay a reload even when the box
+  had room.
+- **The correctness rule**: a live lease at the requester's own priority or better is
+  **never preempted**. Everything else in the planner is an efficiency question; that
+  one prevents corrupting work in flight. Lower-priority holders do yield, which is
+  what declaring a priority is for.
+- **`ava_bridge/alloc/ledger.py`** — cross-process ownership as a lock directory.
+  Every quantity is *derived* from something the kernel guarantees: the refcount is
+  how many lease locks are still held, and a dead holder is one whose lock can be
+  taken. So a caller that is killed mid-work cannot leak a count, and crash recovery
+  needs no timeout heuristic. Uses `flock` (not `lockf`, which is per-process and
+  would give false exclusivity between threads).
+- **`ava_bridge/alloc/broker.py`** — `alloc.lease("model", reason=...)`: a caller
+  states a *need* and never names a victim. Reentrant per thread, reference-counted,
+  with a cooldown so a burst costs one reload rather than one per request.
+- **Advisory by default** (`alloc.lease.enforce: false`): the full decision is
+  computed and appended to `logs/alloc.jsonl`, and **no driver is touched**. The log
+  is the evidence for enabling enforcement later.
+- **The funnel** — `gpu_service.gpu_lease()` holds the lease across the whole GPU
+  phase at the one `POST /prompt` every render must cross, so a pipeline added later
+  inherits coordination by construction. Enforced two ways: a static guard fails any
+  submit outside the transport (verified to catch a bypass), and a lease-less submit
+  records `alloc.unfunneled` at runtime in case someone evades the scan. `alloc.roles`
+  maps a subsystem to a declared model; unset means no lease is taken at all.
+- `ava doctor` states **advisory vs enforcing** plainly, plus ledger health and any
+  overdue holds.
+
+### Added — Allocation enforcement (safe to switch on)
+- **`ava_bridge/alloc/breaker.py`** — the safety limits that make enforcement
+  something you can turn on. Two independent mechanisms, and the first matters more:
+  - **A start that provably cannot fit is not attempted.** Measured through the real
+    code path: with the pool permanently short, **0 start attempts over ~56 simulated
+    hours**, no failures counted, no action budget spent, and the model stays
+    retryable forever so it returns the moment room appears. A model waiting for
+    memory is not a broken model. *Not attempting* is the cure; capping retries only
+    limits the damage of attempting.
+  - **Retries that do happen are bounded** — exponential backoff with jitter, giving
+    up after 6 attempts or 30 minutes. Measured: a permanently failing start costs
+    **6 attempts**, against the 7,997 an uncapped supervisor produced.
+- **A failure record clears only after sustained readiness** (120s by default), never
+  on one successful start — otherwise a model that crash-loops but looks healthy for a
+  moment resets its own counter forever. Fed by the watchdog, which already polls.
+- **Global action budget** across all models *and all processes* (state lives in the
+  ledger, not in memory, so processes cannot each spend the full budget). Exceeding it
+  puts the allocator in `QUIESCED`: it stops actuating and every lease becomes
+  advisory. **Its failure mode is to become a no-op, never a loop.** Self-clears after
+  a cool-off.
+- **Two switches, not one.** `alloc.lease.enforce` allows action at all;
+  `alloc.lease.evict` separately allows *releasing* a model, and defaults off. The
+  halves carry opposite risk — waiting is at worst slower, releasing is at worst taking
+  memory from work in progress — so the safe half can be enabled first.
+- **`ava alloc status | plan <model> | restore | reset <model> | resume`** — the
+  operator surface. `status` shows mode, pool, budget, held leases, and per-model
+  breaker state; `plan` shows exactly what would be released and why. Giving up always
+  names the command that clears it.
+- New alerts: `alloc_giveup_<model>` and `alloc_quiesced`, both critical, both carrying
+  the fix command.
+
+### Added — Cross-app leases (one owner for the whole box)
+- **`POST /lease` on the router** (plus heartbeat, release, status, restore) so a second
+  application on the same box can hold a lease **without importing Ava**. That is how
+  two apps stop fighting over one memory pool: exactly one component decides, and the
+  other asks.
+- **Token-guarded by prefix, unconditionally.** Unlike `/fit`, which only reads, these
+  endpoints can stop and start models, so an unauthenticated caller could take Ava's
+  brain down. Prefix matching (not the existing exact-match list) is required because
+  the sub-paths carry a lease id.
+- **Every handler runs the blocking work in a worker thread.** Acquiring may run a
+  driver action taking tens of seconds, and awaiting that on the event loop would stall
+  inference for every other caller.
+- **A remote holder proves liveness with a heartbeat, not a file lock.** A local holder
+  is reclaimed by the kernel when it dies; a caller reaching us over HTTP cannot be, so
+  its lease carries a deadline and is reaped when renewals stop. Without that, a client
+  killed mid-work would hold memory reserved forever. `snapshot()` reaps first, so a
+  lapsed holder never appears live to the planner.
+- **Unreachable is not the same as denied.** Denied is a decision to respect;
+  unreachable means nobody decided, and a client must then fall back to whatever
+  coordination it had before rather than running with none — which is the failure this
+  layer exists to prevent. Safe because an allocator that cannot be reached is also not
+  acting, so there is no second owner to contend with.
+
+### Fixed — Residency was measured from the wrong place
+- **A container runtime's and a service manager's memory figures under-report an
+  inference engine by an order of magnitude**, because an engine's weights are device
+  allocations and neither is charged for them. Measured on the development box for one
+  language-model container: `docker stats` said **3.6 GiB**, per-process accelerator
+  accounting said **43.7 GiB**. Acting on the smaller number made the planner project
+  16 GB from releasing a 48.7 GiB model — it would have refused work that fits and
+  over-released chasing a target it had already passed.
+- **`ava_bridge/alloc/gpumem.py`** is now the residency oracle: per-process accelerator
+  accounting, attributed to a container or unit through its process tree (an engine
+  splits a launcher from the worker that owns the weights, so asking only about the pid
+  a supervisor reports would miss nearly all of it). Both drivers prefer it and keep
+  their own reading as the fallback for a CPU-side model or a box without the tooling.
+  Unreadable stays distinct from holds-nothing — conflating them is how a model whose
+  weights failed to load passes for healthy.
+- This is the *pool* question's sibling, not a replacement: how much is free still comes
+  from the `hwinfo` HAL, which knows a device-memory query returns nothing on unified
+  memory. The convention guard enforces the split.
+
+### Fixed — Allocation tests wrote into the real ledger
+- Setting `AVA_HOME` at import looks like isolation but is not: `settings` freezes it on
+  FIRST import, so in a shared pytest process where another module imported settings
+  earlier the env var is a silent no-op. The watchdog tests call `note_ready()`, which
+  writes to the ledger, and the fixture model names (`voice`, `ok`, `x`, `gone`, …) turned
+  up in the live box's `run/alloc/breaker.json`. Harmless there — every entry had zero
+  failures — but the same leak could have opened a breaker against a real model or
+  written a learned memory baseline from faked readings.
+- Fixed with the repo's path-seam pattern (patch the accessor, not the environment), and
+  guarded: `tests/test_alloc_isolation.py` fails any allocation test that exercises a
+  state-writing module without redirecting the path it writes to. Verified against a
+  deliberate violation.
+- `deploy/omni-serve.sh` gains `OMNI_RESTART`. Docker's restart policy and the allocator
+  are both supervisors, and only one can decide when there is room — an uncapped
+  `unless-stopped` retries a start the allocator has declined, which is the mechanism
+  behind the 7,997 restarts. The default is unchanged (right for a box with no
+  allocator); `ava doctor` flags the combination when the container is declared.
+
+### Fixed — A client timeout turned one coordinator into two
+- The vendored lease client's HTTP timeout defaulted to 20s, but a server-side acquire
+  can take minutes (stop a container, then wait for the kernel to actually release the
+  memory). The client gave up first, reported the broker **unreachable**, and the
+  fallback then ran its own container stop — two components acting on the same container
+  while the first was still mid-stop, which is exactly what delegating to one broker was
+  meant to end. Observed live.
+- **A timeout is now distinguished from unreachable**, and only unreachable justifies a
+  local fallback: nothing is acting then, so falling back is safe. A timeout means the
+  broker probably *is* acting, so the caller proceeds without coordinating rather than
+  racing it. Default timeout raised to 420s, set explicitly in the service drop-ins with
+  the reason.
+- Root cause was a deviation from the design: `POST /lease` was specified to return
+  immediately with actuation on a worker thread, and was implemented blocking instead.
+  The timeout split makes the blocking version safe; see the next entry for the fix that
+  removes the need for a large timeout at all.
+
+### Changed — `POST /lease` can answer before the room exists
+- **`"wait": false`** returns the verdict immediately with `state: "pending"`, runs the
+  release on a worker thread, and the caller polls the new **`GET /lease/<id>`** until
+  `ready`. Terminal states are `active`, `failed` (a release errored — the caller is
+  uncoordinated, not blocked) and `gone` (the lease no longer exists, so nothing is
+  acting on the caller's behalf and coordinating locally is safe again).
+- This is what the timeout split above was working around. A blocking acquire makes the
+  client's socket timeout into a policy decision, taken by a number that knows nothing
+  about what it is waiting for; now every request is a plan, a lock and a small write, so
+  a timeout means the request did not land. The waiting moved to the client, where it is
+  explicitly `STUDIO_LEASE_WAIT=600` rather than implicitly a socket setting, and the
+  per-request timeout dropped 420s → 30s.
+- **The default is still `wait: true`**, so a client written against the older contract
+  is never told it may start before the memory is free.
+- The verdict does not change while pending: `admit` comes from the plan, not from
+  executing it, so the answer given first is the answer that stands.
+- **One actor per model.** Answering immediately makes concurrent releases of the same
+  model likely rather than rare, so each release now takes `models/<id>.lock` across the
+  driver call. A requester that cannot get it waits for *the memory* instead of repeating
+  the action — a duplicate `docker stop` landing after the peer has moved on to a restore
+  is how a model comes back up mid-render.
+- The client renews from acquisition rather than from grant (making room can outlast the
+  TTL, and a lease reaped mid-release strands the render it was making room for), and a
+  transient heartbeat failure is retried rather than fatal.
+- `ledger.update_lease()` merges instead of overwriting — the actuation thread and the
+  heartbeat are now two writers on one record — and `write_lease` no longer restamps
+  `started`, which had made a frequently-renewed lease permanently un-`overdue`.
+
+### Fixed — Coordination configured only in systemd opted out everything else
+- `STUDIO_LEASE=broker` lived only in the service drop-ins, so a studio process started
+  any other way — an ad-hoc script, a CLI run, another agent's batch job — inherited
+  nothing, `_use_broker()` said no, and it went straight to `docker stop vllm-open`. The
+  allocator recorded nothing, because it was never asked. **This is the original disease
+  in a new place**: policy expressed at the edges, so a new entry point opts out by
+  simply existing.
+- Caught live. A hand-launched five-seed batch stopped and started the LLM once per
+  seed, ~18 minutes apart, for over an hour. Neither the ledger, the decision log, nor
+  the studio journal had any trace, because none of them were involved.
+- The defaults now live in the studio's `config.py`, which every entry point imports
+  however it was launched — the same reasoning already written above `VIDEO_TIMESHARE`,
+  which names "ad-hoc script" as a caller it must cover. **The default is to
+  coordinate**; opting out is explicit. On a box with no Ava the connection is refused
+  and the local path runs exactly as before.
+- The vendored client no longer caches its mode at import — an import-order dependency
+  is not a configuration system — and an HTTP 401/403 is now `NotAuthorised` rather than
+  "unreachable", logged loudly. A bad token otherwise looks exactly like a healthy box:
+  every render silently coordinating itself, forever.
+- Two definitions of the lease model had drifted (`image-engine` in `timeshare.py`,
+  `image-render` in the drop-in that overrode it). The undeclared one would have asked
+  for a model the allocator does not govern. One definition now.
+
+### Fixed — Static guards were scanning zero files
+- Every convention guard resolves its inputs with `git ls-files`, and the whole
+  allocation layer was still untracked — so the ledger-isolation guard, and the guard
+  forbidding the wrong memory oracle *inside* `ava_bridge/alloc/`, were both passing
+  vacuously over an empty file list. Registering the paths turned up three genuine
+  problems immediately.
+- The decision log had its own leak: `_record()` writes under `logs/`, not the ledger
+  dir, so redirecting the ledger never covered it — and whether a test polluted the real
+  `logs/alloc.jsonl` depended on module import order. It got **91 fabricated decisions
+  next to 2 real ones**, in the record an operator reads to decide whether to enable
+  enforcement. Fixed with a `broker._log_path` seam, and guarded.
+- A release now runs on a thread, so it can outlive the fixture that redirected the
+  ledger — a static guard cannot see that, and `victim` duly appeared in the live box's
+  `run/alloc/`. `broker.wait_for_actuations()` makes the redirection cover the whole
+  action; the guard requires any test that starts a background release to call it.
+- Two guard regexes were matching prose ("…to the audit ledger. Caught if…") and test
+  *method names* (`..._no_acquire(self)`). All three guards verified by removing each
+  seam in turn and confirming the failure.
+
+### Documentation — the allocation layer
+- **`docs/ALLOCATION.md`** — the forker-facing guide: why two models on one box is a
+  problem that has nothing to do with either model working, how to declare one, how to
+  read the decision log before letting Ava act, the two-switch rollout, what it will and
+  will not do, writing a driver for your own engine, and the `MemFree`-vs-`MemAvailable`
+  trap that makes monitors report 93% when a box is at 59%. Added to the published docs
+  nav beside Hardware support, since that is the sensing layer this acts on.
+- **Diagrams regenerated from the SSOT**: the system diagram gains an `alloc` node in the
+  engines layer beside the HAL it reads; the network diagram gains the three edges that
+  matter operationally — the studio asking `POST /lease`, and the allocator's stop/start
+  and unload authority over the two engines. `ava-omni.service` is declared in `services`,
+  which clears the drift warning it was raising.
+
+### Changed — One supervisor for the resident model
+- The LLM container is now created with `--restart no`, so the allocator is its only
+  supervisor. Docker's `unless-stopped` would otherwise retry a start the allocator has
+  declined, with no backoff — the mechanism behind the 7,997 restarts.
+- **That needs a boot unit, and the pairing is the point.** `--restart no` also means
+  nothing brings the container back after a reboot, and the allocator deliberately
+  restores only what it released itself (`released_by_us` is a scope boundary, not just a
+  safety net). So a `Type=oneshot` + `RemainAfterExit` unit runs `deploy/omni-serve.sh` at
+  boot and then stops caring — it starts the container and does not supervise it, so it
+  cannot fight the allocator when a render releases it. `StartLimitBurst` bounds systemd's
+  own retries the way the breaker bounds the allocator's.
+- Without both halves this is a regression rather than a fix: one supervisor, but a model
+  that no longer survives a reboot.
+
+### Changed — Deployment fossils cleaned up
+- **`deploy/docker-compose.yml`'s vLLM service now sets its memory flags.** It passed
+  only `--model`/`--port`, so a forker following compose got vLLM's ~90% default
+  utilisation, CUDA graph capture, and an uncapped `restart: unless-stopped` — the exact
+  combination that cost 7,997 restarts on the development box, and with the `full`
+  profile it left nothing for the image engine started alongside it. Now
+  `--gpu-memory-utilization 0.40`, `--enforce-eager`, `--max-model-len`, all
+  env-overridable, and `restart: on-failure` so a doomed start cannot loop.
+- Router unit description no longer names two retired models.
+- `note-keeper`: the drop-in setting a variable no code reads is gone, and the
+  standalone time-share script — which targeted a container deleted four days earlier
+  and waited on a threshold from a retired model — now refuses to run and points at
+  `ava alloc status` instead of silently doing the wrong thing.
+
 ### Added — Data page (the owner's data console)
 - **Data view** (`ava_bridge/data_api.py`, `frontend/src/components/data/`): a
   built-in tab that inventories everything Ava stores under `$AVA_HOME` —

@@ -50,10 +50,44 @@ except Exception:  # noqa: BLE001
     model_fit = None
 
 # --- defaults / legacy fallback ----------------------------------------------
+# The built-in backend, used only when nothing is configured (no ava.yaml
+# `inference` block and no AVA_BACKEND_URL). AVA_MODEL is the canonical env var —
+# it's what deploy/local-serve.sh serves — with AVA_OMNI_MODEL kept as a legacy
+# alias. A fork that points AVA_MODEL at its own model gets that model here, and a
+# label derived from it, rather than inheriting the author's model name in its UI.
+#
+# The `omni` id below is deliberately NOT renamed: it is the key that existing
+# installs' perf logs and ava.yaml `alloc.models` entries are already written
+# against. The label is what users actually see.
 OMNI_URL = os.environ.get("AVA_OMNI_URL", "http://127.0.0.1:8002/v1").rstrip("/")
-OMNI_MODEL = os.environ.get(
-    "AVA_OMNI_MODEL", "nvidia/Nemotron-Open-30B-A3B-Reasoning-FP8")
-OMNI_LABEL = os.environ.get("AVA_OMNI_LABEL", "open-model 30B")
+def _default_model() -> str:
+    """The model id the built-in fallback backend serves.
+
+    Resolved through `settings`, not a bare os.environ read, because settings is
+    what loads the repo/AVA_HOME .env — a direct read here was correct only when
+    some earlier import happened to have pulled settings in first, which made it
+    import-order dependent. Same class tests/test_path_roots.py guards.
+    """
+    from . import settings as _s
+    return (_s.get("inference.default_model", "", env="AVA_MODEL")
+            or os.environ.get("AVA_OMNI_MODEL")
+            or "Qwen/Qwen2.5-7B-Instruct")     # deploy/default-model.env
+
+
+OMNI_MODEL = _default_model()
+
+
+def _label_for_model(model_id: str) -> str:
+    """Readable label for a model id, for when the owner hasn't set one:
+    `Qwen/Qwen2.5-7B-Instruct` -> `Qwen2.5 7B Instruct`,
+    `llama3.1:8b` -> `llama3.1:8b`."""
+    name = (model_id or "").rsplit("/", 1)[-1].strip()
+    if not name:
+        return "local model"
+    return name.replace("-", " ").replace("_", " ") if "-" in name or "_" in name else name
+
+
+OMNI_LABEL = os.environ.get("AVA_OMNI_LABEL") or _label_for_model(OMNI_MODEL)
 
 # Statuses that mean "this backend can't serve right now, try the next one".
 _FAILOVER_STATUS = {404, 500, 502, 503, 504}
@@ -412,8 +446,28 @@ def _rewrite_body(raw: bytes, is_json: bool, backend: dict, reasoning: str,
     hint = obj.pop("ava_workload", None) or hint
     if hint is not None:
         changed = True
-    if "model" in obj:
-        obj["model"] = backend["model"]
+    # Force the model id to the backend we are forwarding to — including when
+    # the caller sent NO model at all.
+    #
+    # This used to be `if "model" in obj`, which made the "force" only an
+    # overwrite: a request that omitted the field was forwarded verbatim and the
+    # engine answered 400 "model is required". That is every tool-less chat turn
+    # on a fresh install, because DirectRuntime posts {messages, stream} and
+    # nothing else — so a forker with no agent sandbox (i.e. anyone who has not
+    # run `ava agent provision`) got a 400 on their first message, on the cpu
+    # profile and on any other. The router chooses the backend, so the router
+    # owns the model; a caller-supplied value is overridden anyway.
+    #
+    # Only for completions. Other proxied routes (/v1/models and friends) take
+    # no model, and inventing one for them would be a different bug.
+    #
+    # An empty backend model means "this backend serves whatever is asked",
+    # so leave the caller's value alone rather than blanking it — the old code
+    # would rewrite a valid model to "" for any yaml backend declared without a
+    # `model:` key, which fails upstream for the same reason.
+    want = backend.get("model") or ""
+    if want and (is_comp or "model" in obj) and obj.get("model") != want:
+        obj["model"] = want
         changed = True
     # Default reasoning control — only for local vLLM chat completions (the
     # `chat_template_kwargs` field is a vLLM extension; other engines would
@@ -467,7 +521,13 @@ def create_app(backends: list | None = None, *, token: str | None = None,
         # /which, /route and /fit reveal or change Ava's active brain: always
         # token-guarded. /v1/* additionally requires the token when the router
         # is exposed beyond loopback (see module docstring). /healthz is open.
-        if path in _GUARDED_PATHS and not _authed(request):
+        #
+        # /lease/* is guarded by PREFIX, not exact match, and unconditionally: unlike
+        # /fit it can stop and start models, so an unauthenticated caller could take
+        # Ava's brain down. Prefix matching matters because the sub-paths carry a
+        # lease id (/lease/<id>/heartbeat), which an exact-match list cannot express.
+        if (path in _GUARDED_PATHS or path == "/lease"
+                or path.startswith("/lease/")) and not _authed(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         if v1_auth and path.startswith("/v1/") and not _authed(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
@@ -520,6 +580,97 @@ def create_app(backends: list | None = None, *, token: str | None = None,
         report = model_fit.fit_report(state.backends)
         return {"enabled": True, "mode": state.mode, "last": state.last_fit,
                 **report}
+
+    # --- allocation leases -------------------------------------------------- #
+    # Mounted here rather than as a separate service because router_host already
+    # solves "exactly one instance owns this": it probes /healthz and stands down to
+    # a standalone unit if one is running. So this inherits a single owner, an auth
+    # story, and a port, instead of adding another of each.
+    #
+    # Every handler hands the blocking work to a worker thread. Acquiring takes locks
+    # and writes files, and awaiting that on the event loop would stall inference for
+    # every other caller.
+    def _alloc():
+        from .alloc import broker
+        return broker
+
+    @app.post("/lease")
+    async def lease_acquire(request: Request):
+        """Acquire a lease for a model on behalf of another process.
+
+        Send `"wait": false` and this answers immediately, with `state: "pending"` if
+        a release is still running; poll `GET /lease/{id}` until `ready` is true. That
+        is the shape a networked client wants, because the alternative is holding a
+        request open across a container stop and letting the client's socket timeout
+        decide policy: give up early and it concludes nothing is coordinating, starts
+        coordinating for itself, and two components are now acting on one container.
+        The default stays `true` so a client written against the older contract is
+        never told it may start before the memory is actually free.
+
+        A remote holder cannot prove liveness with a file lock the way a local one
+        does (the lock would belong to this process), so the lease carries a deadline
+        and must be renewed — see POST /lease/{id}/heartbeat.
+        """
+        from starlette.concurrency import run_in_threadpool
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001 — a malformed body is a client error
+            body = {}
+        model = str(body.get("model") or "").strip()
+        if not model:
+            return JSONResponse({"error": "model is required"}, status_code=400)
+        try:
+            out = await run_in_threadpool(
+                _alloc().acquire_api, model,
+                reason=str(body.get("reason") or ""),
+                need_gib=body.get("need_gib"),
+                priority=body.get("priority"),
+                ttl_s=body.get("ttl_s"),
+                holder=str(body.get("holder") or ""),
+                wait=body.get("wait", True) is not False)
+            return out
+        except Exception as e:  # noqa: BLE001 — a client must degrade, not fail
+            return {"lease_id": "", "granted": True, "ready": True,
+                    "state": "active",
+                    "reason": f"allocator unavailable, proceed: {e}",
+                    "released": [], "enforced": False}
+
+    @app.post("/lease/{lease_id}/heartbeat")
+    async def lease_heartbeat(lease_id: str, request: Request):
+        from starlette.concurrency import run_in_threadpool
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001
+            body = {}
+        return await run_in_threadpool(_alloc().heartbeat_api, lease_id,
+                                       ttl_s=body.get("ttl_s"))
+
+    @app.delete("/lease/{lease_id}")
+    async def lease_release(lease_id: str):
+        from starlette.concurrency import run_in_threadpool
+        return await run_in_threadpool(_alloc().release_api, lease_id)
+
+    @app.get("/lease")
+    async def lease_status():
+        """Read-only allocation snapshot. Decides nothing."""
+        from starlette.concurrency import run_in_threadpool
+        return await run_in_threadpool(_alloc().snapshot)
+
+    @app.get("/lease/{lease_id}")
+    async def lease_state(lease_id: str):
+        """Where a deferred acquire has got to. Read-only; actuates nothing.
+
+        `state` is `pending` while a release runs, then `active`; `gone` if the lease no
+        longer exists, which a poller must treat as terminal rather than retryable.
+        """
+        from starlette.concurrency import run_in_threadpool
+        return await run_in_threadpool(_alloc().state_api, lease_id)
+
+    @app.post("/lease/restore")
+    async def lease_restore():
+        """Bring back everything the allocator released that nothing is using."""
+        from starlette.concurrency import run_in_threadpool
+        return {"restored": await run_in_threadpool(_alloc().restore_now)}
 
     @app.get("/healthz")
     async def healthz():

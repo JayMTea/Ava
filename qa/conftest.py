@@ -59,7 +59,13 @@ def bridge():
     Session-scoped: import is heavy and AVA_HOME is frozen anyway."""
     from fastapi.testclient import TestClient
     import phone_bridge
-    with TestClient(phone_bridge.app) as client:
+    # client=: TestClient reports `request.client.host` as the literal string
+    # "testclient", which is not an IP address. auth._is_loopback fails closed on
+    # anything it cannot parse (a gate that treated "unparseable" as "local"
+    # would be open to anything that confused it), so the suite would 403 at
+    # /setup. Presenting a real loopback address is what the product sees from a
+    # browser on the same machine.
+    with TestClient(phone_bridge.app, client=("127.0.0.1", 50000)) as client:
         yield client
 
 

@@ -1,24 +1,49 @@
 import unittest
 
-from ava_bridge import security
+from ava_bridge import internal, security
 from ava_bridge.config_mgmt import ConfigManager
 from ava_bridge.policy_mgmt import PolicyManager
 
 
 class InternalTokenScopeTests(unittest.TestCase):
-    def test_scoped_token_allows_only_covered_scopes(self):
-        base = "root-secret"
-        content = security.scoped_internal_token(base, "content")
+    """Asserted against the LIVE gate (internal.group_may, called by
+    auth.auth_gate) rather than the parallel implementation that used to live in
+    security.py. That second copy had zero non-test callers, so these two tests
+    passed for months while every /internal route in the running app accepted
+    every group token — the control was tested and not enforced."""
 
-        self.assertTrue(security.token_allows_scope(content, base, "documents"))
-        self.assertTrue(security.token_allows_scope(content, base, "web"))
-        self.assertFalse(security.token_allows_scope(content, base, "code_change"))
-        self.assertFalse(security.token_allows_scope(content, base, "config"))
+    def test_a_group_reaches_only_its_own_capabilities(self):
+        self.assertTrue(internal.group_may("content", "/internal/documents"))
+        self.assertTrue(internal.group_may("content", "/internal/web/fetch"))
+        self.assertFalse(internal.group_may("content", "/internal/code-change"))
+        self.assertFalse(internal.group_may("content", "/internal/config"))
+        self.assertFalse(internal.group_may("content", "/internal/policies"))
 
-    def test_raw_base_token_is_not_accepted_by_default(self):
-        base = "root-secret"
+    def test_the_web_fetching_group_can_never_edit_source(self):
+        """`content` is the group whose MCP server runs web_fetch, so it is where
+        prompt injection actually arrives. It reaching /internal/code-change is
+        injection -> arbitrary governed edits to Ava's own code."""
+        for path in ("/internal/code-change", "/internal/config",
+                     "/internal/policies/ava-code-changes", "/internal/logs"):
+            self.assertFalse(internal.group_may("content", path), path)
 
-        self.assertFalse(security.token_allows_scope(base, base, "documents"))
+    def test_the_root_token_still_passes_everywhere(self):
+        for path in ("/internal/code-change", "/internal/documents",
+                     "/internal/anything-unclassified"):
+            self.assertTrue(internal.group_may("root", path), path)
+
+    def test_an_unclassified_route_fails_closed(self):
+        """Forgetting to classify a new route must not leave it open to every
+        group token, which is exactly how this surface behaved before."""
+        self.assertIsNone(internal.required_scope("/internal/brand-new-route"))
+        for group in security.INTERNAL_SCOPE_GROUPS:
+            self.assertFalse(internal.group_may(group, "/internal/brand-new-route"),
+                             group)
+
+    def test_the_longest_matching_prefix_wins(self):
+        self.assertEqual(internal.required_scope("/internal/learning/state"), "learning")
+        self.assertEqual(internal.required_scope("/internal/web/search"), "web")
+        self.assertEqual(internal.required_scope("/internal/connector/x/act"), "connectors")
 
 
 class ConfigMutationPolicyTests(unittest.TestCase):

@@ -85,10 +85,50 @@ class TestInternalScopes(unittest.TestCase):
                      headers=helpers.internal_headers())
         self.assertNotEqual(root.status_code, 401)
         self.assertLess(root.status_code, 500)
-        # A derived group token also passes the middleware gate.
-        grp = c.get("/internal/policies",
+        # A derived group token passes for a route ITS OWN group owns.
+        grp = c.get("/internal/architecture",
                     headers=helpers.internal_headers("system"))
-        self.assertNotEqual(grp.status_code, 401)
+        self.assertNotIn(grp.status_code, (401, 403))
+
+    def test_a_group_token_is_refused_outside_its_capabilities(self):
+        """This assertion used to say the opposite — that a `system` token was
+        NOT rejected by /internal/policies — which locked in the very gap it
+        looked like it was testing. Least privilege was documented in
+        SECURITY.md, agent/install.sh and ava_bridge/auth.py, implemented in
+        ava_bridge/security.py, and enforced nowhere: 24 of 25 handlers passed no
+        scope, so any valid group token reached every route.
+
+        The one that matters is `content`. Its MCP server runs web_fetch, so it
+        is the surface prompt injection arrives on; reaching /internal/code-change
+        from there is injection -> arbitrary governed edits to Ava's own source.
+        """
+        c = CLIENT
+        for group, path in (
+            ("system", "/internal/policies"),
+            ("system", "/internal/code-change"),
+            ("content", "/internal/code-change"),
+            ("content", "/internal/config"),
+            ("content", "/internal/policies"),
+            ("productivity", "/internal/code-change"),
+            ("wellness", "/internal/logs"),
+        ):
+            r = c.get(path, headers=helpers.internal_headers(group))
+            self.assertEqual(r.status_code, 403,
+                             f"{group} token reached {path}: {r.status_code}")
+
+    def test_each_group_still_reaches_what_its_own_server_calls(self):
+        """The gate is only correct if it does not break the live tools. These
+        pairs are taken from what each agent/mcp_server_<group>/ actually calls."""
+        c = CLIENT
+        for group, path in (
+            ("content", "/internal/documents"),
+            ("admin", "/internal/logs"),
+            ("productivity", "/internal/learning/state"),
+            ("system", "/internal/architecture"),
+        ):
+            r = c.get(path, headers=helpers.internal_headers(group))
+            self.assertNotIn(r.status_code, (401, 403),
+                             f"{group} token was refused its own route {path}")
 
 
 class TestSsrfGuard(unittest.TestCase):

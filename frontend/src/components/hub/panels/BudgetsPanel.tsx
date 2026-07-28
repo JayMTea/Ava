@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Icon } from '../../../lib/icons';
 import { EmptyState, Panel } from '../../dashboard/primitives';
+import { ResourceError } from '../ui/ResourceState';
 import { useAction, useResource } from '../hooks';
 import { hub } from '../hubApi';
 import type { CostSettings } from '../hubApi';
@@ -53,7 +54,8 @@ function BudgetMeter({ label, used, cap, unit, rate }: {
 }
 
 export function BudgetsPanel() {
-  const { data: c, reload } = useResource(() => hub.cost());
+  const costRes = useResource(() => hub.cost());
+  const { data: c, reload } = costRes;
   const [rate, setRate] = useState('');
   const [du, setDu] = useState('');
   const [mu, setMu] = useState('');
@@ -83,6 +85,7 @@ export function BudgetsPanel() {
 
   return (
     <>
+      <ResourceError r={costRes} label="your cost settings" />
       <Panel title="Today's spend & energy" subtitle="Live usage against your caps. Cloud API calls cost real money; local generation only costs electricity.">
         {c ? (
           <>

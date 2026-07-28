@@ -6,6 +6,7 @@ import { api } from '../../../lib/api';
 import { EmptyState, Panel } from '../../dashboard/primitives';
 import { useResource } from '../hooks';
 import { hub } from '../hubApi';
+import { ResourceError } from '../ui/ResourceState';
 import type { Backend, BackendTestResult, BenchResult, PullStatus, Skill, SkillList } from '../hubApi';
 import { Badge } from '../ui/Badge';
 import { StatRow } from '../ui/StatRow';
@@ -44,16 +45,22 @@ function BrainManager({ onRestart }: { onRestart: () => void }) {
   const [test, setTest] = useState<BackendTestResult | null>(null);
   const [testing, setTesting] = useState(false);
 
-  const { data: list, reload: load } = useResource(() => hub.backendList());
-  const { data: be } = useResource(() => hub.backends());
+  const listRes = useResource(() => hub.backendList());
+  const beRes = useResource(() => hub.backends());
+  const { data: list, reload: load } = listRes;
+  const { data: be } = beRes;
   // The agent sandbox's own model: while the agent runtime is active, THAT is
   // what chat turns think with — the backends below only serve the tool-less
   // fallback and router roles. Without pinning it here, this panel reads
   // "no model linked" on a machine where Ava is plainly answering.
-  const { data: agent } = useResource(() => hub.agentStatus());
+  const agentRes = useResource(() => hub.agentStatus());
+  const { data: agent } = agentRes;
   // The router's live route: when nothing is configured it serves a built-in
   // default (`implicit`) — with the agent off, THAT is the operative brain.
-  const { data: route } = useResource(() => api.getModel());
+  const routeRes = useResource(() => api.getModel());
+  const { data: route } = routeRes;
+  // One surface for this section's four resources — see Overview.
+  const brainErr = [listRes, beRes, agentRes, routeRes].find((r) => r.error);
 
   const preset = ENGINE_PRESETS.find((p) => p.value === engine) ?? ENGINE_PRESETS[0];
   const isCloud = !!preset.cloud;
@@ -133,6 +140,8 @@ function BrainManager({ onRestart }: { onRestart: () => void }) {
     ? (route?.backends || []).find((b) => b.implicit) || null : null;
 
   return (
+    <>
+    {brainErr && <ResourceError r={brainErr} label="your model settings" />}
     <Panel
       title="Ava's brain"
       subtitle="Link any model — a local engine (Ollama, MLX, LM Studio, llama.cpp, vLLM) or any OpenAI-compatible cloud provider — and pick which one Ava thinks with."
@@ -262,11 +271,13 @@ function BrainManager({ onRestart }: { onRestart: () => void }) {
         </div>
       )}
     </Panel>
+    </>
   );
 }
 
 function ModelStorePanel() {
-  const { data: store, reload: load } = useResource(() => hub.models());
+  const storeRes = useResource(() => hub.models());
+  const { data: store, reload: load } = storeRes;
   const [pull, setPull] = useState<PullStatus | null>(null);
   const [msg, setMsg] = useState('');
   const logRef = useRef<HTMLPreElement>(null);
@@ -300,6 +311,8 @@ function ModelStorePanel() {
   const running = pull?.status === 'running';
 
   return (
+    <>
+    <ResourceError r={storeRes} label="the model store" />
     <Panel
       title="Model store"
       subtitle={store ? `Downloads land in ${store.store} · detected tier: ${store.detected_tier}${store.available_gb ? ` · ${store.available_gb} GB` : ''}` : 'Download models sized to your hardware.'}
@@ -340,6 +353,7 @@ function ModelStorePanel() {
       <div className="hub-section" />
       <BenchPanel />
     </Panel>
+    </>
   );
 }
 
@@ -409,7 +423,8 @@ function BenchTable({ results, winner }: { results: BenchResult[]; winner?: stri
 }
 
 function BenchPanel() {
-  const { data: bench, setData: setBench } = useResource(() => hub.benchStatus());
+  const benchRes = useResource(() => hub.benchStatus());
+  const { data: bench, setData: setBench } = benchRes;
   const [prompt, setPrompt] = useState('');
   const [msg, setMsg] = useState('');
   useEffect(() => {
@@ -436,6 +451,8 @@ function BenchPanel() {
   const hasOutput = running || results.length > 0 || !!res?.error;
 
   return (
+    <>
+    <ResourceError r={benchRes} label="the benchmark status" />
     <div style={{ borderTop: '1px solid var(--line)', paddingTop: 16 }}>
       <div className="hub-row" style={{ border: 0, padding: 0 }}>
         <div className="hub-row-main">
@@ -488,6 +505,7 @@ function BenchPanel() {
         <EmptyState text="No models configured to benchmark — add an inference backend above, then run the comparison." />
       )}
     </div>
+    </>
   );
 }
 
@@ -495,7 +513,8 @@ function BenchPanel() {
 // Agent
 
 export function AgentPanel({ onRestart }: { onRestart: () => void }) {
-  const { data: st, reload: load } = useResource(() => hub.agentStatus());
+  const stRes = useResource(() => hub.agentStatus());
+  const { data: st, reload: load } = stRes;
   const [steps, setSteps] = useState<{ step: string; ok: boolean; detail: string }[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [detail, setDetail] = useState('');
@@ -513,6 +532,7 @@ export function AgentPanel({ onRestart }: { onRestart: () => void }) {
 
   return (
     <>
+    <ResourceError r={stRes} label="the agent status" />
     <Panel
       title="Agent runtime"
       subtitle="NemoClaw gives Ava a sandbox, tools, egress policies, and persistent memory. Without it, chat still works (tool-less)."

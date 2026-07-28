@@ -39,6 +39,7 @@ _VARS = {
 _cache: Dict[str, object] = {"ts": 0.0, "list": None}
 
 
+import json as _json
 import re as _re
 
 _ENV_VAR = _re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
@@ -118,8 +119,73 @@ def _load_dir(base: str, errors: list | None = None) -> dict:
                                "error": "not a mapping (expected 'key: value' lines)"})
             continue
         m["id"] = m.get("id") or name
+        _validate(m, path, errors)
         out[m["id"]] = m
     return out
+
+
+# The manifest schema Ava's core actually reads, and the type each block must be.
+# Anything absent is fine; anything present with the WRONG type is quarantined.
+# Derived from what the core actually reads off a manifest, not from what looks
+# tidy — `dynamic_access`, `base_url` and `role` are all live and were missing
+# from a first, guessed version of this table, which then warned about the
+# repo's own shipped connectors.
+_BLOCK_TYPES: dict = {
+    "service": dict, "perf": dict, "ui": dict, "egress": dict, "auth": dict,
+    "mcp": dict, "chat_pickup": dict, "jobs": dict, "discover": dict,
+    "facade": dict, "health": (dict, str), "ingest": dict, "tools": (list, dict),
+    "dynamic_access": (dict, bool), "actions": (list, dict), "model_hints": list,
+    "id": str, "label": str, "kind": str, "role": str, "base_url": str,
+    "token_env": str, "call": str,
+    "enabled": bool, "confirm": bool, "manifest_version": int,
+}
+
+# What this Ava understands. A manifest declaring a NEWER version still loads —
+# forward-compat by ignoring unknown keys is what keeps a fork's manifests
+# portable — it just says so.
+MANIFEST_VERSION = 1
+
+
+def _validate(m: dict, path: str, errors: list | None) -> None:
+    """Type-check the blocks core reads, and QUARANTINE the bad ones in memory.
+
+    Degrade per-block, never per-connector, and never per-page. A scalar where a
+    mapping belonged used to sail through here and raise `AttributeError` deep in
+    a consumer — and for `egress:` that consumer is the Setup -> Connectors page,
+    which holds both the manifest editor and the error list. Breaking it is a
+    self-inflicted lockout: the one screen that could fix the manifest is the one
+    the manifest takes down.
+
+    The deletion is on the IN-MEMORY copy only. The owner's file is never
+    rewritten — they asked for that YAML, and a loader that "repairs" it would
+    lose whatever they were in the middle of writing.
+    """
+    if errors is None:
+        return
+    cid = m.get("id", "?")
+    declared = m.get("manifest_version")
+    if isinstance(declared, int) and declared > MANIFEST_VERSION:
+        errors.append({"id": cid, "path": path, "severity": "warn",
+                       "error": f"written for manifest v{declared}; this Ava "
+                                f"understands v{MANIFEST_VERSION} — unknown blocks "
+                                "are ignored"})
+    for key, want in _BLOCK_TYPES.items():
+        if key not in m:
+            continue
+        if not isinstance(m[key], want):
+            names = (want.__name__ if isinstance(want, type)
+                     else " or ".join(t.__name__ for t in want))
+            errors.append({"id": cid, "path": path, "severity": "error",
+                           "error": f"`{key}:` must be {names} (got "
+                                    f"{type(m[key]).__name__}) — ignoring that block; "
+                                    "see docs/CONNECTOR_SDK.md"})
+            m.pop(key, None)
+    # Unknown top-level keys are how a typo (`egres:`) goes unnoticed forever.
+    for key in list(m):
+        if key not in _BLOCK_TYPES and not key.startswith("x_"):
+            errors.append({"id": cid, "path": path, "severity": "warn",
+                           "error": f"unknown key `{key}:` — ignored. Prefix your own "
+                                    "with `x_` to silence this."})
 
 
 def _merge_all(errors: list | None = None) -> dict:
@@ -427,6 +493,34 @@ def auth_env(m: dict) -> str | None:
     return None
 
 
+TRANSPORTS = ("mcp", "discover", "rest", "none")
+
+
+def transport(m: dict) -> str:
+    """HOW a connector's tools reach Ava — the honest name for its wire protocol:
+
+        mcp       a real Model Context Protocol server (``mcp:``), spoken by
+                  ava_bridge/mcp_client.py
+        discover  the ava-tools/1 HTTP facade (``actions.discover``) — MCP-shaped
+                  but Ava's own protocol, NOT MCP
+        rest      statically declared ``actions:`` proxied to the app's REST API
+        none      no agent surface at all (a UI-only app, or a push-only device)
+
+    Kept as one function because the distinction is easy to fudge and was: the
+    Setup UI used to badge everything with tools as "MCP", which made the label
+    meaningless on every row. Anything showing a transport to the owner reads it
+    from here."""
+    if not isinstance(m, dict):
+        return "none"
+    if _mcp_spec(m):
+        return "mcp"
+    if _discover_spec(m):
+        return "discover"
+    if _static_actions(m):
+        return "rest"
+    return "none"
+
+
 def _auth_headers(cid: str) -> dict:
     """Bearer header for a connector's own API, from a top-level
     ``auth: { token_env: ENV }`` block. Empty if none declared."""
@@ -484,17 +578,21 @@ def render_tool(cid: str, action: dict) -> str:
     """
     aid = action["id"]
     name = f"{cid}_{aid}"
-    desc = (action.get("description") or f"{aid} via the {cid} connector").replace("'", "\\'")
+    # json.dumps, not .replace("'", "\\'"): a JSON string literal is also a valid
+    # JS one, and it escapes newlines, backslashes and quotes. Hand-escaping only
+    # the apostrophe meant a multi-line YAML `description:` emitted an
+    # unterminated JS string — invalid .mjs that fails inside the agent sandbox,
+    # where nobody sees the syntax error. Emits its own quotes.
+    desc = _json.dumps(action.get("description") or f"{aid} via the {cid} connector")
     props = action.get("input") or {}
     schema = {"type": "object", "properties": props, "additionalProperties": False}
-    import json as _json
     return f"""// AUTO-GENERATED from connectors/{cid}/connector.yaml (action: {aid}).
 // Regenerate with:  ava connector tools {cid} --write
 const BRIDGE = process.env.AVA_BRIDGE_URL || 'http://host.openshell.internal:8096';
 
 export default {{
   name: '{name}',
-  description: '{desc}',
+  description: {desc},
   inputSchema: {_json.dumps(schema, indent=2)},
   async handler(args, ctx) {{
     try {{
@@ -567,23 +665,26 @@ def _filter_tools(res: dict, query: str, limit: int) -> dict:
 def render_find_tool(cid: str) -> str:
     """The .mjs source for <cid>_find_tool: search the connector's tool set."""
     m = {x["id"]: x for x in load()}.get(cid) or {}
-    label = (m.get("label") or cid).replace("'", "\\'")
+    label = m.get("label") or cid
     acts = [a for a in _static_actions(m) if a.get("id") and a.get("path")]
     if acts:
         caps = sorted({action_capability(a) for a in acts})
         hint = f"{len(acts)} actions across: {', '.join(caps[:12])}"
     else:
         hint = "its tools are discovered live"
-    desc = (f"Search the {label} app\\'s available actions ({hint}). "
-            f"ALWAYS call this first with a few keywords for what you want to do, "
-            f"then invoke the chosen action with {cid}_call.")
+    # json.dumps escapes the whole string (see render_tool) and emits its own
+    # quotes, so `label` needs no hand-escaping and the apostrophe is literal.
+    desc = _json.dumps(
+        f"Search the {label} app's available actions ({hint}). "
+        f"ALWAYS call this first with a few keywords for what you want to do, "
+        f"then invoke the chosen action with {cid}_call.")
     return f"""// AUTO-GENERATED from connectors/{cid}/connector.yaml (meta: find_tool).
 // Regenerate with:  ava connector tools {cid} --write
 const BRIDGE = process.env.AVA_BRIDGE_URL || 'http://host.openshell.internal:8096';
 
 export default {{
   name: '{cid}_find_tool',
-  description: '{desc}',
+  description: {desc},
   inputSchema: {{
     type: 'object',
     properties: {{
@@ -612,14 +713,17 @@ export default {{
 def render_call_tool(cid: str) -> str:
     """The .mjs source for <cid>_call: invoke one tool found via find_tool."""
     m = {x["id"]: x for x in load()}.get(cid) or {}
-    label = (m.get("label") or cid).replace("'", "\\'")
+    # See render_tool: json.dumps escapes the whole string and emits its quotes.
+    desc = _json.dumps(
+        f"Run one {m.get('label') or cid} action by name — find the name and its "
+        f"input schema with {cid}_find_tool first.")
     return f"""// AUTO-GENERATED from connectors/{cid}/connector.yaml (meta: call).
 // Regenerate with:  ava connector tools {cid} --write
 const BRIDGE = process.env.AVA_BRIDGE_URL || 'http://host.openshell.internal:8096';
 
 export default {{
   name: '{cid}_call',
-  description: 'Run one {label} action by name — find the name and its input schema with {cid}_find_tool first.',
+  description: {desc},
   inputSchema: {{
     type: 'object',
     properties: {{
@@ -1049,5 +1153,5 @@ def action_capability(a: dict) -> str:
     return segs[0] if segs else "general"
 
 
-def all() -> List[dict]:  # noqa: A003 — deliberate registry accessor
+def all() -> List[dict]:
     return load()

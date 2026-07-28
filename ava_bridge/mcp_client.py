@@ -345,6 +345,27 @@ class _SseSession(_Session):
 # --------------------------------------------------------------------------- #
 # stdio transport (newline-delimited JSON-RPC over a subprocess)
 # --------------------------------------------------------------------------- #
+def _minimal_env(spec: dict) -> dict:
+    """The environment an UNSANDBOXED stdio MCP server gets.
+
+    It used to be `{**os.environ, **spec["env"]}` — the bridge's entire
+    environment, including ANTHROPIC_API_KEY and every connector credential,
+    handed to a command the owner pasted from a README. The connector docs use
+    `npx -y @modelcontextprotocol/server-github` as the worked example, so the
+    pasted string is routinely something fetched from the network at run time.
+
+    A server needs enough to find its interpreter and a writable temp dir; it does
+    not need the host's secrets. Anything it legitimately requires is declared in
+    the manifest's `env:` block, which is the point at which the owner decides.
+    """
+    keep = ("PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "TERM",
+            # Node/Python need these to locate themselves on some installs.
+            "NODE_PATH", "NVM_DIR", "SYSTEMROOT")
+    env = {k: os.environ[k] for k in keep if k in os.environ}
+    env.update(spec.get("env") or {})
+    return env
+
+
 def _docker_wrap(spec: dict) -> list[str]:
     """Wrap a stdio MCP command to run inside a throwaway container, so an
     untrusted server can't touch the host filesystem. Secrets are passed via
@@ -371,7 +392,7 @@ class _StdioSession(_Session):
             popen_env = os.environ            # secrets passed via -e inside the wrap
         else:
             cmd = spec["command"]
-            popen_env = {**os.environ, **(spec.get("env") or {})}
+            popen_env = _minimal_env(spec)
         self._proc = subprocess.Popen(
             cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL, env=popen_env, text=True, bufsize=1)
@@ -419,20 +440,42 @@ class _StdioSession(_Session):
 # --------------------------------------------------------------------------- #
 # Public API — mirrors the discover facade so connectors.py routes cleanly
 # --------------------------------------------------------------------------- #
+def _session_lost(e: Exception) -> bool:
+    """True when the server rejected our cached Mcp-Session-Id.
+
+    A stateful Streamable HTTP server (FastMCP, and our own sdk/host/ava_mcp)
+    forgets every session when it restarts, so the first call afterwards fails
+    with 404 "Session not found" even though the server is perfectly healthy.
+    The session is dropped and re-established on the next call, but that meant
+    one bogus "unreachable" after every restart of the app — exactly the false
+    signal the Setup transport chip exists to avoid."""
+    msg = str(e)
+    return "Session not found" in msg or "session not found" in msg
+
+
 def list_tools(cid: str, spec: dict) -> dict:
     """-> {"tools": [{name, description, inputSchema}, ...]} or {"error": ...}."""
-    try:
-        return {"tools": _session(cid, spec).list_tools()}
-    except Exception as e:  # noqa: BLE001 — transport errors become {"error"}
-        reset(cid)
-        return {"error": f"{cid} mcp: {e}"}
+    for retry in (True, False):
+        try:
+            return {"tools": _session(cid, spec).list_tools()}
+        except Exception as e:  # noqa: BLE001 — transport errors become {"error"}
+            reset(cid)
+            if retry and _session_lost(e):
+                continue    # re-handshake against the restarted server
+            return {"error": f"{cid} mcp: {e}"}
 
 
 def call_tool(cid: str, spec: dict, name: str, arguments: dict | None) -> tuple:
     """-> (result, status). MCP tool errors (isError) pass through as data —
     they're the model's to read — transport failures return 502."""
-    try:
-        return _session(cid, spec).call_tool(name, arguments or {}), 200
-    except Exception as e:  # noqa: BLE001 — transport errors become 502
-        reset(cid)
-        return {"error": f"{cid} mcp: {e}"}, 502
+    for retry in (True, False):
+        try:
+            return _session(cid, spec).call_tool(name, arguments or {}), 200
+        except Exception as e:  # noqa: BLE001 — transport errors become 502
+            reset(cid)
+            # Only ever retried on session loss, which the server rejects
+            # BEFORE dispatching the tool — so this cannot double-execute a
+            # side-effecting call. Every other failure is reported as-is.
+            if retry and _session_lost(e):
+                continue
+            return {"error": f"{cid} mcp: {e}"}, 502

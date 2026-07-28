@@ -3,6 +3,7 @@ import { Icon } from '../../lib/icons';
 import { api } from '../../lib/api';
 import { MemoryPanel } from './MemoryPanel';
 import { type TabId } from './shared';
+import { useResource } from './hooks';
 import { Overview } from './panels/Overview';
 import { HardwarePanel } from './panels/HardwarePanel';
 import { AgentPanel } from './panels/AgentPanel';
@@ -106,12 +107,20 @@ function writeTabHash(t: TabId): void {
   if (window.location.hash.replace(/^#\/?/, '') !== next) window.location.hash = next;
 }
 
-function RestartBanner({ show }: { show: boolean }) {
+// `docker` comes from /api/hub/system, which already reports the runtime — the
+// banner used to say "restart Ava" and name no command, leaving the user to
+// guess between a compose service and a bare process.
+function RestartBanner({ show, docker }: { show: boolean; docker?: boolean }) {
   if (!show) return null;
   return (
     <div className="hub-restart">
       <Icon name="refresh" />
-      <span>Saved to <b>ava.yaml</b>. Restart Ava to apply the change.</span>
+      <span>
+        Saved to <b>ava.yaml</b>. Restart Ava to apply the change
+        {docker === undefined ? '' : ':'}
+        {docker === true && <> <code>cd deploy &amp;&amp; docker compose restart ava</code></>}
+        {docker === false && <> <code>./bin/ava up</code> (restart the service you started it with)</>}
+      </span>
     </div>
   );
 }
@@ -133,6 +142,10 @@ export function HubView() {
   const [brand, setBrand] = useState('Ava');
   useEffect(() => { api.brand().then((b) => b?.name && setBrand(b.name)).catch(() => {}); }, []);
   const notifyRestart = useCallback(() => setRestart(true), []);
+  // Only used to name the right restart command in the banner. A failure here is
+  // deliberately silent: the banner simply omits the command rather than
+  // becoming an error the user cannot act on.
+  const { data: sys } = useResource(() => hub.system());
 
   return (
     <div className="hub view-scroll">
@@ -150,7 +163,7 @@ export function HubView() {
         </div>
 
         <ApprovalsBanner />
-        <RestartBanner show={restart} />
+        <RestartBanner show={restart} docker={sys?.docker} />
 
         <div className="hub-tabs">
           {TABS.map((t) => (

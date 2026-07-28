@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie,
@@ -22,6 +22,27 @@ export function InfoTip({ text, label }: { text: string; label?: string }) {
     setOpen(true);
   };
   const hide = () => setOpen(false);
+  // Safety net while open: a hover popover must never wedge open if the
+  // trigger's mouseleave is missed (seen under recording/load). Any pointer
+  // activity away from the trigger, a scroll, or Escape dismisses it.
+  useEffect(() => {
+    if (!open) return;
+    const offIfOutside = (e: Event) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onScroll = () => setOpen(false);
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('pointermove', offIfOutside, true);
+    document.addEventListener('pointerdown', offIfOutside, true);
+    document.addEventListener('scroll', onScroll, true);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointermove', offIfOutside, true);
+      document.removeEventListener('pointerdown', offIfOutside, true);
+      document.removeEventListener('scroll', onScroll, true);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
   return (
     <>
       <button

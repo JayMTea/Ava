@@ -1,0 +1,102 @@
+# ava_mcp — serve your app as a real MCP server
+
+Your app already speaks the [`ava-tools/1` facade](../../../docs/CONNECTOR_SDK.md)
+(`GET /tools` + `POST /call`). That's the easy way into Ava — but it's *Ava's*
+protocol, so it wires you into Ava and nothing else.
+
+This adapter puts genuine [Model Context Protocol](https://modelcontextprotocol.io)
+in front of the same tools. One process, no code change, and your app is now
+callable by Ava's `mcp:` connector block, Claude Desktop, an IDE — anything that
+speaks MCP.
+
+```
+your app  ──ava-tools/1──▶  ava_mcp  ──MCP / JSON-RPC──▶  any MCP client
+```
+
+Stdlib only. No dependency on Ava.
+
+## Run it as a sidecar (no code change)
+
+```bash
+python -m ava_mcp --facade http://127.0.0.1:8097 --port 9310 \
+                  --token-env MYAPP_TOKEN --auth-env MYAPP_MCP_TOKEN
+```
+
+Then point Ava's manifest at it:
+
+```yaml
+mcp:
+  url: "http://127.0.0.1:9310/mcp"
+  token_env: MYAPP_MCP_TOKEN
+```
+
+If your app serves `/.well-known/ava.json`, its `tools` / `call` / `label`
+prefill automatically.
+
+**Credentials are named, never passed.** `--token-env` and `--auth-env` take the
+*name* of an environment variable, so no secret lands in `argv` where `ps` can
+read it. They are two different credentials:
+
+| flag | guards | who presents it |
+|---|---|---|
+| `--token-env` | the **upstream app** | the adapter, calling your facade |
+| `--auth-env` | the **MCP endpoint** | the MCP client, calling the adapter |
+
+Leave `--auth-env` off only when the port is unreachable from anywhere you don't
+trust — without it, anyone who can reach it can call every tool. The adapter
+warns on startup when it's unset.
+
+## Mount it in-process instead
+
+For a Python app that would rather not run a second process:
+
+```python
+from ava_mcp import RegistrySource, serve_mcp
+
+source = RegistrySource(
+    tools=[{"name": "list_things", "description": "…",
+            "inputSchema": {"type": "object", "properties": {}},
+            "access": "read"}],
+    dispatch=lambda name, args: my_handlers[name](args),   # -> result or (result, status)
+)
+serve_mcp(source, port=9310, auth_token=os.environ.get("MYAPP_MCP_TOKEN"), block=False)
+```
+
+`dispatch` may return a bare result or `(result, status)` — a status ≥ 400 comes
+back to the model as an MCP `isError` result, which is what you want: the model
+reads the message and tries something else, instead of the call blowing up.
+
+## `access` tiers survive the conversion
+
+This is the part a hand-rolled MCP server gets wrong. The facade's `access`
+field (`read` | `write` | `destructive`) is what drives Ava's just-in-time
+consent — `read` runs silently, `write` asks once, `destructive` asks every
+time. Plain MCP has no such field, so a naive port silently demotes every
+`read` tool to `write` and the operator starts getting prompted for things that
+used to be quiet.
+
+`ava_mcp` carries it through on every `tools/list` entry, twice over: top-level
+`access` (where Ava's `tools_cache` reads it) and mirrored under `_meta` as
+`ava/access` (the spec-sanctioned home for vendor fields, for strict clients).
+
+Tiers remain self-reported and can only make a tool *quieter* — egress policy,
+the operator's gate, and the audit ledger all stay on Ava's side.
+
+## What it implements
+
+`initialize` · `notifications/initialized` · `ping` · `tools/list` ·
+`tools/call`, over **Streamable HTTP** (POST JSON-RPC; `Mcp-Session-Id` issued
+on initialize and echoed thereafter). Tools only — no resources, prompts, or
+server→client streaming, because that is all the connector SDK bridges.
+
+`GET /health` is always open so a connector's `service.probe` can see the
+adapter is up without holding a credential.
+
+## API
+
+| Symbol | Purpose |
+|---|---|
+| `FacadeSource(base_url, token, tools_path, call_path)` | front a running `ava-tools/1` facade |
+| `RegistrySource(tools, dispatch)` | serve an in-process tool registry |
+| `serve_mcp(source, host, port, path, auth_token, block)` | run the MCP server |
+| `python -m ava_mcp --facade URL` | the sidecar CLI |

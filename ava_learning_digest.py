@@ -18,7 +18,7 @@ HERE = Path(__file__).resolve().parent
 
 # Importing settings auto-loads .env (repo root + $AVA_HOME) into the
 # environment; values already set (systemd EnvironmentFile=, shell) win.
-from ava_bridge import settings  # noqa: F401,E402
+from ava_bridge import settings  # noqa: E402
 
 # Setup logging
 logging.basicConfig(
@@ -50,7 +50,7 @@ def fetch_learning_state():
             }
         
         return code_state, chat_state
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — logged; a digest failure must not abort the run
         logger.error(f'Failed to fetch learning state: {e}')
         return None, None
 
@@ -218,13 +218,15 @@ def send_email(html_body, text_body):
         
         logger.info(f'Email sent to {recipient_email}')
         return True
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — logged; a digest failure must not abort the run
         logger.error(f'Failed to send email: {e}')
         return False
 
 def save_digest_file(html_body):
     """Save digest to logs/learning_digest.html for archival."""
-    log_dir = Path(os.environ.get('AVA_HOME', str(HERE))) / 'logs'
+    # settings.logs_dir() honours paths.logs / AVA_LOGS_DIR as well as AVA_HOME;
+    # re-deriving it here ignored the first two and split the archive in two.
+    log_dir = Path(settings.logs_dir())
     log_dir.mkdir(parents=True, exist_ok=True)
     
     digest_file = log_dir / 'learning_digest.html'

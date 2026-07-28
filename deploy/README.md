@@ -33,17 +33,31 @@ Then continue to step two, [picking Ava's brain](../docs/CHOOSE_A_MODEL.md).
 
 ## 1. Docker (recommended)
 
-Requires Docker and Docker Compose v2. Pick the profile that matches your machine:
+Requires Docker and Docker Compose v2.
+
+The easy path — detects your hardware, picks a profile, resolves your model's
+vLLM flags, and waits for the app to actually answer before saying it is done:
+
+```bash
+cd deploy && ./install.sh
+```
+
+Or pick the profile yourself. Copy it to `.env` and start; the profile selection
+lives in the file, so every later `logs` / `down` / `pull` sees the same settings:
 
 ```bash
 cd deploy
+cp profiles/cpu.env   .env   # no GPU  -> Ollama for inference
+cp profiles/gpu.env   .env   # NVIDIA GPU -> vLLM
+cp profiles/cloud.env .env   # bring an API key, no local model (edit .env first)
+cp profiles/full.env  .env   # everything, incl. image/video (the GPU service)
+cp profiles/agent.env .env   # + full tool-using agent (opt-in, see below)
 
-docker compose --profile cpu   up -d   # no GPU  -> Ollama for inference
-docker compose --profile gpu   up -d   # NVIDIA GPU -> vLLM
-docker compose --profile cloud up -d   # bring an API key, no local model
-docker compose --profile full  up -d   # everything, incl. image/video (the GPU service)
-docker compose --profile agent up -d   # + full tool-using agent (opt-in, see below)
+docker compose up -d
 ```
+
+See [profiles/README.md](profiles/README.md) for what each one sets and why the
+profile lives in `.env` rather than on the command line.
 
 Then open **http://localhost:8096**. The first screen prompts you to create an
 admin password, so there is nothing to hunt for in logs.
@@ -58,15 +72,38 @@ Good to know:
   config, chats, media, logs, models. To back up, copy that folder.
 - **Password**: pin the admin password ahead of time with `AVA_PASSWORD=...` in
   `deploy/.env`; otherwise the first-run screen sets it.
-- **Model**: choose one with `AVA_MODEL=...` (gpu profile) or via `ava.yaml`.
+- **Model**: choose one with `AVA_MODEL=...` (gpu profile) or via `ava.yaml`. The
+  gpu profile defaults to a small model (`Qwen/Qwen2.5-7B-Instruct`, ~16 GB card)
+  so it starts on an ordinary GPU; `install.sh` drops to the cpu profile if
+  `nvidia-smi` reports less. Scaling up is the deliberate act:
+
+  | Variable | Default | Notes |
+  |---|---|---|
+  | `AVA_MODEL` | `Qwen/Qwen2.5-7B-Instruct` | Any model vLLM can serve. Set it, then re-run `./install.sh` (or `./resolve-model-flags.sh --env <model> >> .env`) so its parsers follow. |
+  | `AVA_VLLM_GPU_UTIL` | `0.90` | Fraction of GPU memory vLLM may take. `profiles/full.env` lowers it to `0.55`, where the GPU service shares the pool. |
+  | `AVA_VLLM_MAX_LEN` | resolved | Context ceiling, **clamped to what the model actually supports** — vLLM raises rather than clamping, so asking for more than the checkpoint allows means it never boots. |
+  | `AVA_VLLM_MODEL_FLAGS` | resolved | `--tool-call-parser`, `--reasoning-parser` and any model-specific boot flags, as one string. |
+
+  You no longer pick a parser by hand. `deploy/model-flags.conf` maps a model to
+  its parsers and real context length, and `deploy/resolve-model-flags.sh` is the
+  only thing that reads it — `install.sh`, `local-serve.sh` and compose all go
+  through it, so the container and bare-metal paths cannot disagree. A parser
+  that does not match the model returns no `tool_calls` *silently*, and every
+  turn then runs to timeout, so this is the one setting worth getting right.
+  An unknown model family serves without tool-calling rather than guessing.
+  See [docs/CHOOSE_A_MODEL.md](../docs/CHOOSE_A_MODEL.md).
 - **Inference backend**: chat flows bridge → embedded router (`:8010` in-container)
-  → the profile's engine. Each profile sets `AVA_BACKEND_URL`/`ENGINE`/`MODEL`
-  defaults (gpu→vllm, cpu→ollama); for `cloud`, set them plus `AVA_INFERENCE_KEY`
-  in `deploy/.env` (see the compose header).
+  → the profile's engine. `AVA_BACKEND_URL`/`ENGINE`/`MODEL` come from
+  `deploy/profiles/<profile>.env`, which you copy to `deploy/.env`. Compose has
+  **no default** for them and refuses to start without them: the bridge runs
+  under every profile, so any one default is wrong for the others — the old
+  global `http://vllm:8002/v1` pointed the `cpu` profile at a service it never
+  started. For `cloud`, the three values ship empty and you fill them in.
 - **Agent**: the container runs the tool-less assistant by default. For the
   **full tool-using agent** (self-coding, connectors, memory) in Docker, opt into
-  the `agent` profile: set `AVA_AGENT_ENABLED=1 AVA_AGENT_RUNTIME=remote
-  AVA_ROUTER_HOST=0.0.0.0`, then `docker compose --profile agent up -d`. This
+  the `agent` profile: `cp profiles/agent.env .env && docker compose up -d`
+  (that file already sets the `AVA_AGENT_ENABLED` / `AVA_AGENT_RUNTIME` /
+  `AVA_ROUTER_HOST` trio, which all three have to be right together). This
   runs a separate agent container that mounts the host Docker socket, which is
   **root-equivalent** on the host; it is opt-in for that reason. Full setup and
   the security caveat: [AGENT_RUNTIME.md, Full agent in Docker](../docs/AGENT_RUNTIME.md).
@@ -77,14 +114,18 @@ Published images are **cosign-signed** (Sigstore keyless; the signature proves
 the image came from this repo's release CI). Pull the signed image instead of
 building locally by setting `AVA_IMAGE` in `deploy/.env`, and verify it first:
 
+Replace `<version>` below with a tag that exists — see the repository's Releases
+page. (`release.yml` publishes an image only on a `v*` tag push, so a tag that has
+not been released yet returns 403 from GHCR.)
+
 ```bash
 # Verify the release image (see SECURITY.md §9 for the exact identity regex):
-cosign verify ghcr.io/jaymtea/ava-bridge:v0.1.0 \
-  --certificate-identity-regexp "https://github.com/JayMTea/.+/.github/workflows/release.yml@refs/tags/v0.1.0" \
+cosign verify ghcr.io/<owner>/ava-bridge:<version> \
+  --certificate-identity-regexp "https://github.com/<owner>/.+/.github/workflows/release.yml@refs/tags/<version>" \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 
-echo "AVA_IMAGE=ghcr.io/jaymtea/ava-bridge:v0.1.0" >> deploy/.env
-docker compose --profile gpu pull && docker compose --profile gpu up -d
+echo "AVA_IMAGE=ghcr.io/<owner>/ava-bridge:<version>" >> deploy/.env
+docker compose pull && docker compose up -d
 ```
 
 One-line install on a fresh box (auto-detects GPU/CPU). Run it from inside your
@@ -119,6 +160,13 @@ cd frontend && npm install && npm run build && cd ..
 ```
 
 `ava setup` prints your generated admin password (or pass `--password`).
+
+`./bin/ava` works from the checkout with no install step. To get a plain `ava`
+command on your `PATH` instead, swap the `pip install -r requirements.txt` line
+for `pip install -e .` — it installs the same dependencies and adds the console
+script. Keep the `-e`: Ava runs *from* this checkout, and a non-editable install
+would leave it looking for `frontend/dist`, `config.example.yaml` and
+`agent/install.sh` inside `site-packages`, where they are not.
 
 A healthy run looks like this — `doctor` shows the hardware it detected, and
 `up` prints the address to open:

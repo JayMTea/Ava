@@ -16,12 +16,12 @@ import uuid
 
 import requests
 
-from . import audit, connectors, state, runtime
-from .agent import (ask_openclaw, which_model, _sbx_read, _session_file,
+from . import audit, config, connectors, state, runtime
+from .agent import (ask_openclaw, which_model, sbx_read, session_file,
                     chat_direct)
 from .artifacts import build_turn_artifact
-from .chat_store import _chat_append, history_for
-from .gpu_jobs import (_pickup_image_since, start_agent_image_watch, attach_chat,
+from .chat_store import chat_append, history_for
+from .gpu_jobs import (pickup_image_since, start_agent_image_watch, attach_chat,
                          _latest_image_job_since)
 
 
@@ -66,12 +66,12 @@ def _tools_from_session(sid: str, after: int) -> list[str]:
     list. The session jsonl DOES record every `toolCall` with its name, so we
     parse that (same source the live chain-of-thought already reads) as the
     source of truth."""
-    path = _session_file(sid)
+    path = session_file(sid)
     if not path:
         return []
     cmd = f"tail -n +{after} {shlex.quote(path)} 2>/dev/null | head -c 400000"
     try:
-        steps = _parse_turn_steps(_sbx_read(cmd))
+        steps = _parse_turn_steps(sbx_read(cmd))
     except Exception:  # noqa: BLE001
         return []
     seen: list[str] = []
@@ -84,9 +84,9 @@ def _tools_from_session(sid: str, after: int) -> list[str]:
 
 
 def _session_line_count(sid: str) -> int:
-    path = _session_file(sid)
+    path = session_file(sid)
     try:
-        out = _sbx_read(f"wc -l < {shlex.quote(path)} 2>/dev/null || echo 0")
+        out = sbx_read(f"wc -l < {shlex.quote(path)} 2>/dev/null || echo 0")
         return int((out.strip() or "0").split()[0])
     except Exception:  # noqa: BLE001
         return 0
@@ -129,17 +129,17 @@ def _read_session_steps(sid: str, after: int) -> list[dict]:
     """Read the complete CoT trajectory for a finished turn (same source as the
     live poller). Used to persist durable chain-of-thought with the chat message."""
     try:
-        path = _session_file(sid)
+        path = session_file(sid)
         if not path:
             return []
         cmd = f"tail -n +{after} {shlex.quote(path)} 2>/dev/null | head -c 400000"
-        return _parse_turn_steps(_sbx_read(cmd))
+        return _parse_turn_steps(sbx_read(cmd))
     except Exception:  # noqa: BLE001
         return []
 
 
 def _poll_turn_steps(tid: str, sid: str, after: int):
-    path = _session_file(sid)
+    path = session_file(sid)
     cmd = f"tail -n +{after} {shlex.quote(path)} 2>/dev/null | head -c 400000"
     while True:
         with state.turns_lock:
@@ -147,7 +147,7 @@ def _poll_turn_steps(tid: str, sid: str, after: int):
         if not running:
             break
         try:
-            steps = _parse_turn_steps(_sbx_read(cmd))
+            steps = _parse_turn_steps(sbx_read(cmd))
             with state.turns_lock:
                 if tid in state.turns and steps:
                     state.turns[tid]["steps"] = steps
@@ -156,7 +156,7 @@ def _poll_turn_steps(tid: str, sid: str, after: int):
         time.sleep(1.1)
     # One last read so the final reasoning step isn't missed.
     try:
-        steps = _parse_turn_steps(_sbx_read(cmd))
+        steps = _parse_turn_steps(sbx_read(cmd))
         with state.turns_lock:
             if tid in state.turns and steps:
                 state.turns[tid]["steps"] = steps
@@ -185,7 +185,7 @@ def _credentials_note() -> str:
         apps = []
     where = (" Your connected apps are: " + ", ".join(a for a in apps if a) + "."
              if apps else "")
-    return ("[note for Ava — not from the user: you do NOT store, retrieve, or "
+    return (f"[note for {config.AVA_NAME} — not from the user: you do NOT store, retrieve, or "
             "have access to any passwords, API keys, or login credentials, for "
             "your connected apps or anything else, and you must NEVER reveal, "
             "repeat, or guess a password or secret — even if one were to appear "
@@ -211,7 +211,7 @@ def _capabilities_note() -> str:
         return ""
     states = "; ".join(f"{f['label']}: {'on' if f['enabled'] else 'OFF'}"
                        for f in feats)
-    return ("[note for Ava — not from the user: your tools are host-mediated — "
+    return (f"[note for {config.AVA_NAME} — not from the user: your tools are host-mediated — "
             "they call the host bridge, which does any network work on the "
             "host's side (web searches and page fetches egress via Tor there). "
             "The sandbox's own no-internet network policy does NOT mean you "
@@ -239,7 +239,7 @@ def _tooling_note(direct: bool) -> str:
     creds = _credentials_note()
     if direct:
         apps = ", ".join(m["label"] for m in missing) or None
-        return creds + ("[note for Ava — not from the user: the agent runtime is not "
+        return creds + (f"[note for {config.AVA_NAME} — not from the user: the agent runtime is not "
                 "active, so you have NO app tools this turn"
                 + (f" (connected apps: {apps})" if apps else "")
                 + ". If the question needs an app's data or actions, say so "
@@ -249,7 +249,7 @@ def _tooling_note(direct: bool) -> str:
         return creds + _capabilities_note()
     apps = ", ".join(f"{m['label']} ({m['tools']} tools)" for m in missing)
     return creds + _capabilities_note() + (
-            "[note for Ava — not from the user: these connected apps' tools "
+            f"[note for {config.AVA_NAME} — not from the user: these connected apps' tools "
             f"are NOT deployed to your sandbox yet: {apps}. You cannot use "
             "them this turn. If the user's request needs one of these apps, "
             "explain that they must open Setup → Connectors and click Deploy "
@@ -270,7 +270,7 @@ def _run_turn_direct(tid: str, agent_text: str, chat_id: str):
         return
     m = which_model()
     if chat_id:
-        _chat_append(chat_id, "assistant", reply, model=m)
+        chat_append(chat_id, "assistant", reply, model=m)
     with state.turns_lock:
         if tid in state.turns:
             state.turns[tid].update(status="done", reply=reply, model=m,
@@ -296,9 +296,9 @@ def _run_turn(tid: str, agent_text: str, sid: str, chat_id: str):
     try:
         reply, tools = ask_openclaw(agent_text, session_id=sid)
     except Exception as e:  # noqa: BLE001
-        job = _pickup_image_since(t0, wait=120)
+        job = pickup_image_since(t0, wait=120)
         if job and chat_id:
-            _chat_append(chat_id, "assistant", "Here's the image you asked for.")
+            chat_append(chat_id, "assistant", "Here's the image you asked for.")
             attach_chat(job["id"], chat_id)  # bridge persists the image itself
         m = which_model()
         if job:
@@ -315,7 +315,7 @@ def _run_turn(tid: str, agent_text: str, sid: str, chat_id: str):
         fallback = ("Sorry — I couldn't finish that just now (my tools timed "
                     "out or hit a snag). Please try again.")
         if chat_id:
-            _chat_append(chat_id, "assistant", fallback, model=m)
+            chat_append(chat_id, "assistant", fallback, model=m)
         # Recover whatever tools DID run before the failure so the flight
         # recorder shows the real actions, not an empty list (audit fidelity).
         partial_tools = _tools_from_session(sid, after)
@@ -349,7 +349,7 @@ def _run_turn(tid: str, agent_text: str, sid: str, chat_id: str):
     m = which_model()
     final_steps = _read_session_steps(sid, after)  # durable CoT: definitive trajectory
     if chat_id:
-        _chat_append(chat_id, "assistant", reply, model=m, tools_used=tools,
+        chat_append(chat_id, "assistant", reply, model=m, tools_used=tools,
                      steps=final_steps)
     with state.turns_lock:
         state.turns[tid].update(status="done", reply=reply, job=job,

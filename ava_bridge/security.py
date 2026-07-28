@@ -6,54 +6,34 @@ one named internal scope and one narrow route check by default.
 """
 from __future__ import annotations
 
-import hashlib
-import hmac
 import ipaddress
 import os
 from typing import Iterable
 from urllib.parse import urlparse
 
 
+# What each MCP capability group may reach on /internal/*. Enforced by
+# ava_bridge/internal.group_may(), which ava_bridge/auth.auth_gate calls for every
+# /internal request.
+#
+# These sets are derived from what each agent/mcp_server_<group>/ ACTUALLY calls,
+# not from what sounds tidy — `content` carries connectors because
+# mcp_server_content drives the connector action bridge and the device-event
+# ingest. Getting that wrong is why enforcing this table was never safe before:
+# it would have broken live tools rather than only the escalation it targets.
+#
+# The one that matters: `content` is the group whose server runs web_fetch, i.e.
+# where prompt injection actually arrives. It must never carry `code_change`.
 INTERNAL_SCOPE_GROUPS: dict[str, frozenset[str]] = {
-    "admin": frozenset({"logs", "perf", "config", "policies", "code_change"}),
-    "content": frozenset({"documents", "run_gpu_job", "model", "web"}),
+    "admin": frozenset({"logs", "perf", "config", "policies", "code_change",
+                        "model"}),
+    "content": frozenset({"documents", "run_gpu_job", "model", "web",
+                          "connectors"}),
     "connectors": frozenset({"connectors"}),
     "productivity": frozenset({"learning", "model"}),
     "system": frozenset({"architecture", "model"}),
     "wellness": frozenset({"model"}),
 }
-
-
-def scoped_internal_token(base_token: str, group: str) -> str:
-    """Derive the bearer token for one internal capability group."""
-    return hmac.new(
-        base_token.encode("utf-8"),
-        f"ava-internal:{group}".encode("utf-8"),
-        hashlib.sha256,
-    ).hexdigest()
-
-
-def token_allows_scope(token: str, base_token: str, required: str | Iterable[str]) -> bool:
-    """Return True only when a scoped token covers every required scope.
-
-    The raw base token is intentionally not accepted by default. During a
-    one-time migration, set AVA_INTERNAL_ALLOW_LEGACY_TOKEN=1 to let old sandbox
-    installs continue while `agent/install.sh` is rerun.
-    """
-    if not token or not base_token:
-        return False
-    scopes = {required} if isinstance(required, str) else set(required)
-    if not scopes:
-        return False
-    if os.environ.get("AVA_INTERNAL_ALLOW_LEGACY_TOKEN") == "1" \
-            and hmac.compare_digest(token, base_token):
-        return True
-    for group, allowed in INTERNAL_SCOPE_GROUPS.items():
-        if scopes.issubset(allowed):
-            expected = scoped_internal_token(base_token, group)
-            if hmac.compare_digest(token, expected):
-                return True
-    return False
 
 
 def chmod_private(path: str) -> None:

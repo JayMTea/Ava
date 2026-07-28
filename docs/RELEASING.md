@@ -24,10 +24,12 @@ SBOM + checksums, and creates the GitHub Release. Pre-1.0 tags (`v0.x.y`) signal
    above it. (The release notes are extracted from the matching section by
    `deploy/scripts/changelog_extract.py`; if you forget to rename, it falls back
    to `[Unreleased]`.)
-2. **Bump `VERSION`** to `X.Y.Z` (this is the fallback the app reads when
-   `AVA_VERSION` isn't injected — see `ava_bridge/version.py`). Optionally sync
-   `frontend/package.json` with `npm version X.Y.Z --no-git-tag-version` and
-   rebuild `frontend/dist` (CI's dist-drift job enforces this).
+2. **Bump `VERSION`** to `X.Y.Z`. One file, three consumers: the fallback the app
+   reads when `AVA_VERSION` isn't injected (`ava_bridge/version.py`), the package
+   version (`pyproject.toml` reads it via `dynamic = ["version"]`), and the
+   `ava version` output. Optionally sync `frontend/package.json` with
+   `npm version X.Y.Z --no-git-tag-version` and rebuild `frontend/dist` (CI's
+   dist-drift job enforces this).
 3. **Commit** the changelog + version bump.
 4. **Tag, signed, and push:**
    ```bash

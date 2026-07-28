@@ -1,5 +1,6 @@
 import { Icon } from '../../../lib/icons';
 import { EmptyState, Panel } from '../../dashboard/primitives';
+import { ResourceError } from '../ui/ResourceState';
 import { useAction, useResource } from '../hooks';
 import { hub } from '../hubApi';
 import { Badge } from '../ui/Badge';
@@ -32,7 +33,8 @@ const APPROVALS: { id: string; title: string; sub: string; icon: string }[] = [
 ];
 
 export function SystemPanel({ onRestart }: { onRestart: () => void }) {
-  const { data: sys, reload, setData: setSys } = useResource(() => hub.system());
+  const sysRes = useResource(() => hub.system());
+  const { data: sys, reload, setData: setSys } = sysRes;
   const { busy, message, setMessage, run } = useAction();
 
   const setApproval = (mode: string) => run(async () => {
@@ -61,6 +63,7 @@ export function SystemPanel({ onRestart }: { onRestart: () => void }) {
 
   return (
     <>
+      <ResourceError r={sysRes} label="your system settings" />
       <Panel title="About" subtitle="Your instance">
         {sys ? (
           <dl className="hub-kv">
@@ -120,7 +123,9 @@ export function SystemPanel({ onRestart }: { onRestart: () => void }) {
       </Panel>
 
       <div className="hub-section" />
-      <Panel title="Optional features" subtitle="All off by default so a fresh install stays minimal — turn on only what you need.">
+      {/* Not "all off by default": features.REGISTRY ships image, learning and
+          memory ON. Saying otherwise made a fresh install look misconfigured. */}
+      <Panel title="Optional features" subtitle="Ava's defaults — turn on what you need, turn off what you don't.">
         {sys ? (sys.features || []).map((f) => (
           // Rendered straight from the backend capability registry
           // (ava_bridge/features.py) — a newly registered capability gets its

@@ -7,7 +7,7 @@
 # ── Why a sidecar ─────────────────────────────────────────────────────────────
 # TTS/STT here need CUDA PyTorch, which the bridge venv deliberately does not
 # carry (it stays lean/CPU). So this loads the models once in their own venv
-# (.venv-tts) and serves them over localhost. Mirrors deploy/omni-serve.sh.
+# (.venv-tts) and serves them over localhost. Mirrors deploy/local-serve.sh.
 #
 # ── One-time / after reboot ───────────────────────────────────────────────────
 #   bash deploy/gpu-voice-serve.sh              # creates .venv-tts, installs, runs
@@ -26,7 +26,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 [ -f "$REPO/.env" ] && set -a && . "$REPO/.env" && set +a
-cd "$REPO"
+cd "$REPO" || exit 1
 
 VENV="${AVA_TTS_VENV:-$REPO/.venv-tts}"
 PORT="${AVA_VOICE_PORT:-8129}"

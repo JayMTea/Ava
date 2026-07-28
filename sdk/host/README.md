@@ -1,3 +1,14 @@
+# Host adapters
+
+Two stdlib-only packages you can copy next to your own code:
+
+| Package | For |
+|---|---|
+| [`ava_device`](#ava_device-host-adapter) (below) | wiring hardware to Ava — push readings, answer pulls |
+| [`ava_mcp`](ava_mcp/README.md) | serving your app's `ava-tools/1` facade as a **real MCP server** |
+
+---
+
 # ava_device (host adapter)
 
 The board-agnostic, reusable version of `examples/device-app/server.py`. It owns

@@ -19,6 +19,7 @@ silently fall out of date with reality.
 | Internet / LAN | Untrusted | The bridge binds loopback by default; any wider exposure (a VPN like Tailscale, or a reverse proxy) is the operator's explicit choice |
 | Perimeter | Authenticated | The app **auth gate**: a signed-cookie session, on every request |
 | Host (loopback) | Trusted | App services bind `127.0.0.1`; the inference router's `/v1` requires a bearer token when bound off-loopback; sandbox-only access goes through per-port gateway forwarders |
+| Connector app (iframe) | **Trusted as the owner** | *Nothing.* The app is reverse-proxied SAME-ORIGIN under `/apps/<id>/`, and the iframe keeps `allow-same-origin`, so its JavaScript can call any authenticated Ava API with your session. This is deliberate — it is what gives an embedded app single sign-on — but it means **enabling a connector app is trusting its code as much as Ava's own**. Review a third-party app before enabling it. Tightening the sandbox would break the session inheritance the app proxy is built on; see docs/CONNECTOR_SDK.md §3. |
 | Sandbox (Docker) | Confined | The agent runs in an OpenClaw sandbox with **no ambient egress**; every outbound call passes the SSRF guard and a per-tool allow-list |
 
 ### Using Ava away from home: what Tailscale is, in plain terms
@@ -50,13 +51,33 @@ The bridge (`:8096`) is password-gated by middleware in `ava_bridge/auth.py`:
 - Unauthenticated page requests get a `303` redirect to `/login` (or `/setup` on
   a fresh install); API/media/app requests get a `401` JSON response.
 - Public paths only: `/login`, `/logout`, `/setup`, `/api/health`, `/favicon.ico`.
-- Session: an **HMAC-SHA256 signed cookie** (`exp.sig`, cookie `ava_session`,
-  `HttpOnly` + `Secure` + `SameSite=Lax`, 30-day TTL).
-- Per-IP login **throttle** (8 attempts / 60 s).
+- Session: an **HMAC-SHA256 signed cookie** (`exp.sid.sig`, cookie `ava_session`,
+  `HttpOnly` + `SameSite=Lax`, 30-day TTL). The `sid` segment is what makes
+  **revocation** possible: changing the password calls `auth.rotate_secret()`,
+  which re-keys the HMAC and invalidates every session already issued — so
+  "change my password" logs out a device you no longer hold, instead of only
+  changing what the next login checks.
+- `Secure` is resolved **per request** (`auth.cookie_secure: auto`), not pinned
+  at import. Pinning it on meant the browser silently discarded the cookie over
+  plain HTTP, bouncing LAN and phone users back to `/login` with no error —
+  indistinguishable from a wrong password, on exactly the flow docs/MOBILE.md
+  markets. Behind a proxy the scheme comes from `X-Forwarded-Proto`, believed
+  only from peers in `server.trusted_proxies` (loopback by default).
+- **First-run claim gate.** `/setup` is public by necessity, so on a
+  non-loopback bind anyone reaching the port could otherwise claim the admin
+  password first. At boot with no password set, Ava writes a one-time token to
+  `$AVA_HOME/data/setup_claim` (0600) and prints it. Setup is then allowed from
+  loopback, or from anywhere with a matching `claim` — the Jupyter/Home
+  Assistant pattern. The file is deleted on success. An outright refusal was
+  rejected because a headless box must stay claimable.
+- Per-IP login **throttle** (8 attempts / 60 s), keyed on the real client IP —
+  behind a proxy this is the forwarded address, so one device cannot exhaust the
+  whole LAN's bucket.
 - Password source: env `AVA_PASSWORD`, else the first-run screen writes it `0600`.
 - HMAC key source: env `AVA_SECRET`, else generated `0600` under `$AVA_HOME`.
 
-Tunables: `AVA_PASSWORD`, `AVA_SECRET`, `AVA_SESSION_TTL_DAYS`, `AVA_COOKIE_SECURE`.
+Tunables: `AVA_PASSWORD`, `AVA_SECRET`, `AVA_SESSION_TTL_DAYS`, `AVA_COOKIE_SECURE`,
+`AVA_TRUSTED_PROXIES`.
 
 ## 3. Egress model: least privilege (the sandbox)
 
@@ -71,10 +92,28 @@ generated locally by `agent/docs/arch.py` on installs with the SSOT manifest.
 | `ava-gpusvc` | `run_gpu_job` | `host.openshell.internal:8189` (GET and POST) |
 | `ava-knowledge` | document, image, media-content, web tools | `host.openshell.internal:8096`, enumerated `/internal/...` routes only, plus a scoped `X-Ava-Internal-Token` |
 
-Host callbacks additionally require a scoped `X-Ava-Internal-Token` bearer.
-Scopes are enforced in `ava_bridge/internal.py` and derived in `agent/install.sh`;
-the raw root token is not accepted by default. Private host-gateway IPs are
-reached only because they are explicitly allow-listed past the SSRF guard.
+Host callbacks additionally require a scoped `X-Ava-Internal-Token` bearer,
+derived per capability group in `agent/install.sh`. Which group may call which
+`/internal/*` route is declared in `internal.ROUTE_SCOPES` +
+`security.INTERNAL_SCOPE_GROUPS`, and enforced **in the middleware**
+(`auth.auth_gate` → `internal.group_may`) rather than per handler — so a route
+added later is covered without its author opting in, and a route nobody has
+classified is refused for group tokens rather than left open. The root token
+passes everywhere; it is held by the owner and the CLI, not by the sandbox.
+
+The property that matters: the `content` group holds the token for the MCP server
+that runs `web_fetch`, which is the surface prompt injection actually arrives on.
+It cannot reach `/internal/code-change`, `/internal/config`, `/internal/policies`,
+`/internal/logs` or `/internal/perf`. `tests/test_internal_scopes.py` and
+`qa/test_10_security.py` both assert that directly.
+
+> Until 2026-07-27 this paragraph described a control that existed but was not
+> wired: 24 of 25 handlers passed no scope, so any valid group token reached
+> every route. It is enforced now; the note stays because "documented, tested,
+> and not enforced" is a failure mode worth naming.
+
+Private host-gateway IPs are reached only because they are explicitly
+allow-listed past the SSRF guard.
 
 ## 4. Secret inventory
 
@@ -89,6 +128,16 @@ from env first, else a generated file under `$AVA_HOME` (default the repo root;
 | `data/.internal_token` | Root secret that derives scoped sandbox→bridge callback bearers |
 | `secrets/router_token` | Guards the inference router's control + LAN-exposed `/v1` |
 | `secrets/inference_key` | Cloud-provider API key, when a cloud backend is used |
+| `data/setup_claim` | One-time first-run claim token; deleted once setup completes |
+
+The **code-change agent cannot read any of these**. `access_policy` was
+originally consulted only on writes, so a prompt-injected agent could
+`read_file(".env")` — which returned `ANTHROPIC_API_KEY` — or, worse, use
+`search("ANTHROPIC_API_KEY")`, whose own directory walk bypassed the path
+resolver entirely and returned the key inline in the match. The deny-list is now
+enforced in `coder._safe()`, which every tool routes through for path resolution,
+so a tool added later inherits the gate; `search` and `list_dir` restate it
+because they walk the tree themselves.
 
 `.venv/`, `models/`, `media/`, `data/`, `secrets/`, `bin/piper/`, `ava.yaml`, and
 `.env` are `.gitignore`d. **Never** commit a secret; never log secret values.
@@ -121,6 +170,10 @@ from env first, else a generated file under `$AVA_HOME` (default the repo root;
 | Compromised / prompt-injected tool | Per-tool egress allow-list (deny by default); blast radius limited to that tool's single destination |
 | SSRF from a tool | Guard proxy rejects non-allow-listed IPs/hosts |
 | Secret leakage | `0600` files, `.gitignore`, never logged |
+| Secret exfiltration via the code agent | `access_policy` deny-list enforced on **reads** in `coder._safe()`, and restated in the two tools that walk the tree themselves |
+| Admin takeover on first run | One-time claim token; `/setup` accepts loopback or a matching token, nothing else |
+| Session theft / lost device | Password change re-keys the session HMAC, invalidating every issued cookie |
+| A pasted connector command reading the bridge's env | Unsandboxed stdio children get a minimal env (`PATH`/`HOME`/`LANG`/`TMPDIR` + declared manifest env), never `os.environ`; probes default to a Docker sandbox and fail closed without it |
 | Biometric/PII exfiltration | Local-only storage, git-excluded, no external inference |
 
 ## 7. Security regression checks

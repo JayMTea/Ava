@@ -6,7 +6,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Self-hosted](https://img.shields.io/badge/self--hosted-yes-success.svg)](deploy/README.md)
-[![Model](https://img.shields.io/badge/model-vLLM%20%7C%20Ollama%20%7C%20cloud-orange.svg)](docs/PACKAGING_PLAN.md)
+[![Engine](https://img.shields.io/badge/engine-vLLM%20%7C%20Ollama%20%7C%20cloud-orange.svg)](docs/PACKAGING_PLAN.md)
 
 **Ava is a self-hosted personal AI operating layer:** a private, plug-and-play hub
 that puts *any* model to work across your **voice**, your **apps**, and your
@@ -61,8 +61,9 @@ the Data tab shows you exactly what's in it.
 
 - **You own it.** Self-hosted and single-tenant, on your GPU. Your conversations,
   files, and voiceprint never leave your box.
-- **Local Omni brain.** Ava's normal chat runs on the local Nemotron open-model 30B
-  stack; Claude/Opus API access is reserved for governed code changes.
+- **Your model, local by default.** Ava ships with a 7B model that fits a normal
+  GPU and swaps in one line — run vLLM, Ollama, llama.cpp, or point it at a cloud
+  endpoint. Claude/Opus API access is reserved for governed code changes.
 - **It does more than talk.** It renders images, calls tools, remembers,
   and reaches into your other apps.
 - **It watches itself.** A real operations dashboard: tokens/sec, TTFT, render
@@ -110,9 +111,17 @@ locked to a single cloud vendor.
 ## Quickstart
 
 ```bash
-# Docker (plug-and-play) — pick a profile for your hardware:
-cd deploy && docker compose --profile gpu up -d   # or: cpu | cloud | full
+# Docker (plug-and-play) — detects your hardware and writes deploy/.env for you:
+cd deploy && ./install.sh
 # open http://localhost:8096 — the first screen prompts you to set an admin password
+```
+
+Or pick the profile yourself:
+
+```bash
+cd deploy
+cp profiles/gpu.env .env      # or: cpu | cloud | full | agent
+docker compose up -d
 ```
 
 **On a Mac (Apple Silicon)?** Run bare metal, not Docker (Docker Desktop can't use
@@ -120,9 +129,19 @@ the Apple GPU): see [Apple Silicon (Mac mini / Studio)](deploy/README.md#apple-s
 
 From there the **Setup hub** (in the app) walks you through the rest: detect
 hardware, download a fitting model, provision the agent, wire in your apps,
-enroll your voice. Prefer bare metal? `ava setup && ava doctor && ava up`;
-`ava verify` then proves every advertised capability end-to-end. Full guide:
-[deploy/README.md](deploy/README.md).
+enroll your voice.
+
+**Prefer bare metal?** Install the CLI into a virtualenv, then run it:
+
+```bash
+python3 -m venv .venv && . .venv/bin/activate
+pip install -e .                       # editable — Ava runs from this checkout
+ava setup && ava doctor && ava up
+```
+
+`ava verify` then proves every advertised capability end-to-end. (No install
+step? `./bin/ava` does the same thing without touching your environment.) Full
+guide: [deploy/README.md](deploy/README.md).
 
 ## Add your own app (connectors)
 
@@ -138,7 +157,7 @@ See the [Connector SDK](docs/CONNECTOR_SDK.md).
 A FastAPI **bridge** (web app, API, dashboard) fronts a **pluggable agent
 runtime** (tools, skills, memory: [NemoClaw](docs/AGENT_RUNTIME.md) by default,
 sandboxed with per-tool egress policies) and an OpenAI-compatible **inference
-router** for the local open-model model. GPU workloads runs on **the GPU service**;
+router** that fronts whichever engine you point it at. GPU workloads runs on **the GPU service**;
 video pipelines arrive as connector apps, not core. Everything else, the apps
 Ava monitors and drives, is a **connector** you can drop in.
 

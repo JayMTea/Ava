@@ -122,3 +122,34 @@ rules:
     cooldown: 600
     severity: warn
     message: "Agent is generating tokens while idle"
+  # Model-allocation rules. Every metric is 0 until you declare models in
+  # `alloc.models` (ava.yaml), so these stay dormant on an install that has not
+  # opted in — same convention as the budget rules above.
+  - id: alloc_degraded
+    metric: alloc_degraded_count
+    op: ">"
+    value: 0
+    for: 0
+    cooldown: 300
+    severity: critical
+    # The dangerous state: the process is up and its port answers, so no liveness
+    # check notices, but the model never loaded. Left alone this runs for days.
+    message: "A declared model is running but has no model loaded"
+  - id: alloc_unfit
+    metric: alloc_unfit_count
+    op: ">"
+    value: 0
+    for: 1800
+    cooldown: 1800
+    severity: warn
+    # `for: 1800` because not fitting is normal while something else legitimately
+    # holds the pool — it is only a problem once it persists.
+    message: "A declared model has been unable to start for a while"
+  - id: alloc_unknown_hold
+    metric: alloc_unknown_hold_gb
+    op: ">"
+    value: 24
+    for: 600
+    cooldown: 1800
+    severity: warn
+    message: "Undeclared processes are holding a large share of memory"

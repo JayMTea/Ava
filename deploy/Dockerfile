@@ -16,8 +16,23 @@ FROM python:3.12-slim AS runtime
 # the real build (see ava_bridge/version.py). Default to the committed VERSION.
 ARG AVA_VERSION=""
 ARG AVA_REVISION=""
+# AVA_HOST=0.0.0.0 is REQUIRED here, and is not the security regression it looks
+# like. The container's network namespace IS the boundary: compose publishes
+# "127.0.0.1:8096:8096", so the port is reachable only from the host's loopback.
+# Binding 127.0.0.1 *inside* the namespace instead means the published port has
+# nothing listening behind it — every connection is refused while the container
+# reports healthy, because the HEALTHCHECK below curls that same in-namespace
+# loopback and succeeds. That combination shipped: `docker compose up` gave a
+# green container and a browser that could not connect, after a multi-GB pull.
+#
+# Nothing else seeds it — .dockerignore excludes .env and ava.yaml, and /data is
+# a fresh volume — so ava_bridge/config.py's 127.0.0.1 default was what applied.
+#
+# If you run this image with `--network host`, it binds every interface. That is
+# the one mode where this matters; compose does not use it, and CI asserts so.
 ENV PYTHONUNBUFFERED=1 \
     AVA_HOME=/data \
+    AVA_HOST=0.0.0.0 \
     AVA_VERSION=${AVA_VERSION} \
     AVA_REVISION=${AVA_REVISION}
 WORKDIR /app

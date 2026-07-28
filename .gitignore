@@ -71,14 +71,25 @@ frontend/src/overlay/
 agent/mcp_server_content/connectors/
 agent/policies/generated/
 
-# Architecture SSOT manifest + .d2 sources (deployment-specific). The rendered
-# system/network/security SVGs ARE tracked as the public reference diagrams;
+# Architecture SSOT manifest + .d2 sources (deployment-specific).
+#
+# Only security.svg is tracked. It is generated from the manifest's `security`
+# block, which describes trust boundaries rather than named deployments, so it
+# stays app-agnostic — and its .d2 IS tracked, so a fork can regenerate it.
+#
+# system.svg / network.svg are NOT tracked: they render the author's actual
+# topology (personal device labels and private sibling apps), and because their
+# .d2 sources and the manifest are ignored here, a fork could neither regenerate
+# nor correct them. The public architecture picture is docs/assets/architecture.svg,
+# which is hand-authored, app-agnostic, and tracked with its .d2.
 # policy.svg stays local (it embeds install-specific filesystem paths).
 agent/docs/architecture.yaml
 agent/docs/diagrams/system.d2
 agent/docs/diagrams/network.d2
 agent/docs/diagrams/policy.d2
 agent/docs/diagrams/policy.svg
+agent/docs/diagrams/system.svg
+agent/docs/diagrams/network.svg
 
 gpusvc/extra_model_paths.yaml
 
@@ -96,10 +107,23 @@ connectors/persona/
 connectors/ava-notes/
 .venv-tts/
 
-# Agent/editor runtime config — drives the local-only marketing/ harness, so it
+# Agent/editor runtime config — drives the local-only demo/ harness, so it
 # is meaningless (and broken) for anyone else.
 .claude/
 
-# QA e2e deps are a symlink into the local-only marketing/ tree; committing it
+# QA e2e deps are a symlink into the local-only demo/ tree; committing it
 # would bake this box's absolute home path into the repo and break every clone.
 qa/e2e/node_modules
+
+# Allocation ledger: live cross-process state (lease locks, breaker counters, per-model
+# records). Runtime, not source — and committing it would ship one box's leases to every
+# clone, where stale records name models that do not exist there.
+run/
+
+# arch.py writes architecture.yaml (already ignored above); its backups are noise.
+agent/docs/architecture.yaml.bak
+
+# Drop-in allocation drivers ($AVA_HOME/alloc_drivers). Created by
+# settings.ensure_dirs(); a forker's own engine adapters live here and are
+# theirs, not ours. See docs/ALLOCATION.md.
+alloc_drivers/

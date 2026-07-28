@@ -10,7 +10,10 @@ ROUTER_URL="${AVA_ROUTER_URL:-http://ava:8010}"        # the bridge's embedded r
 BRIDGE_URL="${AVA_BRIDGE_URL:-http://ava:8096}"         # bridge /internal callbacks
 SANDBOX="${AVA_OC_SANDBOX:-my-assistant}"
 AGENT="${AVA_OC_AGENT:-main}"
-MODEL="${AVA_BACKEND_MODEL:-nvidia/Nemotron-Open-30B-A3B-Reasoning-FP8}"
+# No default: docker-compose.yml always sets AVA_BACKEND_MODEL (it is
+# ${AVA_MODEL:?...} there), and a stale fallback here would silently serve
+# the agent a different model id than the engine was started with.
+MODEL="${AVA_BACKEND_MODEL:?AVA_BACKEND_MODEL is required — set AVA_MODEL in deploy/.env}"
 
 # --- Install the NemoClaw CLI (official installer) ---------------------------
 # Done at runtime because the installer needs a reachable Docker daemon (the
@@ -23,6 +26,10 @@ if ! command -v nemoclaw >/dev/null 2>&1; then
   # The installer also attempts an onboard at the end; that step is
   # network-dependent and we do our OWN controlled onboard below, so tolerate a
   # non-zero exit and verify success by the CLI being present + runnable.
+  # NEMOCLAW_INSTALL_REF is pinned by deploy/agent.Dockerfile. The `:-main`
+  # fallback stays for anyone running this script outside that image, but a
+  # build should never rely on it: `main` is a moving branch piped into bash.
+  echo "[agent]   ref: ${NEMOCLAW_INSTALL_REF:-main}"
   curl -fsSL "https://raw.githubusercontent.com/NVIDIA/NemoClaw/${NEMOCLAW_INSTALL_REF:-main}/install.sh" | bash || true
   hash -r
   if ! command -v nemoclaw >/dev/null 2>&1; then

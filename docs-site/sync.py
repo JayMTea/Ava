@@ -37,6 +37,7 @@ CURATED: dict[str, str] = {
     "CHANGELOG.md": "CHANGELOG.md",
     "deploy/README.md": "deploy/README.md",
     "docs/AGENT_RUNTIME.md": "docs/AGENT_RUNTIME.md",
+    "docs/ALLOCATION.md": "docs/ALLOCATION.md",
     "docs/CONNECT_YOUR_APPS.md": "docs/CONNECT_YOUR_APPS.md",
     "docs/CHOOSE_A_MODEL.md": "docs/CHOOSE_A_MODEL.md",
     "docs/MEMORY.md": "docs/MEMORY.md",
@@ -88,8 +89,6 @@ ASSETS: dict[str, str] = {
     "docs/assets/pwa-install-ios.png": "docs/assets/pwa-install-ios.png",
     "docs/assets/pwa-install-android.png": "docs/assets/pwa-install-android.png",
     "docs/assets/ava-tour.mp4": "docs/assets/ava-tour.mp4",
-    "agent/docs/diagrams/system.svg": "agent/docs/diagrams/system.svg",
-    "agent/docs/diagrams/network.svg": "agent/docs/diagrams/network.svg",
     "agent/docs/diagrams/security.svg": "agent/docs/diagrams/security.svg",
 }
 

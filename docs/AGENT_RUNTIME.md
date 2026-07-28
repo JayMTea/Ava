@@ -126,12 +126,19 @@ bridge does not care that the runtime is across the network.
 Enable it:
 
 ```bash
-# in deploy/.env
+cd deploy
+cp profiles/agent.env .env      # or profiles/full.env, which adds the GPU service
+docker compose up -d
+```
+
+That profile sets the three variables the runtime needs, which only work as a
+set — enabling one alone leaves the bridge in tool-less `direct` mode with
+nothing saying why:
+
+```bash
 AVA_AGENT_ENABLED=1
 AVA_AGENT_RUNTIME=remote
 AVA_ROUTER_HOST=0.0.0.0        # so the sandbox can reach the router at ava:8010
-
-docker compose --profile agent up -d     # or --profile full
 ```
 
 The `agent` container's entrypoint waits for the bridge, then **onboards the

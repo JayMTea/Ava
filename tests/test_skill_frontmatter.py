@@ -6,22 +6,20 @@ runs anywhere (no bridge, no sandbox) and fails with instructions.
 """
 import pathlib
 import re
-import subprocess
 
 import pytest
+from gitfiles import tracked_paths
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 try:
     import yaml
-except Exception:  # noqa: BLE001
+except Exception:
     yaml = None
 
 
 def _tracked_skill_files() -> list[pathlib.Path]:
-    out = subprocess.run(["git", "-C", str(ROOT), "ls-files", "agent/skills/*/SKILL.md"],
-                         capture_output=True, text=True, check=True).stdout
-    return [ROOT / line for line in out.splitlines() if line]
+    return tracked_paths("agent/skills/*/SKILL.md")
 
 
 def _frontmatter(text: str) -> dict | None:
@@ -32,7 +30,7 @@ def _frontmatter(text: str) -> dict | None:
         return None
     try:
         fm = yaml.safe_load(text[3:end]) if yaml else None
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None
     return fm if isinstance(fm, dict) else None
 
