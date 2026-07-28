@@ -57,8 +57,11 @@ extra_css:
 
 extra_javascript:
   - javascripts/diagram-zoom.js  # zoom/pan lightbox for diagram SVGs
-  - javascripts/carousel.js      # landing-page screenshot carousel
   - javascripts/chrome.js        # make the "Ava" title the home link
+  # carousel.js is NOT loaded: no page builds `.ava-carousel` any more (the
+  # landing page uses the single <video class="ava-reel"> embed), so it was a
+  # 93-line no-op fetched on every page. The file and its .ava-carousel styles
+  # in stylesheets/extra.css are kept for whenever a gallery comes back.
 
 extra:
   generator: false  # hide "Made with Material for MkDocs" in the footer
