@@ -195,7 +195,9 @@ class TestDistiller(_MemCase):
 
 class TestHubSurface(_MemCase):
     def test_list_and_export(self):
-        from ava_bridge import hub_api
+        # Handlers moved into ava_bridge/hub/memory.py when hub_api.py was
+        # split by panel; aliased so the call sites below read unchanged.
+        from ava_bridge.hub import memory as hub_api
         memory_store.add("fact", "exportable fact")
         r = hub_api.memory_list()
         self.assertEqual(r["counts"]["facts"], 1)
@@ -206,7 +208,9 @@ class TestHubSurface(_MemCase):
         self.assertEqual(data["items"][0]["text"], "exportable fact")
 
     def test_delete_route(self):
-        from ava_bridge import hub_api
+        # Handlers moved into ava_bridge/hub/memory.py when hub_api.py was
+        # split by panel; aliased so the call sites below read unchanged.
+        from ava_bridge.hub import memory as hub_api
         mid = memory_store.add("fact", "to be forgotten")
         self.assertEqual(hub_api.memory_delete(mid), {"ok": True})
         self.assertEqual(hub_api.memory_delete(mid).status_code, 404)
