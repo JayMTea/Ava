@@ -7,14 +7,14 @@ machine.
 
 | Your machine | Install path | Verified on device |
 |---|---|---|
-| Mac mini / Studio (Apple Silicon) | [Bare metal with a native engine](#apple-silicon-mac-mini-studio); Docker can't reach the Apple GPU | ❌ |
-| NVIDIA GPU box | [Docker, `gpu` profile](#1-docker-recommended) (vLLM) | ❌ |
-| DGX Spark / unified-memory NVIDIA | [Docker, `gpu` profile](#1-docker-recommended) | ✅ |
-| No GPU | [Docker, `cpu` profile](#1-docker-recommended) (Ollama) | ❌ |
+| Mac mini / Studio (Apple Silicon) | [Bare metal with a native engine](#apple-silicon-mac-mini-studio); Docker can't reach the Apple GPU | :ava-close:{ title="Not verified on device" } |
+| NVIDIA GPU box | [Docker, `gpu` profile](#1-docker-recommended) (vLLM) | :ava-close:{ title="Not verified on device" } |
+| DGX Spark / unified-memory NVIDIA | [Docker, `gpu` profile](#1-docker-recommended) | :ava-check:{ title="Verified on device" } |
+| No GPU | [Docker, `cpu` profile](#1-docker-recommended) (Ollama) | :ava-close:{ title="Not verified on device" } |
 | Just an API key | [Docker, `cloud` profile](#1-docker-recommended) | n/a |
 
 **Verified on device** means `hwinfo` has been run on real hardware of that class
-and its readings confirmed — not just unit-tested by simulation. ❌ means the
+and its readings confirmed — not just unit-tested by simulation. A cross means the
 detection logic is tested and expected to work, but the numbers are unconfirmed
 on that hardware; `n/a` means the path uses no local accelerator. The full matrix,
 including what each platform can and cannot report, is in

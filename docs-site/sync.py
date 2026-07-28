@@ -172,6 +172,37 @@ def _rewrite_links(text: str, src: str, src_dst: str) -> str:
     return text.replace('<div align="center">', '<div align="center" markdown>')
 
 
+# Glyphs the docs reference as `:ava-<name>:`. Same rule as the palette: the
+# icons are INHERITED from the app (frontend/src/lib/icons.tsx is the SSOT), not
+# redrawn here, so the site can never drift from the product's own icon set — and
+# so no page has to fall back to an emoji, which renders as a different picture
+# on every OS and carries no accessible name.
+ICON_SRC = REPO / "frontend/src/lib/icons.tsx"
+ICONS_WANTED = ("check", "close")
+# Material resolves additional icons from `<custom_dir>/.icons/<ns>/<name>.svg`,
+# NOT from docs_dir — so these are written beside the templates, not into OUT.
+ICONS_OUT = HERE / "overrides" / ".icons" / "ava"
+_ICON_RE = r"^\s{2}%s:\s*\n?\s*'(<svg.*?</svg>)'"
+
+
+def _stage_icons() -> list[str]:
+    """Copy the app's own SVGs into the theme's icon namespace. Returns misses."""
+    if not ICON_SRC.is_file():
+        return [str(ICON_SRC.relative_to(REPO))]
+    src = ICON_SRC.read_text(encoding="utf-8")
+    ICONS_OUT.mkdir(parents=True, exist_ok=True)
+    missed = []
+    for name in ICONS_WANTED:
+        m = re.search(_ICON_RE % re.escape(name), src, re.S | re.M)
+        if not m:
+            missed.append(f"{ICON_SRC.name}:{name} (icon not found)")
+            continue
+        # stroke="currentColor" already, so the glyph inherits the surrounding
+        # text colour in both light and dark schemes with no extra CSS.
+        (ICONS_OUT / f"{name}.svg").write_text(m.group(1) + "\n", encoding="utf-8")
+    return missed
+
+
 def main() -> int:
     if OUT.exists():
         shutil.rmtree(OUT)
@@ -219,6 +250,7 @@ def main() -> int:
     css = css.replace(':root[data-theme="light"]', '[data-md-color-scheme="default"]')
     (OUT / "stylesheets").mkdir(parents=True, exist_ok=True)
     (OUT / "stylesheets" / "tokens.css").write_text(css, encoding="utf-8")
+    missing += _stage_icons()
     if missing:
         print("WARNING: missing sources:\n  " + "\n  ".join(missing))
     if not REPO_BASE:

@@ -83,6 +83,16 @@ markdown_extensions:
   - pymdownx.emoji:
       emoji_index: !!python/name:material.extensions.emoji.twemoji
       emoji_generator: !!python/name:material.extensions.emoji.to_svg
+      options:
+        # `:ava-*:` glyphs, generated from the app's own icon set by sync.py.
+        # Material only indexes custom icons listed here (it does NOT scan
+        # custom_dir), and it resolves these paths against the CWD — both
+        # spellings are listed so the build works from the repo root (what
+        # CONTRIBUTING and both CI workflows use) or from docs-site/. A path
+        # that does not exist simply contributes no icons.
+        custom_icons:
+          - docs-site/overrides/.icons
+          - overrides/.icons
 
 # The homepage (index.md) is reached via the "Ava" title in the header, so it is
 # intentionally not listed here. Sections render as collapsible dropdowns.
