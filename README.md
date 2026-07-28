@@ -6,7 +6,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Self-hosted](https://img.shields.io/badge/self--hosted-yes-success.svg)](deploy/README.md)
-[![Engine](https://img.shields.io/badge/engine-vLLM%20%7C%20Ollama%20%7C%20cloud-orange.svg)](docs/PACKAGING_PLAN.md)
+[![Engine](https://img.shields.io/badge/engine-vLLM%20%7C%20Ollama%20%7C%20cloud-orange.svg)](docs/CHOOSE_A_MODEL.md)
 
 **Ava is a self-hosted personal AI operating layer:** a private, plug-and-play hub
 that puts *any* model to work across your **voice**, your **apps**, and your
@@ -96,15 +96,9 @@ the ops dashboard, and governed self-editing on top. Use NemoClaw alone if
 you want a channel-based agent (Slack/Telegram/etc.); use Ava if you want the
 full private assistant stack. See [docs/AGENT_RUNTIME.md](docs/AGENT_RUNTIME.md).
 
-## What Ava is *not*
-
-- **Not a foundation model.** It orchestrates intelligence; it doesn't produce it.
-- **Not a cloud SaaS.** There is no Ava server; you run it.
-- **Not a frontier-chatbot replacement.** For raw reasoning, plug in the best model you can.
-
 ## Who it's for
 
-Privacy-conscious tinkerers, prosumers, and small teams who want an always-on AI
+Privacy-conscious prosumers and small teams who want an always-on AI
 that runs on their **own** hardware, connects to their **own** apps, and isn't
 locked to a single cloud vendor.
 
@@ -163,7 +157,6 @@ Ava monitors and drives, is a **connector** you can drop in.
 
 - **Architecture**: [system overview](docs/assets/architecture.svg)
 - **Agent runtime**: [docs/AGENT_RUNTIME.md](docs/AGENT_RUNTIME.md)
-- **Productization roadmap**: [docs/PACKAGING_PLAN.md](docs/PACKAGING_PLAN.md)
 
 ## License
 

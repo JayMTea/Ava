@@ -30,7 +30,7 @@ def _chats_read() -> dict:
 state.chats.update(_chats_read())
 
 
-def _chats_persist() -> None:
+def chats_persist() -> None:
     with state.chats_lock:
         tmp = config.CHATS_FILE + ".tmp"
         with open(tmp, "w", encoding="utf-8", opener=_secure_opener) as f:
@@ -39,18 +39,18 @@ def _chats_persist() -> None:
         os.chmod(config.CHATS_FILE, 0o600)
 
 
-def _chat_session(cid: str) -> str:
+def chat_session(cid: str) -> str:
     """Per-chat OpenClaw session-id so Ava's memory is isolated per conversation."""
     return f"{config.OC_SESSION}-{cid}"
 
 
-def _chat_new(title: str = "New chat") -> dict:
+def chat_new(title: str = "New chat") -> dict:
     cid = uuid.uuid4().hex[:12]
     now = time.time()
     with state.chats_lock:
         state.chats[cid] = {"id": cid, "title": title, "created": now,
                             "updated": now, "messages": []}
-        _chats_persist()
+        chats_persist()
         return dict(state.chats[cid])
 
 
@@ -109,7 +109,7 @@ def chat_append(cid: str, role: str, content: str,
         if (role == "user" and content.strip()
                 and c.get("title") in (None, "", "New chat")):
             c["title"] = content.strip()[:48]
-        _chats_persist()
+        chats_persist()
 
 
 def last_render_context(cid: str) -> tuple[str | None, str | None]:
@@ -180,12 +180,12 @@ def recent_messages(since_ts: float, limit: int = 200) -> list[dict]:
     return out[-limit:]
 
 
-def _chat_summary(c: dict) -> dict:
+def chat_summary(c: dict) -> dict:
     return {"id": c["id"], "title": c.get("title") or "New chat",
             "updated": c.get("updated", 0), "count": len(c.get("messages", []))}
 
 
-def _atts_meta(ids: list) -> list:
+def atts_meta(ids: list) -> list:
     """Lightweight attachment metadata to persist alongside a user message."""
     out = []
     with state.attachments_lock:

@@ -587,5 +587,3 @@ discovered (`GET /tools` + `POST /call` per the **`ava-tools/1` facade spec in
 - **First-party native** (in-repo): a React view in `NATIVE_VIEWS`, plus
   optionally a dedicated proxy for media. Reserved for apps shipped inside
   Ava's bundle.
-
-See also [PACKAGING_PLAN.md §5.3](PACKAGING_PLAN.md).

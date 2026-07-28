@@ -151,24 +151,24 @@ class ThrottleTests(unittest.TestCase):
     def test_locks_after_max_failures(self):
         ip = "1.2.3.4"
         for _ in range(config.LOGIN_MAX):
-            auth._login_record(ip, ok=False)
-        self.assertTrue(auth._login_locked(ip))
+            auth.login_record(ip, ok=False)
+        self.assertTrue(auth.login_locked(ip))
 
     def test_success_clears(self):
         ip = "5.6.7.8"
         for _ in range(config.LOGIN_MAX):
-            auth._login_record(ip, ok=False)
-        auth._login_record(ip, ok=True)
-        self.assertFalse(auth._login_locked(ip))
+            auth.login_record(ip, ok=False)
+        auth.login_record(ip, ok=True)
+        self.assertFalse(auth.login_locked(ip))
 
     def test_window_expiry_unlocks(self):
         ip = "9.9.9.9"
         for _ in range(config.LOGIN_MAX):
-            auth._login_record(ip, ok=False)
+            auth.login_record(ip, ok=False)
         # Age the first-failure timestamp beyond the window.
         with state.login_lock:
             state.login_fails[ip][1] = time.time() - config.LOGIN_WINDOW - 1
-        self.assertFalse(auth._login_locked(ip))
+        self.assertFalse(auth.login_locked(ip))
 
 
 if __name__ == "__main__":

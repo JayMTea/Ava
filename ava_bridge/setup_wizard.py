@@ -15,6 +15,7 @@ import os
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse
+from starlette.concurrency import run_in_threadpool
 
 from . import config, connectors, features, settings
 
@@ -197,6 +198,18 @@ def api_connectors():
     return {"connectors": out}
 
 
+def _write_inference_key(key: str) -> None:
+    """Write the cloud provider's API key to the secrets store, 0600.
+
+    A separate named sync helper so the async route can hand it to
+    run_in_threadpool — see tests/test_no_blocking_routes.py for why.
+    """
+    path = os.path.join(settings.secrets_dir(), "inference_key")
+    os.makedirs(settings.secrets_dir(), exist_ok=True)
+    with open(path, "w", encoding="utf-8", opener=_private) as f:
+        f.write(key)
+    os.chmod(path, 0o600)
+
 @router.post("/api/setup/save")
 async def api_save(request: Request):
     try:
@@ -238,11 +251,11 @@ async def api_save(request: Request):
             key = str(inf.get("api_key", "")).strip()
             if key:
                 # Secret goes to the secrets store, never into ava.yaml.
-                path = os.path.join(settings.secrets_dir(), "inference_key")
-                os.makedirs(settings.secrets_dir(), exist_ok=True)
-                with open(path, "w", encoding="utf-8", opener=_private) as f:
-                    f.write(key)
-                os.chmod(path, 0o600)
+                # Off the event loop: api_save is an `async def` route, so a bare
+                # open()/write() here blocks every other request — including the
+                # SSE streams and the login gate — for the duration of the disk
+                # write. Same idiom as _store_upload in ava_bridge/media_api.py.
+                await run_in_threadpool(_write_inference_key, key)
         else:
             engine = str(inf.get("engine", "")).strip() or "vllm"
             base = str(inf.get("base_url", "")).strip()

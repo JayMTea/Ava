@@ -18,9 +18,41 @@ in a named sync helper and hand it to run_in_threadpool, as `_store_upload` does
 """
 import ast
 import pathlib
+import subprocess
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-TARGETS = ["phone_bridge.py", "ava_bridge/hub_api.py", "ava_bridge/data_api.py"]
+
+
+def _targets() -> list[str]:
+    """Every tracked module that can define a route — DISCOVERED, not listed.
+
+    This was a hardcoded three-entry list. Then phone_bridge.py was split into
+    per-concern APIRouters, and each extraction silently moved routes OUT of the
+    guard's scope: internal.py, learning_api.py, ops_api.py, chats_api.py and
+    perf_api.py were all invisible to it while it kept reporting green. A guard
+    with a fixed file list does not fail when code moves away from it — it just
+    stops checking, which is the worst failure mode a guard has.
+
+    So the list is derived instead. `git ls-files` matches the convention the
+    rest of the repo's static guards already use (see tests/test_diagram_sync.py),
+    and a new router module is covered the day it is committed, without anyone
+    remembering to add it here.
+    """
+    out = subprocess.run(["git", "-C", str(ROOT), "ls-files", "*.py"],
+                         capture_output=True, text=True, check=True).stdout
+    keep = []
+    for rel in out.splitlines():
+        if not rel:
+            continue
+        top = rel.split("/", 1)[0]
+        if top in {"tests", "qa", "overlay", "demo", "frontend", "tools", "sdk", "docs"}:
+            continue
+        if rel == "phone_bridge.py" or rel.startswith("ava_bridge/"):
+            keep.append(rel)
+    return sorted(keep)
+
+
+TARGETS = _targets()
 
 # Route decorators: @app.get(...), @router.post(...), etc.
 _HTTP_METHODS = {"get", "post", "put", "patch", "delete", "head", "options"}
@@ -139,5 +171,5 @@ def test_async_routes_do_no_blocking_work() -> None:
     assert not offenders, (
         "blocking work inside an `async def` route stalls the whole event loop. "
         "Move it into a sync helper and `await run_in_threadpool(helper, ...)` — "
-        "see _store_upload in phone_bridge.py:\n  " + "\n  ".join(sorted(offenders))
+        "see _store_upload in ava_bridge/media_api.py:\n  " + "\n  ".join(sorted(offenders))
     )

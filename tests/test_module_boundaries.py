@@ -56,15 +56,6 @@ _ALLOW: set[str] = {
     "ava_bridge/code_agent.py: from .coder import _tool_read_file",
     "ava_bridge/code_agent.py: from .coder import _tool_search",
     "ava_bridge/turns.py: from .gpu_jobs import _latest_image_job_since",
-    "phone_bridge.py: from ava_bridge.auth import _is_authed",
-    "phone_bridge.py: from ava_bridge.auth import _login_locked",
-    "phone_bridge.py: from ava_bridge.auth import _login_record",
-    "phone_bridge.py: from ava_bridge.auth import _set_session_cookie",
-    "phone_bridge.py: from ava_bridge.chat_store import _atts_meta",
-    "phone_bridge.py: from ava_bridge.chat_store import _chat_new",
-    "phone_bridge.py: from ava_bridge.chat_store import _chat_session",
-    "phone_bridge.py: from ava_bridge.chat_store import _chat_summary",
-    "phone_bridge.py: from ava_bridge.chat_store import _chats_persist",
 }
 
 

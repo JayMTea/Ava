@@ -13,10 +13,29 @@ agent/install.sh) are served; everything else gets 401.
 import hashlib
 import hmac
 import os
+import time
+from pathlib import Path
 
-from fastapi import Request
+from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 
-from . import config, documents, state
+from . import (app_perf, approvals, architecture, audit, code_agent,
+               config, config_mgmt, connectors, devices, documents, features,
+               learning_mgmt, log_mgmt, perf_mgmt, policy_mgmt, state)
+# NOTE the alias: `web` is shadowed by nothing here, but phone_bridge.py has
+# always referred to this module as `web_access` and the moved handlers use that
+# name. Importing it as plain `web` would leave those bodies referencing an
+# undefined name — and a grep for `web.` finds nothing, so the break would only
+# surface at request time.
+from . import web as web_access
+
+# The /internal/* surface. These 25 routes are the sandbox->bridge callback
+# boundary: every one is token-gated by `authorized()` below, and the middleware
+# (auth.auth_gate -> group_may) additionally enforces the per-route scope table
+# in ROUTE_SCOPES. Keeping the routes in the same module as the scope table and
+# the token logic means a new route's author sees the thing they must classify.
+router = APIRouter()
 
 # Per-capability-group tokens handed to Ava's sandboxed MCP servers by
 # agent/install.sh. Each server receives HMAC(root_secret, "ava-internal:<group>")
@@ -195,3 +214,609 @@ def extract_payload(file_id: str, max_chars: int) -> dict | None:
     if max_chars and len(text) > max_chars:
         text = text[:max_chars] + "\n\u2026[truncated]"
     return {"id": rec["id"], "filename": name, "kind": rec["kind"], "text": text}
+
+
+def _timed_connector_call(fn, cid: str, tool: str, args: dict) -> tuple:
+    """Run one connector call and record its latency/status in the app's
+    bridge-owned perf log — this is how a Hub-connected app shows up in Vitals
+    without writing its own performance.jsonl."""
+    t0 = time.time()
+    data, status = fn(cid, tool, args)
+    app_perf.record_action(cid, tool, time.time() - t0, status)
+    return data, status
+
+@router.api_route("/internal/connector/{cid}/{action}", methods=["POST", "GET"])
+async def internal_connector(cid: str, action: str, request: Request):
+    """Generic connector-action proxy: forwards a generated tool's call to the
+    connector's own host-local API. ONE route serves every connector, so adding
+    an app needs no new bridge code — just a connector manifest.
+
+    Two reserved actions bridge a connector's DYNAMIC tool set (see the manifest
+    `actions.discover` block): __tools lists them, __call invokes one by name."""
+    if not authorized(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    if action == "__tools":
+        q = request.query_params.get("q", "")
+        try:
+            limit = int(request.query_params.get("limit", "0"))
+        except ValueError:
+            limit = 0
+        return JSONResponse(await run_in_threadpool(connectors.discover_tools, cid, q, limit))
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        body = {}
+    if action == "__call":
+        name = (body.get("name") or "").strip()
+        if not name:
+            return JSONResponse({"error": "missing tool name"}, status_code=400)
+        gate = await run_in_threadpool(approvals.gate, cid, name, body.get("arguments") or {})
+        if gate not in ("skip", "approved"):
+            audit.record("egress", connector=cid, tool=name, status=f"blocked:{gate}")
+            return JSONResponse({"error": f"not run — awaiting-approval {gate}"}, status_code=403)
+        data, status = await run_in_threadpool(
+            _timed_connector_call, connectors.call_discovered, cid, name,
+            body.get("arguments") or {})
+        # Egress record for the flight recorder: the agent reached out to a
+        # connector/MCP tool. This is the closest in-process egress signal we
+        # have (the sandbox's network denials live in openclaw, not here).
+        audit.record("egress", connector=cid, tool=name, status=status)
+        return JSONResponse(data, status_code=status)
+    # Merge query params (GET-style tools) with any JSON body so declared actions
+    # get their args regardless of how the tool passed them.
+    args = dict(request.query_params)
+    if isinstance(body, dict):
+        args.update(body)
+    gate = await run_in_threadpool(approvals.gate, cid, action, args)
+    if gate not in ("skip", "approved"):
+        audit.record("egress", connector=cid, tool=action, status=f"blocked:{gate}")
+        return JSONResponse({"error": f"not run — awaiting-approval {gate}"}, status_code=403)
+    data, status = await run_in_threadpool(
+        _timed_connector_call, connectors.call_action, cid, action, args)
+    audit.record("egress", connector=cid, tool=action, status=status)
+    return JSONResponse(data, status_code=status)
+
+# ---- Internal capability surface (Ava's sandboxed MCP tools call back here) --
+# Token-gated; reached from the sandbox via host.openshell.internal:8096 under
+# the ava-knowledge egress policy. Lets Ava read the text of files the user uploaded.
+@router.get("/internal/documents")
+def internal_documents(request: Request):
+    if not authorized(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    return documents_payload()
+
+@router.post("/internal/extract")
+async def internal_extract(request: Request):
+    if not authorized(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        body = {}
+    file_id = str(body.get("file_id", "")).strip()
+    if not file_id:
+        return JSONResponse({"error": "file_id required"}, status_code=400)
+    try:
+        max_chars = int(body.get("max_chars") or 0)
+    except (TypeError, ValueError):
+        max_chars = 0
+    payload = extract_payload(file_id, max_chars)
+    if payload is None:
+        return JSONResponse({"error": "no such document"}, status_code=404)
+    return payload
+
+@router.get("/internal/devices/events")
+def internal_device_events(request: Request):
+    """Recent pushed device events, for Ava's `device_events` MCP tool. Token-gated
+    (reuses the ava-knowledge /internal egress; scoped to the `content` group)."""
+    if not authorized(request, scope="content"):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    cid = (request.query_params.get("connector") or "").strip() or None
+    try:
+        limit = min(int(request.query_params.get("limit") or 50), 200)
+    except (TypeError, ValueError):
+        limit = 50
+    return {"events": devices.recent(cid, limit=limit)}
+
+@router.post("/internal/run-gpu-job")
+async def internal_run_gpu_job(request: Request):
+    """Render an image on Ava's behalf so the CHAT gets a live, real progress %.
+
+    Ava's `run_gpu_job` MCP tool calls this instead of hitting the GPU service directly.
+    The bridge then owns the the GPU service render (start_image_job -> gpu_service, tracked
+    over the the GPU service websocket), so /api/job/{id} reports a TRUE percentage the chat
+    bar polls — exactly like the manual Generate button. Token-gated
+    (reuses the ava-knowledge /internal egress; no new policy).
+    """
+    # Imported here, not at module scope: gpu_jobs pulls in the repo-root
+    # gpu_service, and ava_bridge.internal is imported at module scope by
+    # tests/test_internal_scopes.py and tests/test_security.py, plus lazily by
+    # auth.auth_gate on every /internal/* request. Keeping the image stack off
+    # that path costs one line here.
+    from .gpu_jobs import start_image_job
+    if not authorized(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        body = {}
+    prompt = str(body.get("prompt", "")).strip()
+    if not prompt:
+        return JSONResponse({"error": "prompt required"}, status_code=400)
+    try:
+        width = int(body.get("width") or 1024)
+        height = int(body.get("height") or 1024)
+    except (TypeError, ValueError):
+        width, height = 1024, 1024
+    kw = {"width": width, "height": height}
+    neg = str(body.get("negative", "")).strip()
+    if neg:
+        kw["negative"] = neg
+    # Fidelity knobs (all optional): cfg/guidance = how literally the render obeys
+    # the prompt, steps = detail, seed = reproducibility. Clamped to safe ranges.
+    try:
+        if body.get("cfg") is not None:
+            kw["cfg"] = min(max(float(body["cfg"]), 1.0), 20.0)
+    except (TypeError, ValueError):
+        pass
+    try:
+        if body.get("steps") is not None:
+            kw["steps"] = min(max(int(body["steps"]), 8), 60)
+    except (TypeError, ValueError):
+        pass
+    try:
+        if body.get("seed") is not None:
+            kw["seed"] = int(body["seed"]) & 0x7FFFFFFF
+    except (TypeError, ValueError):
+        pass
+    # Multi-person regional prompts: list of {text,x,y,w,h,weight} sub-prompts,
+    # each pinned to its own area so distinct people don't blend together.
+    regions = body.get("regions")
+    if isinstance(regions, list) and regions:
+        clean = []
+        for r in regions:
+            if isinstance(r, dict) and str(r.get("text", "")).strip():
+                clean.append(r)
+        if clean:
+            kw["regions"] = clean
+    # Optional checkpoint/model key from the router (e.g. juggernaut, ponyreal).
+    mdl = body.get("model")
+    if mdl and str(mdl).strip():
+        kw["model"] = str(mdl).strip()
+    job_id = start_image_job(prompt, source="agent", **kw)
+    with state.jobs_lock:
+        job = state.jobs.get(job_id) or {}
+    if job.get("status") == "error":
+        # Born errored (feature off / the GPU service down): tell Ava's tool the truth
+        # so she explains what happened and how to fix it, instead of promising
+        # an image that will never arrive.
+        return {"error": job.get("error") or "GPU workloads unavailable",
+                "error_code": job.get("error_code"),
+                "job": {"id": job_id, "kind": "image", "status": "error"}}
+    return {"job": {"id": job_id, "kind": "image", "status": "running"}}
+
+# ---- Architecture capability (Ava reads/updates her own SSOT diagrams+code) --
+# Same token gate. Lets Ava get the architecture manifest + drift report, render
+# the diagrams, and apply manifest edits (auto-committed). Backed by arch.py.
+@router.get("/internal/architecture")
+def internal_architecture(request: Request):
+    if not authorized(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    return architecture.summary_payload()
+
+@router.post("/internal/architecture/describe")
+async def internal_arch_describe(request: Request):
+    if not authorized(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        body = {}
+    name = str(body.get("name", "")).strip()
+    if not name:
+        return JSONResponse({"error": "name required"}, status_code=400)
+    return architecture.describe_payload(name)
+
+@router.post("/internal/architecture/check")
+def internal_arch_check(request: Request):
+    if not authorized(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    return architecture.check_payload()
+
+@router.post("/internal/architecture/sync")
+async def internal_arch_sync(request: Request):
+    if not authorized(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        body = {}
+    commit = bool(body.get("commit", True))
+    return architecture.sync_payload(commit=commit, message=body.get("message"))
+
+@router.post("/internal/architecture/update")
+async def internal_arch_update(request: Request):
+    if not authorized(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        body = {}
+    new_yaml = body.get("yaml") or ""
+    if not new_yaml.strip():
+        return JSONResponse({"error": "yaml required (the full new manifest)"}, status_code=400)
+    commit = bool(body.get("commit", True))
+    return architecture.update_payload(new_yaml, message=body.get("message"), commit=commit)
+
+@router.get("/internal/learning/scripts")
+async def internal_learning_read(request: Request):
+    """Allow Ava to read current learning digest scripts (read-only access)."""
+    if not authorized(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    return learning_mgmt.read_digest_scripts()
+
+@router.post("/internal/learning/update")
+async def internal_learning_update(request: Request):
+    """Allow Ava to update learning digest scripts with improved descriptions/rationales."""
+    if not authorized(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        body = {}
+    
+    script_type = body.get("script_type") or ""
+    updates = body.get("updates") or {}
+    content = body.get("content")
+    
+    if not script_type:
+        return JSONResponse({"error": "script_type required (daily, weekly, or both)"}, status_code=400)
+    
+    result = learning_mgmt.update_digest_scripts(script_type, updates, content)
+    status = 200 if result.get("success") else 400
+    return JSONResponse(result, status_code=status)
+
+@router.get("/internal/learning/state")
+async def internal_learning_state(request: Request, state_type: str = "all", limit: int = 10, patterns: bool = True):
+    """Allow Ava to read her own learning state (code/chat cycles, patterns)."""
+    if not authorized(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    
+    limit = min(max(limit, 1), 100)
+    result = {}
+    
+    if state_type in ["code", "all"]:
+        with state.code_learning_state_lock:
+            cycles = state.code_learning_state.get("cycles", [])[-limit:]
+            inline_fixes = state.code_learning_state.get("inline_fixes", [])[-limit:]
+            result["code"] = {
+                "cycles": cycles,
+                "inline_fixes": inline_fixes,
+                "total_cycles": len(state.code_learning_state.get("cycles", [])),
+                "total_fixes": len(state.code_learning_state.get("inline_fixes", [])),
+            }
+    
+    if state_type in ["chat", "all"]:
+        with state.chat_learning_state_lock:
+            cycles = state.chat_learning_state.get("cycles", [])[-limit:]
+            result["chat"] = {
+                "cycles": cycles,
+                "total_cycles": len(state.chat_learning_state.get("cycles", [])),
+            }
+    
+    return JSONResponse(result)
+
+@router.get("/internal/learning/chats")
+async def internal_learning_chats(request: Request, action: str = "list", chat_id: str = None, limit: int = 50, metadata: bool = True):
+    """Allow Ava to read chat history for reflection and pattern analysis."""
+    if not authorized(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    
+    limit = min(max(limit, 1), 200)
+    
+    if action == "list":
+        # Return list of chats with metadata
+        import json
+        chats_file = Path('data/chats.json')
+        if not chats_file.exists():
+            return JSONResponse({"chats": []})
+        try:
+            with open(chats_file) as f:
+                data = json.load(f)
+            chats = []
+            for cid, chat in data.items():
+                chats.append({
+                    "id": cid,
+                    "title": chat.get("title", "Untitled"),
+                    "created": chat.get("created"),
+                    "updated": chat.get("updated"),
+                    "message_count": len(chat.get("messages", [])),
+                })
+            return JSONResponse({"chats": chats[:limit]})
+        except Exception:  # noqa: BLE001 — surfaced to the client as a JSON error response
+            return JSONResponse({"chats": []})
+    
+    elif action == "read":
+        if not chat_id:
+            return JSONResponse({"error": "chat_id required"}, status_code=400)
+        import json
+        chats_file = Path('data/chats.json')
+        if not chats_file.exists():
+            return JSONResponse({"error": "no chats"}, status_code=404)
+        try:
+            with open(chats_file) as f:
+                data = json.load(f)
+            chat = data.get(chat_id)
+            if not chat:
+                return JSONResponse({"error": "chat not found"}, status_code=404)
+            
+            messages = chat.get("messages", [])[-limit:]
+            if not metadata:
+                # Strip metadata, keep only role and content
+                messages = [{"role": m.get("role"), "content": m.get("content")} for m in messages]
+            
+            return JSONResponse({
+                "chat_id": chat_id,
+                "title": chat.get("title"),
+                "created": chat.get("created"),
+                "updated": chat.get("updated"),
+                "messages": messages,
+            })
+        except Exception:  # noqa: BLE001 — surfaced to the client as a JSON error response
+            return JSONResponse({"error": "failed to read chat"}, status_code=500)
+    
+    else:
+        return JSONResponse({"error": "action must be 'list' or 'read'"}, status_code=400)
+
+@router.get("/internal/learning/code-turns")
+async def internal_learning_code_turns(request: Request, cycle_id: str = None, status_filter: str = "all", diffs: bool = True, reasoning: bool = True, limit: int = 10):
+    """Allow Ava to read her code editing turns and proposals for learning."""
+    if not authorized(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    
+    limit = min(max(limit, 1), 100)
+    
+    with state.code_learning_state_lock:
+        cycles = state.code_learning_state.get("cycles", [])
+        if cycle_id:
+            cycles = [c for c in cycles if c.get("id") == cycle_id]
+        cycles = cycles[-limit:]
+    
+    result = []
+    for cycle in cycles:
+        proposals = cycle.get("proposals", [])
+        
+        # Filter by status if requested
+        if status_filter != "all":
+            proposals = [p for p in proposals if p.get("status") == status_filter]
+        
+        cycle_data = {
+            "id": cycle.get("id"),
+            "timestamp": cycle.get("timestamp"),
+            "proposals": proposals,
+        }
+        
+        # Strip diffs if not requested
+        if not diffs:
+            for p in cycle_data["proposals"]:
+                p.pop("diff", None)
+        
+        # Strip reasoning if not requested
+        if not reasoning:
+            for p in cycle_data["proposals"]:
+                p.pop("reasoning", None)
+        
+        result.append(cycle_data)
+    
+    return JSONResponse({"code_turns": result, "count": len(result)})
+
+@router.post("/internal/logs")
+async def internal_logs(request: Request):
+    """Allow Ava to read system logs for debugging."""
+    if not authorized(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    
+    try:
+        body = await request.json()
+    except:
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    
+    result = log_mgmt.read_logs(
+        source=body.get("source", "systemd"),
+        service=body.get("service"),
+        component=body.get("component"),
+        lines=body.get("lines", 50),
+        level=body.get("level"),
+        since=body.get("since", "1h")
+    )
+    
+    status = 200 if result.get("ok") else 400
+    return JSONResponse(result, status_code=status)
+
+@router.post("/internal/perf")
+async def internal_perf(request: Request):
+    """Let Ava read + summarise generation-performance across all her apps."""
+    if not authorized(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        body = {}
+
+    result = perf_mgmt.read_performance(
+        app=body.get("app"),
+        category=body.get("category"),
+        since=body.get("since"),
+        limit=body.get("limit", 50),
+        summary=body.get("summary", True),
+    )
+    status = 200 if result.get("ok") else 400
+    return JSONResponse(result, status_code=status)
+
+@router.get("/internal/config")
+async def internal_config_get(request: Request, component: str):
+    """Allow Ava to read configuration."""
+    if not authorized(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    
+    result = config_mgmt.read_config(component)
+    status = 200 if result.get("ok") else 400
+    return JSONResponse(result, status_code=status)
+
+@router.post("/internal/config")
+async def internal_config_post(request: Request):
+    """Allow Ava to update configuration."""
+    if not authorized(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    
+    try:
+        body = await request.json()
+    except:
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    
+    result = config_mgmt.update_config(
+        component=body.get("component"),
+        updates=body.get("updates", {}),
+        reason=body.get("reason", "No reason provided")
+    )
+    
+    status = 200 if result.get("ok") else 400
+    return JSONResponse(result, status_code=status)
+
+@router.get("/internal/policies")
+async def internal_policies_get(request: Request):
+    """Allow Ava to list all policies."""
+    if not authorized(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    
+    result = policy_mgmt.list_policies()
+    return JSONResponse(result, status_code=200)
+
+@router.get("/internal/policies/{policy_name}")
+async def internal_policy_read(request: Request, policy_name: str):
+    """Allow Ava to read a specific policy."""
+    if not authorized(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    
+    result = policy_mgmt.read_policy(policy_name)
+    status = 200 if result.get("ok") else 400
+    return JSONResponse(result, status_code=status)
+
+@router.post("/internal/policies")
+async def internal_policies_post(request: Request):
+    """Allow Ava to update a policy."""
+    if not authorized(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    
+    try:
+        body = await request.json()
+    except:
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    
+    result = policy_mgmt.update_policy(
+        name=body.get("name"),
+        updates=body.get("updates", {}),
+        reason=body.get("reason", "No reason provided")
+    )
+    
+    status = 200 if result.get("ok") else 400
+    return JSONResponse(result, status_code=status)
+
+@router.post("/internal/code-change")
+async def internal_code_change(request: Request):
+    """Hand off a code-change request to Claude (uses ANTHROPIC_API_KEY).
+
+    Ava's `code_change_request` MCP tool calls this. code_agent drives Claude
+    through the repo, then applies the access policy: safe files are written +
+    committed autonomously; protected files (auth/config/policy/deploy) are
+    parked as a pending proposal in the user's approval bucket on the Learning page;
+    secrets/binaries are refused. The Claude tool loop runs synchronously and can
+    take a while, so run it off the event loop.
+    """
+    if not authorized(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+
+    request_text = (body.get("request") or "").strip()
+    context_text = (body.get("context") or "").strip()
+    files_list = body.get("files") or []
+    project = (body.get("project") or "ava").strip() or "ava"
+    actor = (body.get("actor") or "Ava").strip() or "Ava"
+    if not request_text:
+        return JSONResponse({"error": "empty request"}, status_code=400)
+
+    print(f"[ava-bridge] [DEBUG] /internal/code-change received: "
+          f"project={project!r} actor={actor!r} request={request_text[:80]!r} files={files_list}", flush=True)
+
+    try:
+        result = await run_in_threadpool(
+            code_agent.run_change_request,
+            request_text, context_text, files_list, "code_change_request",
+            None, project, actor,
+        )
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"error": f"code change failed: {e}"}, status_code=500)
+
+    status = 500 if result.get("status") == "error" else 200
+    return JSONResponse(result, status_code=status)
+
+# Bespoke connected-app routes were removed: connected apps ride the generic
+# connector proxy (/internal/connector/<id>/* for agent tools, /apps/<id>/api/*
+# for the browser tab) — see each connector's connector.yaml.
+# --- Web access (self-hosted search + SSRF-guarded reader) -------------------
+# HOST-MEDIATED: Ava's sandbox tools call these token-gated routes (reusing the
+# ava-knowledge egress policy — no new open egress). The HOST runs the private
+# SearXNG search and the SSRF-guarded page fetch; Ava never touches the internet
+# directly and no API keys ever enter the sandbox.
+@router.post("/internal/web/search")
+async def internal_web_search(request: Request):
+    if not authorized(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    # features.web_search is the single switch for BOTH web routes — same
+    # convention as image renders: a deliberate OFF must actually stop the
+    # path, with a coded error the chat turns into a fix-it link. Coded errors
+    # ship as HTTP 200 like run-gpu-job's: the sandbox tool helper (curl
+    # --fail) swallows non-200 bodies, and the message must reach Ava so she
+    # can tell the user how to fix it.
+    pf = features.preflight("web_search")
+    if pf:
+        return {"error": pf[1], "error_code": pf[0]}
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    query = (body or {}).get("query") or (body or {}).get("q") or ""
+    count = (body or {}).get("count")
+    try:
+        return JSONResponse(await run_in_threadpool(web_access.search, query, count))
+    except web_access.SearchUnreachableError as e:
+        return {"error": str(e), "error_code": "web_search_down"}
+    except web_access.WebAccessError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"error": f"web search failed: {e}"}, status_code=502)
+
+@router.post("/internal/web/fetch")
+async def internal_web_fetch(request: Request):
+    if not authorized(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    pf = features.preflight("web_search")  # guarded fetch rides the same switch
+    if pf:
+        return {"error": pf[1], "error_code": pf[0]}  # 200: see /internal/web/search
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    url = (body or {}).get("url") or ""
+    try:
+        return JSONResponse(await run_in_threadpool(web_access.fetch, url))
+    except web_access.WebAccessError as e:
+        # Blocked/invalid target — a 400 so Ava learns the URL was refused.
+        return JSONResponse({"error": str(e)}, status_code=400)
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"error": f"web fetch failed: {e}"}, status_code=502)

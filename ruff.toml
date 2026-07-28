@@ -43,5 +43,9 @@ select = ["E4", "E7", "E9", "F", "BLE", "RUF100"]
 "ava_bridge/connectors.py" = ["E402"]    # `import re as _re` after the var table
 "ava_bridge/learning.py" = ["F841"]      # legacy staged local
 "ava_bridge/log_mgmt.py" = ["F841"]      # legacy staged local
-"phone_bridge.py" = ["E722"]             # legacy best-effort handlers
+# The three legacy best-effort `except:` handlers moved out of phone_bridge.py
+# with the /internal router; the exemption follows the code rather than
+# outliving it. (Worth fixing properly: a bare except also swallows
+# KeyboardInterrupt/SystemExit inside a request handler.)
+"ava_bridge/internal.py" = ["E722"]      # legacy best-effort handlers
 "voice_ava.py" = ["E702"]                # terse teardown line

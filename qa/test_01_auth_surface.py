@@ -161,8 +161,12 @@ class TestAuthSurface(unittest.TestCase):
         import phone_bridge
         from ava_bridge import auth
 
-        with mock.patch.object(auth, "needs_setup", return_value=True), \
-             mock.patch.object(phone_bridge, "needs_setup", return_value=True):
+        # One patch point, not two. The handler used to live in phone_bridge.py,
+        # which held its own `from ava_bridge.auth import needs_setup` binding, so
+        # this had to patch both modules. It now lives in ava_bridge/pages.py and
+        # calls auth.needs_setup() through the module, so patching auth is enough
+        # — and this test no longer breaks when the handler moves file again.
+        with mock.patch.object(auth, "needs_setup", return_value=True):
             auth.clear_claim()
             try:
                 remote = TestClient(phone_bridge.app, follow_redirects=False,

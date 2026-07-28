@@ -146,7 +146,7 @@ def _valid_token(tok: str) -> bool:
         return False
 
 
-def _is_authed(request: Request) -> bool:
+def is_authed(request: Request) -> bool:
     return _valid_token(request.cookies.get(config.COOKIE_NAME, ""))
 
 
@@ -205,7 +205,7 @@ def cookie_secure_for(request: Request) -> bool:
     return request_is_secure(request)
 
 
-def _set_session_cookie(resp: Response, request: Request | None = None) -> None:
+def set_session_cookie(resp: Response, request: Request | None = None) -> None:
     secure = cookie_secure_for(request) if request is not None else bool(config.COOKIE_SECURE)
     resp.set_cookie(config.COOKIE_NAME, _make_token(), max_age=config.SESSION_TTL,
                     httponly=True, secure=secure, samesite="lax", path="/")
@@ -274,7 +274,7 @@ def claim_hint() -> str:
             f"then open  <this-url>/setup?claim=<token>")
 
 
-def _login_locked(ip: str) -> bool:
+def login_locked(ip: str) -> bool:
     with state.login_lock:
         rec = state.login_fails.get(ip)
         if not rec:
@@ -286,7 +286,7 @@ def _login_locked(ip: str) -> bool:
         return count >= config.LOGIN_MAX
 
 
-def _login_record(ip: str, ok: bool) -> None:
+def login_record(ip: str, ok: bool) -> None:
     with state.login_lock:
         if ok:
             state.login_fails.pop(ip, None)
@@ -346,7 +346,7 @@ async def auth_gate(request: Request, call_next):
         return await call_next(request)
     # The device-event ingest endpoint bypasses the cookie gate the same way:
     # callers are apps, not browsers, with their own per-connector bearer check.
-    if path in _PUBLIC_PATHS or _is_ingest(path) or _is_authed(request):
+    if path in _PUBLIC_PATHS or _is_ingest(path) or is_authed(request):
         return await call_next(request)
     if any(path == p or path.startswith(p + "/") for p in API_PREFIXES):
         return JSONResponse({"error": "auth required"}, status_code=401)

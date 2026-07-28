@@ -92,6 +92,6 @@ author `confirm:` always sticks. The permission sheet for the connector
 
 Today this is **ask-and-act**: you talk to Ava; reads are silent, actuation is
 approval-gated. Ava does not yet subscribe to HA's state-change events or act
-proactively on them — that (an opt-in, governed trigger loop) is planned work,
-tracked in the roadmap. Ava also does not replace HA's automations: keep those
+proactively on them — that (an opt-in, governed trigger loop) is planned work.
+Ava also does not replace HA's automations: keep those
 in HA; Ava adds reasoning and governance on top.

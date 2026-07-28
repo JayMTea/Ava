@@ -11,22 +11,15 @@ Everything runs locally on the Spark; nothing leaves the tailnet.
 """
 
 import base64
-import asyncio
-import hmac
-import html
 import json
 import os
 import threading
 import time
-import uuid
-from datetime import datetime
-from pathlib import Path
-from typing import List
 
 import requests
 from fastapi import FastAPI, Form, UploadFile, File, Request
-from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
-                               RedirectResponse, Response, StreamingResponse)
+from fastapi.responses import (JSONResponse,
+                               RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
@@ -39,95 +32,47 @@ import voice_ava as va
 from ava_bridge import config, settings, state
 from ava_bridge.version import version as _ava_version
 from ava_bridge.config import (
-    RATE, MEDIA_DIR, UPLOAD_DIR, MAX_UPLOAD_BYTES, MAX_DOC_CHARS,
-    OC_SESSION, PHONE_THRESHOLD, COOKIE_NAME, IMAGE_EXTS,
+    RATE, MEDIA_DIR, UPLOAD_DIR, PHONE_THRESHOLD,
 )
 from ava_bridge.agent import (run_turn as _agent_run_turn, warm_openclaw,
-                              discard_session, get_route, runtime_available,
+                              get_route, runtime_available,
                               set_route, which_model)
 from ava_bridge.chat_store import history_for as _history_for
-from ava_bridge.gpu_jobs import (start_image_job, start_upscale_job,
-                                   pickup_image_since, cancel_job, attach_chat)
-from ava_bridge.turns import start_turn
-from ava_bridge.documents import extract_text, augment, parse_ids, safe_name
+from ava_bridge.gpu_jobs import (pickup_image_since, attach_chat)
+from ava_bridge.documents import augment, parse_ids
 from ava_bridge.audio import decode_to_pcm, tts_wav_bytes, gpu_transcribe
 from ava_bridge.chat_store import (
-    _chat_new, chat_append, _chat_summary, _chat_session, _atts_meta, _chats_persist,
-    last_render_context, recent_user_text,
+    chat_append, chat_session, atts_meta,
 )
-from ava_bridge import turn_router
 from ava_bridge.auth import (
-    auth_gate, _is_authed, _set_session_cookie, _login_locked, _login_record,
-    current_password, needs_setup, set_password, rotate_secret,
-    client_ip, may_claim, claim_hint, clear_claim, claim_token,
+    auth_gate, needs_setup, claim_token,
 )
-from ava_bridge import features, internal, architecture, learning_mgmt, log_mgmt, config_mgmt, policy_mgmt, perf_mgmt
-from ava_bridge import audit, approvals
+from ava_bridge import features, internal
 from ava_bridge import memory_store
-from ava_bridge import dashboard, connectors, perf_store, devices, app_perf
+from ava_bridge import dashboard, connectors, perf_store, devices
 from ava_bridge import arch_watch
-from ava_bridge import code_agent
 from ava_bridge import hardware
-from ava_bridge import web as web_access
 from ava_bridge import learning
-from ava_bridge.learning import CodeLearner, ChatLearner
 _AVA_VERSION = _ava_version()
-# Shared-state aliases so the route bodies below read naturally (same objects).
-_ATTACH = state.attachments
-_ATTACH_LOCK = state.attachments_lock
-_CHATS = state.chats
-_CHATS_LOCK = state.chats_lock
-_JOBS = state.jobs
-_JOBS_LOCK = state.jobs_lock
-_TURNS = state.turns
-_TURNS_LOCK = state.turns_lock
-_state = state.heavy
-_CODE_LEARNER = CodeLearner()
-_CHAT_LEARNER = ChatLearner()
 
 HERE = config.ROOT
 
-# ---- Web templates (externalised to ava_bridge/web/*.html) -------------------
-with open(os.path.join(config.WEB_DIR, "index.html"), encoding="utf-8") as _f:
-    LEGACY_PAGE = _f.read()
-with open(os.path.join(config.WEB_DIR, "login.html"), encoding="utf-8") as _f:
-    LOGIN_PAGE = _f.read().replace("Ava", config.AVA_NAME)
-with open(os.path.join(config.WEB_DIR, "setup.html"), encoding="utf-8") as _f:
-    SETUP_PAGE = _f.read().replace("__BRAND__", config.AVA_NAME)
 
-# ---- New Vite + React SPA (frontend/dist) -----------------------------------
-# The primary UI is the built SPA. The single-file legacy UI stays reachable at
-# /legacy so nothing breaks while views are ported (strangler-fig migration).
-FRONTEND_DIST = os.path.join(config.ROOT, "frontend", "dist")
-_spa_index_path = os.path.join(FRONTEND_DIST, "index.html")
-if os.path.isfile(_spa_index_path):
-    with open(_spa_index_path, encoding="utf-8") as _f:
-        SPA_PAGE = _f.read()
-else:
-    SPA_PAGE = None
+# The page assets live in ava_bridge/pages.py, which is the only module that
+# renders them. Imported here for the /assets mount alone: mounting is app
+# construction and belongs in this file, but "where is the SPA" and "was it
+# built" are page facts and should not be duplicated.
+from ava_bridge import pages as _pages  # noqa: E402
 
 app = FastAPI(title="Ava phone bridge")
-if SPA_PAGE is not None:
-    app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIST, "assets")), name="assets")
+if _pages.SPA_PAGE is not None:
+    app.mount("/assets",
+              StaticFiles(directory=os.path.join(_pages.FRONTEND_DIST, "assets")),
+              name="assets")
 app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 
-@app.get("/thumb/{name}")
-def media_thumb(name: str, w: int = 1024):
-    """Small WebP thumbnail of a generated image for fast inline chat display —
-    the full 4K PNG is 16 MB+, the bubble shows it at ~500px. Lazy + disk-cached
-    (immutable: a filename's bytes never change); falls back to the full image
-    if thumbnailing isn't possible. See gpu_jobs.ensure_thumbnail."""
-    from ava_bridge.gpu_jobs import ensure_thumbnail
-    thumb = ensure_thumbnail(name, w)
-    if thumb:
-        return FileResponse(thumb, media_type="image/webp",
-                            headers={"Cache-Control": "public, max-age=31536000, immutable"})
-    full = os.path.join(MEDIA_DIR, os.path.basename(name))
-    if os.path.isfile(full):
-        return FileResponse(full)
-    return JSONResponse({"error": "not found"}, status_code=404)
 
 
 # Step-zero auth gate for the whole Experience plane (see ava_bridge/auth.py).
@@ -149,152 +94,36 @@ async def _config_parse_error(request: Request, exc: settings.ConfigParseError):
         status_code=409)
 
 
-# --- Authentication routes ---------------------------------------------------
-@app.get("/login", response_class=HTMLResponse)
-def login_get(request: Request):
-    if _is_authed(request):
-        return RedirectResponse("/", status_code=303)
-    if needs_setup():   # no password yet -> first-run onboarding, not a login wall
-        return RedirectResponse("/setup", status_code=303)
-    return HTMLResponse(LOGIN_PAGE.replace("<!--MSG-->", ""))
 
 
-@app.post("/login")
-def login_post(request: Request, password: str = Form("")):
-    ip = client_ip(request) or "?"
-    if _login_locked(ip):
-        return HTMLResponse(
-            LOGIN_PAGE.replace("<!--MSG-->", "Too many attempts &mdash; wait a minute."),
-            status_code=429)
-    pw = current_password()
-    if pw and hmac.compare_digest(password, pw):
-        _login_record(ip, ok=True)
-        resp = RedirectResponse("/", status_code=303)
-        _set_session_cookie(resp, request)
-        return resp
-    _login_record(ip, ok=False)
-    time.sleep(0.5)
-    return HTMLResponse(
-        LOGIN_PAGE.replace("<!--MSG-->", "Incorrect password."), status_code=401)
 
 
-def _claim_html() -> str:
-    """The claim instructions, as one HTML line. Escaped because it embeds a
-    filesystem path that comes from AVA_HOME."""
-    return ("Read the claim token on the machine Ava runs on:<br>"
-            f"<code>{html.escape(claim_hint().splitlines()[1].strip())}</code><br>"
-            "then reload this page with <code>?claim=&lt;token&gt;</code>.")
 
 
-@app.get("/setup", response_class=HTMLResponse)
-def setup_get(request: Request):
-    """First-run: create the admin password. Only reachable until one is set."""
-    if not needs_setup():
-        return RedirectResponse("/login", status_code=303)
-    if not may_claim(request):
-        return HTMLResponse(
-            SETUP_PAGE.replace(
-                "<!--MSG-->",
-                "This Ava has not been claimed yet, and you are not connecting "
-                "from the machine it runs on. " + _claim_html()),
-            status_code=403)
-    return HTMLResponse(SETUP_PAGE.replace("<!--MSG-->", ""))
 
 
-@app.post("/setup")
-def setup_post(request: Request, password: str = Form(""), confirm: str = Form("")):
-    if not needs_setup():   # password already set -> can't reset via this screen
-        return RedirectResponse("/login", status_code=303)
-    # An unclaimed instance bound off-loopback is otherwise first-come-first-served:
-    # whoever on the network reaches it first sets the admin password and the owner
-    # is locked out of their own box. Loopback callers are trusted; everyone else
-    # proves they can read the server's disk.
-    if not may_claim(request):
-        return HTMLResponse(
-            SETUP_PAGE.replace("<!--MSG-->", "Setup requires the claim token. " + _claim_html()),
-            status_code=403)
-    password = (password or "").strip()
-    if len(password) < 8:
-        return HTMLResponse(
-            SETUP_PAGE.replace("<!--MSG-->", "Password must be at least 8 characters."),
-            status_code=400)
-    if password != (confirm or "").strip():
-        return HTMLResponse(
-            SETUP_PAGE.replace("<!--MSG-->", "Passwords do not match."), status_code=400)
-    set_password(password)
-    clear_claim()       # the window is over; the instance now has an owner
-    # Fresh install -> continue into the onboarding wizard (hardware, backend,
-    # features, connectors). A pre-existing config skips it (setup_completed()).
-    from ava_bridge.setup_wizard import setup_completed
-    dest = "/" if setup_completed() else "/setup/wizard"
-    resp = RedirectResponse(dest, status_code=303)
-    _set_session_cookie(resp, request)
-    return resp
 
 
-@app.post("/logout")
-def logout():
-    resp = RedirectResponse("/login", status_code=303)
-    resp.delete_cookie(COOKIE_NAME, path="/")
-    return resp
 
 
-@app.post("/api/auth/password")
-async def change_password(request: Request):
-    """Change the admin password from inside the product, revoking other sessions.
-
-    Until this existed the only ways to change it were editing data/auth_password
-    by hand or setting AVA_PASSWORD and restarting — neither reachable by someone
-    running Ava as an app rather than as their own repo.
-
-    Rotating the signing secret is what revokes: there is no server-side session
-    store, so a stolen or stale cookie is only invalidated by changing the key
-    that signs it. The caller is re-issued a fresh cookie so changing your own
-    password does not log you out of the tab you did it from.
-    """
-    try:
-        body = await request.json()
-    except Exception:  # noqa: BLE001 — a malformed body is a 400, not a 500
-        return JSONResponse({"ok": False, "error": "expected a JSON body"},
-                            status_code=400)
-    current = str(body.get("current") or "")
-    new = str(body.get("new") or "").strip()
-    if len(new) < 8:
-        return JSONResponse(
-            {"ok": False, "error": "New password must be at least 8 characters."},
-            status_code=400)
-    # compare_digest, not ==, so a wrong guess costs the same time as a right one.
-    if not hmac.compare_digest(current, current_password()):
-        return JSONResponse({"ok": False, "error": "Current password is incorrect."},
-                            status_code=403)
-    if os.environ.get("AVA_PASSWORD"):
-        return JSONResponse(
-            {"ok": False, "error": "AVA_PASSWORD is set in the environment and "
-                                   "takes precedence — change it there instead."},
-            status_code=409)
-    set_password(new)
-    revoked = rotate_secret()
-    resp = JSONResponse({"ok": True, "revoked_other_sessions": revoked})
-    _set_session_cookie(resp, request)
-    return resp
 
 
 # Lazily-initialised heavy objects (loaded once on first request / startup).
 # Voice (STT + speaker gate) is an OPTIONAL extra — requirements-voice.txt.
 # Without it the bridge boots and serves normally, just voice-less.
 def _ensure_loaded():
-    if _state["voice_unavailable"]:
+    if state.heavy["voice_unavailable"]:
         return
     try:
-        if _state["whisper"] is None:
+        if state.heavy["whisper"] is None:
             from faster_whisper import WhisperModel
-            _state["whisper"] = WhisperModel(va.WHISPER_MODEL, device="cpu", compute_type="int8")
-        if _state["voiceprint"] is None:
-            _state["voiceprint"] = spk.load_voiceprint()
-        if _state["verifier"] is None and _state["voiceprint"] is not None and PHONE_THRESHOLD > 0:
-            _state["verifier"] = spk.SpeakerVerifier()
+            state.heavy["whisper"] = WhisperModel(va.WHISPER_MODEL, device="cpu", compute_type="int8")
+        if state.heavy["voiceprint"] is None:
+            state.heavy["voiceprint"] = spk.load_voiceprint()
+        if state.heavy["verifier"] is None and state.heavy["voiceprint"] is not None and PHONE_THRESHOLD > 0:
+            state.heavy["verifier"] = spk.SpeakerVerifier()
     except ImportError:
-        _state["voice_unavailable"] = True
+        state.heavy["voice_unavailable"] = True
         print("[ava-bridge] voice disabled — optional STT deps not installed "
               "(pip install -r requirements-voice.txt to enable).", flush=True)
 
@@ -302,7 +131,7 @@ def _ensure_loaded():
 @app.on_event("startup")
 def _startup():
     _ensure_loaded()
-    gate = "ON" if _state["verifier"] is not None else "OFF"
+    gate = "ON" if state.heavy["verifier"] is not None else "OFF"
     print(f"[ava-bridge] ready. speaker gate {gate} (threshold={PHONE_THRESHOLD}).", flush=True)
     # First run, unclaimed: print the claim token. A browser on this machine
     # never needs it (loopback claims freely) — this is for the headless case,
@@ -356,70 +185,14 @@ def _startup():
         print(f"[ava-bridge] allocation watchdog unavailable: {e}", flush=True)
 
 
-@app.get("/", response_class=HTMLResponse)
-def index():
-    # Serve index.html fresh from disk so a frontend rebuild (which changes the
-    # hashed asset filenames) is picked up immediately — without this, a cached
-    # page can reference a bundle that the rebuild deleted, giving a black screen.
-    if SPA_PAGE is not None:
-        try:
-            with open(_spa_index_path, encoding="utf-8") as _f:
-                return _f.read()
-        except OSError:
-            return SPA_PAGE
-    return LEGACY_PAGE
 
 
-# PWA shell files live at the dist ROOT (not dist/assets/), so the /assets
-# mount doesn't cover them. Served explicitly; both are in auth._PUBLIC_PATHS.
-@app.get("/manifest.webmanifest", include_in_schema=False)
-def pwa_manifest():
-    """The PWA manifest, with the brand applied at request time.
-
-    vite bakes `name`/`short_name` into dist at BUILD time, so a fork that set
-    `brand.name` in ava.yaml still got a home-screen icon labelled "Ava" — the one
-    place branding is most visible and least expected to be wrong. Overriding here
-    keeps the built file as the template and the config as the source of truth,
-    with no rebuild required to re-brand.
-    """
-    p = os.path.join(FRONTEND_DIST, "manifest.webmanifest")
-    if not os.path.isfile(p):
-        return JSONResponse({"error": "not built"}, status_code=404)
-    try:
-        with open(p, encoding="utf-8") as f:
-            man = json.load(f)
-        man["name"] = config.AVA_NAME
-        man["short_name"] = config.AVA_NAME
-        if config.AVA_TAGLINE:
-            man["description"] = config.AVA_TAGLINE
-        return JSONResponse(man, media_type="application/manifest+json")
-    except (OSError, ValueError):
-        # A malformed or unreadable manifest must not break install; serve the
-        # built file untouched rather than 500.
-        return FileResponse(p, media_type="application/manifest+json")
 
 
-@app.get("/sw.js", include_in_schema=False)
-def pwa_sw():
-    p = os.path.join(FRONTEND_DIST, "sw.js")
-    if not os.path.isfile(p):
-        return JSONResponse({"error": "not built"}, status_code=404)
-    # no-cache: the worker itself must always revalidate, or updates stall.
-    return FileResponse(p, media_type="text/javascript",
-                        headers={"Cache-Control": "no-cache"})
 
 
-@app.get("/favicon.ico", include_in_schema=False)
-def favicon():
-    p = os.path.join(FRONTEND_DIST, "favicon.ico")
-    if not os.path.isfile(p):
-        return JSONResponse({"error": "not built"}, status_code=404)
-    return FileResponse(p, media_type="image/x-icon")
 
 
-@app.get("/legacy", response_class=HTMLResponse)
-def legacy_index():
-    return LEGACY_PAGE
 
 
 # --- Optional personal-app routes (overlay) ---------------------------------
@@ -440,6 +213,42 @@ app.include_router(_hub_router)
 # Data page API (cookie-gated /api/data/* — the on-disk store inventory).
 from ava_bridge.data_api import router as _data_router  # noqa: E402
 app.include_router(_data_router)
+
+# Browser-facing pages: login, first-run setup, logout, password change, the
+# SPA shell and the PWA assets. Registered first so the shell is in place before
+# the API routers.
+app.include_router(_pages.router)
+
+# Media + jobs (cookie-gated /api/upload, /api/generate, /api/upscale,
+# /api/job/*, /api/turn/*, /thumb/*). Registers after the /media and /uploads
+# StaticFiles mounts above, preserving the original declaration order.
+from ava_bridge.media_api import router as _media_router  # noqa: E402
+app.include_router(_media_router)
+
+# Telemetry reads (cookie-gated /api/perf/*, /api/hardware*) — what Vitals polls.
+from ava_bridge.perf_api import router as _perf_router  # noqa: E402
+app.include_router(_perf_router)
+
+# Chat API (cookie-gated /api/chats/*, /api/chat-stream, /api/ghost/discard).
+from ava_bridge.chats_api import router as _chats_router  # noqa: E402
+app.include_router(_chats_router)
+
+# Operations API + the live SSE ops stream (cookie-gated /api/ops/*,
+# /api/stream/ops). The poll endpoints and the push channel are one contract.
+from ava_bridge.ops_api import router as _ops_router  # noqa: E402
+app.include_router(_ops_router)
+
+# Owner-facing learning review API (cookie-gated /api/learning/*). Its sandbox
+# counterpart, /internal/learning/*, lives in internal.py with the rest of the
+# token-gated surface — same feature, different trust boundary.
+from ava_bridge.learning_api import router as _learning_router  # noqa: E402
+app.include_router(_learning_router)
+
+# Sandbox->bridge callback surface (/internal/* — token-gated, scope-enforced).
+# Lives in ava_bridge/internal.py alongside the token logic and the ROUTE_SCOPES
+# table the middleware consults, so a new route's author sees the scope entry
+# they have to add. auth.auth_gate refuses any /internal path it cannot classify.
+app.include_router(internal.router)
 
 # Mount the optional overlay personal-app routes now that `app` exists.
 try:
@@ -498,57 +307,24 @@ def brand():
             "version": _AVA_VERSION}
 
 
-@app.get("/api/hardware")
-async def api_hardware():
-    """Live hardware snapshot for the app's floating monitor: GPU
-    utilisation/temperature, unified/system memory used/free, and CPU
-    utilisation. Auth-gated like every other /api route."""
-    return await run_in_threadpool(hardware.stats)
 
 
 # ===== DASHBOARD — Ava Command Center (Vitals + Operations) ==================
 # All cookie-gated /api/* (browser auth); read-first wrappers over ava_bridge
 # modules.
 
-@app.get("/api/perf/summary")
-async def api_perf_summary(app: str | None = None, category: str | None = None,
-                           since: str | None = None):
-    return await run_in_threadpool(dashboard.perf_summary, app, category, since)
 
 
-@app.get("/api/perf/series")
-async def api_perf_series(metric: str = "tokens_per_sec", bucket: str = "1h",
-                          since: str = "24h", app: str | None = None,
-                          category: str | None = None):
-    return await run_in_threadpool(dashboard.perf_series, metric, bucket, since,
-                                   app, category)
 
 
-@app.get("/api/perf/recent")
-async def api_perf_recent(limit: int = 50, app: str | None = None,
-                          category: str | None = None):
-    return await run_in_threadpool(dashboard.perf_recent, limit, app, category)
 
 
-@app.get("/api/perf/cost")
-async def api_perf_cost(since: str = "7d", group: str = "model"):
-    return await run_in_threadpool(dashboard.perf_cost, since, group)
 
 
-@app.get("/api/hardware/history")
-async def api_hardware_history(since: str = "1d", bucket: str = "5m"):
-    return {"ok": True, "samples": await run_in_threadpool(hardware.history_series, since, bucket)}
 
 
-@app.get("/api/jobs")
-async def api_jobs(status: str | None = None, kind: str | None = None,
-                   limit: int = 100):
-    return await run_in_threadpool(dashboard.jobs_list, status, kind, limit)
 
 
-@app.get("/api/turns")
-async def api_turns(limit: int = 50, active: bool = False):
-    return await run_in_threadpool(dashboard.turns_list, limit, active)
 
 
 @app.get("/api/code-turns")
@@ -556,91 +332,18 @@ async def api_code_turns(limit: int = 30):
     return await run_in_threadpool(dashboard.code_turns_list, limit)
 
 
-@app.get("/api/ops/summary")
-async def api_ops_summary():
-    return await run_in_threadpool(dashboard.ops_summary)
 
 
-@app.get("/api/ops/schedule")
-async def api_ops_schedule():
-    return await run_in_threadpool(dashboard.ops_schedule)
 
 
-@app.get("/api/ops/services")
-async def api_ops_services():
-    return await run_in_threadpool(dashboard.ops_services)
 
 
-@app.get("/api/ops/tools")
-async def api_ops_tools(limit: int = 15):
-    return await run_in_threadpool(dashboard.ops_tools, limit)
 
 
-@app.get("/api/ops/connectors")
-async def api_ops_connectors():
-    return await run_in_threadpool(dashboard.connectors_info)
 
 
-def _timed_connector_call(fn, cid: str, tool: str, args: dict) -> tuple:
-    """Run one connector call and record its latency/status in the app's
-    bridge-owned perf log — this is how a Hub-connected app shows up in Vitals
-    without writing its own performance.jsonl."""
-    t0 = time.time()
-    data, status = fn(cid, tool, args)
-    app_perf.record_action(cid, tool, time.time() - t0, status)
-    return data, status
 
 
-@app.api_route("/internal/connector/{cid}/{action}", methods=["POST", "GET"])
-async def internal_connector(cid: str, action: str, request: Request):
-    """Generic connector-action proxy: forwards a generated tool's call to the
-    connector's own host-local API. ONE route serves every connector, so adding
-    an app needs no new bridge code — just a connector manifest.
-
-    Two reserved actions bridge a connector's DYNAMIC tool set (see the manifest
-    `actions.discover` block): __tools lists them, __call invokes one by name."""
-    if not internal.authorized(request):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-    if action == "__tools":
-        q = request.query_params.get("q", "")
-        try:
-            limit = int(request.query_params.get("limit", "0"))
-        except ValueError:
-            limit = 0
-        return JSONResponse(await run_in_threadpool(connectors.discover_tools, cid, q, limit))
-    try:
-        body = await request.json()
-    except Exception:  # noqa: BLE001
-        body = {}
-    if action == "__call":
-        name = (body.get("name") or "").strip()
-        if not name:
-            return JSONResponse({"error": "missing tool name"}, status_code=400)
-        gate = await run_in_threadpool(approvals.gate, cid, name, body.get("arguments") or {})
-        if gate not in ("skip", "approved"):
-            audit.record("egress", connector=cid, tool=name, status=f"blocked:{gate}")
-            return JSONResponse({"error": f"not run — awaiting-approval {gate}"}, status_code=403)
-        data, status = await run_in_threadpool(
-            _timed_connector_call, connectors.call_discovered, cid, name,
-            body.get("arguments") or {})
-        # Egress record for the flight recorder: the agent reached out to a
-        # connector/MCP tool. This is the closest in-process egress signal we
-        # have (the sandbox's network denials live in openclaw, not here).
-        audit.record("egress", connector=cid, tool=name, status=status)
-        return JSONResponse(data, status_code=status)
-    # Merge query params (GET-style tools) with any JSON body so declared actions
-    # get their args regardless of how the tool passed them.
-    args = dict(request.query_params)
-    if isinstance(body, dict):
-        args.update(body)
-    gate = await run_in_threadpool(approvals.gate, cid, action, args)
-    if gate not in ("skip", "approved"):
-        audit.record("egress", connector=cid, tool=action, status=f"blocked:{gate}")
-        return JSONResponse({"error": f"not run — awaiting-approval {gate}"}, status_code=403)
-    data, status = await run_in_threadpool(
-        _timed_connector_call, connectors.call_action, cid, action, args)
-    audit.record("egress", connector=cid, tool=action, status=status)
-    return JSONResponse(data, status_code=status)
 
 
 @app.get("/api/apps")
@@ -807,84 +510,8 @@ async def app_ui_proxy(cid: str, path: str, request: Request):
     return _proxy_response(r)
 
 
-@app.get("/api/ops/alerts")
-async def api_ops_alerts():
-    return await run_in_threadpool(dashboard.ops_alerts)
 
 
-@app.get("/api/stream/ops")
-async def api_stream_ops(request: Request):
-    """Server-Sent Events: live turn/job/hardware/alert deltas for the Operations
-    tab. A 1 Hz producer snapshots state, diffs it, and emits only changes; alerts
-    re-evaluate every ~5s; a heartbeat keeps the connection alive."""
-    async def gen():
-        last_turns: dict = {}
-        last_jobs: dict = {}
-        last_alerts: set = set()
-        last_beat = time.time()
-        tick = 0
-        # Only stream device events that arrive AFTER this client connects (don't
-        # replay history into a fresh toast storm).
-        last_dev_seq = devices.current_seq()
-        # Prime clients with the current alert set on connect.
-        try:
-            init = await run_in_threadpool(dashboard.ops_alerts)
-            yield f"event: alert.state\ndata: {json.dumps(init.get('active', []))}\n\n"
-        except Exception:  # noqa: BLE001
-            pass
-        while True:
-            if await request.is_disconnected():
-                break
-            try:
-                snap = await run_in_threadpool(dashboard.live_snapshot)
-            except Exception:  # noqa: BLE001
-                await asyncio.sleep(1.0)
-                continue
-
-            for tid, cur in snap["turns"].items():
-                if last_turns.get(tid) != cur:
-                    yield f"event: turn.update\ndata: {json.dumps({'id': tid, **cur})}\n\n"
-            last_turns = snap["turns"]
-
-            for jid, cur in snap["jobs"].items():
-                if last_jobs.get(jid) != cur:
-                    yield f"event: job.update\ndata: {json.dumps({'id': jid, **cur})}\n\n"
-            last_jobs = snap["jobs"]
-
-            if snap.get("hw"):
-                yield f"event: hardware.tick\ndata: {json.dumps(snap['hw'])}\n\n"
-
-            # Live device events pushed by connector apps (ava_bridge/devices.py).
-            last_dev_seq, new_events = devices.live_since(last_dev_seq)
-            for ev in new_events:
-                yield f"event: device.event\ndata: {json.dumps(ev)}\n\n"
-
-            # Alerts every ~5 ticks (5s).
-            if tick % 5 == 0:
-                try:
-                    res = await run_in_threadpool(dashboard.ops_alerts)
-                    active = res.get("active", [])
-                    ids = {a["id"] for a in active}
-                    for a in active:
-                        if a["id"] not in last_alerts:
-                            yield f"event: alert.raise\ndata: {json.dumps(a)}\n\n"
-                    for gone in last_alerts - ids:
-                        yield f"event: alert.clear\ndata: {json.dumps({'id': gone})}\n\n"
-                    last_alerts = ids
-                except Exception:  # noqa: BLE001
-                    pass
-
-            now = time.time()
-            if now - last_beat > 15:
-                last_beat = now
-                yield ": keepalive\n\n"
-
-            tick += 1
-            await asyncio.sleep(1.0)
-
-    return StreamingResponse(gen(), media_type="text/event-stream",
-                             headers={"Cache-Control": "no-cache",
-                                      "X-Accel-Buffering": "no"})
 
 
 @app.get("/api/model")
@@ -927,519 +554,58 @@ async def api_model_set(mode: str = Form(...)):
     return r
 
 
-# ---- Internal capability surface (Ava's sandboxed MCP tools call back here) --
-# Token-gated; reached from the sandbox via host.openshell.internal:8096 under
-# the ava-knowledge egress policy. Lets Ava read the text of files the user uploaded.
-@app.get("/internal/documents")
-def internal_documents(request: Request):
-    if not internal.authorized(request):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-    return internal.documents_payload()
 
 
-@app.post("/internal/extract")
-async def internal_extract(request: Request):
-    if not internal.authorized(request):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-    try:
-        body = await request.json()
-    except Exception:  # noqa: BLE001
-        body = {}
-    file_id = str(body.get("file_id", "")).strip()
-    if not file_id:
-        return JSONResponse({"error": "file_id required"}, status_code=400)
-    try:
-        max_chars = int(body.get("max_chars") or 0)
-    except (TypeError, ValueError):
-        max_chars = 0
-    payload = internal.extract_payload(file_id, max_chars)
-    if payload is None:
-        return JSONResponse({"error": "no such document"}, status_code=404)
-    return payload
 
 
-@app.get("/internal/devices/events")
-def internal_device_events(request: Request):
-    """Recent pushed device events, for Ava's `device_events` MCP tool. Token-gated
-    (reuses the ava-knowledge /internal egress; scoped to the `content` group)."""
-    if not internal.authorized(request, scope="content"):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-    cid = (request.query_params.get("connector") or "").strip() or None
-    try:
-        limit = min(int(request.query_params.get("limit") or 50), 200)
-    except (TypeError, ValueError):
-        limit = 50
-    return {"events": devices.recent(cid, limit=limit)}
 
 
-@app.post("/internal/run-gpu-job")
-async def internal_run_gpu_job(request: Request):
-    """Render an image on Ava's behalf so the CHAT gets a live, real progress %.
-
-    Ava's `run_gpu_job` MCP tool calls this instead of hitting the GPU service directly.
-    The bridge then owns the the GPU service render (start_image_job -> gpu_service, tracked
-    over the the GPU service websocket), so /api/job/{id} reports a TRUE percentage the chat
-    bar polls — exactly like the manual Generate button. Token-gated
-    (reuses the ava-knowledge /internal egress; no new policy).
-    """
-    if not internal.authorized(request):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-    try:
-        body = await request.json()
-    except Exception:  # noqa: BLE001
-        body = {}
-    prompt = str(body.get("prompt", "")).strip()
-    if not prompt:
-        return JSONResponse({"error": "prompt required"}, status_code=400)
-    try:
-        width = int(body.get("width") or 1024)
-        height = int(body.get("height") or 1024)
-    except (TypeError, ValueError):
-        width, height = 1024, 1024
-    kw = {"width": width, "height": height}
-    neg = str(body.get("negative", "")).strip()
-    if neg:
-        kw["negative"] = neg
-    # Fidelity knobs (all optional): cfg/guidance = how literally the render obeys
-    # the prompt, steps = detail, seed = reproducibility. Clamped to safe ranges.
-    try:
-        if body.get("cfg") is not None:
-            kw["cfg"] = min(max(float(body["cfg"]), 1.0), 20.0)
-    except (TypeError, ValueError):
-        pass
-    try:
-        if body.get("steps") is not None:
-            kw["steps"] = min(max(int(body["steps"]), 8), 60)
-    except (TypeError, ValueError):
-        pass
-    try:
-        if body.get("seed") is not None:
-            kw["seed"] = int(body["seed"]) & 0x7FFFFFFF
-    except (TypeError, ValueError):
-        pass
-    # Multi-person regional prompts: list of {text,x,y,w,h,weight} sub-prompts,
-    # each pinned to its own area so distinct people don't blend together.
-    regions = body.get("regions")
-    if isinstance(regions, list) and regions:
-        clean = []
-        for r in regions:
-            if isinstance(r, dict) and str(r.get("text", "")).strip():
-                clean.append(r)
-        if clean:
-            kw["regions"] = clean
-    # Optional checkpoint/model key from the router (e.g. juggernaut, ponyreal).
-    mdl = body.get("model")
-    if mdl and str(mdl).strip():
-        kw["model"] = str(mdl).strip()
-    job_id = start_image_job(prompt, source="agent", **kw)
-    with _JOBS_LOCK:
-        job = _JOBS.get(job_id) or {}
-    if job.get("status") == "error":
-        # Born errored (feature off / the GPU service down): tell Ava's tool the truth
-        # so she explains what happened and how to fix it, instead of promising
-        # an image that will never arrive.
-        return {"error": job.get("error") or "GPU workloads unavailable",
-                "error_code": job.get("error_code"),
-                "job": {"id": job_id, "kind": "image", "status": "error"}}
-    return {"job": {"id": job_id, "kind": "image", "status": "running"}}
 
 
 # Personal-app routes (reverse proxies + their /internal/* read-backs) live in
 # the optional gitignored overlay (overlay/ava_bridge/*), registered at boot.
 
 
-# ---- Architecture capability (Ava reads/updates her own SSOT diagrams+code) --
-# Same token gate. Lets Ava get the architecture manifest + drift report, render
-# the diagrams, and apply manifest edits (auto-committed). Backed by arch.py.
-@app.get("/internal/architecture")
-def internal_architecture(request: Request):
-    if not internal.authorized(request):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-    return architecture.summary_payload()
 
 
-@app.post("/internal/architecture/describe")
-async def internal_arch_describe(request: Request):
-    if not internal.authorized(request):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-    try:
-        body = await request.json()
-    except Exception:  # noqa: BLE001
-        body = {}
-    name = str(body.get("name", "")).strip()
-    if not name:
-        return JSONResponse({"error": "name required"}, status_code=400)
-    return architecture.describe_payload(name)
 
 
-@app.post("/internal/architecture/check")
-def internal_arch_check(request: Request):
-    if not internal.authorized(request):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-    return architecture.check_payload()
 
 
-@app.post("/internal/architecture/sync")
-async def internal_arch_sync(request: Request):
-    if not internal.authorized(request):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-    try:
-        body = await request.json()
-    except Exception:  # noqa: BLE001
-        body = {}
-    commit = bool(body.get("commit", True))
-    return architecture.sync_payload(commit=commit, message=body.get("message"))
 
 
-@app.post("/internal/architecture/update")
-async def internal_arch_update(request: Request):
-    if not internal.authorized(request):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-    try:
-        body = await request.json()
-    except Exception:  # noqa: BLE001
-        body = {}
-    new_yaml = body.get("yaml") or ""
-    if not new_yaml.strip():
-        return JSONResponse({"error": "yaml required (the full new manifest)"}, status_code=400)
-    commit = bool(body.get("commit", True))
-    return architecture.update_payload(new_yaml, message=body.get("message"), commit=commit)
 
 
-@app.get("/internal/learning/scripts")
-async def internal_learning_read(request: Request):
-    """Allow Ava to read current learning digest scripts (read-only access)."""
-    if not internal.authorized(request):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-    return learning_mgmt.read_digest_scripts()
 
 
-@app.post("/internal/learning/update")
-async def internal_learning_update(request: Request):
-    """Allow Ava to update learning digest scripts with improved descriptions/rationales."""
-    if not internal.authorized(request):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-    try:
-        body = await request.json()
-    except Exception:  # noqa: BLE001
-        body = {}
-    
-    script_type = body.get("script_type") or ""
-    updates = body.get("updates") or {}
-    content = body.get("content")
-    
-    if not script_type:
-        return JSONResponse({"error": "script_type required (daily, weekly, or both)"}, status_code=400)
-    
-    result = learning_mgmt.update_digest_scripts(script_type, updates, content)
-    status = 200 if result.get("success") else 400
-    return JSONResponse(result, status_code=status)
 
 
-@app.get("/internal/learning/state")
-async def internal_learning_state(request: Request, state_type: str = "all", limit: int = 10, patterns: bool = True):
-    """Allow Ava to read her own learning state (code/chat cycles, patterns)."""
-    if not internal.authorized(request):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-    
-    limit = min(max(limit, 1), 100)
-    result = {}
-    
-    if state_type in ["code", "all"]:
-        with state.code_learning_state_lock:
-            cycles = state.code_learning_state.get("cycles", [])[-limit:]
-            inline_fixes = state.code_learning_state.get("inline_fixes", [])[-limit:]
-            result["code"] = {
-                "cycles": cycles,
-                "inline_fixes": inline_fixes,
-                "total_cycles": len(state.code_learning_state.get("cycles", [])),
-                "total_fixes": len(state.code_learning_state.get("inline_fixes", [])),
-            }
-    
-    if state_type in ["chat", "all"]:
-        with state.chat_learning_state_lock:
-            cycles = state.chat_learning_state.get("cycles", [])[-limit:]
-            result["chat"] = {
-                "cycles": cycles,
-                "total_cycles": len(state.chat_learning_state.get("cycles", [])),
-            }
-    
-    return JSONResponse(result)
 
 
-@app.get("/internal/learning/chats")
-async def internal_learning_chats(request: Request, action: str = "list", chat_id: str = None, limit: int = 50, metadata: bool = True):
-    """Allow Ava to read chat history for reflection and pattern analysis."""
-    if not internal.authorized(request):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-    
-    limit = min(max(limit, 1), 200)
-    
-    if action == "list":
-        # Return list of chats with metadata
-        import json
-        chats_file = Path('data/chats.json')
-        if not chats_file.exists():
-            return JSONResponse({"chats": []})
-        try:
-            with open(chats_file) as f:
-                data = json.load(f)
-            chats = []
-            for cid, chat in data.items():
-                chats.append({
-                    "id": cid,
-                    "title": chat.get("title", "Untitled"),
-                    "created": chat.get("created"),
-                    "updated": chat.get("updated"),
-                    "message_count": len(chat.get("messages", [])),
-                })
-            return JSONResponse({"chats": chats[:limit]})
-        except Exception:  # noqa: BLE001 — surfaced to the client as a JSON error response
-            return JSONResponse({"chats": []})
-    
-    elif action == "read":
-        if not chat_id:
-            return JSONResponse({"error": "chat_id required"}, status_code=400)
-        import json
-        chats_file = Path('data/chats.json')
-        if not chats_file.exists():
-            return JSONResponse({"error": "no chats"}, status_code=404)
-        try:
-            with open(chats_file) as f:
-                data = json.load(f)
-            chat = data.get(chat_id)
-            if not chat:
-                return JSONResponse({"error": "chat not found"}, status_code=404)
-            
-            messages = chat.get("messages", [])[-limit:]
-            if not metadata:
-                # Strip metadata, keep only role and content
-                messages = [{"role": m.get("role"), "content": m.get("content")} for m in messages]
-            
-            return JSONResponse({
-                "chat_id": chat_id,
-                "title": chat.get("title"),
-                "created": chat.get("created"),
-                "updated": chat.get("updated"),
-                "messages": messages,
-            })
-        except Exception:  # noqa: BLE001 — surfaced to the client as a JSON error response
-            return JSONResponse({"error": "failed to read chat"}, status_code=500)
-    
-    else:
-        return JSONResponse({"error": "action must be 'list' or 'read'"}, status_code=400)
 
 
-@app.get("/internal/learning/code-turns")
-async def internal_learning_code_turns(request: Request, cycle_id: str = None, status_filter: str = "all", diffs: bool = True, reasoning: bool = True, limit: int = 10):
-    """Allow Ava to read her code editing turns and proposals for learning."""
-    if not internal.authorized(request):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-    
-    limit = min(max(limit, 1), 100)
-    
-    with state.code_learning_state_lock:
-        cycles = state.code_learning_state.get("cycles", [])
-        if cycle_id:
-            cycles = [c for c in cycles if c.get("id") == cycle_id]
-        cycles = cycles[-limit:]
-    
-    result = []
-    for cycle in cycles:
-        proposals = cycle.get("proposals", [])
-        
-        # Filter by status if requested
-        if status_filter != "all":
-            proposals = [p for p in proposals if p.get("status") == status_filter]
-        
-        cycle_data = {
-            "id": cycle.get("id"),
-            "timestamp": cycle.get("timestamp"),
-            "proposals": proposals,
-        }
-        
-        # Strip diffs if not requested
-        if not diffs:
-            for p in cycle_data["proposals"]:
-                p.pop("diff", None)
-        
-        # Strip reasoning if not requested
-        if not reasoning:
-            for p in cycle_data["proposals"]:
-                p.pop("reasoning", None)
-        
-        result.append(cycle_data)
-    
-    return JSONResponse({"code_turns": result, "count": len(result)})
 
 
 # === LOG MANAGEMENT ENDPOINTS ===
 
-@app.post("/internal/logs")
-async def internal_logs(request: Request):
-    """Allow Ava to read system logs for debugging."""
-    if not internal.authorized(request):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-    
-    try:
-        body = await request.json()
-    except:
-        return JSONResponse({"error": "invalid json"}, status_code=400)
-    
-    result = log_mgmt.read_logs(
-        source=body.get("source", "systemd"),
-        service=body.get("service"),
-        component=body.get("component"),
-        lines=body.get("lines", 50),
-        level=body.get("level"),
-        since=body.get("since", "1h")
-    )
-    
-    status = 200 if result.get("ok") else 400
-    return JSONResponse(result, status_code=status)
 
 
-@app.post("/internal/perf")
-async def internal_perf(request: Request):
-    """Let Ava read + summarise generation-performance across all her apps."""
-    if not internal.authorized(request):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-
-    try:
-        body = await request.json()
-    except Exception:  # noqa: BLE001
-        body = {}
-
-    result = perf_mgmt.read_performance(
-        app=body.get("app"),
-        category=body.get("category"),
-        since=body.get("since"),
-        limit=body.get("limit", 50),
-        summary=body.get("summary", True),
-    )
-    status = 200 if result.get("ok") else 400
-    return JSONResponse(result, status_code=status)
 
 
 # === CONFIGURATION MANAGEMENT ENDPOINTS ===
 
-@app.get("/internal/config")
-async def internal_config_get(request: Request, component: str):
-    """Allow Ava to read configuration."""
-    if not internal.authorized(request):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-    
-    result = config_mgmt.read_config(component)
-    status = 200 if result.get("ok") else 400
-    return JSONResponse(result, status_code=status)
 
 
-@app.post("/internal/config")
-async def internal_config_post(request: Request):
-    """Allow Ava to update configuration."""
-    if not internal.authorized(request):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-    
-    try:
-        body = await request.json()
-    except:
-        return JSONResponse({"error": "invalid json"}, status_code=400)
-    
-    result = config_mgmt.update_config(
-        component=body.get("component"),
-        updates=body.get("updates", {}),
-        reason=body.get("reason", "No reason provided")
-    )
-    
-    status = 200 if result.get("ok") else 400
-    return JSONResponse(result, status_code=status)
 
 
 # === POLICY MANAGEMENT ENDPOINTS ===
 
-@app.get("/internal/policies")
-async def internal_policies_get(request: Request):
-    """Allow Ava to list all policies."""
-    if not internal.authorized(request):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-    
-    result = policy_mgmt.list_policies()
-    return JSONResponse(result, status_code=200)
 
 
-@app.get("/internal/policies/{policy_name}")
-async def internal_policy_read(request: Request, policy_name: str):
-    """Allow Ava to read a specific policy."""
-    if not internal.authorized(request):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-    
-    result = policy_mgmt.read_policy(policy_name)
-    status = 200 if result.get("ok") else 400
-    return JSONResponse(result, status_code=status)
 
 
-@app.post("/internal/policies")
-async def internal_policies_post(request: Request):
-    """Allow Ava to update a policy."""
-    if not internal.authorized(request):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-    
-    try:
-        body = await request.json()
-    except:
-        return JSONResponse({"error": "invalid json"}, status_code=400)
-    
-    result = policy_mgmt.update_policy(
-        name=body.get("name"),
-        updates=body.get("updates", {}),
-        reason=body.get("reason", "No reason provided")
-    )
-    
-    status = 200 if result.get("ok") else 400
-    return JSONResponse(result, status_code=status)
 
 
-@app.post("/internal/code-change")
-async def internal_code_change(request: Request):
-    """Hand off a code-change request to Claude (uses ANTHROPIC_API_KEY).
-
-    Ava's `code_change_request` MCP tool calls this. code_agent drives Claude
-    through the repo, then applies the access policy: safe files are written +
-    committed autonomously; protected files (auth/config/policy/deploy) are
-    parked as a pending proposal in the user's approval bucket on the Learning page;
-    secrets/binaries are refused. The Claude tool loop runs synchronously and can
-    take a while, so run it off the event loop.
-    """
-    if not internal.authorized(request):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-
-    try:
-        body = await request.json()
-    except Exception:  # noqa: BLE001
-        return JSONResponse({"error": "invalid json"}, status_code=400)
-
-    request_text = (body.get("request") or "").strip()
-    context_text = (body.get("context") or "").strip()
-    files_list = body.get("files") or []
-    project = (body.get("project") or "ava").strip() or "ava"
-    actor = (body.get("actor") or "Ava").strip() or "Ava"
-    if not request_text:
-        return JSONResponse({"error": "empty request"}, status_code=400)
-
-    print(f"[ava-bridge] [DEBUG] /internal/code-change received: "
-          f"project={project!r} actor={actor!r} request={request_text[:80]!r} files={files_list}", flush=True)
-
-    try:
-        result = await run_in_threadpool(
-            code_agent.run_change_request,
-            request_text, context_text, files_list, "code_change_request",
-            None, project, actor,
-        )
-    except Exception as e:  # noqa: BLE001
-        return JSONResponse({"error": f"code change failed: {e}"}, status_code=500)
-
-    status = 500 if result.get("status") == "error" else 200
-    return JSONResponse(result, status_code=status)
 
 
 # An app draft-preview route moved to the optional overlay
@@ -1447,62 +613,8 @@ async def internal_code_change(request: Request):
 # present. A fork without it simply has no such route.
 
 
-# Bespoke connected-app routes were removed: connected apps ride the generic
-# connector proxy (/internal/connector/<id>/* for agent tools, /apps/<id>/api/*
-# for the browser tab) — see each connector's connector.yaml.
-# --- Web access (self-hosted search + SSRF-guarded reader) -------------------
-# HOST-MEDIATED: Ava's sandbox tools call these token-gated routes (reusing the
-# ava-knowledge egress policy — no new open egress). The HOST runs the private
-# SearXNG search and the SSRF-guarded page fetch; Ava never touches the internet
-# directly and no API keys ever enter the sandbox.
-@app.post("/internal/web/search")
-async def internal_web_search(request: Request):
-    if not internal.authorized(request):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-    # features.web_search is the single switch for BOTH web routes — same
-    # convention as image renders: a deliberate OFF must actually stop the
-    # path, with a coded error the chat turns into a fix-it link. Coded errors
-    # ship as HTTP 200 like run-gpu-job's: the sandbox tool helper (curl
-    # --fail) swallows non-200 bodies, and the message must reach Ava so she
-    # can tell the user how to fix it.
-    pf = features.preflight("web_search")
-    if pf:
-        return {"error": pf[1], "error_code": pf[0]}
-    try:
-        body = await request.json()
-    except Exception:  # noqa: BLE001
-        return JSONResponse({"error": "invalid json"}, status_code=400)
-    query = (body or {}).get("query") or (body or {}).get("q") or ""
-    count = (body or {}).get("count")
-    try:
-        return JSONResponse(await run_in_threadpool(web_access.search, query, count))
-    except web_access.SearchUnreachableError as e:
-        return {"error": str(e), "error_code": "web_search_down"}
-    except web_access.WebAccessError as e:
-        return JSONResponse({"error": str(e)}, status_code=400)
-    except Exception as e:  # noqa: BLE001
-        return JSONResponse({"error": f"web search failed: {e}"}, status_code=502)
 
 
-@app.post("/internal/web/fetch")
-async def internal_web_fetch(request: Request):
-    if not internal.authorized(request):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-    pf = features.preflight("web_search")  # guarded fetch rides the same switch
-    if pf:
-        return {"error": pf[1], "error_code": pf[0]}  # 200: see /internal/web/search
-    try:
-        body = await request.json()
-    except Exception:  # noqa: BLE001
-        return JSONResponse({"error": "invalid json"}, status_code=400)
-    url = (body or {}).get("url") or ""
-    try:
-        return JSONResponse(await run_in_threadpool(web_access.fetch, url))
-    except web_access.WebAccessError as e:
-        # Blocked/invalid target — a 400 so Ava learns the URL was refused.
-        return JSONResponse({"error": str(e)}, status_code=400)
-    except Exception as e:  # noqa: BLE001
-        return JSONResponse({"error": f"web fetch failed: {e}"}, status_code=502)
 
 
 @app.post("/api/talk")
@@ -1518,7 +630,7 @@ async def talk(audio: UploadFile = File(...), history: str = Form("[]"),
              "error_code": "voice_off"},
             status_code=503)
     _ensure_loaded()
-    if _state["voice_unavailable"]:
+    if state.heavy["voice_unavailable"]:
         return JSONResponse(
             {"error": "voice not installed — pip install -r requirements-voice.txt"},
             status_code=503)
@@ -1561,8 +673,8 @@ async def talk(audio: UploadFile = File(...), history: str = Form("[]"),
 
     # Speaker gate — your voice only.
     sim = None
-    if _state["verifier"] is not None:
-        sim = spk.cosine(_state["voiceprint"], _state["verifier"].embed_pcm(pcm))
+    if state.heavy["verifier"] is not None:
+        sim = spk.cosine(state.heavy["voiceprint"], state.heavy["verifier"].embed_pcm(pcm))
         if sim < PHONE_THRESHOLD:
             return {"accepted": False, "sim": round(float(sim), 3),
                     "threshold": PHONE_THRESHOLD,
@@ -1579,7 +691,7 @@ async def talk(audio: UploadFile = File(...), history: str = Form("[]"),
             print(f"[ava] GPU STT unavailable ({e}); falling back to CPU Whisper",
                   flush=True)
     if text is None:
-        text = va.transcribe(_state["whisper"], pcm)
+        text = va.transcribe(state.heavy["whisper"], pcm)
     if not text:
         return {"accepted": True, "text": "", "reply": "",
                 "sim": round(float(sim), 3) if sim is not None else None,
@@ -1591,9 +703,9 @@ async def talk(audio: UploadFile = File(...), history: str = Form("[]"),
     ids = parse_ids(attachments)
     agent_text = augment(text, ids)
     agent_text = memory_store.augment_with_recall(agent_text, text, chat_id)
-    sid = _chat_session(chat_id) if chat_id else None
+    sid = chat_session(chat_id) if chat_id else None
     if chat_id:
-        chat_append(chat_id, "user", text, _atts_meta(ids))
+        chat_append(chat_id, "user", text, atts_meta(ids))
     t0 = time.time()
     tools: list[str] = []
     try:
@@ -1641,65 +753,12 @@ async def talk(audio: UploadFile = File(...), history: str = Form("[]"),
     return resp
 
 
-@app.post("/api/generate")
-async def generate(prompt: str = Form(...), width: int = Form(1024),
-                   height: int = Form(1024), steps: int = Form(28),
-                   chat_id: str = Form(""), chat_text: str = Form("")):
-    """Directly start an image render from a text prompt (no voice).
-
-    GOVERNANCE NOTE: this is the one sanctioned direct path that bypasses the
-    OpenClaw agent. All conversational turns (/api/talk, /api/talk-text) route
-    through Ava-the-agent (ask_openclaw) so persona, memory and tool-policies
-    apply, and agent-initiated images go via her `run_gpu_job` MCP tool. This
-    endpoint is a deliberate UX fast-path for an EXPLICIT user "generate" action
-    (a button, not a sentence): there is no reasoning to govern, and it stays on
-    the same local host the GPU service behind the same egress boundary. Keep this the
-    exception — do not add conversational logic here; send that through the agent.
-    """
-    prompt = prompt.strip()
-    if not prompt:
-        return JSONResponse({"error": "empty prompt"}, status_code=400)
-    if chat_id:
-        chat_append(chat_id, "user", (chat_text or prompt).strip())
-    # chat_id rides the job: the bridge persists the outcome (image or coded
-    # error) when the render ends — the client only paints progress.
-    job_id = start_image_job(prompt, chat_id=chat_id or None,
-                             width=width, height=height, steps=steps)
-    return {"job": {"id": job_id, "kind": "image", "prompt": prompt}}
 
 
-@app.post("/api/upscale")
-async def upscale(filename: str = Form(...), chat_id: str = Form(""),
-                  caption: str = Form("")):
-    """Optionally upscale a generated image ~4x (the refiner) to ~4K."""
-    name = os.path.basename(filename.strip())
-    if not name or not name.lower().endswith(".png"):
-        return JSONResponse({"error": "bad filename"}, status_code=400)
-    src = os.path.join(MEDIA_DIR, name)
-    if not os.path.isfile(src):
-        return JSONResponse({"error": "image not found"}, status_code=404)
-    job_id = start_upscale_job(src, chat_id=chat_id.strip() or None,
-                               caption=caption.strip() or None)
-    return {"job": {"id": job_id, "kind": "upscale"}}
 
 
-@app.get("/api/job/{job_id}")
-def job_status(job_id: str):
-    with _JOBS_LOCK:
-        job = _JOBS.get(job_id)
-    if not job:
-        return JSONResponse({"error": "unknown job"}, status_code=404)
-    return job
 
 
-@app.post("/api/job/{job_id}/cancel")
-def job_cancel(job_id: str):
-    ok = cancel_job(job_id)
-    if not ok:
-        return JSONResponse({"error": "unknown job"}, status_code=404)
-    with _JOBS_LOCK:
-        job = _JOBS.get(job_id)
-    return {"ok": True, "job": job}
 
 
 @app.post("/api/talk-text")
@@ -1713,9 +772,9 @@ async def talk_text(text: str = Form(...), history: str = Form("[]"),
 
     agent_text = augment(text, ids)
     agent_text = memory_store.augment_with_recall(agent_text, text, chat_id)
-    sid = _chat_session(chat_id) if chat_id else None
+    sid = chat_session(chat_id) if chat_id else None
     if chat_id:
-        chat_append(chat_id, "user", text, _atts_meta(ids))
+        chat_append(chat_id, "user", text, atts_meta(ids))
     t0 = time.time()
     tools: list[str] = []
     try:
@@ -1745,75 +804,10 @@ async def talk_text(text: str = Form(...), history: str = Form("[]"),
     return resp
 
 
-@app.post("/api/chat-stream")
-async def chat_stream(text: str = Form(...), history: str = Form("[]"),
-                      attachments: str = Form("[]"), chat_id: str = Form("")):
-    """The ONE ingress for typed messages. The server-side intent gate
-    (ava_bridge/turn_router.py) picks the pipeline — the frontend carries zero
-    routing knowledge. Returns {"turn_id"} for an agent turn or {"job"} for a
-    render; either way the outcome is persisted server-side (Phase 1)."""
-    text = text.strip()
-    ids = parse_ids(attachments)
-    if not text and not ids:
-        return JSONResponse({"error": "empty text"}, status_code=400)
-    gate_route = None
-    # Tier 1: attachments ride the agent turn (documents/images need tools).
-    if text and not ids:
-        last_route, last_prompt = last_render_context(chat_id)
-        recent_user = recent_user_text(chat_id)
-        d = await run_in_threadpool(turn_router.classify, text,
-                                    last_route, last_prompt, recent_user, chat_id)
-        gate_route = d["route"]
-        if turn_router.PIPELINES.get(d["route"]) == "image":
-            blocked = turn_router.policy_check(d["route"], text)  # Phase-4 seam
-            if blocked:
-                code, msg = blocked
-                if chat_id:
-                    chat_append(chat_id, "user", text)
-                    chat_append(chat_id, "assistant", msg, error_code=code)
-                return {"error": msg, "error_code": code}
-            if chat_id:
-                chat_append(chat_id, "user", text)
-            job_id = start_image_job(d["image_prompt"], chat_id=chat_id or None)
-            return {"job": {"id": job_id, "kind": "image",
-                            "prompt": d["image_prompt"]},
-                    "route": d["route"]}
-    agent_text = augment(text, ids)
-    agent_text = memory_store.augment_with_recall(agent_text, text, chat_id)
-    # prompt_help shares the agent pipeline with chat, but gets the edit-don't-
-    # execute hint so Ava refines the prompt instead of running it (July-11 fix).
-    if gate_route == "prompt_help":
-        agent_text = turn_router.PROMPT_HELP_HINT + agent_text
-    sid = _chat_session(chat_id) if chat_id else OC_SESSION
-    if chat_id:
-        chat_append(chat_id, "user", text, _atts_meta(ids))
-    tid = start_turn(agent_text, sid, chat_id)
-    return {"turn_id": tid}
 
 
-@app.post("/api/ghost/discard")
-async def ghost_discard(chat_id: str = Form(...)):
-    """Wipe a ghost conversation's agent-side session transcript.
-
-    Ghost chats use an unregistered chat id, so they were never written to
-    chats.json (host-side persistence is already a no-op). This also deletes the
-    OpenClaw session file so the ephemeral conversation leaves no trace when the user
-    exits ghost mode or starts a new chat.
-    """
-    cid = (chat_id or "").strip()
-    if not cid:
-        return {"ok": False}
-    ok = await run_in_threadpool(discard_session, _chat_session(cid))
-    return {"ok": bool(ok)}
 
 
-@app.get("/api/turn/{tid}")
-def turn_status(tid: str):
-    with _TURNS_LOCK:
-        t = _TURNS.get(tid)
-        if not t:
-            return JSONResponse({"error": "unknown turn"}, status_code=404)
-        return dict(t)
 
 
 @app.get("/api/artifact/weather")
@@ -1826,142 +820,22 @@ def artifact_weather(location: str = "", days: int = 7):
     return art
 
 
-# Upload types we know how to store/extract; anything else is refused so the
-# upload dir can't be used to stash executables, keys, or other arbitrary files.
-_ALLOWED_UPLOAD_EXTS = {
-    ".pdf", ".txt", ".md", ".markdown", ".csv", ".tsv", ".json", ".log", ".rtf",
-    ".doc", ".docx", ".odt", ".xls", ".xlsx", ".ods", ".ppt", ".pptx", ".odp",
-    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".heic",
-}
 
 
-def _store_upload(raw: bytes, aid: str, safe: str, ext: str) -> dict:
-    """Blocking half of /api/upload: disk write, text extraction, memory index.
-
-    Split out so it can run in a threadpool. `extract_text` shells out to
-    `soffice --headless` for office documents with a 150s ceiling, and running
-    that on the event loop froze the whole process for its duration \u2014 every SSE
-    stream, every /apps/{cid} proxy hop, and the login gate with it. One user
-    uploading one .docx was enough; it did not need load to bite.
-    """
-    stored = f"{aid}_{safe}"
-    dest = os.path.join(UPLOAD_DIR, stored)
-    with open(dest, "wb") as f:
-        f.write(raw)
-    is_image = ext in IMAGE_EXTS
-    text = (extract_text(dest, ext) or "").strip()
-    if len(text) > MAX_DOC_CHARS:
-        text = text[:MAX_DOC_CHARS] + "\n\u2026[truncated]"
-    rec = {"id": aid, "filename": safe,
-           "kind": "image" if is_image else "document",
-           "url": f"/uploads/{stored}" if is_image else None,
-           "chars": len(text), "ocr": bool(is_image and text), "text": text}
-    # Long-term memory: index document text so it stays searchable in
-    # future conversations (not just this message). Images skipped unless
-    # OCR found real text.
-    if not is_image or rec["ocr"]:
-        memory_store.index_document(aid, safe, text)
-    return rec
 
 
-@app.post("/api/upload")
-async def upload(files: List[UploadFile] = File(...)):
-    """Accept document/image uploads, extract text, stash for the next turn."""
-    out = []
-    for uf in files:
-        raw = await uf.read()
-        if not raw:
-            continue
-        if len(raw) > MAX_UPLOAD_BYTES:
-            out.append({"error": f"{uf.filename}: too large "
-                                 f"(max {MAX_UPLOAD_BYTES // (1024 * 1024)} MB)"})
-            continue
-        aid = uuid.uuid4().hex[:12]
-        safe = safe_name(uf.filename)
-        ext = os.path.splitext(safe)[1].lower()
-        if ext not in _ALLOWED_UPLOAD_EXTS:
-            out.append({"error": f"{uf.filename}: file type '{ext or '?'}' not allowed"})
-            continue
-        # Validation above is cheap and stays on the loop; everything that
-        # touches disk, a subprocess or SQLite goes to a worker thread.
-        rec = await run_in_threadpool(_store_upload, raw, aid, safe, ext)
-        with _ATTACH_LOCK:
-            _ATTACH[aid] = rec
-        out.append({k: rec[k] for k in ("id", "filename", "kind", "url", "chars", "ocr")})
-    return {"attachments": out}
 
 
-@app.get("/api/chats")
-def chats_list():
-    with _CHATS_LOCK:
-        items = [_chat_summary(c) for c in _CHATS.values()]
-    items.sort(key=lambda x: x["updated"], reverse=True)
-    return {"chats": items}
 
 
-@app.post("/api/chats")
-def chats_create():
-    return _chat_summary(_chat_new())
 
 
-@app.get("/api/chats/{cid}")
-def chats_get(cid: str):
-    with _CHATS_LOCK:
-        c = _CHATS.get(cid)
-        if not c:
-            return JSONResponse({"error": "unknown chat"}, status_code=404)
-        return {"id": c["id"], "title": c.get("title") or "New chat",
-                "messages": c.get("messages", [])}
 
 
-@app.delete("/api/chats/{cid}")
-def chats_delete(cid: str):
-    with _CHATS_LOCK:
-        gone = _CHATS.pop(cid, None)
-        if gone is not None:
-            _chats_persist()
-    if gone is not None:
-        # Same ledger treatment as memory edits: deletions leave a trace.
-        audit.record("chat_delete", id=cid, title=gone.get("title") or "New chat",
-                     messages=len(gone.get("messages") or []))
-    return {"ok": gone is not None}
 
 
-@app.patch("/api/chats/{cid}")
-def chats_rename(cid: str, title: str = Form(...)):
-    title = title.strip()[:80]
-    with _CHATS_LOCK:
-        c = _CHATS.get(cid)
-        if not c:
-            return JSONResponse({"error": "unknown chat"}, status_code=404)
-        if title:
-            c["title"] = title
-            _chats_persist()
-        return _chat_summary(c)
 
 
-@app.post("/api/chats/{cid}/image")
-def chats_image(cid: str, url: str = Form(...), caption: str = Form(""),
-                models: str = Form("")):
-    """DEPRECATED — the bridge persists render outcomes itself now
-    (gpu_jobs._finalize_job). Kept for stale cached clients (PWA service
-    worker) and deduped so a client that still posts can't double-append."""
-    with _CHATS_LOCK:
-        c = _CHATS.get(cid)
-        if not c:
-            return JSONResponse({"error": "unknown chat"}, status_code=404)
-        if any(m.get("image") == url for m in c.get("messages", [])[-8:]):
-            return {"ok": True, "deduped": True}
-    img_models = None
-    if models:
-        try:
-            parsed = json.loads(models)
-            if isinstance(parsed, list) and parsed:
-                img_models = parsed
-        except (ValueError, TypeError):
-            img_models = None
-    chat_append(cid, "assistant", caption, image=url, img_models=img_models)
-    return {"ok": True}
 
 
 # ---- Code mode endpoints ----
@@ -1980,165 +854,19 @@ def code_models():
 
 # ---- Learning system endpoints (code improvement proposals + feedback) --------
 
-@app.post("/api/learning/run")
-async def learning_run():
-    """Manually trigger a learning cycle now (the Learning page 'Run now' button).
-    Analyzes recent code + chat activity locally and parks any proposals."""
-    summary = await learning.run_all_cycles()
-    return {"ok": True, **summary}
 
 
-@app.get("/api/learning/code/state")
-def learning_code_state():
-    """Get code-learning cycles and proposals."""
-    with state.code_learning_state_lock:
-        cycles = state.code_learning_state.get("cycles", [])
-        return {
-            "context": "code",
-            "cycles": cycles,
-            "last_cycle": state.code_learning_state.get("last_cycle"),
-            # Lets the UI say "learning is off" instead of promising proposals
-            # that a disabled scheduler will never produce.
-            "enabled": config.LEARNING_ENABLED,
-        }
 
 
-@app.get("/api/learning/chat/state")
-def learning_chat_state():
-    """Get chat-learning cycles and proposals."""
-    with state.chat_learning_state_lock:
-        cycles = state.chat_learning_state.get("cycles", [])
-        return {
-            "context": "chat",
-            "cycles": cycles,
-            "last_cycle": state.chat_learning_state.get("last_cycle"),
-            "enabled": config.LEARNING_ENABLED,
-        }
 
 
-@app.post("/api/learning/code/apply")
-def learning_code_apply(proposal_id: str):
-    """Approve a code proposal. If it carries staged code changes (from Ava's
-    code_change_request / self-fix), actually write + commit them; otherwise just
-    mark the improvement suggestion approved."""
-    # Does this proposal carry real staged changes to apply?
-    has_changes = False
-    with state.code_learning_state_lock:
-        for cycle in state.code_learning_state.get("cycles", []):
-            for prop in cycle.get("proposals", []):
-                if prop.get("id") == proposal_id:
-                    has_changes = bool(prop.get("staged_changes"))
-                    break
-    if has_changes:
-        res = code_agent.apply_approved_proposal(proposal_id)
-        if not res.get("ok"):
-            err = res.get("error", "apply failed")
-            if res.get("test_output"):
-                err += f"\n\n{res['test_output']}"
-            return {"ok": False, "error": err}
-        msg = f"Applied {len(res.get('files', []))} file(s)"
-        if res.get("branch"):
-            msg += f" to branch {res['branch']}"
-            if res.get("tests_passed"):
-                msg += " (checks passed)"
-        if res.get("commit"):
-            msg += f" · commit {res['commit']}"
-        if res.get("restart"):
-            msg += " · restarting bridge"
-        return {"ok": True, "message": msg, "files": res.get("files", []),
-                "commit": res.get("commit"), "restart": res.get("restart", False),
-                "branch": res.get("branch")}
-    # Plain improvement suggestion — just record approval.
-    with state.code_learning_state_lock:
-        for cycle in state.code_learning_state.get("cycles", []):
-            for prop in cycle.get("proposals", []):
-                if prop.get("id") == proposal_id:
-                    prop["status"] = "completed"
-                    prop["applied"] = True
-                    prop["completed_by"] = prop.get("requested_by") or "Ava"
-                    prop["approved_by"] = config.OPERATOR_NAME
-                    prop["completed_at"] = datetime.now().isoformat()
-                    state.save_learning_state()
-                    return {"ok": True, "proposal": prop,
-                            "message": f"Approved: {prop.get('title')}"}
-    return {"ok": False, "error": "Proposal not found"}
 
 
-@app.post("/api/learning/code/reject")
-def learning_code_reject(proposal_id: str):
-    """Reject a code-improvement proposal."""
-    with state.code_learning_state_lock:
-        cycles = state.code_learning_state.get("cycles", [])
-        for cycle in cycles:
-            for prop in cycle.get("proposals", []):
-                if prop.get("id") == proposal_id:
-                    prop["status"] = "rejected"
-                    state.save_learning_state()
-                    return {"ok": True, "message": "Proposal rejected"}
-    return {"ok": False, "error": "Proposal not found"}
 
 
-@app.post("/api/learning/code/feedback")
-def learning_code_feedback(proposal_id: str, rating: int):
-    """Record feedback on a code-improvement proposal (1=helpful, 0=not helpful)."""
-    with state.code_learning_state_lock:
-        cycles = state.code_learning_state.get("cycles", [])
-        for cycle in cycles:
-            for prop in cycle.get("proposals", []):
-                if prop.get("id") == proposal_id:
-                    prop["feedback"] = rating
-                    prop["feedback_timestamp"] = datetime.now().isoformat()
-                    state.save_learning_state()
-                    return {"ok": True}
-    return {"ok": False, "error": "Proposal not found"}
 
 
-@app.post("/api/learning/chat/apply")
-def learning_chat_apply(proposal_id: str):
-    """Approve a chat-improvement proposal."""
-    with state.chat_learning_state_lock:
-        cycles = state.chat_learning_state.get("cycles", [])
-        for cycle in cycles:
-            for prop in cycle.get("proposals", []):
-                if prop.get("id") == proposal_id:
-                    prop["status"] = "completed"
-                    prop["applied"] = True
-                    prop["completed_by"] = prop.get("requested_by") or "Ava"
-                    prop["approved_by"] = config.OPERATOR_NAME
-                    prop["completed_at"] = datetime.now().isoformat()
-                    state.save_learning_state()
-                    return {
-                        "ok": True,
-                        "proposal": prop,
-                        "message": f"Approved: {prop.get('title')}"
-                    }
-    return {"ok": False, "error": "Proposal not found"}
 
 
-@app.post("/api/learning/chat/reject")
-def learning_chat_reject(proposal_id: str):
-    """Reject a chat-improvement proposal."""
-    with state.chat_learning_state_lock:
-        cycles = state.chat_learning_state.get("cycles", [])
-        for cycle in cycles:
-            for prop in cycle.get("proposals", []):
-                if prop.get("id") == proposal_id:
-                    prop["status"] = "rejected"
-                    state.save_learning_state()
-                    return {"ok": True, "message": "Proposal rejected"}
-    return {"ok": False, "error": "Proposal not found"}
 
 
-@app.post("/api/learning/chat/feedback")
-def learning_chat_feedback(proposal_id: str, rating: int):
-    """Record feedback on a chat-improvement proposal (1=helpful, 0=not helpful)."""
-    with state.chat_learning_state_lock:
-        cycles = state.chat_learning_state.get("cycles", [])
-        for cycle in cycles:
-            for prop in cycle.get("proposals", []):
-                if prop.get("id") == proposal_id:
-                    prop["feedback"] = rating
-                    prop["feedback_timestamp"] = datetime.now().isoformat()
-                    state.save_learning_state()
-                    return {"ok": True}
-    return {"ok": False, "error": "Proposal not found"}

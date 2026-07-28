@@ -34,7 +34,7 @@ of cold-booting. Target: ~5–8s → <1s of overhead per turn.
 2. **No per-operator state in the repo.** Device ids, gateway tokens, and scopes
    are generated per install and live only under the runtime sandbox / `AVA_HOME`
    — never committed. Nothing about warm mode may hardcode a machine, path, IP,
-   location, or account. (Config over hardcode; see PACKAGING_PLAN §1, §5.4.)
+   location, or account. (Config over hardcode.)
 3. **Self-provisioning, not manual.** If warm mode needs setup (e.g. granting the
    agent device gateway scopes), that setup is done **idempotently inside
    `AgentRuntime.provision()`** — never a hand-run `openclaw devices …` command.
