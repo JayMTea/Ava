@@ -300,6 +300,22 @@ perf:
 # `inference.backends.<id>` picks up weight_gb / min_free_gb / tier from its
 # existing `fit:` block, and a model matching a connector picks up that
 # connector's unit and health probe. Declare below only what neither can say.
+# ---- Architecture drift watchdog -------------------------------------------
+# The watchdog re-checks the SSOT manifest on an interval and, when only the
+# generated diagrams have drifted, self-heals by running `arch.py sync --commit`
+# — an automatic commit authored "Ava (auto-sync)" onto whatever branch the
+# working tree is on.
+#
+# That is right on a settled tree and wrong mid-refactor, where it can land a
+# commit in the middle of a series or interleave with someone else's edits.
+# `paused` suppresses the auto-commit only: drift is still detected and still
+# raises the alert, so a paused watchdog is quiet rather than blind.
+#
+# Read every cycle, so it takes effect in a RUNNING bridge — no restart needed.
+# Env override: AVA_ARCH_WATCH_PAUSED=1. Interval: AVA_ARCH_WATCH_INTERVAL (s).
+arch:
+  paused: false
+
 alloc:
   enabled: true              # [AVA_ALLOC] off = observe nothing, govern nothing
   pool:
