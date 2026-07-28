@@ -23,7 +23,7 @@ from collections import deque
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse, PlainTextResponse, Response
 
-from . import audit, devices, settings, state
+from . import audit, chat_store, devices, settings
 
 router = APIRouter(prefix="/api/data")
 
@@ -132,13 +132,14 @@ def stores():
                       facts=mc.get("facts", 0), doc_chunks=mc.get("doc_chunks", 0),
                       pinned=mc.get("pinned", 0)))
 
-    # Chats — one JSON file, already resident in state.chats.
-    chats_path = os.path.join(data_dir, "chats.json")
+    # Chats. The corpus is SQLite now, so this reports data/chats.db — reporting
+    # chats.json would show a file that stops growing the moment the migration
+    # runs, i.e. an inventory that looks healthy while describing a rollback
+    # artefact rather than the live store.
+    chats_path = chat_store.db_path()
     size, mtime = _file_stats(chats_path)
-    with state.chats_lock:
-        n_chats = len(state.chats)
-        n_msgs = sum(len(c.get("messages") or []) for c in state.chats.values())
-    out.append(_store("chats", "Chats", chats_path, "json", size=size,
+    n_chats, n_msgs = chat_store.counts()
+    out.append(_store("chats", "Chats", chats_path, "sqlite", size=size,
                       count=n_chats, last_write=mtime, messages=n_msgs))
 
     # Audit ledger — append-only flight recorder.
@@ -237,15 +238,7 @@ def stores():
 @router.get("/chats")
 def chats_summary():
     """Every conversation with its message count and JSON weight, newest first."""
-    out = []
-    with state.chats_lock:
-        for c in state.chats.values():
-            out.append({"id": c["id"], "title": c.get("title") or "New chat",
-                        "created": c.get("created", 0), "updated": c.get("updated", 0),
-                        "messages": len(c.get("messages") or []),
-                        "bytes": len(json.dumps(c, ensure_ascii=False).encode("utf-8"))})
-    out.sort(key=lambda x: x["updated"], reverse=True)
-    return {"chats": out}
+    return {"chats": chat_store.usage()}
 
 
 def _export_name(title: str, ext: str) -> str:
@@ -275,10 +268,9 @@ def _chat_markdown(c: dict) -> str:
 @router.get("/chats/{cid}/export")
 def chat_export(cid: str, format: str = "json"):
     """One conversation as a download — JSON (verbatim) or Markdown (readable)."""
-    with state.chats_lock:
-        c = state.chats.get(cid)
-        # Deep-copy inside the lock so rendering happens on a stable snapshot.
-        c = json.loads(json.dumps(c, ensure_ascii=False, default=str)) if c else None
+    # Deep-copied inside the store's lock so rendering works from a stable
+    # picture rather than a conversation another request may be appending to.
+    c = chat_store.snapshot(cid)
     if not c:
         return JSONResponse({"error": "unknown chat"}, status_code=404)
     title = c.get("title") or "New chat"
@@ -465,9 +457,7 @@ def export_archive():
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("memory.json",
                    json.dumps(memory_store.export_all(), ensure_ascii=False, indent=2))
-        with state.chats_lock:
-            chats_json = json.dumps(state.chats, ensure_ascii=False, indent=2, default=str)
-        z.writestr("chats.json", chats_json)
+        z.writestr("chats.json", chat_store.export_json())
         for arc, path in (("audit.jsonl", os.path.join(settings.logs_dir(), "audit.jsonl")),
                           ("ava.yaml", str(settings.CONFIG_PATH))):
             if os.path.isfile(path):

@@ -3,7 +3,8 @@
 This file must sort first (test_00_*) so it sees the home before any other test
 creates the password. It walks exactly what a brand-new user experiences:
 redirect to /setup → password rules → onboarding wizard → dashboard →
-first chat (served by the fake model) → the conversation persisted on disk.
+first chat (served by the fake model) → the conversation persisted in
+data/chats.db.
 """
 import json
 import os
@@ -148,9 +149,24 @@ class TestNewUserJourney(unittest.TestCase):
         msgs = c.get(f"/api/chats/{cid}").json()["messages"]
         roles = [m["role"] for m in msgs]
         self.assertEqual(roles[:2], ["user", "assistant"])
-        on_disk = json.load(open(os.path.join(QA_HOME, "data", "chats.json"),
-                                 encoding="utf-8"))
-        self.assertIn(cid, json.dumps(on_disk))
+        # Durable on disk too. The corpus lives in data/chats.db now, not
+        # chats.json — asserted by reopening the store from the file rather than
+        # by trusting the API that just answered, so this still fails if the
+        # write never reached disk.
+        import sqlite3
+        db = os.path.join(QA_HOME, "data", "chats.db")
+        self.assertTrue(os.path.isfile(db), "chats.db was never written")
+        con = sqlite3.connect(db)
+        try:
+            self.assertEqual(
+                con.execute("SELECT COUNT(*) FROM chats WHERE id=?", (cid,)).fetchone()[0],
+                1, "the conversation is not in the store")
+            self.assertGreaterEqual(
+                con.execute("SELECT COUNT(*) FROM messages WHERE chat_id=?",
+                            (cid,)).fetchone()[0], 2,
+                "the user turn and the reply were not both persisted")
+        finally:
+            con.close()
 
     def test_07_logout_and_login_again(self):
         c = CLIENT
