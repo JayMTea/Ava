@@ -16,19 +16,23 @@ sync with the running system, not aspirational.
 Treat `agent/docs/architecture.yaml` (generated locally per deployment) as the **single source
 of truth (SSOT)**. A generator/validator (`agent/docs/arch.py`):
 
-- generates the system, network, policy, and security diagrams (D2) and the
-  README §7 services table from the manifest, and
+- generates the system, network, policy, and security diagrams (D2) and a services
+  table into the deployment-local dev notes (between the `ARCH:services` markers)
+  from the manifest, and
 - **drift-checks** the manifest against the running system (systemd units, listening
   ports, MCP tool modules, egress policy files).
 
-Automation enforces it: a systemd path-watcher regenerates on manifest change, and a
-git pre-commit hook blocks commits when `arch.py check --strict` finds drift. Ava
-can read and update the manifest herself through five `architecture` MCP tools.
+Automation enforces it on a configured deployment: a systemd path-watcher regenerates
+on manifest change, and an optional git pre-commit hook blocks commits when
+`arch.py check --strict` finds drift. A fresh clone has no manifest, so every
+`arch.py` subcommand is a clean no-op. Ava can read and update the manifest herself
+through five `architecture` MCP tools.
 
 ## Consequences
 
 ### Positive
-- Diagrams and docs are guaranteed 1:1 with reality (drift fails CI/commit).
+- Diagrams and docs stay 1:1 with the manifest, and the manifest is drift-checked
+  against the running system before every commit on a configured deployment.
 - One place to change styling, structure, and facts.
 - Ava can introspect and safely self-update her own architecture (drift-gated).
 

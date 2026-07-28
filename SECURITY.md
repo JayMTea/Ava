@@ -3,14 +3,16 @@
 Ava is a personal, **on-premise** AI assistant running on a single host you
 control. It handles sensitive data (login credentials, chat history, and
 **biometric voiceprints**), so security is designed in, not bolted on. This
-document is the human-readable companion to the generated security diagram:
+document is the human-readable companion to two diagrams:
 
-- **Trust boundaries and control points**: [architecture overview](docs/assets/architecture.svg)
+- **Trust boundaries and control points**: [security diagram](agent/docs/diagrams/security.svg)
+- **How the pieces fit together**: [architecture overview](docs/assets/architecture.svg)
 
-The diagram (and a per-tool egress/policy trace) is **generated** from a
-deployment-local SSOT manifest (`agent/docs/architecture.yaml`, gitignored;
+The security diagram (and a per-tool egress/policy trace) is **generated** from
+a deployment-local SSOT manifest (`agent/docs/architecture.yaml`, gitignored;
 each install describes its own topology) and drift-checked 1:1, so it cannot
-silently fall out of date with reality.
+silently fall out of date with reality. The architecture overview is a
+hand-authored, app-agnostic system map, not a generated artifact.
 
 ## 1. Trust boundaries
 
@@ -50,13 +52,23 @@ The bridge (`:8096`) is password-gated by middleware in `ava_bridge/auth.py`:
 
 - Unauthenticated page requests get a `303` redirect to `/login` (or `/setup` on
   a fresh install); API/media/app requests get a `401` JSON response.
-- Public paths only: `/login`, `/logout`, `/setup`, `/api/health`, `/favicon.ico`.
+- Public paths (exact match, no prefixes): `/login`, `/logout`, `/setup`,
+  `/api/health`, `/favicon.ico`, plus `/manifest.webmanifest` and `/sw.js` —
+  the PWA shell, which browsers fetch without credentials context and which
+  must therefore not bounce to `/login`. Note `/setup/wizard` is *not* public.
+  One further route skips the cookie gate entirely: the device-event ingest,
+  `POST /api/connectors/<id>/events`, whose callers are third-party apps rather
+  than browsers; it does its own per-connector bearer check instead.
 - Session: an **HMAC-SHA256 signed cookie** (`exp.sid.sig`, cookie `ava_session`,
   `HttpOnly` + `SameSite=Lax`, 30-day TTL). The `sid` segment is what makes
   **revocation** possible: changing the password calls `auth.rotate_secret()`,
   which re-keys the HMAC and invalidates every session already issued — so
   "change my password" logs out a device you no longer hold, instead of only
-  changing what the next login checks.
+  changing what the next login checks. One exception: when `AVA_SECRET` pins the
+  key in the environment (the natural container setup, so sessions survive a
+  recreate) `rotate_secret()` is a no-op, the response reports
+  `revoked_other_sessions: false`, and outstanding cookies stay valid — on that
+  deployment you revoke by rotating `AVA_SECRET` yourself.
 - `Secure` is resolved **per request** (`auth.cookie_secure: auto`), not pinned
   at import. Pinning it on meant the browser silently discarded the cookie over
   plain HTTP, bouncing LAN and phone users back to `/login` with no error —
@@ -73,7 +85,8 @@ The bridge (`:8096`) is password-gated by middleware in `ava_bridge/auth.py`:
 - Per-IP login **throttle** (8 attempts / 60 s), keyed on the real client IP —
   behind a proxy this is the forwarded address, so one device cannot exhaust the
   whole LAN's bucket.
-- Password source: env `AVA_PASSWORD`, else the first-run screen writes it `0600`.
+- Password source: env `AVA_PASSWORD`, else the first-run screen writes it `0600`
+  — in **cleartext, not hashed** (§4).
 - HMAC key source: env `AVA_SECRET`, else generated `0600` under `$AVA_HOME`.
 
 Tunables: `AVA_PASSWORD`, `AVA_SECRET`, `AVA_SESSION_TTL_DAYS`, `AVA_COOKIE_SECURE`,
@@ -89,8 +102,11 @@ generated locally by `agent/docs/arch.py` on installs with the SSOT manifest.
 | Policy | Tools | Allowed egress (and nothing else) |
 |--------|-------|-----------------------------------|
 | `ava-weather` | `get_weather` | `api.open-meteo.com:443` + `geocoding-api.open-meteo.com:443` (**GET** only) |
-| `ava-gpusvc` | `run_gpu_job` | `host.openshell.internal:8189` (GET and POST) |
-| `ava-knowledge` | document, image, media-content, web tools | `host.openshell.internal:8096`, enumerated `/internal/...` routes only, plus a scoped `X-Ava-Internal-Token` |
+| `ava-knowledge` | document, image (`run_gpu_job`), media-content, web tools | `host.openshell.internal:8096`, enumerated `/internal/...` routes only, plus a scoped `X-Ava-Internal-Token` |
+
+GPU workloads rides that same policy: the sandbox never reaches the GPU service
+itself. `run_gpu_job` calls `POST /internal/run-gpu-job`, and the bridge
+owns the render host-side.
 
 Host callbacks additionally require a scoped `X-Ava-Internal-Token` bearer,
 derived per capability group in `agent/install.sh`. Which group may call which
@@ -123,12 +139,13 @@ from env first, else a generated file under `$AVA_HOME` (default the repo root;
 
 | Secret | Purpose |
 |--------|---------|
-| `data/auth_password` | App login password (if `AVA_PASSWORD` unset) |
+| `data/auth_password` | App login password (if `AVA_PASSWORD` unset), stored `0600` in **cleartext, not hashed** — file-read access to `$AVA_HOME/data` is equivalent to knowing the password, so do not reuse a password you use elsewhere |
 | `data/.secret` | HMAC key for signed session cookies (or `AVA_SECRET`) |
 | `data/.internal_token` | Root secret that derives scoped sandbox→bridge callback bearers |
 | `secrets/router_token` | Guards the inference router's control + LAN-exposed `/v1` |
 | `secrets/inference_key` | Cloud-provider API key, when a cloud backend is used |
 | `data/setup_claim` | One-time first-run claim token; deleted once setup completes |
+| `secrets/env/<NAME>` | Connector credentials, keyed by the env-var name the connector's manifest declares (saved from Setup → Connectors; never written to a manifest or `ava.yaml`) |
 
 The **code-change agent cannot read any of these**. `access_policy` was
 originally consulted only on writes, so a prompt-injected agent could
@@ -159,8 +176,20 @@ because they walk the tree themselves.
   the host. The knowledge tools can read uploads only through enumerated,
   scoped, token-gated `/internal/...` routes.
 - Inference defaults to a **local** engine (vLLM/Ollama/llama.cpp on-host);
-  prompts and replies are not sent to any third-party API unless you configure a
-  cloud backend.
+  chat prompts and replies are not sent to any third-party API unless you
+  configure a cloud backend — or set `ANTHROPIC_API_KEY`, which is a separate
+  path with its own bullet below.
+- **`ANTHROPIC_API_KEY` is an opt-in third-party egress**, distinct from
+  configuring a cloud inference backend (§4). It ships empty in `.env.example`;
+  once you set it, two paths leave the host. Governed code changes
+  (`coder`/`code_agent`) post the prompt plus the contents of the repository
+  files the tool loop reads to `https://api.anthropic.com/v1/messages` (model
+  `AVA_CODE_MODEL`, default `claude-sonnet-4-6`). The learning /
+  memory-distillation cycle falls back to the same API when the local router
+  returns nothing, and its prompt carries short excerpts of your chat messages.
+  Leave the key unset and neither can fire; with it set, the `access_policy`
+  deny-list (§4) still keeps `.env`, `secrets/`, and `models/` out of what the
+  code agent can read.
 
 ## 6. Threat model (summary)
 
@@ -172,8 +201,8 @@ because they walk the tree themselves.
 | Secret leakage | `0600` files, `.gitignore`, never logged |
 | Secret exfiltration via the code agent | `access_policy` deny-list enforced on **reads** in `coder._safe()`, and restated in the two tools that walk the tree themselves |
 | Admin takeover on first run | One-time claim token; `/setup` accepts loopback or a matching token, nothing else |
-| Session theft / lost device | Password change re-keys the session HMAC, invalidating every issued cookie |
-| A pasted connector command reading the bridge's env | Unsandboxed stdio children get a minimal env (`PATH`/`HOME`/`LANG`/`TMPDIR` + declared manifest env), never `os.environ`; probes default to a Docker sandbox and fail closed without it |
+| Session theft / lost device | Password change re-keys the session HMAC, invalidating every issued cookie (a no-op when `AVA_SECRET` pins the key — rotate that instead) |
+| A pasted connector command reading the bridge's env | Unsandboxed stdio children get a minimal env (a fixed allow-list — `PATH`, `HOME`, `LANG`, `LC_ALL`, `TMPDIR`, `TERM`, `NODE_PATH`, `NVM_DIR`, `SYSTEMROOT` — plus the manifest's declared `env:`), never `os.environ`; probes default to a Docker sandbox and fail closed without it |
 | Biometric/PII exfiltration | Local-only storage, git-excluded, no external inference |
 
 ## 7. Security regression checks
@@ -190,12 +219,23 @@ secret files with group/world permissions, and sensitive ports bound to wildcard
 interfaces. New host-local services should bind `127.0.0.1` and, if the sandbox
 must reach them, get a dedicated `*-gw.service` using `ava_bridge/gw_forward.py`.
 
+Two scope caveats, so you read its output correctly. The policy scan globs
+`agent/policies/*.yaml` at the top level only, so the connector-derived policies
+under `agent/policies/generated/` — the ones you get by connecting an app — are
+not covered; review those by hand. And `ava-weather.yaml` is a tracked, known
+hit for the `/**` rule, so a clean clone reports that finding out of the box:
+this is a review aid, not a gate that currently passes.
+
 ## 8. Reporting a vulnerability
 
 Please report security issues **privately**, not in public issues or PRs:
 
-- Preferred: GitHub **Private vulnerability reporting** (repo → Security → *Report
-  a vulnerability*), which opens a private advisory thread.
+- Preferred, once the repository is public: GitHub **Private vulnerability
+  reporting** (repo → Security → *Report a vulnerability*), which opens a
+  private advisory thread.
+- While the repository is private that Security tab is not reachable, so there
+  is no advisory form to file against. Contact the maintainer directly through
+  the [GitHub profile](https://github.com/JayMTea) instead.
 - Include: affected version (`ava version`), a description, and reproduction steps.
 - Expect an acknowledgement within a few days. Coordinated disclosure: we will
   agree on a fix and disclosure timeline before any public write-up.
@@ -207,25 +247,37 @@ recorded as an ADR under [`agent/docs/adr/`](agent/docs/adr/).
 
 ## 9. Verifying a release
 
-Published images are signed **keylessly with cosign** (Sigstore). The signature's
-identity is the GitHub Actions release workflow, so you can prove an image came
-from this repo's CI and wasn't tampered with. Verify before running:
+From the first published release onward, images are signed **keylessly with
+cosign** (Sigstore). The signature's identity is the GitHub Actions release
+workflow, so you can prove an image came from this repo's CI and wasn't tampered
+with. Verify before running:
 
 ```bash
-# vX.Y.Z = the release tag. (For a fork, swap in your own owner/repo — note the
-# registry path is lowercased, while the cert-identity keeps the repo's case.)
-cosign verify ghcr.io/jaymtea/ava-bridge:vX.Y.Z \
+# X.Y.Z = the release version. The git tag is vX.Y.Z; the published image tag
+# drops the v. (For a fork, swap in your own owner/repo — note the registry path
+# is lowercased, while the cert-identity keeps the repo's case.)
+cosign verify ghcr.io/jaymtea/ava-bridge:X.Y.Z \
   --certificate-identity-regexp "https://github.com/JayMTea/.+/.github/workflows/release.yml@refs/tags/vX.Y.Z" \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
-The build also attaches an **SBOM** and **SLSA provenance** attestation:
+The `agent` and `full` profiles use a second signed image,
+`ghcr.io/jaymtea/ava-agent-runtime:X.Y.Z` — verify it exactly the same way, then
+set it as the `agent` service's `image:` in `deploy/docker-compose.override.yml`
+(`deploy/docker-compose.yml` still ships the local build tag
+`ava/agent-runtime:latest`).
+
+The build also attaches an **SBOM** and **SLSA provenance** attestation to the
+image index. These are BuildKit in-toto attestation manifests, not cosign
+attestations, so `cosign verify-attestation` will not find them — inspect them
+directly:
 
 ```bash
-cosign verify-attestation --type spdxjson ghcr.io/jaymtea/ava-bridge:vX.Y.Z ...
-docker buildx imagetools inspect ghcr.io/jaymtea/ava-bridge:vX.Y.Z   # shows arches + attestations
+docker buildx imagetools inspect ghcr.io/jaymtea/ava-bridge:X.Y.Z   # shows arches + attestations
 ```
 
 Each GitHub Release additionally ships a source SBOM (`ava-sbom.cyclonedx.json`)
-and `checksums.txt`. Release tags are cut with `git tag -s` (signed); see
+and `checksums.txt`. Release tags are intended to be cut with `git tag -s`, but
+the workflow only warns on an unsigned tag rather than blocking the release — so
+verify the tag signature yourself if that matters to you. See
 [docs/RELEASING.md](docs/RELEASING.md).

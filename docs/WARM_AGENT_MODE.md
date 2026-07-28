@@ -6,9 +6,10 @@ per-turn agent cold-start without coupling Ava to any one machine or operator.
 ## Problem
 
 Every conversational turn runs through `AgentRuntime.run_turn`. On the default
-runtime (NemoClaw), each turn currently boots an **embedded** agent: it spawns the
-7 MCP tool-server node processes, loads plugins, and compiles the ~33k-token
-system context from scratch, then tears it all down. Measured on a unified-memory GPU box:
+runtime (NemoClaw), each turn currently boots an **embedded** agent: it spawns one
+MCP tool-server node process per `agent/mcp_server_*` category (five in a clean
+checkout), loads plugins, and compiles the ~33k-token system context from scratch,
+then tears it all down. Measured on a unified-memory GPU box:
 
 - a 1-token reply ("OK") turn ≈ **5–9s wall-clock**; the model itself is ~2s.
 - so ~5–8s per turn is fixed boot overhead, independent of the question.
@@ -18,7 +19,8 @@ a full [gateway] recover isn't required." Embedded is what makes a fresh fork wo
 with zero pairing/gateway setup. The cost is latency.
 
 > Not the same as the model latency work already shipped (reasoning budget in
-> `ava_router.py`). That reduced *generation* tokens; this targets *boot* overhead.
+> `ava_bridge/router_app.py`). That reduced *generation* tokens; this targets
+> *boot* overhead.
 
 ## Goal
 
@@ -80,12 +82,12 @@ only `operator.pairing` scope and can't get `operator.read/write`.
   needed scopes idempotently (the gateway equivalent of `devices rotate … --token
   $OPENCLAW_GATEWAY_TOKEN`), reading the token from the runtime env — no operator
   action, nothing committed.
-- **Verify warm reuse:** confirm the gateway keeps the 7 MCP servers resident
+- **Verify warm reuse:** confirm the gateway keeps those MCP servers resident
   across turns (unconfirmed today). If it re-spawns them per turn, this option's
   win shrinks and Option B is preferred.
-- **Risk:** couples to openclaw gateway/device internals the packaging plan wants
-  abstracted. Acceptable only because it lives entirely inside the NemoClaw
-  adapter, behind the interface.
+- **Risk:** couples to openclaw gateway/device internals that the runtime
+  interface is meant to abstract. Acceptable only because it lives entirely
+  inside the NemoClaw adapter, behind the interface.
 
 ### B. Persistent worker pool (runtime-agnostic — preferred long-term)
 The adapter owns a small pool of long-lived agent workers that hold MCP servers +
@@ -93,7 +95,7 @@ context loaded; `run_turn` checks out a warm worker, runs the turn, checks it ba
 in. Idle workers reaped after `warm_idle_ttl`.
 
 - Doesn't depend on any specific host's gateway/pairing — works for any future
-  `AgentRuntime`, which is the direction §5.4 wants.
+  `AgentRuntime`.
 - More code in the adapter (lifecycle, health, restart-on-crash, per-session
   affinity so a session's memory lands on a consistent worker).
 

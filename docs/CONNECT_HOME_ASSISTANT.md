@@ -6,7 +6,8 @@ with **every physical action approved by you, every time**.
 
 The integration is one connector folder. Ava core has no Home Assistant code,
 dependency, or assumption: HA is an app *you* connect, exactly like any other
-connector. Delete the folder and every trace is gone.
+connector. Disable it in Setup → Connectors, or delete the manifest folder, and
+every trace is gone.
 
 **What you get**
 
@@ -17,7 +18,7 @@ connector. Delete the folder and every trace is gone.
   can never be silenced with "Always allow."** A lock cannot become a
   one-tap-then-silent action.
 - **On the record** — every request, approval, denial, and call is written to
-  the audit ledger (Hub → History).
+  the audit ledger (Setup → History).
 - **Sandboxed reach** — Ava's agent never talks to HA directly. The bridge
   speaks MCP server-side; the agent reaches only the two policed bridge routes
   its egress policy allow-lists.
@@ -33,25 +34,33 @@ connector. Delete the folder and every trace is gone.
 
 ## Connect
 
-```bash
-# 1. Drop the connector into your data root
-cp -r examples/home-assistant "$AVA_HOME/connectors/home-assistant"
+There is nothing to install: the connector **ships with Ava**
+(`connectors/home-assistant/`) and is already registered. It stays inert until
+you point it at your HA.
 
-# 2. Point it at your HA (Ava's .env, or however you set Ava's environment)
+```bash
+# 1. Point it at your HA (Ava's .env, or however you set Ava's environment)
 HASS_URL=http://homeassistant.local:8123
 HASS_TOKEN=<your long-lived token>
 
-# 3. Restart Ava, then render + install the connector's egress policy
-ava up
+# 2. Restart Ava so it picks up the env vars
+systemctl --user restart ava-bridge    # or Ctrl-C and re-run `ava up`, which
+                                       # holds the terminal until you stop it
+
+# 3. Render the connector's agent tools + egress policy and install them
+#    (in a second terminal, if `ava up` is holding this one)
+ava connector tools    home-assistant --write
 ava connector policies home-assistant --write
 (cd agent && ./install.sh)
 ```
 
-Home Assistant now appears under Devices, with a health row on the Ops
+Home Assistant's row under Devices now comes alive, with a health row on the Ops
 dashboard. Ask Ava something only your house knows.
 
-> Unset `HASS_URL` and the connector is **inert** — it registers nothing and
-> reaches nothing. Remove the folder to disconnect entirely.
+> Unset `HASS_URL` and the connector is **inert** — it exposes no tools and
+> renders no egress policy, so Ava can reach nothing. It still shows as an
+> unconfigured row under Devices and in Setup → Connectors; disable it there to
+> hide it entirely.
 
 ## The trust model
 
@@ -63,8 +72,10 @@ each by the manifest's `dynamic_access` patterns:
 | `GetLiveContext` | `read` | runs silently — this is the "monitor" half |
 | everything else (`HassTurnOn`, …) | `physical` | **asks every time; never grantable** |
 
-To relax a specific benign tool, edit *your copy* of the manifest
-(`$AVA_HOME/connectors/home-assistant/connector.yaml`):
+To relax a specific benign tool, edit the manifest
+(`connectors/home-assistant/connector.yaml` — or a copy at
+`$AVA_HOME/connectors/home-assistant/connector.yaml`, which overrides the
+shipped one by id):
 
 ```yaml
 dynamic_access:
@@ -82,7 +93,10 @@ author `confirm:` always sticks. The permission sheet for the connector
 ## Troubleshooting
 
 - **"SSE connect returned 404"** — the MCP Server integration isn't added in
-  HA, or `HASS_URL` points at the wrong host/port.
+  HA, or `HASS_URL` points at the wrong host/port. The shipped manifest talks
+  to HA's legacy SSE endpoint (`${HASS_URL}/mcp_server/sse`); current HA also
+  serves the newer Streamable HTTP endpoint, so you can point your own copy at
+  `url: "${HASS_URL}/api/mcp"` instead.
 - **"SSE connect returned 401"** — bad or expired `HASS_TOKEN`.
 - **Tools list is empty** — you haven't exposed any entities to Assist in HA.
 - **Ava describes stale state** — `GetLiveContext` reads live; check the HA
@@ -91,7 +105,6 @@ author `confirm:` always sticks. The permission sheet for the connector
 ## Scope, honestly
 
 Today this is **ask-and-act**: you talk to Ava; reads are silent, actuation is
-approval-gated. Ava does not yet subscribe to HA's state-change events or act
-proactively on them — that (an opt-in, governed trigger loop) is planned work.
-Ava also does not replace HA's automations: keep those
+approval-gated. Ava does not subscribe to HA's state-change events and does not
+act on its own. Ava also does not replace HA's automations: keep those
 in HA; Ava adds reasoning and governance on top.

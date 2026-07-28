@@ -41,6 +41,9 @@ ava connector apps           # show the left-rail app registry
 id: mycrm                     # unique id (defaults to the folder name)
 label: My CRM
 kind: app                     # core | inference | media | app
+base_url: "http://127.0.0.1:9000"   # OPTIONAL — the host that proxied action
+                              #   calls go to; defaults to ui.url, then the
+                              #   origin of service.probe
 
 ui:                           # OPTIONAL — declare it to get a left-rail tile
   label: My CRM
@@ -87,11 +90,12 @@ egress:                       # OPTIONAL — what Ava's agent tools may reach
 actions:                      # OPTIONAL — agent tools (see §5)
   static:
     - { id: create_lead, method: POST, path: "/api/leads", input: { name: {type: string} } }
-  discover:
-    base: "http://127.0.0.1:9000"
-    list: "/tools"
-    call: "/call"
-    token_env: MYCRM_MCP_TOKEN
+  # ...or, INSTEAD of static: bridge the app's own tool server (never both — see §5)
+  # discover:
+  #   base: "http://127.0.0.1:9000"
+  #   list: "/tools"
+  #   call: "/call"
+  #   token_env: MYCRM_MCP_TOKEN
 ```
 
 `${VAR}` references expand from connector vars (`AVA_HOME`, `AVA_LOGS`,
@@ -114,8 +118,11 @@ The value can come from two places, checked in this order:
 2. **Ava's secret store** — paste the token once in **Setup → Connectors** (the
    *Access token / API key* field on connect, or *Add credential* on an existing
    row). It's saved `0600` under `$AVA_HOME/secrets/env/<NAME>`, survives restarts
-   and every **redeploy** (you're never re-prompted), and is never exported to a
-   subprocess. Forkers don't have to touch `.env` at all — if you paste a value
+   and every **redeploy** (you're never re-prompted), and is never placed in Ava's
+   own environment, so no subprocess — the sandboxed agent included — inherits it.
+   (One deliberate exception: a `${NAME}` you write into an `mcp.env` block is
+   resolved and handed to that stdio server, because that is the whole point of
+   declaring it.) Forkers don't have to touch `.env` at all — if you paste a value
    without naming a variable, Ava derives a stable one (`<CID>_TOKEN`).
 
 Deploy/redeploy only regenerate tools + egress policy; they never read or ask for
@@ -150,9 +157,10 @@ Ava's gate is the only door. If it **does** have a login, see the next section.
 
 ### iframe security
 
-The iframe is sandboxed (`allow-scripts allow-forms allow-same-origin`). Because
-the proxy makes it same-origin, treat the embedded app as trusted code: review a
-third-party app before enabling it, as you would any plugin.
+The iframe is sandboxed (`allow-scripts allow-forms allow-same-origin
+allow-popups allow-downloads`). Because the proxy makes it same-origin, treat
+the embedded app as trusted code: review a third-party app before enabling it,
+as you would any plugin.
 
 ### Make your UI mount-agnostic (the one requirement on your app)
 
@@ -230,7 +238,8 @@ For an app whose UI (native or iframe) needs to call **its own** backend API fro
 the browser without exposing a token, declare `ui.api`. Ava forwards
 `/apps/<id>/api/<path>` → `base + prefix + /<path>` with the `token_env` bearer
 injected server-side (the browser never sees the token). `base` defaults to the
-`service.probe` host.
+connector's own base: top-level `base_url`, else `ui.url`, else the origin of
+`service.probe`.
 
 > **First-party note:** an app that also streams **media** (arbitrary non-API
 > paths) may keep a dedicated full reverse-proxy instead, for example a media app
@@ -245,7 +254,8 @@ Two shapes, both reached through **one** generic bridge route
 
 ### Declared (`actions.static`)
 
-Each becomes a generated tool calling your REST API through the proxy:
+Each becomes a generated tool calling your REST API through the proxy (up to 15
+of them — see below):
 
 ```yaml
 actions:
@@ -256,14 +266,30 @@ actions:
       input: { owner: {type: string}, name: {type: string} }
 ```
 
+`path` is appended to the connector's base (`base_url` in §2, else `ui.url`, else
+the `service.probe` origin); a per-action `base:` overrides it.
+
 Generate the `.mjs` tools: `ava connector tools mycrm --write`.
+
+**Above 15 actions Ava switches to meta tools.** Declare 16 or more static
+actions with a `path` (`META_TOOLS_MIN = 16`) and Ava stops generating one tool
+per action: it emits two instead — `<id>_find_tool` (keyword-searches your action
+set) and `<id>_call` (invokes one by name) — so a large REST surface can't flood
+the agent's context on every turn. Same routes, same egress policy, same
+approvals gate; only the tool shape changes. Declaring `actions.discover` or
+`mcp:` alongside `actions.static` does the same swap but routes `<id>_call` to
+the discover/MCP endpoint, leaving the declared actions unreachable — so don't
+mix the two shapes in one manifest.
 
 ### Discovered (`actions.discover`)
 
-Bridges an existing **MCP-style tool server** live: Ava GETs `list` for the tool
-schemas and POSTs `call` `{name, arguments}` to invoke. This wraps a
-FastMCP-style tool server without re-declaring each tool. Reserved bridge actions
-`__tools` and `__call` serve this.
+Bridges an app that implements the **`ava-tools/1` HTTP facade** below: Ava GETs
+`list` for the tool schemas and POSTs `call` `{name, arguments}` to invoke, so a
+whole tool set is wired from one manifest with no per-tool declaration. This is
+MCP-*shaped* but it is Ava's own protocol, **not MCP** — a server that speaks
+real MCP (FastMCP, the official SDKs, `npx` servers) uses the `mcp:` block
+instead (see *MCP servers* below). Reserved bridge actions `__tools` and
+`__call` serve this.
 
 ### The tool facade — `ava-tools/1`
 
@@ -343,20 +369,25 @@ are optional; anything present prefills the Hub's connect form.
 ### MCP servers (`mcp:`): wrap any Model Context Protocol server
 
 The headline path into the roughly 20,000-server MCP ecosystem. Point the
-manifest at any real MCP server and its tools are discovered and bridged live:
+manifest at an MCP server and its tools are discovered and bridged live (Ava's
+client speaks MCP revision 2025-03-26 over Streamable HTTP, stdio, and the
+deprecated HTTP+SSE transport):
 
 ```yaml
 mcp:
   url: "http://127.0.0.1:9200/mcp"     # Streamable HTTP transport
   token_env: MYAPP_TOKEN                # optional bearer
-  # transport: sse                      # legacy HTTP+SSE (e.g. Home Assistant's
-  #                                     # MCP Server) — inferred when the url
-  #                                     # path ends in /sse
+  # transport: sse                      # deprecated HTTP+SSE (MCP 2024-11-05),
+  #                                     # for servers that predate Streamable
+  #                                     # HTTP — inferred when the url path
+  #                                     # ends in /sse
   # or a stdio server (spawned by the bridge):
   # command: ["npx", "-y", "@modelcontextprotocol/server-github"]
   # env: { GITHUB_TOKEN: "${GITHUB_TOKEN}" }
   # sandbox: docker                     # run the stdio server contained (below)
-  # image: node:20-slim                 # base image with the runtime (default)
+  # image: node:24-slim                 # base image with the runtime — pin a
+  #                                     # supported Node LTS; the built-in
+  #                                     # default is still node:20-slim (EOL)
   # network: bridge                     # or `none` to cut the server off the net
 ```
 
@@ -378,11 +409,11 @@ to also cut its network. The Setup → Connect an app GUI offers this as a
 one-click toggle, defaulted on when Docker is available.
 
 **Per-action approval (`confirm`).** Gate a sensitive tool behind your explicit
-OK: put `confirm: true` on a static action, or at the connector level use
-`confirm: true` (every action) or `confirm: [tool_a, tool_b]`. When the agent
-calls a gated action the call **pauses**, an approval prompt appears with the
-arguments, and the action runs only if you approve (or is refused on deny or
-timeout). Every request and decision is written to the audit ledger.
+OK: put `confirm: true` on a static action, or `confirm: true` at the connector
+level to gate every action. When the agent calls a gated action the call
+**pauses**, an approval prompt appears with the arguments, and the action runs
+only if you approve (or is refused on deny or timeout). Every request and
+decision is written to the audit ledger.
 
 **Access tiers (JIT consent).** Every action carries a tier — explicit
 `access:` on a static action, else inferred from its HTTP shape:
@@ -404,10 +435,14 @@ dynamic_access:
   "*": physical
 ```
 
-Unmatched dynamic tools default to `write` — except on a `role: device`
-connector, where they default to `physical`: a device's unknown verbs are
-presumed to actuate until the author says otherwise. See the
-[Home Assistant connector](CONNECT_HOME_ASSISTANT.md) for the worked example.
+Classification order is: the manifest's `dynamic_access` patterns (the operator's
+word — always wins) → the tier the app self-reported on its last `/tools` (plain
+MCP servers report none, so those land on `write`) → otherwise `write`, or
+`physical` on a `role: device` connector. **A `role: device` connector should
+always declare a `"*": physical` catch-all**: the device fallback only applies to
+tools Ava has never discovered, so once a tool has been seen the self-reported
+`write` wins and "Always allow" becomes offerable. See the
+[Home Assistant connector](CONNECT_HOME_ASSISTANT.md), which does exactly that.
 
 > **Migrating a facade to MCP? Keep the tiers.** An `ava-tools/1` facade reports
 > `access` per tool; plain MCP has no such field, so a hand-rolled port
@@ -421,7 +456,7 @@ presumed to actuate until the author says otherwise. See the
 The facade above is the quickest way in, but it is *Ava's* protocol — an app
 that speaks only the facade is wired into Ava and nothing else. The SDK ships a
 stdlib-only adapter that fronts it with genuine MCP, so the same tools answer
-Ava, Claude Desktop, an IDE, or any other client:
+Ava and any MCP client that supports protocol revision 2025-03-26:
 
 ```bash
 python -m ava_mcp --facade http://127.0.0.1:8097 --port 9310 \
@@ -470,6 +505,10 @@ title: Weather                 # optional — owner-facing card title (else deri
 summary: Live weather & forecasts.   # optional — one-liner (else the first sentence of description)
 icon: cloud                    # optional — one of the app icon names
 tools: [get_weather]           # optional — else inferred from the description
+app: mycrm                     # optional — the connector id this skill drives, so
+                               #   its card and tool chips carry that app's accent.
+                               #   Needed for MCP/discover apps, whose tool names
+                               #   carry no <id>_ prefix for Ava to infer from.
 ---
 ```
 
@@ -494,10 +533,12 @@ skills:
     my-custom-skill: Work
 ```
 
-With fewer than two categories defined the panel groups by **source** (Core
-skills / Your skills) instead; add categories and it regroups by them. A guard
-(`test_shipped_skills_declare_no_category`) keeps the shipped skills
-taxonomy-free.
+With no categories defined the panel groups by **source** (Core skills / Your
+skills) when you have both shipped and overlay skills, and renders a flat list
+when you have only one source. The **first** category you create switches the
+whole panel to category grouping, with anything uncategorised collected under
+"General" (sorted last). A guard (`test_shipped_skills_declare_no_category`)
+keeps the shipped skills taxonomy-free.
 
 ---
 
@@ -563,10 +604,18 @@ python examples/hello-app/server.py        # serves http://127.0.0.1:8477
 # 2. Register it with Ava by dropping the folder into your data root
 cp -r examples/hello-app "$AVA_HOME/connectors/hello"   # $AVA_HOME defaults to the repo root
 
-# 3. Restart Ava (or `ava up`) and open the web app
+# 3. Generate its agent tools + egress policy and load them into the sandbox
+ava connector tools    hello --write
+ava connector policies hello --write
+(cd agent && ./install.sh)
+
+# 4. Restart Ava (or `ava up`) and open the web app
 #    -> "Hello App" appears in the left rail, embedded same-origin
 #    -> ask Ava: "ping the hello app"  (its tools were discovered live)
 ```
+
+(Or skip step 3 entirely: **Deploy** on the app's row in Setup → Connectors runs
+all of it.)
 
 | File | Role |
 |---|---|

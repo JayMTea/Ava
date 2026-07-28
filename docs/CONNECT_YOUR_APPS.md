@@ -1,8 +1,9 @@
 # Connect your apps
 
-Connecting an app wires it into everything Ava does: the app gets a tile in the
-left rail, a health row on the dashboard, and its tools become things you can
-ask for in plain language, each behind an auto-generated security policy.
+Connecting an app wires it into everything Ava does: its tools become things
+you can ask for in plain language, each behind an auto-generated security
+policy — and if it serves a web UI or a health endpoint, it also gets a tile
+in the left rail and a row on Operations → Service health.
 
 There are two ways to do it. Most people should use the first one; the second
 is for developers building their own connector, and its full reference is the
@@ -37,8 +38,11 @@ tool, and policy status.
 
 Give the app a name, then paste **where it is**: its web address (like
 `http://127.0.0.1:9000`), or a start command for an MCP server (like
-`npx -y @modelcontextprotocol/server-github`). Click **Detect**. Ava checks
-what kind of app it is; you don't have to know.
+`npx -y @modelcontextprotocol/server-filesystem ~/notes`). Click **Detect**.
+Ava checks what kind of app it is; you don't have to know. (Detect recognizes
+MCP servers over Streamable HTTP, Ava's `ava-tools/1` facade, and OpenAPI. A
+server that only speaks MCP's deprecated HTTP+SSE transport must be wired by
+hand with `mcp: {url: …/sse}` — see the [Connector SDK](CONNECTOR_SDK.md).)
 
 ![The Connect an app form: name and address filled in, Detect clicked, and "Found 3 tools" listed with their names](assets/connect-app-2-detected.png)
 
@@ -81,10 +85,13 @@ generated into the agent.
 
 ### Step 4: Preview, then Deploy
 
-The row offers **Preview**, and — while its tools or egress policy are out of
-date — a **Deploy** button (everything else, like the push token, appearance,
-manifest editor, and remove, lives in the row's **⋯** menu):
+The row offers **Permissions** and **Preview**, and — while its tools or egress
+policy are out of date — a **Deploy** button (everything else, like the push
+token, appearance, manifest editor, and remove, lives in the row's **⋯** menu):
 
+- **Permissions** lists every action the app exposes with its access tier: reads
+  run silently, writes offer *always allow*, destructive and physical actions ask
+  every single time.
 - **Preview** shows exactly what will be generated: the agent tools and the
   egress security policy (what the app is allowed to reach, and nothing else).
 - **Deploy** regenerates them and loads them into the agent's sandbox; the row
@@ -110,7 +117,11 @@ ava connector new myapp                 # scaffold a manifest
 # edit connector.yaml: health probe, perf log, actions
 ava connector tools    myapp --write    # generate the agent tools
 ava connector policies myapp --write    # generate its egress policy
+(cd agent && ./install.sh)              # load them into the agent sandbox
 ```
+
+(Or click **Deploy** on the connector's row in Setup → Connectors, which runs
+all three for you.)
 
 - Full manifest reference, with a runnable worked example:
   [App connectors](CONNECTOR_SDK.md)

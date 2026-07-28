@@ -10,22 +10,35 @@ next time the app is opened.
 
 1. Open your Ava URL in the phone's browser and log in.
 2. **iOS (Safari):** Share → *Add to Home Screen*.
-   **Android (Chrome):** the install prompt appears automatically, or
-   ⋮ menu → *Add to Home screen*.
+   **Android (Chrome):** ⋮ menu → *Install app* (some builds still say
+   *Add to Home screen*). Chrome may also offer to install it on its own
+   once you've used Ava a few times.
 
 | iPhone | Android |
 |---|---|
-| ![iPhone: in Safari, tap Share, then Add to Home Screen](assets/pwa-install-ios.png) | ![Android: in Chrome, tap the three-dot menu, then Add to Home screen](assets/pwa-install-android.png) |
+| ![iPhone: in Safari, tap Share, then Add to Home Screen](assets/pwa-install-ios.png) | ![Android: in Chrome, tap the three-dot menu, then Install app](assets/pwa-install-android.png) |
 
 ## HTTPS is required for the full experience
 
-Browsers only enable service workers (the offline app shell, install prompts
-on Android) in a *secure context* — `https://` or `http://localhost`. Over
-plain HTTP on your LAN (`http://192.168.x.x:8096`) the app still works and
-can still be pinned to the home screen, but without the installed-app shell.
+Two things need a *secure context* (`https://` or `http://localhost`): the
+service worker that precaches the app shell, and — on Android — Chrome's
+offer to install the app at all. Over plain HTTP on your LAN
+(`http://192.168.x.x:8096`) the app still works and can still be added to
+the home screen (on iOS 26 and later it even opens standalone, with its own
+icon), but there is no offline shell and no Android install prompt.
 
-The zero-config way to get HTTPS for a self-hosted Ava is
-[Tailscale](https://tailscale.com):
+Reaching Ava on a LAN address at all is opt-in: the bridge binds `127.0.0.1`
+by default, and Docker publishes on `127.0.0.1` too, so
+`http://192.168.x.x:8096` is refused until you widen `server.host` in
+`ava.yaml` — or the published port in `deploy/docker-compose.yml`. Prefer a
+VPN or a TLS-terminating proxy over binding `0.0.0.0` on a network you don't
+control; `tailscale serve` needs no change.
+
+The easiest way to get HTTPS for a self-hosted Ava is
+[Tailscale](https://tailscale.com). One-time: enable HTTPS certificates for
+your tailnet (admin console → DNS → HTTPS Certificates) — the interactive
+CLI offers to do this for you, but `--bg` will not prompt. Then, on the Ava
+machine:
 
 ```sh
 tailscale serve --bg 8096

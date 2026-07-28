@@ -6,10 +6,10 @@ Copies a CURATED allow-list of source markdown + assets into the staging tree
 only from what this script copies). Relative paths are preserved so inter-doc
 links keep resolving; any link that points at repo SOURCE (code, config, a
 gitignored file, LICENSE/NOTICE, a non-published dir) is rewritten to a GitHub
-blob/tree URL.
+blob/tree URL — but only when the source repo is public (see REPO_BASE).
 
 Run:  python docs-site/sync.py   (then `mkdocs build --strict -f docs-site/mkdocs.yml`)
-The base repo URL is overridable for forks: AVA_DOCS_REPO_BASE=https://github.com/you/ava
+Set AVA_DOCS_REPO_BASE=https://github.com/you/ava to link source (public repos).
 """
 from __future__ import annotations
 
@@ -22,7 +22,10 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
 OUT = HERE / "docs"
 
-REPO_BASE = os.environ.get("AVA_DOCS_REPO_BASE", "https://github.com/JayMTea/Ava").rstrip("/")
+# Links into repo SOURCE become GitHub URLs only if that repo is public. Unset
+# (the default) means it isn't, and minting the URLs anyway would publish 404s —
+# so those links are dropped and just their label is kept.
+REPO_BASE = os.environ.get("AVA_DOCS_REPO_BASE", "").rstrip("/")
 BRANCH = os.environ.get("AVA_DOCS_BRANCH", "master")
 
 # src (repo-relative) -> dst (staging-relative). READMEs that are linked as bare
@@ -36,6 +39,14 @@ CURATED: dict[str, str] = {
     "SECURITY.md": "SECURITY.md",
     "CHANGELOG.md": "CHANGELOG.md",
     "deploy/README.md": "deploy/README.md",
+    # Capabilities section (nav order: overview first, then one page per area).
+    "docs/capabilities/index.md": "docs/capabilities/index.md",
+    "docs/capabilities/chat.md": "docs/capabilities/chat.md",
+    "docs/capabilities/vitals.md": "docs/capabilities/vitals.md",
+    "docs/capabilities/operations.md": "docs/capabilities/operations.md",
+    "docs/capabilities/data.md": "docs/capabilities/data.md",
+    "docs/capabilities/connectors.md": "docs/capabilities/connectors.md",
+    "docs/capabilities/agent.md": "docs/capabilities/agent.md",
     "docs/AGENT_RUNTIME.md": "docs/AGENT_RUNTIME.md",
     "docs/ALLOCATION.md": "docs/ALLOCATION.md",
     "docs/CONNECT_YOUR_APPS.md": "docs/CONNECT_YOUR_APPS.md",
@@ -46,7 +57,6 @@ CURATED: dict[str, str] = {
     "docs/DEVICE_CONNECTORS.md": "docs/DEVICE_CONNECTORS.md",
     "docs/CONNECT_HOME_ASSISTANT.md": "docs/CONNECT_HOME_ASSISTANT.md",
     "docs/RELEASING.md": "docs/RELEASING.md",
-    "docs/WARM_AGENT_MODE.md": "docs/WARM_AGENT_MODE.md",
     "docs/HWINFO_VALIDATION.md": "docs/HWINFO_VALIDATION.md",
     "agent/docs/README.md": "agent/docs/README.md",
     "agent/docs/adr/README.md": "agent/docs/adr/index.md",
@@ -55,6 +65,7 @@ CURATED: dict[str, str] = {
     "agent/docs/adr/0002-two-app-split.md": "agent/docs/adr/0002-two-app-split.md",
     "agent/docs/adr/0003-per-tool-egress-policies.md": "agent/docs/adr/0003-per-tool-egress-policies.md",
     "agent/docs/adr/0004-tala-layout-engine.md": "agent/docs/adr/0004-tala-layout-engine.md",
+    "agent/docs/adr/0005-model-load-allocation.md": "agent/docs/adr/0005-model-load-allocation.md",
 }
 
 # The landing page lives in docs-site/ (site-specific, not repo docs). Its
@@ -89,6 +100,12 @@ ASSETS: dict[str, str] = {
     "docs/assets/pwa-install-android.png": "docs/assets/pwa-install-android.png",
     "docs/assets/ava-tour.mp4": "docs/assets/ava-tour.mp4",
     "agent/docs/diagrams/security.svg": "agent/docs/diagrams/security.svg",
+    # Staged as assets, not pages: both are fixed-width plain text that markdown
+    # would reflow into mush. Copying them verbatim keeps the licence readable
+    # AND makes README's `[Apache-2.0](LICENSE)` / `[NOTICE](NOTICE)` links
+    # resolve on the site instead of being stripped to bare labels.
+    "LICENSE": "LICENSE.txt",
+    "NOTICE": "NOTICE.txt",
 }
 
 # Where every curated repo path lands in the staging tree, so links can be
@@ -111,7 +128,7 @@ def _staged_dst(resolved_noslash: str) -> str | None:
     return None
 
 
-def _rewrite_target(target: str, src: str, src_dst: str) -> str:
+def _rewrite_target(target: str, src: str, src_dst: str) -> str | None:
     raw = target.strip()
     if raw.startswith(("http://", "https://", "#", "mailto:")):
         return target
@@ -129,7 +146,9 @@ def _rewrite_target(target: str, src: str, src_dst: str) -> str:
     if dst is not None:                    # an internal page/asset/index dir
         rel = os.path.relpath(dst, start=dst_dir or ".")
         return rel + (("#" + anchor) if anchor else "")
-    # Otherwise it points at repo source not on the site -> GitHub.
+    # Otherwise it points at repo source not on the site -> GitHub, if it's public.
+    if not REPO_BASE:
+        return None                        # nothing public to point at
     abspath = REPO / resolved_noslash
     kind = "tree" if abspath.is_dir() or path_part.endswith("/") else "blob"
     url = f"{REPO_BASE}/{kind}/{BRANCH}/{resolved_noslash}"
@@ -138,7 +157,10 @@ def _rewrite_target(target: str, src: str, src_dst: str) -> str:
 
 def _rewrite_links(text: str, src: str, src_dst: str) -> str:
     def repl(m: re.Match) -> str:
-        return m.group(1) + _rewrite_target(m.group(2), src, src_dst) + m.group(3)
+        target = _rewrite_target(m.group(2), src, src_dst)
+        if target is None:                 # unlinkable source path: keep the label
+            return m.group(1).removeprefix("!")[1:-2]
+        return m.group(1) + target + m.group(3)
     text = _LINK.sub(repl, text)
     # GitHub renders markdown inside plain HTML blocks; MkDocs needs the
     # md_in_html opt-in attribute or the div's contents show as raw text.
@@ -194,6 +216,9 @@ def main() -> int:
     (OUT / "stylesheets" / "tokens.css").write_text(css, encoding="utf-8")
     if missing:
         print("WARNING: missing sources:\n  " + "\n  ".join(missing))
+    if not REPO_BASE:
+        print("note: AVA_DOCS_REPO_BASE unset — links into repo source are rendered "
+              "as plain labels (set it once the repo is public)")
     print(f"staged {len(CURATED)} pages + {len(ASSETS)} assets -> {OUT}")
     return 0
 

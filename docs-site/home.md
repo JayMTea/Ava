@@ -21,8 +21,11 @@ cd deploy && ./install.sh                        # or: cp profiles/gpu.env .env 
 
 The in-app **Setup hub** handles the rest: detect hardware, download a model,
 provision the agent, wire in apps, enroll your voice. Prefer bare metal?
-`ava setup && ava doctor && ava up`, then `ava verify` proves every advertised
-capability end-to-end. Full guide: [Quickstart](deploy/README.md).
+`python3 -m venv .venv && . .venv/bin/activate && pip install -e .`, then
+`ava setup && ava doctor && ava up` (or `./bin/ava ...` with no install).
+`ava verify` then checks every advertised capability end-to-end and tells you
+exactly what to run for anything that has drifted. Full guide:
+[Quickstart](deploy/README.md).
 
 ## Under the hood
 

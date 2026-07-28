@@ -93,10 +93,11 @@ Check what Ava now sees:
 ```console
 $ ava alloc status
 Allocation
-  mode          : advisory — decisions recorded to logs/alloc.jsonl, nothing is actuated
+  mode          : advisory · eviction off
   pool          : 59.0 / 121.7 GB free (system-psutil) · 61.8 GB undeclared
   actions       : 0/20 in the last 10 min
-  my-llm          docker    interactive  resident · 44.3 GB
+  leases        : 0 held · 0 awaiting restore
+  my-llm           docker       interactive  resident · 44.3 GB
 ```
 
 ### 2. Read the log before you let it act

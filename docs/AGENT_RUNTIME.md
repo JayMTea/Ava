@@ -13,8 +13,11 @@ default and recommended runtime. It is a reference stack that runs
 [OpenClaw](https://openclaw.ai) inside an [OpenShell](https://github.com/NVIDIA/OpenShell)
 sandbox. That gives Ava:
 
-- **Tools and connectors.** Every capability (`run_gpu_job`, web, your
-  connector apps) executes inside the sandbox.
+- **Tools and connectors.** Ava's tools run inside the sandbox and reach the
+  outside world only through the bridge's token-gated `/internal/*` routes —
+  image rendering, web search/fetch and every connector call execute host-side,
+  so the sandbox never touches the GPU service, the internet, or a connector's API
+  directly.
 - **Security isolation and egress policies.** Each tool group can reach only the
   endpoints it declares ([agent/policies/](../agent/policies/)); the sandbox is
   Ava's network and filesystem boundary. This is what makes the connector SDK's
@@ -30,30 +33,19 @@ specific GPU or box.
 
 ## Set it up
 
-Here is what it looks like in the app: open **Setup → Agent**, click
-**Provision / re-check**, and watch each step verify (sound on):
-
-<video controls playsinline preload="metadata"
-       style="width:100%;border-radius:8px"
-       aria-label="Narrated screen recording: provisioning the agent runtime from the Setup hub">
-  <source src="../assets/agent-setup-tour.mp4" type="video/mp4">
-  Your browser can't play video. <a href="../assets/agent-setup-tour.mp4">Download the walkthrough</a>.
-</video>
+In the app it is two clicks: open **Setup → Agent**, click
+**Provision / re-check**, and watch each step verify.
 
 ### Step 1: Open Setup → Agent
 
 The status card shows what's already in place: whether the CLI is installed,
 whether the sandbox exists, and whether Ava's tools are deployed into it.
 
-![The Agent tab: an Agent runtime card marked active, with Configured, CLI, Sandbox exists, and Tools available rows above a Provision / re-check button](assets/agent-setup-1-status.png)
-
 ### Step 2: Click "Provision / re-check"
 
-Each step verifies in order — the CLI, the sandbox, tools & skills, the
-deny-by-default egress policies — and finishes with a live health check where
-the agent answers a real test turn.
-
-![After provisioning: NemoClaw CLI, Sandbox, Tools & skills, Egress policies, and Health each listed with their result, ending with Provisioned in 6.2s](assets/agent-setup-2-provision.png)
+Three steps verify in order — the NemoClaw CLI, the sandbox, then
+`agent/install.sh`, which deploys Ava's tools, skills and deny-by-default
+egress policies into it. Each row shows ✓ or ✗ with the reason.
 
 That's the whole setup. From a terminal, the same flow is:
 
@@ -105,7 +97,8 @@ not the destination. Force it explicitly with `agent.enabled: false` or
 
 | | NemoClaw (full) | Direct (floor) |
 |---|:--:|:--:|
-| Tools / connectors / images | Yes | No |
+| Tools / connectors | Yes | No |
+| GPU workloads | Yes | Yes (host-side pipeline, not the agent) |
 | Sandboxed + egress-policed | Yes | No |
 | Persistent agent memory | Yes | replayed history |
 | Live chain-of-thought | Yes | No |

@@ -14,8 +14,11 @@ into its sandboxed runtime (NemoClaw/OpenClaw; see
 - **`policies/`**: deny-by-default egress policies. Hand-authored ones live
   here; per-connector policies are *generated* into `policies/generated/` by
   `ava connector policies <id> --write` (gitignored, derived).
-- **`templates/` + `render_persona.py`**: the persona is rendered from
-  `ava.yaml` (`brand.*`, `owner.*`) so nothing personal ships in the repo.
+- **`persona.txt.tmpl` + `render_persona.py`**: the persona is rendered from
+  `ava.yaml` (`brand.*`, `owner.*`, `persona.adult`) so nothing personal ships
+  in the repo.
+- **`templates/` + `new-tool.sh`**: scaffolds a new tool module, its egress
+  policy, and a skill.
 - **`install.sh`**: idempotent deploy of all of the above into the sandbox.
   It also picks up an optional gitignored `/overlay/agent/` with private
   servers, skills, and policies; that is how a personal deployment extends the
@@ -26,7 +29,7 @@ Two planes, in one sentence: the **bridge** (`ava_bridge/`, the web app on
 sandbox) is the capability plane; and they only talk over enumerated,
 token-gated `/internal/*` routes and the inference router.
 
-## The system, in three diagrams
+## The system, in four diagrams
 
 Rendered by `arch.py` from the live architecture manifest and drift-checked
 against the running code (services, MCP tools, egress policies), so they show
@@ -34,20 +37,25 @@ the system as it actually is, not as it was once drawn.
 
 **Security**: trust zones and gates, from the internet down to the sandbox.
 
-[![Security diagram](diagrams/security.svg)](diagrams/security.svg)
+[![Trust zones from the internet down to the sandbox: an untrusted internet/LAN zone, a Tailscale TLS + auth-gate perimeter, a loopback-only host zone holding the bridge, the 0600 secrets and Tor-only web egress, and a Docker sandbox with no ambient egress that reaches the bridge only over enumerated /internal routes with a scoped token](diagrams/security.svg)](diagrams/security.svg)
 
-**System** and **Network** render this install's *actual* topology — device
-labels and whichever private sibling apps are connected — so they are generated
-locally and gitignored rather than committed. Run `python agent/docs/arch.py render`
-to produce `diagrams/system.svg` and `diagrams/network.svg` for your own deployment.
+**System**, **Network**, and **Policy** (the per-tool egress trace) render this
+install's *actual* topology — device labels, whichever private sibling apps are
+connected, and install-specific filesystem paths — so they are generated locally
+and gitignored rather than committed. Run `python agent/docs/arch.py render` to
+produce `diagrams/system.svg`, `diagrams/network.svg`, and `diagrams/policy.svg`
+for your own deployment.
 
 For the app-agnostic picture of how Ava is put together, see
 [docs/assets/architecture.svg](../../docs/assets/architecture.svg), which is
 hand-authored and tracked.
 
-The SSOT manifest (`architecture.yaml`) and the `.d2` sources stay
-**deployment-specific and gitignored**; the rendered SVGs above are committed
-as the reference topology. `arch.py` (the sync/check/render pipeline) skips
-gracefully when the manifest is absent. See also the root
+The SSOT manifest (`architecture.yaml`) and the deployment-specific `.d2`
+sources (system, network, policy) stay **gitignored**. `security.d2` and
+`security.svg` are committed as the reference topology: the security diagram is
+built from the manifest's app-agnostic `security` block, so a fork can
+regenerate it — edit `architecture.yaml`, never the generated `.d2`. `arch.py`
+(the sync/check/render pipeline) skips gracefully when the manifest is absent.
+See also the root
 [README.md](../../README.md) and
 [docs/CONNECTOR_SDK.md](../../docs/CONNECTOR_SDK.md).

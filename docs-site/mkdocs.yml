@@ -13,9 +13,11 @@ theme:
   name: material
   custom_dir: overrides  # home.html — the landing page template
   language: en
-  font:
-    text: Inter
-    code: JetBrains Mono
+  # A site that sells "nothing leaves your box" must not make its own visitors
+  # fetch fonts from Google. `false` disables Material's webfont loading
+  # entirely; stylesheets/extra.css declares the same families as a local-first
+  # stack, so anyone who has Inter/JetBrains Mono installed still sees them.
+  font: false
   icon:
     repo: fontawesome/brands/github
   palette:
@@ -78,9 +80,24 @@ markdown_extensions:
 validation:
   nav:
     omitted_files: ignore
+  # MkDocs defaults these to `info`, which --strict does NOT fail on — so the
+  # docs gate in CI was green while broken anchors shipped. Promote them to
+  # warnings so `mkdocs build --strict` actually catches them.
+  links:
+    anchors: warn
+    absolute_links: warn
+    unrecognized_links: warn
 
 nav:
   - Why Ava?: overview.md
+  - Capabilities:
+      - Overview: docs/capabilities/index.md
+      - Chat, voice & creation: docs/capabilities/chat.md
+      - Vitals: docs/capabilities/vitals.md
+      - Operations: docs/capabilities/operations.md
+      - Data, memory & privacy: docs/capabilities/data.md
+      - Apps, devices & MCP: docs/capabilities/connectors.md
+      - "The agent: tools, skills & self-improvement": docs/capabilities/agent.md
   - Get started:
       - 1. Install on your hardware: deploy/README.md
       - 2. Pick a model: docs/CHOOSE_A_MODEL.md
@@ -89,6 +106,7 @@ nav:
   - Connector SDK:
       - App connectors: docs/CONNECTOR_SDK.md
       - Device connectors: docs/DEVICE_CONNECTORS.md
+      - Home Assistant: docs/CONNECT_HOME_ASSISTANT.md
   - Architecture:
       - Overview: agent/docs/README.md
       - Decision records: agent/docs/adr/index.md
@@ -98,3 +116,7 @@ nav:
       - Running two models: docs/ALLOCATION.md
       - Memory & recall: docs/MEMORY.md
       - On your phone (PWA): docs/MOBILE.md
+  - Project:
+      - Contributing: CONTRIBUTING.md
+      - Releasing: docs/RELEASING.md
+      - Changelog: CHANGELOG.md

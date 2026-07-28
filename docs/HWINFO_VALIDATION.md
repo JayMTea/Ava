@@ -20,7 +20,7 @@ can only be trusted after running it on the real device. This is that checklist.
 
 ```bash
 pip install -r requirements.txt          # pulls psutil; nvidia-ml-py stays inactive
-python3 -c "from ava_bridge import hwinfo, json; print(__import__('json').dumps(hwinfo.snapshot(), indent=2))"
+python3 -c "import json; from ava_bridge import hwinfo; print(json.dumps(hwinfo.snapshot(), indent=2))"
 ```
 
 **Expect:**
