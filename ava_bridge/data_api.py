@@ -132,12 +132,14 @@ def stores():
                       facts=mc.get("facts", 0), doc_chunks=mc.get("doc_chunks", 0),
                       pinned=mc.get("pinned", 0)))
 
-    # Chats. Counts come from the store, not from walking its innards, so this
-    # card keeps working when the backing store stops being one JSON file.
-    chats_path = os.path.join(data_dir, "chats.json")
+    # Chats. The corpus is SQLite now, so this reports data/chats.db — reporting
+    # chats.json would show a file that stops growing the moment the migration
+    # runs, i.e. an inventory that looks healthy while describing a rollback
+    # artefact rather than the live store.
+    chats_path = chat_store.db_path()
     size, mtime = _file_stats(chats_path)
     n_chats, n_msgs = chat_store.counts()
-    out.append(_store("chats", "Chats", chats_path, "json", size=size,
+    out.append(_store("chats", "Chats", chats_path, "sqlite", size=size,
                       count=n_chats, last_write=mtime, messages=n_msgs))
 
     # Audit ledger — append-only flight recorder.
