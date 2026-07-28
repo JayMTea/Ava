@@ -1,10 +1,20 @@
 # Changelog
 
 All notable changes to Ava are documented here. The format is based on
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This is a single-host
-on-prem project, so versions are dated milestones rather than published releases.
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html). Entries from 0.1.0
+onward are published, signed releases; the dated sections below it are the
+pre-release milestones from when Ava ran on one box and nothing was tagged.
 
 ## [Unreleased]
+
+_Nothing yet._
+
+## [0.1.0] — 2026-07-28
+
+First public release: Ava is cloneable. The install path documented in
+README.md now works from a fresh checkout on someone else's hardware, verified
+end to end on both the cpu and gpu profiles through to a real chat completion.
 
 ### Fixed — The documented install could not produce a chat message
 
