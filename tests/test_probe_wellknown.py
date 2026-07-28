@@ -2,7 +2,9 @@
 import unittest
 from unittest import mock
 
-from ava_bridge.hub_api import _probe
+# _probe moved with the Connectors panel when hub_api.py was split; it is
+# the connector-detection helper and belongs beside the routes that call it.
+from ava_bridge.hub.connectors import _probe
 
 
 def _resp(status, payload):

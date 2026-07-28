@@ -14,7 +14,11 @@ import textwrap
 import unittest
 from unittest import mock
 
-from ava_bridge import connectors, hub_api
+from ava_bridge import connectors
+# The appearance handler moved out of hub_api.py with the Connectors panel.
+# Imported as `hub_api` so the call sites below read unchanged — what this
+# test exercises is the handler, not which file it lives in.
+from ava_bridge.hub import connectors as hub_api
 
 
 def _write(base, cid, body):
