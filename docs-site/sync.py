@@ -94,12 +94,17 @@ ASSETS: dict[str, str] = {
     "docs/assets/agent-setup-1-status.png": "docs/assets/agent-setup-1-status.png",
     "docs/assets/agent-setup-2-provision.png": "docs/assets/agent-setup-2-provision.png",
     "docs/assets/install-1-terminal.png": "docs/assets/install-1-terminal.png",
-    "docs/assets/hardware-detected.png": "docs/assets/hardware-detected.png",
+    # docs/assets/hardware-detected.png is deliberately NOT staged: it is a crop
+    # of the old row-layout "Your hardware" panel, no page references it, and the
+    # current hero layout is already shown by choose-model-1-hardware.png.
     "docs/assets/agent-setup-tour.mp4": "docs/assets/agent-setup-tour.mp4",
     "docs/assets/pwa-install-ios.png": "docs/assets/pwa-install-ios.png",
     "docs/assets/pwa-install-android.png": "docs/assets/pwa-install-android.png",
     "docs/assets/ava-tour.mp4": "docs/assets/ava-tour.mp4",
     "agent/docs/diagrams/security.svg": "agent/docs/diagrams/security.svg",
+    # og:image / twitter:image for every page (docs-site/overrides/main.html).
+    # 1200x630, captured from the real app by demo/manifests/og-card.yaml.
+    "docs/assets/og-card.png": "docs/assets/og-card.png",
     # Staged as assets, not pages: both are fixed-width plain text that markdown
     # would reflow into mush. Copying them verbatim keeps the licence readable
     # AND makes README's `[Apache-2.0](LICENSE)` / `[NOTICE](NOTICE)` links

@@ -56,7 +56,7 @@ deletes, and database maintenance. Your whole Ava is one folder (`AVA_HOME`);
 the Data tab shows you exactly what's in it.
 
 <!-- Regenerate this and the site's screenshots/tour with the local capture studio. -->
-![Ava's Vitals dashboard: spend, energy, throughput, time-to-first-token, renders and route errors across the top, then today's budget, inference throughput, model routing, generation performance, energy by app, and live hardware telemetry](docs/assets/vitals-dashboard.png)
+![Ava's Vitals dashboard: spend, energy, throughput, time-to-first-token, renders and route errors across the top, then today's budget, inference throughput by model, model routing across four models, generation performance, energy by app, and the connected-apps list](docs/assets/vitals-dashboard.png)
 
 ## Why Ava?
 

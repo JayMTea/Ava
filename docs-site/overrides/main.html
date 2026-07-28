@@ -1,0 +1,45 @@
+{#-
+  Sitewide <head> additions. home.html extends THIS file, so the tags below
+  apply to the landing page and every documentation page alike.
+
+  Why hand-rolled instead of Material's `social` plugin: that plugin renders
+  cards with Cairo/Pango at build time, which would add system image libraries
+  to CI for one static image. The card is captured from the real app instead
+  (demo/manifests/og-card.yaml) and committed as docs/assets/og-card.png.
+
+  Absolute URLs are required — crawlers do not resolve relative og:image. They
+  are built from `config.site_url`, so a fork that changes site_url gets
+  correct tags with no edit here.
+-#}
+{% extends "base.html" %}
+
+{% block extrahead %}
+  {#- Per-page title/description, falling back to the site's own. -#}
+  {%- if page and page.meta and page.meta.description -%}
+    {%- set og_description = page.meta.description -%}
+  {%- else -%}
+    {%- set og_description = config.site_description -%}
+  {%- endif -%}
+  {%- if page and page.title and not page.is_homepage -%}
+    {%- set og_title = page.title ~ " — " ~ config.site_name -%}
+  {%- else -%}
+    {%- set og_title = config.site_name ~ " — your AI, your hardware" -%}
+  {%- endif -%}
+  {%- set og_image = config.site_url ~ "docs/assets/og-card.png" -%}
+  {%- set og_url = page.canonical_url if page and page.canonical_url else config.site_url -%}
+
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="{{ config.site_name }}">
+  <meta property="og:title" content="{{ og_title }}">
+  <meta property="og:description" content="{{ og_description }}">
+  <meta property="og:url" content="{{ og_url }}">
+  <meta property="og:image" content="{{ og_image }}">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Ava's Vitals dashboard: inference throughput, model routing, energy and spend, running on the owner's own hardware.">
+
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="{{ og_title }}">
+  <meta name="twitter:description" content="{{ og_description }}">
+  <meta name="twitter:image" content="{{ og_image }}">
+{% endblock %}
