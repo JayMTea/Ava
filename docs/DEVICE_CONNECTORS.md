@@ -18,11 +18,12 @@ A **device connector** is just a normal [connector](CONNECTOR_SDK.md) whose
 block (pull). Everything else in the Connector SDK (health probe, left-rail UI,
 egress policy) still applies.
 
-Here is the whole flow, end to end, narrated (sound on):
+Here is the pull path from the browser — connecting a device's tool server —
+narrated (sound on). The push half (token, `POST …/events`) is covered below:
 
 <video controls playsinline preload="metadata"
        style="width:100%;border-radius:8px"
-       aria-label="Narrated screen recording: connecting a sensing device to Ava end to end">
+       aria-label="Narrated screen recording: connecting a device's tool server to Ava from the browser">
   <source src="../assets/connect-device-tour.mp4" type="video/mp4">
   Your browser can't play video. <a href="../assets/connect-device-tour.mp4">Download the walkthrough</a>.
 </video>
@@ -35,7 +36,9 @@ Here is the whole flow, end to end, narrated (sound on):
 id: greenhouse
 label: Greenhouse
 kind: app
-role: device                 # groups it in Ava's Devices view (cosmetic)
+role: device                 # NOT cosmetic: groups it in Ava's Devices view AND
+                             # makes unmatched dynamic tools default to the
+                             # never-grantable `physical` tier (CONNECTOR_SDK §5)
 
 service:                     # optional — Ops dashboard health row
   name: Greenhouse
@@ -80,12 +83,13 @@ Ava discovers those tools live (via `actions.discover`) and the agent calls them
 when the user asks: *"what's the greenhouse temperature?"*, *"turn on the pump"*.
 This path is unchanged from the Connector SDK; see [CONNECTOR_SDK.md §5](CONNECTOR_SDK.md).
 
-To also generate the egress allow-list so the sandboxed agent may reach the bridge
-proxy for this app:
+To generate the agent tools and the egress allow-list so the sandboxed agent may
+reach the bridge proxy for this app:
 
 ```bash
+ava connector tools    greenhouse --write   # -> agent/mcp_server_content/connectors/greenhouse/
 ava connector policies greenhouse --write   # -> agent/policies/generated/greenhouse.yaml
-cd agent && ./install.sh                     # deploy into the sandbox
+cd agent && ./install.sh                    # deploy into the sandbox
 ```
 
 ---
@@ -114,7 +118,8 @@ Returns `{ "ok": true, "seq": N }`. What Ava does with it:
   with no external database), so it survives restarts and Ava can answer *"did
   anything happen?"*.
 - **Surfaces it live** on the dashboard: every event rides the ops SSE stream as
-  a `device.event` frame (a toast).
+  a `device.event` frame and lands at the top of the **Device events** panel on
+  the Operations page (the panel appears once your first event arrives).
 - For **`notify: true`** or **`severity` warn/critical**, also raises a short-lived
   entry in the dashboard's **active alerts** panel.
 - Makes it **readable by Ava's agent** via the `device_events` tool, so *"did the
@@ -130,9 +135,10 @@ rotates the token. Keep it secret; treat it like a password.
 
 > **Who decides to notify.** The *decision* to notify is your app's; your device
 > logic owns when to fire. Ava is the *delivery surface*: it receives the event
-> and shows it to the user. (Proactive **voice** announcement isn't wired in v1;
-> events surface in the UI and to the agent. The `device.event` frame is the seam
-> a future release can hook TTS onto.)
+> and shows it to the user. (Opt-in **voice**: tick *Speak alerts* in the
+> Operations page's **Device events** panel and Ava reads notify/warn/critical
+> events aloud in that browser via the Web Speech API — no server voice
+> process. Per-browser, and off by default.)
 
 ---
 
@@ -144,7 +150,7 @@ stands in for your app (tools: `read_temperature`, `set_relay`, plus a demo
 event pusher); replace the faked device I/O with yours.
 
 ```bash
-# 1. Register the connector (built-in id: device-demo)
+# 1. Register the connector (the example's manifest declares id: device-demo)
 cp -r examples/device-app "$AVA_HOME/connectors/device-demo"
 
 # 2. Get this connector's inbound push token
@@ -156,7 +162,13 @@ export AVA_CID=device-demo
 export AVA_INGEST_TOKEN=<the token from step 2>
 python examples/device-app/server.py
 
-# 4. Restart Ava (or `ava up`) so it loads the connector, then:
+# 4. Generate its agent tools + egress policy and load them into the sandbox
+#    (or use Setup -> Connectors -> Deploy)
+ava connector tools    device-demo --write
+ava connector policies device-demo --write
+cd agent && ./install.sh
+
+# 5. Restart Ava (or `ava up`) so it loads the connector, then:
 ava device list                     # shows device-demo (pull,push)
 ava device events device-demo       # watch the pushed motion + readings arrive
 ```

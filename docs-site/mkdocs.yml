@@ -1,7 +1,13 @@
 site_name: Ava
 site_description: A self-hosted personal AI operating layer. Chat, voice, GPU workloads, and app automation on your own hardware.
 site_url: https://JayMTea.github.io/Ava/
-repo_url: https://github.com/JayMTea/Ava
+# PRE-LAUNCH: the repo is private, so github.com/JayMTea/Ava is a 404 to anyone
+# who is not a collaborator. Publishing the site with a repo widget would ship a
+# dead "View on GitHub" pill on every page, so the widget is driven by the SAME
+# switch as sync.py's source-link rewriting: set AVA_DOCS_REPO_BASE when the
+# repo goes public and both light up together. Unset, Material renders no
+# widget and javascripts/chrome.js skips the pill (it no-ops without the anchor).
+repo_url: !ENV [AVA_DOCS_REPO_BASE, ""]
 repo_name: JayMTea/Ava
 copyright: Apache-2.0 &middot; The Ava Authors
 
@@ -13,9 +19,11 @@ theme:
   name: material
   custom_dir: overrides  # home.html — the landing page template
   language: en
-  font:
-    text: Inter
-    code: JetBrains Mono
+  # A site that sells "nothing leaves your box" must not make its own visitors
+  # fetch fonts from Google. `false` disables Material's webfont loading
+  # entirely; stylesheets/extra.css declares the same families as a local-first
+  # stack, so anyone who has Inter/JetBrains Mono installed still sees them.
+  font: false
   icon:
     repo: fontawesome/brands/github
   palette:
@@ -49,8 +57,11 @@ extra_css:
 
 extra_javascript:
   - javascripts/diagram-zoom.js  # zoom/pan lightbox for diagram SVGs
-  - javascripts/carousel.js      # landing-page screenshot carousel
   - javascripts/chrome.js        # make the "Ava" title the home link
+  # carousel.js is NOT loaded: no page builds `.ava-carousel` any more (the
+  # landing page uses the single <video class="ava-reel"> embed), so it was a
+  # 93-line no-op fetched on every page. The file and its .ava-carousel styles
+  # in stylesheets/extra.css are kept for whenever a gallery comes back.
 
 extra:
   generator: false  # hide "Made with Material for MkDocs" in the footer
@@ -78,9 +89,24 @@ markdown_extensions:
 validation:
   nav:
     omitted_files: ignore
+  # MkDocs defaults these to `info`, which --strict does NOT fail on — so the
+  # docs gate in CI was green while broken anchors shipped. Promote them to
+  # warnings so `mkdocs build --strict` actually catches them.
+  links:
+    anchors: warn
+    absolute_links: warn
+    unrecognized_links: warn
 
 nav:
   - Why Ava?: overview.md
+  - Capabilities:
+      - Overview: docs/capabilities/index.md
+      - Chat, voice & creation: docs/capabilities/chat.md
+      - Vitals: docs/capabilities/vitals.md
+      - Operations: docs/capabilities/operations.md
+      - Data, memory & privacy: docs/capabilities/data.md
+      - Apps, devices & MCP: docs/capabilities/connectors.md
+      - "The agent: tools, skills & self-improvement": docs/capabilities/agent.md
   - Get started:
       - 1. Install on your hardware: deploy/README.md
       - 2. Pick a model: docs/CHOOSE_A_MODEL.md
@@ -89,6 +115,7 @@ nav:
   - Connector SDK:
       - App connectors: docs/CONNECTOR_SDK.md
       - Device connectors: docs/DEVICE_CONNECTORS.md
+      - Home Assistant: docs/CONNECT_HOME_ASSISTANT.md
   - Architecture:
       - Overview: agent/docs/README.md
       - Decision records: agent/docs/adr/index.md
@@ -98,3 +125,7 @@ nav:
       - Running two models: docs/ALLOCATION.md
       - Memory & recall: docs/MEMORY.md
       - On your phone (PWA): docs/MOBILE.md
+  - Project:
+      - Contributing: CONTRIBUTING.md
+      - Releasing: docs/RELEASING.md
+      - Changelog: CHANGELOG.md

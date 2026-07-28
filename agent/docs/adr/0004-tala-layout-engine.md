@@ -1,6 +1,9 @@
 # 0004. Use TALA as the diagram layout engine
 
-- **Status:** Accepted
+- **Status:** Superseded (historical) — reverted to ELK. Unlicensed TALA renders
+  stamp an "" watermark (three tracked diagrams shipped
+  watermarked; `tests/test_no_owner_identity.py` now fails the build on it), so
+  `diagram_style.d2.layout` is `elk`. Kept for the decision history.
 - **Date:** 2026-06-29
 - **Deciders:** project owner
 
@@ -18,7 +21,7 @@ Use **TALA** (Terrastruct's proprietary layout engine, `d2plugin-tala`) as the
 layout engine for all generated diagrams. The choice is a single manifest token —
 `diagram_style.d2.layout: tala` — so every diagram (and every future one) inherits
 it automatically. The API token lives in `~/.config/tstruct/auth.json` (`0600`,
-outside git); see `SECURITY.md`.
+outside git).
 
 ## Consequences
 

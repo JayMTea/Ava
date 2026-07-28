@@ -1,4 +1,4 @@
-# 0003. Per-tool narrow egress policies (least privilege)
+# 0003. Per-source narrow egress policies (least privilege)
 
 - **Status:** Accepted
 - **Date:** 2026-06-28
@@ -14,10 +14,10 @@ boundary by nature.
 
 ## Decision
 
-Give **every tool its own narrow egress policy**. Each policy
+Give **every capability source its own narrow egress policy**. Each policy
 ([`agent/policies/<name>.yaml`](../../policies/)) allow-lists only the exact
-host:port + HTTP method/path that one capability needs; everything else is **denied
-by default**. Host-callbacks additionally require a scoped
+host:port + HTTP method/path that its group of tools needs; everything else is
+**denied by default**. Host-callbacks additionally require a scoped
 `X-Ava-Internal-Token` bearer and are limited to enumerated `/internal/...`
 routes. The manifest declares the
 tool↔policy↔egress mapping and drift-checks it 1:1 against the policy files; the
@@ -26,9 +26,9 @@ generated policy-trace diagram (rendered locally by `arch.py sync`) visualizes i
 ## Consequences
 
 ### Positive
-- **Blast-radius containment:** a compromised tool can still only reach its single
-  declared destination (e.g. weather → Open-Meteo GET only).
-- No ambient authority — permissions never leak between tools.
+- **Blast-radius containment:** a compromised tool can still only reach its own
+  group's declared destinations (e.g. weather → Open-Meteo GET only).
+- No ambient authority — permissions never leak between capability groups.
 - Auditable: each policy is an explicit, readable contract.
 
 ### Negative / trade-offs

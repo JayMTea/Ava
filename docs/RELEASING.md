@@ -8,7 +8,7 @@ SBOM + checksums, and creates the GitHub Release. Pre-1.0 tags (`v0.x.y`) signal
 
 ## One-time setup (maintainers)
 
-- Enable **GitHub Pages** (for docs, Track B) and **Private vulnerability
+- Enable **GitHub Pages** (to publish the docs site) and **Private vulnerability
   reporting** (repo → Settings → Security).
 - Ensure your commit/tag signing key is set up (`git config user.signingkey`,
   `commit.gpgsign` or SSH signing). Add the public key to your GitHub account so
@@ -28,8 +28,9 @@ SBOM + checksums, and creates the GitHub Release. Pre-1.0 tags (`v0.x.y`) signal
    reads when `AVA_VERSION` isn't injected (`ava_bridge/version.py`), the package
    version (`pyproject.toml` reads it via `dynamic = ["version"]`), and the
    `ava version` output. Optionally sync `frontend/package.json` with
-   `npm version X.Y.Z --no-git-tag-version` and rebuild `frontend/dist` (CI's
-   dist-drift job enforces this).
+   `npm version X.Y.Z --no-git-tag-version` (cosmetic only — the version never
+   reaches `frontend/dist`, so CI's dist-drift job cannot catch an unsynced
+   `package.json`, and the bump alone needs no rebuild).
 3. **Commit** the changelog + version bump.
 4. **Tag, signed, and push:**
    ```bash
@@ -37,7 +38,9 @@ SBOM + checksums, and creates the GitHub Release. Pre-1.0 tags (`v0.x.y`) signal
    git push origin vX.Y.Z
    ```
 5. The release workflow runs. When it finishes, the GitHub Release is created and
-   `ghcr.io/jaymtea/ava-bridge:vX.Y.Z` (+ `X.Y`, `latest`) is published and signed.
+   `ghcr.io/jaymtea/ava-bridge:X.Y.Z` (+ `X.Y`, `latest`) is published and
+   signed. The image tag drops the `v` — the git tag is `vX.Y.Z`, the image tag
+   is `X.Y.Z`.
 
 ## Verifying (anyone)
 
@@ -46,6 +49,11 @@ against the release-workflow OIDC identity, plus the SBOM/provenance attestation
 
 ## Testing the pipeline without a real release
 
-Push a throwaway pre-release tag from a branch, e.g. `git tag -s v0.0.1-rc1 && git
-push origin v0.0.1-rc1`. It exercises the full build/sign/SBOM/release path;
-delete the tag + the draft release + the GHCR image afterward.
+Push a throwaway pre-release tag, e.g. `git tag -s v0.0.1-rc1 && git push origin
+v0.0.1-rc1`. It exercises the full build/sign/SBOM/release path — with two
+caveats: `release.yml` applies `latest` unconditionally, so the run re-points
+both `ghcr.io/jaymtea/ava-bridge:latest` and
+`ghcr.io/jaymtea/ava-agent-runtime:latest` at the test build, and the GitHub
+Release is created **published, not draft**. Afterwards: delete the tag, delete
+the release, delete the rc images from GHCR, and re-point `latest` at the last
+real release digest.

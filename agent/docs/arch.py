@@ -45,7 +45,7 @@ ICONS_ENABLED = False   # icons removed project-wide; set True to re-enable Luci
 # silently go stale on the site.
 STATIC_D2: list[tuple[str, str, str]] = [
     (os.path.join(ROOT, "docs", "assets", "agent-remote-runtime.d2"),
-     os.path.join(ROOT, "docs", "assets", "agent-remote-runtime.svg"), "tala"),
+     os.path.join(ROOT, "docs", "assets", "agent-remote-runtime.svg"), "elk"),
     (os.path.join(ROOT, "docs", "assets", "architecture.d2"),
      os.path.join(ROOT, "docs", "assets", "architecture.svg"), "elk"),
 ]

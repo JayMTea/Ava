@@ -15,7 +15,7 @@ to *your* apps, and answers only to you.
 
 > Not a chatbot. Not a model. A **control layer** for your own AI.
 
-[![System diagram](docs/assets/architecture.svg)](docs/assets/architecture.svg)
+[![Ava's architecture: clients (phone, browser, voice) reach the FastAPI bridge over a private Tailscale network; the bridge fronts a sandboxed agent runtime, a hardware-aware inference router over local models, a media engine, and drop-in connector apps](docs/assets/architecture.svg)](docs/assets/architecture.svg)
 
 </div>
 
@@ -25,10 +25,11 @@ to *your* apps, and answers only to you.
 - **Create with it.** GPU workloads orchestrated by the agent (the GPU service); video via connector apps.
 - **Wire it to your apps.** Drop-in connectors; Ava monitors *and* drives them.
 - **Wrap any MCP server in an egress policy.** Plug into the whole MCP ecosystem; tools are discovered live, and the agent reaches them only through two policed routes.
+- **Search the web without being the product.** Web search runs through a loopback SearXNG and, by default, fail-closed over Tor; every redirect hop is re-validated against an SSRF guard. The sandboxed agent never reaches the internet directly.
 - **It edits its own code.** Source changes land as git commits; by default every change waits for your approval (`code.approval`).
 - **It studies itself.** Periodic local-first analysis of its own activity parks improvement proposals for your sign-off; nothing self-applies.
 - **It remembers — and you hold the eraser.** Long-term memory distilled from your chats and uploads, recalled when relevant, every recall audit-logged; view, correct, delete, or export all of it in the Hub ([docs/MEMORY.md](docs/MEMORY.md)).
-- **See everything.** A live Command Center: throughput, cost and energy, jobs, alerts.
+- **See everything.** A live **Vitals** dashboard: throughput, cost and energy, jobs, alerts.
 - **Set up from the browser.** A guided Setup hub: pick a model, provision the agent, wire in apps, enroll your voice. No terminal required.
 - **Take it with you.** The web app installs to your phone's home screen as a PWA ([docs/MOBILE.md](docs/MOBILE.md)).
 - **Private by default.** Runs on your hardware; nothing leaves unless you say so.
@@ -42,7 +43,7 @@ automation, and self-editing, behind a single dashboard, running on your own
 hardware with the model of your choice (served locally by **vLLM / Ollama /
 llama.cpp**, or through a **cloud API key**).
 
-## The Command Center
+## Vitals, Operations, and Data
 
 Ava's dashboard is the front door: a **Vitals** tab (performance at a glance:
 tokens/sec, time-to-first-token, render times, cost and energy, hardware), an
@@ -55,15 +56,21 @@ deletes, and database maintenance. Your whole Ava is one folder (`AVA_HOME`);
 the Data tab shows you exactly what's in it.
 
 <!-- Regenerate this and the site's screenshots/tour with the local capture studio. -->
-![Ava's Vitals dashboard: performance at a glance](docs/assets/vitals-dashboard.png)
+![Ava's Vitals dashboard: spend, energy, throughput, time-to-first-token, renders and route errors across the top, then today's budget, inference throughput by model, model routing across four models, generation performance, energy by app, and the connected-apps list](docs/assets/vitals-dashboard.png)
 
 ## Why Ava?
 
 - **You own it.** Self-hosted and single-tenant, on your GPU. Your conversations,
-  files, and voiceprint never leave your box.
-- **Your model, local by default.** Ava ships with a 7B model that fits a normal
-  GPU and swaps in one line — run vLLM, Ollama, llama.cpp, or point it at a cloud
-  endpoint. Claude/Opus API access is reserved for governed code changes.
+  files, and voiceprint stay on your box by default. Nothing goes to a third
+  party unless you turn it on: a cloud inference backend, or an Anthropic key
+  for governed code changes and the cloud fallback of the learning cycle.
+- **Your model, local by default.** Ava defaults to a 7B model that fits a normal
+  GPU (downloaded on first run) and swaps in one line — run vLLM, Ollama,
+  llama.cpp, or point it at a cloud endpoint. Your Anthropic key drives governed
+  code changes, and is the fallback when the local model can't complete a
+  learning or memory-distillation cycle — those prompts include chat excerpts
+  ([docs/MEMORY.md](docs/MEMORY.md)). Leave `ANTHROPIC_API_KEY` unset to keep
+  every cycle local-only.
 - **It does more than talk.** It renders images, calls tools, remembers,
   and reaches into your other apps.
 - **It watches itself.** A real operations dashboard: tokens/sec, TTFT, render
@@ -73,7 +80,8 @@ the Data tab shows you exactly what's in it.
   key and commits them to git (every change one revert away). `code.approval` picks the
   gate: by default **every** change waits for you; secrets and models are never writable.
   Separately, local-first learning cycles analyze its own activity and park improvement
-  proposals; review, approve, or reject them on the Learning page.
+  proposals; review, approve, or reject them in **Operations → Control** (the
+  Control Center).
 - **Anyone can extend it.** Add your app with a small manifest and no core-code changes.
   Ava picks up its health, metrics, egress policy, and agent tools automatically.
 - **MCP, but governed.** Point a manifest at any Model Context Protocol server
@@ -93,7 +101,7 @@ privately.
 Ava's **default agent runtime** (sandbox, tools, egress policies, memory), and
 Ava layers private on-device voice, GPU workloads, the connector SDK,
 the ops dashboard, and governed self-editing on top. Use NemoClaw alone if
-you want a channel-based agent (Slack/Telegram/etc.); use Ava if you want the
+you want the sandboxed agent runtime to build on; use Ava if you want the
 full private assistant stack. See [docs/AGENT_RUNTIME.md](docs/AGENT_RUNTIME.md).
 
 ## Who it's for
@@ -117,6 +125,9 @@ cd deploy
 cp profiles/gpu.env .env      # or: cpu | cloud | full | agent
 docker compose up -d
 ```
+
+The `cloud` profile ships `AVA_BACKEND_URL`, `AVA_MODEL`, and `AVA_INFERENCE_KEY`
+empty on purpose — fill them in `.env` before `docker compose up -d`.
 
 **On a Mac (Apple Silicon)?** Run bare metal, not Docker (Docker Desktop can't use
 the Apple GPU): see [Apple Silicon (Mac mini / Studio)](deploy/README.md#apple-silicon-mac-mini-studio).

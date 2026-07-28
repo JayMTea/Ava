@@ -5,28 +5,33 @@ Nemotron, Llama, Qwen, or any OpenAI-compatible endpoint, running on the
 hardware you just installed on. This is step two of getting started, and it
 happens in the app.
 
-Here is the whole flow on a Mac, end to end (sound on):
+---
+
+The whole flow takes about a minute; here it is end to end, narrated (sound on):
 
 <video controls playsinline preload="metadata"
        style="width:100%;border-radius:8px"
-       aria-label="Narrated screen recording: choosing the model Ava thinks with, shown on a Mac">
+       aria-label="Screen recording: picking Ava's brain, from detected hardware through linking and testing a model">
   <source src="../assets/choose-model-tour.mp4" type="video/mp4">
   Your browser can't play video. <a href="../assets/choose-model-tour.mp4">Download the walkthrough</a>.
 </video>
 
----
+*(The recording uses sample data on a Mac host; your instance will show your own
+hardware and models.)*
 
 ## Ava already knows what fits
 
-Open **Setup → Models**. The **Your hardware** panel (filled in during
-[install](../deploy/README.md)) shows your chip, usable memory, and a
-recommended model tier, so you never guess what your machine can run: a big
-Studio handles a 70B model, a base Mac mini stays around 8B, and an NVIDIA box
-is sized by its free VRAM.
+Open **Setup → Hardware**. The **Your hardware** panel shows your chip, usable
+memory, and a recommended model tier — detected live each time you open it,
+nothing to configure during [install](../deploy/README.md) — so you never guess
+what your machine can run: a big Studio handles a 70B model, a base Mac mini
+stays around 8B, and an NVIDIA box is sized by its total VRAM.
 
-![The Models tab on a Mac: Your hardware shows Apple M4 Max, 128 GB unified memory, and a workstation tier; below it, Ava's brain with an Add a model button](assets/choose-model-1-hardware.png)
+![The Hardware tab: a Workstation Tier hero card reading "Unified memory comfortably fits large local models", with Compute and Usable memory below it, and a note that the tier sets which models Ava recommends](assets/choose-model-1-hardware.png)
 
 ## Link a model
+
+Models live under **Setup → Agent**, in the **Ava's brain** panel.
 
 ### Step 1: Click "Add a model", pick the engine, name the model
 
@@ -37,26 +42,33 @@ it to serve (for example `llama3.1:70b`).
 
 ### Step 2: Click "Test connection"
 
-Ava sends a real turn and shows the reply and latency before you commit:
+Ava sends a real turn and shows the reply and latency before you commit.
 
-![The Add a model form: Ollama engine, llama3.1:70b, and a green test result reading Connected in 284 ms with the model's reply](assets/choose-model-2-test.png)
+![The Add a model form on the Agent tab, with the engine picked, the model named, and the live result of Test connection shown beneath it](assets/choose-model-2-test.png)
 
 ### Step 3: Click "Save model"
 
-It becomes Ava's brain: the model every conversation routes through, marked
-with the **brain** badge. Link several and switch which one Ava thinks with at
-any time.
+It is marked with the **brain** badge, and you can link several and switch which
+one Ava thinks with at any time. With the agent runtime off, this is the model
+every conversation routes through; with it on (the default), chat turns think
+with the agent sandbox's own model — set with `nemoclaw onboard` — and this
+backend serves the tool-less fallback and the other model roles. The
+**Setup → Agent** panel labels which one is actually in effect.
 
-![Ava's brain after saving: the llama3.1:70b entry with a brain badge, and a banner reading Saved to ava.yaml](assets/choose-model-3-brain.png)
+Saving writes the backend to `ava.yaml`, and Ava raises a restart banner —
+restart to apply the change (`cd deploy && docker compose restart ava` under
+Docker, or `./bin/ava up` to restart the service you started it with).
 
 Cloud keys go to the secrets store, never into config files.
+
+![The saved model listed under Ava's brain, carrying the brain badge alongside its engine and endpoint](assets/choose-model-3-brain.png)
 
 ## Or let the model store fetch one
 
 The **Model store** below downloads models sized to your detected tier, so a
-24 GB machine is never handed a 70B model:
+24 GB machine is never handed a 70B model.
 
-![The Model store: brain, embed, and speech models each marked downloaded, sized to the detected workstation tier](assets/choose-model-4-store.png)
+![The Model store panel: brain, embed, and speech entries each marked downloaded, with a Pull recommended button and the detected tier and memory in the subtitle](assets/choose-model-4-store.png)
 
 The same thing from a terminal:
 
@@ -74,9 +86,9 @@ AVA_MODEL=Qwen/Qwen3-32B-AWQ bash deploy/local-serve.sh
 ```
 
 Set `AVA_MODEL` in `.env` to make it the default. Then point Ava at it — Setup →
-Models, or the `inference.backends` block in `ava.yaml`. The `model:` there has to
-match what the server was started with, since the router sends that string
-verbatim as the OpenAI `model` field.
+Agent → **Ava's brain**, or the `inference.backends` block in `ava.yaml`. The
+`model:` there has to match what the server was started with, since the router
+sends that string verbatim as the OpenAI `model` field.
 
 **The one thing to get right: the tool-call parser.** vLLM needs
 `--tool-call-parser` to match the format your model emits, and a mismatch does not

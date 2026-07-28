@@ -28,6 +28,7 @@ We use a lightweight [MADR](https://adr.github.io/madr/)-style template. Copy
 | # | Title | Status |
 |---|-------|--------|
 | [0001](0001-ssot-architecture-pipeline.md) | Single-source-of-truth architecture pipeline | Accepted |
-| [0002](0002-two-app-split.md) | Split Experience (`:8445`) and Admin (`:8444`) front doors | Accepted |
+| [0002](0002-two-app-split.md) | Split Experience (`:8445`) and Admin (`:8444`) front doors | Superseded |
 | [0003](0003-per-tool-egress-policies.md) | Per-tool narrow egress policies (least privilege) | Accepted |
 | [0004](0004-tala-layout-engine.md) | Use TALA as the diagram layout engine | Accepted |
+| [0005](0005-model-load-allocation.md) | A lease broker owns memory allocation across declared models | Accepted |

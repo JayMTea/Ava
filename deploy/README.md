@@ -5,15 +5,6 @@ hardware, point it at your own models, and connect your own apps. This is step
 one of getting started: fork (or clone) the repo, then pick the path for your
 machine.
 
-Here is the whole install on a Mac, end to end (sound on):
-
-<video controls playsinline preload="metadata"
-       style="width:100%;border-radius:8px"
-       aria-label="Narrated screen recording: cloning Ava, running ava setup, doctor, and up on a Mac, then verifying the detected hardware in the app">
-  <source src="../docs/assets/install-tour.mp4" type="video/mp4">
-  Your browser can't play video. <a href="../docs/assets/install-tour.mp4">Download the walkthrough</a>.
-</video>
-
 | Your machine | Install path |
 |---|---|
 | Mac mini / Studio (Apple Silicon) | [Bare metal with a native engine](#apple-silicon-mac-mini-studio); Docker can't reach the Apple GPU |
@@ -22,10 +13,8 @@ Here is the whole install on a Mac, end to end (sound on):
 | No GPU | [Docker, `cpu` profile](#1-docker-recommended) (Ollama) |
 | Just an API key | [Docker, `cloud` profile](#1-docker-recommended) |
 
-However you install, verify the wiring afterwards: open **Setup → Models** and
-Ava should show your machine, detected automatically:
-
-![Ava's hardware detection: compute, usable memory, and a recommended model tier](../docs/assets/hardware-detected.png)
+However you install, verify the wiring afterwards: open **Setup → Hardware** and
+Ava should show your machine, detected automatically.
 
 Then continue to step two, [picking Ava's brain](../docs/CHOOSE_A_MODEL.md).
 
@@ -73,9 +62,11 @@ Good to know:
 - **Password**: pin the admin password ahead of time with `AVA_PASSWORD=...` in
   `deploy/.env`; otherwise the first-run screen sets it.
 - **Model**: choose one with `AVA_MODEL=...` (gpu profile) or via `ava.yaml`. The
-  gpu profile defaults to a small model (`Qwen/Qwen2.5-7B-Instruct`, ~16 GB card)
-  so it starts on an ordinary GPU; `install.sh` drops to the cpu profile if
-  `nvidia-smi` reports less. Scaling up is the deliberate act:
+  gpu profile defaults to a small model (`Qwen/Qwen2.5-7B-Instruct`, ~15 GB of
+  weights in BF16 — so ~20 GB of VRAM at the default 0.90 memory share, once the
+  KV cache is counted); `install.sh` only drops to the cpu profile below 16 GB,
+  so on a 16 GB card pick a quantised or smaller model. Scaling up is the
+  deliberate act:
 
   | Variable | Default | Notes |
   |---|---|---|
@@ -98,7 +89,9 @@ Good to know:
   **no default** for them and refuses to start without them: the bridge runs
   under every profile, so any one default is wrong for the others — the old
   global `http://vllm:8002/v1` pointed the `cpu` profile at a service it never
-  started. For `cloud`, the three values ship empty and you fill them in.
+  started. For `cloud`, `AVA_BACKEND_URL` and `AVA_MODEL` ship empty (`ENGINE` is
+  already `openai`), as does `AVA_INFERENCE_KEY` — which is *not* start-guarded,
+  so an empty key starts cleanly and fails on the first turn instead.
 - **Agent**: the container runs the tool-less assistant by default. For the
   **full tool-using agent** (self-coding, connectors, memory) in Docker, opt into
   the `agent` profile: `cp profiles/agent.env .env && docker compose up -d`
@@ -173,6 +166,15 @@ A healthy run looks like this — `doctor` shows the hardware it detected, and
 
 ![Terminal: ava setup and ava doctor passing with green checks, including hardware Apple M4 Max with 128 GB unified memory, then ava up printing http://localhost:8096](../docs/assets/install-1-terminal.png)
 
+The same install end to end, narrated (sound on):
+
+<video controls playsinline preload="metadata"
+       style="width:100%;border-radius:8px"
+       aria-label="Screen recording: installing Ava from a terminal, through setup, doctor, and up, then opening the web app">
+  <source src="../docs/assets/install-tour.mp4" type="video/mp4">
+  Your browser can't play video. <a href="../docs/assets/install-tour.mp4">Download the walkthrough</a>.
+</video>
+
 ### Inference on bare metal
 
 Chat flows **bridge → router → your engine**. The OpenAI-compatible router
@@ -199,7 +201,7 @@ regardless):
 
 | Engine | Tool calls | Launch requirement |
 |---|---|---|
-| vLLM | native | `--tool-call-parser <parser for your model>` (wrong parser = tools silently return as prose) |
+| vLLM | native | `--enable-auto-tool-choice --tool-call-parser <parser for your model>` (both are required; wrong parser = tools silently return as prose) |
 | Ollama | native | none (tool-capable models only) |
 | llama.cpp | opt-in | `llama-server --jinja` with a tool-call chat template; otherwise declare `tools: none` on the backend |
 | cloud (openai) | native | none |
@@ -211,9 +213,11 @@ header. Loopback (the default) needs no token for `/v1/*`.
 
 ### Apple Silicon (Mac mini / Studio)
 
-A Mac is **unified-memory** hardware: CPU and GPU share one RAM pool, there is no
-`nvidia-smi`, and **vLLM does not run** (it needs a CUDA/ROCm GPU). Run bare metal
-with a native engine so inference uses the Metal GPU. The hardware layer detects
+A Mac is **unified-memory** hardware: CPU and GPU share one RAM pool and there is
+no `nvidia-smi`. **Ava does not serve vLLM on a Mac** — upstream macOS support is
+experimental, build-from-source and CPU-only unless you add the community
+`vllm-metal` plugin. Run bare metal with a native engine (Ollama, llama.cpp, MLX,
+LM Studio) so inference uses the Metal GPU. The hardware layer detects
 Apple Silicon automatically and gates model routing on the shared RAM pool (a
 512 GB Studio runs a 70B comfortably; a 24 GB mini should stay ~8B).
 
@@ -232,7 +236,8 @@ ollama pull llama3.1:70b                      # sized to YOUR Mac's memory
 
 Notes:
 - **`ava models pull --auto` is Apple-aware** — on a Mac it fetches an Ollama
-  model sized to your memory, never the CUDA-only Nemotron default.
+  model sized to your memory, never the CUDA-only vLLM default
+  (`Qwen/Qwen2.5-7B-Instruct`), which cannot be served on Apple Silicon.
 - LM Studio and MLX also work — point the backend `base_url` at their
   OpenAI-compatible endpoint (see the Apple example in
   [`config.example.yaml`](../config.example.yaml)).
@@ -252,11 +257,15 @@ overrides. **No source edits, ever.** Highlights:
 | `server.port` | web app port (default 8096); env `AVA_PORT` |
 | `inference.backends` | your model engines (vLLM / Ollama / llama.cpp / cloud) |
 | `agent.sandbox` | the agent runtime sandbox name |
-| `features.*` | toggle voice / voiceprint / web search / image |
+| `features.*` | `image`, `web_search`, `voice` (Setup → System → Optional features), plus `learning` and `memory`, which have their own panels |
 | `connectors` | the apps Ava monitors and drives |
 
-Secrets (admin password, signing key, API keys) live in `$AVA_HOME/secrets/` or
-env vars. They are never stored in `ava.yaml` and never in the repo.
+Secrets live outside `ava.yaml` and outside the repo: the admin password in
+`$AVA_HOME/data/auth_password`, the session signing key in
+`$AVA_HOME/data/.secret`, the router token and cloud API key under
+`$AVA_HOME/secrets/` — or supply any of them by env (`AVA_PASSWORD`,
+`AVA_SECRET`, `AVA_ROUTER_TOKEN`, `AVA_INFERENCE_KEY`). Full inventory:
+[SECURITY.md §4](../SECURITY.md).
 
 ---
 
@@ -275,4 +284,6 @@ reference is the [Connector SDK](../docs/CONNECTOR_SDK.md).
 - `ava doctor` is the first stop; it shows what's missing.
 - Health check: `curl http://localhost:8096/api/health`.
 - Docker logs: `docker compose logs -f ava`.
-- No GPU? Use `--profile cpu` (Ollama) or `--profile cloud` (an API key).
+- No GPU? `cd deploy && cp profiles/cpu.env .env` (Ollama) or
+  `cp profiles/cloud.env .env` (an API key), then `docker compose up -d`. The
+  profile lives in `.env`, never as `--profile` on the command line.

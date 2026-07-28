@@ -115,9 +115,9 @@ prior file. `settings.get_float` was added because `config.py` called bare
 shipped template ships one — so `ava setup` marked the box configured before the
 owner had seen a single screen. It is now the completion flag alone, the wizard is
 re-entrant and pre-fills from current config, and `ava setup` writes a minimal
-`ava.yaml` instead of copying the 376-line annotated template (which `safe_dump`
-stripped of every comment on first save). `POST /api/setup/save` validates before
-marking complete, rather than after.
+`ava.yaml` instead of copying the annotated `config.example.yaml` template
+(which `safe_dump` stripped of every comment on first save).
+`POST /api/setup/save` validates before marking complete, rather than after.
 
 ### Fixed — Allocation across reboots, crashes, and concurrent callers
 
@@ -150,10 +150,12 @@ what makes manifests non-portable.
 Every panel destructured `{ data }` off `useResource` and dropped `error`, so any
 backend failure rendered Setup as tabs of permanent "Detecting hardware…" — each
 one looking like it was still loading, forever, with the real message sitting
-unread in a variable nobody named. All 21 sites now go through
-`<ResourceState>` / `<ResourceError>`, which take the whole hook result so a panel
-*cannot* omit the error field, with a Try again button. `tests/test_hub_uniformity.py`
-fails a regression.
+unread in a variable nobody named. Every call site now either binds `error` and
+renders it, or hands the whole hook result to `<ResourceState>` /
+`<ResourceError>`, which cannot drop the error because there is no field to
+omit — both with a Try again button. `tests/test_hub_uniformity.py` fails a
+regression; its one allow-listed exception is HubView's restart-banner fetch,
+whose failure is deliberately silent.
 
 ### Fixed — Keyboard access, and a chat wedge
 
@@ -351,28 +353,12 @@ that does not exist, and nothing imported by name that is not declared.
   guarded: `tests/test_alloc_isolation.py` fails any allocation test that exercises a
   state-writing module without redirecting the path it writes to. Verified against a
   deliberate violation.
-- `deploy/omni-serve.sh` gains `OMNI_RESTART`. Docker's restart policy and the allocator
+- `deploy/local-serve.sh` gains `AVA_SERVE_RESTART` (legacy alias `OMNI_RESTART`, still
+  honoured through the `omni-serve.sh` shim). Docker's restart policy and the allocator
   are both supervisors, and only one can decide when there is room — an uncapped
   `unless-stopped` retries a start the allocator has declined, which is the mechanism
   behind the 7,997 restarts. The default is unchanged (right for a box with no
   allocator); `ava doctor` flags the combination when the container is declared.
-
-### Fixed — A client timeout turned one coordinator into two
-- The vendored lease client's HTTP timeout defaulted to 20s, but a server-side acquire
-  can take minutes (stop a container, then wait for the kernel to actually release the
-  memory). The client gave up first, reported the broker **unreachable**, and the
-  fallback then ran its own container stop — two components acting on the same container
-  while the first was still mid-stop, which is exactly what delegating to one broker was
-  meant to end. Observed live.
-- **A timeout is now distinguished from unreachable**, and only unreachable justifies a
-  local fallback: nothing is acting then, so falling back is safe. A timeout means the
-  broker probably *is* acting, so the caller proceeds without coordinating rather than
-  racing it. Default timeout raised to 420s, set explicitly in the service drop-ins with
-  the reason.
-- Root cause was a deviation from the design: `POST /lease` was specified to return
-  immediately with actuation on a worker thread, and was implemented blocking instead.
-  The timeout split makes the blocking version safe; see the next entry for the fix that
-  removes the need for a large timeout at all.
 
 ### Changed — `POST /lease` can answer before the room exists
 - **`"wait": false`** returns the verdict immediately with `state: "pending"`, runs the
@@ -380,12 +366,9 @@ that does not exist, and nothing imported by name that is not declared.
   `ready`. Terminal states are `active`, `failed` (a release errored — the caller is
   uncoordinated, not blocked) and `gone` (the lease no longer exists, so nothing is
   acting on the caller's behalf and coordinating locally is safe again).
-- This is what the timeout split above was working around. A blocking acquire makes the
-  client's socket timeout into a policy decision, taken by a number that knows nothing
-  about what it is waiting for; now every request is a plan, a lock and a small write, so
-  a timeout means the request did not land. The waiting moved to the client, where it is
-  explicitly `STUDIO_LEASE_WAIT=600` rather than implicitly a socket setting, and the
-  per-request timeout dropped 420s → 30s.
+- A blocking acquire makes the client's socket timeout into a policy decision, taken by
+  a number that knows nothing about what it is waiting for; now every request is a plan,
+  a lock and a small write, so a timeout means the request did not land.
 - **The default is still `wait: true`**, so a client written against the older contract
   is never told it may start before the memory is free.
 - The verdict does not change while pending: `admit` comes from the plan, not from
@@ -395,35 +378,9 @@ that does not exist, and nothing imported by name that is not declared.
   driver call. A requester that cannot get it waits for *the memory* instead of repeating
   the action — a duplicate `docker stop` landing after the peer has moved on to a restore
   is how a model comes back up mid-render.
-- The client renews from acquisition rather than from grant (making room can outlast the
-  TTL, and a lease reaped mid-release strands the render it was making room for), and a
-  transient heartbeat failure is retried rather than fatal.
 - `ledger.update_lease()` merges instead of overwriting — the actuation thread and the
   heartbeat are now two writers on one record — and `write_lease` no longer restamps
   `started`, which had made a frequently-renewed lease permanently un-`overdue`.
-
-### Fixed — Coordination configured only in systemd opted out everything else
-- `STUDIO_LEASE=broker` lived only in the service drop-ins, so a studio process started
-  any other way — an ad-hoc script, a CLI run, another agent's batch job — inherited
-  nothing, `_use_broker()` said no, and it went straight to `docker stop vllm-open`. The
-  allocator recorded nothing, because it was never asked. **This is the original disease
-  in a new place**: policy expressed at the edges, so a new entry point opts out by
-  simply existing.
-- Caught live. A hand-launched five-seed batch stopped and started the LLM once per
-  seed, ~18 minutes apart, for over an hour. Neither the ledger, the decision log, nor
-  the studio journal had any trace, because none of them were involved.
-- The defaults now live in the studio's `config.py`, which every entry point imports
-  however it was launched — the same reasoning already written above `VIDEO_TIMESHARE`,
-  which names "ad-hoc script" as a caller it must cover. **The default is to
-  coordinate**; opting out is explicit. On a box with no Ava the connection is refused
-  and the local path runs exactly as before.
-- The vendored client no longer caches its mode at import — an import-order dependency
-  is not a configuration system — and an HTTP 401/403 is now `NotAuthorised` rather than
-  "unreachable", logged loudly. A bad token otherwise looks exactly like a healthy box:
-  every render silently coordinating itself, forever.
-- Two definitions of the lease model had drifted (`image-engine` in `timeshare.py`,
-  `image-render` in the drop-in that overrode it). The undeclared one would have asked
-  for a model the allocator does not govern. One definition now.
 
 ### Fixed — Static guards were scanning zero files
 - Every convention guard resolves its inputs with `git ls-files`, and the whole
@@ -477,13 +434,10 @@ that does not exist, and nothing imported by name that is not declared.
   utilisation, CUDA graph capture, and an uncapped `restart: unless-stopped` — the exact
   combination that cost 7,997 restarts on the development box, and with the `full`
   profile it left nothing for the image engine started alongside it. Now
-  `--gpu-memory-utilization 0.40`, `--enforce-eager`, `--max-model-len`, all
-  env-overridable, and `restart: on-failure` so a doomed start cannot loop.
+  `--gpu-memory-utilization` (default `0.90`; `profiles/full.env` lowers it to `0.55`,
+  where the GPU service shares the pool), `--enforce-eager` and `--max-model-len`, all
+  env-overridable, and a capped `restart: on-failure:3` so a doomed start cannot loop.
 - Router unit description no longer names two retired models.
-- `note-keeper`: the drop-in setting a variable no code reads is gone, and the
-  standalone time-share script — which targeted a container deleted four days earlier
-  and waited on a threshold from a retired model — now refuses to run and points at
-  `ava alloc status` instead of silently doing the wrong thing.
 
 ### Added — Data page (the owner's data console)
 - **Data view** (`ava_bridge/data_api.py`, `frontend/src/components/data/`): a
@@ -560,7 +514,7 @@ that does not exist, and nothing imported by name that is not declared.
   (`hub/ui/{Tile,Legend,Badge,StatRow,HubMessage}`), collapsed seven per-panel
   icon-tile classes and the scattered tone rules into one `.tile` + `--tone`
   system, and split the `HubView.tsx` monolith into `hub/panels/*.tsx` (one file
-  per tab) behind a thin router (2883 → 175 lines). Behaviour-preserving;
+  per tab) behind a thin router (2883 → under 200 lines). Behaviour-preserving;
   enforced going forward by `tests/test_hub_uniformity.py`.
 
 ### Fixed
@@ -606,8 +560,9 @@ that does not exist, and nothing imported by name that is not declared.
   (turns, self-edits, tool calls) at `$AVA_HOME/logs/audit.jsonl`, surfaced on the
   History tab; survives restarts.
 - **Cost & energy budgets** — `cost.budgets` (daily/monthly $ + daily kWh) with
-  80%/100% alerts and an idle-burn watch; editable in the Hub; honest "estimated"
-  labeling when GPU power isn't measured.
+  a 100% alert on each cap (plus an 80% early warning on daily cloud spend) and
+  an idle-burn watch; editable in the Hub; honest "estimated" labeling when GPU
+  power isn't measured.
 - **Durable chain-of-thought** — reasoning steps persist with the chat message and
   replay on reload.
 - **REST connector auth** — `auth: {token_env}` injects the app's bearer token
@@ -741,8 +696,9 @@ minutes." Four coherent work streams:
 
 ### Added
 - **SSOT pipeline:** `agent/docs/architecture.yaml` as the single source of truth;
-  `agent/docs/arch.py` generates the system & network diagrams and the README §7
-  services table, and drift-checks the manifest against the running system.
+  `agent/docs/arch.py` generates the system & network diagrams and a
+  services-and-ports table, and drift-checks the manifest against the running
+  system.
 - Five `architecture` MCP tools (`get_architecture`, `describe_component`,
   `check_drift`, `sync_diagrams`, `update_architecture`) so Ava can read and update
   her own architecture, gated by the `ava-knowledge` policy.

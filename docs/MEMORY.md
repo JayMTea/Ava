@@ -31,7 +31,7 @@ stale; prefer the user's current message on conflict.]
 ```
 
 Every recall that reaches a turn is written to the audit ledger
-(`memory_recall` events — Hub → History → Memory), so you can always answer
+(`memory_recall` events — Setup → History → Memory), so you can always answer
 "why did she say that?" Manual edits (`memory_edit`) and distillation runs
 (`memory_distill`) are logged the same way.
 
@@ -68,9 +68,10 @@ memory:
   recall_max_chars: 2000  # recall block budget per turn
 ```
 
-`features.memory: false` stops all writes and recalls; the existing store
-stays on disk and browsable until you delete
-`$AVA_HOME/data/memory.db`.
+`features.memory: false` stops recall, document indexing and distillation —
+nothing is folded into a turn and nothing new is remembered automatically.
+Facts you add by hand in **Teach Ava** are still written. The existing store
+stays on disk and browsable until you delete `$AVA_HOME/data/memory.db`.
 
 ## Limitations (honest edition)
 
@@ -80,6 +81,6 @@ stays on disk and browsable until you delete
   a good trade against shipping an embedding model; a semantic upgrade can
   slot in behind the same store later.
 - Distillation quality depends on the local model; facts it gets wrong are
-  yours to correct in the Hub — that's the point of governed memory.
+  yours to correct in **Setup → Memory** — that's the point of governed memory.
 - Recall adds a small amount of text to each turn (bounded by
   `recall_max_chars`), which counts toward context like anything else.
