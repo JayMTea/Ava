@@ -8,7 +8,7 @@ That is the whole design: the dashboard is not a decoration painted over a
 guess, it is a rendering of an append-only log. Every number below traces to
 a line you can open in a text editor.
 
-![The Vitals dashboard: a six-tile KPI strip, a today's-budget meter, an inference-throughput chart with Day/Week/Month range chips beside a model-routing donut, generation-performance and energy-by-app bar lists, and the hardware panel](../assets/vitals-dashboard.png)
+![The Vitals dashboard: a six-tile KPI strip, a today's-budget meter, an inference-throughput chart with Day/Week/Month range chips beside a model-routing donut, generation-performance and energy-by-app bar lists, and the connected-apps panel](../assets/vitals-dashboard.png)
 
 ## The KPI strip
 

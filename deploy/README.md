@@ -166,6 +166,15 @@ A healthy run looks like this — `doctor` shows the hardware it detected, and
 
 ![Terminal: ava setup and ava doctor passing with green checks, including hardware Apple M4 Max with 128 GB unified memory, then ava up printing http://localhost:8096](../docs/assets/install-1-terminal.png)
 
+The same install end to end, narrated (sound on):
+
+<video controls playsinline preload="metadata"
+       style="width:100%;border-radius:8px"
+       aria-label="Screen recording: installing Ava from a terminal, through setup, doctor, and up, then opening the web app">
+  <source src="../docs/assets/install-tour.mp4" type="video/mp4">
+  Your browser can't play video. <a href="../docs/assets/install-tour.mp4">Download the walkthrough</a>.
+</video>
+
 ### Inference on bare metal
 
 Chat flows **bridge → router → your engine**. The OpenAI-compatible router

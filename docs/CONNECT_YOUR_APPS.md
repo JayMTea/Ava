@@ -32,9 +32,9 @@ In Ava, open **Setup** (the sliders icon in the bottom-left flyout) and pick the
 **Connectors** tab. You'll see every app already wired in, each with its health,
 tool, and policy status.
 
-![The Connectors tab: every connected app with enabled, tools ok, and policy ok badges, plus a Connect an app button](assets/connect-app-1-connectors.png)
+![The Connectors tab, split into Apps and Tools: each row shows its transport, action count, and deployed state, with Permissions and Preview buttons, above a Connect an app or device button](assets/connect-app-1-connectors.png)
 
-### Step 2: Click "Connect an app", name it, paste its address
+### Step 2: Click "Connect an app or device", name it, paste its address
 
 Give the app a name, then paste **where it is**: its web address (like
 `http://127.0.0.1:9000`), or a start command for an MCP server (like

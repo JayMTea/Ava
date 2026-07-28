@@ -7,6 +7,18 @@ happens in the app.
 
 ---
 
+The whole flow takes about a minute; here it is end to end, narrated (sound on):
+
+<video controls playsinline preload="metadata"
+       style="width:100%;border-radius:8px"
+       aria-label="Screen recording: picking Ava's brain, from detected hardware through linking and testing a model">
+  <source src="../assets/choose-model-tour.mp4" type="video/mp4">
+  Your browser can't play video. <a href="../assets/choose-model-tour.mp4">Download the walkthrough</a>.
+</video>
+
+*(The recording uses sample data on a Mac host; your instance will show your own
+hardware and models.)*
+
 ## Ava already knows what fits
 
 Open **Setup → Hardware**. The **Your hardware** panel shows your chip, usable
@@ -14,6 +26,8 @@ memory, and a recommended model tier — detected live each time you open it,
 nothing to configure during [install](../deploy/README.md) — so you never guess
 what your machine can run: a big Studio handles a 70B model, a base Mac mini
 stays around 8B, and an NVIDIA box is sized by its total VRAM.
+
+![The Hardware tab: a Workstation Tier hero card reading "Unified memory comfortably fits large local models", with Compute and Usable memory below it, and a note that the tier sets which models Ava recommends](assets/choose-model-1-hardware.png)
 
 ## Link a model
 
@@ -30,6 +44,8 @@ it to serve (for example `llama3.1:70b`).
 
 Ava sends a real turn and shows the reply and latency before you commit.
 
+![The Add a model form on the Agent tab, with the engine picked, the model named, and the live result of Test connection shown beneath it](assets/choose-model-2-test.png)
+
 ### Step 3: Click "Save model"
 
 It is marked with the **brain** badge, and you can link several and switch which
@@ -45,10 +61,14 @@ Docker, or `./bin/ava up` to restart the service you started it with).
 
 Cloud keys go to the secrets store, never into config files.
 
+![The saved model listed under Ava's brain, carrying the brain badge alongside its engine and endpoint](assets/choose-model-3-brain.png)
+
 ## Or let the model store fetch one
 
 The **Model store** below downloads models sized to your detected tier, so a
 24 GB machine is never handed a 70B model.
+
+![The Model store panel: brain, embed, and speech entries each marked downloaded, with a Pull recommended button and the detected tier and memory in the subtitle](assets/choose-model-4-store.png)
 
 The same thing from a terminal:
 
