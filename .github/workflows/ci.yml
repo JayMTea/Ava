@@ -119,7 +119,11 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - run: pip install pyyaml
+      # pytest too, not just pyyaml: the last step of this job runs
+      # `python -m pytest`, and with only pyyaml installed it died with
+      # "No module named pytest" — the job was red for a reason that had
+      # nothing to do with what it tests.
+      - run: pip install pyyaml pytest
 
       - name: Every shipped profile must interpolate and validate
         working-directory: deploy
