@@ -17,7 +17,7 @@ fresh clone ends up like this:
 ```
 ava/                    <- the checkout, and AVA_HOME
 ├── ava.yaml            <- your settings
-├── data/               <- memory.db, chats.json, session key, tokens, password
+├── data/               <- memory.db, chats.db, session key, tokens, password
 ├── logs/               <- audit ledger, performance, hardware history, devices
 ├── media/              <- gen/ (generated images), uploads/ (files you shared)
 └── secrets/            <- backend API keys, router token
@@ -50,7 +50,7 @@ X on disk · metrics kept 183 days*.
 | Store | Format | What it holds |
 |---|---|---|
 | **Memory** | `data/memory.db`, SQLite | Distilled facts + indexed document chunks; row shows facts / doc chunks / pinned counts |
-| **Chats** | `data/chats.json` | Every conversation; row shows chat count and total messages |
+| **Chats** | `data/chats.db`, SQLite | Every conversation; row shows chat count and total messages |
 | **Audit ledger** | `logs/audit.jsonl` | The flight recorder — turns, recalls, memory edits, grants, self-edits |
 | **Performance** | `logs/performance.jsonl` + rotated segments + `logs/rollups/` | Per-generation throughput, latency and energy, plus the hourly/daily rollups behind Vitals |
 | **Allocation decisions** | `logs/alloc.jsonl` | What was asked for, what the pool held, what was released (row appears once the file exists) |

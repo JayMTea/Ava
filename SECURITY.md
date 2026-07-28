@@ -172,7 +172,7 @@ because they walk the tree themselves.
   the assistant until enrollment; the Setup hub warns about this state). Do not
   gate sensitive *actions* on the voice gate alone; the web session cookie
   remains the authentication boundary.
-- **Chat history** (`data/chats.json`) and **uploads** (`media/uploads/`) stay on
+- **Chat history** (`data/chats.db`) and **uploads** (`media/uploads/`) stay on
   the host. The knowledge tools can read uploads only through enumerated,
   scoped, token-gated `/internal/...` routes.
 - Inference defaults to a **local** engine (vLLM/Ollama/llama.cpp on-host);

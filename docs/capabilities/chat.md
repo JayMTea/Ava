@@ -84,8 +84,8 @@ trade-off of running without a runtime, not a bug.
 ## Ghost mode
 
 Ghost mode is a conversation that leaves no trace. The chat id is unregistered,
-so nothing is ever written to `chats.json` — host-side persistence is already a
-no-op rather than a delete-afterwards. When you leave ghost mode (toggle off,
+so nothing is ever written to `data/chats.db` — host-side persistence is already
+a no-op rather than a delete-afterwards. When you leave ghost mode (toggle off,
 start a new chat, open an old one, or close the tab), the UI calls
 `POST /api/ghost/discard`, which **deletes the agent's session transcript** so
 the runtime-side memory of the conversation goes too.
