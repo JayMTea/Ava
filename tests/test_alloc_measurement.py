@@ -41,12 +41,29 @@ ALLOWED = {"ava_bridge/hwinfo.py"}
 #   MemFree            — excludes reclaimable cache; use MemAvailable
 #   memory.free (smi)  — unavailable on unified memory
 #   vram_free / torch_vram_*  — an engine's self-report, not the pool
+#
+# The vendor sysfs/CLI readers below are banned outside the HAL for a sharper
+# reason than tidiness: `mem_info_vram_total` is the BIOS carve-out on an APU
+# (512 MiB on `auto`, against a 128 GiB real pool), so a caller reading it
+# directly gets a number that is not merely stale but off by two orders of
+# magnitude in the *refusing* direction. Only hwinfo pairs it with
+# `mem_info_gtt_total` and `_memory_model()` to tell unified from discrete.
+# `powercap`/`energy_uj` is here because the directory exists and is EMPTY on
+# ARM, so a naive presence check reports a power sensor that cannot be read.
 _FORBIDDEN = re.compile(
     r"""(?x)
     \bMemFree\b
   | --query-gpu=[^\s'"]*memory\.free
   | \bvram_free\b
   | \btorch_vram_(?:total|free)\b
+  | \bmem_info_(?:vram|gtt)_total\b
+  | \brocm-smi\b
+  | \bxpu-smi\b
+  | \bgpu_busy_percent\b
+  | \bpower1_average\b
+  | \bpowermetrics\b
+  | \benergy_uj\b
+  | /sys/class/drm\b
     """)
 
 _FIX = (

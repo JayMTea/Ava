@@ -159,14 +159,32 @@ def detected_tier() -> tuple[str, float | None]:
 def engine_servable_here(engine: str | None) -> bool:
     """Can THIS box actually run a local engine of this type?
 
-    vLLM needs a CUDA/ROCm GPU, so it can't serve on Apple Silicon or a CPU-only
+    vLLM needs a CUDA GPU here, so it can't serve on Apple Silicon or a CPU-only
     box — pulling tens of GB of weights there is a trap. Every other local engine
     (Ollama, llama.cpp, MLX, LM Studio) and all cloud engines run anywhere. When
     the platform is unknown we don't block (return True) — degrade, never brick.
+
+    **ROCm is opt-in, not implied.** This docstring used to say "CUDA/ROCm" while
+    the code allowed only the two NVIDIA classes — so the doc promised a
+    capability the code refused. Rather than make the doc true by green-lighting
+    AMD, the gate stays NVIDIA-only by default: vLLM-on-ROCm is real but
+    build- and gfx-target-specific, and silently steering an AMD owner into a
+    tens-of-GB pull that their build cannot serve is the exact trap this function
+    exists to prevent. An owner who knows their stack works sets
+    `inference.allow_vllm_rocm` and gets it.
     """
     eng = (engine or "").strip().lower()
     if eng == "vllm":
-        return platform_label() in ("linux-nvidia", "windows-nvidia")
+        plat = platform_label()
+        if plat in ("linux-nvidia", "windows-nvidia"):
+            return True
+        if plat == "linux-amd":
+            try:
+                from . import settings
+                return bool(settings.get_bool("inference.allow_vllm_rocm", False))
+            except Exception:  # noqa: BLE001 — no settings (script use): stay safe
+                return False
+        return False
     return True
 
 
