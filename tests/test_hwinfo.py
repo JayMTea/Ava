@@ -85,11 +85,33 @@ class PlatformDetectionTests(unittest.TestCase):
             self.assertEqual(hwinfo.platform_id(), "darwin-apple")
 
     def test_cpu_only_linux_detected(self):
+        # A CPU-only box has no NVIDIA driver AND no DRM card. The first two
+        # patches cover the driver; `_drm_cards` reads sysfs, so without the
+        # third this asserted "CPU-only" while detecting the real GPU of
+        # whatever machine ran the suite.
         with mock.patch.object(hwinfo, "sys") as s, \
              mock.patch.object(hwinfo, "_nvml", return_value=None), \
-             mock.patch.object(hwinfo, "_which", return_value=None):
+             mock.patch.object(hwinfo, "_which", return_value=None), \
+             mock.patch.object(hwinfo, "_drm_cards", return_value=[]):
             s.platform = "linux"
             self.assertEqual(hwinfo.platform_id(), "linux-cpu")
+
+    def test_a_readable_non_nvidia_card_is_not_cpu_only(self):
+        """The B1 regression: an AMD/Intel card used to classify as linux-cpu,
+        which made fit_memory() hand back system RAM as the fit-limiting pool."""
+        cases = [("0x1002", "linux-amd"), ("0x8086", "linux-intel"),
+                 (None, "linux-gpu")]
+        for vendor, want in cases:
+            with self.subTest(vendor=vendor), \
+                 mock.patch.object(hwinfo, "sys") as s, \
+                 mock.patch.object(hwinfo, "_nvml", return_value=None), \
+                 mock.patch.object(hwinfo, "_which", return_value=None), \
+                 mock.patch.object(hwinfo, "_drm_cards",
+                                   return_value=[("/x/card0", vendor)]):
+                s.platform = "linux"
+                hwinfo.reset_cache()
+                self.assertEqual(hwinfo.platform_id(), want)
+        hwinfo.reset_cache()
 
 
 class AppleGpuTests(unittest.TestCase):

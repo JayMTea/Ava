@@ -94,14 +94,91 @@ class GpuInfo:
     source: str | None = None            # 'nvml' | 'nvidia-smi' | 'apple' | None
 
 
+# --- DRM card enumeration (Linux) -------------------------------------------- #
+# PCI vendor ids, as `/sys/class/drm/cardN/device/vendor` reports them.
+_VENDOR_AMD = "0x1002"
+_VENDOR_INTEL = "0x8086"
+_VENDOR_NVIDIA = "0x10de"
+_DRM_ROOT_DEFAULT = "/sys/class/drm"
+# Overridable so a platform can be *simulated*. `_nvml()` and `_which()` are
+# already mockable, so simulating a CPU-only box was one `mock.patch` — until
+# this scan was added and reached through to the real sysfs, at which point
+# tests/test_hwinfo.py's CPU-only case started detecting the maintainer's actual
+# GPU. It is also how an AMD provider gets tested with no AMD hardware: point
+# this at a fixture tree of recorded sysfs bytes.
+_DRM_ROOT_ENV = "AVA_DRM_ROOT"
+
+
+def _drm_root() -> str:
+    return os.environ.get(_DRM_ROOT_ENV) or _DRM_ROOT_DEFAULT
+
+
+def _drm_cards() -> list[tuple[str, str | None]]:
+    """`[(sysfs path, PCI vendor id or None)]` for every real DRM card.
+
+    Only `cardN` is a device. Siblings like `card0-Unknown-1` are *connectors*
+    (this box has one) and `renderD128` is a render node, so a bare `card*` glob
+    over-counts — hence the digits-only check rather than a prefix match.
+
+    A card whose `device/vendor` is unreadable yields `None` rather than being
+    dropped: it is still a GPU the box has, and the name-only floor in `gpus()`
+    should report it instead of pretending the machine has no accelerator. That
+    is the real state of `card0` on the maintainer's own hardware.
+    """
+    root = _drm_root()
+    out: list[tuple[str, str | None]] = []
+    try:
+        names = sorted(os.listdir(root))
+    except OSError:          # not Linux, or no DRM subsystem
+        return out
+    for n in names:
+        if not (n.startswith("card") and n[4:].isdigit()):
+            continue
+        path = os.path.join(root, n)
+        out.append((path, _read_sysfs(os.path.join(path, "device", "vendor"))))
+    return out
+
+
+def _read_sysfs(path: str) -> str | None:
+    """One small sysfs read. Unreadable -> None, never an exception, never 0."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            v = f.read().strip()
+        return v or None
+    except OSError:
+        return None
+
+
+def _read_sysfs_int(path: str) -> int | None:
+    v = _read_sysfs(path)
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _drm_vendors() -> set[str]:
+    return {v for _, v in _drm_cards() if v}
+
+
 # --- platform detection (cached) --------------------------------------------- #
 _platform_id: str | None = None
 
 
 def platform_id() -> str:
-    """Coarse platform class, resolved once: 'linux-nvidia' | 'linux-cpu' |
-    'darwin-apple' | 'darwin-intel' | 'windows-nvidia' | 'windows' | 'generic'.
-    Used to pick a GPU provider; memory probing is universal so it doesn't need this.
+    """Coarse platform class, resolved once: 'linux-nvidia' | 'linux-amd' |
+    'linux-intel' | 'linux-gpu' | 'linux-cpu' | 'darwin-apple' | 'darwin-intel' |
+    'windows-nvidia' | 'windows' | 'generic'.
+
+    Used to pick a GPU provider; memory probing is universal so it doesn't need
+    this.
+
+    NVIDIA is still detected by driver presence rather than by PCI id, because
+    that is what actually predicts whether NVML answers. The DRM vendor scan only
+    decides the *non*-NVIDIA classes — which is the gap this used to have: an AMD
+    or Intel discrete card fell into `linux-cpu`, and `fit_memory()` then handed
+    back system RAM as though it were the fit-limiting pool. On a 128 GB box with
+    a 24 GB card that green-lit models three times too large.
     """
     global _platform_id
     if _platform_id is not None:
@@ -113,12 +190,39 @@ def platform_id() -> str:
         _platform_id = "darwin-apple" if _platform.machine() in (
             "arm64", "aarch64") else "darwin-intel"
     elif sysname.startswith("linux"):
-        _platform_id = "linux-nvidia" if has_nvidia else "linux-cpu"
+        if has_nvidia:
+            _platform_id = "linux-nvidia"
+        else:
+            vendors = _drm_vendors()
+            if _VENDOR_AMD in vendors:
+                _platform_id = "linux-amd"
+            elif _VENDOR_INTEL in vendors:
+                _platform_id = "linux-intel"
+            elif _drm_cards():
+                # A card exists but we cannot name its vendor. Not CPU-only, and
+                # saying so is better than a confident wrong class.
+                _platform_id = "linux-gpu"
+            else:
+                _platform_id = "linux-cpu"
     elif sysname.startswith("win"):
         _platform_id = "windows-nvidia" if has_nvidia else "windows"
     else:
         _platform_id = "generic"
     return _platform_id
+
+
+def reset_cache() -> None:
+    """Drop the platform and fit-memory caches. For tests and simulators.
+
+    `tools/mac_sim_audit.py` and `tests/test_hwinfo.py` currently reach in and
+    assign `hwinfo._platform_id = None` directly. That worked while the platform
+    was one variable; it is a private-attribute poke that will rot now that an
+    env override feeds the same decision, so give them a supported door. Mirrors
+    `alloc/gpumem.reset_cache()`.
+    """
+    global _platform_id
+    _platform_id = None
+    _fit_cache.update(ts=0.0, info=None)
 
 
 def _which(name: str) -> str | None:
@@ -189,7 +293,102 @@ def vram_mem() -> MemInfo:
                                source="vram-nvml")
         except Exception:  # noqa: BLE001 — fall through to nvidia-smi
             pass
+    amd = _vram_amdgpu()
+    if amd.readable:
+        return amd
     return _vram_smi()
+
+
+def _vram_amdgpu() -> MemInfo:
+    """AMD VRAM from sysfs, summed across cards.
+
+    Sysfs rather than `rocm-smi --json`, deliberately: this is an open() of a few
+    bytes, so it costs microseconds, needs no root, and works inside a container
+    that has no ROCm userspace installed — which is the ordinary case for a box
+    running Ollama-ROCm from an image. `rocm-smi` is a Python script that can take
+    over a second to answer and is frequently absent; it is worth shelling out to
+    for a marketing *name* (see `_amd_gpus`), not for a number on the fit path.
+
+    ⚠️ On an APU (Strix Halo, Phoenix) `mem_info_vram_total` is the BIOS UMA
+    carve-out — often 512 MiB on `auto` — NOT the real pool. Returning it as
+    "the fit-limiting resource" would refuse a 7B on a 128 GB machine, which is
+    the exact mirror image of the bug this function was added to fix. That is why
+    `fit_memory()` consults `_memory_model()` and not just these numbers.
+    """
+    free = total = 0.0
+    saw = False
+    for path, vendor in _drm_cards():
+        if vendor != _VENDOR_AMD:
+            continue
+        dev = os.path.join(path, "device")
+        t = _read_sysfs_int(os.path.join(dev, "mem_info_vram_total"))
+        u = _read_sysfs_int(os.path.join(dev, "mem_info_vram_used"))
+        if t is None:
+            continue
+        g = 1024 ** 3
+        total += t / g
+        free += (t - u) / g if u is not None else t / g
+        saw = True
+    return MemInfo(free, total, "vram-amdgpu-sysfs") if saw else MemInfo()
+
+
+# --- unified vs discrete memory ---------------------------------------------- #
+_MEMORY_MODEL_ENV = "AVA_GPU_MEMORY_MODEL"
+# APU / integrated marketing names, lowercased substrings. A last resort behind
+# the env override and the GTT ratio, both of which are properties rather than
+# guesses about a product line.
+_UNIFIED_NAME_HINTS = ("strix", "phoenix", "radeon 8060s", "radeon 890m",
+                       "gfx115", "gfx1103", "ryzen ai max")
+
+
+def _memory_model() -> tuple[str, str]:
+    """`(model, why)` where model is 'unified' | 'discrete' | 'unknown'.
+
+    Three signals, most trustworthy first — layered because the primary one is
+    unverifiable on hardware the maintainer does not own:
+
+    1. `AVA_GPU_MEMORY_MODEL=unified|discrete` — an operator override, so a
+       misclassified box is a one-variable fix rather than a patch release.
+    2. VRAM small relative to GTT. On an APU the shareable system aperture (GTT)
+       dominates and VRAM is a carve-out; on a discrete card the reverse holds.
+       This is a measured property of the device, not a name guess.
+    3. A marketing-name allowlist, for APUs whose sysfs does not expose GTT.
+    """
+    env = (os.environ.get(_MEMORY_MODEL_ENV) or "").strip().lower()
+    if env in ("unified", "discrete"):
+        return env, f"{_MEMORY_MODEL_ENV}={env}"
+
+    for path, vendor in _drm_cards():
+        if vendor != _VENDOR_AMD:
+            continue
+        dev = os.path.join(path, "device")
+        vram = _read_sysfs_int(os.path.join(dev, "mem_info_vram_total"))
+        gtt = _read_sysfs_int(os.path.join(dev, "mem_info_gtt_total"))
+        if vram and gtt and vram < 0.5 * gtt:
+            return "unified", (f"vram {vram >> 20} MiB < half of gtt "
+                               f"{gtt >> 20} MiB — integrated carve-out")
+        if vram and gtt:
+            return "discrete", (f"vram {vram >> 20} MiB dominates gtt "
+                                f"{gtt >> 20} MiB")
+
+    for g in _drm_names():
+        low = g.lower()
+        if any(h in low for h in _UNIFIED_NAME_HINTS):
+            return "unified", f"name hint in {g!r}"
+    return "unknown", "no APU signal"
+
+
+def _drm_names() -> list[str]:
+    """Best-effort card names from sysfs, for the name-hint fallback only."""
+    out = []
+    for path, _ in _drm_cards():
+        dev = os.path.join(path, "device")
+        for f in ("product_name", "marketing_name"):
+            n = _read_sysfs(os.path.join(dev, f))
+            if n:
+                out.append(n)
+                break
+    return out
 
 
 def _vram_smi() -> MemInfo:
@@ -245,9 +444,21 @@ def fit_memory() -> MemInfo:
     vram = vram_mem()
     info = sysm
     if vram.readable:
-        # Distinguish dedicated VRAM from unified-memory-reported-as-VRAM.
-        unified = (sysm.total_gb and vram.total_gb
-                   and vram.total_gb >= 0.85 * sysm.total_gb)
+        # Two ways a box can be unified, and they need different signals.
+        #
+        # NVIDIA Grace-class reports its unified pool AS VRAM, so VRAM ≈ system
+        # RAM and the ratio test catches it. That path is unchanged and is what
+        # keeps the maintainer's GB10 correct.
+        #
+        # An AMD APU does the opposite: it reports a *tiny* BIOS carve-out as
+        # VRAM (512 MiB on `auto`) while the real pool is system RAM. The ratio
+        # test cannot see that — 0.5 GB is nowhere near 0.85 × 128 GB — so it
+        # would fall through to `vram` and gate every model against 512 MiB.
+        # `_memory_model()` asks the device instead of inferring from size.
+        model, _why = _memory_model()
+        unified = model == "unified" or (
+            model != "discrete" and sysm.total_gb and vram.total_gb
+            and vram.total_gb >= 0.85 * sysm.total_gb)
         info = sysm if (unified and sysm.readable) else vram
     _fit_cache.update(ts=now, info=info)
     return info
@@ -255,7 +466,14 @@ def fit_memory() -> MemInfo:
 
 # --- GPU telemetry providers ------------------------------------------------- #
 def gpus() -> list[GpuInfo]:
-    """Live telemetry for each accelerator. Empty list if none is readable."""
+    """Live telemetry for each accelerator. Empty list if none is readable.
+
+    Ordered by how much each provider can actually tell us, then a name-only
+    floor: a box with a readable GPU should never report `[]` just because we
+    lack a rich provider for it. `[]` used to mean both "no accelerator" and
+    "an accelerator we don't have code for", which blanked the dashboard bubble
+    and all four Vitals gauges on hardware that was working fine.
+    """
     pid = platform_id()
     if pid in ("linux-nvidia", "windows-nvidia"):
         got = _nvidia_gpus()
@@ -263,8 +481,125 @@ def gpus() -> list[GpuInfo]:
             return got
     if pid == "darwin-apple":
         return _apple_gpus()
-    # linux-cpu / windows / darwin-intel / generic: no readable accelerator.
-    return []
+    if pid in ("linux-amd", "linux-intel", "linux-gpu"):
+        got = _amd_gpus() + _intel_gpus()
+        if got:
+            return got
+    return _drm_floor_gpus()
+
+
+def _amd_gpus() -> list[GpuInfo]:
+    """AMD telemetry from sysfs — unprivileged, no ROCm userspace required.
+
+    `power1_average` is in microwatts and is the one field that matters most
+    here: it is what lets `dashboard.perf_cost` report measured energy instead of
+    substituting `nominal_gpu_watts`. Every field is independently optional, so a
+    kernel that exposes power but not utilisation still yields a useful row.
+    """
+    out = []
+    for path, vendor in _drm_cards():
+        if vendor != _VENDOR_AMD:
+            continue
+        dev = os.path.join(path, "device")
+        total = _read_sysfs_int(os.path.join(dev, "mem_info_vram_total"))
+        used = _read_sysfs_int(os.path.join(dev, "mem_info_vram_used"))
+        g = 1024 ** 3
+        out.append(GpuInfo(
+            name=_amd_name(dev),
+            util=_f(_read_sysfs(os.path.join(dev, "gpu_busy_percent"))),
+            temp_c=_hwmon_scaled(dev, "temp1_input", 1000.0),
+            power_w=_hwmon_scaled(dev, "power1_average", 1_000_000.0),
+            mem_used_gb=(used / g) if used is not None else None,
+            mem_total_gb=(total / g) if total is not None else None,
+            source="amdgpu-sysfs"))
+    return out
+
+
+def _amd_name(dev: str) -> str | None:
+    for f in ("product_name", "marketing_name"):
+        n = _read_sysfs(os.path.join(dev, f))
+        if n:
+            return n
+    return "AMD GPU"
+
+
+def _hwmon_scaled(dev: str, leaf: str, divisor: float) -> float | None:
+    """Read `<dev>/hwmon/hwmon*/<leaf>` and scale it. None if absent.
+
+    The hwmon index is not stable across boots, so it is globbed rather than
+    assumed.
+    """
+    base = os.path.join(dev, "hwmon")
+    try:
+        names = sorted(os.listdir(base))
+    except OSError:
+        return None
+    for n in names:
+        v = _read_sysfs_int(os.path.join(base, n, leaf))
+        if v is not None:
+            return v / divisor
+    return None
+
+
+def _intel_gpus() -> list[GpuInfo]:
+    """Intel telemetry. `xpu-smi` where present, else the sysfs floor.
+
+    Intel is not one of the four first-class platform targets, so this is
+    deliberately the reader and nothing more — no launcher, no flag table. It
+    exists so an Arc box reports its GPU instead of reporting none.
+    """
+    have_intel = any(v == _VENDOR_INTEL for _, v in _drm_cards())
+    if not have_intel:
+        return []
+    out = []
+    for path, vendor in _drm_cards():
+        if vendor != _VENDOR_INTEL:
+            continue
+        dev = os.path.join(path, "device")
+        out.append(GpuInfo(
+            name=_read_sysfs(os.path.join(dev, "product_name")) or "Intel GPU",
+            power_w=_hwmon_scaled(dev, "power1_average", 1_000_000.0),
+            temp_c=_hwmon_scaled(dev, "temp1_input", 1000.0),
+            source="intel-sysfs"))
+    return out
+
+
+def _drm_floor_gpus() -> list[GpuInfo]:
+    """Last resort: a card exists, so say so, with whatever name we can find.
+
+    Returns `[]` only when the box genuinely has no DRM card. Every numeric field
+    is None, which callers already render as `—` (see HardwareBubble.tsx) rather
+    than as zero.
+    """
+    out = []
+    for path, vendor in _drm_cards():
+        dev = os.path.join(path, "device")
+        name = (_read_sysfs(os.path.join(dev, "product_name"))
+                or _vendor_label(vendor))
+        out.append(GpuInfo(name=name, source="drm-sysfs"))
+    return out
+
+
+def _vendor_label(vendor: str | None) -> str:
+    return {_VENDOR_AMD: "AMD GPU", _VENDOR_INTEL: "Intel GPU",
+            _VENDOR_NVIDIA: "NVIDIA GPU"}.get(vendor or "", "GPU")
+
+
+_RAPL_ROOT = "/sys/class/powercap"
+
+
+def _have_rapl() -> bool:
+    """Is there an actually-readable CPU energy counter?
+
+    Not `isdir(_RAPL_ROOT)`: the directory is present and empty on ARM, so the
+    directory test answers "yes" where the answer is "nothing to read".
+    """
+    try:
+        names = os.listdir(_RAPL_ROOT)
+    except OSError:
+        return False
+    return any(_read_sysfs_int(os.path.join(_RAPL_ROOT, n, "energy_uj"))
+               is not None for n in names)
 
 
 def gpu() -> GpuInfo:
@@ -382,7 +717,26 @@ def snapshot() -> dict:
         "system_memory": {"free_gb": _r(sm.free_gb), "total_gb": _r(sm.total_gb),
                           "source": sm.source},
         "gpus": [g.__dict__ for g in gpus()],
-        "have": {"psutil": _psutil is not None, "nvml": _nvml() is not None},
+        "memory_model": dict(zip(("model", "why"), _memory_model())),
+        # Which readers this box actually has, so `ava doctor` can say why a
+        # field is None instead of leaving the user to guess.
+        "have": {
+            "psutil": _psutil is not None,
+            "nvml": _nvml() is not None,
+            "nvidia_smi": _which("nvidia-smi") is not None,
+            "drm": bool(_drm_cards()),
+            "amdgpu_sysfs": _VENDOR_AMD in _drm_vendors(),
+            "intel_sysfs": _VENDOR_INTEL in _drm_vendors(),
+            "rocm_smi": _which("rocm-smi") is not None,
+            "xpu_smi": _which("xpu-smi") is not None,
+            # Effectively x86-only. Note this must test for a real counter, not
+            # for the directory: on this aarch64 box /sys/class/powercap EXISTS
+            # and is EMPTY, so `os.path.isdir` reported RAPL available when there
+            # was nothing to read — a false positive of exactly the kind the
+            # `None means unknown, never zero` rule at the top of this module is
+            # meant to prevent.
+            "rapl": _have_rapl(),
+        },
     }
 
 
