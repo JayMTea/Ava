@@ -82,6 +82,9 @@ ASSETS: dict[str, str] = {
     "docs/assets/architecture.svg": "docs/assets/architecture.svg",
     "docs/assets/agent-remote-runtime.svg": "docs/assets/agent-remote-runtime.svg",
     "docs/assets/vitals-dashboard.png": "docs/assets/vitals-dashboard.png",
+    # The chat surface. docs/capabilities/chat.md ran 258 lines with no picture
+    # of the thing it describes; this is that page's one screenshot.
+    "docs/assets/chat.png": "docs/assets/chat.png",
     # Narrated walkthrough video + its poster for the landing page.
     "docs/assets/reel-poster.png": "docs/assets/reel-poster.png",
     # Connect-your-apps walkthrough (docs/CONNECT_YOUR_APPS.md).

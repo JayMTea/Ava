@@ -6,6 +6,8 @@ through one surface, and **the server decides what happens next**. The browser
 carries no routing knowledge, so what a turn becomes is auditable, testable,
 and identical whether you asked from a laptop or a phone.
 
+![Ava's chat view: a plain-language question about Saturday's calendar and weather, Ava's answer, and under each reply the model that answered it and a "Tools used" chip listing the tools she actually called](../assets/chat.png)
+
 ## One ingress, one gate
 
 Every typed message posts to **`POST /api/chat-stream`**. There is no second

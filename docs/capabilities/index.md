@@ -112,12 +112,10 @@ deliberately does not.
 <video controls playsinline preload="metadata"
        poster="../assets/reel-poster.png"
        style="width:100%;border-radius:8px"
-       aria-label="A guided walkthrough of Ava: the dashboards, Operations, a live chat, and browser-based setup">
+       aria-label="A walkthrough of Ava: a plain-language question answered from your calendar and the forecast, the connected apps, push-to-talk voice, and the Vitals dashboard">
   <source src="../assets/ava-tour.mp4" type="video/mp4">
   Your browser can't play video. <a href="../assets/ava-tour.mp4">Download the walkthrough</a>.
 </video>
-
-*Recorded on an earlier build, so some screens have moved on since.*
 
 ## Where to go next
 
