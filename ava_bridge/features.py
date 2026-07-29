@@ -44,20 +44,32 @@ REGISTRY: dict[str, dict] = {
         "default": False,
         "env": "AVA_VOICE",
     },
-    # Internal flags with their own UI panels — no Optional-features checkbox.
+    # Both have their own detail panels, but they DO get a checkbox here: each
+    # one reads your conversations, and LearningView/MemoryPanel both tell the
+    # owner to "enable it in Setup → System" — a control that did not exist,
+    # because `panel: False` filtered them out of snapshot(). A switch the UI
+    # names and the UI does not render is worse than no switch.
     "learning": {
         "label": "Learning",
-        "sub": "periodic local-first self-analysis",
+        "sub": "periodic local-first self-analysis of your activity",
         "default": True,
         "env": "AVA_LEARNING",
-        "panel": False,
     },
     "memory": {
         "label": "Memory",
-        "sub": "distilled facts + document recall",
+        "sub": "distils durable facts from your chats; recalled when relevant",
         "default": True,
         "env": "AVA_MEMORY",
-        "panel": False,
+    },
+    # Separate from `learning` on purpose — see learning._cloud_fallback_enabled.
+    # Learning prompts embed verbatim excerpts from every conversation, so
+    # sending them off-box is its own decision, defaulting to no.
+    "learning_cloud_fallback": {
+        "label": "Cloud fallback for learning",
+        "sub": "if the local model can't finish a cycle, send the prompt "
+               "(which quotes your chats) to Anthropic",
+        "default": False,
+        "env": "AVA_LEARNING_CLOUD_FALLBACK",
     },
 }
 

@@ -24,7 +24,7 @@ to *your* apps, and answers only to you.
 - **Talk to it.** On-device voice, speech in and speech out, gated to *your* voice.
 - **Create with it.** GPU workloads orchestrated by the agent (the GPU service); video via connector apps.
 - **Wire it to your apps.** Drop-in connectors; Ava monitors *and* drives them.
-- **Wrap any MCP server in an egress policy.** Plug into the whole MCP ecosystem; tools are discovered live, and the agent reaches them only through two policed routes.
+- **Put any MCP server behind a policed boundary.** Plug into the whole MCP ecosystem; tools are discovered live, and the agent reaches them only through two allow-listed bridge routes — never the server itself.
 - **Search the web without being the product.** Web search runs through a loopback SearXNG and, by default, fail-closed over Tor; every redirect hop is re-validated against an SSRF guard. The sandboxed agent never reaches the internet directly.
 - **It edits its own code.** Source changes land as git commits; by default every change waits for your approval (`code.approval`).
 - **It studies itself.** Periodic local-first analysis of its own activity parks improvement proposals for your sign-off; nothing self-applies.
@@ -67,10 +67,10 @@ the Data tab shows you exactly what's in it.
 - **Your model, local by default.** Ava defaults to a 7B model that fits a normal
   GPU (downloaded on first run) and swaps in one line — run vLLM, Ollama,
   llama.cpp, or point it at a cloud endpoint. Your Anthropic key drives governed
-  code changes, and is the fallback when the local model can't complete a
-  learning or memory-distillation cycle — those prompts include chat excerpts
-  ([docs/MEMORY.md](docs/MEMORY.md)). Leave `ANTHROPIC_API_KEY` unset to keep
-  every cycle local-only.
+  code changes. It can *also* finish a learning or memory-distillation cycle the
+  local model couldn't — those prompts include chat excerpts — but that fallback
+  is **off by default** (`features.learning_cloud_fallback`), so cycles stay
+  on-box unless you say otherwise ([docs/MEMORY.md](docs/MEMORY.md)).
 - **It does more than talk.** It renders images, calls tools, remembers,
   and reaches into your other apps.
 - **It watches itself.** A real operations dashboard: tokens/sec, TTFT, render
@@ -83,11 +83,16 @@ the Data tab shows you exactly what's in it.
   proposals; review, approve, or reject them in **Operations → Control** (the
   Control Center).
 - **Anyone can extend it.** Add your app with a small manifest and no core-code changes.
-  Ava picks up its health, metrics, egress policy, and agent tools automatically.
+  Ava picks up its health and metrics automatically, and generates its egress
+  policy and agent tools for you to deploy into the sandbox in one click.
 - **MCP, but governed.** Point a manifest at any Model Context Protocol server
   (HTTP or stdio) and its tools go live behind an auto-generated egress policy,
   so the sandboxed agent reaches exactly two policed routes and nothing else.
-  Every other MCP client trusts the server; Ava contains it.
+  The MCP client runs host-side, so a compromised server never gets a line into
+  the sandbox — and Ava withholds the host environment from a stdio server
+  rather than handing it over, or runs it in a throwaway container
+  (`sandbox: docker`). The server itself is a host process you declared, the
+  same trust model as any MCP desktop client; what is contained is the agent.
 
 ## Where it stands
 

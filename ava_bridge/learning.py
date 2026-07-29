@@ -28,7 +28,7 @@ from datetime import datetime
 
 import httpx
 
-from . import state, config
+from . import state, config, features
 
 
 # --------------------------------------------------------------------------- #
@@ -60,8 +60,22 @@ async def _complete_local(prompt: str, max_tokens: int) -> str | None:
         return None
 
 
+def _cloud_fallback_enabled() -> bool:
+    """May a cycle send its prompt off-box when the router can't answer?
+
+    OFF by default, and deliberately a separate switch from `features.learning`.
+    These prompts carry verbatim `User:`/`Ava:` excerpts from EVERY conversation,
+    so "the local model was busy" must never silently become "your chats went to
+    a third party". Turning learning on is a statement about self-analysis; it is
+    not consent to upload the material being analysed.
+    """
+    return features.enabled("learning_cloud_fallback")
+
+
 async def _complete_anthropic(prompt: str, max_tokens: int) -> str | None:
     """Fallback to the Anthropic key when the local router can't answer."""
+    if not _cloud_fallback_enabled():
+        return None
     if not config.ANTHROPIC_API_KEY:
         return None
     try:

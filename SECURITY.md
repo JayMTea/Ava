@@ -185,9 +185,14 @@ because they walk the tree themselves.
   (`coder`/`code_agent`) post the prompt plus the contents of the repository
   files the tool loop reads to `https://api.anthropic.com/v1/messages` (model
   `AVA_CODE_MODEL`, default `claude-sonnet-4-6`). The learning /
-  memory-distillation cycle falls back to the same API when the local router
-  returns nothing, and its prompt carries short excerpts of your chat messages.
-  Leave the key unset and neither can fire; with it set, the `access_policy`
+  memory-distillation cycle *can* fall back to the same API when the local
+  router returns nothing, and its prompt carries short excerpts of your chat
+  messages — but only if you turn on `features.learning_cloud_fallback`, which
+  is **off by default**. Leave the key unset and neither can fire; leave the
+  fallback off and the cycle stays on-box even with a key set. Note that "local
+  router" means whatever you configured under `inference:` — if you pointed the
+  primary backend at a cloud endpoint, the cycle's *first* attempt already
+  leaves the box, key or no key. With the key set, the `access_policy`
   deny-list (§4) still keeps `.env`, `secrets/`, and `models/` out of what the
   code agent can read.
 

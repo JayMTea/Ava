@@ -234,6 +234,17 @@ features:
                            #   logged. Turning it OFF is the kill switch for the
                            #   feature the README leads with — view/correct/delete/
                            #   export it all from Setup -> Memory (docs/MEMORY.md).
+  learning_cloud_fallback: false
+                           # [AVA_LEARNING_CLOUD_FALLBACK] when a learning or
+                           #   memory-distillation cycle can't be completed by
+                           #   your local router, may Ava finish it with your
+                           #   ANTHROPIC_API_KEY? Those prompts embed verbatim
+                           #   User:/Ava: excerpts drawn from ALL conversations,
+                           #   so this is the one setting that decides whether
+                           #   your chats can leave the box. OFF by default, and
+                           #   separate from `learning` on purpose: enabling
+                           #   self-analysis is not consent to upload the
+                           #   material being analysed.
 
 # ── Self-analysis cadence (only used when features.learning is true) ─────────
 learning:

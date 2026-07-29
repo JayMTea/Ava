@@ -60,8 +60,14 @@ class PreflightContractTests(unittest.TestCase):
         panel_keys = [k for k, s in features.REGISTRY.items()
                       if s.get("panel", True)]
         self.assertEqual([s["key"] for s in snap], panel_keys)
-        # Internal flags (own panels) stay OUT of the Optional-features list.
-        self.assertNotIn("learning", [s["key"] for s in snap])
+        # Anything that READS the owner's conversations must be switchable from
+        # the panel the UI sends them to. `learning` and `memory` used to carry
+        # panel: False, so LearningView's "Enable it in Setup → System" pointed
+        # at a checkbox that was filtered out before it ever rendered.
+        keys = [s["key"] for s in snap]
+        for k in ("learning", "memory", "learning_cloud_fallback"):
+            self.assertIn(k, keys, f"{k} reads user conversations and must be "
+                                   "togglable from Setup → System")
         for s in snap:
             self.assertEqual(set(s), {"key", "label", "sub", "enabled"})
             self.assertIsInstance(s["enabled"], bool)

@@ -26,7 +26,16 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 # Extensions worth scanning. Binary formats are skipped: they cannot be reviewed
 # in a diff either, and a leak there is a different (worse) problem.
 _TEXTUAL = {".svg", ".md", ".py", ".ts", ".tsx", ".js", ".mjs", ".json", ".yaml",
-            ".yml", ".sh", ".toml", ".css", ".html", ".txt", ".d2", ".properties"}
+            ".yml", ".sh", ".toml", ".css", ".html", ".txt", ".d2", ".properties",
+            # `.env.example` — suffix ".example" — is the file a bare-metal
+            # forker is told to copy and edit, and it went unscanned for exactly
+            # that reason: it named the maintainer's checkpoint in a sentence
+            # about which model serves chat. Extension lists miss the files whose
+            # extension is the interesting part.
+            ".example", ".conf", ".cfg", ".ini", ".env", ".tmpl", ".template"}
+
+# Tracked files worth scanning that have no useful suffix at all.
+_TEXTUAL_NAMES = {"Dockerfile", "Makefile", ".gitignore", ".dockerignore"}
 
 # Each entry: (compiled pattern, what to do about it).
 _FORBIDDEN: list[tuple[re.Pattern, str]] = [
@@ -152,7 +161,10 @@ def _scan() -> list[str]:
     offenders: list[str] = []
     rules = _FORBIDDEN + _private_patterns()
     for rel in _tracked_files():
-        if rel in _ALLOW or pathlib.Path(rel).suffix.lower() not in _TEXTUAL:
+        p = pathlib.Path(rel)
+        if rel in _ALLOW:
+            continue
+        if p.suffix.lower() not in _TEXTUAL and p.name not in _TEXTUAL_NAMES:
             continue
         path = ROOT / rel
         try:
