@@ -103,6 +103,13 @@ gpusvc/extra_model_paths.yaml
 # Personal-app overlay (backend MCP servers/skills/policies + facade)
 /overlay/
 
+# Brand masters (logo source art). Deliberately OUTSIDE frontend/public/:
+# Vite copies public/ verbatim into the TRACKED frontend/dist/, so 3.8 MB of
+# source art parked there would be swept into the repo, into the published
+# image, and into the service-worker precache on the next `npm run build` —
+# and the frontend-dist-drift CI job would fail on the way past.
+brand/
+
 # Docs site — generated staging + build output
 docs-site/docs/
 docs-site/site/
