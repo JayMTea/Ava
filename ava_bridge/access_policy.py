@@ -56,6 +56,16 @@ _APPROVAL = [
     "ava_bridge/access_policy.py", # THIS file — self-referential, must be gated
     "ava_bridge/code_agent.py",    # the autonomous applier itself
     "ava_bridge/coder.py",         # the Claude tool loop
+    # _DENY guards ava.yaml, but a denied FILE whose WRITER is auto-editable is
+    # not denied — the same lesson as ava.yaml.bak above, one layer up. These
+    # three are the whole runtime path that can put `code.approval` on disk:
+    # settings.save_patch is the only implementation, hub/system.py is the route
+    # that calls it, and the overlay facade mutates _PROJECT_DENY at import.
+    # Inert under the shipped `approval: all` (code_agent folds auto into the
+    # approval bucket) and live under the documented `approval: policy`.
+    "ava_bridge/settings.py",      # save_patch/save_config/_write_config -> ava.yaml
+    "ava_bridge/hub/system.py",    # POST /system/approval writes code.approval
+    "overlay/ava_bridge/**",       # personal_access.apply() rewrites _PROJECT_DENY
     "agent/policies/**",           # egress / network policies
     "agent/install.sh", "agent/new-tool.sh", "agent/snapshot.sh",
     "run.sh", "run_bridge.sh", "devices.sh",
