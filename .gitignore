@@ -9,8 +9,12 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 
-# Local secrets & env overrides (see .env.example)
-.env
+# Local secrets & env overrides (see .env.example).
+# The glob is deliberately wide: config_mgmt.update_config snapshots .env to
+# .env.bak on every config edit, so a bare `.env` entry leaves a copy of every
+# secret untracked-but-committable. Keep the example file visible.
+.env*
+!.env.example
 *.secret
 
 # Runtime state / personal data (dirs kept via .gitkeep)
@@ -52,8 +56,11 @@ enroll/*.ogg
 .DS_Store
 *.swp
 
-# User config + secrets (portable install)
-ava.yaml
+# User config + secrets (portable install). Same reasoning as .env* above:
+# settings._write_config snapshots ava.yaml -> ava.yaml.bak on every Setup save
+# and writes through a .ava.yaml.*.tmp, and both hold owner.name / owner.location.
+ava.yaml*
+.ava.yaml.*
 /secrets/
 # JIT-consent user data (grants + declared tool tiers)
 connector_grants.yaml
@@ -101,10 +108,10 @@ docs-site/docs/
 docs-site/site/
 
 # Personal instance connectors (this box's AVA_HOME = repo root; the shipped
-# template lives in examples/home-assistant/)
+# template lives in examples/home-assistant/). Entries for specific PRIVATE apps
+# live in .git/info/exclude (local-only) so their names aren't published — see
+# the note above the DEV_NOTES.md block.
 connectors/home-assistant/
-connectors/persona/
-connectors/ava-notes/
 .venv-tts/
 
 # Agent/editor runtime config — drives the local-only demo/ harness, so it

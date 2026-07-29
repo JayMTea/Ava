@@ -12,6 +12,16 @@ from typing import Iterable
 from urllib.parse import urlparse
 
 
+def secure_opener(path: str, flags: int) -> int:
+    """open() opener that creates new files 0600, so a secret never briefly
+    exists world-readable between create and chmod.
+
+    Pass as `open(p, "w", opener=secure_opener)`. Write-then-chmod is not
+    equivalent: a crash in between leaves the file 0644 permanently.
+    """
+    return os.open(path, flags, 0o600)
+
+
 # What each MCP capability group may reach on /internal/*. Enforced by
 # ava_bridge/internal.group_may(), which ava_bridge/auth.auth_gate calls for every
 # /internal request.

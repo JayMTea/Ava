@@ -19,10 +19,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response
 from . import config, state
 
 
-def _secure_opener(path: str, flags: int) -> int:
-    """open() opener that creates new files 0600 so secrets never briefly exist
-    world-readable between create and chmod."""
-    return os.open(path, flags, 0o600)
+from .security import secure_opener as _secure_opener
 
 
 def _auth_secret() -> bytes:

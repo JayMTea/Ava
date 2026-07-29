@@ -10,6 +10,7 @@ from datetime import datetime
 import logging
 
 from . import config
+from .security import secure_opener
 
 logger = logging.getLogger(__name__)
 
@@ -182,11 +183,13 @@ class ConfigManager:
             if not path.exists():
                 return {'ok': False, 'error': f'Config file not found: {path}'}
 
-            # Create backup
+            # Create backup. The source may be .env — 0600 and full of secrets —
+            # so the copy is created 0600 too rather than inheriting the umask
+            # (a plain open() lands 0644 and never gets chmod'd back down).
             backup_path = path.with_suffix(path.suffix + '.bak')
             with open(path, 'r') as f:
                 original = f.read()
-            with open(backup_path, 'w') as f:
+            with open(backup_path, 'w', opener=secure_opener) as f:
                 f.write(original)
 
             # Log the change

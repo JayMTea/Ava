@@ -34,8 +34,12 @@ _DENY = [
     ".git/**",
     ".venv/**",                 # site-packages: writable = arbitrary code on next import
     "run/**",                   # allocator lease/breaker state
-    "ava.yaml",                 # holds code.approval — writable = self-ungating
+    # holds code.approval — writable = self-ungating. The glob covers ava.yaml.bak
+    # (written by settings._write_config on every Setup save) and the .tmp it
+    # writes through: a denied file whose backup is writable is not denied.
+    "ava.yaml*", ".ava.yaml.*",
     "connector_grants.yaml",    # the connector consent ledger = self-approval
+    "connector_tools_cache.json",   # declared tool tiers = the JIT-consent surface
     "bin/**", "gpusvc/**", "media/**", "logs/**", "enroll/**",
     "*.onnx", "*.npy", "*.ckpt", "*.ort", "*.pem", "*.key",
 ]
