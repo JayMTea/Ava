@@ -33,6 +33,16 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # The SAME switch drives three things that must light up together (see the
+    # header comment in docs-site/mkdocs.yml): the "View on GitHub" pill, the
+    # header repo widget, and sync.py's rewriting of links that point at repo
+    # source. Unset, sync.py silently degrades those links to plain text rather
+    # than minting 404s — correct while the repo is private, wrong the moment it
+    # is public. Setting it here is safe because publishing is still manual;
+    # just do not run this workflow between flipping the repo public and this
+    # value being right, or the minted URLs 404.
+    env:
+      AVA_DOCS_REPO_BASE: https://github.com/JayMTea/Ava
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7

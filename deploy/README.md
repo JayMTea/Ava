@@ -119,6 +119,14 @@ Good to know:
   runs a separate agent container that mounts the host Docker socket, which is
   **root-equivalent** on the host; it is opt-in for that reason. Full setup and
   the security caveat: [AGENT_RUNTIME.md, Full agent in Docker](../docs/AGENT_RUNTIME.md).
+- **Voice**: the default image ships `ffmpeg` (enough to enroll a voiceprint) but
+  not the speech models, which are ~2 GB of torch/whisper/speechbrain. Build with
+  them by setting `AVA_VOICE_DEPS=1` in `deploy/.env` before `docker compose up
+  -d --build`, then turn the capability on in **Setup → System → Optional
+  features** (`features.voice` is off by default). Both steps are needed: the
+  switch alone has nothing to run, and the deps alone leave the switch off.
+- **GPU workloads**: needs the GPU service, which only the `full` profile starts. On
+  any other profile the switch reports `image_down` rather than pretending.
 
 ### Verified install (recommended)
 
@@ -126,26 +134,35 @@ Published images are **cosign-signed** (Sigstore keyless; the signature proves
 the image came from this repo's release CI). Pull the signed image instead of
 building locally by setting `AVA_IMAGE` in `deploy/.env`, and verify it first:
 
-Replace `<version>` below with a tag that exists — see the repository's Releases
-page. (`release.yml` publishes an image only on a `v*` tag push, so a tag that has
-not been released yet returns 403 from GHCR.)
+Replace `X.Y.Z` below with a version that exists — see the
+[Releases page](https://github.com/JayMTea/Ava/releases). (`release.yml`
+publishes an image only on a `v*` tag push, so a version that has not been
+released yet returns 403 from GHCR.)
+
+The two spellings are not interchangeable: the **image tag is `X.Y.Z`** while the
+**git tag in the certificate identity is `vX.Y.Z`**, and the registry path is
+lowercased while the certificate identity keeps the repo's case. Substituting one
+value for both is why a copy-pasted verify fails.
 
 ```bash
 # Verify the release image (see SECURITY.md §9 for the exact identity regex):
-cosign verify ghcr.io/<owner>/ava-bridge:<version> \
-  --certificate-identity-regexp "https://github.com/<owner>/.+/.github/workflows/release.yml@refs/tags/<version>" \
+cosign verify ghcr.io/jaymtea/ava-bridge:X.Y.Z \
+  --certificate-identity-regexp "https://github.com/JayMTea/.+/.github/workflows/release.yml@refs/tags/vX.Y.Z" \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 
-echo "AVA_IMAGE=ghcr.io/<owner>/ava-bridge:<version>" >> deploy/.env
+echo "AVA_IMAGE=ghcr.io/jaymtea/ava-bridge:X.Y.Z" >> deploy/.env
 docker compose pull && docker compose up -d
 ```
+
+Verifying a fork's own build? Swap `jaymtea` / `JayMTea` for your owner in both
+places, keeping the same lowercase-registry, cased-identity split.
 
 One-line install on a fresh box (auto-detects GPU/CPU). Run it from inside your
 clone, or point `AVA_REPO` at your fork:
 
 ```bash
-git clone https://github.com/<you>/ava && cd ava/deploy && ./install.sh
-# or standalone (replace `master` with your fork's default branch or a release tag):
+git clone https://github.com/JayMTea/Ava && cd Ava/deploy && ./install.sh
+# from a fork, standalone (replace `master` with your fork's default branch or a release tag):
 AVA_REPO=https://github.com/<you>/ava.git bash -c "$(curl -fsSL https://raw.githubusercontent.com/<you>/ava/master/deploy/install.sh)"
 ```
 

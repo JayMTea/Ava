@@ -91,11 +91,11 @@ the Data tab shows you exactly what's in it.
 
 ## Where it stands
 
-Ava is the only self-hosted stack that puts voice, generation, agent tools,
-self-editing, connectors, and observability together behind one dashboard. It
-trails the cloud giants on raw model IQ and polish because it is the **control
-layer, not the brain**: its job is to put *their* models (or yours) to work,
-privately.
+Most self-hosted stacks give you a chat UI and stop there. Ava puts voice,
+generation, governed agent tools, connectors, self-editing, and cost-and-energy
+observability behind one dashboard. It trails the cloud giants on raw model IQ
+and polish because it is the **control layer, not the brain**: its job is to put
+*their* models (or yours) to work, privately.
 
 **A note on NemoClaw:** it is less a competitor than a foundation. NemoClaw is
 Ava's **default agent runtime** (sandbox, tools, egress policies, memory), and
