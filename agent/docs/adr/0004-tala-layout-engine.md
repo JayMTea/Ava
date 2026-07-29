@@ -1,8 +1,9 @@
 # 0004. Use TALA as the diagram layout engine
 
 - **Status:** Superseded (historical) — reverted to ELK. Unlicensed TALA renders
-  stamp an "" watermark (three tracked diagrams shipped
-  watermarked; `tests/test_no_owner_identity.py` now fails the build on it), so
+  stamp an unlicensed-copy watermark across the output (three tracked diagrams
+  shipped watermarked; `tests/test_no_owner_identity.py` now fails the build on
+  that watermark text), so
   `diagram_style.d2.layout` is `elk`. Kept for the decision history.
 - **Date:** 2026-06-29
 - **Deciders:** project owner

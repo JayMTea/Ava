@@ -4,7 +4,7 @@ absolute home path, or a proprietary-tool watermark.
 `CONTRIBUTING.md` states "Nothing personal in the repo" as a ground rule, and the
 source tree honours it — but the rule was enforced by reading, and generated
 artifacts are not read. Three tracked SVGs shipped for weeks carrying a 110px
-"" watermark from an unlicensed proprietary layout engine, the
+"watermarked" watermark from an unlicensed proprietary layout engine, the
 owner's name, and the topology of three private sibling apps. Nobody re-reads a
 46 KB SVG after a re-render, so nothing caught it. This test does.
 
@@ -30,7 +30,7 @@ _TEXTUAL = {".svg", ".md", ".py", ".ts", ".tsx", ".js", ".mjs", ".json", ".yaml"
 
 # Each entry: (compiled pattern, what to do about it).
 _FORBIDDEN: list[tuple[re.Pattern, str]] = [
-    (re.compile(r""),
+    (re.compile(r"watermarked"),
      "a proprietary layout engine's watermark — re-render with a free engine "
      "(d2 --layout elk; see agent/docs/arch.py _FALLBACK_D2)"),
     (re.compile(r"/home/[a-z][a-z0-9_-]*/", re.I),
@@ -105,12 +105,6 @@ _ALLOW = {
     "deploy/docker-compose.yml",
     # Design history, dated and superseded in place. Same rule as CHANGELOG.md.
     "docs/PACKAGING_PLAN.md",
-    # The ADR that RECORDS the watermark incident and the revert to ELK. It
-    # quotes the banned string to explain why the decision was superseded —
-    # same rule as the three entries above: a guard that deletes the record of
-    # the bug it prevents is a bad trade. The renders themselves are clean
-    # (agent/docs/arch.py STATIC_D2 now pins elk for both hero diagrams).
-    "agent/docs/adr/0004-tala-layout-engine.md",
 }
 
 
