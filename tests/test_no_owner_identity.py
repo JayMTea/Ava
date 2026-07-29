@@ -4,8 +4,8 @@ absolute home path, or a proprietary-tool watermark.
 `CONTRIBUTING.md` states "Nothing personal in the repo" as a ground rule, and the
 source tree honours it — but the rule was enforced by reading, and generated
 artifacts are not read. Three tracked SVGs shipped for weeks carrying a 110px
-"watermarked" watermark from an unlicensed proprietary layout engine, the
-owner's name, and the topology of three private sibling apps. Nobody re-reads a
+unlicensed-copy watermark from a proprietary layout engine, the owner's name,
+and the topology of three private sibling apps. Nobody re-reads a
 46 KB SVG after a re-render, so nothing caught it. This test does.
 
 Same shape as tests/test_no_eval_data.py and tests/test_diagram_sync.py: a static
@@ -30,7 +30,9 @@ _TEXTUAL = {".svg", ".md", ".py", ".ts", ".tsx", ".js", ".mjs", ".json", ".yaml"
 
 # Each entry: (compiled pattern, what to do about it).
 _FORBIDDEN: list[tuple[re.Pattern, str]] = [
-    (re.compile(r"watermarked"),
+    # Assembled rather than written out, so this file does not itself become a
+    # code-search hit for the watermark it is policing.
+    (re.compile("UNLICENSED" + " COPY"),
      "a proprietary layout engine's watermark — re-render with a free engine "
      "(d2 --layout elk; see agent/docs/arch.py _FALLBACK_D2)"),
     (re.compile(r"/home/[a-z][a-z0-9_-]*/", re.I),
