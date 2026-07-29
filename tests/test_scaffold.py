@@ -69,7 +69,13 @@ class FastapiConformanceTests(unittest.TestCase):
         from starlette.testclient import TestClient
         app = FastAPI()
         self.mod.register(app)
-        self.client = TestClient(app)
+        # /tools and /call are credentialed and fail closed, so the conformance
+        # client has to present a token like Ava does. The refusal path itself
+        # is covered in tests/test_scaffold_auth.py.
+        os.environ["MYAPP_TOKEN"] = "conformance-token"
+        self.addCleanup(os.environ.pop, "MYAPP_TOKEN", None)
+        self.client = TestClient(
+            app, headers={"Authorization": "Bearer conformance-token"})
 
     def test_tools_listing_conforms(self):
         r = self.client.get("/tools").json()

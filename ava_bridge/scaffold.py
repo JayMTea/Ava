@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import re
+import secrets
 
 FRAMEWORKS = ("fastapi", "flask", "express", "stdlib")
 _ID_RE = re.compile(r"^[a-z][a-z0-9_-]{1,31}$")
@@ -38,10 +39,41 @@ deletes in your app's own UI.
 """
 from __future__ import annotations
 
+import hmac
+import os
 from typing import Callable
 
 FACADE = "ava-tools/1"
 TOOLS: dict[str, dict] = {}
+
+# --------------------------------------------------------------------------- #
+# Auth. These routes EXECUTE your app's actions, so they are credentialed by
+# default and fail closed.
+#
+# Ava's just-in-time consent tiers live on AVA's side; they protect nothing on
+# your app's own port. Without this check, anyone who can reach this port can
+# invoke every tool you registered — including anything you tiered
+# `destructive` — with one curl. If this surface is mounted into an app that
+# already listens on your LAN, "reachable" means everyone on your network.
+#
+# Set the env var below to the same value you gave Ava (Setup -> Connectors ->
+# Access token, which writes it to $AVA_HOME/secrets/env/). Unset = every call
+# is refused, which is the safe way to fail.
+ENV_TOKEN = "__ENV_TOKEN__"
+
+
+def _authorized(header: str | None) -> bool:
+    want = os.environ.get(ENV_TOKEN, "")
+    if not want:
+        return False
+    got = (header or "").strip()
+    if got[:7].lower() == "bearer ":
+        got = got[7:].strip()
+    return hmac.compare_digest(got, want)
+
+
+_UNAUTHORIZED = ({"error": f"unauthorized — set {ENV_TOKEN} and send it as "
+                           "'Authorization: Bearer <token>'"}, 401)
 
 # Served at /.well-known/ava.json so Ava's Detect can prefill its connect form.
 # Add "health": "/your/health/path" and "ui": True when your app has them.
@@ -130,11 +162,15 @@ def register(app) -> None:
         return WELL_KNOWN
 
     @app.get("/tools")
-    def tools():
+    def tools(request: Request):
+        if not _authorized(request.headers.get("authorization")):
+            return JSONResponse(_UNAUTHORIZED[0], status_code=_UNAUTHORIZED[1])
         return _listing()
 
     @app.post("/call")
     async def call(request: Request):
+        if not _authorized(request.headers.get("authorization")):
+            return JSONResponse(_UNAUTHORIZED[0], status_code=_UNAUTHORIZED[1])
         try:
             body = await request.json()
         except Exception:  # noqa: BLE001
@@ -165,11 +201,15 @@ def _well_known_route():
 
 @bp.get("/tools")
 def _tools_route():
+    if not _authorized(request.headers.get("Authorization")):
+        return jsonify(_UNAUTHORIZED[0]), _UNAUTHORIZED[1]
     return jsonify(_listing())
 
 
 @bp.post("/call")
 def _call_route():
+    if not _authorized(request.headers.get("Authorization")):
+        return jsonify(_UNAUTHORIZED[0]), _UNAUTHORIZED[1]
     body = request.get_json(silent=True) or {}
     data, status = _dispatch(str(body.get("name") or ""), body.get("arguments") or {})
     return jsonify(data), status
@@ -204,12 +244,16 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/.well-known/ava.json":
             return self._send(200, {**WELL_KNOWN, "health": "/health"})
         if path == "/tools":
+            if not _authorized(self.headers.get("Authorization")):
+                return self._send(_UNAUTHORIZED[1], _UNAUTHORIZED[0])
             return self._send(200, _listing())
         self._send(404, {"error": "not found"})
 
     def do_POST(self):
         if self.path.split("?")[0] != "/call":
             return self._send(404, {"error": "not found"})
+        if not _authorized(self.headers.get("Authorization")):
+            return self._send(*reversed(_UNAUTHORIZED))
         try:
             n = int(self.headers.get("Content-Length") or 0)
             body = json.loads(self.rfile.read(n) or b"{}")
@@ -239,6 +283,7 @@ _EXPRESS_SURFACE = '''// __LABEL__ — agent surface for Ava (ava-tools/1).
 //   import { avaSurface } from './ava/surface.mjs';
 //   app.use(avaSurface());              // BEFORE any static catch-all
 import { Router, json } from 'express';
+import { timingSafeEqual } from 'node:crypto';
 
 export const FACADE = 'ava-tools/1';
 
@@ -265,15 +310,38 @@ tool('ping', 'Health check — returns pong.',
 //   async (args) => ({ id: await myApp.createNote(args.text) }));
 
 // --- routes (the ava-tools/1 contract) ---------------------------------------
+// Auth. /tools and /call EXECUTE your app's actions, so they are credentialed
+// by default and fail closed. Ava's consent tiers live on AVA's side and
+// protect nothing on your app's own port — without this, anyone who can reach
+// the port can invoke every tool you registered, including anything you tiered
+// `destructive`. Set __ENV_TOKEN__ to the value you gave Ava (Setup ->
+// Connectors -> Access token). Unset = every call refused.
+export const ENV_TOKEN = '__ENV_TOKEN__';
+
+function authorized(req) {
+  const want = process.env[ENV_TOKEN] || '';
+  if (!want) return false;
+  let got = (req.get('authorization') || '').trim();
+  if (got.slice(0, 7).toLowerCase() === 'bearer ') got = got.slice(7).trim();
+  // Constant-time compare: a length-leaking === on a bearer token is a
+  // needless side channel, and timingSafeEqual throws on length mismatch.
+  const a = Buffer.from(got), b = Buffer.from(want);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+const UNAUTHORIZED = { error: `unauthorized — set ${ENV_TOKEN} and send it as 'Authorization: Bearer <token>'` };
+
 export function avaSurface() {
   const r = Router();
   r.use(json());
   r.get('/.well-known/ava.json', (_req, res) => res.json(WELL_KNOWN));
-  r.get('/tools', (_req, res) => {
+  r.get('/tools', (req, res) => {
+    if (!authorized(req)) return res.status(401).json(UNAUTHORIZED);
     res.json({ facade: FACADE,
       tools: [...TOOLS.values()].map(({ handler, ...t }) => t) });
   });
   r.post('/call', async (req, res) => {
+    if (!authorized(req)) return res.status(401).json(UNAUTHORIZED);
     const { name, arguments: args = {} } = req.body || {};
     const t = TOOLS.get(name);
     if (!t) return res.status(404).json({ error: `unknown tool '${name}' — GET /tools lists them` });
@@ -301,14 +369,22 @@ enabled: true
 
 service:
   name: __LABEL__
-  probe: "http://127.0.0.1:__PORT__/tools"   # the facade doubles as a health probe
+  # NOT /tools: that route requires the bearer token now, so probing it would
+  # report the app "down" whenever the credential is merely missing. The
+  # well-known document is unauthenticated metadata in every template, which is
+  # exactly what a liveness probe wants.
+  probe: "http://127.0.0.1:__PORT__/.well-known/ava.json"
 
 actions:
   discover:
     base: "http://127.0.0.1:__PORT__"
     list: /tools
     call: /call
-    # token_env: __ENV_TOKEN__               # uncomment if your app needs a bearer
+    # Required, not optional: surface.py refuses every call without it. Ava
+    # resolves the VALUE host-side from the environment or its secret store —
+    # this line only names the variable. Paste the token once under
+    # Setup -> Connectors -> Access token.
+    token_env: __ENV_TOKEN__
 
 __UI_BLOCK__'''
 
@@ -330,13 +406,33 @@ _UI_OFF = '''# Uncomment to embed your app's web UI as a tile in Ava's left rail
 
 _README = '''# __LABEL__ ⇄ Ava
 
-Generated by `ava app new __ID__ --framework __FRAMEWORK__`. Three steps:
+Generated by `ava app new __ID__ --framework __FRAMEWORK__`. Four steps:
 
-## 1. Wire the surface into your app
+## 1. Set the surface token
+
+`/tools` and `/call` execute your app's actions, so they require a bearer token
+and **refuse every request until you set one**. Ava's just-in-time consent tiers
+run on Ava's side; they protect nothing on your app's own port. Skip this and
+anyone who can reach the port — everyone on your LAN, if your app already
+listens there — can invoke every tool you register, `destructive` included.
+
+A token has been generated for you:
+
+```bash
+export __ENV_TOKEN__=__TOKEN_VALUE__
+```
+
+Put it wherever your app gets its environment (`.env`, systemd
+`EnvironmentFile=`, Docker `environment:`), then paste the same value into Ava
+once at **Setup -> Connectors -> Access token**. Ava stores it `0600` under
+`$AVA_HOME/secrets/env/` and never writes it into the manifest — the manifest
+only names the variable.
+
+## 2. Wire the surface into your app
 
 __WIREUP__
 
-## 2. Add your tools
+## 3. Add your tools
 
 Open `__SURFACE_FILE__` — `ping` is there as a working example. Add one
 `tool(...)` per intent-level action ("generate", "list_items"), not per REST
@@ -344,12 +440,18 @@ endpoint. Pick the `access` tier honestly: `read` runs silently, `write` asks
 the operator once, `destructive` asks every time. Don't expose destructive
 operations you wouldn't hand an assistant.
 
-## 3. Connect it in Ava
+## 4. Connect it in Ava
 
 Open Ava's Hub -> Connectors -> **Connect an app** -> paste
-`http://127.0.0.1:__PORT__` -> **Detect**. Ava finds the facade, lists your
-tools, and (if your app serves a web UI) offers a sidebar tile. Sanity check
-by hand: `curl http://127.0.0.1:__PORT__/tools`
+`http://127.0.0.1:__PORT__` -> **Detect**. Ava reads the unauthenticated
+`/.well-known/ava.json`, so Detect works before the token is in place; the tool
+list arrives once it is. Sanity check by hand:
+
+```bash
+curl -H "Authorization: Bearer $__ENV_TOKEN__" http://127.0.0.1:__PORT__/tools
+```
+
+Without the header that returns `401` — which is the check working, not a bug.
 
 Embedding your web UI in Ava's sidebar? It gets served under `/apps/__ID__/`,
 so the UI must use RELATIVE asset URLs and mount-prefixed API calls — see
@@ -399,6 +501,10 @@ def _render(app_id: str, label: str, framework: str, port: int, ui: bool) -> dic
         "__FRAMEWORK__": framework,
         "__ENV_PORT__": f"{env}_SURFACE_PORT",
         "__ENV_TOKEN__": f"{env}_TOKEN",
+        # A real value, not a placeholder. "generate a token" as an instruction
+        # is the step people skip, and the surface fails closed without one —
+        # so the quickstart hands them a working export line instead.
+        "__TOKEN_VALUE__": secrets.token_urlsafe(32),
     }
     if framework == "express":
         surface_name, surface = "surface.mjs", _EXPRESS_SURFACE

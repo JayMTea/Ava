@@ -330,8 +330,16 @@ Rules of the road:
   Ava's, not the app's.
 - **Results are for a model.** Return compact JSON; prefer ids and URLs over
   payloads; never inline binary/base64 blobs.
-- **Auth** is optional: Ava sends `Authorization: Bearer <token>` when the
-  manifest declares `token_env` on the discover block.
+- **Auth is required** unless the surface is loopback-only *and* you are certain
+  nothing else on the host can reach it. Ava sends
+  `Authorization: Bearer <token>` whenever the manifest declares `token_env` on
+  the discover block, and the scaffolded surface **refuses every call without
+  it**. This is the one place the trust boundary is genuinely yours: Ava's
+  consent tiers gate what *Ava's agent* may invoke, and enforce nothing on your
+  app's own port. An unauthenticated `/call` on an app that already listens on
+  your LAN hands every registered tool — `destructive` included — to anyone who
+  can send one `curl`. `/.well-known/ava.json` stays open so Detect works
+  before the credential is in place.
 - `facade` is informational at version 1 — it exists so a future `ava-tools/2`
   can negotiate.
 
@@ -392,7 +400,8 @@ mcp:
   # network: bridge                     # or `none` to cut the server off the net
 ```
 
-**The security model: an egress policy around every MCP server.** Ava's
+**The security model: an egress policy around the agent, not around the
+server.** Ava's
 sandboxed agent never connects to the MCP server. The bridge speaks MCP
 (JSON-RPC over Streamable HTTP or stdio) server-side, and the agent can reach
 only the two policed bridge routes (`__tools`/`__call`) that the connector's
