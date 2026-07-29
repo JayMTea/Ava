@@ -35,3 +35,13 @@ Pillow==12.3.0
 # `except`, so a fork silently fell back to crude tag-stripping — web_fetch kept
 # "working" while handing Ava markup soup instead of clean markdown.
 trafilatura==2.1.0
+# The model downloader (`ava models pull`). Same story again: `_pull_hf` shells
+# out to the `hf` binary, which only exists if huggingface_hub[cli] is installed
+# — it was, transitively, on the maintainer's box. On a fresh clone the very
+# first documented step after `ava setup` printed "huggingface CLI not found"
+# and no weights ever arrived, so chat had nothing to serve.
+#
+# No `[cli]` extra: that was a 0.x thing. Since 1.0 the `hf` console script
+# ships in the base package, and asking for a nonexistent extra only earns a
+# pip warning.
+huggingface_hub==1.21.0

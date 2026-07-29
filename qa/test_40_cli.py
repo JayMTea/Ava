@@ -37,10 +37,18 @@ class TestCliSetupAndDoctor(unittest.TestCase):
 
     def test_02_doctor_runs_clean_enough(self):
         r = _run("doctor")
-        # Doctor may warn about absent services, but it must complete and
-        # print its report — a crash is a real failure.
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn("config", (r.stdout + r.stderr).lower())
+        out = r.stdout + r.stderr
+        # Doctor may warn about absent services, but it must complete and print
+        # its report — a crash is a real failure. Exit 2 is a REPORTED verdict,
+        # not a crash: "the report ran, and no inference backend is reachable".
+        # The QA rig serves no engine, so 2 is the expected code here — and it is
+        # the whole point, since `ava setup && ava doctor && ava up` must stop
+        # rather than hand the user a chat box that 503s on the first message.
+        self.assertIn(r.returncode, (0, 2), out)
+        self.assertIn("config", out.lower())
+        self.assertNotIn("Traceback", out)
+        if r.returncode == 2:
+            self.assertIn("No inference backend is reachable", out)
 
     def test_03_version(self):
         r = _run("version")

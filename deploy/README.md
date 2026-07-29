@@ -166,10 +166,20 @@ python -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt
 cd frontend && npm install && npm run build && cd ..
 
-./bin/ava setup      # creates AVA_HOME, generates secrets + admin password, ava.yaml
+./bin/ava setup              # creates AVA_HOME, generates secrets + admin password, ava.yaml
+./bin/ava models pull --auto # downloads a model that fits your hardware (once, large)
+
+# Start an inference engine — `ava up` runs the WEB APP, never an engine.
+bash deploy/local-serve.sh   # NVIDIA + Docker: serves the model with vLLM
+# Apple Silicon / CPU:  ollama serve  &&  ollama pull <tag>  (see CHOOSE_A_MODEL.md)
+
 ./bin/ava doctor     # verifies hardware, dirs, config, inference, services
 ./bin/ava up         # runs the web app on http://localhost:8096
 ```
+
+The engine step is the one people skip, and skipping it produces a working web
+app whose first message fails — so `ava doctor` **exits non-zero** when nothing
+can serve a chat turn, which stops the `&&` chain right at the missing step.
 
 `ava setup` prints your generated admin password (or pass `--password`).
 

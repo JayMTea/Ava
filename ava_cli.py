@@ -232,6 +232,11 @@ def cmd_doctor(_args) -> int:
 
     print("\nInference backends")
     backends = (settings.get("inference.backends", {}) or {})
+    # Can chat actually answer? Doctor used to return 0 no matter what, so the
+    # documented `ava setup && ava doctor && ava up` chain sailed past "nothing
+    # serves this model" and handed the user a chat box that 503s on the first
+    # message. Track it and exit non-zero so the chain stops where the problem is.
+    inference_ok = False
     if not backends:
         # "None configured" is only a problem when nothing else serves. With an
         # onboarded agent sandbox, chat thinks with the sandbox model and the
@@ -243,15 +248,18 @@ def cmd_doctor(_args) -> int:
         except Exception:  # noqa: BLE001
             pass
         if sbx_model:
+            inference_ok = True
             _row(OK, "backends",
                  f"none in ava.yaml — chat thinks with the agent sandbox model "
                  f"({sbx_model}); a yaml backend is an optional fallback")
         else:
-            _row(WARN, "backends", "none configured in ava.yaml")
+            _row(BAD, "backends", "none configured in ava.yaml, and no agent "
+                 "sandbox model — nothing can answer a chat turn")
     for name, b in backends.items():
         b = b or {}
         url = b.get("base_url", "")
         ok = _probe(url.rstrip("/") + "/models") if url else False
+        inference_ok = inference_ok or ok
         # Flag a backend whose declared weight won't fit the detected memory.
         weight = ((b.get("fit") or {}).get("weight_gb"))
         note = f"{url}  {'up' if ok else 'unreachable'}"
@@ -307,6 +315,18 @@ def cmd_doctor(_args) -> int:
     _row(OK if _probe(f"http://127.0.0.1:{port}/api/health") else WARN,
          "web app", f"http://127.0.0.1:{port}")
     print()
+
+    if not inference_ok:
+        # Exit 2, not 1: the report itself succeeded, the box is not ready. The
+        # named command is the missing step — `ava up` starts the WEB APP, never
+        # an inference engine, and nothing else in the install docs says so.
+        print(f"{BAD} No inference backend is reachable, so chat cannot answer yet.")
+        print("   Start an engine, then re-run this check:")
+        print("     ava models pull --auto          # download a model, once")
+        print("     bash deploy/local-serve.sh      # NVIDIA + Docker: serve it with vLLM")
+        print("     # or on Apple Silicon / CPU:  ollama serve  &&  ollama pull <model>")
+        print("     ava doctor\n")
+        return 2
     return 0
 
 
@@ -400,7 +420,16 @@ def cmd_setup(args) -> int:
     cp = _write_gpusvc_paths(dirs["gpusvc"])
     _row(OK, "gpusvc paths", cp or "kept existing gpusvc/extra_model_paths.yaml")
 
-    print(f"\n{G}Setup complete.{X} Next:  ava models pull --auto   then   ava doctor   then   ava up\n")
+    # Keep these four steps in sync with README.md and deploy/README.md —
+    # tests/test_install_steps.py fails if any of them drifts. The engine step is
+    # the one that used to be missing everywhere: `ava up` starts the web app and
+    # never an inference engine, so the three-step version handed the user a chat
+    # box that 503s on the first message.
+    print(f"\n{G}Setup complete.{X} Next:")
+    print("  ava models pull --auto        # download a model that fits this box")
+    print("  bash deploy/local-serve.sh    # serve it (Apple Silicon/CPU: ollama serve)")
+    print("  ava doctor                    # exits non-zero if nothing can answer")
+    print("  ava up                        # start the web app\n")
     return 0
 
 
@@ -931,7 +960,7 @@ def _pull_hf(model_id: str, hf_dir: str) -> int:
             cmd = [exe, "download", model_id]
             print(f"  $ HF_HOME={hf_dir} {' '.join(cmd)}")
             return subprocess.call(cmd, env=env)
-    print(f"  {WARN} huggingface CLI not found — pip install 'huggingface_hub[cli]'")
+    print(f"  {WARN} huggingface CLI not found — pip install huggingface_hub")
     return 1
 
 

@@ -145,8 +145,11 @@ enroll your voice.
 
 ```bash
 python3 -m venv .venv && . .venv/bin/activate
-pip install -e .                       # editable — Ava runs from this checkout
-ava setup && ava doctor && ava up
+pip install -e .                # editable — Ava runs from this checkout
+ava setup                       # AVA_HOME, secrets, admin password
+ava models pull --auto          # a model that fits your box (once, large)
+bash deploy/local-serve.sh      # serve it — `ava up` runs the web app, not an engine
+ava doctor && ava up            # doctor exits non-zero if nothing can answer yet
 ```
 
 `ava verify` then proves every advertised capability end-to-end. (No install
