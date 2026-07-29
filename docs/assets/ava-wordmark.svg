@@ -1,0 +1,11 @@
+<!-- Ava wordmark. Vector trace of the brand master
+     frontend/public/assets/icons/AVA_logo_transparent_4x.png (the transparent
+     4x PNG), simplified to its 50 real vertices — the letterforms are all
+     straight edges, so this is the exact geometry, not an approximation.
+
+     Filled with `currentColor` on purpose: the master's ink is #0f1927, which
+     scores 15.9:1 on the light canvas but 1.06:1 on the dark one, i.e. it
+     disappears. The docs apply this file as a CSS mask (.ava-wordmark in
+     docs-site/stylesheets/extra.css) so one asset inks itself from the
+     surrounding text color and stays legible in both schemes. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2449 1060" role="img" aria-label="Ava"><title>Ava</title><path fill="currentColor" fill-rule="evenodd" d="M1233.0 1060.0L1157.1 1060.0L844.0 451.7L636.9 20.0L891.7 20.0L896.0 24.6L1203.7 641.5L1206.3 653.1L1168.0 756.5L1152.0 805.5L1153.9 813.1L1520.0 26.2L1525.2 20.0L1780.5 20.5L1308.9 1060.0ZM136.5 875.7L18.5 875.8L16.1 871.5L424.0 26.2L429.2 20.0L522.8 20.0L954.1 874.0L721.6 876.0L653.1 734.8L316.7 734.6L254.5 875.5ZM1638.2 875.8L1521.0 876.0L1524.0 865.1L1920.0 29.5L1926.0 20.0L2007.5 20.0L2436.5 875.5L2205.5 875.5L2138.4 734.5L1817.8 734.5L1755.5 875.5ZM480.5 580.0L576.8 580.0L580.0 574.3L484.0 352.5L476.5 347.5L383.0 578.1ZM1974.6 579.8L2072.0 577.4L1984.0 379.2L1975.5 349.5L1970.6 349.5L1876.8 576.9L1877.9 580.0Z"/></svg>

@@ -1,0 +1,150 @@
+# Ava — generic public system overview.
+# Hand-authored for the public README; contains NO deployment-specific apps.
+# Render:  d2 --theme 0 --layout elk --pad 24 architecture.d2 architecture.svg
+
+direction: right
+
+style: {
+  fill: "#ffffff"
+}
+
+classes: {
+  grp: {
+    style: {
+      stroke: "#94a3b8"
+      stroke-width: 1
+      fill: "#ffffff"
+      font-color: "#c96442"
+      font-size: 13
+      bold: true
+    }
+  }
+  node: {
+    style: {
+      stroke: "#e2e8f0"
+      stroke-width: 1
+      fill: "#f8fafc"
+      font-color: "#1e293b"
+      font-size: 11
+      border-radius: 6
+    }
+  }
+}
+
+clients: "Clients\nphone · browser · voice" {
+  class: node
+}
+
+net: "Access path\nloopback by default\nTailscale · reverse proxy optional" {
+  class: node
+}
+
+config: "Config & first-run\nava.yaml · secrets · brand\nBYO hardware / models / apps" {
+  class: node
+}
+
+bridge: "Ava Bridge  (FastAPI)" {
+  class: grp
+  gate: "Auth gate (middleware)\nsession cookie · /internal/* scoped tokens" {
+    class: node
+  }
+  web: "Web app +\nVitals & Operations\ndata-driven nav" {
+    class: node
+  }
+  api: "REST API\n/api/apps · /apps/<id>" {
+    class: node
+  }
+}
+
+agent: "Agent runtime  (pluggable · sandboxed)" {
+  class: grp
+  adapter: "AgentRuntime adapter\nNemoClaw (default) · Remote (Docker)\nDirect chat (fallback)" {
+    class: node
+  }
+  tools: "Tools" {
+    class: node
+  }
+  skills: "Skills" {
+    class: node
+  }
+  memory: "Memory" {
+    class: node
+  }
+}
+
+infer: "Inference router\nOpenAI-compatible · hardware-aware" {
+  class: grp
+  router: "Fit router\nworkload → model · failover" {
+    class: node
+  }
+  hal: "Hardware layer (HAL)\nVRAM / unified memory · GPU" {
+    class: node
+  }
+  local: "Local model(s)\nvLLM · Ollama · MLX" {
+    class: node
+  }
+}
+
+media: "Media engine\nimage (the GPU service)" {
+  class: node
+}
+
+conn: "Connectors  (drop-in apps)" {
+  class: grp
+  ex: "your app\nUI tile · agent tools\nhealth · perf · egress" {
+    class: node
+  }
+}
+
+clients -> net: "" {
+  style.stroke: "#94a3b8"
+}
+net -> bridge.gate: "" {
+  style.stroke: "#94a3b8"
+}
+bridge.gate -> bridge.web: "" {
+  style.stroke: "#94a3b8"
+}
+bridge.gate -> bridge.api: "" {
+  style.stroke: "#94a3b8"
+}
+config -> bridge: "configures" {
+  style.stroke: "#94a3b8"
+  style.stroke-dash: 3
+}
+bridge.api -> agent.adapter: "" {
+  style.stroke: "#94a3b8"
+}
+bridge.api -> infer: "" {
+  style.stroke: "#94a3b8"
+}
+bridge.api -> media: "" {
+  style.stroke: "#94a3b8"
+}
+bridge.api -> conn.ex: "" {
+  style.stroke: "#94a3b8"
+}
+agent.adapter -> infer: "" {
+  style.stroke: "#94a3b8"
+}
+agent.tools -> bridge.gate: "" {
+  style.stroke: "#94a3b8"
+}
+agent.adapter -> agent.tools: "" {
+  style.stroke: "#94a3b8"
+}
+agent.adapter -> agent.skills: "loads" {
+  style.stroke: "#94a3b8"
+  style.stroke-dash: 3
+}
+agent.adapter -> agent.memory: "persists" {
+  style.stroke: "#94a3b8"
+  style.stroke-dash: 3
+}
+infer.router -> infer.hal: "fit signal" {
+  style.stroke: "#94a3b8"
+  style.stroke-dash: 3
+}
+infer.router -> infer.local: "" {
+  style.stroke: "#94a3b8"
+}

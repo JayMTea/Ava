@@ -1,0 +1,51 @@
+# The `remote` agent runtime (docs/AGENT_RUNTIME.md).
+# Hand-authored in the same visual language as agent/docs/arch.py's generated
+# diagrams (white sheet, warm-accent group titles, light rounded nodes).
+# Render: d2 --theme 0 --layout tala --pad 24 agent-remote-runtime.d2 agent-remote-runtime.svg
+
+direction: right
+
+vars: {
+  d2-config: {
+    layout-engine: tala
+  }
+}
+
+style: {
+  fill: "#ffffff"
+}
+
+bridge: "Bridge (experience plane)" {
+  style.font-size: 14
+  style.stroke: "#94a3b8"
+  style.fill: "#ffffff"
+  style.font-color: "#c96442"
+  style.bold: true
+  ava: "ava (bridge)\nRemoteRuntime client" {style.fill: "#f8fafc"; style.font-color: "#1e293b"; style.stroke: "#e2e8f0"; style.stroke-width: 1; style.border-radius: 6; style.font-size: 11}
+  router: "inference router\nava:8010 /v1" {style.fill: "#f8fafc"; style.font-color: "#1e293b"; style.stroke: "#e2e8f0"; style.stroke-width: 1; style.border-radius: 6; style.font-size: 11}
+}
+
+agentc: "Agent container (capability plane)" {
+  style.font-size: 14
+  style.stroke: "#94a3b8"
+  style.fill: "#ffffff"
+  style.font-color: "#c96442"
+  style.bold: true
+  shim: "nemoclaw + shim :9100\nauth-gated, never published" {style.fill: "#f8fafc"; style.font-color: "#1e293b"; style.stroke: "#e2e8f0"; style.stroke-width: 1; style.border-radius: 6; style.font-size: 11}
+  sock: "host docker.sock\n(root-equivalent, opt-in)" {shape: page; style.fill: "#f8fafc"; style.font-color: "#1e293b"; style.stroke: "#e2e8f0"; style.stroke-width: 1; style.border-radius: 6; style.font-size: 11}
+}
+
+sandbox: "OpenShell sandbox" {
+  style.font-size: 14
+  style.stroke: "#94a3b8"
+  style.fill: "#ffffff"
+  style.font-color: "#c96442"
+  style.bold: true
+  tools: "agent tools\n(egress-policed)" {style.fill: "#f8fafc"; style.font-color: "#1e293b"; style.stroke: "#e2e8f0"; style.stroke-width: 1; style.border-radius: 6; style.font-size: 11}
+}
+
+bridge.ava -> agentc.shim: "HTTP /run_turn, /exec, ..." {style.stroke: "#94a3b8"; style.font-color: "#1e293b"; style.font-size: 11}
+agentc.shim -> agentc.sock: "spawns via socket" {style.stroke: "#94a3b8"; style.font-color: "#1e293b"; style.font-size: 11}
+agentc.sock -> sandbox.tools: "runs" {style.stroke: "#94a3b8"; style.font-color: "#1e293b"; style.font-size: 11}
+sandbox.tools -> bridge.router: "/v1 inference" {style.stroke: "#94a3b8"; style.font-color: "#1e293b"; style.font-size: 11}
+sandbox.tools -> bridge.ava: "/internal/* · scoped token" {style.stroke: "#94a3b8"; style.font-color: "#1e293b"; style.font-size: 11}
