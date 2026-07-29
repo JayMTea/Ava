@@ -9,9 +9,11 @@
 #   policies/   -> least-privilege egress presets (one per source), all applied
 #   skills/     -> native skills installed via `nemoclaw skill install`
 #   persona.txt.tmpl -> the assistant's identity template, rendered from ava.yaml
-#                       (brand/owner/persona) and written to
-#                       agents.defaults.systemPromptOverride. Edit ava.yaml to
-#                       re-brand — no source edits.
+#                       (brand/owner/persona) and written to the agent
+#                       workspace as IDENTITY.md, which OpenClaw folds into the
+#                       system prompt it generates. Edit ava.yaml to re-brand —
+#                       no source edits. (Before OpenClaw removed it, this went
+#                       to agents.defaults.systemPromptOverride; see §4/5.)
 #
 # To add a capability: run ./new-tool.sh <name>, implement it, add a policy if it
 # needs network, then re-run ./install.sh. Nothing else to wire up.
@@ -172,7 +174,28 @@ function server(path, tokenGroup) {
 d.agents = d.agents || {};
 delete d.agents.main;
 d.agents.defaults = d.agents.defaults || {};
-d.agents.defaults.systemPromptOverride = process.env.AVA_P;
+
+// The persona used to live in agents.defaults.systemPromptOverride. OpenClaw
+// removed that key ("OpenClaw owns the generated system prompt"), and leaving
+// it behind makes the WHOLE CONFIG INVALID — the agent then refuses to run:
+//
+//     OpenClaw config is invalid
+//       - agents.defaults: Invalid input
+//
+// `openclaw doctor --fix` repairs that by deleting the key, which silently
+// strips Ava's persona and leaves her answering as the base model.
+//
+// The replacement is a workspace bootstrap file. OpenClaw seeds
+// IDENTITY.md / SOUL.md / USER.md into the agent workspace and folds them into
+// the system prompt it generates — see the `skipOptionalBootstrapFiles` config
+// key, which enumerates exactly those files. Writing the rendered persona to
+// IDENTITY.md restores the previous behaviour: verified on a fresh session,
+// where the agent went from "I am Nemotron" to "I'm Max, assisting Alpha
+// Tester".
+delete d.agents.defaults.systemPromptOverride;
+const wsDir = "/sandbox/.openclaw/workspace";
+fs.mkdirSync(wsDir, { recursive: true });
+fs.writeFileSync(wsDir + "/IDENTITY.md", process.env.AVA_P);
 d.tools = d.tools || {};
 d.tools.toolSearch = false;
 d.mcp = d.mcp || {};
@@ -186,7 +209,7 @@ for (const k of Object.keys(d.mcp.servers)) {
 for (const s of servers) d.mcp.servers[s.name] = server(s.path, s.group);
 
 fs.writeFileSync(f, JSON.stringify(d, null, 2));
-console.log("[ava] config written, " + servers.length + " servers registered, persona=" + process.env.AVA_P.length + " chars");
+console.log("[ava] config written, " + servers.length + " servers registered, persona=" + process.env.AVA_P.length + " chars -> workspace/IDENTITY.md");
 JS
 )"
 JS_B64="$(printf %s "$JS" | base64 -w0)"
