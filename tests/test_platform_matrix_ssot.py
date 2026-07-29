@@ -201,3 +201,25 @@ def test_the_rendered_docs_tables_match_the_conf() -> None:
         f"these rendered tables no longer match deploy/platforms.conf: {stale} — "
         "run `python3 -m ava_bridge.platforms --sync` and commit the result. "
         "Edit the conf, never the table.")
+
+
+def test_the_platform_simulator_passes_for_every_simulable_row() -> None:
+    """Run tools/platform_sim_audit.py in-process, so CI covers the whole chain.
+
+    The unit tests cover the parsers; this covers the DECISIONS built on them —
+    hwinfo -> model_fit -> platforms.detect, unmocked above the HAL. It is the
+    only automated check that a matrix row and the code actually agree about a
+    platform nobody here owns.
+
+    Invoked as a subprocess rather than imported because the audit monkeypatches
+    module globals and mutates os.environ; letting it do that inside the pytest
+    process would leak platform state into every test that runs after it.
+    """
+    import subprocess
+    import sys
+    r = subprocess.run([sys.executable, "tools/platform_sim_audit.py"],
+                       cwd=ROOT, capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, (
+        "tools/platform_sim_audit.py failed — a simulated platform no longer "
+        "reaches the conclusion deploy/platforms.conf claims for it:\n"
+        + (r.stdout or "")[-3000:] + (r.stderr or "")[-1000:])

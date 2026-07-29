@@ -83,6 +83,18 @@ if [ -n "${AVA_PROFILE:-}" ]; then
 fi
 
 # Auto-pick a profile from available hardware.
+# Say up front how well this exact hardware class is actually known. The support
+# matrix is worthless if it lives only in the docs — an owner should learn at
+# install time whether their platform is verified on real hardware or merely
+# simulated, because that is the difference between "this works" and "the logic
+# is tested and the numbers are unconfirmed". Best-effort: a missing checkout,
+# missing python3 or unparsable table must never block an install.
+if command -v python3 >/dev/null 2>&1 && [ -n "${_SCRIPT_DIR:-}" ]; then
+  _tier_line="$(cd "${_SCRIPT_DIR}/.." 2>/dev/null \
+                && python3 -m ava_bridge.platforms --detect 2>/dev/null)" || _tier_line=""
+  [ -n "${_tier_line}" ] && say "Platform: ${_tier_line}"
+fi
+
 # Having a GPU is not the same as having enough of one: the gpu profile serves a
 # model on vLLM, and if the weights plus KV cache do not fit, the container fails
 # its start check and Docker retries it. Detecting that here — where we can say so

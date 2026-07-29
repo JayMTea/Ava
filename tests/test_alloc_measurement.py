@@ -46,6 +46,19 @@ ALLOWED = {
     # with no subprocess and no /proc access, and `test_platform_matrix_ssot.py`
     # covers its behaviour.
     "ava_bridge/platforms.py",
+    # Diagnostics, not decision paths. `ondevice_check.py` exists to dump what a
+    # real machine reports — nvidia-smi, rocm-smi, xpu-smi, the amdgpu sysfs
+    # leaves — so a reading can be compared against what the HAL concluded, and
+    # `platform_sim_audit.py` replays recorded/constructed versions of those same
+    # leaves through the HAL. Both must name the misleading sources verbatim;
+    # that is the point of them. Neither is imported by the bridge, and neither
+    # gates an allocation: they print. `tools/` is operator tooling, so a real
+    # reader added there would not be caught here — the rule this guard protects
+    # is about ava_bridge/, which is still fully covered.
+    "tools/ondevice_check.py",
+    "tools/platform_sim_audit.py",
+    "tools/mac_ondevice_check.py",
+    "tools/mac_sim_audit.py",
 }
 
 # Readers that are wrong for a fit decision. Each is a real trap, not a style rule:

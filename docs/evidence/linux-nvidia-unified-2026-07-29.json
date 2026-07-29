@@ -1,24 +1,24 @@
 {
   "schema": "ava-ondevice/1",
   "platform_key": "linux-nvidia-unified",
-  "recorded_utc": "2026-07-29T18:19:44Z",
+  "recorded_utc": "2026-07-29T18:31:19Z",
   "host": {
     "machine": "aarch64",
     "system": "Linux",
     "release": "6.17.0-1026-nvidia",
     "python": "3.12.3"
   },
-  "repo_head": "71da3d7",
-  "repo_dirty_files": 3,
+  "repo_head": "130f1c3",
+  "repo_dirty_files": 4,
   "hwinfo": {
     "platform": "linux-nvidia",
     "fit_memory": {
-      "free_gb": 53.3,
+      "free_gb": 51.0,
       "total_gb": 121.7,
       "source": "system-psutil"
     },
     "system_memory": {
-      "free_gb": 53.3,
+      "free_gb": 51.0,
       "total_gb": 121.7,
       "source": "system-psutil"
     },
@@ -27,7 +27,7 @@
         "name": "NVIDIA GB10",
         "util": 0.0,
         "temp_c": 38.0,
-        "power_w": 5.97,
+        "power_w": 5.43,
         "mem_used_gb": null,
         "mem_total_gb": null,
         "source": "nvidia-smi"
@@ -50,7 +50,10 @@
     }
   },
   "raw": {
-    "nvidia_smi_query": "NVIDIA GB10, [N/A], [N/A], 5.98 W",
+    "nvidia_smi_query": "NVIDIA GB10, [N/A], [N/A], 5.44 W",
+    "rocm_smi_json": "",
+    "xpu_smi_stats": "",
+    "sysctl_brand": "",
     "drm_cards": [
       [
         "/sys/class/drm/card0",
@@ -61,11 +64,29 @@
         "0x10de"
       ]
     ],
+    "drm_sysfs": {
+      "card0": {
+        "vendor": null,
+        "mem_info_vram_total": null,
+        "mem_info_vram_used": null,
+        "mem_info_gtt_total": null,
+        "gpu_busy_percent": null,
+        "product_name": null
+      },
+      "card1": {
+        "vendor": "0x10de",
+        "mem_info_vram_total": null,
+        "mem_info_vram_used": null,
+        "mem_info_gtt_total": null,
+        "gpu_busy_percent": null,
+        "product_name": null
+      }
+    },
     "meminfo_total_kb": "127600528"
   },
-  "notes": [
-    "VRAM query returns [N/A] on this unified-memory part, which is WHY fit_memory falls through to the system pool. That is the behaviour being evidenced, not a failure.",
-    "GPU power IS readable here (nvidia-smi power.draw), so this platform's energy figures can be measured rather than estimated.",
-    "No usable RAPL: /sys/class/powercap exists and is EMPTY on this aarch64 host, so CPU-package power is unavailable."
-  ]
+  "checks": {
+    "hard_failures": [],
+    "warnings": []
+  },
+  "notes": []
 }

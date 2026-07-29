@@ -45,10 +45,27 @@ AMD hardware and Strix Halo cannot be rented — see the warning at the top of
 someone runs the on-device check or the repo goes public and a `macos-14` CI
 runner becomes available.
 
-## Run this on an Apple Silicon Mac
+## Promoting a row: run the checker on the real machine
+
+One command does the validation and produces the artifact a tier has to cite:
 
 ```bash
-pip install -r requirements.txt          # pulls psutil; nvidia-ml-py stays inactive
+pip install -r requirements.txt      # psutil; nvidia-ml-py stays inactive off NVIDIA
+python3 tools/ondevice_check.py      # look at it
+python3 tools/ondevice_check.py --record   # write docs/evidence/<key>-<date>.json
+```
+
+It refuses to record when there are hard failures, or when the machine matches no
+row — evidence from a box that fails its own checks is worse than none. Then point
+that row's `evidence` at the file, raise its `tier`, and run
+`python3 -m ava_bridge.platforms --sync` so both docs tables follow.
+
+`python3 tools/ondevice_check.py --json` is the same report on stdout, for pasting
+into an issue when you have hardware the maintainer does not.
+
+### Apple Silicon specifics
+
+```bash
 python3 -c "import json; from ava_bridge import hwinfo; print(json.dumps(hwinfo.snapshot(), indent=2))"
 ```
 

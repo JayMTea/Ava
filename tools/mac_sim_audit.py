@@ -6,7 +6,7 @@ hardware readers monkeypatched to look exactly like an Apple-Silicon Mac Studio
 with 256 GiB unified memory and no NVIDIA GPU. Proves the decision logic (platform
 detection, unified-memory fit, model routing, wizard tiering) behaves correctly
 BEFORE we get SSH to the real machine. The absolute byte-for-byte numbers still
-need on-device validation — that's what the companion harness (mac_ondevice_check.py)
+need on-device validation — that's what the companion harness (tools/ondevice_check.py)
 is for.
 
 Usage:  python mac_sim_audit.py
@@ -217,7 +217,7 @@ def main():
         print(f"  \033[31m{_failures} simulated check(s) FAILED.\033[0m")
         sys.exit(1)
     print("  \033[32mAll simulated Mac Studio checks passed.\033[0m")
-    print("  Logic is sound; run mac_ondevice_check.py on the real machine to "
+    print("  Logic is sound; run tools/ondevice_check.py --record on the real machine to "
           "confirm the numbers.")
     sys.exit(0)
 
