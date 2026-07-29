@@ -23,7 +23,7 @@ every view is bookmarkable and the browser's back button moves between them.
 | View | What it does | Backed by | In detail |
 |------|--------------|-----------|-----------|
 | **Chats** | Every typed message enters through one endpoint and a server-side gate picks the pipeline: agent turn, image render, or a direct answer. Live chain of thought, file attachments, generated images, side-panel artifacts, and push-to-talk. | `POST /api/chat-stream` | [Chat, voice & creation](chat.md) |
-| **Vitals** | Ava's performance across every app — spend, energy, throughput, time-to-first-token, renders, route errors — computed from her own logged generations rather than estimated. | `/api/perf/*`, `/api/hardware` | [Vitals](vitals.md) |
+| **Vitals** | Ava's performance across every app — spend, throughput, time-to-first-token, renders, route errors — computed from her own logged generations rather than estimated, plus energy, which is estimated from GPU wattage and labelled as such. | `/api/perf/*`, `/api/hardware` | [Vitals](vitals.md) |
 | **Operations** | What is running right now, what needs a decision from you, and the Control Center where approvals, learning proposals and staged code diffs are acted on. | `/api/ops/*` plus the `/api/stream/ops` SSE feed | [Operations](operations.md) |
 | **Data** | A live inventory of every store on disk — named, sized, path-stamped — with browse, export and audited delete for each one. | `/api/data/stores` | [Data, memory & privacy](data.md) |
 | **Setup** | Browser-based configuration: hardware, the brain and model store, the agent runtime and its skills, connectors, voice enrollment, memory, budgets, the audit history, and system governance. | `/api/hub/*` | [Apps, devices & MCP](connectors.md), [the agent](agent.md), [Data, memory & privacy](data.md) |
@@ -37,6 +37,9 @@ Everything else in the nav is derived, not coded. `GET /api/apps` returns one
 entry per connector that declares a `ui:` block; the sidebar renders that list
 directly. **Adding an app adds a tab — no change to Ava's core, no frontend
 edit, no rebuild.** Drop a `connector.yaml` folder in and the tile appears.
+That holds for `embed: iframe` and `embed: none`; an `embed: native` view is
+compiled into the bundle by definition, so it is the one mode that does need a
+frontend change (see below).
 
 How the tab renders is the manifest's choice:
 

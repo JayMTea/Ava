@@ -237,6 +237,22 @@ Every call through that route is recorded:
 Read the ledger under **Setup → History**, or export it from
 [Data](data.md) → Maintenance.
 
+### What contains the server, per transport
+
+The paragraphs above are about the **agent**, and they hold for every MCP
+transport. What is contained on the *server* side differs, and it is worth
+stating plainly rather than leaving one sentence to cover three cases:
+
+| `transport` | What constrains the server |
+|---|---|
+| `http` / `sse` | **Nothing.** The bridge posts to the URL from your manifest. There is no host allow-list and no SSRF guard on this path — unlike Ava's web-search fetch, which re-validates every redirect hop. A remote MCP server is as trusted as the operator who declared it. |
+| `stdio` + `sandbox: docker` | A throwaway container: read-only rootfs, tmpfs `/tmp` and `/root`, `--cpus 1`, `--memory 512m`, `--pids-limit 256`, `no-new-privileges`, no host mounts, and only the `env:` your manifest declares. Network defaults to `bridge` (outbound is open) — set `network: none` to cut it. |
+| `stdio` (default) | A host process running as the bridge user, with your filesystem and your network. The one mitigation is that Ava passes it a **stripped environment** rather than `os.environ`, so it does not inherit `ANTHROPIC_API_KEY` or your connector credentials — anything it legitimately needs you declare in `env:`. |
+
+So `sandbox: docker` is the setting that makes "contained" true of the server as
+well as the agent. Ava negotiates MCP revision `2025-03-26`
+(`ava_bridge/mcp_client.py`).
+
 ## Devices
 
 A connector is a device if it declares `role: device` **or** an `ingest:`

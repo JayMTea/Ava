@@ -20,7 +20,7 @@ and Operations, so the same metric never gets two explanations.
 | Tile | What it is | Where it comes from |
 |---|---|---|
 | **Spend (7d)** | Cloud API dollars in the window. Running locally is free — this only moves when a paid cloud model answers. | `GET /api/perf/cost?since=7d&group=app` |
-| **Energy (7d)** | GPU kilowatt-hours. Labelled **"Energy (7d, est.)"** with an explicit "no GPU power sensor" hint when the box reports no power draw. | same call; `power_measured` decides the label |
+| **Energy (7d)** | GPU kilowatt-hours. Labelled **"Energy (7d, est.)"** unless every watt-hour in the window was sampled — which for a 7-day window it essentially never is (see below). The hint distinguishes "part measured" from "no GPU power sensor". | same call; `energy_state` (`measured`/`partial`/`estimated`) decides the label |
 | **Throughput** | Average tokens/sec across models, weighted by completion count. Sub-line shows how many completions it averaged. | `GET /api/perf/summary` |
 | **TTFT** | Average time to first token — how long before Ava starts replying. | same summary |
 | **Renders** | Image + video generations completed, with upscales on the sub-line. | same summary |
@@ -192,12 +192,20 @@ Money and electricity are estimated from the same records, using two inputs
 you control:
 
 - **An electricity rate** (`cost.electricity_rate_per_kwh`, editable in
-  **Setup → Budgets**) turns GPU watt-seconds into dollars. Energy per
-  generation is average GPU power × generation seconds; the average comes
-  from real power samples when the GPU reports them, and falls back to
-  `nominal_gpu_watts` when it doesn't. The API returns a `power_measured`
-  flag for exactly that reason, and the UI is required to label an estimate
-  as an estimate rather than present it as a measured dollar figure.
+  **Setup → Budgets**) turns GPU watt-seconds into dollars. Energy is average
+  GPU power × generation seconds — one window-wide average applied to every
+  record, not a per-generation power reading. Records inside the hot window
+  (`perf.hot_window`, 48 h) use an average of recent real power samples;
+  **everything older comes from rollups whose watt-hours are
+  `nominal_gpu_watts × seconds`, so a long window is mostly nominal.** The API
+  returns `energy_state` (`measured` when the whole window was sampled,
+  `partial` when only the hot tail was, `estimated` when nothing was) plus
+  `energy_estimated_kwh`, and the UI is required to label an estimate as an
+  estimate rather than present it as a measured dollar figure. `power_measured`
+  is retained as `energy_state == "measured"`; the separate
+  `power_sampled_now` reports whether the GPU is reporting power *right now*,
+  which is a different question — it was once used to label whole windows, and
+  that is the bug these fields exist to prevent.
 - **Per-model prices** (`config/cost.yaml`, USD per million tokens, matched
   as a substring against the served model name, longest match wins) turn
   prompt and completion tokens into spend. Local models have no entry, so
@@ -296,9 +304,19 @@ Every store here is listed, sized and browsable on the
 
 ## Limitations (honest edition)
 
-- **Energy is an estimate on any box without a power sensor.** With no GPU
-  power samples, `nominal_gpu_watts` (default 180 W) stands in, and the UI
-  says so in the tile label. Treat that number as an order of magnitude.
+- **Energy is always partly an estimate.** With no GPU power samples,
+  `nominal_gpu_watts` (default 180 W) stands in for everything. With samples,
+  only the last `perf.hot_window` (48 h) uses them — older buckets are nominal,
+  so any window longer than two days is mostly estimated and the tile says
+  "est." accordingly. Treat the number as an order of magnitude.
+- **Per-app energy is a time-share attribution, not a per-app measurement.**
+  Whole-GPU wattage is multiplied by each app's own seconds, so two apps
+  generating concurrently are each charged the full GPU and the split can
+  exceed total draw. It answers "which app is responsible for the most GPU
+  time" honestly; it is not a per-app power meter.
+- **Only NVIDIA reports power today.** `nominal_gpu_watts` is a single global
+  default measured on one machine, so on Apple Silicon, AMD and CPU-only boxes
+  the energy figure is an estimate derived from an unrelated GPU's draw.
 - **Cost is only as good as the price table.** A cloud model with no entry in
   `config/cost.yaml` contributes \$0 to spend. Add its key if you route to it.
 - **Throughput needs a cooperative endpoint.** Tokens/sec and TTFT are only

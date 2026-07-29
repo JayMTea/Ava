@@ -56,11 +56,25 @@ ava agent provision               # deploy Ava's tools/policies/skills into it
 ava agent status                  # verify: CLI, sandbox, active runtime, health
 ```
 
-> **Installing the CLI:** NemoClaw is installed by NVIDIA's official installer
-> (`curl -fsSL https://raw.githubusercontent.com/NVIDIA/NemoClaw/main/install.sh | bash`),
+> **Installing the CLI:** NemoClaw is installed by NVIDIA's official installer,
 > **not** `npm install -g nemoclaw` (that package is an empty stub). It needs
 > **Node ≥ 22.16** and a reachable Docker daemon. `ava agent provision --install`
 > runs this for you.
+>
+> **Pin it to the same ref the container path uses.** `deploy/agent.Dockerfile`
+> pins `NEMOCLAW_INSTALL_REF` deliberately, so that installing from `main` here
+> would give bare-metal and Docker installs two different agent runtimes — the
+> exact drift that ARG exists to prevent. Read the pin out of the Dockerfile
+> rather than hardcoding a version in this doc, which is how it went stale before:
+>
+> ```bash
+> REF="$(sed -n 's/^ARG NEMOCLAW_INSTALL_REF=//p' deploy/agent.Dockerfile)"
+> curl -fsSL "https://raw.githubusercontent.com/NVIDIA/NemoClaw/${REF}/install.sh" | bash
+> ```
+>
+> NemoClaw is pre-1.0 and ships roughly weekly, with rebuild-on-upgrade notes on
+> some releases — so treat the pin as load-bearing and bump it deliberately
+> (`https://github.com/NVIDIA/NemoClaw/tags`), not by drifting onto `main`.
 
 `ava agent provision` is idempotent. Re-run it any time, and after
 `nemoclaw <name> rebuild`.
