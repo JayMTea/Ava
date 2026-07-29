@@ -156,7 +156,7 @@ def _env_backend() -> dict | None:
 def load_backends() -> list:
     """Inference backends from ava.yaml `inference.backends`, ordered
     primary -> fallback -> the rest; else a single env-declared backend
-    (AVA_BACKEND_URL); else the always-on model default — a fresh install works.
+    (AVA_BACKEND_URL); else the shipped default backend — a fresh install works.
 
     Each backend is ANY OpenAI-compatible endpoint. `api_key_env` names an env
     var sent as a Bearer token. `tools: native|none` says whether the endpoint

@@ -89,7 +89,7 @@ export function VitalsView() {
         <StatCard label="Renders" value={fmtInt((s?.image?.count || 0) + (s?.video?.count || 0))}
           hint={`${fmtInt(s?.upscale?.count || 0)} upscales`} help={METRICS.renders} />
         <StatCard label="Route Errors" value={fmtInt(failovers)}
-          tone={failovers ? 'warn' : 'ok'} hint="always-on model" help={METRICS.routeErrors} />
+          tone={failovers ? 'warn' : 'ok'} hint="primary → fallback" help={METRICS.routeErrors} />
       </div>
 
       {/* Budget meter — only when a budget is configured (Setup → Budgets) */}

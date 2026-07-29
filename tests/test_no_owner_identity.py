@@ -55,7 +55,13 @@ _FORBIDDEN: list[tuple[re.Pattern, str]] = [
     # Deliberately NOT matching a bare "30B": the parameter count is a model
     # CLASS, and "~30B-class models" is the fork-neutral phrasing this guard is
     # trying to produce. What must not appear is the checkpoint's NAME.
-    (re.compile(r"Nemotron-Open|nano[-\s]omni|vllm-open", re.I),
+    # "always-on model" is the same checkpoint by a shorter name, and it slipped
+    # past the id-shaped and prose-shaped patterns alike because it drops
+    # "Nano". It shipped as a Vitals tile hint, so every forker's dashboard
+    # labelled Route Errors with a model they do not run — and being a string in
+    # frontend/src, it was baked into the tracked dist bundle too.
+    (re.compile(r"Nemotron-Open|nano[-\s]omni|vllm-open|always-on\s+omni",
+                re.I),
      "the maintainer's personal 30B checkpoint — use the shipped default from "
      "deploy/default-model.env, and document this one as an upgrade instead"),
     # The maintainer's machine. Real hostnames reached tracked docs twice via
