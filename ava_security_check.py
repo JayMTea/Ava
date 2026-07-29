@@ -91,31 +91,10 @@ def check_policy_wildcards(errors: list[str]) -> None:
             errors.append(f"{rel} allows /**; enumerate specific route paths instead")
 
 
-def check_removed_containers(errors: list[str]) -> None:
-    try:
-        out = subprocess.run(
-            ["docker", "ps", "-a", "--format", "{{.Names}}"],
-            capture_output=True, text=True, timeout=5)
-    except Exception as exc:  # noqa: BLE001
-        errors.append(f"could not inspect Docker containers: {exc}")
-        return
-    names = {line.strip() for line in out.stdout.splitlines() if line.strip()}
-    # Ava is Omni-only: her single always-on brain is the open-model 30B engine.
-    # The retired Super/Nano models must not run ALONGSIDE it — together they
-    # exceed the unified memory pool. (They may still run standalone for other
-    # apps before the always-on model switch; only the co-resident case is unsafe.)
-    retired = names & {"vllm-super", "vllm-nano"}
-    if "vllm-open" in names and retired:
-        errors.append(
-            f"retired {sorted(retired)} running alongside vllm-open — they exceed "
-            "the unified memory pool together; stop them (Ava is Omni-only)")
-
-
 def main() -> int:
     errors: list[str] = []
     check_secret_permissions(errors)
     check_policy_wildcards(errors)
-    check_removed_containers(errors)
     check_ports(errors)
     if errors:
         print("Ava security check FAILED:")

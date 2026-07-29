@@ -48,7 +48,7 @@ An LLM completion served through the inference router adds the facts the
 router knows: the serving engine, the endpoint, which backend answered,
 whether it was a failover, the HTTP status, prompt/completion/total tokens,
 tokens per second, time to first token, generation seconds, and the sampling
-parameters used. A real line, straight off disk:
+parameters used. A real line, straight off disk (hostname stubbed):
 
 ```json
 {"ts":1785258062.146,"iso":"2026-07-28T10:01:02","host":"ava-host",

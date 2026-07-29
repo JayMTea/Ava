@@ -58,6 +58,24 @@ _FORBIDDEN: list[tuple[re.Pattern, str]] = [
     (re.compile(r"Nemotron-Open|nano[-\s]omni|vllm-open", re.I),
      "the maintainer's personal 30B checkpoint — use the shipped default from "
      "deploy/default-model.env, and document this one as an upgrade instead"),
+    # Private sibling apps. These live outside this repo and are excluded by name
+    # in .git/info/exclude precisely so the names are not published — but the
+    # exclusion only stops the DIRECTORIES shipping, not a prose mention, a code
+    # comment, a docs table, or a token name. Every one of these leaked that way
+    # at least once: a capabilities page tabulated two of them as if they shipped,
+    # the SDK sidecar's usage line named their token env vars, and .gitignore
+    # itself listed one. A forker cannot obtain any of them, so naming them
+    # documents a product that does not exist and identifies the maintainer's
+    # other work. Use the shipped examples/ apps in documentation instead.
+    (re.compile(r"\bledger\b|\bava-notes\b|persona[-_]studio|LedgerBackend"
+                r"|\bnutrifit\b|MYAPP_TOKEN|MYAPP_MCP_TOKEN", re.I),
+     "a private sibling app (or its token env var) — use examples/hello-app, "
+     "examples/device-app or examples/home-assistant in docs and comments"),
+    # The maintainer's machine. Real hostnames reached tracked docs twice via
+    # pasted log lines labelled "straight off disk"; a stub reads identically.
+    (re.compile(r"\bspark-[0-9a-f]{4}\b", re.I),
+     "the maintainer's hostname from a pasted log line — stub it (e.g. "
+     '"ava-host") so the sample stays fork-neutral'),
 ]
 
 # Files that legitimately contain an otherwise-forbidden string.

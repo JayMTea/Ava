@@ -294,8 +294,8 @@ instead (see *MCP servers* below). Reserved bridge actions `__tools` and
 ### The tool facade — `ava-tools/1`
 
 The contract *your app* implements to be discovered. Two routes; the Hub's
-Detect finds them ahead of OpenAPI scraping, and the sample
-(`examples/hello-app`) and note-keeper are conforming implementations.
+Detect finds them ahead of OpenAPI scraping. The shipped samples
+(`examples/hello-app`, `examples/device-app`) are conforming implementations.
 
 ```
 GET /tools
@@ -319,8 +319,9 @@ POST /call    {"name": "list_personas", "arguments": {…}}
 Rules of the road:
 
 - **Curate.** Expose intent-level tools ("generate", "list_personas"), not your
-  REST surface. Don't expose destructive ops you wouldn't hand an assistant —
-  note-keeper exposes no deletes; deleting stays in the app's own UI.
+  REST surface. Don't expose destructive ops you wouldn't hand an assistant: a
+  good default is to expose no deletes at all and keep deleting in the app's
+  own UI.
 - **`access` drives JIT consent** on Ava's side: `read` runs silently, `write`
   asks the operator on first use ("Always allow" is remembered), `destructive`
   asks every time and can never be always-allowed. Omitted -> `write` (safe).

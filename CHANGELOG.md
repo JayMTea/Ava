@@ -491,7 +491,7 @@ that does not exist, and nothing imported by name that is not declared.
   can self-describe the token name in `/.well-known/ava.json`
   (`auth.token_env`) so the connect form prefills it. The template, `scaffold.py`
   README, and CONNECT_YOUR_APPS.md all cover it; the two bundled example apps
-  (ava-notes, note-keeper) were conformed to the contract.
+  were conformed to the contract.
 
 ### Changed
 - **Chat deletion is audit-logged** — `DELETE /api/chats/{cid}` now writes a

@@ -318,8 +318,8 @@ and Ava reclaims it, which is what stops a killed client from holding memory res
 forever.
 
 The client is ~200 lines of standard library that the other app vendors, on the same
-terms as any other cross-app file. `note-keeper/alloc_client.py` in the companion
-repo is a working one.
+terms as any other cross-app file — the same shape as the device-side helper in
+[`sdk/host/ava_device/`](../sdk/host/ava_device/).
 
 ---
 

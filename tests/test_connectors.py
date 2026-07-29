@@ -204,7 +204,7 @@ class MetaToolsTests(unittest.TestCase):
         self.assertNotIn("/internal/connector/app/__call", rules)
 
     def test_policy_name_not_doubled_for_ava_prefixed_id(self):
-        # Regression (ava-notes): a connector id that already starts with "ava-"
+        # Regression: a connector id that already starts with "ava-"
         # must keep that as its egress preset name, not become "ava-ava-<id>".
         _write(self.tmp, "ava-foo",
                "id: ava-foo\nbase_url: http://127.0.0.1:9\n"

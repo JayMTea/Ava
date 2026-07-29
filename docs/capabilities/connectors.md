@@ -11,9 +11,9 @@ manifest reference lives in the [Connector SDK](../CONNECTOR_SDK.md).
 
 ## What ships
 
-Eight connectors are built in and enabled on a fresh install. Four are
+Four connectors are built in and enabled on a fresh install. All four are
 plumbing — Ava's own moving parts, reported so the dashboards can say
-"healthy" honestly — and four are real apps.
+"healthy" honestly.
 
 | Connector | What it contributes | Agent tools |
 |---|---|:--:|
@@ -21,22 +21,43 @@ plumbing — Ava's own moving parts, reported so the dashboards can say
 | `local-llm` | Health probe for the OpenAI-compatible inference server. | — |
 | `router` | Health probe for the inference router (`/healthz`). | — |
 | `gpu-service` | Health row for the image engine, gated on `features.image` so "off" never paints red. Its egress block allow-lists `POST /internal/run-gpu-job`. | — |
-| `ledger` | MCP server over Streamable HTTP; perf source; auto-generated egress policy. | 2 (meta) |
-| `ava-notes` | 15 declared REST actions, an iframe tab in the sidebar, and a perf source. | 15 |
-| `home-assistant` | MCP over the legacy HTTP+SSE transport, `role: device`, and every actuating tool pinned to the `physical` tier. | 2 (meta) |
-| `persona` | MCP sidecar plus an iframe tab and a perf source. | 2 (meta) |
 
-The first four expose **no agent surface at all** — they are health and
-metrics rows. GPU workloads does reach the agent, but through a first-party
-tool calling `/internal/run-gpu-job`, not a generated connector tool: the
-`gpu-service` action declares no `path`, so nothing is generated for it.
+All four expose **no agent surface at all** — they are health and metrics
+rows, and a fresh install has **zero connector-generated agent tools**. Image
+generation does reach the agent, but through a first-party tool calling
+`/internal/run-gpu-job`, not a generated connector tool: the `gpu-service`
+action declares no `path`, so nothing is generated for it.
 
-Two of the eight are worth reading as opposite ends of the model.
-`ava-notes` is fully static — 15 REST actions with explicit `access:` tiers,
-one of them `destructive` with `confirm: true`. `home-assistant` is fully
-dynamic — the entire Home Assistant integration is that one manifest, and it
-ships inert until configured: an unset `${HASS_URL}` leaves it with nothing to
-talk to.
+That emptiness is the design. The apps worth connecting are *yours*, so Ava
+ships the machinery and none of the opinions. Adding your first app is
+[Setup → Connectors → Connect an app](../CONNECT_YOUR_APPS.md), or one file
+copied into `$AVA_HOME/connectors/`.
+
+## Worked examples you can copy in
+
+Three complete manifests ship under [`examples/`](../../examples/).
+Each is a folder you copy into your data root — no edits to Ava's core:
+
+| Example | Copy it in with | What it demonstrates |
+|---|---|---|
+| `hello-app` | `cp -r examples/hello-app "$AVA_HOME/connectors/hello"` | The whole loop end to end: health row, left-rail iframe tab, and a live-discovered tool set. |
+| `device-app` | `cp -r examples/device-app "$AVA_HOME/connectors/device-demo"` | `role: device` plus **push** ingest — the app hands Ava sensor events when *it* decides. |
+| `home-assistant` | `cp -r examples/home-assistant "$AVA_HOME/connectors/home-assistant"` | A real MCP integration over the legacy HTTP+SSE transport, with every actuating tool pinned to the `physical` tier. |
+
+Two of them are worth reading as opposite ends of the model.
+
+`hello-app` and `device-app` **bridge a tool set live**: `actions.discover`
+points at the app's own `/tools` and `/call`, so Ava fetches the schemas at
+load time and every tool the app grows appears with zero per-tool wiring. The
+alternative is declaring `actions:` statically, one entry per endpoint with an
+explicit `access:` tier — the reference for that shape is
+[`connectors/_template/connector.yaml`](../../connectors/_template/connector.yaml),
+which annotates every field.
+
+`home-assistant` is fully dynamic — the entire Home Assistant integration is
+that one manifest, and it ships **inert until configured**: an unset
+`${HASS_URL}` leaves it with nothing to talk to, so copying it in before you
+have Home Assistant costs you nothing.
 
 ## What one manifest gives you
 
@@ -96,8 +117,10 @@ sets to **exactly two generated tools**:
 This happens for every dynamic connector (`mcp:` or `actions.discover` — their
 tool set is not knowable at generation time), and for any static connector
 declaring **16 or more** actions with a `path` (`META_TOOLS_MIN = 16`). Below
-that threshold you get one tool per action, which is why `ava-notes` ships 15
-tools and `ledger` ships two.
+that threshold you get one tool per action — so a static app declaring 15
+endpoints gives the agent 15 named tools, while the same app at 16 collapses to
+the two meta-tools, and every `mcp:`/`discover` app gets the pair regardless of
+size.
 
 The search and the cap run **server-side**, on the bridge: `find_tool` filters
 by keyword, ranks by match count, truncates to the requested limit, and

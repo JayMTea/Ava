@@ -6,7 +6,7 @@ the facade spec (docs/CONNECTOR_SDK.md §5), a matching connector manifest, and
 a quickstart. Deliberately NOT a pip/npm package — ~100 lines the fork owns,
 no version skew; the `facade: ava-tools/1` string is the compatibility contract.
 
-Templates carry the lessons from note-keeper's hand-written surface:
+Templates carry the lessons from hand-written facades that came before them:
 a decorator registry with JIT `access` tiers, the exact error contract
 (404 unknown tool / 400 bad arguments / 5xx with a message), and framework
 wire-up notes (register before your SPA catch-all; lazy-import your app).

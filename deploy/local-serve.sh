@@ -65,9 +65,8 @@ HF_CACHE="${HF_CACHE:-${AVA_HOME:-$REPO}/models/hf}"
 # existing .env files and the ava-omni.service unit keep working unchanged.
 MODEL="${AVA_MODEL:-${AVA_OMNI_MODEL:-Qwen/Qwen2.5-7B-Instruct}}"
 PORT="${AVA_SERVE_PORT:-${OMNI_PORT:-8002}}"
-# Container name. Left as `vllm-open` by default because things OUTSIDE this repo
-# reference it by name — note-keeper's timeshare coordinator
-# (STUDIO_VIDEO_SUPER), connectors/vllm-open/, and ava_security_check.py. Rename
+# Container name. Things outside this repo may reference it by name (a sibling
+# app's GPU coordinator, your own connectors/, ava_security_check.py), so rename
 # it only if you update those too.
 NAME="${AVA_SERVE_CONTAINER:-vllm-open}"
 RESTART="${AVA_SERVE_RESTART:-${OMNI_RESTART:-unless-stopped}}"
@@ -120,20 +119,18 @@ CTX="$AVA_RESOLVED_MAX_LEN"
 # across a render unless you drop caches first.
 #
 # A model this size and a FLUX.2 render CANNOT co-fit at any utilization — that is
-# what note-keeper's timeshare.free_super() coordinator is for (it pauses this
-# container, ref-counted + debounced, so a burst of renders costs one reload).
+# what a GPU timeshare coordinator is for: pause this container around the render,
+# ref-counted and debounced, so a burst of renders costs one reload.
 # 0.40 does leave room for the GPU model previews (6-25 GB) and kokoro TTS to co-fit.
 #
 # If you serve a different model or have a dedicated GPU (no renders competing
 # for the pool), raise this — 0.85-0.90 is the usual vLLM default territory.
 UTIL="${AVA_SERVE_GPU_UTIL:-${OMNI_GPU_UTIL:-0.40}}"
 
-# Stop the retired brains + any prior container (they don't co-fit).
+# Stop any prior container of the same name before starting a new one.
 # Skipped under AVA_SERVE_DRY_RUN so checking your flags never disturbs a live one.
 if [ -z "${AVA_SERVE_DRY_RUN:-}" ]; then
-  for c in vllm-super vllm-nano "$NAME"; do
-    docker rm -f "$c" 2>/dev/null || true
-  done
+  docker rm -f "$NAME" 2>/dev/null || true
 fi
 
 echo "[local-serve] Starting $NAME on :$PORT"
