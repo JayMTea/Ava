@@ -224,7 +224,23 @@ for _ in $(seq 1 90); do
 done
 
 if [ "$_ok" = 1 ]; then
-  say "Ava is up. Open http://localhost:8096 — the first screen lets you set your admin password."
+  # First-run setup is gated on proving you can read the server's disk. Compose
+  # publishes the port through the docker bridge, so the container sees the
+  # gateway address (172.x.0.1) rather than 127.0.0.1 and a plain browser visit
+  # is refused — correctly, but with a hint naming a CONTAINER path. We are on
+  # the host and the data dir is bind-mounted, so read the token here and hand
+  # over a link that just works. If a password was preset in .env there is no
+  # token and no gate, and the plain URL is right.
+  _claim_file="${AVA_HOME:-$AVA_DIR/deploy/ava-data}/data/setup_claim"
+  _claim=""
+  [ -r "$_claim_file" ] && _claim="$(tr -d '[:space:]' < "$_claim_file" 2>/dev/null || true)"
+  if [ -n "$_claim" ]; then
+    say "Ava is up. Open this link to set your admin password:"
+    say "  http://localhost:8096/setup?claim=$_claim"
+    say "(the link is single-use — it stops working the moment a password is set)"
+  else
+    say "Ava is up. Open http://localhost:8096 and sign in."
+  fi
 else
   warn "Ava did not answer on http://localhost:8096 within ~3 minutes."
   warn "It may still be pulling a model. Check with:"

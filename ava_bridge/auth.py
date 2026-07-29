@@ -263,11 +263,27 @@ def may_claim(request: Request) -> bool:
     return bool(got) and hmac.compare_digest(got.strip(), want)
 
 
+def in_container() -> bool:
+    """Best-effort: are we inside the shipped Docker image?"""
+    return os.path.exists("/.dockerenv")
+
+
 def claim_hint() -> str:
     """What to tell a remote caller who has no token. Names the file rather than
-    the value: the point is that you must be able to read the server's disk."""
+    the value: the point is that you must be able to read the server's disk.
+
+    Under Docker that file lives on the CONTAINER's filesystem, so printing the
+    bare path sends the reader to a path that does not exist on their host —
+    and every browser hits this gate on the compose install, because the peer
+    address the container sees is the bridge gateway, not 127.0.0.1. Give the
+    containerized reader a command that works from where they actually are.
+    """
+    if in_container():
+        read_cmd = f"cd deploy && docker compose exec ava cat {_CLAIM_FILE}"
+    else:
+        read_cmd = f"cat {_CLAIM_FILE}"
     return (f"Run this on the machine Ava is installed on:\n"
-            f"    cat {_CLAIM_FILE}\n"
+            f"    {read_cmd}\n"
             f"then open  <this-url>/setup?claim=<token>")
 
 

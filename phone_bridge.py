@@ -45,7 +45,7 @@ from ava_bridge.chat_store import (
     chat_append, chat_session, atts_meta,
 )
 from ava_bridge.auth import (
-    auth_gate, needs_setup, claim_token,
+    auth_gate, needs_setup, claim_token, in_container,
 )
 from ava_bridge import features, internal
 from ava_bridge import memory_store
@@ -140,9 +140,16 @@ def _startup():
     if needs_setup():
         _tok = claim_token()
         if _tok:
-            print("[ava-bridge] NOT YET CLAIMED. From this machine, open "
-                  f"http://localhost:{config.SERVER_PORT}/setup", flush=True)
-            print(f"[ava-bridge]   from anywhere else, use: /setup?claim={_tok}", flush=True)
+            print("[ava-bridge] NOT YET CLAIMED.", flush=True)
+            # Under Docker the published port arrives via the bridge gateway, so
+            # even a browser on the host is NOT a loopback peer and the plain
+            # /setup URL is refused. Everyone needs the token there, not just
+            # the headless case — say so rather than sending them to a 403.
+            if not in_container():
+                print("[ava-bridge]   from this machine, open "
+                      f"http://localhost:{config.SERVER_PORT}/setup", flush=True)
+            print("[ava-bridge]   open: "
+                  f"http://localhost:{config.SERVER_PORT}/setup?claim={_tok}", flush=True)
     # Report the agent runtime and enforce the `agent.required` policy loudly.
     from ava_bridge import runtime
     rt, err = runtime.gate()

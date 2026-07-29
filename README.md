@@ -115,8 +115,13 @@ locked to a single cloud vendor.
 ```bash
 # Docker (plug-and-play) — detects your hardware and writes deploy/.env for you:
 cd deploy && ./install.sh
-# open http://localhost:8096 — the first screen prompts you to set an admin password
+# when it finishes it prints a one-time link — open that to set your admin password
 ```
+
+(First-run setup is gated on proving you can read the server's disk, so the
+plain URL is refused until you have claimed the instance. `install.sh` reads the
+token off the data volume and hands you the link; if you ever need it again:
+`cd deploy && docker compose exec ava cat /data/data/setup_claim`.)
 
 Or pick the profile yourself:
 

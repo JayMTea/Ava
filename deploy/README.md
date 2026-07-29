@@ -55,8 +55,20 @@ docker compose up -d
 See [profiles/README.md](profiles/README.md) for what each one sets and why the
 profile lives in `.env` rather than on the command line.
 
-Then open **http://localhost:8096**. The first screen prompts you to create an
-admin password, so there is nothing to hunt for in logs.
+`install.sh` finishes by printing a **one-time claim link** — open that to create
+your admin password.
+
+If you started compose by hand instead, first-run setup is still gated: the
+published port arrives through the docker bridge, so the container sees the
+gateway address rather than `127.0.0.1` and cannot treat you as local. Read the
+token and open the link yourself:
+
+```bash
+docker compose exec ava cat /data/data/setup_claim
+# then open  http://localhost:8096/setup?claim=<token>
+```
+
+Pin `AVA_PASSWORD=...` in `deploy/.env` beforehand to skip the gate entirely.
 
 > **On a Mac (Apple Silicon)?** Skip Docker. Docker Desktop on macOS can't pass
 > the Apple GPU through, so inference in a container runs CPU-only. Use the

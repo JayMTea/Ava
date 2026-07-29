@@ -236,6 +236,57 @@ jobs:
           PY
           sleep 2
 
+      - name: First run with NO password must be claimable from the host
+        # The install path a novice actually takes. Every other compose step here
+        # presets AVA_PASSWORD, which disarms first-run setup entirely — so the
+        # unclaimed path, the ONLY one a fresh forker sees, was never exercised.
+        # It was broken: compose publishes through the docker bridge, so the peer
+        # address the container observes is the gateway, never 127.0.0.1, and
+        # `may_claim` refused every browser while install.sh printed "the first
+        # screen lets you set your admin password".
+        #
+        # Assert both halves: the gate IS armed through the published port (not
+        # accidentally wide open), and the token install.sh reads off the mounted
+        # volume actually opens it.
+        working-directory: deploy
+        run: |
+          set -euo pipefail
+          _home="${{ runner.temp }}/ava-home-unclaimed"
+          mkdir -p "$_home"
+          cp profiles/cloud.env .env
+          cat >> .env <<ENV
+          AVA_BACKEND_URL=http://127.0.0.1:9999/v1
+          AVA_BACKEND_ENGINE=openai
+          AVA_MODEL=stub-model
+          AVA_HOME=$_home
+          ENV
+          cat > docker-compose.override.yml <<'YML'
+          services:
+            ava:
+              image: ava/bridge:ci
+          YML
+          docker compose up -d
+
+          ok=0
+          for _ in $(seq 1 60); do
+            curl -fsS --max-time 3 http://127.0.0.1:8096/api/health >/dev/null 2>&1 && { ok=1; break; }
+            sleep 2
+          done
+          [ "$ok" = 1 ] || { echo "::error::unclaimed stack never answered"; docker compose logs --tail 60 ava; exit 1; }
+
+          code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:8096/setup)"
+          [ "$code" = 403 ] || { echo "::error::/setup returned $code, expected 403 — the claim gate is not armed through the published port"; exit 1; }
+          echo "claim gate is armed (403 without a token)"
+
+          tok="$(tr -d '[:space:]' < "$_home/data/setup_claim")"
+          [ -n "$tok" ] || { echo "::error::no setup_claim token on the mounted volume — install.sh cannot print a working link"; exit 1; }
+          code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:8096/setup?claim=$tok")"
+          [ "$code" = 200 ] || { echo "::error::/setup?claim=<token> returned $code, expected 200 — first run is unreachable for every forker"; exit 1; }
+          echo "claim link works — a fresh install can reach the password form"
+
+          docker compose down -v
+          rm -f docker-compose.override.yml
+
       - name: Boot through docker compose and probe the PUBLISHED port
         # This step used to `docker run --network host`, which put the container
         # in the runner's own namespace — the one mode where a process bound to
