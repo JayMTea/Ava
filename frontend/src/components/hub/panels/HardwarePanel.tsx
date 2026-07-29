@@ -27,6 +27,9 @@ export function HardwarePanel() {
             <dt>Compute</dt><dd>{hw.gpu || 'No local GPU detected'}</dd>
             <dt>Usable memory</dt><dd>{hw.fit_gb != null ? `${hw.fit_gb} GB · ${hw.source || 'detected'}` : '—'}</dd>
           </dl>
+          {hw.note && (
+            <div className="hub-note" style={{ marginTop: 14 }}>{hw.note}</div>
+          )}
           <div className="hub-note" style={{ marginTop: 14 }}>
             The tier sets which models Ava recommends. Pick and download one under the <b>Agent</b> tab.
           </div>

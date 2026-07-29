@@ -95,6 +95,25 @@ def api_hardware():
             out["gpu"] = g["name"]
     except Exception:  # noqa: BLE001
         pass
+    # A container sees no GPU unless it was granted one, and the compose file
+    # grants it only to the inference service. Saying "No local GPU detected" on
+    # a box that plainly has one reads as a broken install and sends people
+    # hunting for a driver problem they do not have — so name the actual reason
+    # and the actual fix. Only when we found nothing: a container WITH access
+    # reports its GPU normally and needs no explanation.
+    if not out["gpu"] and not out["note"]:
+        try:
+            from .auth import in_container
+            if in_container():
+                out["note"] = (
+                    "Running in a container, which is not granted GPU access by "
+                    "default — only the inference service is. Your host GPU may "
+                    "be fine; Ava just cannot read it from in here, so the tier "
+                    "above is sized from system memory. To surface it, give the "
+                    "`ava` service an NVIDIA `utility` device reservation — see "
+                    "\"GPU telemetry in the bridge container\" in deploy/README.md.")
+        except Exception:  # noqa: BLE001
+            pass
     return out
 
 

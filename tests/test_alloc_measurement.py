@@ -34,8 +34,19 @@ from gitfiles import tracked_paths as _tracked
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
-# The HAL itself is the only module allowed to read these sources — that is its job.
-ALLOWED = {"ava_bridge/hwinfo.py"}
+# The HAL itself is the only module allowed to READ these sources — that is its job.
+ALLOWED = {
+    "ava_bridge/hwinfo.py",
+    # Holds the vocabulary, not a reader: `platforms.py` maps the `power_source`
+    # token from deploy/platforms.conf to a human label, so it *names* xpu-smi
+    # without ever invoking it. Allowlisted rather than renaming the token,
+    # because a power source that does not say which tool produces it is worse
+    # documentation. Residual risk accepted knowingly: a real memory read added
+    # to this module would not be caught here. It is ~200 lines of table parsing
+    # with no subprocess and no /proc access, and `test_platform_matrix_ssot.py`
+    # covers its behaviour.
+    "ava_bridge/platforms.py",
+}
 
 # Readers that are wrong for a fit decision. Each is a real trap, not a style rule:
 #   MemFree            — excludes reclaimable cache; use MemAvailable

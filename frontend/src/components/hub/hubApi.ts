@@ -4,16 +4,39 @@
 import { req } from '../../lib/api';
 
 // ---- Models / inference -----------------------------------------------------
+/** GET /api/setup/hardware — see setup_wizard.api_hardware.
+ *
+ * `platform` and `note` were returned by the route from the start and declared
+ * here by nothing, so the Apple-Silicon explanation the backend has always sent
+ * could never render. Same drift as BackendProbe below.
+ */
 export interface HardwareInfo {
   fit_gb: number | null;
   source: string | null;
   tier: string;
   hint: string;
   gpu: string | null;
+  platform: string | null;
+  note: string;
+}
+/** GET /api/setup/backends — every candidate endpoint, probed right now.
+ *
+ * This used to declare `{vllm, ollama, router}`, which the route has never
+ * returned. Both fields read `undefined` on every response, so "No local engine
+ * detected" rendered permanently — including for people whose engine was
+ * answering — and Overview's "(engine up)" was unreachable. Keep this in step
+ * with setup_wizard.api_backends.
+ */
+export interface BackendCandidate {
+  id: string;
+  base_url: string;
+  engine: string;      // vllm | ollama | openai | …
+  note: string;        // "configured" | "from AVA_BACKEND_URL" | "compose service" | "local"
+  up: boolean;
 }
 export interface BackendProbe {
-  vllm: boolean;
-  ollama: boolean;
+  backends: BackendCandidate[];
+  any_up: boolean;
   router: boolean;
 }
 export interface SetupConnector {

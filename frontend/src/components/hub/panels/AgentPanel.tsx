@@ -263,9 +263,14 @@ function BrainManager({ onRestart }: { onRestart: () => void }) {
             <button className="hub-btn ghost" onClick={() => { setShowForm(false); resetForm(); }} disabled={busy}>Cancel</button>
           </div>
           {msg && <div className="hub-msg err">{msg}</div>}
-          {be && !be.ollama && !be.vllm && !isCloud && (
+          {be && !be.any_up && !isCloud && (
             <div className="hub-msg" style={{ color: 'var(--muted)' }}>
               No local engine detected. Start one first (e.g. install Ollama and run <code>ollama serve</code>), or link a cloud provider.
+            </div>
+          )}
+          {be && be.any_up && !isCloud && (
+            <div className="hub-msg" style={{ color: 'var(--muted)' }}>
+              Detected: {be.backends.filter((b) => b.up).map((b) => `${b.engine} at ${b.base_url}`).join(', ')}
             </div>
           )}
         </div>

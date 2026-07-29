@@ -27,7 +27,7 @@ export function Overview({ onGo }: { onGo: (t: TabId) => void }) {
   const firstErr = [sysRes, agentRes, connsRes, backendsRes, hwRes].find((r) => r.error);
 
   const conns = connsData?.connectors ?? [];
-  const engineUp = backends && (backends.vllm || backends.ollama);
+  const engineUp = backends?.any_up ?? false;
   const enabledConns = conns.filter((c) => c.enabled && isExternalApp(c)).length;
 
   const card = (t: TabId, icon: string, title: string, value: ReactNode, sub: string) => (

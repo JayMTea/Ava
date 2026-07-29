@@ -8,13 +8,42 @@ can only be trusted after running it on the real device. This is that checklist.
 
 ## Platform support matrix
 
-| Platform | Fit memory source | GPU util/temp/power | GPU/unified memory | Status |
+**Do not edit this table by hand.** It renders from `deploy/platforms.conf` via
+`python3 -m ava_bridge.platforms --sync`, and `tests/test_platform_matrix_ssot.py`
+fails if it drifts. It used to be maintained by hand alongside a second table in
+`deploy/README.md`, and the two had already come to disagree about Apple Silicon.
+
+<!-- platforms:begin:hwinfo — generated from deploy/platforms.conf -->
+| Platform | Fit memory source | GPU power | Tier | Evidence |
 |---|---|---|---|---|
-| Linux + discrete NVIDIA | free **VRAM** (NVML→nvidia-smi) | Yes (NVML/smi) | VRAM | verified logic; needs a discrete box to confirm VRAM path |
-| Unified-memory NVIDIA (e.g. GB10 / DGX Spark) | system RAM (psutil) | Yes (nvidia-smi) | unified via system RAM | **verified on-device** |
-| Apple Silicon Mac | system RAM (psutil) | None (no unprivileged API) | unified via system RAM | **needs on-device validation** |
-| CPU-only / other | system RAM (psutil→/proc) | None | system RAM | verified logic |
-| No psutil, non-Linux | none → gating disabled | None | none | verified logic (degrades safely) |
+| Unified-memory NVIDIA (GB10 / Grace-Blackwell) | system RAM (unified) | Yes (NVML / nvidia-smi) | verified-on-device | `docs/evidence/linux-nvidia-unified-2026-07-29.json` |
+| Linux + discrete NVIDIA (RTX / data-centre) | free VRAM | Yes (NVML / nvidia-smi) | ci-simulated | — |
+| AMD APU (Strix Halo / Ryzen AI Max) | system RAM (unified) | Yes (amdgpu hwmon) | ci-simulated | — |
+| AMD discrete (Radeon / ROCm) | free VRAM | Yes (amdgpu hwmon) | ci-simulated | — |
+| Intel Arc / Xe | free VRAM | Yes (xpu-smi) | ci-simulated | — |
+| Linux, GPU present but unidentifiable | system RAM (unverified) | None | ci-simulated | — |
+| CPU-only Linux | system RAM | CPU package only (x86 RAPL) | ci-native | `ci.yml:test` |
+| Apple Silicon (Mac mini / Studio / laptop) | system RAM (unified) | None | ci-simulated | — |
+| Intel Mac | free VRAM | None | unsupported | — |
+| Windows + NVIDIA | free VRAM | Yes (NVML / nvidia-smi) | ci-simulated | — |
+| Windows, no NVIDIA | system RAM | None | ci-simulated | — |
+| Unrecognised platform (gating disabled) | system RAM (unverified) | None | ci-simulated | — |
+<!-- platforms:end -->
+
+**Reading the Tier column.** `verified-on-device` means a human ran
+`tools/ondevice_check.py` on real hardware of that class and committed the report
+named in Evidence. `ci-native` means a CI job exercises the real code on real
+hardware of that class. `ci-simulated` means the decision logic is tested against
+constructed or recorded sysfs bytes — **the parsing is tested, the numbers are
+not**. `community-reported` is someone else's on-device report.
+`unsupported` is detected and refused.
+
+Two honest consequences of that vocabulary, as of this writing: the AMD rows are
+`ci-simulated` against **constructed** fixtures, because the maintainer owns no
+AMD hardware and Strix Halo cannot be rented — see the warning at the top of
+`tests/test_hwinfo_amd.py`. And Apple Silicon stays `ci-simulated` until either
+someone runs the on-device check or the repo goes public and a `macos-14` CI
+runner becomes available.
 
 ## Run this on an Apple Silicon Mac
 

@@ -5,20 +5,38 @@ hardware, point it at your own models, and connect your own apps. This is step
 one of getting started: fork (or clone) the repo, then pick the path for your
 machine.
 
-| Your machine | Install path | Verified on device |
-|---|---|---|
-| Mac mini / Studio (Apple Silicon) | [Bare metal with a native engine](#apple-silicon-mac-mini-studio); Docker can't reach the Apple GPU | :ava-close:{ title="Not verified on device" } |
-| NVIDIA GPU box | [Docker, `gpu` profile](#1-docker-recommended) (vLLM) | :ava-close:{ title="Not verified on device" } |
-| DGX Spark / unified-memory NVIDIA | [Docker, `gpu` profile](#1-docker-recommended) | :ava-check:{ title="Verified on device" } |
-| No GPU | [Docker, `cpu` profile](#1-docker-recommended) (Ollama) | :ava-close:{ title="Not verified on device" } |
-| Just an API key | [Docker, `cloud` profile](#1-docker-recommended) | n/a |
+<!-- platforms:begin:install — generated from deploy/platforms.conf -->
+| Your machine | Profile | Local engine | Verified on device |
+|---|---|---|---|
+| Unified-memory NVIDIA (GB10 / Grace-Blackwell) | `gpu` profile | vllm | :ava-check:{ title="Verified on device" } |
+| Linux + discrete NVIDIA (RTX / data-centre) | `gpu` profile | vllm | :ava-close:{ title="Logic tested by simulation; numbers unconfirmed" } |
+| AMD APU (Strix Halo / Ryzen AI Max) | `rocm` profile | ollama | :ava-close:{ title="Logic tested by simulation; numbers unconfirmed" } |
+| AMD discrete (Radeon / ROCm) | `rocm` profile | ollama | :ava-close:{ title="Logic tested by simulation; numbers unconfirmed" } |
+| Intel Arc / Xe | `cpu` profile | ollama | :ava-close:{ title="Logic tested by simulation; numbers unconfirmed" } |
+| Linux, GPU present but unidentifiable | `cpu` profile | ollama | :ava-close:{ title="Logic tested by simulation; numbers unconfirmed" } |
+| CPU-only Linux | `cpu` profile | ollama | :ava-check:{ title="Verified by CI on real hardware of this class" } |
+| Apple Silicon (Mac mini / Studio / laptop) | bare metal | ollama | :ava-close:{ title="Logic tested by simulation; numbers unconfirmed" } |
+| Windows + NVIDIA | `gpu` profile | ollama | :ava-close:{ title="Logic tested by simulation; numbers unconfirmed" } |
+| Windows, no NVIDIA | `cpu` profile | ollama | :ava-close:{ title="Logic tested by simulation; numbers unconfirmed" } |
+| Unrecognised platform (gating disabled) | `cloud` profile | openai | :ava-close:{ title="Logic tested by simulation; numbers unconfirmed" } |
+<!-- platforms:end -->
 
-**Verified on device** means `hwinfo` has been run on real hardware of that class
-and its readings confirmed — not just unit-tested by simulation. A cross means the
-detection logic is tested and expected to work, but the numbers are unconfirmed
-on that hardware; `n/a` means the path uses no local accelerator. The full matrix,
-including what each platform can and cannot report, is in
-[Hardware support](../docs/HWINFO_VALIDATION.md).
+Apple Silicon runs [bare metal with a native engine](#apple-silicon-mac-mini-studio)
+because Docker can't reach the Apple GPU; every other row is
+[Docker](#1-docker-recommended) with the profile shown. With just an API key, use
+the `cloud` profile and no local accelerator is involved.
+
+**That last column is a claim about evidence, not a promise about quality.** A tick
+means the code has been run on real hardware of that class — either by a human who
+committed the report, or by a CI job on a runner of that class. A cross means the
+detection logic is tested by simulation and expected to work, but **the numbers are
+unconfirmed on that hardware**. Nothing in this table is marketing: the row for the
+maintainer's own machine is the only one carrying a committed on-device report.
+
+Both this table and the fuller one in
+[Hardware support](../docs/HWINFO_VALIDATION.md) render from
+`deploy/platforms.conf` (`python3 -m ava_bridge.platforms --sync`), so they cannot
+drift apart the way two hand-maintained tables did.
 
 However you install, verify the wiring afterwards: open **Setup → Hardware** and
 Ava should show your machine, detected automatically.
@@ -127,6 +145,28 @@ Good to know:
   switch alone has nothing to run, and the deps alone leave the switch off.
 - **GPU workloads**: needs the GPU service, which only the `full` profile starts. On
   any other profile the switch reports `image_down` rather than pretending.
+- **GPU telemetry in the bridge container**: compose grants the GPU to the
+  *inference* service only, so **Setup → Hardware** reports no GPU even on an
+  NVIDIA box, and sizes its model tier from system memory instead. The panel
+  says so rather than implying a driver fault. To surface the real card, drop a
+  `deploy/docker-compose.override.yml` next to the compose file:
+
+  ```yaml
+  services:
+    ava:
+      deploy:
+        resources:
+          reservations:
+            devices:
+              - driver: nvidia
+                count: all
+                capabilities: ["utility"]   # telemetry only — no compute claimed
+  ```
+
+  Compose merges `docker-compose.override.yml` automatically. It is opt-in
+  rather than shipped because a `devices:` reservation makes compose **refuse to
+  start at all** on a host without the NVIDIA container runtime — which is every
+  `cpu` and `cloud` install, and every Mac.
 
 ### Verified install (recommended)
 

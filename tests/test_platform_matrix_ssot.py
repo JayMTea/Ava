@@ -18,7 +18,6 @@ needs no bridge, no GPU and no network, and whose assertion message is the fix
 instruction.
 """
 import ast
-import pathlib
 
 import pytest
 from gitfiles import ROOT, require_git, tracked
@@ -177,3 +176,28 @@ def test_committed_evidence_reports_match_their_row() -> None:
         assert got == row.platform_id, (
             f"{rel} was recorded on platform {got!r} but claims to evidence "
             f"{row.platform_id!r}. A report from the wrong machine is not evidence.")
+
+
+def test_the_rendered_docs_tables_match_the_conf() -> None:
+    """Both docs tables must be what --sync would write.
+
+    Same shape as tests/test_diagram_sync.py: the derived artifact is checked
+    against its source by a test that needs no toolchain, so "edited the table,
+    forgot the conf" (or the reverse) fails here rather than shipping a docs page
+    that contradicts `ava doctor`.
+    """
+    require_git()
+    targets = [("hwinfo", "docs/HWINFO_VALIDATION.md"),
+               ("install", "deploy/README.md")]
+    stale = []
+    for view, rel in targets:
+        text = (ROOT / rel).read_text(encoding="utf-8")
+        assert platforms.BEGIN.format(view=view) in text, (
+            f"{rel} has no platforms:begin:{view} marker — the generated block "
+            "was removed, so this table is now hand-maintained and will drift.")
+        if platforms.splice(text, view) != text:
+            stale.append(rel)
+    assert not stale, (
+        f"these rendered tables no longer match deploy/platforms.conf: {stale} — "
+        "run `python3 -m ava_bridge.platforms --sync` and commit the result. "
+        "Edit the conf, never the table.")

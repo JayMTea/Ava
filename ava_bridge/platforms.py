@@ -122,6 +122,68 @@ def for_platform(platform_id: str, mem_model: str | None = None) -> Platform | N
     return rows[0]
 
 
+# --- rendered docs tables ---------------------------------------------------- #
+# Two views of the same rows, because the two docs answer different questions:
+# deploy/README.md asks "which install path do I take", HWINFO_VALIDATION.md asks
+# "what can Ava read on this hardware". They used to be hand-maintained and had
+# already drifted about Apple Silicon.
+_MARK = {
+    "verified-on-device": ':ava-check:{ title="Verified on device" }',
+    "ci-native": ':ava-check:{ title="Verified by CI on real hardware of this class" }',
+    "ci-simulated": ':ava-close:{ title="Logic tested by simulation; numbers unconfirmed" }',
+    "community-reported": ':ava-check:{ title="Reported by a community on-device run" }',
+    "unsupported": ':ava-close:{ title="Not a supported target" }',
+}
+_MEM_LABEL = {"unified": "system RAM (unified)", "discrete": "free VRAM",
+              "system": "system RAM", "unknown": "system RAM (unverified)"}
+_POWER_LABEL = {"nvml-or-smi": "Yes (NVML / nvidia-smi)", "amd-hwmon": "Yes (amdgpu hwmon)",
+                "xpu-smi": "Yes (xpu-smi)", "rapl-x86": "CPU package only (x86 RAPL)",
+                "none": "None"}
+
+
+def render_markdown(view: str) -> str:
+    """The table body for a docs block. Deterministic, so a test can diff it."""
+    rows = load()
+    if view == "hwinfo":
+        out = ["| Platform | Fit memory source | GPU power | Tier | Evidence |",
+               "|---|---|---|---|---|"]
+        for p in rows:
+            ev = "—" if p.evidence in ("", "-") else f"`{p.evidence}`"
+            out.append(f"| {p.label} | {_MEM_LABEL.get(p.mem_model, p.mem_model)} "
+                       f"| {_POWER_LABEL.get(p.power_source, p.power_source)} "
+                       f"| {p.tier} | {ev} |")
+        return "\n".join(out)
+    if view == "install":
+        out = ["| Your machine | Profile | Local engine | Verified on device |",
+               "|---|---|---|---|"]
+        for p in rows:
+            if p.tier == "unsupported":
+                continue
+            prof = ("bare metal" if p.profile == "bare-metal"
+                    else f"`{p.profile}` profile")
+            out.append(f"| {p.label} | {prof} | {p.engine} "
+                       f"| {_MARK.get(p.tier, p.tier)} |")
+        return "\n".join(out)
+    raise ValueError(f"unknown view {view!r} (want 'hwinfo' or 'install')")
+
+
+BEGIN = "<!-- platforms:begin:{view} — generated from deploy/platforms.conf -->"
+END = "<!-- platforms:end -->"
+
+
+def splice(text: str, view: str) -> str:
+    """Replace the marked block in `text` with the freshly rendered table."""
+    begin = BEGIN.format(view=view)
+    i = text.find(begin)
+    if i < 0:
+        raise ValueError(f"no {begin!r} marker in the target document")
+    j = text.find(END, i)
+    if j < 0:
+        raise ValueError(f"{begin!r} has no matching {END!r}")
+    return (text[:i] + begin + "\n" + render_markdown(view) + "\n"
+            + text[j:])
+
+
 def detect() -> Platform | None:
     """The row describing the machine this is running on.
 
@@ -143,3 +205,38 @@ def detect() -> Platform | None:
         elif src.startswith("system"):
             model = "unified" if pid in ("linux-nvidia", "darwin-apple") else "system"
     return for_platform(pid, model)
+
+
+def _main(argv: list[str]) -> int:
+    """`python3 -m ava_bridge.platforms [--markdown VIEW | --sync | --detect]`"""
+    import sys
+    args = argv[1:]
+    if not args or args[0] == "--detect":
+        p = detect()
+        print(p.summary() if p else "unknown platform (no matching row)")
+        return 0
+    if args[0] == "--markdown":
+        view = args[1] if len(args) > 1 else "hwinfo"
+        print(render_markdown(view))
+        return 0
+    if args[0] == "--sync":
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        targets = [("hwinfo", os.path.join(root, "docs", "HWINFO_VALIDATION.md")),
+                   ("install", os.path.join(root, "deploy", "README.md"))]
+        changed = []
+        for view, path in targets:
+            with open(path, encoding="utf-8") as f:
+                before = f.read()
+            after = splice(before, view)
+            if after != before:
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(after)
+                changed.append(os.path.relpath(path, root))
+        print("synced: " + (", ".join(changed) if changed else "nothing (up to date)"))
+        return 0
+    print(__doc__ or "", file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main(__import__("sys").argv))
