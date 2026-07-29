@@ -110,6 +110,47 @@ jobs:
       - run: pip install -r requirements.txt -r requirements-dev.txt
       - run: bash qa/run.sh --backend
 
+  qa-e2e:
+    # Tier 3: the four browser specs, against a REAL bridge subprocess. Same
+    # reason as the qa job above — it was advertised in qa/README.md and run
+    # nowhere, except worse: its runner lived in the local-only demo/ tree, so
+    # run_e2e.py skipped, returned 0, and run.sh printed "e2e: PASS" for a tier
+    # that executed zero specs. In every clone. Forever.
+    #
+    # It is a separate job from `qa` because it needs Node and a browser
+    # download, and the backend tier should not wait on that.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      # The specs drive the BUILT bundle, so it has to exist before they run.
+      - run: npm ci && npm run build
+        working-directory: frontend
+      - run: npm install            # postinstall fetches chromium
+        working-directory: qa/e2e
+      # Called directly rather than through qa/run.sh, which maps 77 to 0 so a
+      # developer's skip does not fail their local suite. Here a skip IS the
+      # failure: it means the runner or the bundle went missing and this job
+      # went green having tested nothing, which is the silent-green it exists
+      # to prevent.
+      - name: Browser specs (a skip is a failure here)
+        run: |
+          set +e
+          python qa/e2e/run_e2e.py
+          rc=$?
+          set -e
+          if [ "$rc" = 77 ]; then
+            echo "::error::qa-e2e skipped instead of running — no runner, or frontend/dist missing"
+            exit 1
+          fi
+          exit "$rc"
+
   compose-config:
     # Fast signal, no images, ~20s. Kept separate from compose-smoke so the
     # cheap checks are never queued behind a multi-minute build.

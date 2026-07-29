@@ -21,6 +21,13 @@ from qa.fakes.fake_app import FakeApp          # noqa: E402
 from qa.fakes.fake_gpusvc import Fakegpusvc      # noqa: E402
 from qa.fakes.fake_llm import FakeLLM          # noqa: E402
 
+# Distinct from 0 and 1 on purpose. Returning 0 when nothing ran made qa/run.sh
+# print "e2e: PASS" for a tier that executed zero specs — and since demo/ is
+# local-only, that is what it printed for every clone, forever. A skip that
+# cannot be told apart from a pass is worse than a failure: it cannot
+# self-correct, and a contributor ships a UI regression on a green board.
+SKIP = 77
+
 SPECS = ["setup-flow.spec.ts", "chat-flow.spec.ts",
          "dashboards.spec.ts", "connectors-flow.spec.ts"]
 if len(sys.argv) > 1:   # debug: run a subset (setup still needed by the rest)
@@ -28,19 +35,34 @@ if len(sys.argv) > 1:   # debug: run a subset (setup still needed by the rest)
                                       if s != "setup-flow.spec.ts"]
 
 
+def _find_tsx() -> str | None:
+    """The runner, preferring this tier's own node_modules.
+
+    qa/e2e/package.json pins playwright + tsx, so `npm i` here makes the tier
+    runnable for anyone. The demo/ fallback stays for the maintainer's box,
+    where those deps already exist — but it is a fallback, not the contract:
+    demo/ is local-only, which is why this tier ran nowhere but here.
+    """
+    for base in (os.path.join(_HERE, "node_modules"),
+                 os.path.join(_REPO, "demo", "node_modules")):
+        cand = os.path.join(base, ".bin", "tsx")
+        if os.path.isfile(cand):
+            return cand
+    return None
+
+
 def main() -> int:
-    demo = os.path.join(_REPO, "demo")
-    node_modules = os.path.join(demo, "node_modules")
-    tsx = os.path.join(node_modules, ".bin", "tsx")
-    if not os.path.isfile(tsx):
-        print("SKIP: demo/node_modules not present (run npm install there)")
-        return 0
+    tsx = _find_tsx()
+    if tsx is None:
+        print("SKIP: no E2E runner — install it with:  cd qa/e2e && npm install")
+        return SKIP
     if not os.path.isfile(os.path.join(_REPO, "frontend", "dist", "index.html")):
         print("SKIP: frontend/dist not built (cd frontend && npm run build)")
-        return 0
+        return SKIP
+    # Only needed when borrowing demo/'s modules; a local install is already here.
     link = os.path.join(_HERE, "node_modules")
     if not os.path.exists(link):
-        os.symlink(node_modules, link)
+        os.symlink(os.path.dirname(os.path.dirname(tsx)), link)
 
     llm = FakeLLM(free_port()).start()
     gpusvc = Fakegpusvc(free_port()).start()

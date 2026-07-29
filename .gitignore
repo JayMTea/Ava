@@ -125,8 +125,10 @@ connectors/home-assistant/
 # is meaningless (and broken) for anyone else.
 .claude/
 
-# QA e2e deps are a symlink into the local-only demo/ tree; committing it
-# would bake this box's absolute home path into the repo and break every clone.
+# Installed by `cd qa/e2e && npm install` (qa/e2e/package.json pins playwright
+# + tsx). On this box it may instead be a symlink into the local-only demo/
+# tree, which is the other reason never to commit it: that would bake an
+# absolute home path into the repo and break every clone.
 qa/e2e/node_modules
 
 # Allocation ledger: live cross-process state (lease locks, breaker counters, per-model
