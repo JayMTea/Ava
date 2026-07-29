@@ -11,7 +11,13 @@ fastapi==0.136.3
 uvicorn[standard]==0.51.0
 starlette==1.2.1
 requests==2.34.2
-httpx==0.28.1
+# [socks] is load-bearing, not cosmetic: web search/fetch default to Tor
+# (config.WEB_TOR_SOCKS = socks5h://127.0.0.1:9050) and httpx only gains a SOCKS
+# transport via this extra. Bare `httpx` raised ImportError at client
+# construction — matched by none of web.py's handlers, so it surfaced as a
+# generic 502 and a headline capability was dead on every fresh clone. It worked
+# here only because socksio arrived transitively.
+httpx[socks]==0.28.1
 PyYAML==6.0.3
 python-multipart==0.0.32
 websocket-client==1.9.0
