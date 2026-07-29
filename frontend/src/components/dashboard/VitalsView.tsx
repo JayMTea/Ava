@@ -75,12 +75,16 @@ export function VitalsView() {
         <StatCard label="Spend (7d)" tone="accent" help={METRICS.spend}
           value={cost.data ? `$${fmtNum(cost.data.spend_usd, 2)}` : '—'}
           hint={cost.data?.by ? `${Object.keys(cost.data.by).length} sources` : 'code API cost'} />
-        <StatCard label={cost.data && !cost.data.power_measured ? 'Energy (7d, est.)' : 'Energy (7d)'} tone="accent" help={METRICS.energy}
+        <StatCard label={cost.data && cost.data.energy_state !== 'measured' ? 'Energy (7d, est.)' : 'Energy (7d)'} tone="accent" help={METRICS.energy}
           value={cost.data ? fmtNum(cost.data.energy_kwh, 3) : '—'} unit="kWh"
           hint={cost.data
-            ? (cost.data.power_measured
+            ? (cost.data.energy_state === 'measured'
               ? (cost.data.energy_usd != null ? `≈ $${fmtNum(cost.data.energy_usd, 2)} · measured` : `${fmtNum(cost.data.avg_gpu_watts, 0)} W measured avg`)
-              : `estimate — no GPU power sensor (nominal ${fmtNum(cost.data.avg_gpu_watts, 0)} W)`)
+              : cost.data.energy_state === 'partial'
+                // Recent hours are sampled; anything past perf.hot_window is nominal.
+                // Saying "no power sensor" here would be a different wrong answer.
+                ? `part measured — recent hours sampled at ${fmtNum(cost.data.avg_gpu_watts, 0)} W, older nominal`
+                : `estimate — no GPU power sensor (nominal ${fmtNum(cost.data.avg_gpu_watts, 0)} W)`)
             : 'GPU energy'} />
         <StatCard label="Throughput" value={fmtNum(tokAvg, 1)} unit="tok/s" help={METRICS.throughput}
           tone={tokAvg == null ? 'default' : tokAvg < 15 ? 'warn' : 'ok'}

@@ -492,7 +492,18 @@ def cold_series(metric: str, step: int, since_ts: float, until_ts: float,
 
 def cold_cost(since_ts: float, until_ts: float, group: str = "model") -> dict:
     """Rollup-backed cost/energy for [since_ts, until_ts). Uses daily buckets (kept
-    forever) so long ranges are cheap. Groups by model|app|category."""
+    forever) so long ranges are cheap. Groups by model|app|category.
+
+    **Every watt-hour returned here is nominal-estimated, never sampled.** `_agg`
+    computes `energy_wh` as `nominal_gpu_watts * seconds`, because a rollup is
+    written long after the GPU power samples that covered it have aged out of
+    `hardware.history()`'s two-hour ring buffer. So the caller must treat all of
+    `energy_wh` as an estimate — which is why it is returned separately rather
+    than folded into a single total the caller can no longer characterize. This
+    function used to return only the total, and `dashboard.perf_cost` therefore
+    had nothing to combine and labelled a 7-day figure "measured" on the strength
+    of the live buffer alone.
+    """
     buckets = _load(DAILY_FILE)
     spend = energy_wh = 0.0
     by: Dict[str, dict] = {}
@@ -509,4 +520,7 @@ def cold_cost(since_ts: float, until_ts: float, group: str = "model") -> dict:
         g["spend_usd"] += cost
         g["energy_wh"] += e
         g["n"] += int(b.get("n", 0))
-    return {"spend_usd": spend, "energy_wh": energy_wh, "by": by}
+    # energy_estimated_wh == energy_wh by construction (see the docstring); it is
+    # named separately so the caller carries provenance rather than inferring it.
+    return {"spend_usd": spend, "energy_wh": energy_wh,
+            "energy_estimated_wh": energy_wh, "by": by}

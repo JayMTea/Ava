@@ -212,6 +212,10 @@ def perf_cost(since="7d", group="model") -> dict:
     since_ts = now - _parse_dur(since, 7 * 86400)
     cutoff = perf_store.cold_boundary(now)
     spend = energy_wh = 0.0
+    # Watt-hours we cannot claim to have sampled: everything from the rollups
+    # (always nominal — see perf_store.cold_cost) plus the hot tail when the ring
+    # buffer had no power readings at all.
+    estimated_wh = 0.0
     by: Dict[str, dict] = {}
 
     # Cold range [since_ts, cutoff) from rollups.
@@ -219,6 +223,7 @@ def perf_cost(since="7d", group="model") -> dict:
         cold = perf_store.cold_cost(since_ts, cutoff, group)
         spend += cold["spend_usd"]
         energy_wh += cold["energy_wh"]
+        estimated_wh += cold.get("energy_estimated_wh", cold["energy_wh"])
         for key, g in cold["by"].items():
             b = by.setdefault(key, {"spend_usd": 0.0, "energy_wh": 0.0, "n": 0})
             b["spend_usd"] += g["spend_usd"]
@@ -241,21 +246,45 @@ def perf_cost(since="7d", group="model") -> dict:
         e = avg_power * float(secs) / 3600.0 if secs else 0.0
         spend += cost
         energy_wh += e
+        if not powers:
+            estimated_wh += e
         key = str(r.get(group) or model)
         b = by.setdefault(key, {"spend_usd": 0.0, "energy_wh": 0.0, "n": 0})
         b["spend_usd"] += cost
         b["energy_wh"] += e
         b["n"] += 1
     energy_kwh = energy_wh / 1000.0
+    # Provenance of the energy figure, for THIS window rather than for the live
+    # buffer. `bool(powers)` answers "is the GPU reporting power right now", which
+    # is a different question and the wrong one: hardware.history() keeps two
+    # hours (_SAMPLE_KEEP_S) while perf.hot_window is 48h, so a 7-day figure was
+    # labelled "measured" when ~5 days of it came from a static constant.
+    #   measured  - every watt-hour in the window came from real samples
+    #   partial   - some sampled, some nominal (the ordinary NVIDIA case)
+    #   estimated - no samples at all (Mac / AMD / Intel / CPU-only today)
+    # Tri-state rather than a boolean, for the same reason skills.py separates
+    # `unknown` from `undeployed`: "partly" is a real answer, not a rounding of
+    # either neighbour.
+    if energy_wh <= 0:
+        energy_state = "measured" if powers else "estimated"
+    elif estimated_wh <= 0:
+        energy_state = "measured"
+    elif estimated_wh >= energy_wh:
+        energy_state = "estimated"
+    else:
+        energy_state = "partial"
     return {
         "ok": True, "since": since, "group": group,
         "spend_usd": round(spend, 4),
         "energy_kwh": round(energy_kwh, 4),
         "energy_usd": round(energy_kwh * rate, 4) if rate else None,
-        # Honest-measurement flag: False = no GPU power samples (non-NVIDIA /
-        # CPU box), so energy figures are a nominal-wattage ESTIMATE. The UI
-        # must not present estimated energy as a measured dollar figure.
-        "power_measured": bool(powers),
+        "energy_state": energy_state,
+        "energy_estimated_kwh": round(estimated_wh / 1000.0, 4),
+        # Kept for the response contract (qa/test_02_api_contracts.py) and
+        # narrowed to what it always claimed to mean: the whole window is
+        # sampled. The UI must not present estimated energy as measured.
+        "power_measured": energy_state == "measured",
+        "power_sampled_now": bool(powers),
         "avg_gpu_watts": round(avg_power, 1),
         "by": {k: {"spend_usd": round(v["spend_usd"], 4),
                    "energy_kwh": round(v["energy_wh"] / 1000, 4),

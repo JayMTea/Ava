@@ -49,7 +49,15 @@ export interface PerfCost {
   spend_usd: number;
   energy_kwh: number;
   energy_usd: number | null;
+  /** Provenance of energy_kwh for THIS window: every watt-hour sampled,
+   *  some sampled some nominal, or none sampled. Not "is the GPU reporting
+   *  right now" — see power_sampled_now. */
+  energy_state: 'measured' | 'partial' | 'estimated';
+  energy_estimated_kwh: number;
+  /** True only when energy_state === 'measured'. */
   power_measured: boolean;
+  /** The live ring buffer has readings. Says nothing about the window. */
+  power_sampled_now: boolean;
   avg_gpu_watts: number;
   by: Record<string, CostBreak>;
 }

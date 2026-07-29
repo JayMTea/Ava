@@ -8,7 +8,7 @@ export const METRICS: Record<string, string> = {
   spend:
     'Cloud API dollars spent in this window. Running Ava on your own hardware is free — this only moves when she calls a paid cloud model.',
   energy:
-    'Estimated electricity the GPU used, in kilowatt-hours. Measured directly if your GPU reports power draw, otherwise estimated from a nominal wattage.',
+    'Estimated electricity the GPU used, in kilowatt-hours. Recent hours use your GPU\'s own power readings where it reports them; older data and non-reporting GPUs use a nominal wattage, so a long window is mostly an estimate.',
   throughput:
     'Average generation speed in tokens per second, across all models. Higher means Ava writes replies faster.',
   ttft:
