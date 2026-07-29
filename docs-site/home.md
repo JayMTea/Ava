@@ -15,32 +15,23 @@ hide:
 ## Get running in minutes
 
 ```bash
-cd deploy && ./install.sh                        # or: cp profiles/gpu.env .env && docker compose up -d
-# open http://localhost:8096 and set an admin password
+git clone https://github.com/JayMTea/Ava && cd Ava/deploy && ./install.sh
+# it finishes by printing a one-time link; open that to set your admin password
 ```
 
-The in-app **Setup hub** handles the rest: detect hardware, download a model,
-provision the agent, wire in apps, enroll your voice. Prefer bare metal?
-`python3 -m venv .venv && . .venv/bin/activate && pip install -e .`, then
-`ava setup && ava doctor && ava up` (or `./bin/ava ...` with no install).
-`ava verify` then checks every advertised capability end-to-end and tells you
-exactly what to run for anything that has drifted. Full guide:
-[Quickstart](deploy/README.md).
+One command detects your hardware, downloads a model, and gets you chatting in
+your browser. Everything after that happens in the in-app **Setup hub**: wire in
+your apps, enroll your voice, set budgets.
 
-## Under the hood
-
-[![System diagram](docs/assets/architecture.svg)](docs/assets/architecture.svg)
-
-A FastAPI **bridge** (web app, API, dashboard) fronts a sandboxed **agent
-runtime** ([NemoClaw](docs/AGENT_RUNTIME.md) by default, with per-tool egress
-policies) and an OpenAI-compatible **inference router**. GPU workloads runs
-on **the GPU service**. Everything else is a **connector** you drop in.
+That gets you chat, on a local model. GPU workloads and the agent that drives
+your other apps are opt-in: `AVA_PROFILE=full ./install.sh`, which grants the
+agent a root-equivalent Docker socket and so stays your call, not the
+installer's. Voice needs one build flag. The [Quickstart](deploy/README.md)
+covers all three.
 
 ## Learn more
 
-- [Why Ava?](README.md): what it is, what it is not, honest comparisons
-- [Quickstart](deploy/README.md): Docker profiles and bare-metal install
+- [What Ava does](docs/capabilities/index.md): every capability, taken apart
+- [Why Ava?](README.md): what it is, what it is not, where it stands
+- [Quickstart](deploy/README.md): what each profile includes, Docker and bare metal
 - [Connect your apps](docs/CONNECT_YOUR_APPS.md): wire in your apps from the browser
-- [Connector SDK](docs/CONNECTOR_SDK.md): build your own connector with a manifest
-- [Agent runtime](docs/AGENT_RUNTIME.md): the sandbox, tools, and egress policies
-- [Architecture](agent/docs/README.md): how the pieces fit

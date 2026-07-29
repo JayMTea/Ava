@@ -74,6 +74,11 @@ CURATED: dict[str, str] = {
 HOME_PAGE = ("home.md", "index.md")  # (docs-site-relative src, staging dst)
 
 ASSETS: dict[str, str] = {
+    # Brand wordmark for the header and the landing hero. Traced from the
+    # transparent brand master in frontend/public/assets/icons/ and filled with
+    # `currentColor` so ONE file inks itself per scheme (extra.css masks it) —
+    # the master's navy is invisible on the dark canvas. See the file's comment.
+    "docs/assets/ava-wordmark.svg": "docs/assets/ava-wordmark.svg",
     "docs/assets/architecture.svg": "docs/assets/architecture.svg",
     "docs/assets/agent-remote-runtime.svg": "docs/assets/agent-remote-runtime.svg",
     "docs/assets/vitals-dashboard.png": "docs/assets/vitals-dashboard.png",

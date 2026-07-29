@@ -1,23 +1,9 @@
-// Make the "Ava" title in the header act as the home link (the logo icon is
-// hidden via CSS). Reads the home URL from the hidden logo anchor so it stays
-// correct on every page depth.
-(function () {
-  function boot() {
-    var logo = document.querySelector('.md-header a.md-logo');
-    var home = logo ? logo.getAttribute('href') : '.';
-    var name = document.querySelector('.md-header__title .md-header__topic .md-ellipsis');
-    if (!name || name.dataset.homeWired) return;
-    name.dataset.homeWired = '1';
-    name.setAttribute('role', 'link');
-    name.setAttribute('tabindex', '0');
-    name.addEventListener('click', function () { window.location.href = home; });
-    name.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); window.location.href = home; }
-    });
-  }
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
-  else boot();
-})();
+// The header home link needs no JS: the brand wordmark now occupies the logo
+// slot (stylesheets/extra.css masks docs/assets/ava-wordmark.svg onto
+// a.md-logo), and that anchor is already a real link to the site root with an
+// accessible name. The previous block here retrofitted the "Ava" text title
+// into a fake link because the logo button was hidden — that is no longer the
+// case, and a genuine <a> beats role="link" on a <span>.
 
 // "View on GitHub" pill, left of the search box. The stock repo widget is
 // hidden via CSS; its anchor still supplies the URL (fork-safe).

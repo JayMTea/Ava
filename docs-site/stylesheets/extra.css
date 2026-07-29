@@ -72,13 +72,67 @@
   display: none !important;
 }
 
-/* Drop the header logo icon (far-left button); the "Ava" title is the home
-   link instead (wired in javascripts/chrome.js). */
+/* Brand wordmark (docs/assets/ava-wordmark.svg), applied as a MASK rather than
+   dropped in as an <img>: the artwork's ink is the brand navy, which reads
+   15.9:1 on the light canvas but 1.06:1 on the dark one. Masking paints the
+   glyphs in `currentColor`, so a single asset inherits the surrounding text
+   color and stays legible in both schemes — and in the header, which carries
+   the accent in light and --panel in dark, i.e. is dark either way. */
+.ava-wordmark {
+  display: block;
+  background-color: currentColor;
+  -webkit-mask: url(../docs/assets/ava-wordmark.svg) center / contain no-repeat;
+  mask: url(../docs/assets/ava-wordmark.svg) center / contain no-repeat;
+}
+
+/* Header logo slot (far-left). Material ships an inline placeholder <svg> in
+   this anchor; hide it and mask the anchor itself, which already carries the
+   accessible name (aria-label="Ava") and the home href. 2449:1060 master, so
+   the box is kept at that ratio to avoid distorting the letterforms. */
 .md-header__button.md-logo {
+  display: block;
+  width: 2.77rem;   /* 1.2rem x 2449/1060 */
+  height: 1.2rem;
+  padding: 0;
+  margin: 0.2rem 0.4rem 0.2rem 0.2rem;
+  background-color: currentColor;
+  -webkit-mask: url(../docs/assets/ava-wordmark.svg) center / contain no-repeat;
+  mask: url(../docs/assets/ava-wordmark.svg) center / contain no-repeat;
+}
+.md-header__button.md-logo :is(img, svg) {
   display: none;
 }
-.md-header__title .md-header__topic:first-child .md-ellipsis {
-  cursor: pointer;
+/* Material hides the header logo at this breakpoint and moves it into the
+   drawer; `display: block` above is a later, equal-specificity rule, so it
+   would otherwise win and leave the wordmark AND the "Ava" text crowding a
+   phone header next to the hamburger. Restore the hide explicitly. */
+@media screen and (max-width: 76.234375em) {
+  .md-header__button.md-logo {
+    display: none;
+  }
+}
+
+/* The wordmark spells "AVA", so the adjacent site-name topic would repeat it.
+   Hide that topic ONLY where the logo actually renders: Material hides
+   .md-logo at <=76.234375em and moves it into the drawer, and below that
+   breakpoint this text is the only branding left in the header. The SECOND
+   topic (the page title Material swaps in on scroll) is untouched. */
+@media screen and (min-width: 76.25em) {
+  .md-header__title .md-header__topic:first-child {
+    display: none;
+  }
+}
+
+/* Drawer nav title on small screens — Material puts the logo there instead. */
+.md-nav__title .md-nav__button.md-logo {
+  width: 5.54rem;   /* 2.4rem x 2449/1060 */
+  height: 2.4rem;
+  background-color: currentColor;
+  -webkit-mask: url(../docs/assets/ava-wordmark.svg) left center / contain no-repeat;
+  mask: url(../docs/assets/ava-wordmark.svg) left center / contain no-repeat;
+}
+.md-nav__title .md-nav__button.md-logo :is(img, svg) {
+  display: none;
 }
 
 /* Header: hide the repo source widget; the theme toggle takes its far-right
@@ -145,13 +199,13 @@
   text-align: center;
 }
 
-.ava-hero__eyebrow {
-  margin: 0 0 0.8rem;
-  font-size: 0.82rem;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--ava-accent);
+/* Wordmark standing in for the old "MEET AVA" text eyebrow (home.html). It
+   inherits the hero's text color through .ava-wordmark's currentColor fill:
+   15.9:1 on the light panel, 15.0:1 on the dark one. */
+.ava-hero__mark {
+  width: clamp(9rem, 20vw, 12.5rem);
+  aspect-ratio: 2449 / 1060;
+  margin: 0 auto 1.1rem;
 }
 
 .ava-hero h1 {
@@ -183,6 +237,21 @@
   flex-wrap: wrap;
   justify-content: center;
   gap: 0.6rem;
+}
+
+/* Self-selection line under the single CTA (home.html). Deliberately quieter
+   than the button so it reads as a caption rather than a second action; the
+   "Why Ava?" link inside it is the demoted secondary destination. */
+.ava-hero__note {
+  margin: 0.9rem 0 0;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--ava-land-muted);
+}
+.ava-hero__note a {
+  color: var(--ava-accent);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
 }
 
 .ava-btn {
