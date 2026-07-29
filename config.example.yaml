@@ -101,6 +101,13 @@ models:
 # for you; edit by hand only if you prefer.
 inference:
   primary: local
+  # Let `ava models pull --auto` and the setup wizard offer vLLM on an AMD
+  # (ROCm) box. OFF by default and deliberately so: vLLM-on-ROCm works, but only
+  # for specific builds and gfx targets, and the failure mode is pulling tens of
+  # GB of weights an engine on this machine then cannot serve. Turn it on if you
+  # already know your ROCm vLLM runs. NVIDIA needs no flag; Apple Silicon and
+  # CPU-only boxes are never offered vLLM regardless.
+  # allow_vllm_rocm: false     # [ava_bridge/models.py::engine_servable_here]
   # Logical model roles -> backend ids, so features never name a model inline.
   # Unset roles fall back to `primary`. media roles resolve via `models:` above.
   # roles:

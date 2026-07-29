@@ -93,12 +93,40 @@ def cmd_doctor(_args) -> int:
 
     print("\nHardware")
     try:
+        # The platform row first, and its verification tier with it. An owner
+        # should learn how well their exact hardware class is actually known
+        # from the tool itself, not by finding the matrix in the docs — the
+        # honest-labelling rule applied at the moment of first contact.
+        from ava_bridge import hwinfo, platforms
+        _prow = platforms.detect()
+        if _prow is None:
+            _row(WARN, "Platform", f"{hwinfo.platform_id()} — no row in "
+                                   "deploy/platforms.conf")
+        else:
+            _mark = OK if _prow.verified else (
+                BAD if _prow.tier == "unsupported" else WARN)
+            _row(_mark, "Platform", _prow.summary())
+    except Exception as e:  # noqa: BLE001 — never let the matrix break doctor
+        _row(WARN, "Platform", f"unreadable ({e})")
+    try:
         from ava_bridge import hardware
         g = hardware._gpu()
         if g.get("name"):
             _row(OK, "GPU", f"{g['name']} · {g.get('temp','?')}°C · {g.get('power','?')}W")
         else:
-            _row(WARN, "GPU", "no NVIDIA GPU detected — use the cpu/cloud profile")
+            # Derived from the HAL rather than hardcoded to one vendor: this line
+            # said "no NVIDIA GPU detected" on any non-NVIDIA machine, so a
+            # working AMD or Intel box got a warning about hardware it has.
+            from ava_bridge import hwinfo
+            plat = hwinfo.platform_id()
+            fit = hwinfo.fit_memory()
+            if fit.readable:
+                _row(OK, "GPU", f"no per-GPU telemetry on {plat} — "
+                                f"fit gates on {fit.source} "
+                                f"({fit.free_gb:.0f} GB free)")
+            else:
+                _row(WARN, "GPU", f"no readable accelerator on {plat} — "
+                                  "use the cpu/cloud profile")
         disk = hardware._disk()
         low = (disk.get("used_pct") or 0) > 90
         _row(BAD if low else OK, "Disk", f"{disk.get('free_gb','?')} GB free")

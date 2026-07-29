@@ -1,0 +1,71 @@
+{
+  "schema": "ava-ondevice/1",
+  "platform_key": "linux-nvidia-unified",
+  "recorded_utc": "2026-07-29T18:19:44Z",
+  "host": {
+    "machine": "aarch64",
+    "system": "Linux",
+    "release": "6.17.0-1026-nvidia",
+    "python": "3.12.3"
+  },
+  "repo_head": "71da3d7",
+  "repo_dirty_files": 3,
+  "hwinfo": {
+    "platform": "linux-nvidia",
+    "fit_memory": {
+      "free_gb": 53.3,
+      "total_gb": 121.7,
+      "source": "system-psutil"
+    },
+    "system_memory": {
+      "free_gb": 53.3,
+      "total_gb": 121.7,
+      "source": "system-psutil"
+    },
+    "gpus": [
+      {
+        "name": "NVIDIA GB10",
+        "util": 0.0,
+        "temp_c": 38.0,
+        "power_w": 5.97,
+        "mem_used_gb": null,
+        "mem_total_gb": null,
+        "source": "nvidia-smi"
+      }
+    ],
+    "memory_model": {
+      "model": "unknown",
+      "why": "no APU signal"
+    },
+    "have": {
+      "psutil": true,
+      "nvml": false,
+      "nvidia_smi": true,
+      "drm": true,
+      "amdgpu_sysfs": false,
+      "intel_sysfs": false,
+      "rocm_smi": false,
+      "xpu_smi": false,
+      "rapl": false
+    }
+  },
+  "raw": {
+    "nvidia_smi_query": "NVIDIA GB10, [N/A], [N/A], 5.98 W",
+    "drm_cards": [
+      [
+        "/sys/class/drm/card0",
+        null
+      ],
+      [
+        "/sys/class/drm/card1",
+        "0x10de"
+      ]
+    ],
+    "meminfo_total_kb": "127600528"
+  },
+  "notes": [
+    "VRAM query returns [N/A] on this unified-memory part, which is WHY fit_memory falls through to the system pool. That is the behaviour being evidenced, not a failure.",
+    "GPU power IS readable here (nvidia-smi power.draw), so this platform's energy figures can be measured rather than estimated.",
+    "No usable RAPL: /sys/class/powercap exists and is EMPTY on this aarch64 host, so CPU-package power is unavailable."
+  ]
+}

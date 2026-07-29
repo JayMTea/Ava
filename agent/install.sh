@@ -3,9 +3,12 @@
 # Safe to re-run any time; REQUIRED after `nemoclaw <name> rebuild` (rebuilds wipe
 # in-sandbox config + tools). Deploys everything from this folder:
 #
-#   mcp_server/ -> one modular MCP server (_server.mjs) that recursively auto-loads
-#                  every tool module from its category subfolders (persona/, daily/,
-#                  health/, …); deployed to /sandbox/.openclaw/mcp_server/
+#   mcp_server_<srv>/ -> one MCP server per scope (admin, content, productivity,
+#                  system). Each has a _server.mjs that recursively auto-loads
+#                  every tool module from its category subfolders (daily/,
+#                  creative/, …); deployed to /sandbox/.openclaw/mcp_server_<srv>/.
+#                  The trailing underscore is what the discovery glob below
+#                  matches — a bare `mcp_server/` is not a server and is skipped.
 #   policies/   -> least-privilege egress presets (one per source), all applied
 #   skills/     -> native skills installed via `nemoclaw skill install`
 #   persona.txt.tmpl -> the assistant's identity template, rendered from ava.yaml
@@ -26,7 +29,9 @@ NEMOCLAW="${AVA_NEMOCLAW:-$HOME/.local/bin/nemoclaw}"
 # Optional gitignored overlay: private servers/skills/policies (e.g. personal
 # apps) that layer on top of the core kit without editing this script.
 OVERLAY="${AVA_OVERLAY:-$HERE/../overlay/agent}"
-DEST="/sandbox/.openclaw/mcp_server"
+# NOTE: there is no single destination. Each server deploys to its own
+# /sandbox/.openclaw/mcp_server_<category>/ (see the loop below). A `DEST` here
+# named a path nothing is ever deployed to, and the closing message printed it.
 NOISE='UNDICI|trace-warnings|ExperimentalWarning|qqbot|Config warning|^[│◇├╮╯ ]*$|─'
 
 echo "[ava] sandbox=$SANDBOX"
@@ -250,4 +255,5 @@ timeout 20 "$NEMOCLAW" "$SANDBOX" recover </dev/null >/tmp/ava-recover.log 2>&1 
   && echo "[ava] gateway recovered" \
   || echo "[ava] recover skipped/slow (ok — mcp hot-reloads; see /tmp/ava-recover.log)"
 
-echo "[ava] done. Tools auto-load from $DEST; add more with ./new-tool.sh"
+echo "[ava] done. Tools auto-load from ${#CATS[@]} server(s): ${CATS[*]}"
+echo "[ava]   add one with:  ./new-tool.sh <name> --category <cat> [--server <srv>]"
