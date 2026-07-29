@@ -58,25 +58,51 @@ _FORBIDDEN: list[tuple[re.Pattern, str]] = [
     (re.compile(r"Nemotron-Open|nano[-\s]omni|vllm-open", re.I),
      "the maintainer's personal 30B checkpoint — use the shipped default from "
      "deploy/default-model.env, and document this one as an upgrade instead"),
-    # Private sibling apps. These live outside this repo and are excluded by name
-    # in .git/info/exclude precisely so the names are not published — but the
-    # exclusion only stops the DIRECTORIES shipping, not a prose mention, a code
-    # comment, a docs table, or a token name. Every one of these leaked that way
-    # at least once: a capabilities page tabulated two of them as if they shipped,
-    # the SDK sidecar's usage line named their token env vars, and .gitignore
-    # itself listed one. A forker cannot obtain any of them, so naming them
-    # documents a product that does not exist and identifies the maintainer's
-    # other work. Use the shipped examples/ apps in documentation instead.
-    (re.compile(r"\bledger\b|\bava-notes\b|persona[-_]studio|LedgerBackend"
-                r"|\bnutrifit\b|MYAPP_TOKEN|MYAPP_MCP_TOKEN", re.I),
-     "a private sibling app (or its token env var) — use examples/hello-app, "
-     "examples/device-app or examples/home-assistant in docs and comments"),
     # The maintainer's machine. Real hostnames reached tracked docs twice via
     # pasted log lines labelled "straight off disk"; a stub reads identically.
     (re.compile(r"\bspark-[0-9a-f]{4}\b", re.I),
      "the maintainer's hostname from a pasted log line — stub it (e.g. "
      '"ava-host") so the sample stays fork-neutral'),
 ]
+
+# ---- Private sibling apps: patterns that must NOT be written down here -------
+#
+# Private app names leak the same way every time — not as a shipped directory
+# (.git/info/exclude already stops that) but as a prose mention, a code comment,
+# a docs table row, or a token env var. A capabilities page once tabulated two of
+# them as if they shipped; the MCP sidecar's usage line named their token vars.
+#
+# The obvious fix — list the names in this file — is self-defeating: it publishes
+# the exact strings the exclusion exists to keep private, in a tracked file, to a
+# public repo. So the names live in a LOCAL, never-committed file instead:
+#
+#     .git/info/private-names      one regex per line, blank lines and # ignored
+#
+# On the maintainer's machine that file exists and the ratchet has teeth. On a
+# fork it does not, this check is inert, and nothing has been disclosed. That
+# asymmetry is correct: these are names only the maintainer can accidentally
+# reintroduce, because only the maintainer has the apps.
+_PRIVATE_NAMES_FILE = ROOT / ".git" / "info" / "private-names"
+
+
+def _private_patterns() -> list[tuple[re.Pattern, str]]:
+    try:
+        raw = _PRIVATE_NAMES_FILE.read_text(encoding="utf-8")
+    except OSError:
+        return []                       # a fork, or a fresh clone — nothing to check
+    out = []
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        try:
+            out.append((re.compile(line, re.I),
+                        "a private sibling app or one of its identifiers (matched "
+                        f"{_PRIVATE_NAMES_FILE.name!r}) — use examples/hello-app, "
+                        "examples/device-app or examples/home-assistant instead"))
+        except re.error as e:
+            raise AssertionError(f"{_PRIVATE_NAMES_FILE}: bad pattern {line!r}: {e}")
+    return out
 
 # Files that legitimately contain an otherwise-forbidden string.
 _ALLOW = {
@@ -116,6 +142,7 @@ def _tracked_files() -> list[str]:
 
 def _scan() -> list[str]:
     offenders: list[str] = []
+    rules = _FORBIDDEN + _private_patterns()
     for rel in _tracked_files():
         if rel in _ALLOW or pathlib.Path(rel).suffix.lower() not in _TEXTUAL:
             continue
@@ -124,7 +151,7 @@ def _scan() -> list[str]:
             text = path.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue  # a tracked file absent from the worktree is not our concern
-        for pattern, why in _FORBIDDEN:
+        for pattern, why in rules:
             if pattern.search(text):
                 offenders.append(f"{rel}: {why}")
     return sorted(set(offenders))
