@@ -1,0 +1,37 @@
+{#-
+  Overrides Material's partials/source.html for ONE reason: to delete the
+  `data-md-component="source"` attribute.
+
+  Material mounts a component on every `[data-md-component=source]` element
+  (`ae("source").map(e => gi(e))` in the theme bundle). That mount fetches
+  `https://api.github.com/repos/<owner>/<repo>` and `/releases/latest` to
+  decorate the widget with stars/forks/version — a third-party request made by
+  every visitor, on every page, to a host that then learns their IP and which
+  of our pages they are reading.
+
+  This site's whole claim is that nothing leaves your machine unless you send
+  it. mkdocs.yml already sets `font: false` so Material does not pull webfonts
+  from Google for exactly this reason; the repo widget was the same leak by a
+  different route, and it only appeared once AVA_DOCS_REPO_BASE was set — i.e.
+  it would have switched itself on at launch and not before, which is the worst
+  time to discover it.
+
+  The facts were never visible anyway: stylesheets/extra.css hides the stock
+  widget and javascripts/chrome.js builds the "View on GitHub" pill from this
+  anchor's href. So the anchor keeps its href, class and accessible name (all
+  of which chrome.js and the CSS depend on) and loses only the attribute that
+  triggers the fetch.
+
+  Consequence to know about: the diff against Material's own partial should be
+  exactly this one attribute. If a Material upgrade changes that file, redo the
+  deletion against the new version rather than keeping this copy frozen.
+-#}
+<a href="{{ config.repo_url }}" title="{{ lang.t('source') }}" class="md-source">
+  <div class="md-source__icon md-icon">
+    {% set icon = config.theme.icon.repo or "fontawesome/brands/git-alt" %}
+    {% include ".icons/" ~ icon ~ ".svg" %}
+  </div>
+  <div class="md-source__repository">
+    {{ config.repo_name }}
+  </div>
+</a>

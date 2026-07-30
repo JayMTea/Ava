@@ -68,25 +68,15 @@
     start();
   }
 
-  // Corner "expand" buttons -> native fullscreen of their target element.
-  function wireExpand() {
-    document.querySelectorAll('[data-expand-target]').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        var t = document.querySelector(btn.getAttribute('data-expand-target'));
-        if (!t) return;
-        if (document.fullscreenElement) {
-          (document.exitFullscreen || document.webkitExitFullscreen || function () {}).call(document);
-          return;
-        }
-        var req = t.requestFullscreen || t.webkitRequestFullscreen || t.msRequestFullscreen;
-        if (req) { var p = req.call(t); if (p && p.catch) p.catch(function () {}); }
-      });
-    });
-  }
+  // The corner "expand" -> fullscreen handler used to live here. It is in
+  // javascripts/chrome.js now: this file is not loaded (see mkdocs.yml), and
+  // the landing page's expand button silently stopped working the day it was
+  // dropped from extra_javascript. Do not re-add it here — chrome.js is loaded
+  // on every page and binding in both would make the second click exit
+  // fullscreen immediately.
 
   function boot() {
     document.querySelectorAll('.ava-carousel').forEach(init);
-    wireExpand();
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();

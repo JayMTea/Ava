@@ -34,6 +34,20 @@ Optional extras: `pip install -r requirements-voice.txt` enables STT + the
 voice gate (the app runs voice-less without it), and
 `pip install -r requirements-docs.txt` builds the docs site (`docs-site/`).
 
+### Previewing the docs site
+
+```bash
+python docs-site/sync.py && mkdocs build --strict -f docs-site/mkdocs.yml
+python docs-site/preview.py          # -> http://127.0.0.1:8099/Ava/
+```
+
+`preview.py` serves the built `docs-site/site/` — the exact artifact Pages
+publishes — at the `/Ava/` prefix from `site_url`, with HTTP Range support so
+the walkthrough videos can be scrubbed. `mkdocs serve -f docs-site/mkdocs.yml`
+is fine for prose (it live-reloads, and note it also mounts at `/Ava/`, not
+`/`), but it answers a `Range:` request with the whole file, so video seeking
+does not work there and a media check on it is not a real one.
+
 ## 2. Tests & lint
 
 ```bash

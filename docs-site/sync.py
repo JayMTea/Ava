@@ -171,7 +171,31 @@ def _rewrite_target(target: str, src: str, src_dst: str) -> str | None:
     return url + (("#" + anchor) if anchor else "")
 
 
+# Badge images hosted off-site. On GitHub these are free — the reader is already
+# talking to github.com. On the published site they are not: every visitor to the
+# page would fetch them from a third party, handing it their IP and the page they
+# are on. This site's entire claim is that nothing leaves your machine unless you
+# send it (it is why mkdocs.yml sets `font: false` and why overrides/partials/
+# source.html exists), and a row of shields.io badges quietly contradicts it on
+# the very page that makes the argument.
+#
+# Only the SITE copy is stripped. README.md keeps its badges for GitHub, which is
+# where badges belong and where they cost nothing.
+_BADGE_LINE = re.compile(
+    r"^[ \t]*(?:\[!\[[^\]]*\]\(https?://(?:img\.shields\.io|badgen\.net|badge\.fury\.io)/[^)]*\)\][^\n]*|"
+    r"!\[[^\]]*\]\(https?://(?:img\.shields\.io|badgen\.net|badge\.fury\.io)/[^)]*\))[ \t]*$",
+    re.M,
+)
+
+
+def _strip_offsite_badges(text: str) -> str:
+    text = _BADGE_LINE.sub("", text)
+    return re.sub(r"\n{3,}", "\n\n", text)
+
+
 def _rewrite_links(text: str, src: str, src_dst: str) -> str:
+    text = _strip_offsite_badges(text)
+
     def repl(m: re.Match) -> str:
         target = _rewrite_target(m.group(2), src, src_dst)
         if target is None:                 # unlinkable source path: keep the label

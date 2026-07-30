@@ -182,7 +182,14 @@
 .ava-landing {
   --ava-land-border: var(--line);
   --ava-land-card-bg: var(--input);
-  --ava-land-muted: var(--muted);
+  /* Derived from --muted, not a literal, so a re-theme still follows the app.
+     Bare --muted is tuned for dense app chrome against the app's own surfaces;
+     on the landing page's raised card (--input) it measures 4.44:1 light /
+     4.48:1 dark, just under AA (4.5) for the card and tagline copy — and this
+     is the page every first-time visitor reads. Mixing toward --txt darkens it
+     in the light scheme and lightens it in the dark one, so one declaration
+     clears AA in both (5.2:1 / 5.3:1) while staying visibly secondary. */
+  --ava-land-muted: color-mix(in srgb, var(--muted) 85%, var(--txt));
 }
 
 .ava-landing .md-grid {
@@ -248,8 +255,13 @@
   line-height: 1.5;
   color: var(--ava-land-muted);
 }
+/* --accent-tint, not --accent: the raw accent is a BUTTON-FILL colour, and as
+   link text on the hero panel it measures 3.69:1 in dark mode — under AA for
+   body-size text. --accent-tint is the token that exists for exactly this (it
+   is what --md-typeset-a-color maps to for every other link on the site) and
+   it flips per scheme, so both modes clear AA. */
 .ava-hero__note a {
-  color: var(--ava-accent);
+  color: var(--accent-tint);
   text-decoration: underline;
   text-underline-offset: 0.2em;
 }
