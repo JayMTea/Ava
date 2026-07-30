@@ -69,6 +69,30 @@ heavy = {"whisper": None, "verifier": None, "voiceprint": None,
          "voice_unavailable": False}
 
 
+def clear_voice_gate() -> dict:
+    """Evict the cached voiceprint AND verifier together. Returns what was held.
+
+    Both, never one. `phone_bridge` guards the voice gate on `verifier is not
+    None` and then dereferences `voiceprint` on the next line:
+
+        if state.heavy["verifier"] is not None:
+            sim = spk.cosine(state.heavy["voiceprint"], ...)
+
+    so clearing the print alone turns every voice turn into a `TypeError` instead
+    of the documented fail-open. Clearing both makes `_ensure_loaded()` re-read
+    from disk on the next turn, find nothing, and leave the gate off — which is
+    the behaviour `hub/voice.py` already documents for an un-enrolled box.
+
+    Lives in `state` rather than in `hub/voice.py` because a hub route importing
+    `phone_bridge` would be circular.
+    """
+    held = {"voiceprint": heavy.get("voiceprint") is not None,
+            "verifier": heavy.get("verifier") is not None}
+    heavy["voiceprint"] = None
+    heavy["verifier"] = None
+    return held
+
+
 # ===== Persistence for Learning State ========================================
 # This file is the approvals/audit record (staged diffs, who approved what) —
 # it gets the same treatment as chats.json: AVA_HOME-resolved path, atomic

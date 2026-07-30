@@ -81,3 +81,20 @@ def voice_threshold(value: float):
     return {"ok": True, "restart_required": True,
             "env_override": settings.env_override("AVA_PHONE_THRESHOLD")}
 
+
+
+@router.post("/voice/delete")
+async def voice_delete():
+    """Destroy the enrolled voiceprint and everything derived from it.
+
+    POST rather than DELETE to match this panel's other verbs (/voice/enroll,
+    /voice/test, /voice/threshold) — consistency inside one surface beats REST
+    purity here.
+
+    Returns the receipt from `voice_enroll.delete()`, which lists absolute paths
+    so the owner can verify by hand rather than trusting this response. That is
+    the point: `GET /voice/status` reporting `enrolled: false` is the tool's own
+    report about itself, and this project's doctrine is not to accept those.
+    """
+    res = await run_in_threadpool(voice_enroll.delete)
+    return res if res.get("ok") else JSONResponse(res, status_code=500)

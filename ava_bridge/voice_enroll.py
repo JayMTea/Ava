@@ -123,6 +123,17 @@ def enroll(clips: list[bytes]) -> dict:
 
     os.makedirs(os.path.dirname(spk.VOICEPRINT), exist_ok=True)
     spk.save_voiceprint(vp)
+    # Enrollment was unaudited, which meant the ledger could not answer "when did
+    # biometric data start existing on this box" — and you cannot evidence a
+    # retention-and-destruction policy without a creation record to bound it.
+    # The digest, not the vector: enough to tie this record to the later deletion
+    # record, and not reversible into a voiceprint.
+    from . import audit as _audit
+    _audit.record("voiceprint", action="enroll",
+                  seconds=round(total, 1), windows=int(len(embs)),
+                  dropped=dropped,
+                  consistency_mean=round(float(sims.mean()), 3),
+                  digest=spk.voiceprint_digest())
     return {
         "ok": True,
         "seconds": round(total, 1),
@@ -169,3 +180,84 @@ def status() -> dict:
         "enrolled": os.path.exists(spk.VOICEPRINT),
         "threshold": config.PHONE_THRESHOLD,
     }
+
+
+# ---- destruction ------------------------------------------------------------ #
+# BIPA §15(a) requires a WRITTEN retention-and-destruction policy for biometric
+# identifiers, and GDPR Art. 9 makes a voiceprint special-category data. Before
+# this there was no code path to delete one at all — not a route, not a function,
+# nothing (a repo-wide grep for voiceprint ∩ delete|remove|forget returned zero).
+# See docs/BIOMETRICS.md, which is the written half.
+def delete(*, reset_threshold: bool = True) -> dict:
+    """Destroy the enrolled voiceprint and everything derived from it.
+
+    Returns a RECEIPT the owner can check by hand, listing absolute paths — the
+    status endpoint saying "enrolled: false" is the tool's own report, which is
+    the weakest of the three proofs available and the one this project's doctrine
+    says not to rely on.
+
+    The receipt also names what was deliberately NOT destroyed. That is not
+    padding: a receipt claiming more than it did is the failure mode here, and
+    naming the two deliberate exclusions is what makes the rest of it credible.
+    """
+    import speaker as spk
+    from . import audit, config, settings, state
+
+    # Captured before anything is removed — a record written afterwards cannot say
+    # what was there.
+    digest = spk.voiceprint_digest()
+    receipt: dict = {"ok": True, "digest_before": digest}
+
+    # 1 + 2. Both stored copies, including the legacy one load_voiceprint()
+    #        migrates forward. Removing only the live path resurrects the print.
+    gone = spk.delete_voiceprint()
+    receipt.update(gone)
+
+    # 3 + 4. The running process's cached copy, both keys together.
+    receipt["in_memory_evicted"] = state.clear_voice_gate()
+
+    # 5. A print-derived threshold is residue: the UI would otherwise show a gate
+    #    tuned to a voiceprint that no longer exists.
+    if reset_threshold:
+        try:
+            before = config.PHONE_THRESHOLD
+            settings.save_patch({"voice": {"threshold": None}})
+            receipt["threshold_reset_from"] = before
+        except Exception as e:  # noqa: BLE001 — the biometric is gone either way
+            receipt["threshold_reset_error"] = str(e)
+
+    # 6. Raw owner audio Ava itself wrote (only under AVA_DEBUG_TALK).
+    last = os.path.join(settings.logs_dir(), "last_talk.wav")
+    if os.path.isfile(last):
+        try:
+            os.remove(last)
+            receipt["removed"].append(last)
+        except OSError as e:
+            receipt.setdefault("failed", []).append({"path": last, "error": str(e)})
+
+    # 7 + 8. Named, not touched.
+    enroll_dir = os.path.join(settings.CODE_ROOT, "enroll")
+    kept = []
+    try:
+        kept = sorted(f for f in os.listdir(enroll_dir)
+                      if f.lower().endswith((".wav", ".m4a", ".mp3")))
+    except OSError:
+        pass
+    receipt["not_destroyed"] = {
+        "models/ecapa/**": ("public pretrained speaker-embedding weights, "
+                            "identical for every install — nothing about you"),
+        "enroll/": (f"{len(kept)} source recording(s) YOU supplied to the CLI; "
+                    "deleting your own files unasked would be overreach"
+                    if kept else "no source recordings present"),
+    }
+    receipt["enroll_files_kept"] = kept
+
+    audit.record("voiceprint", action="delete",
+                 removed=receipt.get("removed", []),
+                 absent=receipt.get("absent", []),
+                 failed=receipt.get("failed", []),
+                 digest_before=digest,
+                 in_memory_evicted=receipt["in_memory_evicted"],
+                 threshold_reset_from=receipt.get("threshold_reset_from"),
+                 not_destroyed=sorted(receipt["not_destroyed"]))
+    return receipt

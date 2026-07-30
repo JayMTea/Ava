@@ -4,7 +4,7 @@ import { EmptyState, Panel } from '../../dashboard/primitives';
 import { ResourceError } from '../ui/ResourceState';
 import { useResource } from '../hooks';
 import { hub } from '../hubApi';
-import type { EnrollResult } from '../hubApi';
+import type { EnrollResult, VoiceDeleteReceipt } from '../hubApi';
 import { Badge } from '../ui/Badge';
 import { StatRow } from '../ui/StatRow';
 
@@ -110,6 +110,22 @@ export function VoicePanel({ onRestart }: { onRestart: () => void }) {
     setBusy(false);
   }, [clips, load]);
 
+  // Two-step, because this is irreversible and the artifact is biometric. The
+  // confirm state lives here rather than in a window.confirm() so the warning can
+  // say WHAT is destroyed and what is kept — a native dialog cannot.
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [receipt, setReceipt] = useState<VoiceDeleteReceipt | null>(null);
+
+  const destroyVoiceprint = useCallback(async () => {
+    setBusy(true); setMsg(''); setResult(null);
+    try {
+      const r = await hub.voiceDelete();
+      if (r.ok) { setReceipt(r); setConfirmDelete(false); load(); }
+      else setMsg(r.error || 'could not delete the voiceprint');
+    } catch (e) { setMsg((e as Error).message); }
+    setBusy(false);
+  }, [load]);
+
   const enableVoice = useCallback(async () => {
     setBusy(true);
     try { await hub.save({ features: { voice: true } }); load(); onRestart(); }
@@ -136,7 +152,14 @@ export function VoicePanel({ onRestart }: { onRestart: () => void }) {
                 <>off<button className="hub-btn ghost sm" onClick={enableVoice} disabled={busy}>Enable</button></>
               )} />
             <StatRow label="Voiceprint" tone={st.enrolled ? 'ok' : 'warn'}
-              value={st.enrolled ? 'enrolled' : 'not enrolled — record clips below'} />
+              value={st.enrolled ? (
+                <>enrolled
+                  <button className="hub-btn ghost sm" disabled={busy}
+                    onClick={() => { setConfirmDelete(true); setReceipt(null); }}>
+                    Delete
+                  </button>
+                </>
+              ) : 'not enrolled — record clips below'} />
             <StatRow label="Dependencies" tone={st.deps_ok ? 'ok' : 'warn'}
               value={st.deps_ok ? 'installed' : (st.deps_error || 'missing')} />
             <StatRow label="Gate threshold" tone="muted"
@@ -148,6 +171,55 @@ export function VoicePanel({ onRestart }: { onRestart: () => void }) {
             <Icon name="alert" />
             <span><b>The gate is open:</b> voice is on but no voiceprint is enrolled, so
             {' '}<b>anyone</b> can talk to Ava. Enroll below to close it.</span>
+          </div>
+        )}
+
+        {confirmDelete && (
+          <div className="hub-restart tone-err" style={{ marginTop: 14, marginBottom: 0 }}>
+            <Icon name="alert" />
+            <span>
+              <b>Delete your voiceprint?</b> This destroys the biometric itself, the
+              legacy copy Ava migrates forward, the cached copy in the running
+              process, and your tuned gate threshold. It cannot be undone — you
+              would re-record to enrol again. The public ECAPA model weights and any
+              recordings <i>you</i> supplied in <code>enroll/</code> are kept.
+              {' '}Afterwards the gate <b>fails open</b>: Ava answers any voice, as on
+              a box that was never enrolled.
+              {' '}
+              <button className="hub-btn sm" disabled={busy} onClick={destroyVoiceprint}>
+                Delete permanently
+              </button>
+              <button className="hub-btn ghost sm" disabled={busy}
+                onClick={() => setConfirmDelete(false)}>Cancel</button>
+            </span>
+          </div>
+        )}
+
+        {receipt && (
+          <div className="hub-restart tone-ok" style={{ marginTop: 14, marginBottom: 0 }}>
+            <Icon name="check" />
+            <span>
+              <b>Voiceprint destroyed.</b> Verify it yourself rather than trusting
+              this message — the paths are absolute:
+              <ul style={{ margin: '6px 0 6px 18px' }}>
+                {receipt.removed.map((p) => (
+                  <li key={p}><code>{p}</code></li>
+                ))}
+                {receipt.failed?.map((f) => (
+                  <li key={f.path} className="tone-err">
+                    <code>{f.path}</code> — could not remove: {f.error}
+                  </li>
+                ))}
+              </ul>
+              Recorded in the audit ledger as digest <code>{receipt.digest_before}</code>
+              {' '}(a hash, never the voiceprint), so the deletion is provable without
+              the artifact being kept.
+              {receipt.enroll_files_kept.length > 0 && (
+                <> Your own {receipt.enroll_files_kept.length} recording(s) in
+                {' '}<code>enroll/</code> were left alone.</>
+              )}
+              {' '}See <b>Data → Models & voiceprint</b>, or docs/BIOMETRICS.md.
+            </span>
           </div>
         )}
       </Panel>

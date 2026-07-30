@@ -55,10 +55,17 @@ def cosine(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.dot(a, b))  # inputs already L2-normalized
 
 
-def load_voiceprint(path: str = VOICEPRINT):
+def load_voiceprint(path: str = ""):
     """Load the enrolled voiceprint; migrates a pre-existing legacy repo-local
     voiceprint (models/ under the CODE dir) into the persistent store so a
     Docker rebuild or AVA_HOME move never silently loses the enrollment."""
+    # Resolved at CALL time, not bound as a default. `path: str = VOICEPRINT`
+    # froze the module constant at import, so anything that reconfigured AVA_HOME
+    # afterwards (a test, a simulator, a fleet instance) got the original path
+    # here while `voiceprint_paths()` reported the new one — the loader and the
+    # deleter could disagree about where the biometric lives, which is the worst
+    # possible pair of functions to have out of step.
+    path = path or VOICEPRINT
     if os.path.exists(path):
         return np.load(path)
     if path == VOICEPRINT and os.path.exists(_LEGACY_VOICEPRINT):
@@ -71,10 +78,79 @@ def load_voiceprint(path: str = VOICEPRINT):
     return None
 
 
-def save_voiceprint(emb: np.ndarray, path: str = VOICEPRINT):
+def save_voiceprint(emb: np.ndarray, path: str = ""):
+    path = path or VOICEPRINT          # call-time, per load_voiceprint's note
     os.makedirs(os.path.dirname(path), exist_ok=True)
     np.save(path, emb)
     try:
         os.chmod(path, 0o600)  # biometric — owner-only, same as secrets
     except OSError:
         pass
+
+
+def voiceprint_paths() -> list[str]:
+    """Every path a voiceprint can live at, in the order `load_voiceprint` reads.
+
+    There are two, and that is the whole reason deletion needs a function rather
+    than an `os.remove`: `load_voiceprint` MIGRATES the legacy repo-local copy
+    forward when the live one is absent (and its comment says "keep the legacy
+    copy"). So removing only `VOICEPRINT` means the next gate check silently
+    re-creates it — an eraser that does not erase.
+
+    On a default bare-metal install `AVA_HOME` is the code root, so both entries
+    collapse to one path and the bug is invisible. They diverge under Docker,
+    which is the primary documented install — meaning a test written on the
+    maintainer's own box would not have caught it.
+    """
+    seen: list[str] = []
+    for p in (VOICEPRINT, _LEGACY_VOICEPRINT):
+        if p not in seen:
+            seen.append(p)
+    return seen
+
+
+def voiceprint_digest(path: str = "") -> str:
+    """sha256 of a stored voiceprint's bytes, or "" if absent.
+
+    Recorded BEFORE deletion so the ledger can say "an artifact with digest X
+    existed and was destroyed at T". A 16-byte prefix of a hash over a 896-byte
+    float vector is not reversible into a voiceprint, so destruction becomes
+    provable without retaining the thing destroyed. Same move as
+    `memory_store._digest`.
+    """
+    import hashlib
+    for p in ([path] if path else voiceprint_paths()):
+        try:
+            with open(p, "rb") as f:
+                return hashlib.sha256(f.read()).hexdigest()[:16]
+        except OSError:
+            continue
+    return ""
+
+
+def delete_voiceprint() -> dict:
+    """Destroy every stored voiceprint. Returns `{removed, absent, failed}`.
+
+    Lives here rather than in `voice_enroll` or a route because THIS module owns
+    both paths and the migration between them — a delete implemented anywhere else
+    is a delete that does not know what it has to defeat.
+
+    Deliberately does NOT touch `models/ecapa/**`: those are the public pretrained
+    speaker-embedding weights, identical for every install, containing nothing
+    about the owner. Removing them would cost an 80 MB re-download and destroy no
+    personal data. The caller says so in the receipt rather than leaving it to
+    inference.
+    """
+    removed: list[str] = []
+    absent: list[str] = []
+    failed: list[dict] = []
+    for p in voiceprint_paths():
+        if not os.path.exists(p):
+            absent.append(p)
+            continue
+        try:
+            os.remove(p)
+            removed.append(p)
+        except OSError as e:
+            failed.append({"path": p, "error": str(e)})
+    return {"removed": removed, "absent": absent, "failed": failed}
