@@ -6,9 +6,17 @@
 # served model name, longest match wins.
 electricity_rate_per_kwh: 0.15   # your $/kWh; set 0 to hide the $-energy figure
 
-# Nominal GPU package power (watts) used to estimate energy for a generation when
-# a live power sample isn't available in the hardware history window.
-nominal_gpu_watts: 180
+# Nominal GPU package power (watts), used ONLY when your GPU reports no live power
+# and you want an estimate anyway. Left unset on purpose: it used to default to a
+# flat 180, which is roughly a mid-range discrete NVIDIA card and wrong by up to an
+# order of magnitude for a Mac mini (~10-30 W) or a Strix Halo APU (~50-120 W) — so
+# the "estimate" was not an estimate of this machine.
+#
+# Unset means Ava falls back to the nominal for your detected PLATFORM
+# (deploy/platforms.conf), and where there is no defensible figure it reports energy
+# as NOT MEASURED rather than inventing one. Setting it here counts as YOU declaring
+# your hardware's draw, which is also what unlocks the energy-in-currency figure.
+# nominal_gpu_watts: 180
 
 currency: "$"                    # display symbol for cost figures
 

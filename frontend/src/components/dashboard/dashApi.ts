@@ -47,18 +47,26 @@ export interface PerfCost {
   ok: boolean;
   since: string;
   spend_usd: number;
-  energy_kwh: number;
+  /** NULL when no defensible wattage exists for this platform. Zero would be a
+   *  claim about free electricity, and a flat 180 W was a claim about someone
+   *  else's GPU — so null is the honest third option. Render it as "—". */
+  energy_kwh: number | null;
   energy_usd: number | null;
   /** Provenance of energy_kwh for THIS window: every watt-hour sampled,
-   *  some sampled some nominal, or none sampled. Not "is the GPU reporting
-   *  right now" — see power_sampled_now. */
-  energy_state: 'measured' | 'partial' | 'estimated';
-  energy_estimated_kwh: number;
+   *  some sampled some nominal, none sampled, or no wattage at all. Not "is the
+   *  GPU reporting right now" — see power_sampled_now. */
+  energy_state: 'measured' | 'partial' | 'estimated' | 'unknown';
+  energy_estimated_kwh: number | null;
+  /** Where the wattage came from, so the UI can say WHY a figure is an estimate.
+   *  "no sensor on this platform" and "you have not declared your card's draw"
+   *  need different advice. */
+  power_source: 'sampled' | 'declared' | 'platform-nominal' | null;
+  power_provenance: string | null;
   /** True only when energy_state === 'measured'. */
   power_measured: boolean;
   /** The live ring buffer has readings. Says nothing about the window. */
   power_sampled_now: boolean;
-  avg_gpu_watts: number;
+  avg_gpu_watts: number | null;
   by: Record<string, CostBreak>;
 }
 export interface HwSample {

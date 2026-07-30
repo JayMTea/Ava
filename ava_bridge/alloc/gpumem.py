@@ -90,10 +90,29 @@ def for_tree(root_pid: int | None) -> float | None:
 
 # --- readers ------------------------------------------------------------------ #
 def _read() -> "dict[int, float] | None":
-    """Per-process accelerator memory, or None when nothing can report it."""
+    """Per-process accelerator memory, or None when nothing can report it.
+
+    Two sources, tried in order. NVIDIA answers through `nvidia-smi`'s compute-apps
+    query; everything else answers through the kernel's own DRM per-process
+    accounting in `/proc/<pid>/fdinfo/<fd>`, which is unprivileged and is what
+    `amdgpu_top` and `nvtop` read.
+
+    Why the second one matters more than it looks: with no reader, this returned
+    None on every non-NVIDIA box, and the consequence was four layers deep —
+    `drivers/docker.py` fell back to `docker stats` (the 12x under-report at the
+    top of this file), `Holder.measured` stayed False, and
+    `capacity._baseline_sample()` discards any sample containing an unmeasured
+    holder, so **the learned baseline never converged at all** on AMD or Intel.
+    """
     smi = shutil.which("nvidia-smi")
-    if not smi:
-        return None
+    if smi:
+        table = _read_nvidia(smi)
+        if table is not None:
+            return table
+    return _read_drm_fdinfo()
+
+
+def _read_nvidia(smi: str) -> "dict[int, float] | None":
     try:
         out = subprocess.run(
             [smi, "--query-compute-apps=pid,used_memory",
@@ -116,6 +135,112 @@ def _read() -> "dict[int, float] | None":
     # An empty table is a real reading ("nothing holds accelerator memory"), which is
     # different from being unable to read at all.
     return table
+
+
+# Kernel DRM per-process accounting. The key names are the documented
+# drm-usage-stats ABI; which one carries device memory differs by driver, so both
+# spellings are summed and whichever the driver emits is the one that counts.
+_PROC_ROOT_ENV = "AVA_PROC_ROOT"
+_MEM_KEYS = (
+    "drm-memory-vram",       # amdgpu: device-local memory
+    "drm-resident-vram",     # amdgpu, newer kernels
+    "drm-total-local0",      # i915 / xe: local memory region 0
+    "drm-resident-local0",
+)
+_UNIT_GIB = {"KiB": 1024.0 ** 2, "MiB": 1024.0, "GiB": 1.0, "B": 1024.0 ** 3}
+
+
+def _proc_root() -> str:
+    return os.environ.get(_PROC_ROOT_ENV) or "/proc"
+
+
+def _read_drm_fdinfo() -> "dict[int, float] | None":
+    """Per-process device memory from `/proc/<pid>/fdinfo/<fd>`.
+
+    Returns None when the kernel exports no DRM stats at all (so the caller keeps
+    saying "unknown" rather than "zero") and a table — possibly empty — when it
+    does.
+
+    ⚠️ NOT VERIFIED on real hardware. NVIDIA's proprietary driver does not export
+    drm-usage-stats, so there is nothing on the maintainer's box to read; this is
+    written against the documented ABI and exercised by a fixture
+    (`tests/test_gpumem_fdinfo.py`) driving the real parser over a fake /proc.
+
+    **Deduplicated by `drm-client-id`.** A process holding several fds on the same
+    DRM client reports the same memory on each, so summing fds naively multiplies
+    residency by the fd count — which for the allocator would look like an engine
+    holding several times the whole pool, and would release far more than needed.
+    """
+    root = _proc_root()
+    try:
+        entries = os.listdir(root)
+    except OSError:
+        return None
+
+    table: dict[int, float] = {}
+    seen: set[tuple[int, str]] = set()
+    saw_any_drm = False
+
+    for name in entries:
+        if not name.isdigit():
+            continue
+        pid = int(name)
+        fdinfo_dir = os.path.join(root, name, "fdinfo")
+        try:
+            fds = os.listdir(fdinfo_dir)
+        except OSError:
+            continue        # process gone, or not ours to read
+        for fd in fds:
+            fields = _parse_fdinfo(os.path.join(fdinfo_dir, fd))
+            if not fields or "drm-driver" not in fields:
+                continue
+            saw_any_drm = True
+            client = fields.get("drm-client-id", f"fd:{fd}")
+            key = (pid, client)
+            if key in seen:
+                continue    # same DRM client through another fd — already counted
+            seen.add(key)
+            gib = 0.0
+            for mk in _MEM_KEYS:
+                if mk in fields:
+                    gib += _to_gib(fields[mk])
+            if gib:
+                table[pid] = table.get(pid, 0.0) + gib
+
+    if not saw_any_drm:
+        return None         # no DRM accounting on this kernel: unknown, not zero
+    return table
+
+
+def _parse_fdinfo(path: str) -> dict:
+    """`key: value` pairs from one fdinfo file, or {} if it is not a DRM fd."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            head = f.read(4096)
+    except OSError:
+        return {}
+    if "drm-driver" not in head:
+        return {}
+    out = {}
+    for line in head.splitlines():
+        k, _, v = line.partition(":")
+        if v:
+            out[k.strip()] = v.strip()
+    return out
+
+
+def _to_gib(raw: str) -> float:
+    """`"1234 KiB"` -> GiB. An unparsable value contributes nothing."""
+    parts = raw.split()
+    if not parts:
+        return 0.0
+    try:
+        n = float(parts[0])
+    except ValueError:
+        return 0.0
+    unit = parts[1] if len(parts) > 1 else "B"
+    div = _UNIT_GIB.get(unit)
+    return n / div if div else 0.0
 
 
 def _descendants(root: int) -> set[int]:

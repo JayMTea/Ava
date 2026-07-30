@@ -219,6 +219,22 @@ export interface VoiceStatus {
   enrolled: boolean;
   threshold: number;
 }
+/** The receipt from destroying a voiceprint. Absolute paths on purpose: the owner
+ *  should be able to `test -f` each one instead of taking the UI's word for it. */
+export interface VoiceDeleteReceipt {
+  ok: boolean;
+  error?: string;
+  digest_before: string;
+  removed: string[];
+  absent: string[];
+  failed?: { path: string; error: string }[];
+  in_memory_evicted: { voiceprint: boolean; verifier: boolean };
+  threshold_reset_from?: number;
+  /** What was deliberately KEPT, and why. Shown, not hidden — a receipt claiming
+   *  more than it did is the failure mode for a destruction claim. */
+  not_destroyed: Record<string, string>;
+  enroll_files_kept: string[];
+}
 export interface EnrollResult {
   ok: boolean;
   error?: string;
@@ -293,10 +309,12 @@ export interface ProbeResult {
 export interface CostSettings {
   electricity_rate_per_kwh: number;
   currency: string;
-  nominal_gpu_watts: number;
+  nominal_gpu_watts: number | null;
   budgets: { daily_usd: number | null; monthly_usd: number | null; daily_kwh: number | null };
   daily_spend_usd: number;
-  daily_energy_kwh: number;
+  /** Null when no wattage is available for this platform. */
+  daily_energy_kwh: number | null;
+  power_source: 'sampled' | 'declared' | 'platform-nominal' | null;
   power_measured: boolean;
 }
 
@@ -569,6 +587,10 @@ export const hub = {
       `/api/hub/voice/threshold?value=${encodeURIComponent(value)}`,
       { method: 'POST' },
     ),
+  /** Destroy the enrolled voiceprint. Returns a receipt of absolute paths so the
+   *  owner can verify by hand rather than trusting `enrolled: false`. */
+  voiceDelete: () =>
+    req<VoiceDeleteReceipt>('/api/hub/voice/delete', { method: 'POST' }),
 
   // Cost & budgets
   cost: () => req<CostSettings>('/api/hub/cost'),

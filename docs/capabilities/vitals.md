@@ -304,8 +304,8 @@ Every store here is listed, sized and browsable on the
 
 ## Limitations (honest edition)
 
-- **Energy is always partly an estimate.** With no GPU power samples,
-  `nominal_gpu_watts` (default 180 W) stands in for everything. With samples,
+- **Energy is always partly an estimate.** With no GPU power samples, a nominal
+  wattage stands in for everything. With samples,
   only the last `perf.hot_window` (48 h) uses them — older buckets are nominal,
   so any window longer than two days is mostly estimated and the tile says
   "est." accordingly. Treat the number as an order of magnitude.
@@ -314,9 +314,18 @@ Every store here is listed, sized and browsable on the
   generating concurrently are each charged the full GPU and the split can
   exceed total draw. It answers "which app is responsible for the most GPU
   time" honestly; it is not a per-app power meter.
-- **Only NVIDIA reports power today.** `nominal_gpu_watts` is a single global
-  default measured on one machine, so on Apple Silicon, AMD and CPU-only boxes
-  the energy figure is an estimate derived from an unrelated GPU's draw.
+- **Where the wattage comes from is reported, and there is no global default.**
+  `power_source` is one of `sampled` (this GPU's own readings), `declared` (you set
+  `cost.nominal_gpu_watts`), `platform-nominal` (a typical figure for your detected
+  platform, from `deploy/platforms.conf`), or `null`. In the last case
+  `energy_kwh` is **null** and the tile reads *not measured* — zero would be a
+  claim about free electricity. `nominal_gpu_watts` used to default to a flat
+  180 W, which is roughly a mid-range discrete NVIDIA card and wrong by up to an
+  order of magnitude for a Mac mini (~10-30 W) or a Strix Halo APU (~50-120 W).
+- **Currency is gated harder than kilowatt-hours.** `energy_usd` is withheld
+  unless the wattage was *sampled* or *declared*: a kWh figure can carry an
+  "(est.)" label and still inform, whereas a dollar amount reads as settled. A
+  platform nominal therefore shows energy but no money.
 - **Cost is only as good as the price table.** A cloud model with no entry in
   `config/cost.yaml` contributes \$0 to spend. Add its key if you route to it.
 - **Throughput needs a cooperative endpoint.** Tokens/sec and TTFT are only

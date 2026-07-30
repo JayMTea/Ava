@@ -145,7 +145,10 @@ def perf_recent(limit=50, app=None, category=None) -> dict:
 def _cost_cfg() -> dict:
     def load():
         path = os.path.join(config.ROOT, "config", "cost.yaml")
-        cfg = {"electricity_rate_per_kwh": 0, "nominal_gpu_watts": 180,
+        # No `nominal_gpu_watts` default: absent means "nothing declared", which
+        # lets perf_cost fall back to the PLATFORM nominal and then to NOT
+        # MEASURED. A literal here made every box look like it had declared 180 W.
+        cfg = {"electricity_rate_per_kwh": 0,
                "currency": "$", "prices": {}, "budgets": {}}
         if yaml is not None:
             try:
@@ -180,10 +183,27 @@ def cost_settings() -> dict:
     b = cfg.get("budgets") or {}
     return {"electricity_rate_per_kwh": cfg.get("electricity_rate_per_kwh", 0),
             "currency": cfg.get("currency", "$"),
-            "nominal_gpu_watts": cfg.get("nominal_gpu_watts", 180),
+            "nominal_gpu_watts": cfg.get("nominal_gpu_watts"),
             "budgets": {"daily_usd": b.get("daily_usd"),
                         "monthly_usd": b.get("monthly_usd"),
                         "daily_kwh": b.get("daily_kwh")}}
+
+
+def _power_profile() -> dict:
+    """This platform's power source and nominal wattage, cached.
+
+    Wrapped rather than called inline so the platform table is read once per TTL
+    instead of once per cost request, and so a broken table degrades to "unknown"
+    rather than raising inside a dashboard endpoint.
+    """
+    def load():
+        try:
+            from . import platforms
+            return platforms.power_profile()
+        except Exception:  # noqa: BLE001 — diagnostics must never break the page
+            return {"platform_key": None, "power_source": None,
+                    "nominal_w": None, "provenance": "unreadable"}
+    return _cached("power_profile", 60, load)
 
 
 def _price_for(model: str, prices: dict) -> Optional[dict]:
@@ -204,10 +224,31 @@ def perf_cost(since="7d", group="model") -> dict:
     cfg = _cost_cfg()
     prices = cfg.get("prices", {})
     rate = float(cfg.get("electricity_rate_per_kwh", 0) or 0)
-    nominal = float(cfg.get("nominal_gpu_watts", 180) or 180)
+    # Watts, in order of how much they are worth trusting:
+    #   1. real samples from this GPU  ->  power_source "sampled"
+    #   2. an explicit nominal in config/cost.yaml (the owner declared it)
+    #   3. this PLATFORM's nominal from deploy/platforms.conf
+    #   4. nothing defensible -> None, and energy is NOT MEASURED
+    # Step 4 is the change that matters. `nominal_gpu_watts` used to default to a
+    # flat 180 — a figure measured on one mid-range discrete NVIDIA card, applied
+    # to Mac minis (~10-30 W) and APUs (~50-120 W) alike. An estimate built on
+    # that was not an estimate of anything in particular.
+    declared = cfg.get("nominal_gpu_watts")
+    prof = _power_profile()
+    nominal = None
+    source_kind = None
+    if declared not in (None, "", 0):
+        nominal, source_kind = float(declared), "declared"
+    elif prof.get("nominal_w"):
+        nominal, source_kind = float(prof["nominal_w"]), "platform-nominal"
+
     powers = [h.get("gpu_power") for h in hardware.history()
               if isinstance(h.get("gpu_power"), (int, float))]
-    avg_power = sum(powers) / len(powers) if powers else nominal
+    if powers:
+        avg_power = sum(powers) / len(powers)
+        source_kind = "sampled"
+    else:
+        avg_power = nominal          # may be None: no defensible figure exists
     now = time.time()
     since_ts = now - _parse_dur(since, 7 * 86400)
     cutoff = perf_store.cold_boundary(now)
@@ -243,7 +284,7 @@ def perf_cost(since="7d", group="model") -> dict:
             ct = r.get("completion_tokens") or 0
             cost = pt / 1e6 * float(p.get("input", 0)) + ct / 1e6 * float(p.get("output", 0))
         secs = r.get("gen_seconds") or r.get("render_seconds") or r.get("seconds") or 0
-        e = avg_power * float(secs) / 3600.0 if secs else 0.0
+        e = (avg_power * float(secs) / 3600.0) if (secs and avg_power) else 0.0
         spend += cost
         energy_wh += e
         if not powers:
@@ -273,19 +314,36 @@ def perf_cost(since="7d", group="model") -> dict:
         energy_state = "estimated"
     else:
         energy_state = "partial"
+    # No defensible wattage anywhere => energy is NOT MEASURED. Reporting 0.0 kWh
+    # would be a claim about free electricity, and reporting a flat 180 W was a
+    # claim about someone else's GPU. Null is the only honest third option.
+    if avg_power is None:
+        energy_state = "unknown"
+
+    # Dollars are gated harder than kilowatt-hours, deliberately. kWh can carry an
+    # "(est.)" label and still inform; a currency figure reads as settled, so it is
+    # withheld unless the wattage was sampled or the owner declared their own.
+    dollars_ok = rate and source_kind in ("sampled", "declared")
+
     return {
         "ok": True, "since": since, "group": group,
         "spend_usd": round(spend, 4),
-        "energy_kwh": round(energy_kwh, 4),
-        "energy_usd": round(energy_kwh * rate, 4) if rate else None,
+        "energy_kwh": round(energy_kwh, 4) if avg_power is not None else None,
+        "energy_usd": round(energy_kwh * rate, 4) if dollars_ok else None,
         "energy_state": energy_state,
-        "energy_estimated_kwh": round(estimated_wh / 1000.0, 4),
+        "energy_estimated_kwh": (round(estimated_wh / 1000.0, 4)
+                                 if avg_power is not None else None),
+        # Where the wattage came from: sampled | declared | platform-nominal | None.
+        # The UI needs this to say WHY a figure is an estimate — "no sensor on this
+        # platform" and "you have not told me your card's draw" need different advice.
+        "power_source": source_kind,
+        "power_provenance": prof.get("provenance"),
         # Kept for the response contract (qa/test_02_api_contracts.py) and
         # narrowed to what it always claimed to mean: the whole window is
         # sampled. The UI must not present estimated energy as measured.
         "power_measured": energy_state == "measured",
         "power_sampled_now": bool(powers),
-        "avg_gpu_watts": round(avg_power, 1),
+        "avg_gpu_watts": round(avg_power, 1) if avg_power is not None else None,
         "by": {k: {"spend_usd": round(v["spend_usd"], 4),
                    "energy_kwh": round(v["energy_wh"] / 1000, 4),
                    "n": v["n"]} for k, v in by.items()},

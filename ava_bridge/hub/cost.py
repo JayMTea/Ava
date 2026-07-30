@@ -18,8 +18,11 @@ def cost_get():
     settings_ = dashboard.cost_settings()
     day = dashboard.perf_cost("1d")
     settings_["daily_spend_usd"] = day["spend_usd"]
+    # May be None when this platform has no defensible wattage — the meter must
+    # render dormant rather than dividing by a cap and printing NaN.
     settings_["daily_energy_kwh"] = day["energy_kwh"]
     settings_["power_measured"] = day["power_measured"]
+    settings_["power_source"] = day["power_source"]
     return settings_
 
 @router.post("/cost")

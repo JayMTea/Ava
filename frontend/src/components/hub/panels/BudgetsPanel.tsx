@@ -21,15 +21,18 @@ const fmtCap = (n: number, unit: '$' | 'kWh') => (unit === '$' ? `$${n}` : `${n}
 // before any cap is set (the track just reads "no cap set"), and the energy row
 // converts kWh to money at your rate so the two costs read in the same terms.
 function BudgetMeter({ label, used, cap, unit, rate }: {
-  label: string; used: number; cap: number | null; unit: '$' | 'kWh'; rate?: number;
+  label: string; used: number | null; cap: number | null; unit: '$' | 'kWh'; rate?: number;
 }) {
-  const has = cap != null && cap > 0;
-  const ratio = has ? used / (cap as number) : 0;
+  // `used` is null when the figure is genuinely unavailable (no power sensor and
+  // no declared wattage). Dividing that by a cap yields NaN and a meter that
+  // renders as a full bar — worse than showing nothing.
+  const has = cap != null && cap > 0 && used != null;
+  const ratio = has ? (used as number) / (cap as number) : 0;
   const pct = has ? Math.min(100, Math.round(ratio * 100)) : 0;
   const tone = has ? meterTone(ratio * 100) : 'muted';
   const fmt = (n: number) => (unit === '$' ? fmtMoney(n) : `${n.toFixed(2)} kWh`);
   const remaining = has ? Math.max(0, (cap as number) - used) : 0;
-  const energyCost = unit === 'kWh' && rate ? used * rate : null;
+  const energyCost = unit === 'kWh' && rate && used != null ? used * rate : null;
   // Capped meters carry a tone; an uncapped one carries none so its value falls
   // back to txt and its (zero-width) fill to no colour.
   const toneClass = has ? `tone-${tone}` : '';
@@ -38,7 +41,9 @@ function BudgetMeter({ label, used, cap, unit, rate }: {
       <div className="bud-meter-head">
         <span className="bud-meter-label">{label}</span>
         <span className="bud-meter-val">
-          <b className={toneClass}>{fmt(used)}</b>
+          {/* An unavailable figure shows the same em dash as any other unknown
+              metric — never 0, which would read as "you used no electricity". */}
+          <b className={toneClass}>{used == null ? '—' : fmt(used)}</b>
           <span className="bud-cap">{has ? ` / ${fmtCap(cap as number, unit)}` : ' · no cap set'}</span>
         </span>
       </div>
@@ -90,7 +95,11 @@ export function BudgetsPanel() {
         {c ? (
           <>
             <BudgetMeter label="Cloud spend today" used={c.daily_spend_usd} cap={c.budgets.daily_usd} unit="$" />
-            <BudgetMeter label={`GPU energy today${c.power_measured ? '' : ' (est.)'}`} used={c.daily_energy_kwh} cap={c.budgets.daily_kwh} unit="kWh" rate={c.electricity_rate_per_kwh} />
+            <BudgetMeter
+              label={`GPU energy today${c.daily_energy_kwh == null ? ' (not measured)'
+                : c.power_measured ? '' : ' (est.)'}`}
+              used={c.daily_energy_kwh} cap={c.budgets.daily_kwh} unit="kWh"
+              rate={c.electricity_rate_per_kwh} />
             {c.budgets.monthly_usd != null && (
               <div className="bud-monthly">
                 <Icon name="calendar" />

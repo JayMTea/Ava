@@ -75,16 +75,29 @@ export function VitalsView() {
         <StatCard label="Spend (7d)" tone="accent" help={METRICS.spend}
           value={cost.data ? `$${fmtNum(cost.data.spend_usd, 2)}` : '—'}
           hint={cost.data?.by ? `${Object.keys(cost.data.by).length} sources` : 'code API cost'} />
-        <StatCard label={cost.data && cost.data.energy_state !== 'measured' ? 'Energy (7d, est.)' : 'Energy (7d)'} tone="accent" help={METRICS.energy}
-          value={cost.data ? fmtNum(cost.data.energy_kwh, 3) : '—'} unit="kWh"
+        <StatCard
+          label={!cost.data || cost.data.energy_state === 'measured' ? 'Energy (7d)'
+            : cost.data.energy_state === 'unknown' ? 'Energy (7d)' : 'Energy (7d, est.)'}
+          tone="accent" help={METRICS.energy}
+          // `energy_kwh` is null when this platform has no defensible wattage. Zero
+          // would read as free electricity, so show the same em dash as any other
+          // unknown metric.
+          value={cost.data?.energy_kwh != null ? fmtNum(cost.data.energy_kwh, 3) : '—'}
+          unit="kWh"
           hint={cost.data
-            ? (cost.data.energy_state === 'measured'
-              ? (cost.data.energy_usd != null ? `≈ $${fmtNum(cost.data.energy_usd, 2)} · measured` : `${fmtNum(cost.data.avg_gpu_watts, 0)} W measured avg`)
-              : cost.data.energy_state === 'partial'
-                // Recent hours are sampled; anything past perf.hot_window is nominal.
-                // Saying "no power sensor" here would be a different wrong answer.
-                ? `part measured — recent hours sampled at ${fmtNum(cost.data.avg_gpu_watts, 0)} W, older nominal`
-                : `estimate — no GPU power sensor (nominal ${fmtNum(cost.data.avg_gpu_watts, 0)} W)`)
+            ? (cost.data.energy_state === 'unknown'
+              ? 'not measured — no power sensor and no wattage declared for this platform'
+              : cost.data.energy_state === 'measured'
+                ? (cost.data.energy_usd != null ? `≈ $${fmtNum(cost.data.energy_usd, 2)} · measured` : `${fmtNum(cost.data.avg_gpu_watts, 0)} W measured avg`)
+                : cost.data.energy_state === 'partial'
+                  // Recent hours are sampled; anything past perf.hot_window is nominal.
+                  // Saying "no power sensor" here would be a different wrong answer.
+                  ? `part measured — recent hours sampled at ${fmtNum(cost.data.avg_gpu_watts, 0)} W, older nominal`
+                  // Name WHOSE wattage this is. "nominal 180 W" told a Mac owner
+                  // nothing about why their number looked like a gaming PC's.
+                  : cost.data.power_source === 'declared'
+                    ? `estimate — your declared ${fmtNum(cost.data.avg_gpu_watts, 0)} W`
+                    : `estimate — ${fmtNum(cost.data.avg_gpu_watts, 0)} W typical for this platform, not measured here`)
             : 'GPU energy'} />
         <StatCard label="Throughput" value={fmtNum(tokAvg, 1)} unit="tok/s" help={METRICS.throughput}
           tone={tokAvg == null ? 'default' : tokAvg < 15 ? 'warn' : 'ok'}

@@ -204,7 +204,7 @@ def _cost_cfg() -> dict:
         with open(path, encoding="utf-8") as f:
             return yaml.safe_load(f) or {}
     except Exception:  # noqa: BLE001 — cost is best-effort; rollups work without it
-        return {"prices": {}, "nominal_gpu_watts": 180}
+        return {"prices": {}}
 
 
 def _price_for(model: str, prices: dict):
@@ -231,7 +231,13 @@ def _agg(rows: List[dict], key_ts) -> Dict[tuple, dict]:
     can't poison a backfill's averages/histograms."""
     cfg = _cost_cfg()
     prices = cfg.get("prices", {})
-    nominal = float(cfg.get("nominal_gpu_watts", 180) or 180)
+    # A rollup is written long after the power samples covering it aged out of the
+    # 2-hour ring buffer, so cold energy is nominal by construction. What changed is
+    # WHOSE nominal: a flat 180 used to be baked in here, so every platform's
+    # rollups carried a mid-range discrete NVIDIA card's draw. Now it is the owner's
+    # declared figure, else this platform's, else None — and None means the bucket
+    # records no energy at all rather than a fabricated one.
+    nominal = _nominal_watts(cfg)
     buckets: Dict[tuple, dict] = {}
     for r in rows:
         ts = float(r.get("ts") or 0)
@@ -270,7 +276,7 @@ def _agg(rows: List[dict], key_ts) -> Dict[tuple, dict]:
             ct = r.get("completion_tokens") or 0
             agg["cost_usd"] += pt / 1e6 * float(p.get("input", 0)) + ct / 1e6 * float(p.get("output", 0))
         secs = r.get("gen_seconds") or r.get("render_seconds") or r.get("seconds") or 0
-        if secs:
+        if secs and nominal:
             agg["energy_wh"] += nominal * float(secs) / 3600.0
     return buckets
 
@@ -524,3 +530,26 @@ def cold_cost(since_ts: float, until_ts: float, group: str = "model") -> dict:
     # named separately so the caller carries provenance rather than inferring it.
     return {"spend_usd": spend, "energy_wh": energy_wh,
             "energy_estimated_wh": energy_wh, "by": by}
+
+
+def _nominal_watts(cfg: dict) -> float | None:
+    """Owner-declared wattage, else this platform's nominal, else None.
+
+    None is a real answer: it means no defensible figure exists for this hardware,
+    so the rollup records no energy rather than inventing some. Mirrors the same
+    resolution in `dashboard.perf_cost`, deliberately duplicated rather than
+    imported — `perf_store` is on the write path of a background thread and must
+    not gain a dependency on the dashboard layer.
+    """
+    declared = cfg.get("nominal_gpu_watts")
+    if declared not in (None, "", 0):
+        try:
+            return float(declared)
+        except (TypeError, ValueError):
+            pass
+    try:
+        from . import platforms
+        w = platforms.power_profile().get("nominal_w")
+        return float(w) if w else None
+    except Exception:  # noqa: BLE001 — unreadable table means "no figure"
+        return None
