@@ -163,7 +163,12 @@ because they walk the tree themselves.
 
 - **Voiceprints** (`models/voiceprint.npy`) are biometric data. They never leave
   the host and are excluded from git. The speaker gate (ECAPA-TDNN) compares an
-  embedding locally; raw enrollment audio is not retained in the repo.
+  embedding locally; raw enrollment audio is not retained in the repo. Enrollment
+  and destruction are both recorded in the audit ledger with a content digest, so
+  a deletion is provable without the artifact being retained — the written
+  retention-and-destruction policy is [docs/BIOMETRICS.md](docs/BIOMETRICS.md)
+  (GDPR Art. 9 special-category data; BIPA §15(a) asks for exactly that document).
+  Delete it in **Setup → Voice**, or `POST /api/hub/voice/delete`.
 - **Voice gate limitations (honest scope):** the speaker gate is a privacy and
   convenience **filter**, not an authentication factor. It is text-independent
   cosine matching with **no liveness or anti-spoofing detection**: a recording
@@ -224,12 +229,35 @@ secret files with group/world permissions, and sensitive ports bound to wildcard
 interfaces. New host-local services should bind `127.0.0.1` and, if the sandbox
 must reach them, get a dedicated `*-gw.service` using `ava_bridge/gw_forward.py`.
 
-Two scope caveats, so you read its output correctly. The policy scan globs
-`agent/policies/*.yaml` at the top level only, so the connector-derived policies
-under `agent/policies/generated/` — the ones you get by connecting an app — are
-not covered; review those by hand. And `ava-weather.yaml` is a tracked, known
-hit for the `/**` rule, so a clean clone reports that finding out of the box:
-this is a review aid, not a gate that currently passes.
+**How to read its output.** It has three channels, which are three different
+claims:
+
+- `- FAILED` lines are findings about Ava: a service of Ava's exposed wider than
+  its bind class allows, an over-broad egress rule, or a secret file with loose
+  permissions. Exit code 1.
+- `! Declared exposures` are ports *you* have declared deliberately exposed in
+  `ava.yaml` under `security.declared_exposures`, with your reason echoed back.
+  They print on every run — declaring records a decision, it does not hide it.
+- `~ Wildcard binds on ports Ava does not own` are listeners on this machine that
+  are reachable from every network it joins but belong to something else. Not
+  findings about Ava; reported because a tool that walks the whole socket table
+  and then says nothing about them would be worse than one that admits its scope.
+
+Bind classes: loopback and the RFC1918 sandbox gateway pass. A **Tailscale
+(CGNAT) bind** is the operator's explicit choice per §2, so it passes *when
+declared* and fails otherwise. A **wildcard bind** (`0.0.0.0`/`::`/`*`) on one of
+Ava's ports always fails and cannot be declared away.
+
+Scope caveats, so you do not over-read a clean run:
+
+- The port check reads the **live socket table**, so its result is a fact about
+  the machine it ran on, not about the code. It cannot pass or fail in CI
+  meaningfully; `tests/test_port_exposure_classes.py` tests the *rules* against
+  injected listener tables instead.
+- `SENSITIVE_PORTS` is an enumeration of Ava's own services. Only the
+  wildcard-bind advisory covers everything else, so a service of yours on an
+  unlisted port bound to a *routable* address is not reported. Add its port.
+- `ss -tlnH` is TCP listeners only: no UDP, no unix sockets.
 
 ## 8. Reporting a vulnerability
 

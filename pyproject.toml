@@ -75,6 +75,12 @@ py-modules = [
     "speaker",
     "voice_ava",
     "ava_learning_digest",
+    # agent/docs/arch.py imports bind_class/parse_listeners from here so the
+    # manifest's `bind:` drift check and the security check share one socket-table
+    # parser. Without this entry the import succeeds from the repo root and fails
+    # for an installed `ava`, which would silently drop the check back to
+    # comparing port numbers only — the exact blindness it was added to fix.
+    "ava_security_check",
 ]
 
 [tool.pytest.ini_options]
