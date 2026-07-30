@@ -96,8 +96,10 @@ Good to know:
 
 - **All state lives in one folder** (`AVA_HOME`, default `deploy/ava-data/`):
   config, chats, media, logs, models. To back up, copy that folder.
+
 - **Password**: pin the admin password ahead of time with `AVA_PASSWORD=...` in
   `deploy/.env`; otherwise the first-run screen sets it.
+
 - **Model**: choose one with `AVA_MODEL=...` (gpu profile) or via `ava.yaml`. The
   gpu profile defaults to `Qwen/Qwen2.5-7B-Instruct`: 14.2 GiB of BF16 weights,
   which needs ~18 GB of VRAM once a 32768-token KV cache is counted at the default
@@ -106,26 +108,27 @@ Good to know:
   `Qwen/Qwen2.5-3B-Instruct` instead (same tool parser, same 32k context), and at
   18 GB or more it serves the default. Pin `AVA_MODEL=` to override any of that.
 
-  The context is not the lever to reach for on a small card: 32768 is chosen to
-  clear the ~29k tokens Ava's own system prompt and tool schemas occupy, so
-  shortening it breaks the agent before it saves you any memory. Scaling up is the
-  deliberate act:
+    The context is not the lever to reach for on a small card: 32768 is chosen to
+    clear the ~29k tokens Ava's own system prompt and tool schemas occupy, so
+    shortening it breaks the agent before it saves you any memory. Scaling up is the
+    deliberate act:
 
-  | Variable | Default | Notes |
-  |---|---|---|
-  | `AVA_MODEL` | `Qwen/Qwen2.5-7B-Instruct` | Any model vLLM can serve. Set it, then re-run `./install.sh` (or `./resolve-model-flags.sh --env <model> >> .env`) so its parsers follow. |
-  | `AVA_VLLM_GPU_UTIL` | `0.90` | Fraction of GPU memory vLLM may take. `profiles/full.env` lowers it to `0.55`, where the GPU service shares the pool. |
-  | `AVA_VLLM_MAX_LEN` | resolved | Context ceiling, **clamped to what the model actually supports** — vLLM raises rather than clamping, so asking for more than the checkpoint allows means it never boots. |
-  | `AVA_VLLM_MODEL_FLAGS` | resolved | `--tool-call-parser`, `--reasoning-parser` and any model-specific boot flags, as one string. |
+    | Variable | Default | Notes |
+    |---|---|---|
+    | `AVA_MODEL` | `Qwen/Qwen2.5-7B-Instruct` | Any model vLLM can serve. Set it, then re-run `./install.sh` (or `./resolve-model-flags.sh --env <model> >> .env`) so its parsers follow. |
+    | `AVA_VLLM_GPU_UTIL` | `0.90` | Fraction of GPU memory vLLM may take. `profiles/full.env` lowers it to `0.55`, where the GPU service shares the pool. |
+    | `AVA_VLLM_MAX_LEN` | resolved | Context ceiling, **clamped to what the model actually supports** — vLLM raises rather than clamping, so asking for more than the checkpoint allows means it never boots. |
+    | `AVA_VLLM_MODEL_FLAGS` | resolved | `--tool-call-parser`, `--reasoning-parser` and any model-specific boot flags, as one string. |
 
-  You no longer pick a parser by hand. `deploy/model-flags.conf` maps a model to
-  its parsers and real context length, and `deploy/resolve-model-flags.sh` is the
-  only thing that reads it — `install.sh`, `local-serve.sh` and compose all go
-  through it, so the container and bare-metal paths cannot disagree. A parser
-  that does not match the model returns no `tool_calls` *silently*, and every
-  turn then runs to timeout, so this is the one setting worth getting right.
-  An unknown model family serves without tool-calling rather than guessing.
-  See [docs/CHOOSE_A_MODEL.md](../docs/CHOOSE_A_MODEL.md).
+    You no longer pick a parser by hand. `deploy/model-flags.conf` maps a model to
+    its parsers and real context length, and `deploy/resolve-model-flags.sh` is the
+    only thing that reads it — `install.sh`, `local-serve.sh` and compose all go
+    through it, so the container and bare-metal paths cannot disagree. A parser
+    that does not match the model returns no `tool_calls` *silently*, and every
+    turn then runs to timeout, so this is the one setting worth getting right.
+    An unknown model family serves without tool-calling rather than guessing.
+    See [docs/CHOOSE_A_MODEL.md](../docs/CHOOSE_A_MODEL.md).
+
 - **Inference backend**: chat flows bridge → embedded router (`:8010` in-container)
   → the profile's engine. `AVA_BACKEND_URL`/`ENGINE`/`MODEL` come from
   `deploy/profiles/<profile>.env`, which you copy to `deploy/.env`. Compose has
@@ -135,6 +138,7 @@ Good to know:
   started. For `cloud`, `AVA_BACKEND_URL` and `AVA_MODEL` ship empty (`ENGINE` is
   already `openai`), as does `AVA_INFERENCE_KEY` — which is *not* start-guarded,
   so an empty key starts cleanly and fails on the first turn instead.
+
 - **Agent**: the container runs the tool-less assistant by default. For the
   **full tool-using agent** (self-coding, connectors, memory) in Docker, opt into
   the `agent` profile: `cp profiles/agent.env .env && docker compose up -d`
@@ -143,6 +147,7 @@ Good to know:
   runs a separate agent container that mounts the host Docker socket, which is
   **root-equivalent** on the host; it is opt-in for that reason. Full setup and
   the security caveat: [AGENT_RUNTIME.md, Full agent in Docker](../docs/AGENT_RUNTIME.md).
+
 - **Voice**: the default image ships `ffmpeg` for audio handling, but not the
   speech models, which are ~2 GB of torch/whisper/speechbrain. Voice enrollment
   and transcription both need those, so **neither works on the default image** —
@@ -150,8 +155,10 @@ Good to know:
   -d --build`, then turn the capability on in **Setup → System → Optional
   features** (`features.voice` is off by default). Both steps are needed: the
   switch alone has nothing to run, and the deps alone leave the switch off.
+
 - **GPU workloads**: needs the GPU service, which only the `full` profile starts. On
   any other profile the switch reports `image_down` rather than pretending.
+
 - **Web search**: no profile provisions SearXNG or Tor, so this does **not** work
   out of the box in Docker. `AVA_WEB_SEARXNG_URL` defaults to
   `http://127.0.0.1:8888`, which inside the `ava` container is the *container's*
@@ -162,6 +169,7 @@ Good to know:
   `extra_hosts`). Host-side fetch stays fail-closed over Tor by default, so
   leaving Tor unprovisioned means fetch errors rather than clearnet requests —
   set `AVA_WEB_TOR=0` to accept direct egress instead.
+
 - **GPU telemetry in the bridge container**: compose grants the GPU to the
   *inference* service only, so **Setup → Hardware** reports no GPU even on an
   NVIDIA box, and sizes its model tier from system memory instead. The panel
@@ -180,10 +188,10 @@ Good to know:
                 capabilities: ["utility"]   # telemetry only — no compute claimed
   ```
 
-  Compose merges `docker-compose.override.yml` automatically. It is opt-in
-  rather than shipped because a `devices:` reservation makes compose **refuse to
-  start at all** on a host without the NVIDIA container runtime — which is every
-  `cpu` and `cloud` install, and every Mac.
+    Compose merges `docker-compose.override.yml` automatically. It is opt-in
+    rather than shipped because a `devices:` reservation makes compose **refuse to
+    start at all** on a host without the NVIDIA container runtime — which is every
+    `cpu` and `cloud` install, and every Mac.
 
 ### Verified install (recommended)
 
@@ -338,12 +346,15 @@ ollama pull llama3.1:70b                      # sized to YOUR Mac's memory
 ```
 
 Notes:
+
 - **`ava models pull --auto` is Apple-aware** — on a Mac it fetches an Ollama
   model sized to your memory, never the CUDA-only vLLM default
   (`Qwen/Qwen2.5-7B-Instruct`), which cannot be served on Apple Silicon.
+
 - LM Studio and MLX also work — point the backend `base_url` at their
   OpenAI-compatible endpoint (see the Apple example in
   [`config.example.yaml`](../config.example.yaml)).
+
 - GPU **memory** shows in the dashboard; util/temp/power read blank on Apple
   (no unprivileged API) — that's expected, not a fault.
 

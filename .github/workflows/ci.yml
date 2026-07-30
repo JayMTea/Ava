@@ -652,3 +652,49 @@ jobs:
       - run: pip install -r requirements-docs.txt
       - run: python docs-site/sync.py
       - run: mkdocs build --strict -f docs-site/mkdocs.yml
+
+      - name: No list was swallowed into a paragraph
+        # `--strict` catches broken LINKS. It says nothing about markdown that
+        # parses without error and renders WRONG, which is what this checks and
+        # what shipped unnoticed to the published site.
+        #
+        # GitHub's renderer accepts a 2-space continuation block inside a list
+        # item; Python-Markdown needs 4. deploy/README.md had items whose second
+        # paragraph and table were indented 2, so on the site those blocks broke
+        # OUT of the list, and every following `- ` marker was then read as lazy
+        # continuation and absorbed into the same paragraph. One <p> ended up
+        # holding 3576 characters and nine items' worth of text. It looked correct
+        # on GitHub, which is why nobody caught it.
+        #
+        # Assert against the BUILT HTML, not the source: a list marker at the start
+        # of a line inside a rendered <p> means a list did not become a list.
+        # Scanning the source was tried first and flagged 321 false positives — a
+        # wrapped continuation line and a prose line are indistinguishable without
+        # tracking list state, and "fixing" those made three pages worse.
+        run: |
+          python3 - <<'PY'
+          import html, pathlib, re, sys
+          root = pathlib.Path("docs-site/site")
+          pages = sorted(root.rglob("index.html"))
+          if not pages:
+              print("::error::no built pages found — did mkdocs build actually run?")
+              sys.exit(1)
+          bad = []
+          for f in pages:
+              m = re.search(r"<article[^>]*>(.*?)</article>",
+                            f.read_text(encoding="utf-8", errors="replace"), re.S)
+              if not m:
+                  continue
+              body = re.sub(r"<pre.*?</pre>", "", m.group(1), flags=re.S)
+              for para in re.findall(r"<p>(.*?)</p>", body, re.S):
+                  txt = html.unescape(re.sub(r"<[^>]+>", "", para)).strip()
+                  hits = re.findall(r"\n\s*[-*+]\s+\S", txt)
+                  if hits:
+                      bad.append((f.parent.relative_to(root), len(hits), txt[:100]))
+          print(f"checked {len(pages)} built pages")
+          for page, n, sample in bad:
+              print(f"::error::{page}: {n} list marker(s) swallowed into a paragraph."
+                    f" Indent continuation blocks by 4 spaces and leave a blank line"
+                    f" before the next item. Paragraph begins: {sample!r}")
+          sys.exit(1 if bad else 0)
+          PY
