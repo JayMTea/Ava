@@ -35,3 +35,20 @@ covers all three.
 - [Why Ava?](README.md): what it is, what it is not, where it stands
 - [Quickstart](deploy/README.md): what each profile includes, Docker and bare metal
 - [Connect your apps](docs/CONNECT_YOUR_APPS.md): wire in your apps from the browser
+
+## Who built this
+
+Ava is built and maintained by **Joshua Thompson** — [GitHub](https://github.com/JayMTea)
+· [LinkedIn](https://www.linkedin.com/in/joshua-thompson-b89913105).
+
+Open to collaboration, and there is one contribution worth more than the rest right
+now: Ava claims four first-class hardware families and only some are verified on real
+silicon — the others are labelled `ci-simulated` because nobody has run them. If you
+have an Apple Silicon Mac, an AMD Strix Halo, a discrete Radeon or a plain x86 box,
+`python3 tools/ondevice_check.py --record --json` produces exactly the evidence the
+support matrix is missing. Either it promotes a row from claimed to verified, or it
+hands back a defect list — both are useful, and the second is more useful.
+
+Questions, ideas, or just tell me what you are building:
+[open an issue](https://github.com/JayMTea/Ava/issues). Security reports go privately
+instead — see [SECURITY.md](SECURITY.md).
