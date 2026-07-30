@@ -12,9 +12,22 @@
 #   pip install torch --index-url https://download.pytorch.org/whl/cu124
 #
 # Install:  bash deploy/gpu-voice-serve.sh   (creates .venv-tts + installs these)
-kokoro>=0.9.4
-soundfile
-transformers>=5.14.1
-accelerate
-fastapi
-uvicorn
+# PINNED, with the evidence for each pin stated. Unpinned lines here meant the
+# sidecar resolved differently on every install, and `transformers>=5.14.1` was a
+# FLOOR ABOVE what any machine here has (5.12.1) — so this file, as written, had
+# never been installed successfully either.
+#
+# kokoro/soundfile: recorded from the working .venv-tts on the maintainer's box.
+# fastapi/uvicorn: deliberately the SAME pins as requirements.txt, so the sidecar
+#   and the bridge cannot drift onto two different versions of the same server.
+# transformers/accelerate: floors, not exact pins — the sidecar venv is built with
+#   --system-site-packages (deploy/gpu-voice-serve.sh) so it inherits whatever CUDA
+#   torch stack the host already has, and pinning an exact transformers here would
+#   fight that. The floor is the lowest version confirmed to import with kokoro
+#   0.9.4; raise it only after checking on a real CUDA box.
+kokoro==0.9.4
+soundfile==0.14.0
+transformers>=5.12.1
+accelerate>=1.0.0
+fastapi==0.136.3
+uvicorn[standard]==0.51.0

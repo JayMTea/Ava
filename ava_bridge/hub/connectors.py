@@ -28,10 +28,16 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
-from .. import audit, connectors, perf_mgmt, runtime, settings
 import uuid
+
 import yaml as _yaml
-from .. import connectors as _c, grants
+
+# `connectors` was ALSO bound as `_c` three lines below this, and both aliases were
+# live — 36 uses of one, 10 of the other, overlapping on the same private helpers
+# (_static_actions, _mcp_spec). A contributor grepping this 50 KB file for
+# `connectors._infer_access` found nothing, because that call site said
+# `connectors._infer_access`. Residue from the hub_api.py -> hub/ split.
+from .. import audit, connectors, grants, perf_mgmt, runtime, settings
 from .. import devices as _devices
 from .. import internal
 from .. import mcp_client
@@ -180,36 +186,36 @@ def grants_list(cid: str):
     a down server just means the live set is omitted) — with capability group,
     access tier, and grant state."""
     granted = grants.for_connector(cid)
-    m = {x["id"]: x for x in _c.all()}.get(cid) or {}
+    m = {x["id"]: x for x in connectors.all()}.get(cid) or {}
     acts = []
-    for a in _c._static_actions(m):
+    for a in connectors._static_actions(m):
         if not a.get("id"):
             continue
-        acts.append({"id": a["id"], "access": _c._infer_access(a),
-                     "capability": _c.action_capability(a),
+        acts.append({"id": a["id"], "access": connectors._infer_access(a),
+                     "capability": connectors.action_capability(a),
                      "method": str(a.get("method") or "POST").upper(),
                      "path": a.get("path", ""),
                      "description": a.get("description", ""),
                      "granted": a["id"] in granted,
-                     "grantable": _c.grantable(cid, a["id"])})
-    if _c._mcp_spec(m) or _c._discover_spec(m):
+                     "grantable": connectors.grantable(cid, a["id"])})
+    if connectors._mcp_spec(m) or connectors._discover_spec(m):
         seen = {a["id"] for a in acts}
-        for t in (_c.discover_tools(cid).get("tools") or []):
+        for t in (connectors.discover_tools(cid).get("tools") or []):
             name = t.get("name")
             if not name or name in seen:
                 continue
-            acts.append({"id": name, "access": _c.action_access(cid, name),
+            acts.append({"id": name, "access": connectors.action_access(cid, name),
                          "capability": "live tools", "method": "", "path": "",
                          "description": (t.get("description") or "")[:160],
                          "granted": name in granted,
-                         "grantable": _c.grantable(cid, name)})
+                         "grantable": connectors.grantable(cid, name)})
     return {"grants": granted, "actions": acts}
 
 @router.post("/connectors/{cid}/grants/{action}")
 def grants_add(cid: str, action: str):
     """Pre-grant from the settings page — same rule as the "Always allow"
     prompt: write tier only; destructive/author-gated actions can't be granted."""
-    if not _c.grantable(cid, action):
+    if not connectors.grantable(cid, action):
         return JSONResponse({"ok": False, "error":
                              "this action asks every time and can't be always-allowed"},
                             status_code=400)

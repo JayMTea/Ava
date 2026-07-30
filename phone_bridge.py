@@ -75,8 +75,6 @@ app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 
-
-
 # Step-zero auth gate for the whole Experience plane (see ava_bridge/auth.py).
 app.middleware("http")(auth_gate)
 
@@ -94,20 +92,6 @@ async def _config_parse_error(request: Request, exc: settings.ConfigParseError):
         {"ok": False, "error": str(exc), "error_code": "config_unparseable",
          "config_path": str(settings.CONFIG_PATH)},
         status_code=409)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 # Lazily-initialised heavy objects (loaded once on first request / startup).
@@ -192,16 +176,6 @@ def _startup():
         alloc_watch.start_scheduler()
     except Exception as e:  # noqa: BLE001 — optional subsystem; never block boot
         print(f"[ava-bridge] allocation watchdog unavailable: {e}", flush=True)
-
-
-
-
-
-
-
-
-
-
 
 
 # --- Optional personal-app routes (overlay) ---------------------------------
@@ -316,8 +290,6 @@ def brand():
             "version": _AVA_VERSION}
 
 
-
-
 # Dashboard routes (Vitals + Operations) moved to ava_bridge/dashboard.py and
 # ava_bridge/ops_api.py. "Command Center" was retired as a name: it rhymed with
 # the Control Center, which is a different surface (Operations -> Control).
@@ -325,36 +297,9 @@ def brand():
 # modules.
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 @app.get("/api/code-turns")
 async def api_code_turns(limit: int = 30):
     return await run_in_threadpool(dashboard.code_turns_list, limit)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 @app.get("/api/apps")
@@ -568,10 +513,6 @@ async def app_ui_proxy(cid: str, path: str, request: Request):
     return _proxy_response(r)
 
 
-
-
-
-
 @app.get("/api/model")
 async def api_model_get():
     """Current model choice + selectable backends for the chat dropdown.
@@ -612,67 +553,22 @@ async def api_model_set(mode: str = Form(...)):
     return r
 
 
-
-
-
-
-
-
-
-
 # Personal-app routes (reverse proxies + their /internal/* read-backs) live in
 # the optional gitignored overlay (overlay/ava_bridge/*), registered at boot.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 # === LOG MANAGEMENT ENDPOINTS ===
 
 
-
-
-
 # === CONFIGURATION MANAGEMENT ENDPOINTS ===
-
-
-
 
 
 # === POLICY MANAGEMENT ENDPOINTS ===
 
 
-
-
-
-
-
-
-
 # An app draft-preview route moved to the optional overlay
 # (overlay/ava_bridge/personal_routes.py), registered above when the overlay is
 # present. A fork without it simply has no such route.
-
-
-
-
 
 
 @app.post("/api/talk")
@@ -821,14 +717,6 @@ async def talk(audio: UploadFile = File(...), history: str = Form("[]"),
     return resp
 
 
-
-
-
-
-
-
-
-
 @app.post("/api/talk-text")
 async def talk_text(text: str = Form(...), history: str = Form("[]"),
                     attachments: str = Form("[]"), chat_id: str = Form("")):
@@ -876,12 +764,6 @@ async def talk_text(text: str = Form(...), history: str = Form("[]"),
     return resp
 
 
-
-
-
-
-
-
 @app.get("/api/artifact/weather")
 def artifact_weather(location: str = "", days: int = 7):
     """Rebuild a fresh weather artifact (used by the panel's Refresh button)."""
@@ -890,24 +772,6 @@ def artifact_weather(location: str = "", days: int = 7):
     if not art:
         return JSONResponse({"error": "could not fetch weather"}, status_code=502)
     return art
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 # ---- Code mode endpoints ----
@@ -926,20 +790,5 @@ def code_models():
 
 
 # ---- Learning system endpoints (code improvement proposals + feedback) --------
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 

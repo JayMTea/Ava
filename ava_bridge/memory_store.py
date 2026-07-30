@@ -117,6 +117,13 @@ def add(kind: str, text: str, source: str = "", meta: dict | None = None) -> int
 
 
 def update_item(mid: int, text: str | None = None, pinned: bool | None = None) -> bool:
+    """Edit a memory's text and/or pin state. True if a row actually changed.
+
+    Both arguments are optional and independent: pass one to touch only that
+    field. False means either the id does not exist or `text` was whitespace-only
+    (a memory is never allowed to become empty), so the caller must not report
+    "saved" on a False. Bumps `updated` on whatever it changes. Never raises.
+    """
     try:
         with _LOCK, _conn() as con:
             if text is not None:
@@ -316,6 +323,14 @@ def kv_get(key: str, default: str = "") -> str:
 
 
 def kv_set(key: str, value: str) -> None:
+    """Upsert one small scalar in the store's kv table. Never raises.
+
+    Swallowing the error is deliberate: the only callers are cursors and
+    bookkeeping (the distiller's high-water mark), and a failed write there must
+    degrade to "reprocess that window next cycle" rather than abort the cycle. The
+    consequence to know is that a silent failure is INDISTINGUISHABLE from a
+    success — if you need to know the value landed, read it back.
+    """
     try:
         with _LOCK, _conn() as con:
             con.execute("INSERT INTO kv(k, v) VALUES (?,?) "

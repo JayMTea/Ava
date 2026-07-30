@@ -388,6 +388,16 @@ def _run_turn(tid: str, agent_text: str, sid: str, chat_id: str):
 
 
 def start_turn(agent_text: str, sid: str, chat_id: str) -> str:
+    """Register a turn and run it on a worker thread. Returns the turn id at once.
+
+    NON-BLOCKING: the reply is not ready when this returns. The caller polls
+    /api/turn/<id> until status leaves "running". Two daemon threads are spawned —
+    the turn itself and a poller that tails the agent's session file so the UI can
+    show live chain-of-thought.
+
+    The turn is guaranteed to reach a terminal status ("done" or "error"): see
+    _run_turn_guarded. Old finished turns are pruned here, on the way in.
+    """
     _prune_turns()
     state.interaction["ts"] = time.time()  # mark interactive activity (idle-burn baseline)
     tid = uuid.uuid4().hex[:12]

@@ -73,6 +73,14 @@ def has(cid: str, action: str) -> bool:
 
 
 def grant(cid: str, action: str, by: str = "owner") -> None:
+    """Persist a standing "always allow" for one connector action.
+
+    Durable (written to disk, survives restart) and idempotent — granting twice
+    just refreshes the timestamp. `by` is recorded in the audit ledger as the actor
+    and is free text; "owner" means a human clicked Always allow in the approvals
+    banner. There is no expiry: a grant lives until revoke() removes it or the
+    connector is deleted.
+    """
     from . import audit
     with _lock:
         data = {k: dict(v) for k, v in _load().items()}
@@ -85,6 +93,13 @@ def grant(cid: str, action: str, by: str = "owner") -> None:
 
 
 def revoke(cid: str, action: str) -> bool:
+    """Remove a standing grant. Returns False if there was nothing to remove.
+
+    The bool is the point: a caller reporting "revoked" on a False would be lying
+    to the owner about a permission that was never there. Prunes the connector's
+    entry entirely once its last action is gone, so `has()` cannot be fooled by an
+    empty dict left behind.
+    """
     from . import audit
     with _lock:
         data = {k: dict(v) for k, v in _load().items()}

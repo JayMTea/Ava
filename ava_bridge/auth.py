@@ -300,6 +300,16 @@ def login_locked(ip: str) -> bool:
 
 
 def login_record(ip: str, ok: bool) -> None:
+    """Record a login attempt for the per-IP throttle.
+
+    A SUCCESS clears that IP's failure count outright — the throttle exists to slow
+    guessing, not to punish someone who mistyped once and then got it right. A
+    failure increments within config.LOGIN_WINDOW and starts a fresh window
+    outside it, so the counter is a sliding window rather than a lifetime total.
+
+    `ip` comes from client_ip(), which honours X-Forwarded-For only from a trusted
+    proxy — so this cannot be poisoned into throttling somebody else.
+    """
     with state.login_lock:
         if ok:
             state.login_fails.pop(ip, None)

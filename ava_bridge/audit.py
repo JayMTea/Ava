@@ -137,6 +137,12 @@ def set_actor(actor: str):
 
 
 def reset_actor(token) -> None:
+    """Restore the actor context to what it was before the matching set_actor().
+
+    Pass the token set_actor() returned. Safe to call with a stale or foreign
+    token — a failed reset is suppressed, because losing the actor label on an
+    audit record is strictly better than a request failing inside a `finally`.
+    """
     with contextlib.suppress(Exception):
         _actor.reset(token)
 

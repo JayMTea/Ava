@@ -13,7 +13,13 @@
 #
 # Install:  pip install -r requirements-voice.txt
 # Tip: for CPU-only torch wheels add:  --extra-index-url https://download.pytorch.org/whl/cpu
+# PINNED TO WHAT ACTUALLY RESOLVES AND RUNS. This file used to say torch==2.13.0
+# with torchaudio==2.11.0 — a pair that had never been installed together on any
+# machine here (the working env has 2.12.1). torchaudio declares no `Requires-Dist`
+# on torch, so pip installs a mismatched pair without a word and the ABI break
+# surfaces later, inside speechbrain, as a broken voice gate rather than an install
+# error. Bump these two together, and only after importing both.
 faster-whisper==1.2.1
-torch==2.13.0
+torch==2.12.1
 torchaudio==2.11.0
 speechbrain==1.1.0
