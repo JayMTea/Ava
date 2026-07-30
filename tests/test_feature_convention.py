@@ -80,3 +80,76 @@ def test_manifest_feature_flags_are_registered() -> None:
         + "\n".join(unknown)
         + "\n\nAdd the key to features.REGISTRY (ava_bridge/features.py)"
           " so the switch, error codes, and fix-it links exist." + _FIX)
+
+
+def test_every_feature_is_pinnable_from_outside_the_process() -> None:
+    """Each REGISTRY entry must name an `env` override.
+
+    `settings.get_bool` reads the env var named here; with no `env` key there is
+    nothing to read, so the only way to change the switch is a config write
+    *inside* the instance. That makes the flag unpinnable by anything outside it
+    — a control plane, a compose profile, a systemd unit, or a `docker run -e`.
+
+    This was not hypothetical: `image` and `web_search` shipped without one, so a
+    fleet feature ceiling could express three of the five capability switches and
+    silently ignore the other two. Two of the flags it could not pin were the ones
+    that reach the network and write files.
+    """
+    missing = sorted(k for k, spec in features.REGISTRY.items() if not spec.get("env"))
+    assert not missing, (
+        f"features.REGISTRY entries with no `env` override: {missing}. Add "
+        '`"env": "AVA_<KEY>"` to each — without it the switch can only be changed '
+        "by writing config inside the instance, so nothing outside the process "
+        "(a control plane, compose, docker -e) can pin it." + _FIX)
+
+
+def test_feature_env_names_do_not_collide() -> None:
+    """Two features sharing an env var means setting one silently sets the other."""
+    seen: dict[str, str] = {}
+    for key, spec in features.REGISTRY.items():
+        env = spec.get("env")
+        if not env:
+            continue
+        assert env not in seen, (
+            f"{key} and {seen[env]} both use {env} — pinning one would silently "
+            "pin the other." + _FIX)
+        seen[env] = key
+
+
+def test_config_example_documents_exactly_the_registered_features() -> None:
+    """`config.example.yaml`'s features block must match REGISTRY, both ways.
+
+    A key here that REGISTRY does not have is a switch a user can set and nothing
+    reads — this file documented `features.voiceprint: false` for exactly that
+    reason, so an owner could turn off speaker verification in their config and
+    still be verified on every voice turn. A REGISTRY key missing here is an
+    undiscoverable capability. Both directions are asserted, because only one of
+    them is the bug that already happened.
+    """
+    import yaml as _yaml
+
+    text = (ROOT / "config.example.yaml").read_text(encoding="utf-8")
+    doc = _yaml.safe_load(text) or {}
+    documented = set((doc.get("features") or {}).keys())
+    registered = set(features.REGISTRY)
+    assert not (documented - registered), (
+        f"config.example.yaml documents unregistered feature(s) "
+        f"{sorted(documented - registered)} — a switch an owner can set that "
+        "nothing reads. Register it in features.REGISTRY or delete the line."
+        + _FIX)
+    assert not (registered - documented), (
+        f"feature(s) {sorted(registered - documented)} are in REGISTRY but not in "
+        "config.example.yaml, so nobody reading the reference config knows they "
+        "exist. Add a line with its `[AVA_*]` env marker in the comment." + _FIX)
+
+
+def test_the_env_override_is_named_beside_each_documented_feature() -> None:
+    """The `[AVA_*]` marker is how an owner discovers the override at all."""
+    text = (ROOT / "config.example.yaml").read_text(encoding="utf-8")
+    block = text.split("features:", 1)[1].split("\n\n", 1)[0]
+    missing = sorted(spec["env"] for spec in features.REGISTRY.values()
+                     if spec.get("env") and f"[{spec['env']}]" not in block)
+    assert not missing, (
+        f"env override(s) {missing} are not named in config.example.yaml's "
+        "features block, so the only way to find them is to read features.py. "
+        "Add `# [AVA_KEY]` to the relevant comment." + _FIX)

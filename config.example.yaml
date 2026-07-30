@@ -230,10 +230,17 @@ code:
 
 # ── Optional capabilities (default OFF so a fresh install is minimal) ────────
 features:
-  voice: false             # push-to-talk STT/TTS
-  voiceprint: false        # speaker verification (personal; requires enrollment)
-  web_search: false        # self-hosted SearXNG + guarded fetch
-  image: true              # GPU workloads via the gpu-service connector
+  voice: false             # [AVA_VOICE] push-to-talk STT/TTS
+                           # NOTE: there is deliberately no `voiceprint` flag.
+                           #   Speaker verification is gated by whether a
+                           #   voiceprint is ENROLLED, not by a switch — this file
+                           #   used to document `voiceprint: false`, which nothing
+                           #   read, so setting it left verification fully active.
+                           #   Enroll or destroy it in Setup -> Voice
+                           #   (docs/BIOMETRICS.md).
+  web_search: false        # [AVA_WEB_SEARCH] self-hosted SearXNG + guarded fetch
+  image: true              # [AVA_IMAGE] GPU workloads via the gpu-service
+                           #   connector
   learning: true           # [AVA_LEARNING] periodic local-first self-analysis:
                            #   parks code/chat improvement proposals for approval
   memory: true             # [AVA_MEMORY] long-term memory distilled from chats and
@@ -278,7 +285,12 @@ connectors:
 # ── Cost / energy estimate for the dashboard (optional) ─────────────────────
 cost:
   electricity_rate_per_kwh: 0.15
-  nominal_gpu_watts: 180
+  # Your GPU's typical package draw in watts. Unset by default: Ava uses your
+  # platform's nominal from deploy/platforms.conf, and reports energy as NOT
+  # MEASURED where no defensible figure exists. Declaring it here is also what
+  # lets Ava convert energy into currency — a dollar figure reads as settled, so
+  # it is withheld unless the wattage was sampled or you declared it.
+  # nominal_gpu_watts: 180
 
 # ── Performance-log storage (self-managing; no external TSDB) ────────────────
 # Ava keeps a compact append-only performance.jsonl (one line per generation) and,

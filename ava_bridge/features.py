@@ -28,15 +28,23 @@ from . import settings
 # ALL its reads through this module — tests/test_feature_convention.py fails
 # any features.* read that bypasses it.
 REGISTRY: dict[str, dict] = {
+    # EVERY entry carries an `env` key, including the two that manage without one
+    # for Ava's own purposes. A control plane can only pin a flag it can set from
+    # outside the container, and `settings.get_bool` has nothing to read without
+    # one — so an entry with no `env` is a switch that is unpinnable by anything
+    # but a config write into the instance. `AVA_WEB_SEARCH` joins the existing
+    # `AVA_WEB_*` family in config.py, which tunes the same capability.
     "image": {
         "label": "Image / video generation",
         "sub": "via the the GPU service connector",
         "default": True,
+        "env": "AVA_IMAGE",
     },
     "web_search": {
         "label": "Web search",
         "sub": "self-hosted SearXNG + guarded fetch",
         "default": False,
+        "env": "AVA_WEB_SEARCH",
     },
     "voice": {
         "label": "Voice",
