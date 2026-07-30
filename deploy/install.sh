@@ -480,11 +480,42 @@ if [ "$_ok" = 1 ]; then
   _claim_file="${AVA_HOME:-$AVA_DIR/deploy/ava-data}/data/setup_claim"
   _claim=""
   [ -r "$_claim_file" ] && _claim="$(tr -d '[:space:]' < "$_claim_file" 2>/dev/null || true)"
+
+  # Reading it from the host is the fast path and it FAILS for most people. The image
+  # declares no USER, so the container runs as root, and auth.py writes that file 0600
+  # because it is a bearer token — both correct, and together they mean a normal user
+  # on the host cannot read it through the bind mount. This failed SILENTLY: `[ -r ]`
+  # is false, `_claim` stays empty, and the else branch below sent every non-root
+  # Docker installer to a bare URL that answers 403, with a hint naming a path inside
+  # the container. First run, primary documented install, dead end.
+  #
+  # So ask the container, which can always read its own file. AVA_HOME is pinned to
+  # /data by docker-compose.yml and Ava keeps its stores in $AVA_HOME/data.
+  if [ -z "$_claim" ]; then
+    _claim="$(docker compose exec -T ava cat /data/data/setup_claim 2>/dev/null \
+              | tr -d '[:space:]' || true)"
+  fi
+  # And if exec is unavailable, the bridge already printed the link on startup
+  # (phone_bridge._startup, container-aware for this exact reason), so the logs carry
+  # it. Belt and braces, because there is no second chance at a first run.
+  if [ -z "$_claim" ]; then
+    _claim="$(docker compose logs ava 2>/dev/null \
+              | sed -n 's|.*/setup?claim=\([A-Za-z0-9_-]\{8,\}\).*|\1|p' | tail -1)"
+  fi
+
   if [ -n "$_claim" ]; then
     say "Ava is up. Open this link to set your admin password:"
     say "  http://localhost:8096/setup?claim=$_claim"
     say "(the link is single-use — it stops working the moment a password is set)"
+  elif docker compose exec -T ava test -f /data/data/setup_claim 2>/dev/null; then
+    # A token EXISTS and we could not get it. That is not the same as "no gate", and
+    # saying "sign in" here is how a first run becomes a 403 with no way forward.
+    warn "Ava is up, but this shell could not read the first-run token."
+    warn "Get your link with:"
+    warn "  cd $AVA_DIR/deploy && docker compose logs ava | grep 'setup?claim='"
   else
+    # No token because a password was preset in .env — no gate, so the plain URL is
+    # right.
     say "Ava is up. Open http://localhost:8096 and sign in."
   fi
 else
