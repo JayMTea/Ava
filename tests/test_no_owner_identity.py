@@ -133,6 +133,13 @@ _ALLOW = {
     # ava_security_check.py). Renaming it is a coordinated change, not a sed.
     "deploy/local-serve.sh",
     "ava_security_check.py",
+    # Its whole subject is classifying CGNAT binds, so it must name the
+    # 100.64.0.0/10 network to define the range it tests. Every ADDRESS in it is
+    # derived from that network at runtime rather than written down — the guard's
+    # own instruction ("use a hostname or an env var") does not fit test data for
+    # an IP classifier, but the risk it guards against (a copy-pasted literal that
+    # turns out to be the owner's) is real, and deriving removes it.
+    "tests/test_port_exposure_classes.py",
     # Fixtures asserting how a 30B model id is LABELLED and sized. The point of
     # these is the string handling, so the string has to be present.
     "tests/test_agent_brain.py",

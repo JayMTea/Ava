@@ -23,9 +23,23 @@ the rule, and the rule is what these tests pin.
 """
 from __future__ import annotations
 
+import ipaddress
+
 import pytest
 
 import ava_security_check as sc
+
+# CGNAT addresses are DERIVED, never written as literals.
+# `tests/test_no_owner_identity.py` fails any tracked file carrying one, and it is
+# right to: the owner's tailnet address is CGNAT, so a literal here is one careless
+# copy-paste away from being theirs. Deriving from the network also makes the
+# boundary cases prove themselves rather than asserting numbers someone typed.
+_CGNAT = ipaddress.ip_network("100.64.0.0/10")
+CG_FIRST = str(_CGNAT[0])                       # 100.64.0.0
+CG_LAST = str(_CGNAT[-1])                       # the last address in the range
+CG_MID = str(_CGNAT[1 << 20])                   # something well inside it
+CG_BELOW = str(ipaddress.ip_address(int(_CGNAT[0]) - 1))
+CG_ABOVE = str(ipaddress.ip_address(int(_CGNAT[-1]) + 1))
 
 
 # ---- classification --------------------------------------------------------- #
@@ -38,9 +52,9 @@ import ava_security_check as sc
     ("*", 11435, "wildcard"),
     ("172.27.0.1", 8096, "gateway"),      # the docker sandbox gateway
     ("192.168.1.50", 8010, "gateway"),
-    ("100.100.0.5", 8189, "tailnet"),   # Tailscale CGNAT
-    ("100.64.0.1", 8097, "tailnet"),      # first address in the range
-    ("100.127.255.254", 8097, "tailnet"), # last address in the range
+    (CG_MID, 8189, "tailnet"),            # Tailscale CGNAT
+    (CG_FIRST, 8097, "tailnet"),          # first address in the range
+    (CG_LAST, 8097, "tailnet"),           # last address in the range
     ("8.8.8.8", 8096, "other"),           # routable
     ("203.0.113.7", 8096, "other"),       # RFC5737: is_private says True
     ("192.168.1.50", 9200, "other"),      # private, but NOT a gateway port
@@ -59,17 +73,17 @@ def test_a_tailnet_address_is_not_private_which_is_the_whole_bug() -> None:
     """
     import ipaddress
 
-    ip = ipaddress.ip_address("100.100.0.5")
+    ip = ipaddress.ip_address(CG_MID)
     assert ip.is_private is False, (
         "CGNAT now reports as private. bind_class must still classify it as "
         "`tailnet` rather than falling through to `gateway`.")
-    assert sc.bind_class("100.100.0.5", 8189) == "tailnet"
+    assert sc.bind_class(CG_MID, 8189) == "tailnet"
 
 
 def test_cgnat_boundaries_are_exact() -> None:
     """100.64.0.0/10 — one address either side must not be tailnet."""
-    assert sc.bind_class("100.63.255.255", 8097) == "other"
-    assert sc.bind_class("100.128.0.0", 8097) == "other"
+    assert sc.bind_class(CG_BELOW, 8097) == "other"
+    assert sc.bind_class(CG_ABOVE, 8097) == "other"
 
 
 # ---- the rule --------------------------------------------------------------- #
@@ -112,7 +126,7 @@ def test_a_wildcard_bind_cannot_be_declared_away(monkeypatch) -> None:
 
 
 def test_an_undeclared_tailnet_bind_is_an_error_that_says_how_to_declare(monkeypatch) -> None:
-    errors, _ = _run([("100.100.0.5", 8189)], declared={}, monkeypatch=monkeypatch)
+    errors, _ = _run([(CG_MID, 8189)], declared={}, monkeypatch=monkeypatch)
     assert len(errors) == 1
     assert "your tailnet" in errors[0]
     assert "security.declared_exposures" in errors[0], (
@@ -124,7 +138,7 @@ def test_an_undeclared_tailnet_bind_is_an_error_that_says_how_to_declare(monkeyp
 def test_a_declared_tailnet_bind_is_a_NOTICE_not_a_pass(monkeypatch) -> None:
     """Declaring records the decision; it does not hide the exposure."""
     errors, notices = _run(
-        [("100.100.0.5", 8189)],
+        [(CG_MID, 8189)],
         declared={8189: "the GPU service canvas for phone/laptop. NO AUTH."},
         monkeypatch=monkeypatch)
     assert not errors
@@ -163,7 +177,7 @@ def test_parse_listeners_handles_the_real_ss_shapes() -> None:
     """Real `ss -tlnH` output, including IPv6 brackets and the `*` form."""
     sample = (
         "LISTEN 0      4096       127.0.0.1:8096       0.0.0.0:*\n"
-        "LISTEN 0      4096   100.100.0.5:8189       0.0.0.0:*\n"
+        f"LISTEN 0      4096   {CG_MID}:8189       0.0.0.0:*\n"
         "LISTEN 0      4096               *:11435            *:*\n"
         "LISTEN 0      511            [::1]:8888             [::]:*\n"
         "LISTEN 0      4096      172.27.0.1:8097       0.0.0.0:*\n"
@@ -172,7 +186,7 @@ def test_parse_listeners_handles_the_real_ss_shapes() -> None:
     )
     got = sc.parse_listeners(sample)
     assert ("127.0.0.1", 8096) in got
-    assert ("100.100.0.5", 8189) in got
+    assert (CG_MID, 8189) in got
     assert ("*", 11435) in got
     assert ("::1", 8888) in got, "IPv6 bracket form was not unwrapped"
     assert ("172.27.0.1", 8097) in got
@@ -261,8 +275,8 @@ def test_the_three_channels_are_never_conflated(monkeypatch) -> None:
     which described only one of the three — a false label on a security report.
     """
     errors, notices, adv = _run3(
-        [("100.100.0.5", 8097),      # Ava, undeclared -> error
-         ("100.100.0.5", 8189),      # Ava, declared   -> notice
+        [(CG_MID, 8097),             # Ava, undeclared -> error
+         (CG_MID, 8189),             # Ava, declared   -> notice
          ("0.0.0.0", 8123)],           # not Ava         -> advisory
         declared={8189: "the GPU service for phone. NO AUTH."}, monkeypatch=monkeypatch)
     assert len(errors) == 1 and "8097" in errors[0]
@@ -330,8 +344,8 @@ def test_a_service_bound_wider_than_its_manifest_claim_is_drift() -> None:
     """
     errs = _drift(
         [{"id": "svc", "port": 8189, "bind": "127.0.0.1:8189"}],
-        [("127.0.0.1", 8189), ("100.100.0.5", 8189)])
-    assert errs and "100.100.0.5" in errs[0], errs
+        [("127.0.0.1", 8189), (CG_MID, 8189)])
+    assert errs and CG_MID in errs[0], errs
 
 
 def test_the_sandbox_gateway_forwarder_is_not_drift() -> None:
@@ -345,15 +359,15 @@ def test_the_sandbox_gateway_forwarder_is_not_drift() -> None:
 
 
 def test_a_multi_address_bind_declaration_is_honoured() -> None:
-    """`bind: 127.0.0.1,100.100.0.5:8189` — a real --listen flag shape.
+    """`bind: 127.0.0.1,<tailnet>:8189` — a real --listen flag shape.
 
     My first cut compared each actual address against the whole declared string,
     so declaring the truth still failed. Declaring a second address has to be a
     way to make the claim true, or the check pushes you toward deleting it.
     """
     errs = _drift(
-        [{"id": "svc", "port": 8189, "bind": "127.0.0.1,100.100.0.5:8189"}],
-        [("127.0.0.1", 8189), ("100.100.0.5", 8189), ("172.27.0.1", 8189)])
+        [{"id": "svc", "port": 8189, "bind": f"127.0.0.1,{CG_MID}:8189"}],
+        [("127.0.0.1", 8189), (CG_MID, 8189), ("172.27.0.1", 8189)])
     assert not errs, errs
 
 
@@ -367,4 +381,4 @@ def test_an_external_service_or_a_missing_bind_is_skipped() -> None:
     assert not _drift(
         [{"id": "a", "port": 8189, "bind": "127.0.0.1:8189", "external": True},
          {"id": "b", "port": 8189}],
-        [("100.100.0.5", 8189)])
+        [(CG_MID, 8189)])
