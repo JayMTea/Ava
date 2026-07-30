@@ -2,7 +2,14 @@
 # speaker-verification voice gate (torch + speechbrain, CPU inference).
 # Without these the bridge runs voice-less; /api/talk returns 503.
 #
-# Piper TTS is a vendored platform binary under bin/piper/, not a pip package.
+# TTS: AVA_TTS defaults to `auto`, which picks the best engine actually present —
+# the kokoro sidecar if it answers, else Piper, else macOS `say` (built in, no
+# install), else espeak-ng. Nothing here is required for speech on a Mac.
+# For Piper, EITHER install the wheel (`pip install piper-tts`, which carries its
+# own ONNX runtime) OR drop a platform build in bin/piper/ — that directory is
+# gitignored, so it exists only on machines where someone put it there. It used
+# to be the default engine, which meant every fork's default pointed at a file
+# it did not have.
 #
 # Install:  pip install -r requirements-voice.txt
 # Tip: for CPU-only torch wheels add:  --extra-index-url https://download.pytorch.org/whl/cpu

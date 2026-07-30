@@ -39,7 +39,9 @@ AVA_MODEL = os.environ.get("AVA_MODEL", "Qwen/Qwen2.5-7B-Instruct")
 WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "small.en")
 
 MIC_DEVICE = os.environ.get("MIC_DEVICE", "default")   # arecord -D ... (e.g. plughw:1,0)
-PLAYER = os.environ.get("PLAYER", "aplay")              # aplay | pw-play | paplay
+# Empty means "let ava_bridge.audio_io pick for this platform". It used to default
+# to the literal "aplay", i.e. a Linux tool chosen as the default on every OS.
+PLAYER = os.environ.get("PLAYER", "")
 OUT_DEVICE = os.environ.get("OUT_DEVICE", "")           # aplay -D ... (e.g. plughw:0,3 for HDMI 0)
 
 PIPER = os.path.join(HERE, "bin", "piper", "piper")
@@ -80,8 +82,11 @@ def rms(frame: bytes) -> float:
 
 
 def open_mic() -> subprocess.Popen:
-    cmd = ["arecord", "-D", MIC_DEVICE, "-f", "S16_LE", "-c", "1", "-r", str(RATE), "-t", "raw", "-q"]
-    return subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    """Streaming capture. The command is built by ava_bridge.audio_io, which is the
+    only place in the tree allowed to name a capture tool — this used to hardcode
+    ALSA, so the whole terminal voice loop was Linux-only."""
+    from ava_bridge import audio_io
+    return audio_io.open_capture(MIC_DEVICE, RATE)
 
 
 def calibrate(proc: subprocess.Popen, seconds: float = 0.6) -> float:
@@ -189,11 +194,8 @@ def speak(text: str):
             input=text.encode(), env=env,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True,
         )
-        if PLAYER == "aplay":
-            cmd = ["aplay", "-q"] + (["-D", OUT_DEVICE] if OUT_DEVICE else []) + [wav]
-        else:  # pw-play / paplay
-            cmd = [PLAYER] + (["--device", OUT_DEVICE] if OUT_DEVICE and PLAYER == "pw-play" else []) + [wav]
-        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        from ava_bridge import audio_io
+        audio_io.play(wav, OUT_DEVICE, PLAYER)
     finally:
         try:
             os.remove(wav)

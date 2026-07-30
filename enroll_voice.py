@@ -10,7 +10,6 @@ models/voiceprint.npy, and prints similarity stats so you can pick a threshold.
 """
 import argparse
 import os
-import subprocess
 import sys
 import wave
 
@@ -33,9 +32,14 @@ PHRASES = [
 
 
 def record_seconds(seconds: float) -> bytes:
-    cmd = ["arecord", "-D", MIC_DEVICE, "-f", "S16_LE", "-c", "1",
-           "-r", str(RATE), "-d", str(int(seconds)), "-t", "raw", "-q"]
-    return subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL).stdout
+    """Fixed-duration capture, via the one audio seam (ava_bridge.audio_io).
+
+    Enrollment is where portability matters most: a Mac owner who cannot enroll a
+    voiceprint cannot use the voice gate at all, which is the differentiating
+    feature.
+    """
+    from ava_bridge import audio_io
+    return audio_io.record(seconds, MIC_DEVICE, RATE)
 
 
 def load_wav(path: str) -> np.ndarray:

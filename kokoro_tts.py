@@ -18,9 +18,9 @@ Endpoints:
 Env:
   AVA_KOKORO_VOICE   TTS voice id (default af_heart)
   AVA_KOKORO_LANG    kokoro lang_code (default 'a' = American English)
-  AVA_KOKORO_DEVICE  'cuda' (default) or 'cpu'
+  AVA_KOKORO_DEVICE  torch device; default AUTO-DETECTED (cuda|mps|xpu|cpu)
   AVA_STT_MODEL      HF Whisper id (default openai/whisper-small.en)
-  AVA_STT_DEVICE     'cuda' (default) or 'cpu'
+  AVA_STT_DEVICE     torch device; default AUTO-DETECTED (cuda|mps|xpu|cpu)
 """
 import io
 import os
@@ -36,9 +36,39 @@ SR = 24000  # Kokoro's native sample rate
 STT_SR = 16000  # what the bridge sends (decode_to_pcm output)
 VOICE = os.environ.get("AVA_KOKORO_VOICE", "af_heart")
 LANG = os.environ.get("AVA_KOKORO_LANG", "a")
-DEVICE = os.environ.get("AVA_KOKORO_DEVICE", "cuda")
+
+
+def _pick_device() -> str:
+    """The best torch device actually present: cuda -> mps -> xpu -> cpu.
+
+    Both device vars defaulted to the literal `"cuda"`, so importing this module
+    on a Mac or an AMD box **raised on model load** rather than degrading — the
+    GPU voice sidecar simply did not exist off NVIDIA. An explicit
+    AVA_KOKORO_DEVICE / AVA_STT_DEVICE still wins, so a box that needs pinning
+    can pin.
+    """
+    try:
+        import torch
+    except Exception:  # noqa: BLE001 — torch absent; caller errors more clearly
+        return "cpu"
+    try:
+        if torch.cuda.is_available():
+            return "cuda"
+        mps = getattr(torch.backends, "mps", None)
+        if mps is not None and mps.is_available():
+            return "mps"
+        xpu = getattr(torch, "xpu", None)
+        if xpu is not None and xpu.is_available():
+            return "xpu"
+    except Exception:  # noqa: BLE001 — a probe that raises means "not usable"
+        pass
+    return "cpu"
+
+
+_AUTO_DEVICE = _pick_device()
+DEVICE = os.environ.get("AVA_KOKORO_DEVICE") or _AUTO_DEVICE
 STT_MODEL = os.environ.get("AVA_STT_MODEL", "openai/whisper-small.en")
-STT_DEVICE = os.environ.get("AVA_STT_DEVICE", "cuda")
+STT_DEVICE = os.environ.get("AVA_STT_DEVICE") or _AUTO_DEVICE
 
 app = FastAPI(title="Ava GPU voice sidecar")
 _pipe = None
@@ -67,6 +97,11 @@ def _asr_pipeline():
                 _asr = pipeline(
                     "automatic-speech-recognition", model=STT_MODEL,
                     device=STT_DEVICE,
+                    # fp16 on CUDA only, deliberately. MPS fp16 has produced NaNs
+                    # in some transformers/torch combinations, and a silently
+                    # empty transcript is worse than being a little slower — so
+                    # every non-CUDA device gets fp32 until someone measures
+                    # otherwise on real hardware.
                     torch_dtype=torch.float16 if STT_DEVICE == "cuda" else torch.float32,
                 )
     return _asr
@@ -103,8 +138,14 @@ class TTSReq(BaseModel):
 
 @app.get("/health")
 def health():
+    # `device_auto` and `device_pinned` are reported separately so `ava doctor`
+    # can say WHY a box is on cpu — an auto-detected cpu means no accelerator was
+    # found, a pinned cpu means someone chose it. Those need different advice.
     return {"ok": _pipe is not None, "voice": VOICE, "device": DEVICE,
-            "stt_ready": _asr is not None, "stt_model": STT_MODEL}
+            "device_auto": _AUTO_DEVICE,
+            "device_pinned": bool(os.environ.get("AVA_KOKORO_DEVICE")),
+            "stt_ready": _asr is not None, "stt_model": STT_MODEL,
+            "stt_device": STT_DEVICE}
 
 
 @app.post("/tts")
