@@ -68,11 +68,39 @@ _BLOCKING = {
     "subprocess.check_call": "subprocess.check_call",
     "subprocess.Popen": "subprocess.Popen",
     "time.sleep": "time.sleep",
+    # Synchronous HTTP. `requests` has no async form, so a bare call here is
+    # always a stall — and unlike the helpers below it is reached from routes in
+    # several modules, not just the voice path.
+    "requests.get": "requests.get",
+    "requests.post": "requests.post",
+    "requests.put": "requests.put",
+    "requests.patch": "requests.patch",
+    "requests.delete": "requests.delete",
+    "va.transcribe": "CPU Whisper transcription",
 }
 # Bare names: project helpers whose blocking nature is not in doubt.
+#
+# The voice/turn seams were added after /api/talk was found running the whole
+# turn on the loop: ffmpeg (30s), a speaker embedding, CPU Whisper, the agent
+# turn (600s ceiling) and an image pickup that polls for 120s — seven blocking
+# calls, all DIRECTLY in the route body, and all invisible here because the list
+# only named the two document helpers. The guard reported green on the worst
+# offender in the codebase.
+#
+# Deliberately NOT listed: settings.save_patch/save_config and the chat_store /
+# memory_store calls. Those are small fsync'd writes and indexed reads that every
+# hub POST already does on the loop; adding them would fire on ~13 accepted sites
+# across 6 files and, per the note above, a guard that fires on accepted code is
+# a guard that gets suppressed. Revisit if a store call ever grows a network hop.
 _BLOCKING_BARE = {
     "extract_text": "document text extraction (may shell out to soffice)",
     "index_document": "SQLite FTS write",
+    "decode_to_pcm": "ffmpeg subprocess (config.AUDIO_DECODE_TIMEOUT, 30s)",
+    "gpu_transcribe": "HTTP request to the STT sidecar",
+    "embed_pcm": "speaker-embedding model inference",
+    "tts_wav_bytes": "speech synthesis",
+    "pickup_image_since": "polls the media store for up to 120s",
+    "_agent_run_turn": "the agent turn — config.OC_TIMEOUT, up to 600s",
 }
 # `open` is separately handled: reading a small config on the loop is fine, but
 # writing an upload is not. Only flag it when the mode argument is a write mode.

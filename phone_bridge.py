@@ -646,7 +646,12 @@ async def talk(audio: UploadFile = File(...), history: str = Form("[]"),
         return JSONResponse({"error": "empty audio"}, status_code=400)
 
     try:
-        pcm = decode_to_pcm(raw)
+        # Threadpool, not the loop: decode_to_pcm shells out to ffmpeg with a 30s
+        # ceiling (config.AUDIO_DECODE_TIMEOUT). Every heavy step in this route is
+        # handed off the same way — a voice turn can legitimately run for minutes
+        # (agent turn 600s, image pickup 120s), and on the loop that froze SSE,
+        # the dashboard and the login gate for the whole turn.
+        pcm = await run_in_threadpool(decode_to_pcm, raw)
     except Exception as e:  # noqa: BLE001
         return JSONResponse({"error": f"decode failed: {e}"}, status_code=400)
 
@@ -681,7 +686,8 @@ async def talk(audio: UploadFile = File(...), history: str = Form("[]"),
     # Speaker gate — your voice only.
     sim = None
     if state.heavy["verifier"] is not None:
-        sim = spk.cosine(state.heavy["voiceprint"], state.heavy["verifier"].embed_pcm(pcm))
+        emb = await run_in_threadpool(state.heavy["verifier"].embed_pcm, pcm)
+        sim = spk.cosine(state.heavy["voiceprint"], emb)
         if sim < PHONE_THRESHOLD:
             return {"accepted": False, "sim": round(float(sim), 3),
                     "threshold": PHONE_THRESHOLD,
@@ -693,12 +699,12 @@ async def talk(audio: UploadFile = File(...), history: str = Form("[]"),
     text = None
     if os.environ.get("AVA_STT", "").strip().lower() == "gpu":
         try:
-            text = gpu_transcribe(pcm)
+            text = await run_in_threadpool(gpu_transcribe, pcm)
         except Exception as e:  # noqa: BLE001 — degrade to CPU, don't fail voice
             print(f"[ava] GPU STT unavailable ({e}); falling back to CPU Whisper",
                   flush=True)
     if text is None:
-        text = va.transcribe(state.heavy["whisper"], pcm)
+        text = await run_in_threadpool(va.transcribe, state.heavy["whisper"], pcm)
     if not text:
         return {"accepted": True, "text": "", "reply": "",
                 "sim": round(float(sim), 3) if sim is not None else None,
@@ -716,23 +722,26 @@ async def talk(audio: UploadFile = File(...), history: str = Form("[]"),
     t0 = time.time()
     tools: list[str] = []
     try:
-        reply, tools = _agent_run_turn(agent_text, session_id=sid,
-                                       history=_history_for(chat_id))
+        reply, tools = await run_in_threadpool(
+            _agent_run_turn, agent_text, session_id=sid,
+            history=_history_for(chat_id))
     except Exception as e:  # noqa: BLE001
         # The turn may have timed out *after* the image tool rendered — salvage
         # the finished picture so it still appears on the user's screen. Only
         # the full agent runtime can have rendered one: on the tool-less direct
         # floor this wait would just hang a failed chat for two minutes.
-        job = pickup_image_since(t0, wait=120) if runtime_available() else None
+        job = (await run_in_threadpool(pickup_image_since, t0, wait=120)
+               if runtime_available() else None)
         if job:
             reply = "Here's the image you asked for."
             m = which_model()
             if chat_id:
                 chat_append(chat_id, "assistant", reply, model=m, tools_used=tools)
                 attach_chat(job["id"], chat_id)  # bridge persists the image itself
+            wav = await run_in_threadpool(tts_wav_bytes, reply)
             return {
                 "accepted": True, "text": text, "reply": reply, "sim": sim_out,
-                "audio": base64.b64encode(tts_wav_bytes(reply)).decode(),
+                "audio": base64.b64encode(wav).decode(),
                 "model": m,
                 "tools_used": tools,
                 "job": job,
@@ -742,17 +751,18 @@ async def talk(audio: UploadFile = File(...), history: str = Form("[]"),
     m = which_model()
     if chat_id:
         chat_append(chat_id, "assistant", reply, model=m, tools_used=tools)
+    wav = await run_in_threadpool(tts_wav_bytes, reply)
     resp = {
         "accepted": True,
         "text": text,
         "reply": reply,
         "sim": sim_out,
-        "audio": base64.b64encode(tts_wav_bytes(reply)).decode(),
+        "audio": base64.b64encode(wav).decode(),
         "model": m,
         "tools_used": tools,
     }
     if any("run_gpu_job" in t for t in tools):
-        job = pickup_image_since(t0, wait=120)
+        job = await run_in_threadpool(pickup_image_since, t0, wait=120)
         if job:
             resp["job"] = job
             if chat_id:
@@ -785,12 +795,16 @@ async def talk_text(text: str = Form(...), history: str = Form("[]"),
     t0 = time.time()
     tools: list[str] = []
     try:
-        reply, tools = _agent_run_turn(agent_text, session_id=sid,
-                                       history=_history_for(chat_id))
+        # Same threadpool hand-off as /api/talk: the agent turn carries a 600s
+        # ceiling and the image pickup below blocks for up to 120s.
+        reply, tools = await run_in_threadpool(
+            _agent_run_turn, agent_text, session_id=sid,
+            history=_history_for(chat_id))
     except Exception as e:  # noqa: BLE001
         # Salvage an image the tool may have rendered before the turn timed out
         # (only possible on the full agent runtime — see /api/talk above).
-        job = pickup_image_since(t0, wait=120) if runtime_available() else None
+        job = (await run_in_threadpool(pickup_image_since, t0, wait=120)
+               if runtime_available() else None)
         if job:
             m = which_model()
             if chat_id:
@@ -803,7 +817,7 @@ async def talk_text(text: str = Form(...), history: str = Form("[]"),
         chat_append(chat_id, "assistant", reply, model=m, tools_used=tools)
     resp = {"reply": reply, "model": m, "tools_used": tools}
     if any("run_gpu_job" in t for t in tools):
-        job = pickup_image_since(t0, wait=120)
+        job = await run_in_threadpool(pickup_image_since, t0, wait=120)
         if job:
             resp["job"] = job
             if chat_id:
