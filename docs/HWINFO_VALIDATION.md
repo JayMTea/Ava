@@ -16,7 +16,7 @@ fails if it drifts. It used to be maintained by hand alongside a second table in
 <!-- platforms:begin:hwinfo — generated from deploy/platforms.conf -->
 | Platform | Fit memory source | GPU power | Tier | Evidence |
 |---|---|---|---|---|
-| Unified-memory NVIDIA (GB10 / Grace-Blackwell) | system RAM (unified) | Yes (NVML / nvidia-smi) | verified-on-device | `docs/evidence/linux-nvidia-unified-2026-07-29.json` |
+| Unified-memory NVIDIA (GB10 / Grace-Blackwell) | system RAM (unified) | Yes (NVML / nvidia-smi) | verified-on-device | `docs/evidence/linux-nvidia-unified-2026-07-30.json` |
 | Linux + discrete NVIDIA (RTX / data-centre) | free VRAM | Yes (NVML / nvidia-smi) | ci-simulated | — |
 | AMD APU (Strix Halo / Ryzen AI Max) | system RAM (unified) | Yes (amdgpu hwmon) | ci-simulated | — |
 | AMD discrete (Radeon / ROCm) | free VRAM | Yes (amdgpu hwmon) | ci-simulated | — |

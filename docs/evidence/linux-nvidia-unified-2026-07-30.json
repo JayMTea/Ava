@@ -1,24 +1,24 @@
 {
   "schema": "ava-ondevice/1",
   "platform_key": "linux-nvidia-unified",
-  "recorded_utc": "2026-07-29T18:31:19Z",
+  "recorded_utc": "2026-07-30T02:17:21Z",
   "host": {
     "machine": "aarch64",
     "system": "Linux",
     "release": "6.17.0-1026-nvidia",
     "python": "3.12.3"
   },
-  "repo_head": "130f1c3",
-  "repo_dirty_files": 4,
+  "repo_head": "e1fa23d",
+  "repo_dirty_files": 0,
   "hwinfo": {
     "platform": "linux-nvidia",
     "fit_memory": {
-      "free_gb": 51.0,
+      "free_gb": 51.5,
       "total_gb": 121.7,
       "source": "system-psutil"
     },
     "system_memory": {
-      "free_gb": 51.0,
+      "free_gb": 51.5,
       "total_gb": 121.7,
       "source": "system-psutil"
     },
@@ -26,8 +26,8 @@
       {
         "name": "NVIDIA GB10",
         "util": 0.0,
-        "temp_c": 38.0,
-        "power_w": 5.43,
+        "temp_c": 39.0,
+        "power_w": 6.11,
         "mem_used_gb": null,
         "mem_total_gb": null,
         "source": "nvidia-smi"
@@ -50,7 +50,7 @@
     }
   },
   "raw": {
-    "nvidia_smi_query": "NVIDIA GB10, [N/A], [N/A], 5.44 W",
+    "nvidia_smi_query": "NVIDIA GB10, [N/A], [N/A], 6.10 W",
     "rocm_smi_json": "",
     "xpu_smi_stats": "",
     "sysctl_brand": "",
