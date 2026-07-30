@@ -4,21 +4,26 @@ name: Docs
 # master that touch docs. The build is --strict, so a broken internal link fails
 # the job before anything is published.
 
-# PRE-LAUNCH: auto-publish is gated off. A GitHub Pages site is public even when
-# the repo is private (access control is Enterprise-only), so every push to
-# master used to republish this site to the open web. Pages is currently set
-# public=false; leaving the push trigger on risked a redeploy flipping it back.
-# Publishing is manual until launch — run the workflow from the Actions tab.
-# TO RE-ENABLE AT LAUNCH: uncomment the `push:` block below.
+# LAUNCHED 2026-07-30: the repo is public and auto-publish is back on.
+#
+# The gate above it existed because a GitHub Pages site is public even when the
+# repo is private (access control is Enterprise-only), so while Ava was private
+# every push to master would have republished this site to the open web ahead of
+# the repo itself. That asymmetry is gone now that both are public, and Pages is
+# configured with build_type=workflow so this file is the only thing that deploys.
+#
+# Keep the `paths:` filter. It is what stops an unrelated Python change from
+# redeploying the site, and `concurrency: pages` below is what stops two pushes
+# from racing each other to the same environment.
 on:
-  # push:
-  #   branches: [master, main]
-  #   paths:
-  #     - "**/*.md"
-  #     - "**/*.svg"          # diagrams are published on the site
-  #     - "docs-site/**"
-  #     - "frontend/src/styles/tokens.css"  # the site inherits the app palette
-  #     - ".github/workflows/docs.yml"
+  push:
+    branches: [master, main]
+    paths:
+      - "**/*.md"
+      - "**/*.svg"          # diagrams are published on the site
+      - "docs-site/**"
+      - "frontend/src/styles/tokens.css"  # the site inherits the app palette
+      - ".github/workflows/docs.yml"
   workflow_dispatch:
 
 permissions:
@@ -37,10 +42,10 @@ jobs:
     # header comment in docs-site/mkdocs.yml): the "View on GitHub" pill, the
     # header repo widget, and sync.py's rewriting of links that point at repo
     # source. Unset, sync.py silently degrades those links to plain text rather
-    # than minting 404s — correct while the repo is private, wrong the moment it
-    # is public. Setting it here is safe because publishing is still manual;
-    # just do not run this workflow between flipping the repo public and this
-    # value being right, or the minted URLs 404.
+    # than minting 404s — which was right while the repo was private and is wrong
+    # now that it is public. The ordering caveat that used to sit here is spent:
+    # the repo went public on 2026-07-30 with this value already set, so the URLs
+    # it mints resolve rather than 404.
     env:
       AVA_DOCS_REPO_BASE: https://github.com/JayMTea/Ava
     steps:
