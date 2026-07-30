@@ -1,4 +1,29 @@
 # Exclude from the Docker build context (keeps images small & builds fast).
+#
+# Anchoring is the whole game here, and getting it wrong leaked secrets. The
+# build context is the REPO ROOT (deploy/docker-compose.yml sets `context: ..`)
+# and deploy/Dockerfile ends with `COPY . /app`, so every pattern below is the
+# only thing between a file and the published image.
+#
+# A pattern without a slash matches ONLY at the context root. So a bare `.env`
+# excluded /.env while `COPY . /app` happily baked in deploy/.env — the file
+# install.sh writes, and the one .env.example tells owners to put
+# ANTHROPIC_API_KEY and AVA_PASSWORD into. install.sh always passes --build, so
+# that was every USER's key in their own image layer, not just the maintainer's.
+# Hence the `**/` forms below.
+#
+# Same reasoning as .gitignore's deliberately wide globs (.gitignore:12-17,
+# :59-63): config_mgmt.update_config snapshots .env -> .env.bak and
+# settings._write_config snapshots ava.yaml -> ava.yaml.bak on every Setup save,
+# so the .bak and .tmp forms need covering too, not just the live file.
+#
+# Do NOT widen `data`/`logs`/`media`/`models` to `**/`. They are root-anchored on
+# purpose: frontend/src/components/data/ is real tracked source, and `**/data`
+# would drop DataView.tsx out of the web build stage.
+#
+# deploy/profiles/*.env and deploy/default-model.env stay IN: they are committed,
+# secret-free, and read on the host by compose/install.sh rather than in-image.
+
 .git
 .venv
 **/__pycache__
@@ -6,16 +31,26 @@
 node_modules
 frontend/node_modules
 frontend/dist
-ava-data
-data
-logs
-media
-models
+
+# --- secrets and owner-local config, at ANY depth -----------------------------
+**/.env
+**/.env.*
+!**/.env.example
+**/secrets
+**/*.secret
+**/ava.yaml
+**/ava.yaml.*
+**/.ava.yaml.*
+**/*.bak
+**/ava-data
+
+# --- runtime trees, ROOT-ANCHORED on purpose (see the note above) -------------
+/data
+/logs
+/media
+/models
+/enroll
 bin/piper
 gpusvc/user
 searxng
-*.log
-.env
-ava.yaml
-secrets
-enroll
+**/*.log
