@@ -400,7 +400,17 @@ def actions() -> List[dict]:
 
 # Where sandboxed agent tools reach the host bridge (OpenClaw's host alias).
 _BRIDGE_HOST = "host.openshell.internal"
-_BRIDGE_PORT = 8096
+# Derived, not pinned. `server.port` / AVA_PORT is documented in
+# config.example.yaml and deploy/README.md, and this literal is why using it broke
+# every agent tool silently: the generated egress policy allowed 8096 and the
+# generated tool dialled 8096, so a bridge moved to another port was blocked twice
+# and nothing in the failure named a port.
+def _bridge_port() -> int:
+    from . import config
+    return int(config.SERVER_PORT)
+
+
+_BRIDGE_PORT = _bridge_port()
 _PRIVATE_IPS = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
 _TOOL_BINARIES = [{"path": "/usr/local/bin/node"}, {"path": "/usr/bin/node"},
                   {"path": "/usr/bin/curl"}]
@@ -755,7 +765,7 @@ def render_tool(cid: str, action: dict) -> str:
     schema = {"type": "object", "properties": props, "additionalProperties": False}
     return f"""// AUTO-GENERATED from connectors/{cid}/connector.yaml (action: {aid}).
 // Regenerate with:  ava connector tools {cid} --write
-const BRIDGE = process.env.AVA_BRIDGE_URL || 'http://host.openshell.internal:8096';
+const BRIDGE = process.env.AVA_BRIDGE_URL || 'http://host.openshell.internal:{_bridge_port()}';
 
 export default {{
   name: '{name}',

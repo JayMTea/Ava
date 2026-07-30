@@ -56,14 +56,39 @@ fi
 # --- 1. Egress policies (least privilege, one per source) --------------------
 # Applied from the core kit and, if present, the overlay — including each dir's
 # generated/ subfolder (from `ava connector policies --write`).
+# The tracked policies carry the DEFAULT bridge port. `server.port` / AVA_PORT is a
+# documented knob, and using it used to kill every agent tool silently: the policy
+# allowed 8096 while the tool dialled the real port, so the call was blocked, and
+# nothing in the failure named a port. Substitute onto a temp copy — never edit the
+# tracked file — so a moved bridge is allowed through.
+_BRIDGE_PORT_RESOLVED="$(
+  cd "$HERE/.." 2>/dev/null && python3 -c \
+    'from ava_bridge import config; print(int(config.SERVER_PORT))' 2>/dev/null
+)" || _BRIDGE_PORT_RESOLVED=""
+: "${_BRIDGE_PORT_RESOLVED:=8096}"
+if [ "$_BRIDGE_PORT_RESOLVED" != "8096" ]; then
+  echo "[ava] bridge port is ${_BRIDGE_PORT_RESOLVED}; rewriting policy ports from 8096"
+fi
+_POLTMP="$(mktemp -d)"
+trap 'rm -rf "$_POLTMP"' EXIT
+
 shopt -s nullglob
 for poldir in "$HERE/policies" "$HERE/policies/generated" "$OVERLAY/policies" "$OVERLAY/policies/generated"; do
   [ -d "$poldir" ] || continue
   for pol in "$poldir"/*.yaml; do
     echo "[ava] applying policy: $(basename "$pol")…"
-    "$NEMOCLAW" "$SANDBOX" policy-add --from-file "$pol" --yes 2>&1 | grep -vE "$NOISE" | tail -2 || true
+    _send="$pol"
+    if [ "$_BRIDGE_PORT_RESOLVED" != "8096" ]; then
+      _send="$_POLTMP/$(basename "$pol")"
+      sed "s/port: 8096\b/port: ${_BRIDGE_PORT_RESOLVED}/g" "$pol" > "$_send"
+    fi
+    "$NEMOCLAW" "$SANDBOX" policy-add --from-file "$_send" --yes 2>&1 | grep -vE "$NOISE" | tail -2 || true
   done
 done
+
+# And tell the tools where the bridge is, so they do not fall back to the default.
+# Every generated .mjs reads AVA_BRIDGE_URL first; nothing was setting it.
+export AVA_BRIDGE_URL="${AVA_BRIDGE_URL:-http://host.openshell.internal:${_BRIDGE_PORT_RESOLVED}}"
 
 # --- 2. Discover the guard proxy (only present inside the sandbox shell) ------
 PROXY="$("$NEMOCLAW" "$SANDBOX" exec --no-tty -- bash -lc 'printf %s "$HTTPS_PROXY"' 2>/dev/null \
