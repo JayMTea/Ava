@@ -27,7 +27,14 @@ import threading
 from . import settings
 
 PATH = settings.home("connector_tools_cache.json")
-_TIERS = ("read", "write", "destructive")
+# Kept in step with connectors._TIERS. This list was short by two: `physical`
+# and (now) `sensitive` were coerced to "write" on the way in and filtered out on
+# the way out, so a device tool self-reporting `physical` was stored — and
+# enforced — as the weaker `write`. docs/CONNECTOR_SDK.md works around that by
+# telling device connectors to always ship `"*": physical` in the manifest, which
+# outranks this cache; the cache being unable to represent the tier was still a
+# silent downgrade for anyone who didn't.
+_TIERS = ("read", "sensitive", "write", "destructive", "physical")
 
 _lock = threading.Lock()
 _cache: dict = {"data": None, "mtime": 0.0}

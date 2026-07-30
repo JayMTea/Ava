@@ -51,6 +51,72 @@ def _slim_tools(tools) -> list[dict]:
                         "description": str(t.get("description") or "")[:200]})
     return out
 
+_OPENAPI_SCALARS = {"string", "integer", "number", "boolean"}
+
+
+def _inputs_from_operation(path_item: dict, op: dict, path: str) -> dict:
+    """The `input:` schema for one OpenAPI operation, from its `parameters` and a
+    JSON `requestBody`.
+
+    Without this, `_actions_from_openapi` emitted no `input:` at all, and
+    `render_tool` then generated a tool declaring
+    `{"properties": {}, "additionalProperties": false}` — so the agent could not
+    pass arguments, and a templated path like `GET /api/items/{id}` was requested
+    with the literal `{id}` still in it. Worse, the behaviour was asymmetric: at
+    >= META_TOOLS_MIN actions the meta-tool path builds schemas via
+    `_static_tool_schemas`, which omits `additionalProperties`, so arguments DID
+    work — the same manifest behaved differently either side of 16 actions.
+
+    Path- and operation-level `parameters` are merged (path-level applies to every
+    operation in the item, per the spec). Only scalar leaf types are surfaced:
+    the generated tool passes GET args as query params and POST args as a JSON
+    body, so a nested object would not round-trip usefully.
+    """
+    props: dict = {}
+    required: list[str] = []
+    params = []
+    for src in (path_item.get("parameters"), op.get("parameters")):
+        if isinstance(src, list):
+            params.extend(p for p in src if isinstance(p, dict))
+    for p in params:
+        name = str(p.get("name") or "").strip()
+        if not name or p.get("in") not in ("path", "query"):
+            continue
+        sch = p.get("schema") if isinstance(p.get("schema"), dict) else {}
+        typ = str(sch.get("type") or "string")
+        props[name] = {"type": typ if typ in _OPENAPI_SCALARS else "string"}
+        if p.get("description"):
+            props[name]["description"] = str(p["description"])[:120]
+        # A templated path segment is structurally required — the request cannot be
+        # built without it — whatever the spec claims.
+        if p.get("required") or ("{" + name + "}") in path:
+            required.append(name)
+    body = op.get("requestBody")
+    if isinstance(body, dict):
+        content = body.get("content") if isinstance(body.get("content"), dict) else {}
+        js = content.get("application/json") if isinstance(content, dict) else None
+        sch = (js or {}).get("schema") if isinstance(js, dict) else None
+        if isinstance(sch, dict) and isinstance(sch.get("properties"), dict):
+            breq = sch.get("required") if isinstance(sch.get("required"), list) else []
+            for name, ps in sch["properties"].items():
+                if not isinstance(ps, dict):
+                    continue
+                typ = str(ps.get("type") or "string")
+                if typ not in _OPENAPI_SCALARS:
+                    continue        # nested objects/arrays do not round-trip
+                props[str(name)] = {"type": typ}
+                if ps.get("description"):
+                    props[str(name)]["description"] = str(ps["description"])[:120]
+                if name in breq:
+                    required.append(str(name))
+    if not props:
+        return {}
+    out: dict = {"properties": props}
+    if required:
+        out["required"] = sorted(set(required))
+    return out
+
+
 def _actions_from_openapi(spec: dict, limit: int = 50) -> list[dict]:
     """Turn an OpenAPI/Swagger paths object into ready-to-use connector actions
     so a plain web app is zero-config: the user reviews a pre-filled list instead
@@ -95,9 +161,13 @@ def _actions_from_openapi(spec: dict, limit: int = 50) -> list[dict]:
                 access = "destructive"
             else:
                 access = "write"
-            out.append({"id": aid, "method": m, "path": str(path),
-                        "description": desc, "access": access,
-                        "confirm": access == "destructive"})
+            entry = {"id": aid, "method": m, "path": str(path),
+                     "description": desc, "access": access,
+                     "confirm": access == "destructive"}
+            inp = _inputs_from_operation(ops, op, str(path))
+            if inp:
+                entry["input"] = inp
+            out.append(entry)
             if len(out) >= limit:
                 return out
     return out
@@ -819,22 +889,68 @@ def deploy_connector(cid: str):
         return {"ok": False, "deployed": False, "steps": steps, "detail": "deploy failed"}
 
 def _user_manifest_path(cid: str) -> str:
-    return os.path.join(settings.home("connectors"), cid, "connector.yaml")
+    # connectors.USER_DIR, not a second settings.home("connectors") call. Same
+    # value, but the loader's own notion of the user root is the one that decides
+    # whether a manifest here shadows a built-in — and set_connector_enabled now
+    # compares USER_DIR against BUILTIN_DIR, so both sides must read the same
+    # variable or the collapse check can disagree with where the file lands.
+    return os.path.join(connectors.USER_DIR, cid, "connector.yaml")
 
 @router.post("/connectors/{cid}/enabled")
 def set_connector_enabled(cid: str, body: dict):
-    """Flip a user connector's `enabled` flag in its manifest (the switch `load()`
-    honors). Built-in connectors shipped in the repo are read-only here."""
+    """Flip a connector's `enabled` flag (the switch `load()` honors).
+
+    A built-in gets an OVERRIDE STUB in `$AVA_HOME/connectors/<cid>/` rather than an
+    edit to the shipped file. `_merge_all` already resolves the user root over the
+    built-in root by id, so a two-line `{id, enabled: false}` stub is enough to
+    disable one — no new mechanism, and the shipped manifest is never rewritten
+    (the owner asked for that YAML; a loader that "repairs" it loses whatever they
+    were mid-edit).
+
+    This existed because "the owner's file is never rewritten" was read as "a
+    built-in has no off switch". The consequence was that a shipped connector able
+    to spend money — publish an app, call a paid API — could not be turned off from
+    the UI at all.
+
+    Refused when the two roots are the SAME directory (AVA_HOME unset, so it
+    resolves to the code root): there the "stub" would overwrite the built-in
+    manifest it is meant to shadow. That collapse is real on a single-box install
+    and is exactly why the fleet keeps AVA_HOME outside the checkout.
+    """
     if not _ID_RE.match(cid):
         return JSONResponse({"ok": False, "error": "bad id"}, status_code=400)
     path = _user_manifest_path(cid)
     if not os.path.isfile(path):
-        if any(x["id"] == cid for x in connectors.catalog()):
-            return JSONResponse({"ok": False, "error":
-                                 f"'{cid}' is a built-in connector and can't be toggled here"},
-                                status_code=400)
-        return JSONResponse({"ok": False, "error": f"unknown connector '{cid}'"},
-                            status_code=404)
+        builtin = next((x for x in connectors.catalog() if x["id"] == cid), None)
+        if not builtin:
+            return JSONResponse({"ok": False, "error": f"unknown connector '{cid}'"},
+                                status_code=404)
+        if os.path.realpath(connectors.USER_DIR) == os.path.realpath(connectors.BUILTIN_DIR):
+            return JSONResponse(
+                {"ok": False, "error":
+                 f"'{cid}' is built-in and AVA_HOME is the code root, so an override "
+                 "stub would overwrite the shipped manifest. Set AVA_HOME to a "
+                 "separate directory, or edit connectors/" + cid + "/connector.yaml "
+                 "directly."}, status_code=409)
+        if bool(body.get("enabled", True)):
+            # Enabling a built-in that has no stub is already its default state;
+            # writing one would be a no-op file that shadows future shipped edits.
+            return {"ok": True, "enabled": True, "builtin": True, "stub": False}
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("# Managed by the Setup Hub — override stub for a BUILT-IN\n"
+                        "# connector. The user connector root shadows the shipped one\n"
+                        "# by id (ava_bridge/connectors.py:_merge_all), so this file\n"
+                        "# disables it without touching connectors/" + cid + "/.\n"
+                        "# Delete this folder to restore the shipped connector.\n")
+                _yaml.safe_dump({"id": cid, "enabled": False}, f, sort_keys=False)
+        except OSError as e:
+            return JSONResponse({"ok": False, "error": f"could not write stub: {e}"},
+                                status_code=500)
+        connectors.load(force=True)
+        perf_mgmt.refresh_sources()
+        return {"ok": True, "enabled": False, "builtin": True, "stub": True}
     try:
         with open(path, encoding="utf-8") as f:
             m = _yaml.safe_load(f) or {}

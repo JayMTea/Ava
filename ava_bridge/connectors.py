@@ -1211,7 +1211,26 @@ def devices() -> List[dict]:
     return out
 
 
-_TIERS = ("read", "write", "destructive", "physical")
+# Consent tiers, on two independent axes that the original three conflated:
+# does the call have SIDE EFFECTS, and does it DISCLOSE something?
+#
+#   read        no side effects, nothing private   -> runs silently
+#   sensitive   no side effects, discloses         -> asks once, grantable
+#   write       has side effects                   -> asks once, grantable
+#   destructive irreversible                       -> asks every time, never grantable
+#   physical    moves something real               -> asks every time, never grantable
+#
+# `sensitive` exists because `read` meant "no side effects" and was implemented as
+# "runs silently, forever". An author who wanted "ask before you read my
+# conversations" had to label a read `write` or `destructive` — mislabelling it
+# either way, and (for `destructive`) training the owner to tap through the prompt
+# that actually matters. A silent read from a capability group that can also
+# web_fetch an arbitrary URL is an undisclosed disclosure.
+#
+# Enforcement-identical to `write`; the difference is that the prompt can now say
+# truthfully what it is asking about. `approvals.gate` already carries `access` on
+# the pending record, so the tier reaches the UI with no plumbing.
+_TIERS = ("read", "sensitive", "write", "destructive", "physical")
 
 
 def _infer_access(a: dict) -> str:
@@ -1315,6 +1334,8 @@ def needs_confirm(cid: str, action: str) -> bool:
 
     - an explicit author ``confirm:`` always asks and can't be granted away;
     - ``read`` actions run silently;
+    - ``sensitive`` actions ask on first use — no side effects, but they
+      DISCLOSE something (a chat corpus, a mailbox, a location history);
     - ``destructive`` actions ask every time;
     - ``physical`` actions (real-world actuation) ask every time — never
       grantable, so a lock can't become a one-tap-then-silent action;
@@ -1333,11 +1354,12 @@ def needs_confirm(cid: str, action: str) -> bool:
 
 
 def grantable(cid: str, action: str) -> bool:
-    """True when the approval prompt may offer "Always allow": write-tier only
-    (read never asks; destructive and physical are never grantable; author
-    confirm sticks)."""
+    """True when the approval prompt may offer "Always allow": ``write`` and
+    ``sensitive`` (read never asks; destructive and physical are never grantable;
+    author confirm sticks)."""
     m = {x["id"]: x for x in load()}.get(cid) or {}
-    return not _author_confirm(m, action) and action_access(cid, action) == "write"
+    return (not _author_confirm(m, action)
+            and action_access(cid, action) in ("write", "sensitive"))
 
 
 def action_capability(a: dict) -> str:

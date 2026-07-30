@@ -90,6 +90,39 @@ pre-release milestones from when Ava ran on one box and nothing was tagged.
   private/loopback connector (the case the field was designed for) and ignored for
   a remote one unless the owner sets `trust_declared_tiers: true`. Manifest
   `dynamic_access` patterns outrank both, as before.
+- **A built-in connector can be turned off.** `POST /connectors/<cid>/enabled`
+  refused anything without a user manifest, on the correct principle that Ava never
+  rewrites the owner's shipped YAML — with the consequence that a shipped connector
+  able to spend money had no UI off switch at all. Disabling a built-in now writes
+  a two-line override stub into `$AVA_HOME/connectors/<cid>/`; `_merge_all` already
+  resolves the user root over the built-in root by id, so no new mechanism was
+  needed and the shipped file is still never touched. Refused with a 409 when both
+  roots are the same directory (`AVA_HOME` unset, so it falls back to the code
+  root), where the stub would overwrite the manifest it means to shadow.
+- **OpenAPI-derived actions can take arguments.** `_actions_from_openapi` emitted
+  no `input:`, so `render_tool` generated a tool declaring
+  `additionalProperties: false` with no properties — the agent could pass nothing,
+  and `GET /api/items/{id}` was requested with the literal `{id}` still in the
+  path. It was also asymmetric: at or above `META_TOOLS_MIN` the meta-tool path
+  builds schemas differently and arguments *did* work, so one manifest behaved
+  differently either side of 16 actions. Path-level and operation-level
+  `parameters` are now merged (per spec) with a JSON `requestBody`'s scalar
+  properties, and a templated path segment is treated as required whatever the spec
+  claims.
+
+### Added
+
+- **A `sensitive` consent tier** — no side effects, but it discloses something.
+  Ava's tiers conflated two independent axes: `read` meant "no side effects" and
+  was implemented as "runs silently, forever". An author who wanted *"ask before
+  you read my conversations"* had to label a read `write` (untrue about side
+  effects) or `destructive` (untrue, and it trains the owner to tap through the one
+  prompt that matters). `sensitive` is enforcement-identical to `write` — asks on
+  first use, "Always allow" available — and simply says what it is asking about.
+  `approvals.gate` already carries `access` on the pending record, so it reaches
+  the prompt with no new plumbing. `tools_cache` can now represent every tier;
+  it was short by two, so a device tool self-reporting `physical` was stored and
+  enforced as the weaker `write`.
 
 ### Changed
 
