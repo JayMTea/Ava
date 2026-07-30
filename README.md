@@ -25,12 +25,12 @@ to *your* apps, and answers only to you.
 - **Create with it.** GPU workloads orchestrated by the agent (the GPU service); video via connector apps.
 - **Wire it to your apps.** Drop-in connectors; Ava monitors *and* drives them.
 - **Put any MCP server behind a policed boundary.** Plug into the whole MCP ecosystem; tools are discovered live, and the agent reaches them only through two allow-listed bridge routes — never the server itself.
-- **Search the web without being the product.** Web search runs through a loopback SearXNG and, by default, fail-closed over Tor; every redirect hop is re-validated against an SSRF guard. The sandboxed agent never reaches the internet directly.
+- **Search the web without being the product.** Web search goes through a SearXNG *you* run — no third party, no API key — and host-side fetch is fail-closed over Tor by default (`AVA_WEB_TOR=0` opts out), with every redirect hop re-validated against an SSRF guard. The sandboxed agent never reaches the internet directly. Note: the shipped Docker profiles do not yet provision SearXNG or Tor, so this one is opt-in setup rather than on out of the box — see [deploy/README.md](deploy/README.md).
 - **It edits its own code.** Source changes land as git commits; by default every change waits for your approval (`code.approval`).
 - **It studies itself.** Periodic local-first analysis of its own activity parks improvement proposals for your sign-off; nothing self-applies.
 - **It remembers — and you hold the eraser.** Long-term memory distilled from your chats and uploads, recalled when relevant, every recall audit-logged; view, correct, delete, or export all of it in the Hub ([docs/MEMORY.md](docs/MEMORY.md)).
 - **See everything.** A live **Vitals** dashboard: throughput, cost and energy, jobs, alerts.
-- **Set up from the browser.** A guided Setup hub: pick a model, provision the agent, wire in apps, enroll your voice. No terminal required.
+- **Set up from the browser.** A guided Setup hub: pick and download a model, wire in your apps, set budgets, toggle optional capabilities — no terminal. Two of the steps need one first: the agent runtime wants the NemoClaw CLI already installed (Ava deliberately will not run a `curl | bash` installer on your behalf), and voice in Docker needs an image built with `AVA_VOICE_DEPS=1`.
 - **Take it with you.** The web app installs to your phone's home screen as a PWA ([docs/MOBILE.md](docs/MOBILE.md)).
 - **Private by default.** Runs on your hardware; nothing leaves unless you say so.
 
@@ -60,6 +60,11 @@ the Data tab shows you exactly what's in it.
 
 ## Why Ava?
 
+- **It has no personality until you give it one.** The prompt Ava ships with
+  covers only what it must *do* — call its tools, never claim it rendered an image
+  it didn't. How it talks is a blank field you fill in, so a fork sounds like
+  *your* assistant rather than like whoever wrote this repo
+  ([docs/PERSONA.md](docs/PERSONA.md)).
 - **You own it.** Self-hosted and single-tenant, on your GPU. Your conversations,
   files, and voiceprint stay on your box by default. Nothing goes to a third
   party unless you turn it on: a cloud inference backend, or an Anthropic key
@@ -157,9 +162,13 @@ bash deploy/local-serve.sh      # serve it — `ava up` runs the web app, not an
 ava doctor && ava up            # doctor exits non-zero if nothing can answer yet
 ```
 
-`ava verify` then proves every advertised capability end-to-end. (No install
-step? `./bin/ava` does the same thing without touching your environment.) Full
-guide: [deploy/README.md](deploy/README.md).
+`ava verify` then checks that each advertised capability is actually *wired*:
+connector manifests in lockstep with the tools and egress policies they
+generate, learning and governance reachable, no drift against what's committed.
+It exits non-zero if a hard check fails. Treat it as a wiring-and-drift check,
+not a runtime proof — an optional capability you haven't set up warns rather
+than fails. (No install step? `./bin/ava` does the same thing without touching
+your environment.) Full guide: [deploy/README.md](deploy/README.md).
 
 ## Add your own app (connectors)
 
