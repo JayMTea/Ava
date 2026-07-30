@@ -149,12 +149,12 @@ export function VoicePanel({ onRestart }: { onRestart: () => void }) {
           <div className="stat-rows">
             <StatRow label="Voice feature" tone={st.enabled ? 'ok' : 'muted'}
               value={st.enabled ? 'on' : (
-                <>off<button className="hub-btn ghost sm" onClick={enableVoice} disabled={busy}>Enable</button></>
+                <>off<button type="button" className="hub-btn ghost sm" onClick={enableVoice} disabled={busy}>Enable</button></>
               )} />
             <StatRow label="Voiceprint" tone={st.enrolled ? 'ok' : 'warn'}
               value={st.enrolled ? (
                 <>enrolled
-                  <button className="hub-btn ghost sm" disabled={busy}
+                  <button type="button" className="hub-btn ghost sm" disabled={busy}
                     onClick={() => { setConfirmDelete(true); setReceipt(null); }}>
                     Delete
                   </button>
@@ -186,10 +186,10 @@ export function VoicePanel({ onRestart }: { onRestart: () => void }) {
               {' '}Afterwards the gate <b>fails open</b>: Ava answers any voice, as on
               a box that was never enrolled.
               {' '}
-              <button className="hub-btn sm" disabled={busy} onClick={destroyVoiceprint}>
+              <button type="button" className="hub-btn sm" disabled={busy} onClick={destroyVoiceprint}>
                 Delete permanently
               </button>
-              <button className="hub-btn ghost sm" disabled={busy}
+              <button type="button" className="hub-btn ghost sm" disabled={busy}
                 onClick={() => setConfirmDelete(false)}>Cancel</button>
             </span>
           </div>
@@ -231,7 +231,7 @@ export function VoicePanel({ onRestart }: { onRestart: () => void }) {
         </ul>
 
         <div className="hub-btn-row">
-          <button
+          <button type="button"
             className={'hub-btn' + (rec.recording && mode === 'enroll' ? '' : ' ghost')}
             onClick={() => toggleRecord('enroll')}
             disabled={busy || !st?.deps_ok || (rec.recording && mode !== 'enroll')}
@@ -239,12 +239,12 @@ export function VoicePanel({ onRestart }: { onRestart: () => void }) {
             <Icon name="mic" />{rec.recording && mode === 'enroll' ? 'Stop recording' : `Record clip ${clips.length + 1}`}
           </button>
           {clips.length > 0 && (
-            <button className="hub-btn" onClick={enroll} disabled={busy || rec.recording}>
+            <button type="button" className="hub-btn" onClick={enroll} disabled={busy || rec.recording}>
               <Icon name="check" />{busy ? 'Building voiceprint…' : `Build voiceprint from ${clips.length} clip${clips.length === 1 ? '' : 's'}`}
             </button>
           )}
           {clips.length > 0 && !rec.recording && (
-            <button className="hub-btn ghost" onClick={() => setClips([])} disabled={busy}>
+            <button type="button" className="hub-btn ghost" onClick={() => setClips([])} disabled={busy}>
               <Icon name="trash" />Discard clips
             </button>
           )}
@@ -266,7 +266,7 @@ export function VoicePanel({ onRestart }: { onRestart: () => void }) {
             Consistency {result.consistency?.mean}.{' '}
             Suggested threshold: <b>{result.suggested_threshold}</b>
             {result.suggested_threshold != null && (
-              <button className="hub-btn sm" style={{ marginLeft: 10 }} disabled={busy}
+              <button type="button" className="hub-btn sm" style={{ marginLeft: 10 }} disabled={busy}
                 onClick={() => applyThreshold(result.suggested_threshold!)}>
                 <Icon name="check" />Apply threshold
               </button>
@@ -279,7 +279,7 @@ export function VoicePanel({ onRestart }: { onRestart: () => void }) {
       <div className="hub-section" />
       <Panel title="Test the gate" subtitle="Record a short clip and see how it scores against the enrolled voiceprint.">
         <div className="hub-btn-row" style={{ marginTop: 0 }}>
-          <button
+          <button type="button"
             className={'hub-btn' + (rec.recording && mode === 'test' ? '' : ' ghost')}
             onClick={() => toggleRecord('test')}
             disabled={busy || !st?.deps_ok || !st?.enrolled || (rec.recording && mode !== 'test')}

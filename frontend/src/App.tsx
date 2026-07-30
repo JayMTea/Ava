@@ -320,7 +320,17 @@ export default function App() {
         />
       </div>
 
-      <div id="scrim" className={sidebarOpen ? 'open' : ''} onClick={() => setSidebarOpen(false)} />
+      {/* biome-ignore lint/a11y/useKeyWithClickEvents: a decorative backdrop, not
+          an affordance. Keyboard users close the sidebar with its own toggle
+          button, which stays in the tab order; making the scrim focusable would
+          add a tab stop that announces nothing. aria-hidden keeps it out of the
+          accessibility tree entirely. */}
+      <div
+        id="scrim"
+        aria-hidden="true"
+        className={sidebarOpen ? 'open' : ''}
+        onClick={() => setSidebarOpen(false)}
+      />
 
       {lightbox && <Lightbox url={lightbox.url} onClose={closeLightbox} />}
 

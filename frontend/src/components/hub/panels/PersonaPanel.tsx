@@ -121,7 +121,7 @@ export function PersonaPanel({ onRestart }: { onRestart: () => void }) {
             </div>
 
             <div className="hub-btn-row">
-              <button className="hub-btn" onClick={save} disabled={busy}>
+              <button type="button" className="hub-btn" onClick={save} disabled={busy}>
                 <Icon name="check" />{busy ? 'Saving…' : 'Save persona'}
               </button>
             </div>

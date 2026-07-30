@@ -95,7 +95,7 @@ export function MemoryPanel() {
             onChange={(e) => setNewFact(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') add(); }}
           />
-          <button className="hub-btn" onClick={add} disabled={busy || !newFact.trim()}>
+          <button type="button" className="hub-btn" onClick={add} disabled={busy || !newFact.trim()}>
             <Icon name="plus" />Remember
           </button>
         </div>
@@ -111,14 +111,14 @@ export function MemoryPanel() {
             <a className="hub-btn ghost sm" href="/api/hub/memory/export" download>
               <Icon name="file" />Export
             </a>
-            <button className="hub-btn ghost sm" onClick={reload}><Icon name="refresh" />Refresh</button>
+            <button type="button" className="hub-btn ghost sm" onClick={reload}><Icon name="refresh" />Refresh</button>
           </span>
         }
       >
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
           <div className="hub-tabs" style={{ borderBottom: 0, marginBottom: 0 }}>
             {FILTERS.map((f) => (
-              <button key={f.id} className={'hub-tab' + (kind === f.id ? ' active' : '')} onClick={() => setKind(f.id)}>{f.label}</button>
+              <button type="button" key={f.id} className={'hub-tab' + (kind === f.id ? ' active' : '')} onClick={() => setKind(f.id)}>{f.label}</button>
             ))}
           </div>
           <input
@@ -171,8 +171,8 @@ export function MemoryPanel() {
                             onChange={(e) => setEditText(e.target.value)}
                             onKeyDown={(e) => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditId(null); }}
                           />
-                          <button className="hub-btn sm" onClick={saveEdit} disabled={busy}><Icon name="check" />Save</button>
-                          <button className="hub-btn ghost sm" onClick={() => setEditId(null)}><Icon name="close" />Cancel</button>
+                          <button type="button" className="hub-btn sm" onClick={saveEdit} disabled={busy}><Icon name="check" />Save</button>
+                          <button type="button" className="hub-btn ghost sm" onClick={() => setEditId(null)}><Icon name="close" />Cancel</button>
                         </div>
                       ) : (
                         <>
@@ -191,7 +191,7 @@ export function MemoryPanel() {
                     </div>
                     {!editing && (
                       <div className="row-actions">
-                        <button
+                        <button type="button"
                           className={'hub-btn ghost sm mem-pin' + (m.pinned ? ' on' : '')}
                           aria-pressed={m.pinned}
                           title={m.pinned ? 'Unpin' : 'Pin — always ranks first in recall'}

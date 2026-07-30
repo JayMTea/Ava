@@ -61,7 +61,7 @@ export function RowMenu({ actions, disabled, label = 'More actions' }: {
 
   return (
     <>
-      <button
+      <button type="button"
         ref={btnRef}
         className="hub-btn ghost sm hub-kebab"
         aria-haspopup="menu"
@@ -77,7 +77,7 @@ export function RowMenu({ actions, disabled, label = 'More actions' }: {
         <div className="rail-menu hub-rowmenu" role="menu"
           style={{ top: pos.top, bottom: pos.bottom, right: pos.right }}>
           {actions.map((a) => (
-            <button
+            <button type="button"
               key={a.label}
               role="menuitem"
               className={'rail-menu-item' + (a.danger ? ' danger' : '')}

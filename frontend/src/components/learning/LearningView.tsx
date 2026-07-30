@@ -69,7 +69,7 @@ function DiffBlock({ change }: { change: StagedChange }) {
   const lines = (change.diff || '').split('\n');
   return (
     <div className="ln-file">
-      <button className="ln-file-head" onClick={() => setOpen((o) => !o)}>
+      <button type="button" className="ln-file-head" onClick={() => setOpen((o) => !o)}>
         <Icon name={open ? 'expand' : 'code'} />
         <span className="ln-file-path">{change.path}</span>
         <span className={'ln-file-stat s-' + (change.status || 'M')}>{change.status || 'M'}</span>
@@ -165,7 +165,7 @@ function ProposalCard({ proposal, onChanged }: { proposal: EnrichedProposal; onC
 
       {files.length > 0 && (
         <div className="ln-files">
-          <button className="ln-files-h" onClick={() => setOpen((o) => !o)}>
+          <button type="button" className="ln-files-h" onClick={() => setOpen((o) => !o)}>
             <Icon name={open ? 'expand' : 'code'} />
             {files.length} file{files.length > 1 ? 's' : ''}
             {proposal.added != null && <span className="ln-plus"> +{proposal.added}</span>}
@@ -188,10 +188,10 @@ function ProposalCard({ proposal, onChanged }: { proposal: EnrichedProposal; onC
           </span>
           <div className="ln-done-fb">
             helpful?
-            <button className={'ln-fb' + (feedback === 1 ? ' on' : '')} onClick={() => rate(1)}>
+            <button type="button" className={'ln-fb' + (feedback === 1 ? ' on' : '')} onClick={() => rate(1)}>
               <Icon name="check" /> Yes
             </button>
-            <button className={'ln-fb' + (feedback === 0 ? ' on' : '')} onClick={() => rate(0)}>
+            <button type="button" className={'ln-fb' + (feedback === 0 ? ' on' : '')} onClick={() => rate(0)}>
               <Icon name="close" /> No
             </button>
           </div>
@@ -203,11 +203,11 @@ function ProposalCard({ proposal, onChanged }: { proposal: EnrichedProposal; onC
         </div>
       ) : (
         <div className="ln-prop-actions">
-          <button className="ln-btn approve" disabled={busy} onClick={() => act(() => learning.apply(ctx, proposal.id), 'completed')}>
+          <button type="button" className="ln-btn approve" disabled={busy} onClick={() => act(() => learning.apply(ctx, proposal.id), 'completed')}>
             <Icon name="check" />
             {code ? 'Approve & apply' : 'Approve'}
           </button>
-          <button className="ln-btn reject" disabled={busy} onClick={() => act(() => learning.reject(ctx, proposal.id), 'rejected')}>
+          <button type="button" className="ln-btn reject" disabled={busy} onClick={() => act(() => learning.reject(ctx, proposal.id), 'rejected')}>
             <Icon name="close" />
             Reject
           </button>
@@ -238,7 +238,7 @@ function AppCard({ bucket, onOpen }: { bucket: AppBucket; onOpen: () => void }) 
   const codeN = ps.filter(isCodeChange).length;
   const recN = ps.length - codeN;
   return (
-    <button className="app-card" onClick={onOpen}>
+    <button type="button" className="app-card" onClick={onOpen}>
       <div className="app-card-top">
         <span className="app-mono" style={{ background: appColor(bucket.key) }}>
           {meta.label.charAt(0).toUpperCase()}
@@ -272,7 +272,7 @@ function AppCard({ bucket, onOpen }: { bucket: AppBucket; onOpen: () => void }) 
 
 function GateRow({ p, onOpen }: { p: EnrichedProposal; onOpen: () => void }) {
   return (
-    <button className="gate-row" onClick={onOpen}>
+    <button type="button" className="gate-row" onClick={onOpen}>
       <span className="gate-app" style={{ background: appColor(p.app) }}>
         {appMeta(p.app).label.charAt(0).toUpperCase()}
       </span>
@@ -303,7 +303,7 @@ function CycleCard({
   const pending = proposals.filter((p) => statusOf(p) === 'pending').length;
   return (
     <div className="ln-cycle">
-      <button className="ln-cycle-head" onClick={() => setOpen((o) => !o)}>
+      <button type="button" className="ln-cycle-head" onClick={() => setOpen((o) => !o)}>
         <Icon name={open ? 'expand' : 'code'} />
         <span className="ln-cycle-time">{relTime(cycle.timestamp)}</span>
         <span className="ln-cycle-badge">
@@ -315,7 +315,7 @@ function CycleCard({
         <div className="ln-cycle-body">
           {cycle.patterns && Object.keys(cycle.patterns).length > 0 && (
             <div className="ln-patterns">
-              <button className="ln-patterns-toggle" onClick={() => setShowPatterns((s) => !s)}>
+              <button type="button" className="ln-patterns-toggle" onClick={() => setShowPatterns((s) => !s)}>
                 {showPatterns ? 'Hide' : 'Show'} analysis
               </button>
               {showPatterns && <pre className="ln-patterns-json">{JSON.stringify(cycle.patterns, null, 2)}</pre>}
@@ -469,7 +469,7 @@ export function LearningView({ embedded = false }: { embedded?: boolean } = {}) 
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             {runNote && <span className="lv-run-note" style={{ fontSize: 12, opacity: 0.7 }}>{runNote}</span>}
             {!selApp && (
-              <button
+              <button type="button"
                 className="lv-refresh"
                 onClick={runNow}
                 disabled={running}
@@ -480,7 +480,7 @@ export function LearningView({ embedded = false }: { embedded?: boolean } = {}) 
                 <span style={{ fontSize: 13 }}>{running ? 'Analyzing…' : 'Run now'}</span>
               </button>
             )}
-            <button className="lv-refresh" onClick={load} title="Refresh" aria-label="Refresh">
+            <button type="button" className="lv-refresh" onClick={load} title="Refresh" aria-label="Refresh">
               <Icon name="refresh" />
             </button>
           </div>
@@ -492,15 +492,15 @@ export function LearningView({ embedded = false }: { embedded?: boolean } = {}) 
           <div className="lv-state error">{error}</div>
         ) : selApp ? (
           <>
-            <button className="dash-back" onClick={() => setSelApp(null)}>
+            <button type="button" className="dash-back" onClick={() => setSelApp(null)}>
               ← All apps
             </button>
             {selApp === 'ava' && (
               <div className="lv-tabs">
-                <button className={'lv-tab' + (appTab === 'code' ? ' active' : '')} onClick={() => setAppTab('code')}>
+                <button type="button" className={'lv-tab' + (appTab === 'code' ? ' active' : '')} onClick={() => setAppTab('code')}>
                   <Icon name="code" /> Code
                 </button>
-                <button className={'lv-tab' + (appTab === 'chat' ? ' active' : '')} onClick={() => setAppTab('chat')}>
+                <button type="button" className={'lv-tab' + (appTab === 'chat' ? ' active' : '')} onClick={() => setAppTab('chat')}>
                   <Icon name="bot" /> Chat
                 </button>
               </div>

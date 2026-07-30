@@ -119,7 +119,7 @@ export function AvaMessage({
             </ul>
           </details>
         )}
-        <button
+        <button type="button"
           className={'msgact' + (copied ? ' copied' : '')}
           title="Copy"
           onClick={async () => {
@@ -133,13 +133,13 @@ export function AvaMessage({
           <span>{copied ? 'Copied' : 'Copy'}</span>
         </button>
         {onRetry && (
-          <button className="msgact" title="Ask Ava the same thing again" onClick={onRetry}>
+          <button type="button" className="msgact" title="Ask Ava the same thing again" onClick={onRetry}>
             <Icon name="refresh" />
             <span>Retry</span>
           </button>
         )}
         {onReplay && (
-          <button className="msgact" title="Replay Ava's spoken reply" onClick={onReplay}>
+          <button type="button" className="msgact" title="Replay Ava's spoken reply" onClick={onReplay}>
             <Icon name="mic" />
             <span>Replay</span>
           </button>

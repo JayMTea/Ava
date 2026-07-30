@@ -281,23 +281,23 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
         </div>
         <div className="row-actions">
           {!c.enabled && !c.builtin ? (
-            <button className="hub-btn sm" onClick={toggleEnabled} disabled={busy}>
+            <button type="button" className="hub-btn sm" onClick={toggleEnabled} disabled={busy}>
               <Icon name="check" />{busy ? 'Enabling…' : 'Enable'}
             </button>
           ) : needsDeploy ? (
-            <button className="hub-btn sm" onClick={deploy} disabled={busy}
+            <button type="button" className="hub-btn sm" onClick={deploy} disabled={busy}
               title={`${drift || 'This connector'} out of date — regenerate into the agent`}>
               <Icon name="check" />{busy ? 'Deploying…' : 'Deploy'}
             </button>
           ) : null}
           {hasAgentSurface && c.enabled && (
-            <button className="hub-btn ghost sm" onClick={() => setShowPerms((v) => !v)} aria-expanded={showPerms}
+            <button type="button" className="hub-btn ghost sm" onClick={() => setShowPerms((v) => !v)} aria-expanded={showPerms}
               title="What Ava may do in this app — reads run silently, writes ask once, destructive always asks">
               <Icon name="lock" />Permissions
             </button>
           )}
           {hasAgentSurface && c.enabled && (
-            <button className="hub-btn ghost sm" onClick={preview} disabled={busy}>
+            <button type="button" className="hub-btn ghost sm" onClick={preview} disabled={busy}>
               <Icon name="code" />Preview
             </button>
           )}
@@ -312,7 +312,7 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
           </div>
           <div className="app-look-row">
             {APP_ICONS.map((n) => (
-              <button
+              <button type="button"
                 key={n}
                 className={'app-look-ic' + (c.icon === n ? ' on' : '')}
                 style={{ color: appAccent({ id: c.id, color: c.color }) }}
@@ -330,7 +330,7 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
             {ACCENT_SLOTS.map((i) => {
               const v = `var(--app-accent-${i})`;
               return (
-                <button
+                <button type="button"
                   key={i}
                   className={'app-look-sw' + (c.color === v ? ' on' : '')}
                   style={{ background: v }}
@@ -343,12 +343,12 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
             })}
           </div>
           <div className="hub-btn-row" style={{ marginTop: 8 }}>
-            <button className="hub-btn ghost sm" disabled={busy || (!c.icon && !c.color)}
+            <button type="button" className="hub-btn ghost sm" disabled={busy || (!c.icon && !c.color)}
               onClick={() => setLook({ icon: null, color: null })}
               title="Clear both overrides — back to the automatic icon and color">
               <Icon name="refresh" />Reset to auto
             </button>
-            <button className="hub-btn ghost sm" onClick={() => setShowLook(false)} disabled={busy}>Done</button>
+            <button type="button" className="hub-btn ghost sm" onClick={() => setShowLook(false)} disabled={busy}>Done</button>
           </div>
         </div>
       )}
@@ -361,10 +361,10 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
             onChange={(e) => setEditText(e.target.value)}
             style={{ width: '100%', minHeight: 200, fontFamily: 'monospace', fontSize: 'var(--fs-xs)', resize: 'vertical' }} />
           <div className="hub-btn-row" style={{ marginTop: 8 }}>
-            <button className="hub-btn sm" onClick={saveEdit} disabled={busy}>
+            <button type="button" className="hub-btn sm" onClick={saveEdit} disabled={busy}>
               <Icon name="check" />{busy ? 'Saving…' : 'Save manifest'}
             </button>
-            <button className="hub-btn ghost sm" onClick={() => setEditText(null)} disabled={busy}>Cancel</button>
+            <button type="button" className="hub-btn ghost sm" onClick={() => setEditText(null)} disabled={busy}>Cancel</button>
           </div>
         </div>
       )}
@@ -379,9 +379,9 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
           <div className="hub-fieldrow">
             <input className="hub-input" readOnly value={token.token || ''} style={{ flex: 1, fontFamily: 'monospace' }}
               onFocus={(e) => e.currentTarget.select()} />
-            <button className="hub-btn ghost sm" style={{ flex: '0 0 auto' }}
+            <button type="button" className="hub-btn ghost sm" style={{ flex: '0 0 auto' }}
               onClick={() => navigator.clipboard?.writeText(token.token || '')}><Icon name="copy" />Copy</button>
-            <button className="hub-btn ghost sm" style={{ flex: '0 0 auto' }} onClick={() => setToken(null)}>Hide</button>
+            <button type="button" className="hub-btn ghost sm" style={{ flex: '0 0 auto' }} onClick={() => setToken(null)}>Hide</button>
           </div>
         </div>
       )}
@@ -396,10 +396,10 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
               placeholder={c.auth_set ? 'enter a new value to replace it' : 'paste token'}
               onChange={(e) => setCredVal(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && credVal.trim()) saveCred(credVal.trim()); }} />
-            <button className="hub-btn sm" style={{ flex: '0 0 auto' }} disabled={busy || !credVal.trim()}
+            <button type="button" className="hub-btn sm" style={{ flex: '0 0 auto' }} disabled={busy || !credVal.trim()}
               onClick={() => saveCred(credVal.trim())}><Icon name="check" />{busy ? 'Saving…' : 'Save'}</button>
             {c.auth_stored && (
-              <button className="hub-btn ghost sm" style={{ flex: '0 0 auto' }} disabled={busy}
+              <button type="button" className="hub-btn ghost sm" style={{ flex: '0 0 auto' }} disabled={busy}
                 onClick={() => saveCred('')} title="Remove the saved credential"><Icon name="trash" />Clear</button>
             )}
           </div>
@@ -419,7 +419,7 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
               <pre>{t.source}</pre>
             </div>
           ))}
-          <button className="hub-btn ghost sm" style={{ marginTop: 8 }} onClick={() => setOpen(false)}>Hide preview</button>
+          <button type="button" className="hub-btn ghost sm" style={{ marginTop: 8 }} onClick={() => setOpen(false)}>Hide preview</button>
         </div>
       )}
     </div>
@@ -452,11 +452,11 @@ function ActionEditor({ actions, setAction, setActions }: {
             <input type="checkbox" checked={!!a.confirm} onChange={(e) => setAction(i, { confirm: e.target.checked })} />
             <Icon name="lock" />
           </label>
-          <button className="hub-btn ghost sm" style={{ flex: '0 0 auto' }} aria-label="Remove action"
+          <button type="button" className="hub-btn ghost sm" style={{ flex: '0 0 auto' }} aria-label="Remove action"
             onClick={() => setActions((x) => x.filter((_, j) => j !== i))}><Icon name="trash" /></button>
         </div>
       ))}
-      <button className="hub-btn ghost sm" onClick={() => setActions((a) => [...a, { id: '', method: 'POST', path: '', description: '' }])}>
+      <button type="button" className="hub-btn ghost sm" onClick={() => setActions((a) => [...a, { id: '', method: 'POST', path: '', description: '' }])}>
         <Icon name="plus" />Add another
       </button>
     </>
@@ -620,7 +620,7 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
     return (
       <>
         <div className="hub-btn-row" style={{ marginTop: 0 }}>
-          <button className="hub-btn" onClick={() => setOpen(true)}><Icon name="plus" />Connect an app or device</button>
+          <button type="button" className="hub-btn" onClick={() => setOpen(true)}><Icon name="plus" />Connect an app or device</button>
           {done && <span className="hub-msg ok" style={{ marginTop: 0, alignSelf: 'center' }}>{done}</span>}
         </div>
         {verify && <DeviceVerify cid={verify.cid} name={verify.name} onClose={() => setVerify(null)} />}
@@ -629,7 +629,7 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
   }
   return (
     <Panel title="Connect an app" subtitle="Tell Ava where your app is — it figures out how to talk to it and writes the setup. You'll preview the tools and the security policy before anything goes live." right={
-      <button className="hub-btn ghost sm" onClick={() => { setOpen(false); reset(); }}>Cancel</button>
+      <button type="button" className="hub-btn ghost sm" onClick={() => { setOpen(false); reset(); }}>Cancel</button>
     }>
       <div className="hub-field" style={{ maxWidth: 420 }}>
         <label>App name</label>
@@ -663,7 +663,7 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
             onChange={(e) => { setReach(e.target.value); setProbe(null); setProbeErr(''); }}
             onKeyDown={(e) => { if (e.key === 'Enter') runProbe(); }}
             placeholder="http://127.0.0.1:9000  —  or a start command like: npx -y @modelcontextprotocol/server-github" />
-          <button className="hub-btn" style={{ flex: '0 0 auto' }} onClick={runProbe} disabled={probing || !reach.trim()}>
+          <button type="button" className="hub-btn" style={{ flex: '0 0 auto' }} onClick={runProbe} disabled={probing || !reach.trim()}>
             <Icon name={probing ? 'refresh' : 'sparkles'} />{probing ? 'Checking…' : 'Detect'}
           </button>
         </div>
@@ -806,7 +806,7 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
       )}
 
       <div className="hub-btn-row">
-        <button className="hub-btn" onClick={create} disabled={busy || !canCreate}>
+        <button type="button" className="hub-btn" onClick={create} disabled={busy || !canCreate}>
           <Icon name="check" />{busy ? 'Connecting…' : 'Connect app'}
         </button>
         {!probe && !isDevice && reach.trim() && <span className="hub-msg" style={{ marginTop: 0, alignSelf: 'center', color: 'var(--muted)' }}>Click Detect first.</span>}
@@ -845,7 +845,7 @@ function DeviceVerify({ cid, name, onClose }: { cid: string; name: string; onClo
           <span>Waiting for the first reading from <b>{name}</b>… copy its <b>push token</b> from the list below into your board, then it appears here.</span>
         </div>
       )}
-      <button className="hub-btn ghost sm" style={{ marginTop: 8 }} onClick={onClose}>Done</button>
+      <button type="button" className="hub-btn ghost sm" style={{ marginTop: 8 }} onClick={onClose}>Done</button>
     </div>
   );
 }
@@ -879,7 +879,7 @@ export function ConnectorsPanel() {
           </div>
         )}
         {loadErr
-          ? <div className="hub-msg err">Couldn’t load connectors: {loadErr}. <button className="hub-btn ghost sm" style={{ marginLeft: 8 }} onClick={load}>Retry</button></div>
+          ? <div className="hub-msg err">Couldn’t load connectors: {loadErr}. <button type="button" className="hub-btn ghost sm" style={{ marginLeft: 8 }} onClick={load}>Retry</button></div>
           : conns == null ? <EmptyState text="Loading connectors…" />
             : conns.length === 0 ? <EmptyState text="No connectors yet — create one above." />
               : GROUP_ORDER.map((g) => {

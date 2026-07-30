@@ -90,7 +90,7 @@ export function SystemPanel({ onRestart }: { onRestart: () => void }) {
           {APPROVALS.map((a) => {
             const on = sys?.code_approval === a.id;
             return (
-              <button key={a.id} className={'sys-gov-opt' + (on ? ' sel' : '')}
+              <button type="button" key={a.id} className={'sys-gov-opt' + (on ? ' sel' : '')}
                 disabled={busy} aria-pressed={on} onClick={() => setApproval(a.id)}>
                 <Tile icon={a.icon} tone={on ? 'accent' : 'muted'} size={34} />
                 <span className="sys-gov-txt"><b>{a.title}</b><small>{a.sub}</small></span>

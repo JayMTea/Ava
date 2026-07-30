@@ -181,8 +181,14 @@
   /* Live chain-of-thought panel (Ava's real reasoning + tool steps, collapsible). */
   .cot { align-self:flex-start; background:var(--panel2); border:1px solid var(--line);
          border-radius:14px; max-width:88%; overflow:hidden; }
+  /* A real <button> (it toggles the reasoning panel and must be keyboard
+     reachable), so it carries a UA reset. display:flex already overrides the
+     button's inline-block, and the reset keeps the rendering identical to the
+     <div> this replaced — the published chat screenshots must not drift. */
   .cot-head { display:flex; align-items:center; gap:8px; padding:9px 12px; cursor:pointer;
-              font-size:13px; color:#aab2c2; user-select:none; }
+              font-size:13px; color:#aab2c2; user-select:none;
+              background:none; border:0; margin:0; width:100%;
+              text-align:left; font-family:inherit; }
   .cot-spin { width:13px; height:13px; flex:0 0 auto; border-radius:50%;
               border:2px solid #333a49; border-top-color:var(--accent); animation:cotspin .8s linear infinite; }
   @keyframes cotspin { to { transform:rotate(360deg); } }
@@ -507,9 +513,12 @@
     font-size:11px; color:var(--muted); }
 
   /* Small "open artifact" chip shown under an Ava reply that produced one. */
+  /* A <button> — it opens the artifact viewer. font-family/text-align are the
+     only UA properties not already overridden below. */
   .art-chip { display:inline-flex; align-items:center; gap:7px; margin-top:8px; cursor:pointer;
     font-size:12.5px; color:#cfe0ff; background:rgba(42,109,244,.12); border:1px solid #2c447f;
-    border-radius:12px; padding:8px 12px; transition:background .12s, border-color .12s; }
+    border-radius:12px; padding:8px 12px; transition:background .12s, border-color .12s;
+    font-family:inherit; text-align:left; }
   .art-chip:hover { background:rgba(42,109,244,.2); border-color:var(--accent); }
   .art-chip b { font-weight:600; }
   .art-chip small { color:var(--muted); }

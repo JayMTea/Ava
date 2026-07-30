@@ -87,7 +87,20 @@ export function ChatView({
   );
 
   return (
-    <div id="log" className="view active" ref={logRef}>
+    // role="log" + aria-live: an agent turn can take 30s, and without this a
+    // screen-reader user gets no announcement at all when the reply lands — the
+    // whole conversation is silent to assistive tech. "polite" rather than
+    // "assertive" so it queues behind whatever the user is doing, and
+    // aria-relevant="additions" so appended messages announce but re-renders of
+    // existing ones (progress ticks on a render job) do not.
+    <div
+      id="log"
+      className="view active"
+      ref={logRef}
+      role="log"
+      aria-live="polite"
+      aria-relevant="additions"
+    >
       {!hasConversation ? (
         <div className="chat-empty">
           <span className="ce-star">
@@ -121,13 +134,13 @@ export function ChatView({
                     onReplay={it.audio ? () => onReplay(it.audio!) : undefined}
                   >
                     {it.artifact && (
-                      <div className="art-chip" onClick={() => onOpenArtifact(it.artifact!)}>
+                      <button type="button" className="art-chip" onClick={() => onOpenArtifact(it.artifact!)}>
                         <span>
                           <b>{it.artifact.title || 'View artifact'}</b>
                           <br />
                           <small>Open the visualization →</small>
                         </span>
-                      </div>
+                      </button>
                     )}
                   </AvaMessage>
                 );

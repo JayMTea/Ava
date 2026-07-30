@@ -45,7 +45,7 @@ function RailFlyout({
 
   return (
     <div className="rail-menu-wrap" ref={wrapRef} onMouseEnter={openMenu} onMouseLeave={scheduleClose}>
-      <button
+      <button type="button"
         className={'rail-btn' + (active ? ' active' : '')}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -64,7 +64,7 @@ function RailFlyout({
           onMouseLeave={scheduleClose}
         >
           {items.map((it) => (
-            <button
+            <button type="button"
               key={it.id}
               role="menuitem"
               className={'rail-menu-item' + (view === it.id ? ' active' : '')}
@@ -210,7 +210,7 @@ export function Drawer({
         <div className="panel-head">
           <span className="brand-word">{brand}</span>
           <div className="panel-head-actions">
-            <button
+            <button type="button"
               className={'ibtn' + (searchOpen ? ' on' : '')}
               title="Search chats"
               aria-label="Search chats"
@@ -219,7 +219,7 @@ export function Drawer({
             >
               <Icon name="search" />
             </button>
-            <button
+            <button type="button"
               className="ibtn"
               title="Close sidebar"
               aria-label="Close sidebar"
@@ -242,14 +242,14 @@ export function Drawer({
           />
         )}
 
-        <button className="nav-item nav-new" aria-label="New chat" onClick={onNewChat}>
+        <button type="button" className="nav-item nav-new" aria-label="New chat" onClick={onNewChat}>
           <span className="nav-new-ic"><Icon name="plus" /></span>
           <span>New chat</span>
         </button>
 
         <nav className="nav-list" aria-label="Primary">
           {NAV.map((it) => (
-            <button
+            <button type="button"
               key={it.id}
               className={'nav-item' + (view === it.id ? ' active' : '')}
               onClick={() => onView(it.id)}
@@ -265,7 +265,7 @@ export function Drawer({
             <div className="draw-sub">Apps</div>
             <nav className="nav-list" aria-label="Apps">
               {userApps.map((a) => (
-                <button
+                <button type="button"
                   key={a.id}
                   className={'nav-item' + (view === a.id ? ' active' : '')}
                   onClick={() => onView(a.id)}

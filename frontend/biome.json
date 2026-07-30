@@ -1,0 +1,93 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.6/schema.json",
+  "vcs": { "enabled": false, "clientKind": "git", "useIgnoreFile": false },
+  "files": {
+    "includes": [
+      "src/**/*.ts",
+      "src/**/*.tsx",
+      "scripts/**/*.mjs",
+      "vite.config.ts"
+    ]
+  },
+  "formatter": { "enabled": false },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "none",
+      "correctness": {
+        "noUnusedVariables": "error",
+        "noUnusedImports": "error",
+        "noUnusedFunctionParameters": "off",
+        "noChildrenProp": "error",
+        "noConstAssign": "error",
+        "noConstantCondition": "error",
+        "noEmptyPattern": "error",
+        "noGlobalObjectCalls": "error",
+        "noInvalidUseBeforeDeclaration": "error",
+        "noPrecisionLoss": "error",
+        "noSelfAssign": "error",
+        "noSwitchDeclarations": "error",
+        "noUndeclaredVariables": "error",
+        "noUnreachable": "error",
+        "noUnsafeOptionalChaining": "error",
+        "noVoidTypeReturn": "error",
+        "useExhaustiveDependencies": "warn",
+        "useHookAtTopLevel": "error",
+        "useIsNan": "error",
+        "useJsxKeyInIterable": "error",
+        "useValidForDirection": "error"
+      },
+      "suspicious": {
+        "noDoubleEquals": "error",
+        "noDuplicateCase": "error",
+        "noDuplicateClassMembers": "error",
+        "noDuplicateJsxProps": "error",
+        "noDuplicateObjectKeys": "error",
+        "noDuplicateParameters": "error",
+        "noFallthroughSwitchClause": "error",
+        "noSelfCompare": "error",
+        "noSparseArray": "error",
+        "noUnsafeNegation": "error",
+        "useGetterReturn": "error",
+        "noExplicitAny": "warn",
+        "noArrayIndexKey": "warn",
+        "noAssignInExpressions": "warn"
+      },
+      "a11y": {
+        "useKeyWithClickEvents": "warn",
+        "useAriaPropsForRole": "error",
+        "useValidAriaProps": "error",
+        "useValidAriaValues": "error",
+        "useValidAriaRole": "error",
+        "noAriaHiddenOnFocusable": "error",
+        "useAltText": "error",
+        "useAnchorContent": "error",
+        "useButtonType": "error",
+        "useIframeTitle": "error",
+        "noAutofocus": "off",
+        "noSvgWithoutTitle": "off",
+        "useSemanticElements": "off"
+      },
+      "complexity": {
+        "noUselessTernary": "error",
+        "noUselessCatch": "error",
+        "noUselessEmptyExport": "error",
+        "noUselessFragments": "error",
+        "noUselessLabel": "error",
+        "noUselessRename": "error",
+        "noExtraBooleanCast": "error"
+      }
+    }
+  },
+  "javascript": {
+    "globals": ["window", "document", "navigator", "fetch", "localStorage",
+                "sessionStorage", "console", "setTimeout", "clearTimeout",
+                "setInterval", "clearInterval", "requestAnimationFrame",
+                "cancelAnimationFrame", "URL", "URLSearchParams", "Blob",
+                "FormData", "FileReader", "AbortController", "EventSource",
+                "MediaRecorder", "Audio", "Image", "ResizeObserver",
+                "IntersectionObserver", "matchMedia", "location", "history",
+                "alert", "confirm", "atob", "btoa", "crypto", "performance",
+                "structuredClone", "queueMicrotask", "process"]
+  }
+}

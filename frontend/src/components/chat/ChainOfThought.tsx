@@ -26,10 +26,19 @@ export function ChainOfThought({ label, steps, status, secs, error }: Props) {
 
   return (
     <div className={cls}>
-      <div className="cot-head" onClick={() => setOpen((o) => !o)}>
+      {/* A button, not a div: this is the only affordance for opening Ava's
+          reasoning on the primary surface, and as a div it could not be reached
+          or activated by keyboard at all. .cot-head carries the UA reset so the
+          rendering is unchanged. */}
+      <button
+        type="button"
+        className="cot-head"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+      >
         <span className="cot-spin" />
         <span className="cot-lab">{headText}</span>
-      </div>
+      </button>
       <div className="cot-body">
         {steps.map((s, i) =>
           s.kind === 'tool' ? (

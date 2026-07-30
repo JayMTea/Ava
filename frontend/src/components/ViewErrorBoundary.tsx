@@ -29,7 +29,7 @@ export class ViewErrorBoundary extends Component<
         <div className="view-error" style={this.props.hidden ? { display: 'none' } : undefined}>
           <div className="view-error-title">{this.props.label} hit an error</div>
           <div className="view-error-detail">{String(this.state.error)}</div>
-          <button
+          <button type="button"
             className="st-btn"
             onClick={() => this.setState((s) => ({ error: null, epoch: s.epoch + 1 }))}
           >

@@ -8,6 +8,30 @@
 // the trees wholesale.)
 import { readFileSync } from 'node:fs';
 
+// Same failure, other half: the lockfile check above cannot see the INTERPRETER.
+// `engines` allows `^20.19.0 || >=22.12.0` — three majors — while CI's
+// frontend-dist-drift job byte-compares your committed dist against its own
+// rebuild. Build on a different major than CI and the diff is not your change,
+// it is the toolchain, with no message saying so. .nvmrc is the single pin; both
+// CI jobs read it via `node-version-file`.
+try {
+  const want = readFileSync(new URL('../.nvmrc', import.meta.url), 'utf8').trim();
+  const wantMajor = want.replace(/^v/, '').split('.')[0];
+  const haveMajor = process.version.replace(/^v/, '').split('.')[0];
+  if (wantMajor && haveMajor !== wantMajor) {
+    console.error(
+      `\n✖ Node ${process.version} but frontend/.nvmrc pins ${want}.\n` +
+      "  CI rebuilds dist on the pinned major and byte-compares it against yours,\n" +
+      '  so a mismatch shows up as a dist diff you did not make.\n' +
+      `  Run \`nvm use\` (or install Node ${want}) and rebuild.\n`,
+    );
+    process.exit(1);
+  }
+} catch {
+  // No .nvmrc, or an unreadable one: fall through. This guard exists to catch a
+  // mismatch, not to make a missing pin fatal.
+}
+
 let stale = [];
 try {
   const lock = JSON.parse(readFileSync('package-lock.json', 'utf8')).packages ?? {};

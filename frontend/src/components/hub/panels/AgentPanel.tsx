@@ -145,7 +145,7 @@ function BrainManager({ onRestart }: { onRestart: () => void }) {
     <Panel
       title="Ava's brain"
       subtitle="Link any model — a local engine (Ollama, MLX, LM Studio, llama.cpp, vLLM) or any OpenAI-compatible cloud provider — and pick which one Ava thinks with."
-      right={<button className="hub-btn sm" onClick={openAdd}><Icon name="sparkles" />Add a model</button>}
+      right={<button type="button" className="hub-btn sm" onClick={openAdd}><Icon name="sparkles" />Add a model</button>}
     >
       {agentBrain && (
         <div className="hub-model-list" style={{ marginBottom: backends.length || showForm ? 10 : 0 }}>
@@ -205,10 +205,10 @@ function BrainManager({ onRestart }: { onRestart: () => void }) {
                     </small>
                   </div>
                   {!b.is_brain && (
-                    <button className="hub-btn sm ghost" onClick={() => setBrain(b.id)}>Use as brain</button>
+                    <button type="button" className="hub-btn sm ghost" onClick={() => setBrain(b.id)}>Use as brain</button>
                   )}
-                  <button className="hub-btn sm ghost" onClick={() => openEdit(b)}>Edit</button>
-                  <button className="hub-btn sm ghost" onClick={() => remove(b.id)} aria-label={`Remove ${b.id}`}>
+                  <button type="button" className="hub-btn sm ghost" onClick={() => openEdit(b)}>Edit</button>
+                  <button type="button" className="hub-btn sm ghost" onClick={() => remove(b.id)} aria-label={`Remove ${b.id}`}>
                     <Icon name="trash" />
                   </button>
                 </div>
@@ -254,13 +254,13 @@ function BrainManager({ onRestart }: { onRestart: () => void }) {
           )}
 
           <div className="hub-btn-row">
-            <button className="hub-btn ghost" onClick={runTest} disabled={testing || !baseUrl.trim() || !model.trim()}>
+            <button type="button" className="hub-btn ghost" onClick={runTest} disabled={testing || !baseUrl.trim() || !model.trim()}>
               {testing ? 'Testing…' : 'Test connection'}
             </button>
-            <button className="hub-btn" onClick={save} disabled={busy || !(editing || id).trim() || !baseUrl.trim() || !model.trim()}>
+            <button type="button" className="hub-btn" onClick={save} disabled={busy || !(editing || id).trim() || !baseUrl.trim() || !model.trim()}>
               <Icon name="check" />{busy ? 'Saving…' : 'Save model'}
             </button>
-            <button className="hub-btn ghost" onClick={() => { setShowForm(false); resetForm(); }} disabled={busy}>Cancel</button>
+            <button type="button" className="hub-btn ghost" onClick={() => { setShowForm(false); resetForm(); }} disabled={busy}>Cancel</button>
           </div>
           {msg && <div className="hub-msg err">{msg}</div>}
           {be && !be.any_up && !isCloud && (
@@ -322,7 +322,7 @@ function ModelStorePanel() {
       title="Model store"
       subtitle={store ? `Downloads land in ${store.store} · detected tier: ${store.detected_tier}${store.available_gb ? ` · ${store.available_gb} GB` : ''}` : 'Download models sized to your hardware.'}
       right={
-        <button className="hub-btn sm" onClick={() => start('auto')} disabled={running}>
+        <button type="button" className="hub-btn sm" onClick={() => start('auto')} disabled={running}>
           <Icon name="sparkles" />{running ? 'Pulling…' : 'Pull recommended'}
         </button>
       }
@@ -337,7 +337,7 @@ function ModelStorePanel() {
               </div>
               <div className="hub-row-actions">
                 {m.present ? <Badge tone="ok">downloaded</Badge> : (
-                  <button className="hub-btn ghost sm" onClick={() => start(m.role)} disabled={running}>
+                  <button type="button" className="hub-btn ghost sm" onClick={() => start(m.role)} disabled={running}>
                     <Icon name="cloud" />Pull
                   </button>
                 )}
@@ -464,7 +464,7 @@ function BenchPanel() {
           <div className="hub-row-title">Compare models</div>
           <div className="hub-row-sub">Run the same prompt on every backend — throughput and time-to-first-token, side by side.</div>
         </div>
-        <button className="hub-btn sm" onClick={run} disabled={running}>
+        <button type="button" className="hub-btn sm" onClick={run} disabled={running}>
           <Icon name={running ? 'refresh' : 'chart'} />{running ? 'Benchmarking…' : 'Run benchmark'}
         </button>
       </div>
@@ -584,7 +584,7 @@ export function AgentPanel({ onRestart }: { onRestart: () => void }) {
       )}
 
       <div className="hub-btn-row">
-        <button className="hub-btn" onClick={provision} disabled={busy}>
+        <button type="button" className="hub-btn" onClick={provision} disabled={busy}>
           <Icon name="refresh" />{busy ? 'Provisioning…' : 'Provision / re-check'}
         </button>
       </div>
@@ -702,7 +702,7 @@ function SkillRow({ s, open, onToggle, body, dragging, onDragStart, onDragEnd }:
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
     >
-      <button className="skill-head" onClick={onToggle} aria-expanded={open}>
+      <button type="button" className="skill-head" onClick={onToggle} aria-expanded={open}>
         <span className="skill-icon">
           <Icon name={s.icon && SKILL_ICONS.has(s.icon) ? s.icon : 'sparkles'} />
         </span>
@@ -1005,7 +1005,7 @@ function SkillsPanel() {
             {newCat && !newCat.skill ? (
               newCatForm
             ) : (
-              <button
+              <button type="button"
                 className="hub-btn ghost sm skill-newcat-btn"
                 onClick={() => { setNewCat({}); setNewCatVal(''); }}
               >
@@ -1054,7 +1054,7 @@ function SkillsPanel() {
                       />
                     ) : (
                       <>
-                        <button
+                        <button type="button"
                           className="skill-group-toggle"
                           onClick={() => setExpanded((x) => {
                             const n = new Set(x);
@@ -1070,7 +1070,7 @@ function SkillsPanel() {
                           <span className="skill-group-count">{list.length}</span>
                         </button>
                         {mode === 'category' && (
-                          <button
+                          <button type="button"
                             className="skill-group-rename"
                             title={`Rename “${cat}”`}
                             aria-label={`Rename category ${cat}`}
@@ -1080,7 +1080,7 @@ function SkillsPanel() {
                           </button>
                         )}
                         {mode === 'category' && cat !== 'General' && list.length === 0 && (
-                          <button
+                          <button type="button"
                             className="skill-group-rename skill-group-del"
                             title={`Delete “${cat}”`}
                             aria-label={`Delete category ${cat}`}

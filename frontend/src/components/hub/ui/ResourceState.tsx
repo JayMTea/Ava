@@ -43,7 +43,7 @@ export function ResourceError({ r, label }: {
   return (
     <div className="hub-msg err" role="alert" style={{ marginBottom: 12 }}>
       <div>Couldn’t load {label}. {r.error}</div>
-      <button className="hub-btn ghost sm" style={{ marginTop: 8 }} onClick={r.reload}>
+      <button type="button" className="hub-btn ghost sm" style={{ marginTop: 8 }} onClick={r.reload}>
         <Icon name="refresh" />Try again
       </button>
     </div>
@@ -62,7 +62,7 @@ export function ResourceState<T>({ r, label, empty, children }: {
     return (
       <div className="hub-msg err" role="alert">
         <div>Couldn’t load {label}. {r.error}</div>
-        <button className="hub-btn ghost sm" style={{ marginTop: 8 }} onClick={r.reload}>
+        <button type="button" className="hub-btn ghost sm" style={{ marginTop: 8 }} onClick={r.reload}>
           <Icon name="refresh" />Try again
         </button>
       </div>

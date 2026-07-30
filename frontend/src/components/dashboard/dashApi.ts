@@ -1,4 +1,4 @@
-// Typed client + types for the Ava Command Center dashboard endpoints.
+// Typed client + types for Ava's dashboard endpoints (Vitals + Operations).
 // Same-origin (session cookie sent automatically); 401 -> /login.
 
 async function get<T>(path: string): Promise<T> {

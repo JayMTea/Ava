@@ -109,8 +109,8 @@ export function OpsView() {
       )}
 
       <div className="db-seg" role="tablist">
-        <button className={'db-seg-btn' + (seg === 'live' ? ' on' : '')} onClick={() => setSeg('live')}>Live</button>
-        <button className={'db-seg-btn' + (seg === 'control' ? ' on' : '')} onClick={() => setSeg('control')}>
+        <button type="button" className={'db-seg-btn' + (seg === 'live' ? ' on' : '')} onClick={() => setSeg('live')}>Live</button>
+        <button type="button" className={'db-seg-btn' + (seg === 'control' ? ' on' : '')} onClick={() => setSeg('control')}>
           Control{pending ? <span className="db-seg-badge">{pending}</span> : null}
         </button>
       </div>
@@ -217,7 +217,7 @@ export function OpsView() {
       <div className="db-grid db-grid-2">
         {/* Workflows */}
         <Panel title="Background workflows"
-          right={<button className="db-linkbtn" onClick={() => setSeg('control')}>Review in Control →</button>}>
+          right={<button type="button" className="db-linkbtn" onClick={() => setSeg('control')}>Review in Control →</button>}>
           <div className="db-work">
             <WorkRow label="Code learning" cycles={learn?.code.cycles} last={learn?.code.last_cycle} pending={learn?.code.pending} />
             <WorkRow label="Chat learning" cycles={learn?.chat.cycles} last={learn?.chat.last_cycle} pending={learn?.chat.pending} />

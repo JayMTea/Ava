@@ -95,7 +95,7 @@ function StoreRow({ s, onBrowse, onEmpty }: { s: DataStore; onBrowse?: () => voi
         </div>
       </div>
       <div className="row-actions">
-        {onBrowse && <button className="hub-btn ghost sm" onClick={onBrowse}>Browse<Icon name="arrowRight" /></button>}
+        {onBrowse && <button type="button" className="hub-btn ghost sm" onClick={onBrowse}>Browse<Icon name="arrowRight" /></button>}
         {s.id === 'memory' && (
           <a className="hub-btn ghost sm" href="/api/hub/memory/export" download><Icon name="file" />Export</a>
         )}
@@ -104,7 +104,7 @@ function StoreRow({ s, onBrowse, onEmpty }: { s: DataStore; onBrowse?: () => voi
             second copy of the message that could drift. */}
         {s.deletable
           ? (onEmpty && (s.bytes > 0 || (s.count ?? 0) > 0) && (
-              <button className="hub-btn ghost sm tone-err" onClick={onEmpty}>
+              <button type="button" className="hub-btn ghost sm tone-err" onClick={onEmpty}>
                 <Icon name="trash" />Empty
               </button>))
           : (
@@ -154,7 +154,7 @@ function ChatsTab() {
             <div className="row-actions">
               <a className="hub-btn ghost sm" href={`/api/data/chats/${encodeURIComponent(c.id)}/export`} download title="Export as JSON">JSON</a>
               <a className="hub-btn ghost sm" href={`/api/data/chats/${encodeURIComponent(c.id)}/export?format=md`} download title="Export as Markdown">MD</a>
-              <button className="hub-btn ghost sm" title="Delete chat" onClick={() => remove(c)}><Icon name="trash" /></button>
+              <button type="button" className="hub-btn ghost sm" title="Delete chat" onClick={() => remove(c)}><Icon name="trash" /></button>
             </div>
           </div>
         ))}
@@ -213,7 +213,7 @@ function LogsTab() {
       right={
         <div className="hub-tabs" style={{ borderBottom: 0, marginBottom: 0 }}>
           {LOG_SOURCES.map((s) => (
-            <button key={s.id} className={'hub-tab' + (source === s.id ? ' active' : '')} onClick={() => setSource(s.id)}>{s.label}</button>
+            <button type="button" key={s.id} className={'hub-tab' + (source === s.id ? ' active' : '')} onClick={() => setSource(s.id)}>{s.label}</button>
           ))}
         </div>
       }
@@ -221,7 +221,7 @@ function LogsTab() {
       {source === 'audit' && (
         <div className="hub-tabs" style={{ borderBottom: 0, marginBottom: 10 }}>
           {AUDIT_KINDS.map((k) => (
-            <button key={k.id} className={'hub-tab' + (kind === k.id ? ' active' : '')} onClick={() => setKind(k.id)}>{k.label}</button>
+            <button type="button" key={k.id} className={'hub-tab' + (kind === k.id ? ' active' : '')} onClick={() => setKind(k.id)}>{k.label}</button>
           ))}
         </div>
       )}
@@ -341,10 +341,10 @@ function MaintenanceTab({ stores }: { stores: StoresResponse | null }) {
               <dt>Last integrity check</dt><dd>{last ? `${ago(last.ts)} — ${last.ok ? 'ok' : 'failed'}` : 'never'}</dd>
             </dl>
             <div className="hub-btn-row">
-              <button className="hub-btn ghost sm" disabled={busy !== ''} onClick={runIntegrity}>
+              <button type="button" className="hub-btn ghost sm" disabled={busy !== ''} onClick={runIntegrity}>
                 <Icon name="check" />{busy === 'integrity' ? 'Checking…' : 'Check integrity'}
               </button>
-              <button className="hub-btn ghost sm" disabled={busy !== ''} onClick={runVacuum}>
+              <button type="button" className="hub-btn ghost sm" disabled={busy !== ''} onClick={runVacuum}>
                 <Icon name="refresh" />{busy === 'vacuum' ? 'Compacting…' : 'Compact (VACUUM)'}
               </button>
             </div>
@@ -425,7 +425,7 @@ export function DataView() {
 
         <div className="hub-tabs">
           {TABS.map((t) => (
-            <button key={t.id} className={'hub-tab' + (tab === t.id ? ' active' : '')} onClick={() => setTab(t.id)}>
+            <button type="button" key={t.id} className={'hub-tab' + (tab === t.id ? ' active' : '')} onClick={() => setTab(t.id)}>
               <Icon name={t.icon} />{t.label}
             </button>
           ))}

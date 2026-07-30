@@ -26,7 +26,7 @@ export function Header({
 }) {
   return (
     <header className={ghost && showGhost ? 'ghost-on' : ''}>
-      <button id="menuBtn" title="Chats" aria-label="Open chats" onClick={onMenu}>
+      <button type="button" id="menuBtn" title="Chats" aria-label="Open chats" onClick={onMenu}>
         <Icon name="sidebar" />
       </button>
       <h1>
@@ -69,7 +69,7 @@ export function Header({
           </label>
         )}
         {showGhost && (
-          <button
+          <button type="button"
             className={'ghostbtn' + (ghost ? ' on' : '')}
             title={
               ghost

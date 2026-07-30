@@ -20,7 +20,7 @@ export function ArtifactPanel({ artifact, onClose, onRefresh, refreshing }: Prop
           <span>{artifact?.title || 'Artifact'}</span>
         </div>
         <div className="art-tools">
-          <button
+          <button type="button"
             className="art-ibtn"
             title="Refresh"
             aria-label="Refresh"
@@ -30,7 +30,7 @@ export function ArtifactPanel({ artifact, onClose, onRefresh, refreshing }: Prop
           >
             <Icon name="refresh" />
           </button>
-          <button className="art-ibtn" title="Close panel" aria-label="Close panel" onClick={onClose}>
+          <button type="button" className="art-ibtn" title="Close panel" aria-label="Close panel" onClick={onClose}>
             <Icon name="close" />
           </button>
         </div>

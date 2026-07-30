@@ -31,7 +31,7 @@ export function Overview({ onGo }: { onGo: (t: TabId) => void }) {
   const enabledConns = conns.filter((c) => c.enabled && isExternalApp(c)).length;
 
   const card = (t: TabId, icon: string, title: string, value: ReactNode, sub: string) => (
-    <button className="ov-card" onClick={() => onGo(t)}>
+    <button type="button" className="ov-card" onClick={() => onGo(t)}>
       <Tile icon={icon} tone="accent" size={40} />
       <span className="ov-card-body">
         <span className="ov-card-title">{title}</span>

@@ -310,7 +310,7 @@ export function HardwareBubble() {
           </div>
         </div>
       )}
-      <button
+      <button type="button"
         aria-label="Hardware monitor"
         title="Hardware monitor (drag to move)"
         onPointerDown={onPointerDown}

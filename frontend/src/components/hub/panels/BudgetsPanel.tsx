@@ -133,7 +133,7 @@ export function BudgetsPanel() {
             <input className="hub-input" value={dk} onChange={(e) => setDk(e.target.value)} placeholder="none" inputMode="decimal" /></div>
         </div>
         <div className="hub-btn-row">
-          <button className="hub-btn" onClick={save} disabled={busy}><Icon name="check" />{busy ? 'Saving…' : 'Save budgets'}</button>
+          <button type="button" className="hub-btn" onClick={save} disabled={busy}><Icon name="check" />{busy ? 'Saving…' : 'Save budgets'}</button>
         </div>
         <HubMessage message={message} />
 

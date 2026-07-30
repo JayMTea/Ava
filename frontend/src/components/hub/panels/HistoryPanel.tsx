@@ -75,11 +75,11 @@ export function HistoryPanel() {
     <Panel
       title="Flight recorder"
       subtitle="A durable, append-only record of everything the agent did. Survives restarts and the agent can't rewrite it (logs/audit.jsonl)."
-      right={<button className="hub-btn ghost sm" onClick={load}><Icon name="refresh" />Refresh</button>}
+      right={<button type="button" className="hub-btn ghost sm" onClick={load}><Icon name="refresh" />Refresh</button>}
     >
       <div className="hub-tabs" style={{ marginBottom: 14, borderBottom: 0 }}>
         {HISTORY_CATS.map((f) => (
-          <button key={f.id} className={'hub-tab' + (cat === f.id ? ' active' : '')} onClick={() => setCat(f.id)}>
+          <button type="button" key={f.id} className={'hub-tab' + (cat === f.id ? ' active' : '')} onClick={() => setCat(f.id)}>
             {f.label}{events && <span className="hist-tab-n">{count(f)}</span>}
           </button>
         ))}

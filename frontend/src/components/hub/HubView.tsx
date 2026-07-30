@@ -59,13 +59,13 @@ function ApprovalsBanner() {
           </span>
           <span style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
             {p.grantable && (
-              <button className="hub-btn sm" onClick={() => decide(p.id, 'always')}
+              <button type="button" className="hub-btn sm" onClick={() => decide(p.id, 'always')}
                 title="Run it now and never ask again for this action — revoke anytime in the connector's settings">
                 <Icon name="check" />Always allow</button>
             )}
-            <button className={'hub-btn sm' + (p.grantable ? ' ghost' : '')} onClick={() => decide(p.id, 'approve')}>
+            <button type="button" className={'hub-btn sm' + (p.grantable ? ' ghost' : '')} onClick={() => decide(p.id, 'approve')}>
               <Icon name="check" />{p.grantable ? 'Just once' : 'Approve'}</button>
-            <button className="hub-btn ghost sm" onClick={() => decide(p.id, 'deny')}><Icon name="close" />Deny</button>
+            <button type="button" className="hub-btn ghost sm" onClick={() => decide(p.id, 'deny')}><Icon name="close" />Deny</button>
           </span>
         </div>
       ))}
@@ -169,7 +169,7 @@ export function HubView() {
 
         <div className="hub-tabs">
           {TABS.map((t) => (
-            <button key={t.id} className={'hub-tab' + (tab === t.id ? ' active' : '')} onClick={() => setTab(t.id)}>
+            <button type="button" key={t.id} className={'hub-tab' + (tab === t.id ? ' active' : '')} onClick={() => setTab(t.id)}>
               <Icon name={t.icon} />{t.label}
             </button>
           ))}

@@ -20,7 +20,7 @@ export function ThemeToggle() {
 
   const next = theme === 'dark' ? 'light' : 'dark';
   return (
-    <button
+    <button type="button"
       className="theme-btn"
       title={`Switch to ${next} mode`}
       aria-label={`Switch to ${next} mode`}

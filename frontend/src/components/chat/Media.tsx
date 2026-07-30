@@ -27,6 +27,8 @@ export function Lightbox({ url, onClose, info }: { url: string; onClose: () => v
     moved: false,
   });
 
+  const closeRef = useRef<HTMLButtonElement>(null);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -34,6 +36,17 @@ export function Lightbox({ url, onClose, info }: { url: string; onClose: () => v
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
+
+  // Focus management for the modal. Without this, opening the lightbox leaves
+  // focus on the thumbnail behind it — a keyboard user tabs through the page
+  // underneath while a full-screen overlay covers it — and closing drops focus to
+  // the document, losing their place in the conversation. Escape and the close
+  // button already worked; this is the half that was missing.
+  useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null;
+    closeRef.current?.focus();
+    return () => opener?.focus?.();
+  }, []);
 
   const clampScale = (s: number) => Math.min(6, Math.max(1, s));
   // Reset pan when we drop back to fit-scale so the image re-centers.
@@ -100,9 +113,16 @@ export function Lightbox({ url, onClose, info }: { url: string; onClose: () => v
   const src = url.split('?')[0];
   const zoomed = t.scale > 1;
   return (
+    // biome-ignore lint/a11y/useKeyWithClickEvents: backdrop-tap-to-close is a
+    // redundant pointer shortcut. The keyboard paths are Escape (above) and the
+    // labelled close button, which is focused on mount — so this handler adds no
+    // capability a keyboard user lacks.
     <div
       id="lightbox"
       className="open"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Image viewer"
       onClick={(e) => {
         // Only close on a genuine backdrop tap (never mid-pan / when zoomed in).
         if (e.target === e.currentTarget && !zoomed) onClose();
@@ -122,7 +142,7 @@ export function Lightbox({ url, onClose, info }: { url: string; onClose: () => v
           cursor: zoomed ? 'grab' : 'zoom-in',
         }}
       />
-      <button className="lb-close" type="button" aria-label="Close" onClick={onClose}>
+      <button ref={closeRef} className="lb-close" type="button" aria-label="Close" onClick={onClose}>
         <Icon name="close" />
       </button>
       {info && (

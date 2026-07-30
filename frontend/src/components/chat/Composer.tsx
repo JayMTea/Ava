@@ -139,7 +139,7 @@ export function Composer({
                 <div className="nm">{a.filename}</div>
                 <div className="sz">{a.kind === 'image' ? (a.ocr ? 'image · text read' : 'image') : `${a.chars || 0} chars`}</div>
               </div>
-              <button className="x" title="Remove attachment" onClick={() => onRemoveAtt(a.id)}>
+              <button type="button" className="x" title="Remove attachment" onClick={() => onRemoveAtt(a.id)}>
                 <Icon name="close" />
               </button>
             </div>
@@ -181,7 +181,7 @@ export function Composer({
           rows={1}
         />
         <div className="crow-tools">
-          <button className="ibtn" title="Attach file" aria-label="Attach file" onClick={() => fileRef.current?.click()}>
+          <button type="button" className="ibtn" title="Attach file" aria-label="Attach file" onClick={() => fileRef.current?.click()}>
             <Icon name="attach" />
           </button>
           <input
@@ -196,7 +196,7 @@ export function Composer({
             }}
           />
           <div className="spacer" />
-          <button
+          <button type="button"
             className={'ibtn mic' + (recording ? ' rec' : '')}
             title={recording ? 'Tap to send' : 'Ask Ava with your voice'}
             aria-label={recording ? 'Stop and send' : 'Voice message'}
@@ -205,12 +205,14 @@ export function Composer({
           >
             <Icon name="mic" />
           </button>
-          <button className="ibtn send" title="Send" aria-label="Send" disabled={busy} onClick={onSend}>
+          <button type="button" className="ibtn send" title="Send" aria-label="Send" disabled={busy} onClick={onSend}>
             <Icon name="send" />
           </button>
         </div>
       </div>
-      <div className="hint" id="hint">
+      {/* role="status" so a mic permission failure or a transient hint is spoken
+          rather than only shown — this is where "microphone blocked" surfaces. */}
+      <div className="hint" id="hint" role="status">
         {micError || hint}
       </div>
     </div>
