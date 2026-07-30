@@ -534,7 +534,16 @@ def render_egress_policy(cid: str) -> dict | None:
                                       "path": str(x).split()[1]}}
                            for x in hr if len(str(x).split()) == 2]
         else:
-            ep["rules"] = [{"allow": {"method": "*", "path": "/**"}}]
+            # Explicit verbs, NOT `method: "*"`. No hand-written policy in
+            # agent/policies/ uses a wildcard method, so its behaviour in OpenClaw
+            # is unverified — and if the matcher compares the string exactly, `"*"`
+            # would match no request at all, turning "allow everything" into "allow
+            # nothing" and silently breaking every connector that declares
+            # `egress.hosts`. Enumerating the verbs keeps the previous semantics
+            # using only shapes that already ship, and `path: "/**"` still makes the
+            # breadth visible to check_policy_wildcards, which was the point.
+            ep["rules"] = [{"allow": {"method": v, "path": "/**"}}
+                           for v in ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE")]
         endpoints.append(ep)
     if not endpoints:
         return None

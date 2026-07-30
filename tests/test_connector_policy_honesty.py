@@ -68,10 +68,24 @@ class EgressHostRenderingTests(unittest.TestCase):
 
     def test_a_bare_host_entry_states_its_own_breadth(self):
         """It always meant 'every method, every path'. Now it says so, which is
-        what makes it visible to the wildcard scanner."""
+        what makes it visible to the wildcard scanner.
+
+        Explicit verbs rather than `method: "*"`: no shipped policy uses a wildcard
+        method, so its OpenClaw semantics are unverified, and an exact-match matcher
+        would turn allow-everything into allow-nothing.
+        """
         eps = _endpoints("pub", {"id": "pub", "egress": {"hosts": ["example.com"]}})
         ep = [e for e in eps if e["host"] == "example.com"][0]
-        self.assertEqual(ep["rules"], [{"allow": {"method": "*", "path": "/**"}}])
+        self.assertEqual([r["allow"]["method"] for r in ep["rules"]],
+                         ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"])
+        self.assertEqual({r["allow"]["path"] for r in ep["rules"]}, {"/**"})
+
+    def test_no_generated_policy_uses_an_unprecedented_wildcard_method(self):
+        """Guard: agent/policies/*.yaml only ever uses concrete verbs."""
+        with _with({"id": "pub", "egress": {"hosts": ["example.com"]}}):
+            blob = yaml.safe_dump(connectors.render_egress_policy("pub"))
+        self.assertNotIn("method: '*'", blob)
+        self.assertNotIn('method: "*"', blob)
 
     def test_host_rules_narrows_it(self):
         m = {"id": "pub", "egress": {"hosts": ["example.com"],
