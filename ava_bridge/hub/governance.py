@@ -10,8 +10,28 @@ from fastapi import APIRouter
 
 from .. import audit
 from .. import approvals
+from .. import policy_inventory
 
 router = APIRouter()
+
+
+# --------------------------------------------------------------------------- #
+# Egress policies — what the sandbox is actually allowed to reach
+# --------------------------------------------------------------------------- #
+@router.get("/policies/inventory")
+def policies_inventory():
+    """Every egress policy on the box: declared, generated and overlay.
+
+    Facts only — file digests, endpoint/rule/binary counts, and any wildcard
+    paths with the host each applies to. Which of those are *acceptable* is
+    `ava_security_check`'s judgement, not this route's, because `/**` on a
+    third-party API and `/**` on Ava's own loopback bridge are not the same claim.
+
+    The generated policies are the point: they are written from connector
+    manifests rather than reviewed by hand, and until this existed nothing showed
+    them — including the wildcard check.
+    """
+    return policy_inventory.snapshot()
 
 
 # --------------------------------------------------------------------------- #

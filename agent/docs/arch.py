@@ -601,11 +601,43 @@ def enabled_units() -> set[str]:
 
 
 def listening_ports() -> set[int]:
-    out = _run(["ss", "-ltn"])
-    ports = set()
-    for m in re.finditer(r":(\d+)\s", out):
-        ports.add(int(m.group(1)))
-    return ports
+    return {port for _host, port in listening_binds()}
+
+
+def _bind_class(host: str, port: int) -> str:
+    """Delegate to ava_security_check.bind_class; unknown if it is unavailable."""
+    try:
+        sys.path.insert(0, ROOT)
+        from ava_security_check import bind_class
+        return bind_class(host, port)
+    except ImportError:
+        return "unknown"
+
+
+def listening_binds() -> set[tuple[str, int]]:
+    """Every (address, port) listening, not just the port numbers.
+
+    `listening_ports()` threw the address away, so the manifest's `bind:` column
+    was a claim nothing could check: a service declared `bind: 127.0.0.1` and
+    actually listening on a tailnet address satisfied the drift check, because the
+    port was listening *somewhere*. Two services on this box had exactly that
+    shape and the generated services table in DEV_NOTES.md rendered the false
+    value for weeks.
+
+    Parses through `ava_security_check.parse_listeners` rather than a second
+    regex — one socket-table parser, tested in
+    `tests/test_port_exposure_classes.py`, instead of two that can disagree about
+    IPv6 brackets.
+    """
+    out = _run(["ss", "-ltnH"])
+    try:
+        sys.path.insert(0, ROOT)
+        from ava_security_check import parse_listeners
+        return set(parse_listeners(out))
+    except ImportError:
+        # A checkout without the script: fall back to ports only, and say so by
+        # returning an unknown address rather than inventing one.
+        return {("?", int(m.group(1))) for m in re.finditer(r":(\d+)\s", out)}
 
 
 def actual_tools() -> dict[str, str]:
@@ -641,28 +673,20 @@ def actual_tools() -> dict[str, str]:
 
 
 def actual_policies() -> set[str]:
-    names: set[str] = set()
-    # Core policies + optional overlay policies (private first-party apps).
-    for d in (os.path.join(ROOT, "agent", "policies"),
-              os.path.join(OVERLAY, "policies")):
-        if not os.path.isdir(d):
-            continue
-        names |= {os.path.splitext(f)[0] for f in os.listdir(d) if f.endswith(".yaml")}
-        # Connector egress policies are auto-generated under generated/ (from
-        # connectors/<id>/connector.yaml) and are named by their preset.name
-        # (e.g. a connector preset id), not the filename stem. Include them so the
-        # drift-check stays 1:1 with the manifest.
-        gen = os.path.join(d, "generated")
-        if os.path.isdir(gen):
-            for f in os.listdir(gen):
-                if not f.endswith(".yaml"):
-                    continue
-                try:
-                    pol = yaml.safe_load(open(os.path.join(gen, f), encoding="utf-8")) or {}
-                    names.add((pol.get("preset") or {}).get("name") or os.path.splitext(f)[0])
-                except Exception:  # noqa: BLE001
-                    names.add(os.path.splitext(f)[0])
-    return names
+    """Every policy name the sandbox would know, via the one enumerator.
+
+    This used to be the only one of three policy walkers that knew a generated
+    policy is named by its `preset.name` rather than its filename stem — a detail
+    that lived in a comment here while `policy_mgmt` and `ava_security_check`
+    globbed one level and missed `generated/` entirely. That knowledge now lives in
+    `ava_bridge.policy_inventory` and all three read it, so the drift check runs
+    over the same set the security check does.
+    """
+    try:
+        from ava_bridge import policy_inventory
+    except ImportError:
+        return set()   # a checkout without the bridge; drift is simply unknown
+    return policy_inventory.names()
 
 
 def check_drift(m: dict) -> dict:
@@ -681,11 +705,47 @@ def check_drift(m: dict) -> dict:
             warnings.append(f"enabled unit {u} is not in the manifest (add it to services)")
 
     # 2. ports listening (warn only — a service may simply be stopped)
-    ports = listening_ports()
+    binds = listening_binds()
+    ports = {port for _h, port in binds}
     for s in m["services"]:
         p = s.get("port")
-        if p and not s.get("external") and int(p) not in ports:
+        if not p or s.get("external"):
+            continue
+        if int(p) not in ports:
             warnings.append(f"service '{s['id']}' port {p} is not currently listening")
+            continue
+        # The manifest's `bind:` column was previously unverifiable: this check
+        # only asked whether the port was listening SOMEWHERE, so a service
+        # declared `bind: 127.0.0.1` and actually reachable on a tailnet address
+        # passed, and the generated services table in DEV_NOTES.md published the
+        # declared value rather than the real one. A bind claim nobody can check
+        # is the defect class this whole manifest exists to prevent.
+        declared_bind = str(s.get("bind") or "").strip()
+        if not declared_bind:
+            continue
+        # `bind:` may name several addresses, the way a real --listen flag does
+        # (`127.0.0.1,<tailnet-addr>:8189`). Treating it as one string made the
+        # comparison always fail once a service legitimately bound two addresses.
+        host_part = declared_bind.rsplit(":", 1)[0] if ":" in declared_bind else declared_bind
+        want_hosts = {h.strip().strip("[]") for h in host_part.split(",") if h.strip()}
+        if "127.0.0.1" in want_hosts:
+            want_hosts.add("::1")     # the same decision, the other family
+        actual = sorted({h for h, port in binds if port == int(p) and h != "?"})
+        if not actual:
+            continue        # ports-only fallback; nothing to compare against
+        # The RFC1918 sandbox-gateway forwarder is expected on every service that
+        # the agent can reach (SECURITY.md §6: each gets a `*-gw.service`), so it
+        # is not drift. Classified by the same function the security check uses,
+        # rather than a second opinion about what 172.27.0.1 means.
+        extra = [h for h in actual
+                 if h not in want_hosts
+                 and _bind_class(h, int(p)) != "gateway"]
+        if extra:
+            errors.append(
+                f"service '{s['id']}' declares bind {declared_bind} but port {p} "
+                f"is also listening on {', '.join(extra)} — the manifest (and the "
+                "generated services table) states an exposure that is not the "
+                "real one. Update `bind:` to the truth, or narrow the service.")
 
     # 3. MCP tools ↔ modules (must be exactly 1:1)
     declared_tools = {t for c in m["capabilities"] for t in c["tools"]}

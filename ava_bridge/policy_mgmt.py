@@ -60,14 +60,32 @@ class PolicyManager:
             if not PolicyManager.POLICIES_DIR.exists():
                 return {'ok': False, 'error': f'Policies directory not found: {PolicyManager.POLICIES_DIR}'}
 
+            # Enumerate through policy_inventory so this list covers generated/
+            # and the overlay. It used to glob one level, so the four connector
+            # egress policies were absent from the only list the agent can see.
+            #
+            # `editable` is the load-bearing new field. The read/write paths below
+            # resolve POLICIES_DIR/<name>.yaml, so a generated policy — named by
+            # its preset (`ava-persona`), living at generated/persona.yaml — is not
+            # reachable through them and never should be: it is regenerated from
+            # connectors/<id>/connector.yaml, so an edit here would be silently
+            # overwritten. Saying so beats listing an entry that 404s on read.
+            from . import policy_inventory
+
             policies = []
-            for policy_file in sorted(PolicyManager.POLICIES_DIR.glob('*.yaml')):
-                name = policy_file.stem
+            for pol in policy_inventory.inventory():
+                declared = pol.source == 'declared'
                 policies.append({
-                    'name': name,
-                    'path': str(policy_file),
-                    'protected': name in PolicyManager.PROTECTED_POLICIES,
-                    'core': name in PolicyManager.CORE_POLICIES
+                    'name': pol.name,
+                    'file_stem': pol.file_stem,
+                    'source': pol.source,
+                    'editable': declared,
+                    'path': pol.path,
+                    'sha256': pol.sha256,
+                    'endpoints': pol.endpoints,
+                    'rules': pol.rules,
+                    'protected': declared and pol.name in PolicyManager.PROTECTED_POLICIES,
+                    'core': declared and pol.name in PolicyManager.CORE_POLICIES,
                 })
 
             return {
@@ -98,6 +116,23 @@ class PolicyManager:
             policy_file = PolicyManager.POLICIES_DIR / f'{name}.yaml'
 
             if not policy_file.exists():
+                # `list_policies()` now covers generated/ and the overlay, so
+                # "not found — check the list" would point at a list containing
+                # the very name that just failed. Say which case this is instead.
+                from . import policy_inventory
+                other = next((p for p in policy_inventory.inventory()
+                              if p.name == name and p.source != 'declared'), None)
+                if other is not None:
+                    return {
+                        'ok': False,
+                        'error': (f'{name} is {"an" if other.source[0] in "aeiou" else "a"} {other.source} policy at '
+                                  f'{other.rel} and is not editable here'
+                                  + (' — it is regenerated from its connector '
+                                     'manifest, so an edit would be overwritten'
+                                     if other.source == 'generated' else '')),
+                        'source': other.source,
+                        'path': other.path,
+                    }
                 return {
                     'ok': False,
                     'error': f'Policy not found: {name}. Use list_policies() to see available.'
