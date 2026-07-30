@@ -29,6 +29,7 @@ from . import (app_perf, approvals, architecture, audit, code_agent,
 # undefined name — and a grep for `web.` finds nothing, so the break would only
 # surface at request time.
 from . import web as web_access
+from .security import constant_time_equals
 
 # The /internal/* surface. These 25 routes are the sandbox->bridge callback
 # boundary: every one is token-gated by `authorized()` below, and the middleware
@@ -61,10 +62,10 @@ def _derived_token(group: str) -> str:
 def _token_group(tok: str) -> str | None:
     """Return the group a presented token authorizes ('root' = full access), or
     None if it matches neither the root secret nor any derived group token."""
-    if hmac.compare_digest(tok, config.INTERNAL_TOKEN):
+    if constant_time_equals(tok, config.INTERNAL_TOKEN):
         return "root"
     for group in _TOKEN_GROUPS:
-        if hmac.compare_digest(tok, _derived_token(group)):
+        if constant_time_equals(tok, _derived_token(group)):
             return group
     return None
 
@@ -170,7 +171,7 @@ def verify_ingest(cid: str, presented: str) -> bool:
     """Constant-time check that `presented` is `cid`'s ingest token."""
     if not config.INTERNAL_TOKEN or not presented:
         return False
-    return hmac.compare_digest(presented, ingest_token(cid))
+    return constant_time_equals(presented, ingest_token(cid))
 
 
 def bearer(request: Request) -> str:

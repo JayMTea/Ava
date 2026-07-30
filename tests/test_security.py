@@ -90,5 +90,47 @@ class PolicyMutationTests(unittest.TestCase):
         self.assertFalse(PolicyManager._reserved_name("my-connector-app"))
 
 
+class ConstantTimeCompareTests(unittest.TestCase):
+    """`hmac.compare_digest` raises TypeError on a str with any non-ASCII
+    character. Every secret comparison in the app used to pass str straight in,
+    so one accented character was an unhandled 500 in two places that matter:
+    POST /login (the owner is locked out of the only page that could change the
+    password) and the /internal bearer check, where the token is supplied by the
+    CALLER — making it an unauthenticated way to force a server error.
+
+    These assert the property, not the call site, so the guarantee survives a
+    refactor of either route."""
+
+    def test_non_ascii_secrets_compare_without_raising(self):
+        for secret in ("café1234", "pässwörd", "密码密码", "naïve-token-99",
+                       "emoji-🔑-key"):
+            with self.subTest(secret=secret):
+                self.assertTrue(security.constant_time_equals(secret, secret))
+                self.assertFalse(
+                    security.constant_time_equals(secret, secret + "x"))
+
+    def test_the_raw_primitive_would_have_raised(self):
+        """Pins WHY the helper exists: drop it and this is the 500 you get."""
+        import hmac
+        with self.assertRaises(TypeError):
+            hmac.compare_digest("café1234", "café1234")
+
+    def test_a_lone_surrogate_does_not_raise_either(self):
+        """Header/form decoding can yield an unpaired surrogate; a plain
+        .encode("utf-8") would raise UnicodeEncodeError and reintroduce the
+        same 500 through a different door."""
+        self.assertFalse(security.constant_time_equals("\ud800bad", "expected"))
+        self.assertTrue(security.constant_time_equals("\ud800ok", "\ud800ok"))
+
+    def test_ascii_and_bytes_still_behave(self):
+        self.assertTrue(security.constant_time_equals("abc123", "abc123"))
+        self.assertFalse(security.constant_time_equals("abc123", "abc124"))
+        self.assertTrue(security.constant_time_equals(b"abc123", "abc123"))
+        self.assertFalse(security.constant_time_equals("", "nonempty"))
+
+    def test_mismatched_length_is_false_not_an_error(self):
+        self.assertFalse(security.constant_time_equals("é", "ééééééé"))
+
+
 if __name__ == "__main__":
     unittest.main()

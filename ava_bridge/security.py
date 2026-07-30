@@ -6,10 +6,32 @@ one named internal scope and one narrow route check by default.
 """
 from __future__ import annotations
 
+import hmac
 import ipaddress
 import os
 from typing import Iterable
 from urllib.parse import urlparse
+
+
+def constant_time_equals(presented: str | bytes, expected: str | bytes) -> bool:
+    """Constant-time equality that tolerates non-ASCII input.
+
+    `hmac.compare_digest` raises TypeError on a `str` holding any non-ASCII
+    character, so comparing secrets as text made an accented character an
+    unhandled 500: a permanent lockout on /login (the owner cannot reach the
+    page that would let them change it) and, worse, an unauthenticated way for
+    any caller to force an error on /internal by sending a non-ASCII bearer
+    token. Compare the bytes the caller actually sent instead.
+
+    `surrogatepass` matters: header and form decoding can hand us a lone
+    surrogate, and a plain .encode("utf-8") would raise UnicodeEncodeError —
+    reintroducing the same 500 through a different door.
+    """
+    if isinstance(presented, str):
+        presented = presented.encode("utf-8", "surrogatepass")
+    if isinstance(expected, str):
+        expected = expected.encode("utf-8", "surrogatepass")
+    return hmac.compare_digest(presented, expected)
 
 
 def secure_opener(path: str, flags: int) -> int:
