@@ -101,10 +101,17 @@ _LEGACY_BACKENDS = [
 ]
 
 # Engines whose OpenAI-compatible streaming endpoint accepts
-# `stream_options: {include_usage: true}` (needed so usage/token counts appear
-# in streamed responses — Ollama omits usage otherwise). llama.cpp builds may
-# reject unknown params, so it is excluded; usage is then simply absent.
-_STREAM_USAGE_ENGINES = {"vllm", "ollama", "openai"}
+# `stream_options: {include_usage: true}` (needed so usage/token counts appear in
+# streamed responses — Ollama omits usage otherwise).
+#
+# Derived from ava_bridge/engines.py rather than restated, because this set used to
+# carry the *reason* for each exclusion in a prose comment that nobody could test:
+# "llama.cpp builds may reject unknown params" was a plausible guess presented as
+# settled. Each engine now records its decision AND whether anyone verified it, and
+# tests/test_engine_parity.py fails an entry that has neither.
+from . import engines as _engines  # noqa: E402 — local import, cycle-free
+
+_STREAM_USAGE_ENGINES = _engines.usage_engines()
 
 
 def _resolve_reasoning() -> str:

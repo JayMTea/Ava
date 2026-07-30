@@ -207,6 +207,34 @@ def detect() -> Platform | None:
     return for_platform(pid, model)
 
 
+def power_profile() -> dict:
+    """Where GPU watts come from on this box, and the fallback if nowhere.
+
+    Replaces a single global `nominal_gpu_watts: 180` — a number measured on one
+    machine and applied to every other. 180 W is roughly right for a mid-range
+    discrete NVIDIA card and wrong by up to an order of magnitude for a Mac mini
+    (~10-30 W) or a Strix Halo APU (~50-120 W), so an "estimate" built on it was
+    not an estimate of anything in particular.
+
+    `nominal_w` may legitimately be None: a platform with no defensible figure
+    reports NOT MEASURED rather than a guess. Callers must treat None as "do not
+    compute energy", never as zero — zero kWh is a claim about free electricity.
+    """
+    row = detect()
+    return {
+        "platform_key": row.key if row else None,
+        "power_source": (row.power_source if row and row.power_measurable
+                         else None),
+        "nominal_w": row.nominal_w if row else None,
+        "provenance": (f"platforms.conf:{row.key}" if row else "unknown-platform"),
+    }
+
+
+def _shq(v: str) -> str:
+    """Single-quote for `eval` in sh. Labels contain spaces, slashes and parens."""
+    return "'" + str(v).replace("'", "'\\''") + "'"
+
+
 def _main(argv: list[str]) -> int:
     """`python3 -m ava_bridge.platforms [--markdown VIEW | --sync | --detect]`"""
     import sys
@@ -218,6 +246,25 @@ def _main(argv: list[str]) -> int:
     if args[0] == "--markdown":
         view = args[1] if len(args) > 1 else "hwinfo"
         print(render_markdown(view))
+        return 0
+    if args[0] == "--install-detect":
+        # Shell-evalable, for deploy/install.sh. One subprocess, one contract, so
+        # the installer's idea of the platform and the app's cannot diverge — they
+        # used to, because install.sh ran its own nvidia-smi probes.
+        #
+        # Prints nothing and exits 1 when the platform has no row, so the caller
+        # can fall back to its shell probes rather than acting on a blank.
+        p = detect()
+        if p is None:
+            return 1
+        for k, v in (("AVA_DETECTED_PROFILE", p.profile),
+                     ("AVA_DETECTED_KEY", p.key),
+                     ("AVA_DETECTED_PLATFORM", p.platform_id),
+                     ("AVA_DETECTED_MEM_MODEL", p.mem_model),
+                     ("AVA_DETECTED_ENGINE", p.engine),
+                     ("AVA_DETECTED_TIER", p.tier),
+                     ("AVA_DETECTED_LABEL", p.label)):
+            print(f"{k}={_shq(v)}")
         return 0
     if args[0] == "--sync":
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
