@@ -28,8 +28,10 @@ Read-only helpers (`cold_series`, `cold_cost`) serve the cold range to
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
+import tempfile as _tempfile
 import threading
 import time
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -311,11 +313,26 @@ def _write(name: str, buckets: Dict[tuple, dict]) -> None:
     rows = sorted(buckets.values(),
                   key=lambda r: (r.get("bucket_ts") or 0, r.get("app") or "",
                                  r.get("category") or "", r.get("model") or ""))
-    tmp = os.path.join(ROLLUP_DIR, name + ".tmp")
-    with open(tmp, "w", encoding="utf-8") as f:
-        for r in rows:
-            f.write(json.dumps(r, separators=(",", ":")) + "\n")
-    os.replace(tmp, os.path.join(ROLLUP_DIR, name))
+    # mkstemp, not a fixed "<name>.tmp": two processes rolling up at once (the
+    # in-process scheduler and ava_perf_rollup.py, which its own docstring
+    # advertises as a cron/ops path) both wrote the SAME temp path, so one's
+    # partial file could be os.replace'd into place as the other's result. Same
+    # reasoning and same shape as settings._write_config. fsync before replace so
+    # a crash leaves either the old file or the new one, never a truncated mix.
+    fd, tmp = _tempfile.mkstemp(dir=ROLLUP_DIR, prefix="." + name + ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            for r in rows:
+                f.write(json.dumps(r, separators=(",", ":")) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, os.path.join(ROLLUP_DIR, name))
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def _retain(buckets: Dict[tuple, dict], retention_s: float, now: float) -> Dict[tuple, dict]:
@@ -363,11 +380,54 @@ def _prune_raw(cutoff: float) -> int:
 # --------------------------------------------------------------------------- #
 # Rollup entry point
 # --------------------------------------------------------------------------- #
+@contextlib.contextmanager
+def _rollup_guard():
+    """Serialise a rollup against every other rollup, in this process and others.
+
+    `_LOCK` alone was not enough. It is a threading.Lock, so it means nothing to a
+    SECOND PROCESS — and a second process is a documented path:
+    ava_perf_rollup.py's own docstring offers itself for "an initial backfill, a
+    forced rebuild after a schema change, or a cron/ops one-off", and it calls
+    run_rollup() directly.
+
+    The sequence below is read-watermark, read-file, MERGE (which ADDS sums and
+    counts), write-file, write-watermark. Two overlapping runs both read watermark
+    W, both aggregate the same raw rows in [W, cutoff), and both add them into the
+    same buckets — so tokens and cost are counted twice and the dashboard's spend
+    figure is silently wrong. Because the watermark advances, the double count is
+    permanent: nothing reprocesses that window to correct it.
+
+    flock is the right primitive (not a pidfile) because the kernel releases it if
+    the holder is killed, so an interrupted cron run cannot wedge the scheduler.
+    Blocking rather than try-and-skip: a rollup is idempotent per window, cheap,
+    and skipping one silently leaves raw segments unpruned.
+
+    Degrades on platforms without fcntl (Windows): the in-process lock still
+    applies, which is the same protection as before this existed.
+    """
+    with _LOCK:
+        os.makedirs(ROLLUP_DIR, exist_ok=True)
+        path = os.path.join(ROLLUP_DIR, ".rollup.lock")
+        try:
+            import fcntl
+        except ImportError:
+            yield
+            return
+        with open(path, "a+") as fh:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+
+
 def run_rollup(now: Optional[float] = None) -> dict:
     """Finalize newly-cold raw records into hourly + daily rollups, apply retention,
-    and prune absorbed raw. Idempotent via the watermark. Safe to call concurrently
-    (serialised by a lock)."""
-    with _LOCK:
+    and prune absorbed raw. Idempotent via the watermark.
+
+    Safe to call concurrently from anywhere, including a second process — see
+    _rollup_guard for why the in-process lock alone double-counted."""
+    with _rollup_guard():
         now = now if now is not None else time.time()
         cutoff = now - HOT_WINDOW_S
         wm = _load_watermark()

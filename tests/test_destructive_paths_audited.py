@@ -43,6 +43,10 @@ _ALLOW = {
     ("ava_bridge/audio.py", "decode_to_pcm"),
     ("ava_bridge/documents.py", "_office_text"),      # temp extraction dir
     ("ava_bridge/settings.py", "_write_config"),      # the .tmp of an atomic write
+    ("ava_bridge/perf_store.py", "_write"),           # same: the mkstemp of an atomic
+                                                      # rollup write, unlinked only on
+                                                      # the failure path. Ava's own
+                                                      # telemetry, never owner data.
     ("ava_bridge/alloc/ledger.py", "_writable"),      # a write-probe file
 
     # --- a helper whose only caller audits, with the store NAMED -------------- #

@@ -173,6 +173,71 @@ class PerfStoreTests(unittest.TestCase):
         self.assertGreaterEqual(cost["energy_wh"], 0)
         self.assertIn("Nano", cost["by"])
 
+    def test_the_rollup_guard_excludes_a_second_PROCESS(self):
+        """`_LOCK` is a threading.Lock, so it means nothing across processes — and a
+        second process is a documented path (ava_perf_rollup.py offers itself for a
+        backfill or a cron one-off and calls run_rollup directly).
+
+        The sequence is read-watermark, read-file, MERGE (which ADDS sums and
+        counts), write, write-watermark. Two overlapping runs both read watermark W,
+        both aggregate the same rows, and both add them in — so spend and tokens are
+        counted twice, permanently, because the watermark then advances past the
+        window nothing will reprocess.
+
+        Asserted against a real child process holding the flock: an in-process test
+        would pass on the old code too, which is exactly why this defect survived.
+        """
+        try:
+            import fcntl  # noqa: F401
+        except ImportError:
+            self.skipTest("no fcntl on this platform (the guard degrades to _LOCK)")
+
+        import subprocess
+        import sys
+        import textwrap
+
+        lock_path = os.path.join(ps.ROLLUP_DIR, ".rollup.lock")
+        os.makedirs(ps.ROLLUP_DIR, exist_ok=True)
+        # Child takes the SAME lock the guard uses, holds it, and reports.
+        child = subprocess.Popen(
+            [sys.executable, "-c", textwrap.dedent(f"""
+                import fcntl, os, sys, time
+                fh = open({lock_path!r}, "a+")
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+                sys.stdout.write("held\\n"); sys.stdout.flush()
+                time.sleep(30)
+            """)],
+            stdout=subprocess.PIPE, text=True)
+        try:
+            self.assertEqual(child.stdout.readline().strip(), "held")
+            # The guard must now BLOCK. Prove it by racing it against a short
+            # deadline in a thread: if it returns, the lock is not cross-process.
+            import threading
+            entered = threading.Event()
+
+            def try_enter():
+                with ps._rollup_guard():
+                    entered.set()
+
+            t = threading.Thread(target=try_enter, daemon=True)
+            t.start()
+            self.assertFalse(
+                entered.wait(2.0),
+                "_rollup_guard entered while another PROCESS held the lock — the "
+                "read-merge-write sequence is not protected across processes and "
+                "concurrent rollups will double-count spend")
+        finally:
+            child.kill()
+            child.wait(timeout=10)
+
+        # With the child gone the guard acquires normally, so the lock is released
+        # rather than leaked (the kernel drops a flock when its holder dies, which
+        # is why a killed cron run cannot wedge the in-process scheduler).
+        got = []
+        with ps._rollup_guard():
+            got.append(True)
+        self.assertEqual(got, [True])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
