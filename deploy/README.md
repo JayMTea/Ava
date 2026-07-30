@@ -137,14 +137,25 @@ Good to know:
   runs a separate agent container that mounts the host Docker socket, which is
   **root-equivalent** on the host; it is opt-in for that reason. Full setup and
   the security caveat: [AGENT_RUNTIME.md, Full agent in Docker](../docs/AGENT_RUNTIME.md).
-- **Voice**: the default image ships `ffmpeg` (enough to enroll a voiceprint) but
-  not the speech models, which are ~2 GB of torch/whisper/speechbrain. Build with
-  them by setting `AVA_VOICE_DEPS=1` in `deploy/.env` before `docker compose up
+- **Voice**: the default image ships `ffmpeg` for audio handling, but not the
+  speech models, which are ~2 GB of torch/whisper/speechbrain. Voice enrollment
+  and transcription both need those, so **neither works on the default image** —
+  build with them by setting `AVA_VOICE_DEPS=1` in `deploy/.env` before `docker compose up
   -d --build`, then turn the capability on in **Setup → System → Optional
   features** (`features.voice` is off by default). Both steps are needed: the
   switch alone has nothing to run, and the deps alone leave the switch off.
 - **GPU workloads**: needs the GPU service, which only the `full` profile starts. On
   any other profile the switch reports `image_down` rather than pretending.
+- **Web search**: no profile provisions SearXNG or Tor, so this does **not** work
+  out of the box in Docker. `AVA_WEB_SEARXNG_URL` defaults to
+  `http://127.0.0.1:8888`, which inside the `ava` container is the *container's*
+  loopback — not your host's — so a SearXNG you run on the host is not reachable
+  at that address either. To wire it up: run SearXNG yourself, then set
+  `AVA_WEB_SEARXNG_URL` to an address the container can actually reach (a compose
+  service name, or `http://host.docker.internal:8888` with the matching
+  `extra_hosts`). Host-side fetch stays fail-closed over Tor by default, so
+  leaving Tor unprovisioned means fetch errors rather than clearnet requests —
+  set `AVA_WEB_TOR=0` to accept direct egress instead.
 - **GPU telemetry in the bridge container**: compose grants the GPU to the
   *inference* service only, so **Setup → Hardware** reports no GPU even on an
   NVIDIA box, and sizes its model tier from system memory instead. The panel

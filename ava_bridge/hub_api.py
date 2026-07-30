@@ -21,9 +21,10 @@ router = APIRouter(prefix="/api/hub")
 from .hub import (agent as _hub_agent, connectors as _hub_connectors,  # noqa: E402
                   cost as _hub_cost, governance as _hub_governance,
                   memory as _hub_memory, models as _hub_models,
-                  system as _hub_system, voice as _hub_voice)
+                  persona as _hub_persona, system as _hub_system,
+                  voice as _hub_voice)
 for _panel in (_hub_agent, _hub_connectors, _hub_cost, _hub_governance,
-               _hub_memory, _hub_models, _hub_system, _hub_voice):
+               _hub_memory, _hub_models, _hub_persona, _hub_system, _hub_voice):
     router.include_router(_panel.router)
 
 

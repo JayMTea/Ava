@@ -245,6 +245,29 @@ def owner_hardware() -> str:
             or "your local hardware").strip()
 
 
+# Persona: HOW the assistant speaks. Deliberately NOT features.REGISTRY entries —
+# that registry is for optional capabilities with a backing service that can be
+# off or unreachable, and its preflight() codes (<key>_off / <key>_down) describe
+# nothing about a style string. This is plain config, like owner.name above.
+#
+# Empty style is the shipped default and it is load-bearing, not laziness: a fork
+# must inherit no personality from this repo. See agent/render_persona.py.
+PERSONA_FORMATS = ("chat", "markdown")
+
+
+def persona_style() -> str:
+    """The owner's own voice instruction. Empty = the model's own voice."""
+    return (get("persona.style", "", env="AVA_PERSONA_STYLE") or "").strip()
+
+
+def persona_format() -> str:
+    """Answer-shape contract. 'chat' matches the plain-text chat bubble Ava
+    ships; 'markdown' lifts the constraint for markdown-rendering clients."""
+    v = str(get("persona.format", "chat", env="AVA_PERSONA_FORMAT") or "chat")
+    v = v.strip().lower()
+    return v if v in PERSONA_FORMATS else "chat"
+
+
 # ---- standard directories (all under AVA_HOME) ---------------------------- #
 def home(*parts: str) -> str:
     p = AVA_HOME.joinpath(*parts)

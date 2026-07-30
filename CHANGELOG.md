@@ -8,7 +8,60 @@ pre-release milestones from when Ava ran on one box and nothing was tagged.
 
 ## [Unreleased]
 
-_Nothing yet._
+### Changed
+
+- **A fork inherits no personality.** `agent/persona.txt.tmpl` used to hardcode
+  one person's taste in how an assistant should talk — "in the spirit of Siri",
+  "write like a person texting a friend", mirror the owner's profanity, "give
+  real, unfiltered opinions" — with no config key to change any of it. The
+  template now carries **only operational** directives (the tool-calling
+  mandates, the never-fake-a-render rule, the deny-by-default network
+  correction), and the assistant's voice comes from two new owner-settable keys,
+  `persona.style` (free text, **empty by default**) and `persona.format`
+  (`chat` | `markdown`). New **Setup → Persona** panel offers four starting
+  points as editable text; what is saved is the text, never a preset id, so
+  changing a preset upstream can never retroactively alter an existing install.
+  `docs/PERSONA.md`, `tests/test_persona_neutral.py`.
+- `persona.format` defaults to `chat` because Ava's chat surface renders replies
+  as plain text — markdown headings and tables would appear literally. It is a
+  renderer contract, not a preference, and lifting it is one setting away.
+
+### Fixed
+
+- **Every published screenshot and tour video re-captured.** The tracked media
+  still rendered an unannounced sibling project's name and a maintainer-local
+  checkpoint name into the app sidebar, an approval banner and a model chip.
+  `tests/test_no_owner_identity.py` scans text and cannot see a name baked into a
+  PNG or MP4 — the gap its own docstring and `demo/README.md`'s accept checklist
+  both call out — so a text-clean tree shipped 15 of 17 PNGs and all 6 videos
+  carrying one. All re-shot from sanitized fixtures against the current build,
+  at byte-identical published dimensions.
+- The `ava-gpu` skill declared itself "fully uncensored" and was installed
+  unconditionally, bypassing the `persona.adult` gate the owner sets (default
+  off) which already governed the identical policy for conversation. Adult
+  content is now one gate covering conversation and images alike; the skill
+  defers to it instead of carrying its own always-on permission.
+- A non-ASCII character in any compared secret raised `TypeError` from
+  `hmac.compare_digest` and returned HTTP 500. On `POST /login` that locked the
+  owner out of the only page that could change the password; on the `/internal`
+  bearer check the token is caller-supplied, making it an unauthenticated way to
+  force a server error. Added `security.constant_time_equals`.
+- The documented Docker install baked `deploy/.env` and
+  `deploy/ava-data/secrets/*` into the image: `.dockerignore` patterns were
+  root-anchored, so a bare `.env` entry missed everything below the top level,
+  and `install.sh` always passes `--build`.
+- `agent/persona.txt.tmpl` and `agent/render_persona.py` are now in the
+  self-editing approval tier. They were `auto`, so under `code.approval: policy`
+  the agent could rewrite the operational mandates that constrain it and commit
+  that itself.
+- Three tests asserted against the gitignored `agent/policies/generated/`, so
+  they failed on every fresh clone and in CI, which runs `pytest tests/` with no
+  generation step. They now skip when the derived tree is absent.
+- README and `deploy/README.md` claimed web search over Tor works on the Docker
+  path (no profile provisions SearXNG or Tor), that `ava verify` "proves every
+  advertised capability end-to-end" (it is a wiring and drift check), that Setup
+  needs no terminal (agent provisioning and voice both do), and that the default
+  image ships enough to enroll a voiceprint (`AVA_VOICE_DEPS=0`).
 
 ## [0.1.0] — 2026-07-28
 

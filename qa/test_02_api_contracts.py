@@ -35,6 +35,8 @@ CONTRACTS = {
     "/api/hub/system": ["brand", "version", "code_approval", "retention_days",
                         "env_overrides"],
     "/api/hub/cost": ["currency", "daily_spend_usd", "budgets"],
+    "/api/hub/persona": ["style", "format", "presets", "format_choices",
+                         "env_overrides"],
     "/api/hub/audit": ["events"],
     "/api/hub/approvals": ["pending"],
     "/api/hub/connectors": [],

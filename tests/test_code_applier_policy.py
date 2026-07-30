@@ -34,6 +34,10 @@ class ClassifyTiers(unittest.TestCase):
                     "ava_bridge/internal.py", "ava_bridge/access_policy.py",
                     "ava_bridge/code_agent.py", "ava_bridge/coder.py",
                     "agent/policies/ava-web.yaml", "agent/install.sh",
+                    # The system prompt and its renderer: the operational mandates
+                    # live there, so an auto-editable template would let the agent
+                    # relax the rules that constrain it.
+                    "agent/persona.txt.tmpl", "agent/render_persona.py",
                     "run.sh", "ava-bridge.service", "SECURITY.md"):
             with self.subTest(rel=rel):
                 self.assertEqual(access_policy.classify(rel), "approval", rel)

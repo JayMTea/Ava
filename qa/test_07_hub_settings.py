@@ -58,6 +58,47 @@ class TestSystemAndGovernance(unittest.TestCase):
                         json={"electricity_rate_per_kwh": "not-a-number"})
         self.assertEqual(r.status_code, 400)
 
+    def test_persona_ships_unset_so_a_fork_inherits_no_personality(self):
+        """The product claim, asserted at the API: a fresh instance has no style."""
+        body = CLIENT.get("/api/hub/persona").json()
+        self.assertEqual(body["style"], "")
+        self.assertEqual(body["format"], "chat")
+        self.assertFalse(body["adult"])
+        # Presets are offered as editable text, never stored as an id — so
+        # changing this list upstream cannot alter an existing install.
+        self.assertTrue(body["presets"])
+        for p in body["presets"]:
+            self.assertTrue(p["text"].strip(), p)
+
+    def test_persona_round_trip_and_clear(self):
+        c = CLIENT
+        r = c.post("/api/hub/persona",
+                   json={"style": "dry, understated", "format": "markdown"})
+        self.assertEqual(r.status_code, 200, r.text)
+        # Saving does not change the live prompt until the agent is re-provisioned.
+        self.assertTrue(r.json().get("reprovision_required"))
+        from ava_bridge import settings
+        self.assertEqual(settings.persona_style(), "dry, understated")
+        self.assertEqual(settings.persona_format(), "markdown")
+        # An empty style is a real value: "clear it", not "ignore me".
+        r = c.post("/api/hub/persona", json={"style": ""})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(c.get("/api/hub/persona").json()["style"], "")
+        # Restore the shipped defaults. These tests share one bridge instance and
+        # unittest orders methods alphabetically, so leaving format=markdown here
+        # would break the "ships unset" assertion that sorts after this one.
+        c.post("/api/hub/persona", json={"style": "", "format": "chat"})
+
+    def test_bad_persona_payload_rejected(self):
+        c = CLIENT
+        self.assertEqual(c.post("/api/hub/persona",
+                                json={"format": "interpretive-dance"}).status_code, 400)
+        self.assertEqual(c.post("/api/hub/persona",
+                                json={"style": 42}).status_code, 400)
+        self.assertEqual(c.post("/api/hub/persona",
+                                json={"style": "x" * 4001}).status_code, 400)
+        self.assertEqual(c.post("/api/hub/persona", json={}).status_code, 400)
+
 
 class TestMemory(unittest.TestCase):
     def test_memory_crud_and_export(self):

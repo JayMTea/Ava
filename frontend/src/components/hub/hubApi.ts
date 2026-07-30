@@ -306,6 +306,23 @@ export interface ProbeResult {
 }
 
 // ---- Cost & budgets ---------------------------------------------------------
+export interface PersonaPreset { id: string; label: string; text: string }
+export interface PersonaFormatChoice { id: string; label: string; hint: string }
+
+export interface PersonaSettings {
+  /** Empty on a fresh install — the shipped prompt carries no personality. */
+  style: string;
+  format: string;
+  adult: boolean;
+  /** Starting points only; the panel saves resolved text, never a preset id. */
+  presets: PersonaPreset[];
+  format_choices: PersonaFormatChoice[];
+  style_max: number;
+  /** Present keys are outranking ava.yaml, so a save will not bite. */
+  env_overrides: Partial<Record<'style' | 'format' | 'adult', string>>;
+  config_error: string;
+}
+
 export interface CostSettings {
   electricity_rate_per_kwh: number;
   currency: string;
@@ -591,6 +608,15 @@ export const hub = {
    *  owner can verify by hand rather than trusting `enrolled: false`. */
   voiceDelete: () =>
     req<VoiceDeleteReceipt>('/api/hub/voice/delete', { method: 'POST' }),
+
+  // Persona — how Ava talks (empty by default; see ava_bridge/hub/persona.py)
+  persona: () => req<PersonaSettings>('/api/hub/persona'),
+  savePersona: (body: { style?: string; format?: string }) =>
+    req<{ ok: boolean; error?: string }>('/api/hub/persona', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
 
   // Cost & budgets
   cost: () => req<CostSettings>('/api/hub/cost'),

@@ -8,6 +8,7 @@ import { Overview } from './panels/Overview';
 import { HardwarePanel } from './panels/HardwarePanel';
 import { AgentPanel } from './panels/AgentPanel';
 import { VoicePanel } from './panels/VoicePanel';
+import { PersonaPanel } from './panels/PersonaPanel';
 import { BudgetsPanel } from './panels/BudgetsPanel';
 import { HistoryPanel } from './panels/HistoryPanel';
 import { SystemPanel } from './panels/SystemPanel';
@@ -82,6 +83,7 @@ const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: 'agent', label: 'Agent', icon: 'bot' },
   { id: 'connectors', label: 'Connectors', icon: 'panel' },
   { id: 'voice', label: 'Voice', icon: 'mic' },
+  { id: 'persona', label: 'Persona', icon: 'bot' },
   { id: 'memory', label: 'Memory', icon: 'db' },
   { id: 'budgets', label: 'Budgets', icon: 'chart' },
   { id: 'history', label: 'History', icon: 'activity' },
@@ -178,6 +180,7 @@ export function HubView() {
         {tab === 'agent' && <AgentPanel onRestart={notifyRestart} />}
         {tab === 'connectors' && <ConnectorsPanel />}
         {tab === 'voice' && <VoicePanel onRestart={notifyRestart} />}
+        {tab === 'persona' && <PersonaPanel onRestart={notifyRestart} />}
         {tab === 'memory' && <MemoryPanel />}
         {tab === 'budgets' && <BudgetsPanel />}
         {tab === 'history' && <HistoryPanel />}
