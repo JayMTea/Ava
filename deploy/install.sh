@@ -167,14 +167,46 @@ elif [ "$AVA_PROFILE" = "gpu" ]; then
       ''|*[!0-9]*) warn "Could not read GPU memory from nvidia-smi — assuming the gpu profile fits." ;;
       *)
         say "Detected GPU memory: ${_vram_mib} MiB"
-        # The default model (see deploy/default-model.env) is ~15 GB of weights;
-        # at the default 0.90 utilization it wants a ~16 GB card. Below that, CPU
-        # is the honest choice — Ollama on CPU is slow but it actually starts.
-        if [ "$_vram_mib" -lt 16000 ]; then
-          warn "Only ${_vram_mib} MiB of GPU memory — the gpu profile's default model needs ~16 GB."
-          warn "Falling back to the cpu profile. To use the GPU anyway, pick a smaller model:"
-          warn "  AVA_PROFILE=gpu AVA_MODEL=Qwen/Qwen2.5-3B-Instruct ./install.sh"
+        # ARITHMETIC, not a remembered number. The old gate was 16000 MiB, which
+        # green-lit an RTX 4080 (16376 MiB) for a model that cannot serve on it:
+        #
+        #   Qwen2.5-7B BF16 weights        14.2 GiB
+        #   usable at --gpu-memory-utilization 0.90 of 16376 MiB
+        #                                  14.4 GiB
+        #   -> the weights fit with 0.2 GiB spare, and a 32768-token KV cache
+        #      needs ~2 GiB, so vLLM OOMs on load.
+        #
+        # And the context cannot simply be shortened: deploy/default-model.env
+        # records that 32768 is chosen to clear the ~29k tokens Ava's own system
+        # prompt and tool schemas occupy. A shorter context breaks the agent, so on
+        # a card this size the honest lever is a SMALLER MODEL, not a smaller window.
+        #
+        #   weights + KV at 0.90  =>  (14.2 + 2) / 0.90  =  18.0 GiB
+        #
+        # Three tiers, so a 16 GB card gets a working GPU install instead of being
+        # dumped to CPU:
+        _need_default_mib=18000
+        _need_small_mib=12000
+        if [ "$_vram_mib" -lt "$_need_small_mib" ]; then
+          warn "Only ${_vram_mib} MiB of GPU memory — too little to serve a useful"
+          warn "model, so falling back to the cpu profile. Ollama on CPU is slow but"
+          warn "it actually starts."
           AVA_PROFILE="cpu"
+        elif [ "$_vram_mib" -lt "$_need_default_mib" ]; then
+          # A 12-18 GB card: keep the GPU, downshift the model. 3B is ~6.2 GiB of
+          # weights and resolves the same hermes tool parser and the same 32768
+          # context in deploy/model-flags.conf, so nothing else changes.
+          if [ -z "${AVA_MODEL:-}" ]; then
+            AVA_MODEL="Qwen/Qwen2.5-3B-Instruct"
+            warn "${_vram_mib} MiB of GPU memory: the default 7B needs ~${_need_default_mib} MiB"
+            warn "(14.2 GiB of weights plus a 32k KV cache at 0.90 utilization)."
+            warn "Serving ${AVA_MODEL} instead — same tool parser, same 32k context."
+            warn "To force the 7B anyway: AVA_MODEL=Qwen/Qwen2.5-7B-Instruct ./install.sh"
+            export AVA_MODEL
+          else
+            warn "${_vram_mib} MiB of GPU memory and AVA_MODEL is pinned to ${AVA_MODEL}."
+            warn "If that is larger than ~$(( _vram_mib * 9 / 10240 )) GiB it will not load."
+          fi
         fi
         ;;
     esac
@@ -393,6 +425,30 @@ for _ in $(seq 1 90); do
   fi
   sleep 2
 done
+
+# The bridge answering is NOT the engine answering. /api/health returns ok
+# unconditionally (phone_bridge.py) and never probes inference, and vllm carries
+# `restart: on-failure:3`, so an OOM-looping engine is invisible here: the old
+# script printed "Ava is up." over a chat box that errored on every message with
+# no visible cause. Ask the engine directly.
+if [ "$_ok" = 1 ] && [ "${AVA_PROFILE}" != "cpu" ] && [ "${AVA_PROFILE}" != "cloud" ]; then
+  say "Checking the inference engine ..."
+  _eng=0
+  for _ in $(seq 1 60); do
+    if curl -fsS -o /dev/null --max-time 3 http://localhost:8002/v1/models 2>/dev/null; then
+      _eng=1; break
+    fi
+    sleep 2
+  done
+  if [ "$_eng" != 1 ]; then
+    warn "The bridge is up but the inference engine is NOT answering on :8002."
+    warn "Chat will fail on every message until it does. Most likely it ran out of"
+    warn "GPU memory loading the model — check with:"
+    warn "  cd deploy && docker compose logs --tail 40 vllm"
+    warn "Then either pick a smaller model (AVA_MODEL=...) or lower the context"
+    warn "(AVA_VLLM_MAX_LEN=...), and re-run ./install.sh."
+  fi
+fi
 
 if [ "$_ok" = 1 ]; then
   # First-run setup is gated on proving you can read the server's disk. Compose

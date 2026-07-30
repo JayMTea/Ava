@@ -99,10 +99,16 @@ Good to know:
 - **Password**: pin the admin password ahead of time with `AVA_PASSWORD=...` in
   `deploy/.env`; otherwise the first-run screen sets it.
 - **Model**: choose one with `AVA_MODEL=...` (gpu profile) or via `ava.yaml`. The
-  gpu profile defaults to a small model (`Qwen/Qwen2.5-7B-Instruct`, ~15 GB of
-  weights in BF16 — so ~20 GB of VRAM at the default 0.90 memory share, once the
-  KV cache is counted); `install.sh` only drops to the cpu profile below 16 GB,
-  so on a 16 GB card pick a quantised or smaller model. Scaling up is the
+  gpu profile defaults to `Qwen/Qwen2.5-7B-Instruct`: 14.2 GiB of BF16 weights,
+  which needs ~18 GB of VRAM once a 32768-token KV cache is counted at the default
+  0.90 memory share. `install.sh` sizes for that in three tiers — below 12 GB it
+  falls back to the cpu profile, between 12 and 18 GB it keeps the GPU and serves
+  `Qwen/Qwen2.5-3B-Instruct` instead (same tool parser, same 32k context), and at
+  18 GB or more it serves the default. Pin `AVA_MODEL=` to override any of that.
+
+  The context is not the lever to reach for on a small card: 32768 is chosen to
+  clear the ~29k tokens Ava's own system prompt and tool schemas occupy, so
+  shortening it breaks the agent before it saves you any memory. Scaling up is the
   deliberate act:
 
   | Variable | Default | Notes |
