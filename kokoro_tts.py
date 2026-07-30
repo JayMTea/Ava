@@ -7,8 +7,10 @@ phone_bridge.py) calls these endpoints over localhost and falls back to CPU
 (Piper for TTS, faster-whisper for STT) whenever this service is unreachable, so
 voice degrades in quality/speed but never breaks. Mirrors ava-gpu.service.
 
-On this GB10, a sentence synthesizes in ~0.3s and a short clip transcribes in
-~0.1s (vs ~1.9s Piper / ~3s CPU Whisper).
+Measured on one unified-memory NVIDIA box (GB10): a sentence synthesizes in ~0.3s
+and a short clip transcribes in ~0.1s, against ~1.9s for Piper and ~3s for CPU
+Whisper. Those are one machine's numbers, not a spec — expect different figures
+on yours; the RELATIVE ordering is the point.
 
 Endpoints:
   POST /tts   {text, voice?}                  -> audio/wav (24 kHz)

@@ -1,0 +1,63 @@
+name: Bug report
+description: Something in Ava does not work
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ava runs on hardware nobody else has exactly, so the environment fields
+        below are the difference between a fixable report and a guess. The two
+        commands print everything needed and neither includes secrets.
+  - type: textarea
+    id: doctor
+    attributes:
+      label: "`ava doctor` output"
+      description: "Run `./bin/ava doctor` (or `ava doctor`) and paste all of it."
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Ava version
+      description: "`ava version`, or the image tag / commit you are on."
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How did you install it?
+      options:
+        - "Docker (deploy/install.sh)"
+        - "Docker (compose profile, by hand)"
+        - "Bare metal (pip install -e .)"
+        - "Other / not sure"
+    validations:
+      required: true
+  - type: input
+    id: hardware
+    attributes:
+      label: Hardware + OS
+      description: "e.g. 'x86_64 Linux, RTX 4070 12GB, driver 560' or 'Mac mini M4 24GB'."
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and what happened instead
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: "Smallest sequence that shows it. If it is intermittent, say how often."
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: >
+        From the Data tab, or `docker compose logs ava`. Scan for anything you do
+        not want public before pasting — tokens are redacted in the app's own
+        views but not necessarily in raw logs.
+      render: text

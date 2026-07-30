@@ -7,7 +7,9 @@ Pipeline:  phone mic (browser MediaRecorder)
            --> Piper (TTS) --> wav returned to the phone and played in the browser.
 
 Serve it to your phone over Tailscale (TLS + tailnet-only) with run_bridge.sh.
-Everything runs locally on the Spark; nothing leaves the tailnet.
+Every stage above runs on your own machine. Nothing in this pipeline calls out;
+what leaves the box is whatever you configure elsewhere (a cloud inference
+backend, an Anthropic key for governed code changes) and nothing else.
 """
 
 import base64
@@ -316,7 +318,9 @@ def brand():
 
 
 
-# ===== DASHBOARD — Ava Command Center (Vitals + Operations) ==================
+# Dashboard routes (Vitals + Operations) moved to ava_bridge/dashboard.py and
+# ava_bridge/ops_api.py. "Command Center" was retired as a name: it rhymed with
+# the Control Center, which is a different surface (Operations -> Control).
 # All cookie-gated /api/* (browser auth); read-first wrappers over ava_bridge
 # modules.
 
@@ -910,14 +914,15 @@ def artifact_weather(location: str = "", days: int = 7):
 
 @app.get("/api/code/models")
 def code_models():
-    """Get available Claude models for code editing."""
-    # Verified working on this deployment's key (claude-opus-4-7 is not).
-    allowed_models = [
-        "claude-sonnet-4-6",
-        "claude-opus-4-8",
-        "claude-haiku-4-5",
-    ]
-    return {"models": allowed_models}
+    """Available Claude models for governed code edits.
+
+    Delegates to coder.list_models(), which queries the live /v1/models and falls
+    back to config.CODE_MODELS_FALLBACK. This route used to hardcode its own copy
+    of that same three-id list, so adding a model to the fallback updated the SPA
+    and silently left the legacy UI's dropdown a version behind.
+    """
+    from ava_bridge import coder
+    return {"models": coder.list_models()}
 
 
 # ---- Learning system endpoints (code improvement proposals + feedback) --------

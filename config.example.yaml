@@ -50,7 +50,10 @@ server:
   public_url: http://localhost:8096   # external URL users reach Ava at
 
 auth:
-  mode: password          # password | none  (none = local dev only)
+  # NOTE: there is no `mode` key. One was documented here for a while and read
+  # nowhere, so setting `mode: none` to skip the login wall for local dev did
+  # nothing and said nothing — the password gate is not optional. The only auth
+  # key the code resolves is `cookie_secure` below.
   # The password + signing secret are NOT stored here — they live in
   # $AVA_HOME/secrets/ (auto-generated on first run) or env AVA_PASSWORD / AVA_SECRET.
   #
@@ -183,7 +186,8 @@ inference:
     # ── Apple Silicon (Mac mini / Studio) example ────────────────────────────
     # Macs have unified memory and no nvidia-smi; the fit layer reads the shared
     # RAM pool (via psutil) and sheds to the smaller model under pressure exactly
-    # like the Spark. Ollama serves an OpenAI-compatible API at :11434. Size the
+    # like a unified-memory NVIDIA box. Ollama serves an OpenAI-compatible API at
+    # :11434. Size the
     # fit numbers to YOUR model + Mac (a 24 GB Mac mini has far less headroom than
     # a 128 GB Studio). Engine `ollama` (or llamacpp / mlx / lmstudio) is detected
     # as local automatically.

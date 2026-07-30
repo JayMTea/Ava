@@ -82,6 +82,23 @@ _FORBIDDEN: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\bspark-[0-9a-f]{4}\b", re.I),
      "the maintainer's hostname from a pasted log line — stub it (e.g. "
      '"ava-host") so the sample stays fork-neutral'),
+    # The maintainer's BOX described in prose, which is where it actually
+    # survived: the id-shaped patterns above walk straight past "on the Spark"
+    # and "on this GB10". phone_bridge.py's module docstring — the first file a
+    # contributor opens — claimed "Everything runs locally on the Spark; nothing
+    # leaves the tailnet", and neither clause is true of a fork: no Spark, and the
+    # shipped compose has no tailnet. Same widening the checkpoint pattern got
+    # after the id-shaped version missed the prose form in README.md.
+    #
+    # Scoped to prose that asserts THIS machine ("the Spark", "this GB10"). Naming
+    # the hardware class is fine and often necessary — deploy/platforms.conf and
+    # docs/evidence/ are about specific devices by design, and both are excluded
+    # below.
+    (re.compile(r"\b(?:the|our|my)\s+Spark\b|\bthis\s+GB10\b|\bon\s+my\s+(?:box|machine)\b",
+                re.I),
+     "the maintainer's own machine described in prose — name the hardware CLASS "
+     'instead ("on unified-memory NVIDIA hardware"), or mark a measurement as '
+     'one box\'s figure ("measured on a GB10; expect different figures")'),
 ]
 
 # ---- Private sibling apps: patterns that must NOT be written down here -------

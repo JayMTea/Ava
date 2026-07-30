@@ -1,0 +1,33 @@
+name: Feature request
+description: Suggest something Ava should do
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ava is maintained by one person, so the honest answer to a good idea is
+        often "not soon". Describing the PROBLEM rather than the solution makes it
+        much more likely something useful happens — sometimes there is already a
+        way, or a smaller change gets you most of it.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do that Ava makes hard?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you have in mind (optional)
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Would this be core, or a connector?
+      description: >
+        Ava's extension model is a connector manifest — an external app it drives.
+        Anything app-shaped belongs there rather than in core; see
+        docs/CONNECTOR_SDK.md.
+      options:
+        - "A connector / external app"
+        - "Core Ava"
+        - "Not sure"

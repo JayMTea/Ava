@@ -23,7 +23,7 @@
 ## 1. Product vision & shape
 
 **What Ava becomes:** a self-hosted "personal AI operations hub" — chat + voice +
-GPU workloads + app automation + a Command Center dashboard — that a
+GPU workloads + app automation + an operations dashboard — that a
 technical-ish user installs on **their own machine/GPU**, points at **their own
 models**, and connects to **their own apps** via connectors.
 

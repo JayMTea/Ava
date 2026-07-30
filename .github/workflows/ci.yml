@@ -19,6 +19,69 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - run: ruff check .
 
+  dco:
+    # CONTRIBUTING states the sign-off as an absolute requirement and nothing
+    # checked it, so it was advisory in practice — 3 of the last 50 commits carry
+    # one. Scoped to the commits the PR ADDS: enforcing it over history would fail
+    # every PR for commits the author did not write, which is how a check gets
+    # switched off. Push events are skipped for the same reason.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Every commit in this PR is signed off
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          missing=0
+          while read -r sha; do
+            [ -z "$sha" ] && continue
+            author="$(git show -s --format='%an <%ae>' "$sha")"
+            if ! git show -s --format='%B' "$sha" | grep -qi "^Signed-off-by: "; then
+              echo "::error::$(git show -s --format='%h %s' "$sha") — no Signed-off-by"
+              missing=1
+            elif ! git show -s --format='%B' "$sha" | grep -qiF "Signed-off-by: $author"; then
+              echo "::warning::$(git show -s --format='%h %s' "$sha") — sign-off does not match the author ($author)"
+            fi
+          done < <(git rev-list "$BASE..$HEAD")
+          if [ "$missing" = 1 ]; then
+            echo "Amend with: git commit --amend -s   (or: git rebase --signoff $BASE)"
+            echo "What you are certifying is in the DCO file at the repo root."
+            exit 1
+          fi
+          echo "all commits signed off"
+
+  frontend-checks:
+    # The SPA had NO automated check but `tsc`: no linter, no unit tests. So a
+    # stale hook dependency, an unreachable branch, a click handler on a
+    # non-interactive element or a duplicated JSX prop all shipped green, and
+    # three `eslint-disable-next-line react-hooks/exhaustive-deps` comments sat in
+    # the tree naming a rule no configured linter could run.
+    #
+    # Biome rather than ESLint, and not by preference: typescript-eslint refuses
+    # to load against TypeScript 7 ("typescript-eslint does not support TS 7.0",
+    # tracking issue typescript-eslint#10940), and this project is on ~7.0.2.
+    # Biome ships its own parser, so it is version-independent. Revisit if/when
+    # typescript-eslint supports TS >=7.1.
+    #
+    # `biome lint` exits non-zero on errors only; the useExhaustiveDependencies
+    # and noArrayIndexKey findings are warnings on purpose — see frontend/biome.json.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: frontend/.nvmrc
+      - working-directory: frontend
+        run: npm ci
+      - working-directory: frontend
+        run: npm run lint
+      - working-directory: frontend
+        run: npm test
+
   shellcheck:
     # deploy/ is now several hundred lines of shell that every install runs
     # first. Nothing was linting it.
@@ -40,14 +103,21 @@ jobs:
 
   frontend-dist-drift:
     # The bridge serves the prebuilt bundle, so frontend/dist is tracked. Rebuild
-    # with the same toolchain as deploy/Dockerfile (node:20) and fail if dist
-    # drifts from src — a PR that changes src must commit the rebuilt dist.
+    # and fail if dist drifts from src — a PR that changes src must commit the
+    # rebuilt dist.
+    #
+    # The Node version comes from frontend/.nvmrc, not a literal here. This job
+    # byte-compares a bundle, so the interpreter is part of the contract: it used
+    # to pin "20" while package.json's engines allowed `^20.19.0 || >=22.12.0`,
+    # so a contributor on 22 committed a dist this job could not reproduce and got
+    # a diff they did not make. frontend/scripts/ensure-deps.mjs enforces the same
+    # pin locally, before the build rather than after the push.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: "20"
+          node-version-file: frontend/.nvmrc
       - working-directory: frontend
         run: npm ci
       - working-directory: frontend

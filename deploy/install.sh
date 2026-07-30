@@ -246,9 +246,9 @@ if [ "$_BARE_METAL" = "1" ]; then
 
   # Refuse an unsupported interpreter up front rather than failing three minutes
   # into a wheel build. pyproject.toml is the source of truth for the floor.
-  python3 - <<'PY' || die "Python 3.11+ is required for the bare-metal path."
+  python3 - <<'PY' || die "Python 3.12+ is required for the bare-metal path (pyproject.toml requires-python)."
 import sys
-raise SystemExit(0 if sys.version_info >= (3, 11) else 1)
+raise SystemExit(0 if sys.version_info >= (3, 12) else 1)
 PY
 
   if [ -n "${AVA_INSTALL_DRY_RUN:-}" ]; then

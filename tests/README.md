@@ -9,7 +9,7 @@ import time and must own its process, so it is never collected here.
 ## Run
 
 ```bash
-.venv/bin/python -m pytest tests/ -q       # the whole suite (~3s, no GPU/network)
+.venv/bin/python -m pytest tests/ -q       # the whole suite (~20s, no GPU/network)
 .venv/bin/python -m pytest tests/test_router.py -q   # one file
 python tests/test_perf_store.py            # most files also run standalone
 ```

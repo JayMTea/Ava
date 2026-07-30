@@ -1,4 +1,4 @@
-"""Dashboard aggregation layer for the Ava Command Center (Vitals + Operations).
+"""Dashboard aggregation layer for Ava's dashboard (Vitals + Operations).
 
 Read-first, cookie-gated `/api/*` data assembled from existing modules
 (`perf_mgmt`, `state`, `hardware`, `alerts`) + systemd, so the browser can render
