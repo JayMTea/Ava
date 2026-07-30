@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, learning } from '../../lib/api';
-import { InfoTip } from '../dashboard/primitives';
+import { InfoTip } from '../dashboard/layout';
 import { METRICS } from '../dashboard/metrics';
 import type { LearnContext, LearningCycle, Proposal, StagedChange } from '../../lib/types';
 import { Icon } from '../../lib/icons';

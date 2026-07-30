@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { Icon } from '../../lib/icons';
-import { ago, EmptyState, Panel, fmtClock, fmtInt } from '../dashboard/primitives';
+import { EmptyState, Panel, ago, fmtClock, fmtInt } from '../dashboard/layout';
 import { useLiveResource } from '../../hooks/useLive';
 import { MemoryPanel } from '../hub/MemoryPanel';
 import { eventMeta } from '../hub/events';

@@ -3,7 +3,7 @@ import { Icon } from '../../../lib/icons';
 import { AppDot, appAccent, appById, appForTool, appsForTools } from '../../../lib/appColor';
 import { MarkdownLite } from '../../../lib/markdown';
 import { api } from '../../../lib/api';
-import { EmptyState, Panel } from '../../dashboard/primitives';
+import { EmptyState, Panel } from '../../dashboard/layout';
 import { useResource } from '../hooks';
 import { hub } from '../hubApi';
 import { ResourceError } from '../ui/ResourceState';

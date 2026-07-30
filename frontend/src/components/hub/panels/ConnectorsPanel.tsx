@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Icon } from '../../../lib/icons';
 import { RowMenu, type MenuAction } from '../../../lib/RowMenu';
 import { ACCENT_SLOTS, APP_ICONS, appAccent, appIcon } from '../../../lib/appColor';
-import { EmptyState, Panel } from '../../dashboard/primitives';
+import { EmptyState, Panel } from '../../dashboard/layout';
 import { useResource } from '../hooks';
 import { connectorGroup, isExternalApp, type ConnectorGroup } from '../shared';
 import { hub } from '../hubApi';

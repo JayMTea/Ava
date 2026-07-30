@@ -425,6 +425,13 @@ export interface SystemInfo {
   // Editable keys currently shadowed by env vars (name -> env var). A yaml
   // write "succeeds" but the env value wins again on the next boot.
   env_overrides?: Record<string, string>;
+  // '' when ava.yaml parses. When it does NOT, every value above is a DEFAULT
+  // rather than the owner's setting, and no save will be accepted — so the panel
+  // must say so instead of letting them toggle things that cannot persist. The
+  // backend has returned these two since hub/system.py was written; the interface
+  // simply never declared them, so the signal was dropped on the floor.
+  config_error?: string;
+  config_path?: string;
 }
 
 export const hub = {

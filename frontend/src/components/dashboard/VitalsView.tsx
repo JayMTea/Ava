@@ -2,10 +2,8 @@ import { useCallback, useState } from 'react';
 import { api } from '../../lib/api';
 import { dash } from './dashApi';
 import { useLiveResource } from '../../hooks/useLive';
-import {
-  BarList, Donut, EmptyState, Gauge, InfoTip, Panel, RangeSelector, Skeleton, StatCard, StatusPill, TimeSeries,
-  fmtInt, fmtNum,
-} from './primitives';
+import { EmptyState, Gauge, InfoTip, Panel, RangeSelector, Skeleton, StatusPill, fmtInt, fmtNum } from './layout';
+import { BarList, Donut, StatCard, TimeSeries } from './charts';
 import { RANGE_MAP, type RangeKey } from './ranges';
 import { METRICS } from './metrics';
 

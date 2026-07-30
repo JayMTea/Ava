@@ -4,9 +4,8 @@ import type { Alert, JobRow, TurnRow } from './dashApi';
 import { useEventStream, useLiveResource } from '../../hooks/useLive';
 import { ProgressBar } from '../../lib/ProgressBar';
 import { LearningView } from '../learning/LearningView';
-import {
-  BarList, EmptyState, Panel, StatCard, StatusPill, ago, fmtClock, fmtInt,
-} from './primitives';
+import { EmptyState, Panel, StatusPill, ago, fmtClock, fmtInt } from './layout';
+import { BarList, StatCard } from './charts';
 import { METRICS } from './metrics';
 
 type Overlay = Record<string, { status?: string; progress?: number; stage?: string; step_count?: number; tools?: number }>;

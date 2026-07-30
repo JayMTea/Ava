@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import type { ComponentType } from 'react';
 import { Drawer } from './components/Drawer';
@@ -10,11 +10,20 @@ import { Lightbox } from './components/chat/Media';
 import { AppFrame } from './components/AppFrame';
 import { ViewErrorBoundary } from './components/ViewErrorBoundary';
 import { ActionConsole } from './components/ActionConsole';
-import { VitalsView } from './components/dashboard/VitalsView';
-import { OpsView } from './components/dashboard/OpsView';
+// Lazy: these two are the ONLY views that draw charts, so they are the only ones
+// that pull recharts (~9.6 MB installed). Imported eagerly they landed in the main
+// chunk, so a chat-only session downloaded a charting library it never rendered.
+// This pays off only because dashboard/charts.tsx was split out of the shared
+// layout barrel — while Panel and recharts lived in one module, every Setup panel
+// imported the charts too and no amount of lazy() could separate them.
+const VitalsView = lazy(() => import('./components/dashboard/VitalsView')
+  .then((m) => ({ default: m.VitalsView })));
+const OpsView = lazy(() => import('./components/dashboard/OpsView')
+  .then((m) => ({ default: m.OpsView })));
 import { HubView } from './components/hub/HubView';
 import { DataView } from './components/data/DataView';
 import { HardwareBubble } from './components/HardwareBubble';
+import { Skeleton } from './components/dashboard/layout';
 import { useChat } from './hooks/useChat';
 import { api } from './lib/api';
 import { registerApps } from './lib/appColor';
@@ -245,8 +254,18 @@ export default function App() {
         <div id="appCol">
           <Header status={chat.status} onMenu={() => setSidebarOpen((o) => !o)} ghost={chat.ghost} onToggleGhost={chat.toggleGhost} showGhost={view === 'chat'} brand={brand} models={chat.models} model={chat.model} agentModel={chat.agentModel} onSetModel={chat.setModelMode} />
           <div id="viewPort">
-            {view === 'vitals' && <ViewErrorBoundary label="Vitals"><VitalsView /></ViewErrorBoundary>}
-            {view === 'ops' && <ViewErrorBoundary label="Operations"><OpsView /></ViewErrorBoundary>}
+            {/* Suspense INSIDE the boundary: a chunk that fails to load is a view
+                error the boundary should own, not a blank screen. */}
+            {view === 'vitals' && (
+              <ViewErrorBoundary label="Vitals">
+                <Suspense fallback={<Skeleton height={260} />}><VitalsView /></Suspense>
+              </ViewErrorBoundary>
+            )}
+            {view === 'ops' && (
+              <ViewErrorBoundary label="Operations">
+                <Suspense fallback={<Skeleton height={260} />}><OpsView /></Suspense>
+              </ViewErrorBoundary>
+            )}
             {view === 'data' && <ViewErrorBoundary label="Data"><DataView /></ViewErrorBoundary>}
             {view === 'hub' && <ViewErrorBoundary label="Setup"><HubView /></ViewErrorBoundary>}
             {view === 'chat' && (

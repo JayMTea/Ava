@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Icon } from '../../../lib/icons';
-import { EmptyState, Panel } from '../../dashboard/primitives';
+import { EmptyState, Panel } from '../../dashboard/layout';
 import { ResourceError } from '../ui/ResourceState';
 import { useAction, useResource } from '../hooks';
 import { hub } from '../hubApi';
@@ -51,6 +51,18 @@ export function PersonaPanel({ onRestart }: { onRestart: () => void }) {
       >
         {p ? (
           <>
+            {/* Same trap as Setup → System: a broken ava.yaml still returns 200,
+                so the fields below would show defaults and every save would 409.
+                The route already reports config_error — render it. */}
+            {p.config_error && (
+              <div className="hub-msg err" style={{ marginBottom: 12 }}>
+                <b>Your config file does not parse, so a persona cannot be saved.</b>
+                <br />
+                Fix <code>ava.yaml</code> and restart, then reload this page.
+                <br />
+                <small style={{ opacity: 0.85 }}>{p.config_error}</small>
+              </div>
+            )}
             {overridden.length > 0 && (
               <div className="bud-monthly">
                 <Icon name="alert" />

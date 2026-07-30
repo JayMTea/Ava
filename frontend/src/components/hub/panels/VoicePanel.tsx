@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import { Icon } from '../../../lib/icons';
-import { EmptyState, Panel } from '../../dashboard/primitives';
+import { EmptyState, Panel } from '../../dashboard/layout';
 import { ResourceError } from '../ui/ResourceState';
 import { useResource } from '../hooks';
 import { hub } from '../hubApi';

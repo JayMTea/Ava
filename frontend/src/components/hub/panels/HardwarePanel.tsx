@@ -1,4 +1,4 @@
-import { EmptyState, Panel } from '../../dashboard/primitives';
+import { EmptyState, Panel } from '../../dashboard/layout';
 import { useResource } from '../hooks';
 import { hub } from '../hubApi';
 import { ResourceState } from '../ui/ResourceState';

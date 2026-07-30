@@ -1,5 +1,5 @@
 import { Icon } from '../../../lib/icons';
-import { EmptyState, Panel } from '../../dashboard/primitives';
+import { EmptyState, Panel } from '../../dashboard/layout';
 import { ResourceError } from '../ui/ResourceState';
 import { useAction, useResource } from '../hooks';
 import { hub } from '../hubApi';
@@ -64,6 +64,23 @@ export function SystemPanel({ onRestart }: { onRestart: () => void }) {
   return (
     <>
       <ResourceError r={sysRes} label="your system settings" />
+      {/* A broken ava.yaml is not a load failure, so ResourceError above never
+          fires for it — the request succeeds and every value on this page is
+          silently a DEFAULT rather than the owner's setting, while each save is
+          refused with a 409. hub/system.py has returned config_error since it was
+          written; nothing rendered it, so the panel invited people to toggle
+          things that could not persist. */}
+      {sys?.config_error && (
+        <div className="hub-msg err" style={{ marginBottom: 14 }}>
+          <b>Your config file does not parse, so nothing on this page can be saved.</b>
+          <br />
+          Every value below is Ava's built-in default, not your setting. Fix
+          {sys.config_path ? <> <code>{sys.config_path}</code></> : ' ava.yaml'} and
+          restart, then reload this page.
+          <br />
+          <small style={{ opacity: 0.85 }}>{sys.config_error}</small>
+        </div>
+      )}
       <Panel title="About" subtitle="Your instance">
         {sys ? (
           <dl className="hub-kv">

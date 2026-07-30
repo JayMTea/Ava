@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { Icon } from '../../../lib/icons';
-import { Panel } from '../../dashboard/primitives';
+import { Panel } from '../../dashboard/layout';
 import { useResource } from '../hooks';
 import { isExternalApp, type TabId } from '../shared';
 import { hub } from '../hubApi';

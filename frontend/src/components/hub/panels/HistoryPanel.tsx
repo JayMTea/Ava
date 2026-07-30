@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Icon } from '../../../lib/icons';
-import { ago, EmptyState, Panel } from '../../dashboard/primitives';
+import { EmptyState, Panel, ago } from '../../dashboard/layout';
 import { eventMeta, humanize } from '../events';
 import { useResource } from '../hooks';
 import { hub } from '../hubApi';
