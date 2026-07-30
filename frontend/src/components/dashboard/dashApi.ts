@@ -133,8 +133,12 @@ export const dash = {
     get<{ ok: boolean; recent: Record<string, unknown>[] }>('/api/perf/recent' + qs({ limit, app, category })),
   perfCost: (since = '7d', group = 'model') =>
     get<PerfCost>('/api/perf/cost' + qs({ since, group })),
+  // daily_energy_kwh is NULLABLE — /api/hub/cost passes perf_cost's figure
+  // straight through, and that is null on any platform with no sampled, declared
+  // or nominal wattage. hub/hubApi.ts already types it that way; this copy did
+  // not, which is how VitalsView's budget bar came to call .toFixed() on null.
   budget: () => get<{
-    currency: string; daily_spend_usd: number; daily_energy_kwh: number; power_measured: boolean;
+    currency: string; daily_spend_usd: number; daily_energy_kwh: number | null; power_measured: boolean;
     budgets: { daily_usd: number | null; monthly_usd: number | null; daily_kwh: number | null };
   }>('/api/hub/cost'),
   hwHistory: (since = '1d', bucket = '5m') =>

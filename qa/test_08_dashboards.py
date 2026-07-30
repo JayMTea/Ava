@@ -54,10 +54,34 @@ class TestVitalsData(unittest.TestCase):
         self.assertTrue(s["points"])
 
     def test_perf_cost_by_app(self):
+        """Energy is nullable BY DESIGN, so assert the rule, not this box.
+
+        Resolution is sampled -> owner-declared -> platform nominal -> None, and
+        which branch a machine takes is a fact ABOUT THE MACHINE: the maintainer's
+        GB10 has a 180 W nominal in deploy/platforms.conf, a linux-cpu CI runner's
+        row carries `nominal_w = -` and correctly resolves to None. `> 0` alone
+        therefore failed on the honest answer.
+
+        Both branches are asserted in full rather than the assertion being
+        loosened — a box that names a power source still has to produce a
+        positive figure, and one that names none still has to say NOT MEASURED
+        rather than report 0.0 kWh.
+        """
         s = CLIENT.get("/api/perf/cost?since=1d&group=app").json()
         self.assertTrue(s["ok"])
         self.assertIn("ava", s["by"])
-        self.assertGreater(s["energy_kwh"], 0)
+        if s["power_source"] is None:
+            self.assertIsNone(s["energy_kwh"],
+                              "no wattage source, so kWh must be null, never 0")
+            self.assertIsNone(s["avg_gpu_watts"])
+            self.assertIsNone(s["energy_usd"])
+            self.assertEqual(s["energy_state"], "unknown")
+            self.assertFalse(s["power_measured"])
+        else:
+            self.assertIn(s["power_source"], ("sampled", "declared", "platform-nominal"))
+            self.assertGreater(s["energy_kwh"], 0)
+            self.assertGreater(s["avg_gpu_watts"], 0)
+            self.assertIn(s["energy_state"], ("measured", "partial", "estimated"))
 
     def test_hardware_history(self):
         s = CLIENT.get("/api/hardware/history?since=1d&bucket=5m").json()

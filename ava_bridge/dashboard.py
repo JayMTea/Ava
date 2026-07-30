@@ -719,11 +719,31 @@ def build_alert_metrics() -> dict:
         mon = perf_cost("30d")
         du, mu, dk = (budgets.get("daily_usd"), budgets.get("monthly_usd"),
                       budgets.get("daily_kwh"))
+        # `energy_kwh` is nullable by design (see perf_cost): a platform with no
+        # sampled wattage, no owner-declared figure and no nominal in
+        # platforms.conf has nothing to report. A percentage needs a numerator,
+        # so the energy meter has THREE states, not two:
+        #   0     no cap set          -> dormant, same as the dollar meters
+        #   None  cap set, kWh null   -> NOT MEASURED; the meter is unavailable
+        #   float cap set, kWh known  -> the real percentage
+        # None rather than 0 because 0% of an energy cap is a claim that the box
+        # drew no power. This divided unconditionally, so on any platform whose
+        # row carries `nominal_w = -` (linux-cpu, linux-gpu, darwin-apple,
+        # windows, generic) with a daily_kwh cap set, /api/ops/alerts and every
+        # dashboard consumer of it returned 500. alerts.evaluate already skips a
+        # None metric, so an unavailable figure raises nothing.
+        kwh = day["energy_kwh"]
+        if not dk:
+            energy_pct = 0
+        elif kwh is None:
+            energy_pct = None
+        else:
+            energy_pct = round(kwh / dk * 100, 1)
         return {
             "budget_daily_pct": round(day["spend_usd"] / du * 100, 1) if du else 0,
             "budget_monthly_pct": round(mon["spend_usd"] / mu * 100, 1) if mu else 0,
-            "budget_energy_pct": round(day["energy_kwh"] / dk * 100, 1) if dk else 0,
-            "daily_spend_usd": day["spend_usd"], "daily_energy_kwh": day["energy_kwh"],
+            "budget_energy_pct": energy_pct,
+            "daily_spend_usd": day["spend_usd"], "daily_energy_kwh": kwh,
         }
     m.update(_cached("budget_pct", 60, _budget_pct))
 

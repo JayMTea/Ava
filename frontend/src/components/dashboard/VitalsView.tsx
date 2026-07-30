@@ -128,14 +128,21 @@ export function VitalsView() {
               );
             })()}
             {budget.data.budgets.daily_kwh != null && (() => {
+              // `daily_energy_kwh` is null when this box has no defensible
+              // wattage at all — nothing sampled, nothing declared, no nominal
+              // in platforms.conf. `null / cap` is NaN, so the track rendered as
+              // a FULL bar, and `.toFixed()` on null threw and took the whole
+              // Vitals page down with it. An unavailable figure shows an em dash
+              // over an empty track, matching Setup → Budgets' BudgetMeter.
               const used = budget.data.daily_energy_kwh, cap = budget.data.budgets.daily_kwh!;
-              const pct = Math.min(100, Math.round((used / cap) * 100));
-              const col = pct >= 100 ? 'var(--err)' : pct >= 80 ? 'var(--warn)' : 'var(--ok)';
+              const pct = used == null ? 0 : Math.min(100, Math.round((used / cap) * 100));
+              const col = used == null ? 'var(--muted)'
+                : pct >= 100 ? 'var(--err)' : pct >= 80 ? 'var(--warn)' : 'var(--ok)';
               return (
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-sm)', marginBottom: 5 }}>
-                    <span style={{ color: 'var(--muted)' }}>GPU energy{budget.data.power_measured ? '' : ' (est.)'}</span>
-                    <span><b style={{ color: col }}>{used.toFixed(2)}</b> <span style={{ color: 'var(--muted)' }}>/ {cap} kWh</span></span>
+                    <span style={{ color: 'var(--muted)' }}>GPU energy{used == null ? ' (not measured)' : budget.data.power_measured ? '' : ' (est.)'}</span>
+                    <span><b style={{ color: col }}>{used == null ? '—' : used.toFixed(2)}</b> <span style={{ color: 'var(--muted)' }}>/ {cap} kWh</span></span>
                   </div>
                   <div style={{ height: 8, borderRadius: 999, background: 'var(--panel2)', overflow: 'hidden' }}>
                     <div style={{ width: `${pct}%`, height: '100%', background: col }} />
