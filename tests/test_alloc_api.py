@@ -45,7 +45,7 @@ class LeaseApiTests(unittest.TestCase):
         p.start()
         self.addCleanup(p.stop)
         app = router_app.create_app(backends=list(BACKENDS), token=TOKEN)
-        self.c = TestClient(app)
+        self.c = TestClient(app, base_url="http://localhost")
         self.auth = {"X-Ava-Router-Token": TOKEN}
 
     # --- auth --------------------------------------------------------------- #

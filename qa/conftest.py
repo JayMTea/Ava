@@ -65,7 +65,7 @@ def bridge():
     # would be open to anything that confused it), so the suite would 403 at
     # /setup. Presenting a real loopback address is what the product sees from a
     # browser on the same machine.
-    with TestClient(phone_bridge.app, client=("127.0.0.1", 50000)) as client:
+    with TestClient(phone_bridge.app, client=("127.0.0.1", 50000), base_url="http://localhost") as client:
         yield client
 
 

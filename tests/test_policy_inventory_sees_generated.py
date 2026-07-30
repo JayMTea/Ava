@@ -286,7 +286,7 @@ def test_the_route_is_reachable_and_returns_facts() -> None:
 
     app = FastAPI()
     app.include_router(governance.router)
-    body = TestClient(app).get("/policies/inventory").json()
+    body = TestClient(app, base_url="http://localhost").get("/policies/inventory").json()
     assert body["count"] >= 1
     assert body["by_source"]["generated"] >= 1, (
         "the route does not report the generated policies, which are the ones "

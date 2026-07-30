@@ -253,7 +253,11 @@ def clear_claim() -> None:
 
 def may_claim(request: Request) -> bool:
     """May this caller run first-run setup?"""
-    if _is_loopback(client_ip(request)):
+    # A loopback PEER is not enough: DNS rebinding produces exactly that shape
+    # from a page the owner merely visited. The gate already refuses an untrusted
+    # Host, and this is the belt to that braces — /setup sets the admin password,
+    # so it should not depend on one check.
+    if _is_loopback(client_ip(request)) and host_is_trusted(request)[0]:
         return True
     want = claim_token()
     if not want:
@@ -341,8 +345,94 @@ def _is_ingest(path: str) -> bool:
     return path.startswith("/api/connectors/") and path.endswith("/events")
 
 
+# ---- DNS rebinding ----------------------------------------------------------- #
+# A page at attacker-controlled DNS whose TTL expires and re-resolves to 127.0.0.1
+# can reach this bridge from the owner's own browser. Measured before this existed:
+#
+#   may_claim  peer=127.0.0.1  Host=evil.example.com:8096  -> True
+#
+# so an unclaimed bare-metal instance could have its admin password set by a page
+# the owner merely visited.
+#
+# **`samesite="lax"` does not help.** After rebinding, the page and the target are
+# the SAME ORIGIN as far as the browser is concerned, so the session cookie is sent
+# and every authenticated route is reachable too. That is why the defence has to be
+# a Host allowlist and not a cookie attribute — the browser cannot tell the
+# difference, but the server can: no legitimate client asks for Ava under a name
+# Ava does not answer to.
+_LOCAL_HOSTNAMES = frozenset({"localhost", "127.0.0.1", "::1", "[::1]",
+                              "0.0.0.0", "host.docker.internal"})
+
+
+def trusted_hosts() -> frozenset[str]:
+    """Host header values this bridge answers to.
+
+    Loopback names, whatever `server.host` and `server.public_url` name, plus any
+    `server.trusted_hosts` the owner declares — a reverse proxy or a tailnet name
+    is a legitimate deployment, and the escape hatch is what keeps this defence
+    from being the thing people disable.
+
+    `server.trusted_hosts: ["*"]` opts out entirely. It is honoured, because an
+    owner who needs it should not have to patch the code, and refused silence is
+    worse than a documented switch.
+    """
+    from . import config, settings
+
+    out = set(_LOCAL_HOSTNAMES)
+    for v in (config.SERVER_HOST, ):
+        if v:
+            out.add(str(v).strip().lower())
+    pub = str(getattr(config, "PUBLIC_URL", "") or "")
+    if "//" in pub:
+        out.add(pub.split("//", 1)[1].split("/", 1)[0].rsplit(":", 1)[0].lower())
+    extra = settings.get("server.trusted_hosts", []) or []
+    if isinstance(extra, str):
+        extra = [extra]
+    for v in extra:
+        out.add(str(v).strip().lower())
+    return frozenset(o for o in out if o)
+
+
+def host_is_trusted(request) -> tuple[bool, str]:
+    """(ok, reason). Compares the Host header's NAME, port stripped."""
+    allowed = trusted_hosts()
+    if "*" in allowed:
+        return True, "server.trusted_hosts includes '*'"
+    raw = (request.headers.get("host") or "").strip().lower()
+    if not raw:
+        # HTTP/1.1 requires Host. Absent means a hand-rolled client, not a browser,
+        # and the rebinding threat model is browser-only — so allow it rather than
+        # break curl and the health probes.
+        return True, "no Host header"
+    # Host is either `name[:port]` or `[v6addr][:port]`. Splitting on the last
+    # colon breaks bare IPv6, and stripping brackets after splitting breaks the
+    # bracketed form — `[::1]:8096` came out as `::1]:8096` and a legitimate IPv6
+    # loopback was refused.
+    if raw.startswith("[") and "]" in raw:
+        name = raw[1:raw.index("]")]
+    elif raw.count(":") == 1:
+        name = raw.rsplit(":", 1)[0]
+    else:
+        name = raw
+    if name in allowed:
+        return True, ""
+    return False, (
+        f"this bridge does not answer to Host {raw!r}. If that is a reverse proxy "
+        "or a VPN name you use, add it to `server.trusted_hosts` in ava.yaml. "
+        "Refusing because a Host Ava does not recognise is the signature of DNS "
+        "rebinding: a page on someone else's domain, re-resolved to this machine, "
+        "reaching Ava from your own browser with your own cookie.")
+
 async def auth_gate(request: Request, call_next):
     path = request.url.path
+    # HOST ALLOWLIST, before everything — including the origin split and
+    # /internal/*. A rebound request is same-origin to the browser, so no cookie
+    # attribute and no Origin check can see it; only the server noticing it was
+    # asked for under a name it does not answer to. See trusted_hosts().
+    _host_ok, _host_why = host_is_trusted(request)
+    if not _host_ok:
+        return JSONResponse({"error": "untrusted host", "detail": _host_why},
+                            status_code=421)
     # ORIGIN SPLIT, before anything else including the /internal/* branch.
     #
     # When `apps.origin` is set, connector app UIs are served from a second

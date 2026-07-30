@@ -75,7 +75,7 @@ class FastapiConformanceTests(unittest.TestCase):
         os.environ["MYAPP_TOKEN"] = "conformance-token"
         self.addCleanup(os.environ.pop, "MYAPP_TOKEN", None)
         self.client = TestClient(
-            app, headers={"Authorization": "Bearer conformance-token"})
+            app, headers={"Authorization": "Bearer conformance-token"}, base_url="http://localhost")
 
     def test_tools_listing_conforms(self):
         r = self.client.get("/tools").json()

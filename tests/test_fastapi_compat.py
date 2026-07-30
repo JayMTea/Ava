@@ -37,7 +37,7 @@ class PrefixedRouterCanary(unittest.TestCase):
                       "prefixed APIRouter routes were silently dropped — the "
                       "fastapi/starlette combo is broken; keep the pins")
         from starlette.testclient import TestClient
-        self.assertEqual(TestClient(app).get("/x/a").status_code, 200)
+        self.assertEqual(TestClient(app, base_url="http://localhost").get("/x/a").status_code, 200)
 
     def test_hub_router_mounts_and_serves(self):
         # The real casualty last time: every /api/hub/* route vanished.
@@ -47,7 +47,7 @@ class PrefixedRouterCanary(unittest.TestCase):
         self.assertIn("/api/hub/approvals", _paths(app.routes))
         # approvals_list has no config/filesystem dependencies — a clean probe.
         from starlette.testclient import TestClient
-        resp = TestClient(app).get("/api/hub/approvals")
+        resp = TestClient(app, base_url="http://localhost").get("/api/hub/approvals")
         self.assertEqual(resp.status_code, 200)
         self.assertIn("pending", resp.json())
 

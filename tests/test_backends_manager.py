@@ -29,7 +29,7 @@ class BackendManagerTests(unittest.TestCase):
         os.environ["AVA_SECRETS_DIR"] = str(d / "secrets")
         app = FastAPI()
         app.include_router(hub_api.router)
-        self.c = TestClient(app)
+        self.c = TestClient(app, base_url="http://localhost")
 
     def tearDown(self):
         settings.CONFIG_PATH = self._cfg_path

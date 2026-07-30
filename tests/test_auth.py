@@ -70,7 +70,7 @@ class GateTests(unittest.TestCase):
         ]
         for p in self._patchers:
             p.start()
-        self.client = TestClient(_app())
+        self.client = TestClient(_app(), base_url="http://localhost")
 
     def tearDown(self):
         for p in self._patchers:

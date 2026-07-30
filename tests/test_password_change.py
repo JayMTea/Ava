@@ -36,7 +36,7 @@ from ava_bridge import auth, config
 
 def _client():
     import phone_bridge
-    return TestClient(phone_bridge.app)
+    return TestClient(phone_bridge.app, base_url="http://localhost")
 
 
 class TokenShapeTests(unittest.TestCase):

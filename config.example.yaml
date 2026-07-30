@@ -47,6 +47,16 @@ server:
   # and whether the first-run claim gate thinks you are local.
   trusted_proxies: "127.0.0.1,::1"   # [AVA_TRUSTED_PROXIES]
   port: 8096              # [AVA_PORT]
+  # Host header values this bridge answers to. Loopback names, whatever `host` and
+  # `public_url` name, and anything listed here. Everything else gets 421.
+  #
+  # This is the DNS-rebinding defence: a page on someone else's domain, whose DNS
+  # re-resolves to 127.0.0.1, reaches Ava from YOUR browser with YOUR cookie and is
+  # same-origin as far as the browser is concerned — so `samesite` and Origin checks
+  # cannot see it. Only the server noticing the name is wrong can.
+  #
+  # Add your reverse proxy or VPN hostname here if you use one. `["*"]` opts out.
+  # trusted_hosts: ["ava.example.org", "spark.tail1234.ts.net"]
   public_url: http://localhost:8096   # external URL users reach Ava at
 
 auth:

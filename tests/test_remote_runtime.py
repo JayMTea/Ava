@@ -65,7 +65,7 @@ class RemoteRuntimeTests(unittest.TestCase):
     def setUp(self):
         self.rt = RemoteRuntime()
         self.rt._avail_cache = {"ts": 0.0, "ok": None}
-        self.client = TestClient(_fake_shim(ready=True))
+        self.client = TestClient(_fake_shim(ready=True), base_url="http://localhost")
         # Route the adapter's requests.* calls into the TestClient, and pin config.
         self._patches = [
             mock.patch.object(config, "AGENT_URL", "http://agent:9100"),
@@ -103,7 +103,7 @@ class RemoteRuntimeTests(unittest.TestCase):
         self.assertTrue(self.rt.available())
 
     def test_available_false_when_not_ready(self):
-        self.client = TestClient(_fake_shim(ready=False))
+        self.client = TestClient(_fake_shim(ready=False), base_url="http://localhost")
         self.rt._avail_cache = {"ts": 0.0, "ok": None}
         self.assertFalse(self.rt.available())
 

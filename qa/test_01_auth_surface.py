@@ -170,7 +170,7 @@ class TestAuthSurface(unittest.TestCase):
             auth.clear_claim()
             try:
                 remote = TestClient(phone_bridge.app, follow_redirects=False,
-                                    client=("192.168.1.50", 40000))
+                                    client=("192.168.1.50", 40000), base_url="http://localhost")
                 self.assertEqual(remote.get("/setup").status_code, 403)
                 self.assertEqual(
                     remote.post("/setup", data={"password": "hunter2hunter2",
@@ -178,7 +178,7 @@ class TestAuthSurface(unittest.TestCase):
                     403)
 
                 local = TestClient(phone_bridge.app, follow_redirects=False,
-                                   client=("127.0.0.1", 40001))
+                                   client=("127.0.0.1", 40001), base_url="http://localhost")
                 self.assertEqual(local.get("/setup").status_code, 200)
 
                 token = auth.claim_token()

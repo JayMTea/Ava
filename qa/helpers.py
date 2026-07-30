@@ -28,7 +28,7 @@ def anon_client():
     from fastapi.testclient import TestClient
     import phone_bridge
     return TestClient(phone_bridge.app, follow_redirects=False,
-                      client=("127.0.0.1", 50001))
+                      client=("127.0.0.1", 50001), base_url="http://localhost")
 
 
 def internal_headers(scope: str | None = None) -> dict:

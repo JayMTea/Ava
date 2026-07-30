@@ -26,7 +26,7 @@ def _mock_client(app_kwargs, handler):
     """Build a router app whose upstream calls hit `handler` (MockTransport)."""
     transport = httpx.MockTransport(handler)
     app = router_app.create_app(transport=transport, **app_kwargs)
-    return TestClient(app)
+    return TestClient(app, base_url="http://localhost")
 
 
 def _chat_body(**extra):
