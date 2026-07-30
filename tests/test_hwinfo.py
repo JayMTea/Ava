@@ -44,7 +44,15 @@ class FitMemorySourceTests(unittest.TestCase):
 
     def test_apple_silicon_uses_system_memory(self):
         # Mac: no VRAM reading at all -> system memory is the fit resource.
-        with mock.patch.object(hwinfo, "vram_mem", return_value=hwinfo.MemInfo()), \
+        #
+        # platform_id is mocked because without it this test asserted MAC
+        # behaviour while running against whatever platform the host reports — it
+        # passed on the maintainer's linux-nvidia box only because fit_memory
+        # treats "VRAM unreadable" identically on every platform. That sameness is
+        # a known gap (see the note in hwinfo.fit_memory), so pin the platform
+        # here rather than let this test quietly depend on it.
+        with mock.patch.object(hwinfo, "platform_id", return_value="darwin-apple"), \
+             mock.patch.object(hwinfo, "vram_mem", return_value=hwinfo.MemInfo()), \
              mock.patch.object(hwinfo, "system_mem",
                                return_value=hwinfo.MemInfo(12.0, 24.0, "system-psutil")):
             m = hwinfo.fit_memory()

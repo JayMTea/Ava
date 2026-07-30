@@ -460,6 +460,25 @@ def fit_memory() -> MemInfo:
             model != "discrete" and sysm.total_gb and vram.total_gb
             and vram.total_gb >= 0.85 * sysm.total_gb)
         info = sysm if (unified and sysm.readable) else vram
+    # KNOWN GAP, deliberately not "fixed" here — see the note below.
+    #
+    # When VRAM is unreadable we fall through to system RAM. That is CORRECT on
+    # GB10/Grace (vram_mem's docstring: "Returns nothing on unified-memory
+    # hardware (GB10 reports N/A)"), on Apple Silicon and on CPU-only boxes. It is
+    # WRONG on a discrete NVIDIA/AMD box whose probe merely FAILED — driver
+    # mismatch, no permission on /dev/nvidia*, a container without the toolkit —
+    # where a 128 GB host with an 8 GB card advertises 128 GB of fit memory and
+    # platforms.py:203-206 then labels it `unified` because the source string
+    # begins with "system", so Setup recommends a tier that OOMs on first load.
+    #
+    # Gating on platform_id() does not separate the two: both are linux-nvidia
+    # with an empty MemInfo, and `_memory_model()` reads amdgpu sysfs so it
+    # answers ("unknown", "no APU signal") on Grace. Doing it properly means
+    # teaching vram_mem() to distinguish "the probe answered N/A" from "the probe
+    # errored" and gating on THAT — a change only verifiable on a discrete NVIDIA
+    # box, which is why it is written down rather than guessed at.
+    # tests/test_platform_native.py::test_unified_memory_nvidia_falls_through_to_
+    # the_system_pool pins the current, correct-for-GB10 behaviour.
     _fit_cache.update(ts=now, info=info)
     return info
 
