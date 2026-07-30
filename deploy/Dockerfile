@@ -3,7 +3,21 @@
 # Build context is the repo root:  docker build -f deploy/Dockerfile .
 
 # ---- stage 1: build the frontend ----
-FROM node:20-slim AS web
+# The Node major is frontend/.nvmrc's, and it is part of the build contract
+# rather than a preference. `npm run build` runs frontend/scripts/ensure-deps.mjs
+# first, which reads the .nvmrc that `COPY frontend/ ./` brings in (.dockerignore
+# excludes frontend/node_modules and frontend/dist, not .nvmrc) and refuses a
+# mismatched major — so this stage pinned to 20 while .nvmrc said 22 failed the
+# image build outright, with a message about a dist diff nobody made. That
+# message is correct: CI's frontend-dist-drift job byte-compares its own rebuild
+# against the committed bundle, so the interpreter major decides whether an
+# unrelated PR goes green.
+#
+# The number lives in this one ARG so the file has a single pin. It is still a
+# COPY of a fact stored in frontend/.nvmrc, so tests/test_node_version_ssot.py
+# asserts the two agree — the same reason deploy/model-flags.conf has a guard.
+ARG NODE_VERSION=22
+FROM node:${NODE_VERSION}-slim AS web
 WORKDIR /web
 COPY frontend/package*.json ./
 RUN npm ci || npm install
