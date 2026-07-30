@@ -230,3 +230,91 @@ def test_the_file_removal_helper_has_exactly_one_auditing_caller() -> None:
         "in tests/test_destructive_paths_audited.py on the grounds that its only "
         "caller audits with the store named. Either audit in the new caller too, "
         "or drop the allowlist entry.")
+
+
+# ---- the secrets inventory must be complete, or the count is a lie ----------- #
+def test_the_secrets_store_walks_env_credentials_not_just_the_top_level(
+        tmp_path, monkeypatch) -> None:
+    """`os.listdir` + `isfile` skipped `secrets/env/`, where every connector
+    credential lives (`settings._env_secret_path`).
+
+    Measured on the development box: four real tokens invisible to the page the
+    README calls "the transparency page a cloud assistant can't give you" — while
+    the count displayed beside them was presented as complete. An inventory that
+    silently omits a category is worse than one that admits a gap.
+    """
+    monkeypatch.setenv("AVA_HOME", str(tmp_path))
+    monkeypatch.setattr(settings, "AVA_HOME", tmp_path, raising=False)
+    sdir = tmp_path / "secrets"
+    (sdir / "env").mkdir(parents=True)
+    (sdir / "router_token").write_text("r" * 10, encoding="utf-8")
+    (sdir / "env" / "SOME_APP_TOKEN").write_text("t" * 20, encoding="utf-8")
+    monkeypatch.setattr(settings, "secrets_dir", lambda: str(sdir))
+
+    store = next(s for s in data_api.stores()["stores"] if s["id"] == "secrets")
+    names = {i["name"] for i in store["items"]}
+    assert any(n.endswith("SOME_APP_TOKEN") for n in names), (
+        f"the env credential is missing from {sorted(names)}. It lives one "
+        "directory down and the scan was not recursive.")
+    assert store["count"] == len(store["items"]), (
+        "the displayed count and the itemised list disagree")
+
+
+def test_the_secrets_store_reports_its_real_size(tmp_path, monkeypatch) -> None:
+    """`bytes` was never passed, so it reported 0 on a page that sums a total.
+
+    The SIZE of a secret is not the secret — the values are still never opened.
+    """
+    monkeypatch.setenv("AVA_HOME", str(tmp_path))
+    monkeypatch.setattr(settings, "AVA_HOME", tmp_path, raising=False)
+    sdir = tmp_path / "secrets"
+    (sdir / "env").mkdir(parents=True)
+    (sdir / "env" / "T").write_text("x" * 41, encoding="utf-8")
+    monkeypatch.setattr(settings, "secrets_dir", lambda: str(sdir))
+
+    store = next(s for s in data_api.stores()["stores"] if s["id"] == "secrets")
+    assert store["bytes"] >= 41, (
+        f"secrets reports {store['bytes']} bytes; a hardcoded 0 makes the Data "
+        "page's total_bytes under-report, which `fleet attest` recorded as a "
+        "degradation of its own.")
+
+
+def test_a_credential_is_attributed_to_the_connector_that_reads_it() -> None:
+    """`token_env` has several homes: under `mcp:`, under `auth:`, under `service:`.
+
+    Searching only one is how the first cut labelled four real credentials "no
+    manifest claims it" — a confident wrong answer, worse than the omission it
+    replaced. So the lookup walks the manifest for the key wherever it sits.
+    """
+    from ava_bridge import connectors
+
+    claimed = []
+    for m in connectors.catalog():
+        def _walk(node):
+            if isinstance(node, dict):
+                for k, v in node.items():
+                    if k == "token_env" and v:
+                        claimed.append((str(v), m.get("id")))
+                    _walk(v)
+            elif isinstance(node, list):
+                for x in node:
+                    _walk(x)
+        _walk(m)
+    if not claimed:
+        pytest.skip("no connector on this box declares a token_env")
+    var, cid = claimed[0]
+    assert data_api._connector_for_env(var), (
+        f"{var} is declared by connector {cid!r} and the lookup found nobody. "
+        "Check every place token_env can sit, not just service.token_env.")
+
+
+def test_the_values_are_never_read() -> None:
+    """An inventory that opens a secret to describe it is not an inventory."""
+    import inspect
+
+    src = inspect.getsource(data_api.stores)
+    seg = src[src.index("secret_items"):src.index('"Secrets & keys"')]
+    for bad in ("read_text(", "read_bytes(", "open("):
+        assert bad not in seg, (
+            f"the secrets block calls {bad} — it must stat and name, never read. "
+            "The purpose label comes from the NAME.")

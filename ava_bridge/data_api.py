@@ -93,9 +93,49 @@ _SECRET_LABELS = {
 }
 
 
+def _connector_for_env(var: str) -> str:
+    """Which connector declares this env var as its credential, if any.
+
+    Read from the manifests rather than guessed from the name: a var called
+    `MYAPP_TOKEN` belongs to whichever connector declares it, and nothing about
+    the string says which.
+    """
+    # `token_env` has more than one home: an MCP connector declares it under its
+    # `mcp:` block, the connector template documents `auth.token_env`, and a plain
+    # HTTP app puts it under `service:`. Searching just one of those is how the
+    # first cut of this labelled four real credentials "no manifest claims it" — a
+    # confident-sounding wrong answer, which is worse than the omission it
+    # replaced. So walk the manifest for the key wherever it sits.
+    def _finds(node) -> bool:
+        if isinstance(node, dict):
+            for k, v in node.items():
+                if k == "token_env" and str(v or "").strip() == var:
+                    return True
+                if _finds(v):
+                    return True
+        elif isinstance(node, list):
+            return any(_finds(x) for x in node)
+        return False
+
+    try:
+        from . import connectors
+        for m in connectors.catalog():
+            if _finds(m):
+                return str(m.get("label") or m.get("id") or "")
+    except Exception:  # noqa: BLE001 — an inventory must not fail on a bad manifest
+        pass
+    return ""
+
+
 def _secret_purpose(name: str) -> str:
     if name in _SECRET_LABELS:
         return _SECRET_LABELS[name]
+    # `env/<VAR>` — a connector credential saved through the Hub.
+    if name.startswith("env" + os.sep) or name.startswith("env/"):
+        var = name.split("/")[-1].split(os.sep)[-1]
+        who = _connector_for_env(var)
+        return (f"Credential for {who} (env {var})" if who
+                else f"Connector credential (env {var}) — no manifest claims it")
     low = name.lower()
     if "password" in low:
         return "Password (stored 0600, not hashed)"
@@ -349,16 +389,39 @@ def stores():
     for fname in (".secret", ".internal_token", "auth_password"):
         if os.path.isfile(os.path.join(data_dir, fname)):
             secret_items.append({"name": fname, "what": _secret_purpose(fname)})
+    # RECURSIVE. `os.listdir` + `isfile` skipped `secrets/env/`, which is where
+    # every connector credential lives (settings._env_secret_path). Measured on the
+    # development box: four real connector tokens, invisible to the page the README calls
+    # "the transparency page a cloud assistant can't give you", while the count
+    # beside it was presented as complete.
+    secret_bytes = 0
     try:
         sdir = settings.secrets_dir()
-        for n in sorted(os.listdir(sdir)):
-            if os.path.isfile(os.path.join(sdir, n)):
-                secret_items.append({"name": n, "what": _secret_purpose(n)})
+        for root, _dirs, names in os.walk(sdir):
+            for n in sorted(names):
+                fp = os.path.join(root, n)
+                if not os.path.isfile(fp):
+                    continue
+                rel = os.path.relpath(fp, sdir)
+                try:
+                    secret_bytes += os.path.getsize(fp)
+                except OSError:
+                    pass
+                secret_items.append({"name": rel, "what": _secret_purpose(rel)})
     except OSError:
         pass
+    for fname in (".secret", ".internal_token", "auth_password"):
+        fp = os.path.join(data_dir, fname)
+        if os.path.isfile(fp):
+            try:
+                secret_bytes += os.path.getsize(fp)
+            except OSError:
+                pass
+    # `bytes` was never passed, so this store reported 0 on a page that sums a
+    # total. The SIZE of a secret is not the secret; the values stay unopened.
     out.append(_store("secrets", "Secrets & keys", settings.secrets_dir(),
-                      "locked", count=len(secret_items), locked=True,
-                      items=secret_items))
+                      "locked", size=secret_bytes, count=len(secret_items),
+                      locked=True, items=secret_items))
 
     # The biometric. This page is documented as "every store Ava keeps" and the
     # README calls it "the transparency page a cloud assistant can't give you",
