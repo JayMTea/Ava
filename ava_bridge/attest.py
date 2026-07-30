@@ -21,9 +21,10 @@ namespace to probe from outside, a second instance to read across, a control pla
 that injected something. A single host claiming any of them would be asserting
 isolation from itself.
 
-**The one asymmetry with the fleet bundle, stated so it reads as judgement.** The
-fleet withholds the voiceprint digest, because a hash of a biometric template is a
-stable pseudonym and a fleet bundle is handed to whoever asked for it. Here the
+**The one asymmetry with a control plane's bundle, stated so it reads as
+judgement.** A multi-tenant bundle withholds the voiceprint digest, because a hash
+of a biometric template is a stable pseudonym and that bundle is handed to whoever
+asked for it. Here the
 digest **is** included: `ava attest` is the owner attesting about their own box to
 themselves, and the digest is what makes destruction provable (see
 `docs/BIOMETRICS.md`). If you are handing the bundle to someone else, pass
@@ -105,7 +106,8 @@ def _sha256_file(p: Path) -> str:
 def _producer(rel: str) -> dict:
     """Which source file produced an artifact, and its digest.
 
-    Simpler than the fleet's d2sum on purpose: there is one checkout here, so there
+    Simpler than a multi-tenant bundle's producer check on purpose: there is one
+    checkout here, so there
     is no "the instance's copy vs the control plane's" question to answer. A reader
     who wants to know whether this is upstream's code compares the digest against a
     release themselves.
@@ -155,10 +157,11 @@ def collect_stores(*, redact_biometrics: bool = False) -> Artifact:
 def _voiceprint(*, redact: bool) -> dict:
     """`{present, bytes, mtime}` plus a digest — unless you are sharing the bundle.
 
-    The digest is INCLUDED by default here and WITHHELD by the fleet's bundle. Not an
+    The digest is INCLUDED by default here and WITHHELD by a multi-tenant bundle.
+    Not an
     inconsistency: `ava attest` is the owner attesting about their own box to
     themselves, and the pre-delete digest is exactly what makes destruction provable
-    (docs/BIOMETRICS.md). A fleet bundle goes to a third party, where the same value
+    (docs/BIOMETRICS.md). A multi-tenant bundle goes to a third party, where the same value
     becomes a stable pseudonym correlating one person across bundles.
     """
     import speaker as spk
@@ -211,7 +214,7 @@ def collect_chain() -> Artifact:
     """The ledger's own integrity.
 
     ⚠️ **Here Ava is checking its own ledger**, which is exactly the arrangement the
-    fleet bundle refuses — there the control plane recomputes from disk instead. On a
+    multi-tenant bundle refuses — there the control plane recomputes from disk instead. On a
     single host there is no second party to ask, and pretending otherwise would be
     worse than saying so. `verify.py` ships the rule so a reader can recompute
     independently, and `not_measured` records the limitation.
@@ -268,7 +271,7 @@ NOT_MEASURED = [
     {"what": "independent verification of the audit chain",
      "why": "Ava computes it about its own ledger, because on one box there is no "
             "second party. The rule is in provenance.json so you can recompute it "
-            "yourself; the fleet bundle has a control plane do exactly that."},
+            "yourself; a multi-tenant bundle has a control plane do exactly that."},
     {"what": "whether the code that produced this is upstream's",
      "why": "each artifact carries its producer's sha256. With one checkout there is "
             "nothing on this box to compare against — check it against a release."},
@@ -413,7 +416,7 @@ needs a second party, and a single host claiming them would be asserting isolati
 from itself. They are listed in `summary.not_measured` rather than silently missing.
 
 The audit chain is verified **by Ava, about Ava's own ledger** — on one box there is
-no second party to ask, and the fleet bundle has a control plane recompute it
+no second party to ask, and a multi-tenant bundle has a control plane recompute it
 instead. The rule is in `provenance.json` so you can recompute it yourself:
 
     prev(record N) == sha256(exact written line of record N-1, UTF-8,

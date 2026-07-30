@@ -33,9 +33,9 @@ line precedes it and does not care whether that line carried a `seq`, so appendi
 to a ledger that already holds unchained records writes `seq: 1` with `prev` = the
 digest of the last **legacy** line. A verifier written literally from the old
 sentence reports `broken` at seq 1 on every pre-chain ledger — which is all of them.
-Found by an independent second implementation (`a-control-plane/chain.py`)
-disagreeing with this module on that input; the disagreement was the point of
-writing two.
+Found by writing a second, independent implementation of this rule and running it
+against the same ledgers: it reported `broken` where this module reported `intact`.
+Two implementations disagreeing is the point of having two.
 
 **Split the file on `"\n"` only, never `str.splitlines()`.** `splitlines()` also
 breaks on U+2028, U+2029, U+0085, \v and \f, and a record written with
@@ -63,11 +63,12 @@ A missing record in the *middle* surfaces as a `seq` gap.
 ## `actor`: provenance, not identity
 
 `owner` (cookie-authenticated request) · `agent` (the `/internal/*` sandbox-tool
-surface) · `cli` · `fleet` · `unknown`. Ava has no user model — the session
+surface) · `cli` · `control-plane` · `unknown`. Ava has no user model — the session
 cookie has no subject field — so this answers "did I do this, or did my agent?",
 which was previously unanswerable for every event in the ledger. It does not
 answer "which person", and inventing that to fill the column would duplicate the
-fleet's `users` table for nothing. An unwired call site records `unknown` rather
+a multi-user control plane's own account table for nothing. An unwired call
+site records `unknown` rather
 than a plausible guess.
 """
 from __future__ import annotations
@@ -116,10 +117,11 @@ CHAIN_ALGO = "sha256"
 
 # Provenance of an action, NOT the identity of a person. Ava has no user model —
 # the session cookie has no subject field — and inventing one to fill an audit
-# column would duplicate the fleet's `users` table for no gain. "Did I do this or
+# column would duplicate a control plane's own account table for no gain. "Did I
+# do this or
 # did my agent?" is a real single-owner question that was unanswerable; "which of
 # my colleagues?" is not a question this product has.
-ACTORS = ("owner", "agent", "cli", "fleet", "unknown")
+ACTORS = ("owner", "agent", "cli", "control-plane", "unknown")
 
 _actor: contextvars.ContextVar[str] = contextvars.ContextVar("ava_audit_actor",
                                                             default="")

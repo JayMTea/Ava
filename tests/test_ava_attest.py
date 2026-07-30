@@ -12,7 +12,7 @@ Two properties carry this file:
   `ceiling` and `usage` each need a second party. A single host claiming any of them
   would be asserting isolation from itself, so they appear in `not_measured` with the
   reason.
-* **The voiceprint digest is INCLUDED here and WITHHELD by the fleet bundle**, and the
+* **The voiceprint digest is INCLUDED here and WITHHELD by a multi-tenant bundle**, and the
   asymmetry is deliberate: this is the owner attesting about their own box, where the
   digest is what makes destruction provable. `--redact-biometrics` is the switch for
   handing it to anyone else, and the CLI warns when it was not passed.
@@ -32,7 +32,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 from ava_bridge import attest  # noqa: E402
 
-FLEET_ARTIFACTS = {"container", "containment", "ceiling", "usage"}
+CONTROL_PLANE_ARTIFACTS = {"container", "containment", "ceiling", "usage"}
 
 
 # ---- the subset relationship -------------------------------------------------- #
@@ -41,7 +41,7 @@ def test_it_produces_exactly_the_four_single_host_artifacts() -> None:
     assert set(b["artifacts"]) == {"stores", "policies", "chain", "health"}
 
 
-def test_the_fleet_only_artifacts_are_NAMED_not_silently_absent() -> None:
+def test_the_control_plane_only_artifacts_are_NAMED_not_silently_absent() -> None:
     """A missing artifact and a deliberately-absent one look identical otherwise."""
     b = attest.build(now=0.0)
     why = " ".join(n["what"] + " " + n["why"] for n in b["summary"]["not_measured"])
@@ -84,7 +84,7 @@ def test_an_unknown_state_or_class_is_refused() -> None:
         attest.Artifact(name="x", state="collected", evidence_class="proof")
 
 
-def test_the_state_and_class_vocabularies_match_the_fleets() -> None:
+def test_the_state_and_class_vocabularies_are_the_shared_ones() -> None:
     """Two schemas, one vocabulary — a reader should not have to relearn it."""
     assert attest.STATES == ("collected", "degraded", "unavailable", "unknown")
     assert attest.EVIDENCE_CLASSES == ("measurement", "configuration", "inventory")
@@ -92,9 +92,10 @@ def test_the_state_and_class_vocabularies_match_the_fleets() -> None:
 
 # ---- the chain, and its honest limitation ------------------------------------- #
 def test_the_chain_artifact_admits_it_is_self_reported() -> None:
-    """The fleet has a control plane recompute this. One box has nobody to ask.
+    """A multi-tenant bundle has the control plane recompute this. One box has
+    nobody to ask.
 
-    Saying so is the difference between a limitation and a lie: the fleet bundle
+    Saying so is the difference between a limitation and a lie: a multi-tenant bundle
     refuses to ask Ava whether Ava's ledger is intact, and here there is no
     alternative — so the caveat has to travel with the number.
     """
@@ -131,7 +132,7 @@ def test_the_digest_is_included_by_default_for_the_owners_own_box() -> None:
         pytest.skip("no voiceprint enrolled on this box")
     assert vp["digest"], (
         "the digest is absent by default. On the owner's own box it is what makes "
-        "destruction provable (docs/BIOMETRICS.md); the fleet bundle withholds it "
+        "destruction provable (docs/BIOMETRICS.md); a multi-tenant bundle withholds it "
         "because that one goes to a third party.")
     assert "before sharing" in vp["digest_note"]
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify an `ava-attest-multi/1` bundle. Stdlib only; imports nothing from the fleet.
+"""Verify an `ava-attest/*` bundle. Stdlib only; imports nothing from Ava.
 
     python3 verify.py .              # verify the bundle in this directory
     python3 verify.py . --self-test  # prove the verifier can FAIL
@@ -17,9 +17,7 @@ different claims and conflating them would make an unsigned bundle look tampered
 
 `--self-test` is not optional. It mutates a byte of an in-memory copy and asserts the
 verifier reports MISMATCH, because **a verifier that always prints `ok` is
-indistinguishable from one that works.** The fleet's own CI holds its `import-clean`
-job to the same standard: that job deliberately writes under HOME and fails if the
-detector does not notice.
+indistinguishable from one that works.** A clean run alone evidences nothing.
 """
 from __future__ import annotations
 

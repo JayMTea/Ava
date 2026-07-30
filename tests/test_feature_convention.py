@@ -91,7 +91,8 @@ def test_every_feature_is_pinnable_from_outside_the_process() -> None:
     — a control plane, a compose profile, a systemd unit, or a `docker run -e`.
 
     This was not hypothetical: `image` and `web_search` shipped without one, so a
-    fleet feature ceiling could express three of the five capability switches and
+    control plane's feature ceiling could express only some of the capability
+    switches and
     silently ignore the other two. Two of the flags it could not pin were the ones
     that reach the network and write files.
     """

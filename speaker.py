@@ -61,7 +61,7 @@ def load_voiceprint(path: str = ""):
     Docker rebuild or AVA_HOME move never silently loses the enrollment."""
     # Resolved at CALL time, not bound as a default. `path: str = VOICEPRINT`
     # froze the module constant at import, so anything that reconfigured AVA_HOME
-    # afterwards (a test, a simulator, a fleet instance) got the original path
+    # afterwards (a test, a simulator, a managed instance) got the original path
     # here while `voiceprint_paths()` reported the new one — the loader and the
     # deleter could disagree about where the biometric lives, which is the worst
     # possible pair of functions to have out of step.

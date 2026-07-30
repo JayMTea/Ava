@@ -214,9 +214,9 @@ def test_the_first_chained_record_after_a_LEGACY_tail_chains_to_it(ledger) -> No
     precedes it and does not inspect it for a `seq`, so the first chained record
     carries `prev` = the digest of the last LEGACY line — not "".
 
-    Found by `a-control-plane/chain.py`, a second implementation written from the
-    documented rule, reporting `broken` at seq 1 where this module reports `intact`.
-    Two implementations disagreeing is the entire reason for writing two.
+    Found by a second, independent implementation written from the documented rule
+    alone, which reported `broken` at seq 1 where this module reports `intact`. Two
+    implementations disagreeing is the entire reason for writing two.
     """
     ledger.write_text('{"ts": 1, "kind": "old"}\n{"ts": 2, "kind": "old"}\n',
                       encoding="utf-8")

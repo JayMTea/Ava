@@ -236,7 +236,7 @@ def test_the_security_check_passes_on_the_tracked_policies() -> None:
 
 @pytest.mark.parametrize("digest_of", ["declared", "generated"])
 def test_every_policy_carries_a_content_digest(digest_of) -> None:
-    """`fleet attest` embeds these; a name without a digest evidences nothing."""
+    """`ava attest` embeds these; a name without a digest evidences nothing."""
     pols = [p for p in policy_inventory.inventory() if p.source == digest_of]
     if not pols:
         pytest.skip(f"no {digest_of} policies on this box")
