@@ -50,4 +50,4 @@ trafilatura==2.1.0
 # No `[cli]` extra: that was a 0.x thing. Since 1.0 the `hf` console script
 # ships in the base package, and asking for a nonexistent extra only earns a
 # pip warning.
-huggingface_hub==1.21.0
+huggingface_hub==1.25.1

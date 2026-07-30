@@ -20,6 +20,6 @@
 # surfaces later, inside speechbrain, as a broken voice gate rather than an install
 # error. Bump these two together, and only after importing both.
 faster-whisper==1.2.1
-torch==2.12.1
+torch==2.13.0
 torchaudio==2.11.0
 speechbrain==1.1.0
