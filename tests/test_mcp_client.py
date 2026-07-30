@@ -206,7 +206,7 @@ class TestHttpTransport(unittest.TestCase):
     def test_session_id_echoed_and_tools_listed(self):
         calls = []
 
-        def fake_post(url, json=None, headers=None, timeout=None):
+        def fake_post(url, json=None, headers=None, timeout=None, **kw):
             calls.append({"url": url, "json": json, "headers": headers})
             method = (json or {}).get("method")
             if method == "initialize":
@@ -227,7 +227,7 @@ class TestHttpTransport(unittest.TestCase):
         self.assertEqual(calls[-1]["headers"].get("Mcp-Session-Id"), "sess-42")
 
     def test_sse_response_parsed(self):
-        def fake_post(url, json=None, headers=None, timeout=None):
+        def fake_post(url, json=None, headers=None, timeout=None, **kw):
             method = (json or {}).get("method")
             if method == "initialize":
                 return _Resp({"jsonrpc": "2.0", "id": json["id"], "result": {}})

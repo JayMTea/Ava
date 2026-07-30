@@ -467,13 +467,52 @@ def base_url(cid: str) -> str | None:
     return None
 
 
+def proxy_token_env(m: dict) -> str | None:
+    """The env-var NAME whose value may be PRESENTED TO THE APP at ``ui.url``.
+
+    Deliberately narrower than ``auth_env``, and the difference is a security
+    boundary rather than a tidy-up. ``auth_env`` answers "which credential slot
+    does this connector own?" — the question the Hub's credential field asks, and
+    for an ``mcp:`` connector the honest answer is the MCP server's token. The app
+    proxy asks a different question: "which credential is this app's own?" Those
+    coincide for a REST app and diverge for an MCP one.
+
+    They used to share one implementation, so a manifest carrying BOTH
+    ``mcp.token_env`` and ``ui.embed: iframe`` had the MCP server's bearer
+    attached to every proxied request to ``ui.url`` — handing a token issued by
+    one host to a different host. The Setup Hub's own Connect-an-app form emits
+    exactly that manifest (an MCP url + a token + the sidebar-tile option), and
+    ``connectors/persona/connector.yaml`` carries a hand-written ``auth:`` block
+    whose comment exists only to work around it.
+
+    So: only a credential the manifest states belongs to the APP is proxyable —
+    ``auth.token_env`` (the REST app's own token, which the SSO contract in
+    docs/CONNECTOR_SDK.md §3 is about) or ``ui.api.token_env`` (declared for the
+    browser data-proxy). An ``mcp``/``discover`` token is server-side only and is
+    never presented to a UI.
+    """
+    if not isinstance(m, dict):
+        return None
+    auth = m.get("auth")
+    if isinstance(auth, dict) and auth.get("token_env"):
+        return str(auth["token_env"])
+    ui = m.get("ui")
+    if isinstance(ui, dict) and isinstance(ui.get("api"), dict) \
+            and ui["api"].get("token_env"):
+        return str(ui["api"]["token_env"])
+    return None
+
+
 def auth_env(m: dict) -> str | None:
     """The env-var NAME a connector uses for its app credential, across every
     manifest shape — REST ``auth``, an ``mcp`` server, a ``discover`` facade, or
     a browser data-proxy (``ui.api``). Returns the first declared, or ``None`` if
     the app needs no auth. The Setup Hub uses this to show whether a credential is
     saved and to store one keyed by name — the value itself never enters the
-    manifest (see settings.env_secret / the Ava-never-has-passwords invariant)."""
+    manifest (see settings.env_secret / the Ava-never-has-passwords invariant).
+
+    For what may be sent TO the app, use ``proxy_token_env`` — this function is
+    deliberately broader and includes server-side-only tokens."""
     if not isinstance(m, dict):
         return None
     auth = m.get("auth")
@@ -557,10 +596,17 @@ def call_action(cid: str, aid: str, args: dict | None) -> tuple:
     headers = {"Content-Type": "application/json", **_auth_headers(cid)}
     import requests
     try:
+        # allow_redirects=False: this is the AGENT's path to a connector's API, and
+        # `headers` may carry the app's bearer. A followed redirect would let the
+        # app steer a token-bearing request to a host or path the manifest never
+        # declared — bypassing the egress policy, which constrains what the SANDBOX
+        # may reach, not what the bridge fetches on its behalf.
         if method == "GET":
-            r = requests.request("GET", url, params=args, headers=headers, timeout=60)
+            r = requests.request("GET", url, params=args, headers=headers, timeout=60,
+                                 allow_redirects=False)
         else:
-            r = requests.request(method, url, json=args, headers=headers, timeout=200)
+            r = requests.request(method, url, json=args, headers=headers, timeout=200,
+                                 allow_redirects=False)
         try:
             data = r.json()
         except Exception:  # noqa: BLE001
@@ -861,11 +907,16 @@ def app_token(cid: str) -> str:
     to the app's own UI: the same-origin app proxy injects this as the bearer when
     the browser sends none (a fresh embed has no app session of its own). Resolved
     only here on the bridge when building the egress request — never handed to the
-    browser or inherited by the sandboxed agent (Ava-never-has-passwords)."""
+    browser or inherited by the sandboxed agent (Ava-never-has-passwords).
+
+    Resolves through ``proxy_token_env``, NOT ``auth_env``: only a credential the
+    manifest states is the app's own may be presented to the app. An ``mcp:``
+    server's token is not, and forwarding it would hand a token issued by one host
+    to another."""
     m = {x["id"]: x for x in load()}.get(cid)
     if not m:
         return ""
-    name = auth_env(m)
+    name = proxy_token_env(m)
     return (settings.env_secret(name) or "") if name else ""
 
 
@@ -961,7 +1012,8 @@ def discover_tools(cid: str, query: str = "", limit: int = 0) -> dict:
         return {"error": f"connector {cid} has no discover base_url"}
     import requests
     try:
-        r = requests.get(base + spec["list"], headers=_discover_headers(spec), timeout=20)
+        r = requests.get(base + spec["list"], headers=_discover_headers(spec), timeout=20,
+                         allow_redirects=False)
         try:
             return _filter_tools(_remember(r.json()), query, limit)
         except Exception:  # noqa: BLE001
@@ -991,7 +1043,8 @@ def call_discovered(cid: str, name: str, args: dict | None) -> tuple:
     try:
         r = requests.post(base + spec["call"],
                           json={"name": name, "arguments": args or {}},
-                          headers=_discover_headers(spec), timeout=180)
+                          headers=_discover_headers(spec), timeout=180,
+                          allow_redirects=False)
         try:
             data = r.json()
         except Exception:  # noqa: BLE001

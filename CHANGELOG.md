@@ -8,6 +8,37 @@ pre-release milestones from when Ava ran on one box and nothing was tagged.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A connector's MCP token is no longer presented to its embedded UI.**
+  `app_token()` resolved through `auth_env()`, which returns the first credential
+  a manifest declares in any shape — including `mcp.token_env`. So a connector
+  with both an `mcp:` server and `ui.embed: iframe` had the MCP server's bearer
+  attached to every proxied request to `ui.url`: a token issued by one host handed
+  to another. Setup → Connectors' own Connect-an-app form emits exactly that
+  manifest when given an MCP url, a token and the sidebar-tile option. `auth_env`
+  stays as-is (the Hub's credential field is keyed off it, and for an MCP
+  connector the MCP token *is* the slot it owns); a new **`proxy_token_env`**
+  answers the narrower question the app proxy actually asks — only
+  `auth.token_env` or `ui.api.token_env`, the credentials a manifest states are
+  the app's own. The SSO contract in `docs/CONNECTOR_SDK.md` §3 is unchanged.
+  `tests/test_connector_egress_boundary.py`.
+- **Connector egress no longer follows redirects.** Every outbound request made
+  on a connector's behalf — both bridge app proxies, the agent's action proxy, the
+  `ava-tools/1` discover facade, and the MCP client on both HTTP transports — used
+  `requests`' default `allow_redirects=True`. An app answering `302 Location:
+  http://127.0.0.1:8010/…` therefore had the bridge fetch loopback and return the
+  body: an SSRF primitive with no guard, where `web_fetch` re-validates every hop
+  against one. Two aggravations: the UI proxy forwards the app's own bearer, and
+  `requests` strips `Authorization` only across *hosts*, so a same-host redirect
+  resent the credential to an attacker-chosen path; and for MCP, 307/308 preserve
+  the request body, so tool **arguments** would be resent to the redirect target.
+  A 3xx is now refused explicitly, and — because the status check is unreachable
+  for a notification — checked *before* the notification early-return, so a
+  redirected `notifications/initialized` can no longer leave a session marked
+  initialized against a server that never saw it. A static guard fails any future
+  bridge egress call that omits the kwarg.
+
 ### Changed
 
 - **A fork inherits no personality.** `agent/persona.txt.tmpl` used to hardcode

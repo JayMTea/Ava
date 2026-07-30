@@ -173,11 +173,26 @@ class _HttpSession(_Session):
 
     def _rpc(self, payload: dict, timeout: int) -> dict | None:
         import requests
+        # allow_redirects=False. MCP JSON-RPC has no use for redirects, and
+        # following one resends the POST BODY — i.e. the tool's arguments — to the
+        # redirect target. `requests` strips Authorization across hosts but 307/308
+        # preserve the body, so a hijacked or misconfigured server could harvest
+        # arguments without ever seeing the bearer.
         r = requests.post(self.spec["url"], json=payload,
-                          headers=self._headers(), timeout=timeout)
+                          headers=self._headers(), timeout=timeout,
+                          allow_redirects=False)
         sid = r.headers.get("Mcp-Session-Id") or r.headers.get("mcp-session-id")
         if sid:
             self._mcp_session_id = sid
+        # Checked BEFORE the notification early-return, deliberately: `>= 400`
+        # below is not reached for a notification, so without this a redirected
+        # `notifications/initialized` would return None and the session would be
+        # marked initialized against a server that never saw it. A 3xx is also not
+        # >= 400, so it would otherwise fall through to the JSON parse and surface
+        # as a misleading "non-JSON" error.
+        if 300 <= r.status_code < 400:
+            raise McpError(f"MCP server redirected ({r.status_code}) — refusing to "
+                           f"resend tool arguments to {r.headers.get('location','?')}")
         if "id" not in payload:      # notification — 202/204, no body expected
             return None
         if r.status_code >= 400:
@@ -224,7 +239,8 @@ class _SseSession(_Session):
         import requests
         self._stream = requests.get(
             spec["url"], headers=self._headers(accept="text/event-stream"),
-            stream=True, timeout=(_HTTP_TIMEOUT, None))  # connect timeout; stream stays open
+            stream=True, timeout=(_HTTP_TIMEOUT, None),  # connect timeout; stream stays open
+            allow_redirects=False)
         if self._stream.status_code >= 400:
             body = self._stream.text[:200]
             self._stream.close()
@@ -328,9 +344,13 @@ class _SseSession(_Session):
     def _rpc(self, payload: dict, timeout: int) -> dict | None:
         import requests
         r = requests.post(self._endpoint, json=payload,
-                          headers=self._headers(), timeout=_HTTP_TIMEOUT)
+                          headers=self._headers(), timeout=_HTTP_TIMEOUT,
+                          allow_redirects=False)
         if r.status_code >= 400:
             raise McpError(f"MCP SSE endpoint returned {r.status_code}: {r.text[:200]}")
+        if 300 <= r.status_code < 400:    # see the Streamable-HTTP note on redirects
+            raise McpError(f"MCP SSE endpoint redirected ({r.status_code}) — refusing "
+                           f"to resend tool arguments to {r.headers.get('location','?')}")
         if "id" not in payload:          # notification — nothing comes back
             return None
         want = payload["id"]

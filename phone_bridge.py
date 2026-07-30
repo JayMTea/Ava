@@ -457,13 +457,24 @@ async def app_api_proxy(cid: str, path: str, request: Request):
             headers["Authorization"] = request.headers["authorization"]
     body = await request.body() if request.method in ("POST", "PATCH", "PUT") else None
 
+    # allow_redirects=False on every branch: a connector's own API is trusted to
+    # answer, not to re-point the bridge somewhere else. Following a redirect here
+    # is an SSRF primitive — the app returns `302 Location:
+    # http://127.0.0.1:8010/...` and the bridge fetches loopback on its behalf and
+    # hands the body back. `web_fetch` re-validates every hop against an SSRF guard
+    # (ava_bridge/web.py:108); this path had no guard at all, so it refuses hops
+    # instead. A 3xx is forwarded to the browser, which is what a same-origin
+    # fetch would do anyway.
     def _do():
         if request.method in ("POST", "PATCH", "PUT"):
             return requests.request(request.method, url, params=params, data=body,
-                                    headers=headers, timeout=200)
+                                    headers=headers, timeout=200,
+                                    allow_redirects=False)
         if request.method == "DELETE":
-            return requests.delete(url, params=params, headers=headers, timeout=60)
-        return requests.get(url, params=params, headers=headers, timeout=60)
+            return requests.delete(url, params=params, headers=headers, timeout=60,
+                                   allow_redirects=False)
+        return requests.get(url, params=params, headers=headers, timeout=60,
+                            allow_redirects=False)
 
     try:
         r = await run_in_threadpool(_do)
@@ -501,14 +512,21 @@ async def app_ui_proxy(cid: str, path: str, request: Request):
     elif request.headers.get("authorization"):
         fwd["Authorization"] = request.headers["authorization"]
 
+    # allow_redirects=False — see the note on the data-proxy above. This path is
+    # the more exposed of the two: `fwd` can carry the app's own bearer, and
+    # `requests` strips Authorization only across HOSTS, so a same-host redirect
+    # would resend the credential to an attacker-chosen path on that host.
     def _do():
         if request.method in ("POST", "PATCH", "PUT"):
             ct = request.headers.get("content-type", "application/json")
             return requests.request(request.method, url, params=params, data=body,
-                                    headers={"content-type": ct, **fwd}, timeout=180)
+                                    headers={"content-type": ct, **fwd}, timeout=180,
+                                    allow_redirects=False)
         if request.method == "DELETE":
-            return requests.delete(url, params=params, headers=fwd or None, timeout=60)
-        return requests.get(url, params=params, headers=fwd or None, timeout=60)
+            return requests.delete(url, params=params, headers=fwd or None, timeout=60,
+                                   allow_redirects=False)
+        return requests.get(url, params=params, headers=fwd or None, timeout=60,
+                            allow_redirects=False)
 
     try:
         r = await run_in_threadpool(_do)
