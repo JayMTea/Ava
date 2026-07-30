@@ -79,6 +79,55 @@ from ava_bridge.model_fit import recommend_tier as _recommend_tier  # noqa: E402
 from ava_bridge import models  # noqa: E402
 
 
+def cmd_attest(args) -> int:
+    """Evidence bundle: what this box can show about itself, and what it cannot.
+
+    Human summary by default. `--out DIR` is the ONLY thing that writes and has no
+    default — no fallback under AVA_HOME — so a plain run disturbs nothing.
+
+    Exit 0 clean / 1 the audit chain is broken / 2 something could not be measured.
+    """
+    from ava_bridge import attest as _attest
+
+    bundle = _attest.build(redact_biometrics=args.redact_biometrics)
+    s = bundle["summary"]
+
+    if args.json:
+        print(json.dumps(bundle, indent=2, sort_keys=True))
+    else:
+        print(f"\n{B}ava attest{X}  {bundle['schema']}  "
+              f"({s['artifacts']} artifacts)\n")
+        for name, art in sorted(bundle["artifacts"].items()):
+            mark = OK if art["state"] == "collected" else WARN
+            _row(mark, name, f"{art['state']} · {art['evidence_class']}")
+            if art.get("reason"):
+                print(f"      {art['reason'][:104]}")
+        print()
+        if s["complete"]:
+            print(f"{OK} every collector answered in full.")
+        else:
+            print(f"{WARN} INCOMPLETE — {', '.join(s['incomplete'])}")
+        print(f"    measurements: {', '.join(s['measurements'])}")
+        print(f"    {len(s['not_measured'])} thing(s) a single host cannot attest "
+              "to (--json for the reasons)")
+        if not args.redact_biometrics:
+            vp = ((bundle["artifacts"]["stores"].get("data") or {})
+                  .get("stores", {}).get("voiceprint") or {})
+            if vp.get("digest"):
+                print(f"    {WARN} this bundle contains your voiceprint's digest. "
+                      "Pass --redact-biometrics before sharing it.")
+
+    if args.out:
+        wrote = _attest.write_bundle(bundle, args.out)
+        print(f"    {OK} wrote {len(wrote)} file(s) to {args.out}")
+        print(f"      verify it with: cd {args.out} && python3 verify.py . "
+              "--self-test")
+
+    chain = bundle["artifacts"]["chain"].get("data") or {}
+    if chain.get("state") == "broken":
+        return 1
+    return 2 if not s["complete"] else 0
+
 def cmd_doctor(_args) -> int:
     print(f"\n{B}Ava doctor{X}  (AVA_HOME = {settings.AVA_HOME})\n")
 
@@ -1522,8 +1571,23 @@ def cmd_alloc(args) -> int:
 
 
 def main() -> int:
+    # Everything this process records is attributable to a person at a terminal,
+    # not to the agent — set once here rather than at each cmd_* handler.
+    try:
+        from ava_bridge import audit
+        audit.set_actor("cli")
+    except Exception:  # noqa: BLE001 — `ava --help` must not need the package
+        pass
     p = argparse.ArgumentParser(prog="ava", description="Ava control CLI")
     sub = p.add_subparsers(dest="cmd")
+    atp = sub.add_parser("attest", help="evidence bundle: what this box can show, "
+                                       "and what it cannot")
+    atp.add_argument("--json", action="store_true")
+    atp.add_argument("--out", help="write the bundle here (the ONLY thing that writes)")
+    atp.add_argument("--redact-biometrics", action="store_true",
+                     dest="redact_biometrics",
+                     help="omit the voiceprint digest — pass this before sharing")
+    atp.set_defaults(func=cmd_attest)
     sub.add_parser("doctor", help="check the environment").set_defaults(func=cmd_doctor)
     sub.add_parser("verify", help="end-to-end claim check (connectors, learning, governance, health)").set_defaults(func=cmd_verify)
     sp = sub.add_parser("setup", help="first-run setup (dirs, secrets, password, ava.yaml)")
