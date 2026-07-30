@@ -3,6 +3,20 @@
 Thanks for helping build Ava — a self-hosted personal AI operating layer.
 This guide covers the development workflow for a fresh clone or fork.
 
+Ava is maintained by **Joshua Thompson** ([@JayMTea](https://github.com/JayMTea)).
+Open an [issue](https://github.com/JayMTea/Ava/issues) to ask anything, propose
+something, or just say what you are building — that is the front door, and it is a
+better one than email because the answer stays where the next person can find it.
+Security reports go privately instead, per [SECURITY.md](SECURITY.md).
+
+**The most valuable contribution right now is a hardware report.** Ava claims four
+first-class platform families and only some are verified on real silicon; the rest are
+labelled `ci-simulated` in [deploy/platforms.conf](deploy/platforms.conf) precisely
+because nobody has run them. If you have an AMD Strix Halo, a discrete Radeon, an
+Apple Silicon Mac or a plain x86 box, `python3 tools/ondevice_check.py --record
+--json` produces the fixture and report that promote a row from claimed to verified —
+or a concrete defect list, which is just as useful.
+
 ## 1. Local setup
 
 ```bash

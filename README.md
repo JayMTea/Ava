@@ -213,7 +213,33 @@ Ava monitors and drives, is a **connector** you can drop in.
 - **Architecture**: [system overview](docs/assets/architecture.svg)
 - **Agent runtime**: [docs/AGENT_RUNTIME.md](docs/AGENT_RUNTIME.md)
 
+## Author
+
+Ava is built and maintained by **Joshua Thompson** ([@JayMTea](https://github.com/JayMTea)).
+
+Open to collaboration — if you are building something adjacent, porting Ava to
+hardware I cannot test on, or want to talk about any of it:
+
+- **Issues and discussion**: [github.com/JayMTea/Ava/issues](https://github.com/JayMTea/Ava/issues)
+- **Contributing**: [CONTRIBUTING.md](CONTRIBUTING.md)
+- **Security reports**: privately, per [SECURITY.md](SECURITY.md)
+
+Hardware reports are the single most useful contribution right now: Ava claims
+support for four platform families and only some of them have been verified on real
+silicon. `python3 tools/ondevice_check.py --record --json` on yours produces exactly
+the evidence the support matrix is missing.
+
+## Citation
+
+If you write about Ava or build on it, GitHub's **Cite this repository** button reads
+[CITATION.cff](CITATION.cff) and will give you APA or BibTeX.
+
 ## License
 
-[Apache-2.0](LICENSE) © The Ava Authors. Bundled models and third-party components
+[Apache-2.0](LICENSE) © 2026 Joshua Thompson. Bundled models and third-party components
 carry their own licenses; see [NOTICE](NOTICE).
+
+Forking and commercial use are both fine and need no permission. Apache-2.0 asks two
+things of a redistribution: keep the license and copyright notices, and carry
+[NOTICE](NOTICE) along with it (§4). It grants no trademark rights (§6), so please do
+not present a fork as the original.

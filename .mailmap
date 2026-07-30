@@ -1,0 +1,27 @@
+# Canonical identities for `git shortlog`, `git log` and every tool that reads them.
+#
+# Two reasons this file exists, and the second is the load-bearing one:
+#
+# 1. One person should appear once. `git shortlog -sne` listed "Joshua Thompson"
+#    twice, under two addresses, which makes a solo project look like two people who
+#    each did half the work.
+#
+# 2. It moves a personal address OUT of what tooling displays. Eight early commits
+#    carry a personal inbox in their author metadata. That cannot be removed without
+#    rewriting history, and rewriting public history to hide an address that is
+#    already published would be a lot of breakage for no gain. Mapping it here means
+#    `git log`, `git shortlog`, GitHub's contributor views and anything else honouring
+#    .mailmap all render the GitHub noreply address instead. The raw commit objects
+#    still hold the original — this is presentation, not redaction, and claiming
+#    otherwise would be the kind of overstatement this repo's docs try to avoid.
+#
+# Format: <canonical name and email> <email to rewrite>
+
+Joshua Thompson <74799121+JayMTea@users.noreply.github.com> <74799121+JayMTea@users.noreply.github.com>
+Joshua Thompson <74799121+JayMTea@users.noreply.github.com> <74799121+JayMTea@users.noreply.github.com>
+
+# Automation, so it is never mistaken for a human contributor. `Ava (auto-sync)` is
+# this repo's own pre-commit hook regenerating diagrams — it is the project writing to
+# itself, and reading it as an author overstates the contributor count.
+Ava (auto-sync) <ava@localhost> <ava@localhost>
+dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com> <49699333+dependabot[bot]@users.noreply.github.com>

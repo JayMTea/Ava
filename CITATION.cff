@@ -1,0 +1,40 @@
+# Citation File Format — https://citation-file-format.github.io
+#
+# GitHub reads this and renders a "Cite this repository" button on the repo page,
+# offering APA and BibTeX. That is the point of the file: it turns "who made this"
+# from something you dig out of git log into something the platform surfaces.
+#
+# `version` is a COPY of the VERSION file, so tests/test_version_ssot.py asserts the
+# two agree. Same reason deploy/model-flags.conf and the Node pin carry guards: this
+# repo has been bitten repeatedly by one moving number restated in several places,
+# and a stale citation is worse than none because people paste it verbatim.
+cff-version: 1.2.0
+message: "If you use Ava, build on it, or write about it, please cite it as below."
+title: "Ava: a private, self-hosted AI assistant that runs on your own hardware"
+abstract: >-
+  Ava is a self-hosted personal AI assistant: chat, voice, images and agentic code
+  changes, running entirely on hardware you own. It bundles an inference engine, an
+  agent runtime in a sandbox with deny-by-default egress policy, a connector SDK for
+  wiring in your own applications, and an operations dashboard that reports what it
+  has actually measured — including a data page that lists every store it keeps, with
+  audited deletes and a destruction path for biometric voiceprints.
+type: software
+authors:
+  - family-names: Thompson
+    given-names: Joshua
+    alias: JayMTea
+    # No email on purpose: this file is published and scraped. The GitHub profile is
+    # the reachable route, and it is the same one NOTICE names.
+repository-code: "https://github.com/JayMTea/Ava"
+url: "https://jaymtea.github.io/Ava/"
+license: Apache-2.0
+version: 0.1.0
+keywords:
+  - self-hosted
+  - personal-ai
+  - llm
+  - voice-assistant
+  - agent
+  - privacy
+  - on-device
+  - homelab

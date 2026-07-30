@@ -31,6 +31,16 @@ name = "ava"
 description = "Your private AI: self-hosted, on your hardware, wired to your world."
 readme = "README.md"
 license = { file = "LICENSE" }
+# Deliberately the GitHub noreply address rather than a personal inbox: this field
+# ends up in published package metadata, which is scraped. The reachable route is
+# the GitHub profile, and it is the same one NOTICE and CITATION.cff name.
+authors = [
+    { name = "Joshua Thompson", email = "74799121+JayMTea@users.noreply.github.com" },
+]
+maintainers = [
+    { name = "Joshua Thompson", email = "74799121+JayMTea@users.noreply.github.com" },
+]
+urls = { Homepage = "https://github.com/JayMTea/Ava", Documentation = "https://jaymtea.github.io/Ava/", Source = "https://github.com/JayMTea/Ava", Issues = "https://github.com/JayMTea/Ava/issues" }
 # 3.12 is what CI runs, what deploy/Dockerfile ships, and what ruff targets.
 requires-python = ">=3.12"
 dynamic = ["version", "dependencies"]

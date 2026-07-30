@@ -263,12 +263,15 @@ Scope caveats, so you do not over-read a clean run:
 
 Please report security issues **privately**, not in public issues or PRs:
 
-- Preferred, once the repository is public: GitHub **Private vulnerability
-  reporting** (repo → Security → *Report a vulnerability*), which opens a
-  private advisory thread.
-- While the repository is private that Security tab is not reachable, so there
-  is no advisory form to file against. Contact the maintainer directly through
-  the [GitHub profile](https://github.com/JayMTea) instead.
+- Preferred: GitHub **Private vulnerability reporting** —
+  [open an advisory](https://github.com/JayMTea/Ava/security/advisories/new), or
+  repo → Security → *Report a vulnerability*. That opens a private thread visible
+  only to you and the maintainer.
+- If that form is unavailable to you for any reason, contact the maintainer
+  through the [GitHub profile](https://github.com/JayMTea) instead. There is
+  deliberately no published email address: an inbox in a public repository gets
+  scraped, and a report sent to a scraped address is a report that competes with
+  spam. The advisory thread is both more private and more reliable.
 - Include: affected version (`ava version`), a description, and reproduction steps.
 - Expect an acknowledgement within a few days. Coordinated disclosure: we will
   agree on a fix and disclosure timeline before any public write-up.
