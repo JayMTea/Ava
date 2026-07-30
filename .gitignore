@@ -127,6 +127,14 @@ docs-site/site/
 # live in .git/info/exclude (local-only) so their names aren't published — see
 # the note above the DEV_NOTES.md block.
 connectors/home-assistant/
+# Runtime installs of the shipped example apps. `examples/<id>/` is the tracked
+# source; each README's step 2 copies the folder to `$AVA_HOME/connectors/<id>`,
+# and on this box AVA_HOME is the repo root — so without these entries a stray
+# `git add -A` commits a second copy of every example, which then drifts from the
+# one in examples/ and is the version a forker never sees.
+connectors/stridewell/
+connectors/ledgerline/
+connectors/hearthwire/
 .venv-tts/
 
 # Agent/editor runtime config — drives the local-only demo/ harness, so it

@@ -1,0 +1,58 @@
+# Example HOME CONTROL connector — "Hearthwire".
+#
+# Hearthwire is a fictional app invented for the examples and the screenshots. It is
+# the case the other two cannot show: an app that **moves things in the physical
+# world**. A wrong call here does not leak data, it unlocks a door.
+#
+#   cp -r examples/hearthwire "$AVA_HOME/connectors/hearthwire"
+#   python examples/hearthwire/server.py &
+# then restart Ava. See docs/CONNECTOR_SDK.md and docs/DEVICE_CONNECTORS.md.
+id: hearthwire
+label: Hearthwire (example)
+kind: app
+
+ui:
+  label: Hearthwire
+  icon: gauge
+  color: "#e8a33d"
+  section: apps
+  order: 50
+  embed: iframe
+  url: "http://127.0.0.1:8483"
+
+service:
+  name: Hearthwire
+  probe: "http://127.0.0.1:8483/health"
+
+actions:
+  discover:
+    base: "http://127.0.0.1:8483"
+    list: "/tools"
+    call: "/call"
+
+# `physical` is the one tier Ava will NEVER infer for you (see `_infer_access`) —
+# it has to be declared, and once declared it cannot be granted away. That is the
+# whole reason this block exists: without it, `unlock_front_door` would fall back to
+# `write` and be treated as an ordinary mutation, indistinguishable from renaming a
+# scene. The lock is not a row in a database.
+#
+# fnmatch, first match wins, so the specific patterns precede the catch-all. The
+# reads (temperature, which lights are on) stay `read` — knowing the hallway light
+# is on is not the same act as switching it.
+dynamic_access:
+  unlock_*: physical
+  lock_*: physical
+  set_*: physical
+  run_scene: physical
+  "*": read
+
+# Even among `physical` calls, the door is different in kind. Lights and thermostats
+# are trivially reversible by the owner standing in the room; a lock is the one that
+# can let a stranger in, so it gets an explicit confirmation the others do not need.
+confirm:
+  - unlock_front_door
+
+egress:
+  routes:
+    - "GET /internal/connector/hearthwire/__tools"
+    - "POST /internal/connector/hearthwire/__call"

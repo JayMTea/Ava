@@ -1,0 +1,50 @@
+# Example PERSONAL FINANCE connector — "Ledgerline".
+#
+# Ledgerline is a fictional app invented for the examples and the screenshots. It
+# is the read-mostly case: an app whose entire surface is sensitive even though
+# almost nothing it exposes mutates anything.
+#
+#   cp -r examples/ledgerline "$AVA_HOME/connectors/ledgerline"
+#   python examples/ledgerline/server.py &
+# then restart Ava. See docs/CONNECTOR_SDK.md.
+id: ledgerline
+label: Ledgerline (example)
+kind: app
+
+ui:
+  label: Ledgerline
+  icon: chart
+  color: "#5b7cfa"
+  section: apps
+  order: 40
+  embed: iframe
+  url: "http://127.0.0.1:8482"
+
+service:
+  name: Ledgerline
+  probe: "http://127.0.0.1:8482/health"
+
+actions:
+  discover:
+    base: "http://127.0.0.1:8482"
+    list: "/tools"
+    call: "/call"
+
+# Every tool is `sensitive`, including the pure reads. Balances and transaction
+# history do not become harmless by being read-only — the tier answers "what does
+# it cost if this leaves the box", and for account data the answer is the same
+# whether the call mutated anything or not. There is no `read` pattern here on
+# purpose; adding one would be the mistake this example exists to prevent.
+dynamic_access:
+  "*": sensitive
+
+# An explicit author gate on the one tool that produces a portable file. Ava asks
+# the owner before it runs, even though the tool only reads: a statement export is
+# the step that turns "Ava can see my accounts" into an artifact that can leave.
+confirm:
+  - export_statements
+
+egress:
+  routes:
+    - "GET /internal/connector/ledgerline/__tools"
+    - "POST /internal/connector/ledgerline/__call"
