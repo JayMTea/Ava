@@ -28,6 +28,21 @@ pre-release milestones from when Ava ran on one box and nothing was tagged.
 
 ### Fixed
 
+- **`/api/talk` ran the entire voice turn on the event loop.** ffmpeg decode (30s
+  ceiling), the speaker embedding, CPU Whisper, the agent turn (`OC_TIMEOUT`, up
+  to 600s) and an image pickup that polls for 120s were all synchronous calls in
+  an `async def`, so one voice turn froze every SSE stream, the dashboard and the
+  login gate for its whole duration. `/api/talk-text` had the same shape. Both now
+  hand each step to `run_in_threadpool`, the idiom already used 9× in the same
+  file. `tests/test_no_blocking_routes.py` reported green throughout because its
+  curated blocklist named only two document helpers — the voice and turn seams are
+  now in it, so the next one fails at review.
+- **Chat's Code mode pointed users at a 404.** Flipping the composer toggle
+  printed "open the classic UI at /legacy", and that panel POSTs to
+  `/api/code/turn`, which no longer exists — only `/api/code/models` and
+  `/api/code-turns` survived the move to the approval-gated Control Center. The
+  message now names the Control Center, and the legacy panel says it is unwired
+  instead of reporting "could not start".
 - **Every published screenshot and tour video re-captured.** The tracked media
   still rendered an unannounced sibling project's name and a maintainer-local
   checkpoint name into the app sidebar, an approval banner and a model chip.

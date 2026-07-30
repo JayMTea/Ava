@@ -16,6 +16,20 @@ cd frontend && npm ci && npm run build && cd ..
 ./bin/ava up         # web app on http://localhost:8096
 ```
 
+**`doctor` exits 2 until something can answer a prompt, and that is expected on a
+fresh clone** — you have no engine yet, so the inference row is red by design.
+The app still starts, and every surface that does not need a model works. When you
+do want one, the shortest path on any machine (no GPU required) is the Ollama
+profile:
+
+```bash
+cd deploy && cp profiles/cpu.env .env && docker compose up -d
+```
+
+You do not need a model at all to work on the SPA, the Setup hub, the docs, or
+anything in `tests/` — the suite is hermetic and needs neither a GPU nor a
+running bridge.
+
 Optional extras: `pip install -r requirements-voice.txt` enables STT + the
 voice gate (the app runs voice-less without it), and
 `pip install -r requirements-docs.txt` builds the docs site (`docs-site/`).
@@ -39,6 +53,16 @@ prebuilt bundle so a fork needs no Node at runtime. If you touch
 `frontend/src/`, rebuild and commit the regenerated `dist/` in the same
 commit (`cd frontend && npm run build`). CI fails the PR if `dist/` drifts
 from `src/`.
+
+If two branches both touch the SPA you will get a merge conflict in `dist/`,
+because the bundle filename is content-hashed and `dist/sw.js` is one long line.
+**Never hand-merge it.** Take either side, rebuild, and commit the result:
+
+```bash
+git checkout --ours frontend/dist   # either side works; it is regenerated
+cd frontend && npm run build && cd ..
+git add frontend/dist
+```
 
 ## 4. Conventions
 
