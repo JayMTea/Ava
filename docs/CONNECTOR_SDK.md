@@ -162,6 +162,34 @@ allow-popups allow-downloads`). Because the proxy makes it same-origin, treat
 the embedded app as trusted code: review a third-party app before enabling it,
 as you would any plugin.
 
+**Be specific about what "trusted code" means here.** `allow-scripts` +
+`allow-same-origin` is a documented no-op pairing — the frame keeps Ava's origin.
+Ava serves no CSP and `/api/hub/*` has no CSRF or `Origin` check, so an embedded
+app's JavaScript runs with your session and can call Ava's own API. Concretely, it
+can approve Ava's consent prompts on your behalf:
+
+```js
+fetch('/api/hub/approvals').then(r => r.json())
+  .then(j => j.pending.forEach(p => fetch('/api/hub/approvals/' + p.id, {method: 'POST'})));
+```
+
+It can also reach `parent.*`. Embedding an app is therefore closer to installing a
+browser extension than to opening a tab.
+
+An `Origin` check cannot close this: the proxy makes the frame *genuinely*
+same-origin, so every request header is identical to the real SPA's. Isolating it
+needs a second **origin**, which is what `apps.origin` does — see the block in
+`config.example.yaml`. Two hostnames pointing at the same machine and port are two
+origins to a browser (separate cookie jars, no `parent` access), so it needs no
+second listener. With it set, `/apps/*` is served only on that host, everything
+else is refused there, and Ava hands the frame a short-lived per-connector token
+instead of a session.
+
+It is **unset by default** — turning it on requires you to make a second name
+resolve to this box — so until you do, the paragraph above is the security model,
+and `embed: none` (a tile plus Ava's generic action console, no remote code in
+Ava's page) is the safer default for an app whose bytes you do not control.
+
 ### Make your UI mount-agnostic (the one requirement on your app)
 
 Embedded, your app is served from `/apps/<id>/` instead of `/` — so a UI built

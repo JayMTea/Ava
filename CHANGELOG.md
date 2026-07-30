@@ -112,6 +112,28 @@ pre-release milestones from when Ava ran on one box and nothing was tagged.
 
 ### Added
 
+- **`apps.origin` — serve embedded connector UIs from their own browser origin.**
+  Ava reverse-proxies a connector's UI under `/apps/<cid>/` on its *own* origin, and
+  `AppFrame` sandboxes the iframe `allow-scripts allow-forms allow-same-origin` — a
+  pairing that keeps Ava's origin. Ava serves no CSP and `/api/hub/*` has no CSRF or
+  Origin check, so the session cookie was the only gate and a same-origin frame sends
+  it: an embedded app's JavaScript could call Ava's API, including
+  `POST /api/hub/approvals/<id>` to approve Ava's own consent prompts, and could read
+  `parent.*`. Acceptable for a loopback app the owner wrote; not for a
+  remotely-served one whose bundle can change without the owner touching Ava.
+  **An `Origin` check cannot fix this** — the proxy makes the frame *genuinely*
+  same-origin, so `Origin`, `Sec-Fetch-Site` and any CSRF token are byte-identical to
+  the real SPA's. Setting `apps.origin` to a second hostname pointing at the same
+  machine and port makes them two browser origins: `/apps/*` is served only on that
+  host, everything else is refused there, and the shell hands the iframe a
+  short-lived per-connector token via `GET /api/apps/<cid>/embed` because the apps
+  origin deliberately has no session. No second listener and no systemd or Docker
+  change — two names on one port are already two origins.
+  **Unset by default, and that default is the unsafe one:** turning it on requires
+  the owner to make a second name resolve to the box, so defaulting it on would break
+  every existing install's app tiles. `/api/apps` now returns an `apps_origin`
+  block carrying that warning so Setup can surface it.
+  `ava_bridge/apps_origin.py`, `tests/test_apps_origin.py`.
 - **`agent/mcp_server_connectors/` — the capability group that was minted and
   unused.** `install.sh` handed out a `connectors` token and `group_may()` enforced
   a `connectors` scope, but no server existed behind it, so the generated per-app

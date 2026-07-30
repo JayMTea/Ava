@@ -333,6 +333,34 @@ def _is_ingest(path: str) -> bool:
 
 async def auth_gate(request: Request, call_next):
     path = request.url.path
+    # ORIGIN SPLIT, before anything else including the /internal/* branch.
+    #
+    # When `apps.origin` is set, connector app UIs are served from a second
+    # hostname so their JavaScript is cross-origin with Ava: no session cookie, no
+    # `parent` access. That is only worth anything if the apps host ALSO cannot
+    # reach Ava's own routes, so this refuses in both directions — `/apps/*` off
+    # the apps host, and everything-but-`/apps/*` on it.
+    #
+    # It sits above the auth checks deliberately: the point is that the apps origin
+    # has no session at all, so "is this caller authed" is the wrong question there.
+    # See ava_bridge/apps_origin.py for why an Origin header check cannot do this.
+    from . import apps_origin as _apps_origin
+    _why = _apps_origin.refuses(request, path)
+    if _why is not None:
+        return JSONResponse({"error": "wrong origin", "detail": _why},
+                            status_code=404)
+    if _apps_origin.configured() and _apps_origin.on_apps_host(request):
+        # Reached only for /apps/* (refuses() sent everything else away). There is
+        # no session here by design, so the embed token is the whole gate.
+        _ok, _set, _reason = _apps_origin.authorize(request, path)
+        if not _ok:
+            return JSONResponse({"error": "forbidden", "detail": _reason},
+                                status_code=403)
+        _resp = await call_next(request)
+        if _set:
+            _apps_origin.apply_cookie(_resp, _apps_origin.cid_from_path(path), _set,
+                                      secure=request.url.scheme == "https")
+        return _resp
     # /internal/* is the sandbox-tool callback surface; per-route handlers do
     # the SCOPED check (ava_bridge/internal.authorized), but the token must be
     # valid before the request reaches routing at all — otherwise FastAPI's

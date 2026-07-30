@@ -356,8 +356,37 @@ async def api_code_turns(limit: int = 30):
 @app.get("/api/apps")
 async def api_apps():
     """Left-rail app registry (connectors with a `ui:` block). Drives the SPA nav
-    so a new app appears by dropping a connector folder — no frontend edits."""
-    return await run_in_threadpool(lambda: {"apps": connectors.apps()})
+    so a new app appears by dropping a connector folder — no frontend edits.
+
+    `apps_origin` tells the shell whether embedded UIs are isolated on their own
+    browser origin, and where. When it is null the frame loads same-origin, which
+    means the app's JS runs with the owner's session — `warning()` carries the
+    sentence the Setup page shows about that."""
+    from ava_bridge import apps_origin
+    return await run_in_threadpool(lambda: {
+        "apps": connectors.apps(),
+        "apps_origin": apps_origin.warning(),
+    })
+
+
+@app.get("/api/apps/{cid}/embed")
+async def api_app_embed(cid: str, request: Request):
+    """The URL the shell should point an app's iframe at.
+
+    Called from Ava's OWN origin, so the session cookie has already authorised the
+    caller by the time this runs. It returns an absolute URL on the apps origin
+    carrying a short-lived, cid-bound token, because the apps origin has no session
+    of its own — see ava_bridge/apps_origin.py.
+
+    When `apps.origin` is unset this returns the same relative path the shell has
+    always used, so the SPA needs no branch of its own for the unconfigured case.
+    """
+    from ava_bridge import apps_origin
+    if not connectors.app(cid):
+        return JSONResponse({"error": f"unknown app '{cid}'"}, status_code=404)
+    q = str(request.url.query or "")
+    url = apps_origin.embed_url(cid, q)
+    return {"url": url or f"/apps/{cid}/?{q}", "isolated": bool(url)}
 
 
 # --- Devices: inbound "app → Ava" event channel ------------------------------

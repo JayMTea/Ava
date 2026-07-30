@@ -285,6 +285,33 @@ connectors:
   # - my-app               # your own connector (see docs/CONNECTOR_SDK.md)
   # - my-device            # your own device/sensor app (see docs/DEVICE_CONNECTORS.md)
 
+# ── Isolate embedded app UIs on their own browser origin ─────────────────────
+# UNSET BY DEFAULT, AND THAT DEFAULT IS NOT SAFE FOR AN APP YOU DID NOT WRITE.
+#
+# Ava reverse-proxies a connector's UI under /apps/<id>/ on its OWN origin, and the
+# iframe is sandboxed `allow-scripts allow-same-origin` — a pairing that keeps Ava's
+# origin. Ava serves no CSP and /api/hub/* has no CSRF check, so an embedded app's
+# JavaScript runs with your session and can call Ava's API, including approving
+# Ava's own consent prompts. That is acceptable for a loopback app you installed
+# yourself. It is not for a remotely-served app whose bundle can change without you
+# touching Ava.
+#
+# An Origin check cannot fix this: the proxy makes the app genuinely same-origin, so
+# Origin, Sec-Fetch-Site and any CSRF token are identical to the real SPA's. The fix
+# is a second ORIGIN. Two hostnames pointing at this same machine and port are two
+# origins to a browser — separate cookie jars, no `parent` access — so no second
+# listener, no systemd or Docker change is needed. Point a name here:
+#
+#   1. make it resolve to this box:  echo "127.0.0.1 apps.ava.local" | sudo tee -a /etc/hosts
+#      (or a DNS record, or a Tailscale alias — anything that reaches the same port)
+#   2. set the origin below, including the port Ava serves on
+#
+# With it set, /apps/* is served ONLY on that host and everything else is refused
+# there, so the app has neither a cookie nor a route to Ava. Ava hands the iframe a
+# short-lived, per-connector token instead (ava_bridge/apps_origin.py).
+# apps:
+#   origin: "http://apps.ava.local:8096"   # [AVA_APPS_ORIGIN]
+
 # ── Devices: wire your OWN hardware/sensor apps to Ava ───────────────────────
 # Nothing to configure here — a device is just a connector whose connector.yaml
 # declares an `ingest:` block (and usually `actions.discover`). YOUR app owns all
