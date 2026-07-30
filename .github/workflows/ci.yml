@@ -292,8 +292,135 @@ jobs:
           grep -q 'sk-ci-precious' .env    || { echo "::error::install.sh destroyed AVA_INFERENCE_KEY"; exit 1; }
           test "$(grep -c '>>> ava managed' .env)" = "1" \
             || { echo "::error::install.sh left more than one managed block"; exit 1; }
-          grep -q '^AVA_VLLM_MODEL_FLAGS=' .env \
-            || { echo "::error::gpu profile did not get resolved vLLM flags"; exit 1; }
+
+          # vLLM flags belong to the profile install.sh RESOLVED, not the one we
+          # asked for. This step used to assert `^AVA_VLLM_MODEL_FLAGS=` outright
+          # after requesting gpu, which was true when it was written: back then the
+          # whole hardware block sat behind `if [ -z "$AVA_PROFILE" ]`, so a pinned
+          # profile skipped detection and was honoured verbatim. It is not true now.
+          # install.sh applies the sizing and runtime gates to a PINNED profile too,
+          # so on a runner with no nvidia-smi it deliberately falls back gpu -> cpu —
+          # correctly, because vLLM has no useful CPU mode (deploy/local-serve.sh
+          # refuses rather than starting a doomed container) and a cpu .env serves
+          # through Ollama. The old assertion therefore demanded a gpu-only variable
+          # that must NOT be in a cpu .env, and CI went red on correct behaviour.
+          #
+          # Assert the real invariant instead, in BOTH directions, which is strictly
+          # stronger: today's check also passed on a .env that wrote gpu flags into a
+          # cpu profile, and passed on an EMPTY value — the exact silent-mis-parse
+          # the flags exist to prevent.
+          #
+          # The condition is read off the engine the .env actually wired, not a list
+          # of profile names restated here. AVA_BACKEND_ENGINE=vllm holds for exactly
+          # gpu/full/agent, which is exactly the set install.sh resolves flags for
+          # (install.sh) and the set that starts the vllm service
+          # (docker-compose.yml), so the three cannot drift apart silently. It is also
+          # deliberately not `docker compose config --services`: whether that honours
+          # COMPOSE_PROFILES varies by Compose version, and a check whose meaning
+          # depends on the runner's CLI build is the kind of thing this repo keeps
+          # getting burned by.
+          _managed="$(awk '/^# >>> ava managed/{f=1; next} /^# <<< ava managed/{f=0} f' .env)"
+          # `|| true` so a missing line reaches the guard below as an empty string.
+          # Without it `set -o pipefail` aborts the step here with no message, and a
+          # check that dies silently is indistinguishable from one that never ran.
+          _engine="$(grep '^AVA_BACKEND_ENGINE=' <<<"$_managed" | tail -1 | cut -d= -f2- || true)"
+          test -n "$_engine" \
+            || { echo "::error::install.sh's managed block wired no AVA_BACKEND_ENGINE, so the bridge has no engine — and the flag check below would have silently taken its no-vLLM branch and stopped biting. Managed block was: ${_managed:-<empty>}"; exit 1; }
+          echo "resolved: $(grep '^COMPOSE_PROFILES=' <<<"$_managed"), engine $_engine"
+          if [ "$_engine" = "vllm" ]; then
+            if ! grep -qE '^AVA_VLLM_MODEL_FLAGS=.+' <<<"$_managed"; then
+              echo "::error::this .env serves on vLLM but install.sh resolved no vLLM flags — docker-compose.yml then falls back to its hardcoded '--tool-call-parser hermes', which returns no tool calls at all on a model that does not speak it, with no error anywhere"
+              exit 1
+            fi
+            echo "engine is vllm, and the flags are resolved:"
+            grep '^AVA_VLLM_MODEL_FLAGS=' <<<"$_managed"
+          else
+            if grep -q '^AVA_VLLM_MODEL_FLAGS=' <<<"$_managed"; then
+              echo "::error::install.sh wrote vLLM flags into a .env that serves on '$_engine', not vLLM — dead config that would take effect the moment someone flipped COMPOSE_PROFILES by hand"
+              exit 1
+            fi
+            echo "engine is $_engine, not vllm, and there are no vLLM flags — as it should be"
+          fi
+
+      - name: A gpu install resolves the model's vLLM flags
+        # The positive half of the invariant above, which no runner can reach on
+        # its own hardware — so inject the one FACT install.sh's gpu path needs
+        # (how much VRAM there is) and test the RULE off the machine it describes.
+        # Same trick the repo already uses to fake docker in tests.
+        #
+        # Without this step, making the check above conditional would leave the gpu
+        # branch of install.sh's flag resolution with no coverage at all. Note that
+        # it has had none since the fallback landed: the old assertion did not test
+        # the gpu path, it just failed.
+        #
+        # This also covers the cpu -> gpu profile SWITCH, since it re-runs over the
+        # .env the previous step left behind.
+        working-directory: deploy
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/fakebin"
+          cat > "$RUNNER_TEMP/fakebin/nvidia-smi" <<'FAKE'
+          #!/bin/sh
+          # Enough nvidia-smi for install.sh: how much VRAM. 24564 MiB clears the
+          # 18000 MiB the default 7B needs (14.2 GiB weights + a 32k KV cache at
+          # 0.90 utilization), so the model must NOT be downshifted.
+          case "$*" in
+            *memory.total*) echo 24564 ;;
+            *) echo "fake nvidia-smi — there is no GPU on a CI runner" ;;
+          esac
+          FAKE
+          chmod +x "$RUNNER_TEMP/fakebin/nvidia-smi"
+
+          # AVA_SKIP_GPU_RUNTIME_CHECK: a runner's docker has no 'nvidia' runtime
+          #   registered, and that gate is a second, independent fallback to cpu.
+          # AVA_GPU_MEMORY_MODEL=discrete: makes the HAL report a discrete card, so
+          #   the VRAM number above is actually consumed instead of skipped as it is
+          #   on unified memory. The assertions below hold under either answer — the
+          #   override just pins which branch runs.
+          PATH="$RUNNER_TEMP/fakebin:$PATH" \
+            AVA_INSTALL_DRY_RUN=1 AVA_PROFILE=gpu \
+            AVA_GPU_MEMORY_MODEL=discrete AVA_SKIP_GPU_RUNTIME_CHECK=1 \
+            bash install.sh
+
+          # Prove the injection worked before trusting anything downstream: if a
+          # fallback still fired, this step would otherwise assert nothing.
+          grep -q '^COMPOSE_PROFILES=gpu$' .env \
+            || { echo "::error::the gpu profile did not survive — install.sh fell back despite the injected VRAM, so this step tested nothing. Resolved: $(grep '^COMPOSE_PROFILES=' .env)"; exit 1; }
+          grep -q '^AVA_BACKEND_URL=http://vllm:8002/v1$' .env \
+            || { echo "::error::a gpu .env must point the bridge at the vllm service"; exit 1; }
+
+          # A non-empty flag string, and the SAME one the resolver gives for this
+          # model. install.sh runs the resolver as `... 2>/dev/null || true`, so a
+          # resolver that broke would write NOTHING and compose would quietly serve
+          # with its hardcoded default parser.
+          _model="$(grep '^AVA_MODEL=' .env | tail -1 | cut -d= -f2- || true)"
+          test -n "$_model" \
+            || { echo "::error::the gpu .env names no AVA_MODEL, so there is nothing to resolve flags for"; exit 1; }
+          if ! _resolver="$(bash ./resolve-model-flags.sh --env "$_model" 2>&1)"; then
+            echo "::error::deploy/resolve-model-flags.sh itself failed for $_model. install.sh runs it as '|| true', so a broken resolver writes NO flags at all and compose serves with its hardcoded default parser instead — silently. Resolver said: $_resolver"
+            exit 1
+          fi
+          _want="$(grep '^AVA_VLLM_MODEL_FLAGS=' <<<"$_resolver" || true)"
+          case "$_want" in
+            ''|'AVA_VLLM_MODEL_FLAGS=')
+              echo "::error::the resolver produced no flags for $_model, so the assertion below could not bite — add a row to deploy/model-flags.conf. Resolver said: $_resolver"
+              exit 1 ;;
+          esac
+          grep -qxF "$_want" .env \
+            || { echo "::error::install.sh wrote flags that disagree with deploy/resolve-model-flags.sh for $_model. wanted: $_want / got: $(grep '^AVA_VLLM_MODEL_FLAGS=' .env || echo '<nothing>')"; exit 1; }
+          echo "gpu resolved: $_want"
+
+          # 24564 MiB is above install.sh's 18000 MiB gate, so the sizing code must
+          # NOT have downshifted the model. Read the expectation out of the profile
+          # rather than naming a model here, or changing the shipped default turns
+          # this step red for no reason.
+          _default_model="$(grep '^AVA_MODEL=' profiles/gpu.env | head -1 | cut -d= -f2-)"
+          test "$_model" = "$_default_model" \
+            || { echo "::error::24564 MiB clears the 18000 MiB gate, but install.sh still changed the model: profiles/gpu.env ships $_default_model and .env got $_model"; exit 1; }
+
+          # And the switch still did not eat the hand-written secrets.
+          grep -q 'ci-precious' .env \
+            || { echo "::error::a cpu -> gpu profile switch destroyed the hand-written values"; exit 1; }
 
       - name: Rejects an unknown profile
         working-directory: deploy
