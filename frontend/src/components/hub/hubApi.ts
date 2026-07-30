@@ -58,6 +58,10 @@ export interface SavePayload {
 
 // ---- Agent runtime ----------------------------------------------------------
 export interface AgentStatus {
+  /** 'local' | 'remote' — which machine cli/sandbox describe. */
+  location?: string;
+  url?: string;
+  error?: string;
   name: string;
   available: boolean;
   enabled: boolean;      // agent.enabled / AVA_AGENT_ENABLED — the on/off switch

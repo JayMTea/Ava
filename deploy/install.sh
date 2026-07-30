@@ -426,6 +426,25 @@ for _ in $(seq 1 90); do
   sleep 2
 done
 
+# The auto-detected profiles (gpu/cpu/rocm/cloud) all leave AVA_AGENT_ENABLED=0,
+# because the agent runtime needs the NemoClaw CLI already present and Ava
+# deliberately will not run a `curl | bash` installer on anyone's behalf. That is a
+# defensible default — but landing there SILENTLY is not, because README.md sells
+# tools, memory, connectors and self-editing with no caveat near the Quickstart.
+# Say it once, here, where the profile was just chosen.
+case "${AVA_PROFILE}" in
+  agent|full) : ;;
+  *)
+    say ""
+    say "Note: the '${AVA_PROFILE}' profile runs Ava WITHOUT the agent runtime, so"
+    say "chat has no tools, no memory recall, no connectors and no self-editing."
+    say "That is the default because the agent needs the NemoClaw CLI installed"
+    say "first, and this script will not curl|bash one onto your machine."
+    say "To enable it:  cp profiles/agent.env .env   (see deploy/README.md)"
+    say ""
+    ;;
+esac
+
 # The bridge answering is NOT the engine answering. /api/health returns ok
 # unconditionally (phone_bridge.py) and never probes inference, and vllm carries
 # `restart: on-failure:3`, so an OOM-looping engine is invisible here: the old

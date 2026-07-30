@@ -15,11 +15,22 @@ from .. import skills
 router = APIRouter()
 
 # --------------------------------------------------------------------------- #
-# Agent runtime — status + provision (thin wrappers over runtime.nemoclaw())
+# Agent runtime — status + provision
 # --------------------------------------------------------------------------- #
 @router.get("/agent/status")
 def agent_status():
-    st = runtime.nemoclaw().status()
+    # `configured()`, not `nemoclaw()`. This hardcoded the LOCAL runtime, so on
+    # `agent.runtime: remote` — which is what the agent and full profiles use — the
+    # bridge container reported its OWN missing CLI and the panel rendered
+    # "CLI: not installed / Sandbox: none / Tools: unavailable" with a not-ready
+    # badge, while the remote agent was serving turns correctly. It then told the
+    # owner to run `ava agent provision --install`, which is the wrong machine.
+    #
+    # `location` is what lets the panel stop showing CLI/sandbox rows that describe
+    # a host the operator is not on.
+    rt = runtime.configured()
+    st = rt.status()
+    st["location"] = "local" if rt is runtime.nemoclaw() else "remote"
     st["runtime"] = config.AGENT_RUNTIME
     st["required"] = config.AGENT_REQUIRED
     st["tools"] = bool(st.get("available"))

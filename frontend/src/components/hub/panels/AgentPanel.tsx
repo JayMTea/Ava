@@ -552,12 +552,25 @@ export function AgentPanel({ onRestart }: { onRestart: () => void }) {
           <StatRow label="Runtime"
             value={`${st.runtime}${st.required ? ' · required' : ''}`}
             tone={st.available ? 'ok' : st.enabled === false ? 'muted' : 'warn'} />
-          <StatRow label="CLI"
-            value={st.cli || 'not installed'}
-            tone={st.cli ? 'ok' : 'warn'} />
-          <StatRow label="Sandbox"
-            value={st.sandbox ? `${st.sandbox}${st.sandbox_exists ? '' : ' · missing'}` : 'none'}
-            tone={st.sandbox_exists ? 'ok' : 'warn'} />
+          {/* CLI and Sandbox describe the machine the runtime runs ON. With a
+              remote runtime that machine is not this container, so showing
+              "not installed / none" reported a working remote agent as broken
+              and pointed the owner at the wrong host. */}
+          {st.location !== 'remote' && (
+            <>
+              <StatRow label="CLI"
+                value={st.cli || 'not installed'}
+                tone={st.cli ? 'ok' : 'warn'} />
+              <StatRow label="Sandbox"
+                value={st.sandbox ? `${st.sandbox}${st.sandbox_exists ? '' : ' · missing'}` : 'none'}
+                tone={st.sandbox_exists ? 'ok' : 'warn'} />
+            </>
+          )}
+          {st.location === 'remote' && (
+            <StatRow label="Agent host"
+              value={st.url ? `${st.url}${st.available ? '' : ' · not answering'}` : 'remote'}
+              tone={st.available ? 'ok' : 'warn'} />
+          )}
           <StatRow label="Tools"
             value={st.tools ? 'available' : st.enabled === false ? 'disabled' : 'unavailable'}
             tone={st.tools ? 'ok' : st.enabled === false ? 'muted' : 'warn'} />
@@ -576,7 +589,15 @@ export function AgentPanel({ onRestart }: { onRestart: () => void }) {
               host. Enable it in <b>System</b> and restart to get tools, memory, and
               skills.</>}
         </div>
-      ) : st && !st.cli && (
+      ) : st && st.location === 'remote' && !st.available ? (
+        <div className="hub-note" style={{ marginTop: 14 }}>
+          The agent runtime is <b>remote</b> (<code>{st.url}</code>) and it isn't
+          answering. Nothing to install here — this container is not the agent host.
+          Check that the agent service is up and reachable from the bridge
+          {st.error ? <> (<code>{String(st.error).slice(0, 120)}</code>)</> : null},
+          then click Re-check below.
+        </div>
+      ) : st && st.location !== 'remote' && !st.cli && (
         <div className="hub-note" style={{ marginTop: 14 }}>
           The NemoClaw CLI isn't installed. Run <b>ava agent provision --install</b> in a terminal
           (it installs the CLI, then guides <b>nemoclaw onboard</b>), then click Re-check below.
