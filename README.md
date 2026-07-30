@@ -8,18 +8,90 @@
 [![Self-hosted](https://img.shields.io/badge/self--hosted-yes-success.svg)](deploy/README.md)
 [![Engine](https://img.shields.io/badge/engine-vLLM%20%7C%20Ollama%20%7C%20cloud-orange.svg)](docs/CHOOSE_A_MODEL.md)
 
-**Ava is a self-hosted personal AI operating layer:** a private, plug-and-play hub
-that puts *any* model to work across your **voice**, your **apps**, and your
-**creative tools**, and keeps improving itself. It runs on *your* machine, talks
-to *your* apps, and answers only to you.
+**A private AI hub that runs on the box you already own — and tells you which
+parts of that claim it has actually verified on your hardware.**
 
-> Not a chatbot. Not a model. A **control layer** for your own AI.
+Ava puts any model to work across your voice, your apps and your creative tools,
+on your machine, answering only to you. What makes it different is the second half
+of that sentence: the installer prints your platform's *verification tier* before
+it does anything else, so you learn on first contact whether your hardware is one
+somebody has actually run this on — or one where it is only expected to work.
+
+Verbatim from `deploy/install.sh` on the machine this was written on, and the
+line a Mac gets today:
+
+```
+Platform: Unified-memory NVIDIA (GB10 / Grace-Blackwell) [verified-on-device]
+Platform: Apple Silicon (Mac mini / Studio / laptop) [ci-simulated]
+  ! This hardware class is tested by simulation, not on real hardware.
+  ! The install should work; the numbers Ava reports are unconfirmed here.
+  ! Help fix that: python3 tools/ondevice_check.py --record
+```
+
+Every capability below carries the same discipline: where a claim is unverified,
+the code says NOT MEASURED rather than rounding up. `ava attest` writes an
+evidence bundle of what this box can and cannot demonstrate — **unsigned on
+purpose**, because the trust model is reproducibility rather than authenticity:
+it ships a stdlib-only `verify.py` that recomputes every digest offline, and a
+`--self-test` that proves the verifier can actually fail.
 
 [![Ava's architecture: clients (phone, browser, voice) reach the FastAPI bridge over a private Tailscale network; the bridge fronts a sandboxed agent runtime, a hardware-aware inference router over local models, a media engine, and drop-in connector apps](docs/assets/architecture.svg)](docs/assets/architecture.svg)
 
 </div>
 
 ---
+
+## Quickstart
+
+```bash
+# Docker (plug-and-play) — detects your hardware and writes deploy/.env for you:
+cd deploy && ./install.sh
+# when it finishes it prints a one-time link — open that to set your admin password
+```
+
+(First-run setup is gated on proving you can read the server's disk, so the
+plain URL is refused until you have claimed the instance. `install.sh` reads the
+token off the data volume and hands you the link; if you ever need it again:
+`cd deploy && docker compose exec ava cat /data/data/setup_claim`.)
+
+Or pick the profile yourself:
+
+```bash
+cd deploy
+cp profiles/gpu.env .env      # or: cpu | cloud | full | agent
+docker compose up -d
+```
+
+The `cloud` profile ships `AVA_BACKEND_URL`, `AVA_MODEL`, and `AVA_INFERENCE_KEY`
+empty on purpose — fill them in `.env` before `docker compose up -d`.
+
+**On a Mac (Apple Silicon)?** Run bare metal, not Docker (Docker Desktop can't use
+the Apple GPU): see [Apple Silicon (Mac mini / Studio)](deploy/README.md#apple-silicon-mac-mini-studio).
+
+From there the **Setup hub** (in the app) walks you through the rest: detect
+hardware, download a fitting model, provision the agent, wire in your apps,
+enroll your voice.
+
+**Prefer bare metal?** Install the CLI into a virtualenv, then run it:
+
+```bash
+python3 -m venv .venv && . .venv/bin/activate
+pip install -e .                # editable — Ava runs from this checkout
+ava setup                       # AVA_HOME, secrets, admin password
+ava models pull --auto          # a model that fits your box (once, large)
+bash deploy/local-serve.sh      # serve it — `ava up` runs the web app, not an engine
+ava doctor && ava up            # doctor exits non-zero if nothing can answer yet
+```
+
+`ava verify` then checks that each advertised capability is actually *wired*:
+connector manifests in lockstep with the tools and egress policies they
+generate, learning and governance reachable, no drift against what's committed.
+It exits non-zero if a hard check fails. Treat it as a wiring-and-drift check,
+not a runtime proof — an optional capability you haven't set up warns rather
+than fails. (No install step? `./bin/ava` does the same thing without touching
+your environment.) Full guide: [deploy/README.md](deploy/README.md).
+
+## What it does
 
 - **Talk to it.** On-device voice, speech in and speech out, gated to *your* voice.
 - **Create with it.** GPU workloads orchestrated by the agent (the GPU service); video via connector apps.
@@ -119,56 +191,6 @@ full private assistant stack. See [docs/AGENT_RUNTIME.md](docs/AGENT_RUNTIME.md)
 Privacy-conscious prosumers and small teams who want an always-on AI
 that runs on their **own** hardware, connects to their **own** apps, and isn't
 locked to a single cloud vendor.
-
-## Quickstart
-
-```bash
-# Docker (plug-and-play) — detects your hardware and writes deploy/.env for you:
-cd deploy && ./install.sh
-# when it finishes it prints a one-time link — open that to set your admin password
-```
-
-(First-run setup is gated on proving you can read the server's disk, so the
-plain URL is refused until you have claimed the instance. `install.sh` reads the
-token off the data volume and hands you the link; if you ever need it again:
-`cd deploy && docker compose exec ava cat /data/data/setup_claim`.)
-
-Or pick the profile yourself:
-
-```bash
-cd deploy
-cp profiles/gpu.env .env      # or: cpu | cloud | full | agent
-docker compose up -d
-```
-
-The `cloud` profile ships `AVA_BACKEND_URL`, `AVA_MODEL`, and `AVA_INFERENCE_KEY`
-empty on purpose — fill them in `.env` before `docker compose up -d`.
-
-**On a Mac (Apple Silicon)?** Run bare metal, not Docker (Docker Desktop can't use
-the Apple GPU): see [Apple Silicon (Mac mini / Studio)](deploy/README.md#apple-silicon-mac-mini-studio).
-
-From there the **Setup hub** (in the app) walks you through the rest: detect
-hardware, download a fitting model, provision the agent, wire in your apps,
-enroll your voice.
-
-**Prefer bare metal?** Install the CLI into a virtualenv, then run it:
-
-```bash
-python3 -m venv .venv && . .venv/bin/activate
-pip install -e .                # editable — Ava runs from this checkout
-ava setup                       # AVA_HOME, secrets, admin password
-ava models pull --auto          # a model that fits your box (once, large)
-bash deploy/local-serve.sh      # serve it — `ava up` runs the web app, not an engine
-ava doctor && ava up            # doctor exits non-zero if nothing can answer yet
-```
-
-`ava verify` then checks that each advertised capability is actually *wired*:
-connector manifests in lockstep with the tools and egress policies they
-generate, learning and governance reachable, no drift against what's committed.
-It exits non-zero if a hard check fails. Treat it as a wiring-and-drift check,
-not a runtime proof — an optional capability you haven't set up warns rather
-than fails. (No install step? `./bin/ava` does the same thing without touching
-your environment.) Full guide: [deploy/README.md](deploy/README.md).
 
 ## Add your own app (connectors)
 

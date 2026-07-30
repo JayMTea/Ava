@@ -223,3 +223,53 @@ def test_the_platform_simulator_passes_for_every_simulable_row() -> None:
         "tools/platform_sim_audit.py failed — a simulated platform no longer "
         "reaches the conclusion deploy/platforms.conf claims for it:\n"
         + (r.stdout or "")[-3000:] + (r.stderr or "")[-1000:])
+
+
+def test_the_readme_tier_sample_is_copied_from_the_conf_not_invented() -> None:
+    """The README leads with a sample of the installer's verification-tier line.
+
+    That block is the project's headline claim — "we tell you which parts of this
+    we have actually verified" — so a fabricated or stale sample in it would refute
+    the pitch it exists to make. I wrote the first version of that block from
+    memory and got two of the four strings wrong (an invented `platform:` prefix
+    and "Apple Silicon (Metal / MLX)", which is not the label), which is why this
+    test exists.
+
+    Asserts every label and tier quoted in the README appears verbatim in
+    deploy/platforms.conf, and that the warning text matches install.sh's.
+    """
+    import re
+
+    from gitfiles import ROOT
+
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    conf = (ROOT / "deploy" / "platforms.conf").read_text(encoding="utf-8")
+    install = (ROOT / "deploy" / "install.sh").read_text(encoding="utf-8")
+
+    block = ""
+    for chunk in readme.split("```"):
+        if "Platform:" in chunk and "[" in chunk:
+            block = chunk
+            break
+    assert block, (
+        "the README no longer shows a `Platform: … [tier]` sample. If the pitch "
+        "moved, move this test with it; if the sample was dropped, the headline "
+        "claim now has nothing concrete behind it.")
+
+    quoted = re.findall(r"^Platform: (.+?) \[([a-z-]+)\]$", block, re.MULTILINE)
+    assert quoted, f"could not parse any Platform line out of:\n{block}"
+    for label, tier in quoted:
+        assert label in conf, (
+            f"README quotes platform label {label!r}, which is not in "
+            "deploy/platforms.conf. The sample must be copied from the conf, not "
+            "written from memory.")
+        assert tier in conf, f"README quotes tier {tier!r}, absent from the conf"
+
+    # The warning lines are install.sh's own words.
+    for line in block.splitlines():
+        t = line.strip().lstrip("! ").strip()
+        if t.startswith(("This hardware class", "The install should work",
+                         "Help fix that")):
+            assert t in install, (
+                f"README quotes installer output that install.sh does not print: "
+                f"{t!r}")
