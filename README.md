@@ -223,6 +223,7 @@ hardware I cannot test on, or want to talk about any of it:
 - **Issues and discussion**: [github.com/JayMTea/Ava/issues](https://github.com/JayMTea/Ava/issues)
 - **Contributing**: [CONTRIBUTING.md](CONTRIBUTING.md)
 - **Security reports**: privately, per [SECURITY.md](SECURITY.md)
+- **LinkedIn**: [joshua-thompson-b89913105](https://www.linkedin.com/in/joshua-thompson-b89913105)
 
 Hardware reports are the single most useful contribution right now: Ava claims
 support for four platform families and only some of them have been verified on real

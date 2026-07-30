@@ -8,6 +8,7 @@ Open an [issue](https://github.com/JayMTea/Ava/issues) to ask anything, propose
 something, or just say what you are building — that is the front door, and it is a
 better one than email because the answer stays where the next person can find it.
 Security reports go privately instead, per [SECURITY.md](SECURITY.md).
+For anything longer-form or work-related, LinkedIn: <https://www.linkedin.com/in/joshua-thompson-b89913105>.
 
 **The most valuable contribution right now is a hardware report.** Ava claims four
 first-class platform families and only some are verified on real silicon; the rest are

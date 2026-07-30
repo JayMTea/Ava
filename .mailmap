@@ -1,27 +1,17 @@
-# Canonical identities for `git shortlog`, `git log` and every tool that reads them.
+# Canonical identities for `git shortlog`, `git log` and anything that reads them.
 #
-# Two reasons this file exists, and the second is the load-bearing one:
+# There is deliberately NO entry mapping a personal address here. An earlier version
+# of this file carried one, which was self-defeating: a mailmap has to contain an
+# address in order to rewrite it, so "hide my email" and "list my email in a tracked
+# file" cannot both be true. The address was removed from the commit metadata itself
+# instead, so there is nothing left to map.
 #
-# 1. One person should appear once. `git shortlog -sne` listed "Joshua Thompson"
-#    twice, under two addresses, which makes a solo project look like two people who
-#    each did half the work.
-#
-# 2. It moves a personal address OUT of what tooling displays. Eight early commits
-#    carry a personal inbox in their author metadata. That cannot be removed without
-#    rewriting history, and rewriting public history to hide an address that is
-#    already published would be a lot of breakage for no gain. Mapping it here means
-#    `git log`, `git shortlog`, GitHub's contributor views and anything else honouring
-#    .mailmap all render the GitHub noreply address instead. The raw commit objects
-#    still hold the original — this is presentation, not redaction, and claiming
-#    otherwise would be the kind of overstatement this repo's docs try to avoid.
+# What remains is worth stating, because it is not about privacy: automation should
+# not be counted as a human contributor. `Ava (auto-sync)` is this repo's own
+# pre-commit hook regenerating diagrams — the project writing to itself — and reading
+# it as an author overstates how many people have worked on this.
 #
 # Format: <canonical name and email> <email to rewrite>
 
-Joshua Thompson <74799121+JayMTea@users.noreply.github.com> <74799121+JayMTea@users.noreply.github.com>
-Joshua Thompson <74799121+JayMTea@users.noreply.github.com> <74799121+JayMTea@users.noreply.github.com>
-
-# Automation, so it is never mistaken for a human contributor. `Ava (auto-sync)` is
-# this repo's own pre-commit hook regenerating diagrams — it is the project writing to
-# itself, and reading it as an author overstates the contributor count.
 Ava (auto-sync) <ava@localhost> <ava@localhost>
 dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com> <49699333+dependabot[bot]@users.noreply.github.com>

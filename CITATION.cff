@@ -23,8 +23,9 @@ authors:
   - family-names: Thompson
     given-names: Joshua
     alias: JayMTea
-    # No email on purpose: this file is published and scraped. The GitHub profile is
-    # the reachable route, and it is the same one NOTICE names.
+    # No email on purpose: this file is published and scraped. These two links are
+    # the reachable routes, and they are the same ones NOTICE names.
+    website: "https://www.linkedin.com/in/joshua-thompson-b89913105"
 repository-code: "https://github.com/JayMTea/Ava"
 url: "https://jaymtea.github.io/Ava/"
 license: Apache-2.0
