@@ -35,10 +35,46 @@ Models live under **Setup → Agent**, in the **Ava's brain** panel.
 
 ### Step 1: Click "Add a model", pick the engine, name the model
 
-Pick the engine that matches your machine: Ollama, LM Studio, or MLX on a Mac;
-vLLM on NVIDIA; llama.cpp anywhere; or any OpenAI-compatible cloud provider.
-Choosing an engine fills in its default endpoint. Then name the model you want
-it to serve (for example `llama3.1:70b`).
+Pick the engine that matches your machine. Choosing one fills in its default
+endpoint; then name the model you want it to serve (for example `llama3.1:70b`).
+
+**Ava supports any OpenAI-compatible endpoint, but it does not do the same amount
+for each one** — and this used to read as though it did, listing six engines as
+peers when three of them had a preset URL and nothing else. What Ava actually
+provides, per engine:
+
+<!-- engines:begin — generated from ava_bridge/engines.py -->
+| Engine | Support | Health | Launcher | Weights | Token counts |
+|---|---|---|---|---|---|
+| **vLLM** | first-class | `/models` | deploy/local-serve.sh (and the `vllm` compose service) | ava models pull (HuggingFace cache) | yes |
+| **Ollama** | first-class | `/api/tags` | the `ollama` / `ollama-rocm` compose services | ava models pull --auto (ollama pull) | yes |
+| **llama.cpp** | first-class | `/health` | bring your own llama-server (no Ava launcher yet) | ava models pull (GGUF store) | not reported (unverified) |
+| **Cloud (OpenAI-compatible)** | first-class | `/models` | bring your own | bring your own | yes |
+| **MLX (Apple Silicon)** | generic | `/models` | mlx_lm.server --model <id> --port 8080 (documented, unverified) | huggingface cache (mlx-community/*) | not reported (unverified) |
+| **LM Studio** | generic | `/models` | bring your own | bring your own | not reported (unverified) |
+<!-- engines:end -->
+
+**first-class** means Ava can start it (or says plainly that it cannot), knows
+where its weights come from, and health-checks it during setup.
+**generic** means it works — anything OpenAI-compatible works — but you launch and
+tune it yourself.
+
+Two honest notes on that table:
+
+- **MLX is generic, not first-class, and that is a repo-state limitation rather
+  than a judgement about MLX.** Promoting it needs a CI job on Apple hardware,
+  which needs a public repository. Until then, Ollama is the supported Mac path:
+  it ships a Metal build and Ava launches it.
+- **LM Studio is generic deliberately and permanently.** It is a desktop GUI, so
+  it cannot be installed headless, scripted from an installer, or given a
+  reproducible launcher — and its endpoint is already covered by pointing the
+  cloud/OpenAI engine at `http://127.0.0.1:1234/v1`. Building it a launcher would
+  be inventing evidence.
+
+Where the "Token counts" column says *not reported (unverified)*, streamed replies
+from that engine will show no tokens/sec or cost. That is a deliberately
+conservative choice: sending `stream_options` to an engine that rejects unknown
+parameters costs the whole turn, while omitting it costs only the statistics.
 
 ### Step 2: Click "Test connection"
 

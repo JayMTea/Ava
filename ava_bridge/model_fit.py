@@ -96,7 +96,15 @@ _TIER_RANK = {"large": 0, "small": 1, "tiny": 2}
 # Engines that run ON this box (consume its memory) vs cloud APIs that don't.
 # Includes the Apple-Silicon-friendly local servers (Ollama, llama.cpp, LM Studio,
 # MLX) so a Mac install is detected as local and gets memory-gated correctly.
-_LOCAL_ENGINES = {"vllm", "ollama", "llamacpp", "llama.cpp", "llamafile",
+# `gguf` was missing, and it is a real engine value: models.present() treats it as
+# a llama.cpp alias and models.LOCAL_CHAT_ENGINES lists it. Absent here, a backend
+# declared `engine: gguf` counted as CLOUD — so a local GGUF model consuming this
+# box's memory was never memory-gated, which is the "wrong there is room" failure
+# tests/test_alloc_measurement.py's docstring warns about, one layer up.
+# `tgi`/`sglang`/`local` are not in the engine registry (Ava neither launches nor
+# health-checks them) but they DO run locally, and being conservative about what
+# consumes memory is the safe direction.
+_LOCAL_ENGINES = {"vllm", "ollama", "llamacpp", "llama.cpp", "llamafile", "gguf",
                   "tgi", "sglang", "mlx", "mlx-lm", "lmstudio", "lm-studio",
                   "local"}
 _LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "0.0.0.0", "host.docker.internal"}

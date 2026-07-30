@@ -125,17 +125,62 @@ def _probe(url: str, timeout: float = 1.5) -> bool:
         return False
 
 
-# How to ask an engine "are you there", by engine family.
-_HEALTH_PATH = {"ollama": "/api/tags", "vllm": "/models", "openai": "/models"}
+# How to ask an engine "are you there" — derived from the engine registry so a
+# newly supported engine cannot be probeable-in-theory and unprobeable-in-fact.
+# It previously listed three engines while the UI offered six presets, so picking
+# MLX or llama.cpp got you a base URL the wizard could not then health-check.
+from . import engines as _engines  # noqa: E402 — local import, cycle-free
+
+_HEALTH_PATH = _engines.health_paths()
 
 
 def _engine_of(base_url: str, declared: str = "") -> str:
+    """Guess the engine family from a base URL.
+
+    Defaulting to vLLM was wrong on a Mac: `mlx_lm.server` and `llama-server`
+    both default to :8080, and calling either "vllm" means the wizard health-checks
+    the wrong path AND `engine_servable_here` refuses it on darwin-apple. Ports
+    are the only signal available here, so ambiguous ones resolve to the engine
+    that is actually servable rather than to the NVIDIA one.
+    """
     if declared:
         return declared
     u = (base_url or "").lower()
     if ":11434" in u or "ollama" in u:
         return "ollama"
+    if ":1234" in u or "lmstudio" in u or "lm-studio" in u:
+        return "lmstudio"
+    if ":8002" in u or "vllm" in u:
+        return "vllm"
+    if "mlx" in u:
+        return "mlx"
+    if "llamacpp" in u or "llama.cpp" in u or "llama-server" in u:
+        return "llamacpp"
+    if ":8080" in u:
+        # Shared default between llama.cpp and MLX. Both expose /models via their
+        # OpenAI-compatible surface, so the health probe is identical either way;
+        # llamacpp is the portable choice and additionally has /health.
+        return "llamacpp"
+    # A remote host is a cloud provider, not an unlabelled local vLLM. Falling
+    # through to "vllm" meant `https://api.openai.com/v1` was called vLLM, and
+    # `engine_servable_here("vllm")` then refuses on Apple Silicon and CPU-only —
+    # so adding a perfectly good CLOUD backend was rejected for needing a GPU.
+    try:
+        from urllib.parse import urlparse
+        host = (urlparse(base_url).hostname or "").lower()
+    except Exception:  # noqa: BLE001 — unparsable: fall back to the old default
+        host = ""
+    if host and host not in _LOCAL_HOSTNAMES and not host.startswith("192.168.") \
+            and not host.startswith("10.") and "." in host:
+        return "openai"
     return "vllm"
+
+
+# Hostnames that mean "this box or this compose network", so anything else is
+# remote. Compose service names have no dot, which is why the check above also
+# requires one — `http://vllm:8002/v1` must stay vLLM.
+_LOCAL_HOSTNAMES = {"127.0.0.1", "localhost", "::1", "0.0.0.0",
+                    "host.docker.internal", "host.openshell.internal"}
 
 
 def _health_url(base_url: str, engine: str) -> str:
