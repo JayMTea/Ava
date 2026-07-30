@@ -442,6 +442,16 @@ nothing qualifies."""
         if not text:
             return 0  # keep the cursor — retry these messages next cycle
 
+        # Re-read the cursor after the await. run_all_cycles is single-flight, so
+        # this should not fire — but the read at the top of this method and the
+        # write at the bottom straddle a 45s network call, and this is the only
+        # thing that makes the pair safe if a second entry point is ever added
+        # (an `ava` CLI subcommand, a cron script calling the distiller directly).
+        # Bailing here loses nothing: the messages stay unprocessed and the next
+        # cycle picks them up from wherever the other run left the cursor.
+        if float(memory_store.kv_get(self.KV_KEY, "0") or 0) != last:
+            return 0
+
         n = 0
         for fact in self._parse_facts(text)[:self.MAX_FACTS]:
             if memory_store.add("fact", fact, source="distilled") is not None:
@@ -464,12 +474,40 @@ memory_distiller = MemoryDistiller()
 # --------------------------------------------------------------------------- #
 # Orchestration + in-process scheduler
 # --------------------------------------------------------------------------- #
+# Single-flight claim for run_all_cycles — see its docstring for why this is a
+# threading primitive and not an asyncio one.
+_CYCLE_LOCK = threading.Lock()
+
+
 async def run_all_cycles() -> dict:
     """Run one code + one chat learning cycle from live in-memory activity.
 
     Best-effort and self-contained — safe to call from the scheduler or an API
     handler. Reads chat turns from state.turns and code turns from
-    state.code_turns, persists any proposals, and returns a small summary."""
+    state.code_turns, persists any proposals, and returns a small summary.
+
+    Single-flight: a second caller is REFUSED, not queued. Two paths can start a
+    cycle — POST /api/learning/run (learning_api.py) and the in-process scheduler
+    thread — and a cycle spends most of its life awaiting a 45s LLM call, so
+    "the owner pressed Run now twice" or "Run now landed while the scheduler
+    fired" is an ordinary event, not a race you need load to hit. Both runs would
+    read the same distiller cursor, spend the same 45s on the same messages, and
+    then both advance it.
+
+    A threading.Lock rather than an asyncio.Lock on purpose: the scheduler calls
+    this through `asyncio.run(...)` on its own daemon thread (_scheduler_loop
+    below), so the two callers do not share an event loop and an asyncio primitive
+    would not serialise them at all. Acquired non-blocking, so no caller ever
+    waits."""
+    if not _CYCLE_LOCK.acquire(blocking=False):
+        return {"ran": False, "reason": "a learning cycle is already running"}
+    try:
+        return await _run_all_cycles_locked()
+    finally:
+        _CYCLE_LOCK.release()
+
+
+async def _run_all_cycles_locked() -> dict:
     with state.turns_lock:
         chat_turns = list(state.turns.values())
     with state.code_turns_lock:

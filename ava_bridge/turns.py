@@ -164,10 +164,34 @@ def _poll_turn_steps(tid: str, sid: str, after: int):
         pass
 
 
+def _set_turn(tid: str, **fields) -> None:
+    """Update a turn's record if it still exists, under the lock.
+
+    Sibling paths in this module disagreed about whether the turn can still be
+    there: two guarded with `if tid in state.turns` and four assumed it. The
+    assumption is wrong because _prune_turns can evict a turn while it is still
+    running (see below), and a KeyError raised there escapes into the worker
+    thread, so the turn never reaches a terminal status and the poller waits
+    forever on a record that no longer exists. One helper, one check.
+    """
+    with state.turns_lock:
+        if tid in state.turns:
+            state.turns[tid].update(**fields)
+
+
 def _prune_turns(max_age: float = 3600.0):
     now = time.time()
     with state.turns_lock:
-        for k in [k for k, v in state.turns.items() if now - v.get("created", now) > max_age]:
+        # Never evict a turn that is still running. Age alone was the whole test,
+        # and this runs at the top of every start_turn — so a turn that legitimately
+        # outlives max_age (a long agent turn, OC_TIMEOUT is up to 600s, or a
+        # queued image render) could be deleted mid-flight by an unrelated new
+        # message. Its completion then hit a missing key and the client polled a
+        # turn id that had ceased to exist.
+        stale = [k for k, v in state.turns.items()
+                 if now - v.get("created", now) > max_age
+                 and v.get("status") != "running"]
+        for k in stale:
             state.turns.pop(k, None)
 
 
@@ -302,8 +326,8 @@ def _run_turn(tid: str, agent_text: str, sid: str, chat_id: str):
             attach_chat(job["id"], chat_id)  # bridge persists the image itself
         m = which_model()
         if job:
-            with state.turns_lock:
-                state.turns[tid].update(
+            _set_turn(
+                    tid,
                     status="done", reply="Here's the image you asked for.",
                     job=job, model=m, ctx_tokens=(m or {}).get("prompt_tokens"),
                     tools_used=tools, error=None)
@@ -319,8 +343,8 @@ def _run_turn(tid: str, agent_text: str, sid: str, chat_id: str):
         # Recover whatever tools DID run before the failure so the flight
         # recorder shows the real actions, not an empty list (audit fidelity).
         partial_tools = _tools_from_session(sid, after)
-        with state.turns_lock:
-            state.turns[tid].update(
+        _set_turn(
+                tid,
                 status="done", reply=fallback, job=None, model=m,
                 ctx_tokens=(m or {}).get("prompt_tokens"),
                 tools_used=partial_tools, degraded=True, error=str(e))
@@ -352,11 +376,12 @@ def _run_turn(tid: str, agent_text: str, sid: str, chat_id: str):
         chat_append(chat_id, "assistant", reply, model=m, tools_used=tools,
                      steps=final_steps)
     with state.turns_lock:
-        state.turns[tid].update(status="done", reply=reply, job=job,
-                                previews=previews, artifact=artifact,
-                                model=m, ctx_tokens=(m or {}).get("prompt_tokens"),
-                                tools_used=tools,
-                                steps=final_steps or state.turns[tid].get("steps"))
+        prev_steps = state.turns.get(tid, {}).get("steps")
+    _set_turn(tid, status="done", reply=reply, job=job,
+              previews=previews, artifact=artifact,
+              model=m, ctx_tokens=(m or {}).get("prompt_tokens"),
+              tools_used=tools,
+              steps=final_steps or prev_steps)
     state.interaction["ts"] = time.time()  # turn finished — reset idle baseline
     audit.record("turn", chat_id=chat_id, status="done", tools=tools,
                  model=(m or {}).get("id"), duration_s=round(time.time() - t0, 1))
@@ -371,6 +396,29 @@ def start_turn(agent_text: str, sid: str, chat_id: str) -> str:
                             "job": None, "previews": [], "artifact": None, "model": None,
                             "ctx_tokens": None, "tools_used": [], "degraded": False,
                             "error": None, "created": time.time()}
-    threading.Thread(target=_run_turn, args=(tid, agent_text, sid, chat_id),
+    threading.Thread(target=_run_turn_guarded,
+                     args=(tid, agent_text, sid, chat_id),
                      daemon=True).start()
     return tid
+
+
+def _run_turn_guarded(tid: str, agent_text: str, sid: str, chat_id: str) -> None:
+    """Run a turn and guarantee it reaches a terminal status.
+
+    _run_turn has several `except Exception` handlers on the paths that were
+    expected to fail, but nothing around the rest of it — and it is the target of
+    a daemon thread, so anything it raises outside those handlers (a KeyError, a
+    BaseException like MemoryError, a bug in the artifact builder) vanishes with
+    the thread and leaves `status: "running"` in state.turns forever. The client
+    polls that record until the tab is closed, and _poll_turn_steps spins a second
+    thread on it for the same duration.
+
+    BaseException rather than Exception on purpose: the point is that no exit path
+    leaves the turn running, and a bare `raise` after recording keeps
+    KeyboardInterrupt/SystemExit behaviour intact.
+    """
+    try:
+        _run_turn(tid, agent_text, sid, chat_id)
+    except BaseException as e:
+        _set_turn(tid, status="error", error=f"{type(e).__name__}: {e}")
+        raise
