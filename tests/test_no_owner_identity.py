@@ -222,6 +222,32 @@ def _tracked_files() -> list[str]:
     return [ln for ln in out.splitlines() if ln]
 
 
+def _tracked_text(rel: str) -> str | None:
+    """The tracked content of `rel` — from the worktree, else from HEAD.
+
+    The worktree read used to be the only one, with `except OSError: continue` and
+    the comment "a tracked file absent from the worktree is not our concern". It is
+    exactly our concern. A file can be tracked and absent, and then this guard skips
+    the one case where it is most needed: something committed by accident and since
+    deleted locally is still in the tree everyone else clones.
+
+    Measured, on 2026-07-30: 24 generated connector tools naming four private
+    sibling apps were committed after a `.gitignore` rule moved off their directory.
+    Deleting them locally made this test pass while every one of them was still in
+    HEAD. Falling back to `git show HEAD:<rel>` closes that.
+    """
+    try:
+        return (ROOT / rel).read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        pass
+    try:
+        out = subprocess.run(["git", "show", f"HEAD:{rel}"], cwd=ROOT,
+                             capture_output=True, timeout=20)
+        return out.stdout.decode("utf-8", errors="ignore") if out.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
 def _scan() -> list[str]:
     offenders: list[str] = []
     rules = _FORBIDDEN + _private_patterns()
@@ -229,13 +255,19 @@ def _scan() -> list[str]:
         p = pathlib.Path(rel)
         if rel in _ALLOW:
             continue
+        # The PATH is scanned before the extension filter, and regardless of it. A
+        # private app's name reaches the tree as a directory name at least as easily
+        # as it reaches it as prose — `.../connectors/<private-app>/x.mjs` leaks it
+        # even if the file's bytes are clean, and a binary under such a directory
+        # would have been skipped entirely.
+        for pattern, why in rules:
+            if pattern.search(rel):
+                offenders.append(f"{rel}: {why} (in the PATH)")
         if p.suffix.lower() not in _TEXTUAL and p.name not in _TEXTUAL_NAMES:
             continue
-        path = ROOT / rel
-        try:
-            text = path.read_text(encoding="utf-8", errors="ignore")
-        except OSError:
-            continue  # a tracked file absent from the worktree is not our concern
+        text = _tracked_text(rel)
+        if text is None:
+            continue
         for pattern, why in rules:
             if pattern.search(text):
                 offenders.append(f"{rel}: {why}")

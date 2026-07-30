@@ -76,6 +76,14 @@ frontend/src/overlay/
 # Generated connector artifacts (derived from a connector.yaml by
 # `ava connector tools|policies` — regenerated at setup, not source).
 agent/mcp_server_connectors/apps/
+# The path generated connector tools used to live at, kept ignored on purpose.
+# Moving the rule to the line above without leaving this behind un-ignored a
+# directory that still held 24 generated files on every existing install, and the
+# next broad `git add` committed them — including four private sibling-app names
+# that .git/info/private-names exists to keep out of the tracked tree. An ignore
+# rule for a path that "should be empty now" costs nothing; assuming it is empty
+# cost a leak.
+agent/mcp_server_content/connectors/
 agent/policies/generated/
 
 # Architecture SSOT manifest + .d2 sources (deployment-specific).
