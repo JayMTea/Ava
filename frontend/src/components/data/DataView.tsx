@@ -65,7 +65,7 @@ function fmtBytes(n: number): string {
 }
 
 // ── Overview ────────────────────────────────────────────────────────────────
-function StoreRow({ s, onBrowse }: { s: DataStore; onBrowse?: () => void }) {
+function StoreRow({ s, onBrowse, onEmpty }: { s: DataStore; onBrowse?: () => void; onEmpty?: () => void }) {
   const meta = STORE_META[s.id] || { icon: 'grid', desc: '' };
   const tone = FORMAT_TONE[s.format] || 'muted';
   return (
@@ -99,6 +99,21 @@ function StoreRow({ s, onBrowse }: { s: DataStore; onBrowse?: () => void }) {
         {s.id === 'memory' && (
           <a className="hub-btn ghost sm" href="/api/hub/memory/export" download><Icon name="file" />Export</a>
         )}
+        {/* The API carries the policy, so this cannot offer a delete it will
+            refuse — and the refusal's own words become the tooltip rather than a
+            second copy of the message that could drift. */}
+        {s.deletable
+          ? (onEmpty && (s.bytes > 0 || (s.count ?? 0) > 0) && (
+              <button className="hub-btn ghost sm tone-err" onClick={onEmpty}>
+                <Icon name="trash" />Empty
+              </button>))
+          : (
+            // `Badge` and `tone="muted"` are already in this row — inventing a
+            // class for one label is what test_hub_uniformity exists to stop.
+            <span title={s.delete_refused_reason}>
+              <Badge tone="muted">protected</Badge>
+            </span>
+          )}
       </div>
     </div>
   );
@@ -369,6 +384,30 @@ export function DataView() {
   // state instead of unmounting the whole view.
   const d = inv.data && Array.isArray(inv.data.stores) ? inv.data : null;
 
+  const [emptyMsg, setEmptyMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const emptyStore = useCallback(async (s: DataStore) => {
+    // The confirm names the SIZE. Asking someone to agree to "delete this store"
+    // without saying how much is in it is asking them to agree to an unknown.
+    const what = s.count != null ? `${fmtInt(s.count)} item(s), ${fmtBytes(s.bytes)}`
+      : fmtBytes(s.bytes);
+    if (!window.confirm(
+      `Empty "${s.label}" (${what})? This is permanent and is recorded in the `
+      + `audit ledger with the store named.`)) return;
+    setEmptyMsg(null);
+    try {
+      const r = await dataApi.deleteStore(s.id);
+      setEmptyMsg(r.ok
+        ? { ok: true, text: `Emptied ${s.label}: `
+            + `${r.rows ? `${fmtInt(r.rows)} row(s)` : `${fmtInt(r.files)} file(s), ${fmtBytes(r.bytes)}`}`
+            + ` — recorded in the audit ledger.` }
+        : { ok: false, text: r.error || `Could not empty ${s.label}.` });
+    } catch (e) {
+      setEmptyMsg({ ok: false, text: (e as Error).message });
+    }
+    inv.refresh();
+  }, [inv]);
+
   return (
     <div className="hub view-scroll">
       <div className="hub-inner">
@@ -392,6 +431,10 @@ export function DataView() {
           ))}
         </div>
 
+        {emptyMsg && (
+          <div className={`hub-msg ${emptyMsg.ok ? 'ok' : 'err'}`}>{emptyMsg.text}</div>
+        )}
+
         {tab === 'overview' && (
           !d ? (
             <EmptyState text={inv.loading ? 'Measuring stores…' : 'Couldn’t load the store inventory.'} />
@@ -401,7 +444,9 @@ export function DataView() {
               subtitle={`${d.stores.length} store${d.stores.length === 1 ? '' : 's'} · ${fmtBytes(d.total_bytes)} on disk · metrics kept ${d.retention_days === 0 ? 'forever' : `${d.retention_days} days`}`}
             >
               {d.stores.map((s) => (
-                <StoreRow key={s.id} s={s} onBrowse={BROWSE_TAB[s.id] ? () => setTab(BROWSE_TAB[s.id]) : undefined} />
+                <StoreRow key={s.id} s={s}
+                  onBrowse={BROWSE_TAB[s.id] ? () => setTab(BROWSE_TAB[s.id]) : undefined}
+                  onEmpty={() => emptyStore(s)} />
               ))}
             </Panel>
           )

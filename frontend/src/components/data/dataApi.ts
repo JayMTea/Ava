@@ -13,6 +13,12 @@ export interface DataStore {
   last_write: number | null;  // epoch seconds
   locked: boolean;            // inventoried but never browsable (secrets)
   managed: boolean;           // rotation/retention already handles growth
+  /** Whether DELETE /api/data/stores/{id} will act. Carried per store so the UI
+   *  never renders a button the API refuses. */
+  deletable: boolean;
+  /** Why not, when deletable is false — the API's own words, not a restatement
+   *  the frontend could drift from. */
+  delete_refused_reason: string;
   // per-store extras
   facts?: number;
   doc_chunks?: number;
@@ -74,6 +80,12 @@ export const dataApi = {
       `/api/data/logs/${name}/tail?n=${n}${kind ? `&kind=${encodeURIComponent(kind)}` : ''}`,
       { cache: 'no-store' }),
   maintenance: () => req<MaintenanceInfo>('/api/data/maintenance', { cache: 'no-store' }),
+  /** Empty one store. Refuses `audit`, `secrets` and `models` with a reason. */
+  deleteStore: (sid: string) =>
+    req<{
+      ok: boolean; refused?: boolean; store: string; error?: string;
+      rows: number; files: number; bytes: number; path?: string;
+    }>(`/api/data/stores/${encodeURIComponent(sid)}`, { method: 'DELETE' }),
   integrity: () =>
     req<{ ok: boolean; result: IntegrityResult; db: DbHealth }>(
       '/api/data/maintenance/integrity', { method: 'POST' }),

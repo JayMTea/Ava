@@ -109,10 +109,145 @@ def _secret_purpose(name: str) -> str:
 def _store(sid: str, label: str, path: str, fmt: str, *, size: int = 0,
            count: int | None = None, last_write: float | None = None,
            locked: bool = False, managed: bool = False, **extra) -> dict:
+    # `deletable` + `delete_refused_reason` travel WITH each store so the UI never
+    # renders a button the API will refuse, and the refusal's reason is one field
+    # away rather than something the frontend has to restate (and drift from).
+    refused = _REFUSED.get(sid)
     return {"id": sid, "label": label, "path": _rel(path), "format": fmt,
             "bytes": size, "count": count,
             "last_write": last_write or None, "locked": locked,
-            "managed": managed, **extra}
+            "managed": managed, "deletable": refused is None,
+            "delete_refused_reason": refused or "", **extra}
+
+
+# --------------------------------------------------------------------------- #
+# Deletion policy — which stores may be emptied, and why the others may not.
+#
+# The README markets this page's "audited deletes" and there was no DELETE
+# endpoint for any store at all: emptying one meant `rm` by hand under AVA_HOME,
+# which left no record and could brick the install. So deletion is offered — and
+# three stores REFUSE, each for a reason specific to that store rather than a
+# blanket "dangerous". A refusal that cannot say why is indistinguishable from an
+# oversight.
+_REFUSED = {
+    "audit": (
+        "The ledger is the record of every other deletion, including the ones this "
+        "page performs — a ledger that prunes itself is not a ledger "
+        "(ava_bridge/audit.py). Rotation is the operator's business: "
+        "deploy/logrotate.conf ships the config, ~3.7 MB/year."),
+    "secrets": (
+        "Removing these locks you out and breaks the sandbox: they hold the login "
+        "password (stored 0600, NOT hashed — see the inventory labels below), the "
+        "session-signing key and the agent's internal token. Rotate individually "
+        "instead — change the password in Setup → System, or clear one connector "
+        "credential in Setup → Connectors."),
+    "models": (
+        "The voiceprint has its own destruction path (Setup → Voice), which also "
+        "resets the derived gate threshold and evicts the copy cached in the "
+        "running process — a plain delete here would leave the gate scoring "
+        "against a print that no longer exists. It would also remove the 80 MB "
+        "public ECAPA weights, which contain nothing about you. "
+        "See docs/BIOMETRICS.md."),
+}
+
+
+def _rm_tree_files(root: str) -> tuple[int, int]:
+    """Remove every FILE under `root`, keeping the directory. `(files, bytes)`.
+
+    Files rather than the tree, because the directory is part of the install's
+    layout and something is usually watching it — a store that vanishes reappears
+    as a permission error at the next write instead of as an empty store.
+    """
+    n = b = 0
+    for dirpath, _dirs, files in os.walk(root):
+        for fn in files:
+            p = os.path.join(dirpath, fn)
+            try:
+                b += os.path.getsize(p)
+                os.remove(p)
+                n += 1
+            except OSError:
+                pass
+    return n, b
+
+
+def delete_store(sid: str) -> dict:
+    """Empty one store. Returns a receipt; refuses with a reason where required.
+
+    Audited by the function that performs the act (see
+    tests/test_destructive_paths_audited.py) with NAMED targets — a record saying
+    only "a store was emptied" cannot answer which one, or how much went.
+    """
+    if sid in _REFUSED:
+        return {"ok": False, "refused": True, "store": sid,
+                "error": _REFUSED[sid]}
+
+    known = {s["id"] for s in stores()["stores"]}
+    if sid not in known:
+        return {"ok": False, "store": sid,
+                "error": f"unknown store {sid!r} (have: {sorted(known)})"}
+
+    receipt: dict = {"ok": True, "store": sid, "rows": 0, "files": 0, "bytes": 0}
+
+    if sid == "memory":
+        from . import memory_store
+        receipt["rows"] = memory_store.delete_all(reason="Data page: empty store")
+    elif sid == "chats":
+        from . import chat_store
+        receipt["rows"] = chat_store.delete_all(reason="Data page: empty store")
+    else:
+        roots = {
+            # Same resolution stores() uses, so the delete and the
+            # inventory cannot point at different directories.
+            "performance": os.environ.get("AVA_PERF_LOG_DIR",
+                                          settings.logs_dir()),
+            "alloc": settings.logs_dir(),
+            "hw_history": os.path.join(settings.logs_dir(), "hw_history"),
+            "devices": os.path.join(settings.logs_dir(), "devices"),
+            "media_gen": settings.media_dir(),
+            "uploads": settings.upload_dir(),
+        }
+        root = roots.get(sid)
+        if not root or not os.path.isdir(root):
+            return {"ok": False, "store": sid,
+                    "error": f"no directory on disk for {sid!r}"}
+        if sid in ("performance", "alloc"):
+            # These share logs_dir() with the audit ledger, so a blanket walk here
+            # would delete the one store that must never be deleted. Name the
+            # segments explicitly instead.
+            stem = "performance" if sid == "performance" else "alloc"
+            n = b = 0
+            for fn in sorted(os.listdir(root)):
+                if not (fn == f"{stem}.jsonl" or fn.startswith(f"{stem}.jsonl.")):
+                    continue
+                p = os.path.join(root, fn)
+                try:
+                    b += os.path.getsize(p)
+                    os.remove(p)
+                    n += 1
+                except OSError:
+                    pass
+            if sid == "performance":
+                r2, b2 = _rm_tree_files(os.path.join(root, "rollups"))
+                n, b = n + r2, b + b2
+            receipt["files"], receipt["bytes"] = n, b
+        else:
+            receipt["files"], receipt["bytes"] = _rm_tree_files(root)
+        receipt["path"] = _rel(root)
+
+    audit.record("data_delete", store=sid, rows=receipt["rows"],
+                 files=receipt["files"], bytes=receipt["bytes"],
+                 path=receipt.get("path", ""))
+    return receipt
+
+
+@router.delete("/stores/{sid}")
+def delete_store_ep(sid: str):
+    """Empty one store. Refuses `audit`, `secrets` and `models` with a reason."""
+    res = delete_store(sid)
+    if res.get("ok"):
+        return res
+    return JSONResponse(res, status_code=403 if res.get("refused") else 400)
 
 
 @router.get("/stores")
@@ -224,6 +359,30 @@ def stores():
     out.append(_store("secrets", "Secrets & keys", settings.secrets_dir(),
                       "locked", count=len(secret_items), locked=True,
                       items=secret_items))
+
+    # The biometric. This page is documented as "every store Ava keeps" and the
+    # README calls it "the transparency page a cloud assistant can't give you",
+    # yet the one store holding GDPR Art. 9 special-category data — the owner's
+    # voiceprint — was the single thing it did not list. Locked like `secrets`
+    # (the bytes are never served), but present, sized and path-stamped, because
+    # an inventory that omits the most sensitive item is not an inventory.
+    mdir = settings.models_dir()
+    import speaker as _spk
+    vp_present = any(os.path.isfile(p) for p in _spk.voiceprint_paths())
+    model_items = []
+    if vp_present:
+        model_items.append({"name": "voiceprint.npy",
+                            "what": "your enrolled voiceprint (biometric). "
+                                    "Delete it in Setup → Voice."})
+    if os.path.isdir(os.path.join(mdir, "ecapa")):
+        model_items.append({"name": "ecapa/",
+                            "what": "public pretrained speaker-embedding weights "
+                                    "— identical for every install, nothing about you"})
+    m_bytes, m_files, m_last = _tree_stats(mdir)
+    out.append(_store("models", "Models & voiceprint", mdir, "locked",
+                      size=m_bytes, count=m_files, last_write=m_last,
+                      locked=True, items=model_items,
+                      biometric_enrolled=vp_present))
 
     return {"home": str(settings.AVA_HOME),
             "total_bytes": sum(s["bytes"] for s in out),

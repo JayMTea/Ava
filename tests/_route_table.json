@@ -168,6 +168,13 @@
   "APIRoute"
  ],
  [
+  "/api/data/stores/{sid}",
+  [
+   "DELETE"
+  ],
+  "APIRoute"
+ ],
+ [
   "/api/devices",
   [
    "GET"
@@ -532,6 +539,13 @@
   "APIRoute"
  ],
  [
+  "/api/hub/policies/inventory",
+  [
+   "GET"
+  ],
+  "APIRoute"
+ ],
+ [
   "/api/hub/system",
   [
    "GET"
@@ -547,6 +561,13 @@
  ],
  [
   "/api/hub/system/retention",
+  [
+   "POST"
+  ],
+  "APIRoute"
+ ],
+ [
+  "/api/hub/voice/delete",
   [
    "POST"
   ],
