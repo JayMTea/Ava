@@ -36,6 +36,47 @@ class EnvSecretStoreTests(unittest.TestCase):
         self.assertIsNone(settings.env_secret("MYAPP_TOKEN"))
         self.assertFalse(settings.env_secret_stored("MYAPP_TOKEN"))
 
+    def test_the_env_dir_is_not_world_readable(self):
+        """`makedirs` used to run at the ambient umask, so on a umask-022 host the
+        directory holding every connector credential was 0755. The file modes were
+        right; the directory listing them was not."""
+        settings.set_env_secret("MYAPP_TOKEN", "sk-123")
+        d = os.path.join(self.tmp, "env")
+        self.assertEqual(oct(os.stat(d).st_mode & 0o777), "0o700")
+
+    def test_the_file_is_created_0600_even_under_a_permissive_umask(self):
+        """The final mode was always 0600 because of a trailing chmod; what this
+        pins is that the mode is correct FROM CREATION.
+
+        A umask of 0 is the case where the old write-then-chmod was observably
+        wrong: `write_text` created 0666 and the file was briefly world-writable
+        before the chmod landed. The window is too small to catch by polling, so
+        this asserts the outcome and `SecretWriteSourceTests` asserts the mechanism.
+        """
+        old = os.umask(0o000)
+        try:
+            settings.set_env_secret("OTHER_TOKEN", "sk-456")
+            p = os.path.join(self.tmp, "env", "OTHER_TOKEN")
+            self.assertEqual(oct(os.stat(p).st_mode & 0o777), "0o600")
+        finally:
+            os.umask(old)
+
+
+class SecretWriteSourceTests(unittest.TestCase):
+    """The window in `set_env_secret` is not observable from outside, so guard the
+    mechanism: the credential write must pass an `opener` that carries the mode,
+    the way `audit.py` already does, rather than relying on a follow-up chmod."""
+
+    def test_set_env_secret_uses_a_mode_carrying_opener(self):
+        import inspect
+        src = inspect.getsource(settings.set_env_secret)
+        self.assertIn("opener=", src,
+                      "set_env_secret must create the file with its mode, not "
+                      "write at the ambient umask and chmod afterwards")
+        self.assertIn("0o600", src)
+        self.assertIn("mode=0o700", src, "the env/ directory must not be created "
+                                         "at the ambient umask either")
+
     def test_real_env_var_wins_then_falls_back_to_store(self):
         settings.set_env_secret("MYAPP_TOKEN", "fromstore")
         with mock.patch.dict(os.environ, {"MYAPP_TOKEN": "fromenv"}):

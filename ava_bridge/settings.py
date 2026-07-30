@@ -467,10 +467,19 @@ def set_env_secret(name: str, value: str) -> None:
     if not safe or not value:
         return
     d = Path(secrets_dir()) / "env"
-    os.makedirs(d, exist_ok=True)
+    os.makedirs(d, mode=0o700, exist_ok=True)
     p = d / safe
-    p.write_text(value, encoding="utf-8")
-    os.chmod(p, 0o600)
+    # Created 0600 by the open() itself, not written at the ambient umask and
+    # chmod'ed after. The window was sub-millisecond and same-user, but a
+    # credential file is exactly the wrong place to leave one: `audit.py:93` already
+    # uses this opener idiom for the same reason. os.open ignores the umask for the
+    # bits it is given, so the mode is what lands.
+    def _opener(path: str, flags: int) -> int:
+        return os.open(path, flags, 0o600)
+
+    with open(p, "w", encoding="utf-8", opener=_opener) as f:
+        f.write(value)
+    os.chmod(p, 0o600)      # idempotent; also corrects a pre-existing file's mode
 
 
 def clear_env_secret(name: str) -> None:

@@ -38,6 +38,28 @@ pre-release milestones from when Ava ran on one box and nothing was tagged.
   redirected `notifications/initialized` can no longer leave a session marked
   initialized against a server that never saw it. A static guard fails any future
   bridge egress call that omits the kwarg.
+- **A misspelled consent tier no longer opens a tool up.** `_dynamic_access`
+  tested `tier in _TIERS` and the fnmatch in one condition, so an unreadable tier
+  made the pattern *not match*: `"*publish*": destrucive` fell through to the
+  `write` fallback — grantable, always-allowable, and with no row in
+  `load_errors()`. An author who writes a tier is asking for a gate, so a matched
+  pattern with an unspellable tier now fails **closed** to `destructive`, and both
+  `dynamic_access` values and static `access:` values are reported as
+  `severity: error`. Previously only the block's *type* was checked, never its
+  values. `tests/test_consent_tier_integrity.py`.
+- **`confirm: [action_names]` is no longer silently dropped.** `_BLOCK_TYPES`
+  declared `confirm` as `bool`, so `_validate` quarantined the list form before
+  `_author_confirm` — which has always implemented it — could see it. An author
+  who wrote `confirm: [publish_app]` got no confirmation prompt. It survived
+  because `tests/test_approvals.py` exercises the list form through a mocked
+  `connectors.load`, so the validator never ran on that path; the new coverage
+  goes through the real loader.
+- **Connector credentials are created 0600, not chmod'ed to it.**
+  `set_env_secret` wrote at the ambient umask and fixed the mode afterwards, so
+  under a permissive umask the file was briefly world-writable; `secrets/env/`
+  itself was created at the umask too, leaving the directory that lists every
+  connector credential 0755 on a umask-022 host. Both now carry their mode from
+  creation, using the `opener=` idiom `audit.py` already uses.
 
 ### Changed
 

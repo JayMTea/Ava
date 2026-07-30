@@ -137,7 +137,14 @@ _BLOCK_TYPES: dict = {
     "dynamic_access": (dict, bool), "actions": (list, dict), "model_hints": list,
     "id": str, "label": str, "kind": str, "role": str, "base_url": str,
     "token_env": str, "call": str,
-    "enabled": bool, "confirm": bool, "manifest_version": int,
+    # `confirm` accepts BOTH shapes because `_author_confirm` implements both
+    # (`confirm: true` for the whole connector, `confirm: [names]` for specific
+    # actions). Declaring it `bool` here meant `_validate` popped the list form
+    # before it ever reached the gate, so an author who wrote
+    # `confirm: [publish_app]` got no confirmation and an error row they had to go
+    # looking for. It survived because tests/test_approvals.py exercises the list
+    # form through a mocked `load`, so `_validate` never ran on that path.
+    "enabled": bool, "confirm": (bool, list), "manifest_version": int,
 }
 
 # What this Ava understands. A manifest declaring a NEWER version still loads —
@@ -186,6 +193,27 @@ def _validate(m: dict, path: str, errors: list | None) -> None:
             errors.append({"id": cid, "path": path, "severity": "warn",
                            "error": f"unknown key `{key}:` — ignored. Prefix your own "
                                     "with `x_` to silence this."})
+    # A misspelled consent tier is a security defect, not a cosmetic one: the
+    # author asked for a gate and the value decides which. `_dynamic_access` now
+    # fails closed on one, but silence here is how it stayed unnoticed — the block
+    # was type-checked and its VALUES never were.
+    da = m.get("dynamic_access")
+    if isinstance(da, dict):
+        for pattern, tier in da.items():
+            if str(tier or "").lower() not in _TIERS:
+                errors.append({"id": cid, "path": path, "severity": "error",
+                               "error": f"`dynamic_access: {{{pattern}: {tier}}}` is not "
+                                        f"a consent tier ({', '.join(_TIERS)}) — that "
+                                        "pattern now resolves to `destructive` (fail "
+                                        "closed), so the tool asks every time until "
+                                        "the spelling is fixed"})
+    for a in _static_actions(m):
+        acc = a.get("access")
+        if acc is not None and str(acc).lower() not in _TIERS:
+            errors.append({"id": cid, "path": path, "severity": "error",
+                           "error": f"action `{a.get('id')}` declares `access: {acc}`, "
+                                    f"not a consent tier ({', '.join(_TIERS)}) — it is "
+                                    "being inferred from the HTTP method instead"})
 
 
 def _merge_all(errors: list | None = None) -> dict:
@@ -1124,9 +1152,21 @@ def _dynamic_access(m: dict, action: str) -> str:
     da = m.get("dynamic_access")
     if isinstance(da, dict):
         for pattern, tier in da.items():
+            if not fnmatch.fnmatch(action, str(pattern)):
+                continue
             t = str(tier or "").lower()
-            if t in _TIERS and fnmatch.fnmatch(action, str(pattern)):
+            if t in _TIERS:
                 return t
+            # A MATCHED pattern with an unspellable tier. This used to be
+            # `if t in _TIERS and fnmatch(...)`, so a typo made the pattern simply
+            # not match: `"*publish*": destrucive` fell through to `write`,
+            # grantable and silently always-allowable, with no row in
+            # load_errors(). An author who writes a tier is asking for a gate, so
+            # an unreadable one fails CLOSED to the strictest tier rather than
+            # opening the tool up. `_validate` also reports it now, but validation
+            # only runs on the load path and this function is reachable from
+            # cached manifests, so the guard belongs in both places.
+            return "destructive"
     # The app's own ava-tools/1 declaration (write-through cache filled by
     # discover_tools). Manifest patterns above outrank it — the operator's word
     # beats the app's self-report; it outranks the blanket fallback below.
