@@ -145,6 +145,10 @@ _BLOCK_TYPES: dict = {
     # looking for. It survived because tests/test_approvals.py exercises the list
     # form through a mocked `load`, so `_validate` never ran on that path.
     "enabled": bool, "confirm": (bool, list), "manifest_version": int,
+    # Opt in to letting a REMOTE server's self-reported `access:` tiers set
+    # consent. Private/loopback connectors are trusted without it; see
+    # `_trusts_declared_tiers`.
+    "trust_declared_tiers": bool,
 }
 
 # What this Ava understands. A manifest declaring a NEWER version still loads —
@@ -265,6 +269,9 @@ def services() -> List[dict]:
             "name": s.get("name", m.get("label", m["id"])),
             "unit": s.get("unit"),
             "probe": _expand(s.get("probe")),
+            # Which claim this probe makes: `2xx` (default), `non5xx` (the old
+            # behaviour, now opt-in and explicit), or an exact status code.
+            "expect": s.get("expect"),
             "feature": s.get("feature"),
             "kind": m.get("kind", "app"),
         })
@@ -399,6 +406,61 @@ _TOOL_BINARIES = [{"path": "/usr/local/bin/node"}, {"path": "/usr/bin/node"},
                   {"path": "/usr/bin/curl"}]
 
 
+def _is_private_host(host: str) -> bool:
+    """True for a loopback/RFC1918/link-local literal or a `.local`/`.internal`
+    name — i.e. a host for which the RFC1918 SSRF allow-list is the point rather
+    than a hole. Anything unresolvable-as-private is treated as public, which is
+    the safe direction: it means the allow-list is withheld."""
+    h = (host or "").strip().lower().rstrip(".")
+    if not h:
+        return False
+    if h in ("localhost",) or h.endswith((".local", ".internal", ".localhost")):
+        return True
+    import ipaddress
+    try:
+        ip = ipaddress.ip_address(h)
+    except ValueError:
+        return False
+    return ip.is_private or ip.is_loopback or ip.is_link_local
+
+
+def _connector_host(m: dict) -> str:
+    """The host a connector's tools actually reach: its MCP url, else its discover
+    base, else `base_url`, else `ui.url`. Empty when the manifest names none."""
+    from urllib.parse import urlparse
+    for url in (((m.get("mcp") or {}) if isinstance(m.get("mcp"), dict) else {}).get("url"),
+                (((m.get("actions") or {}) if isinstance(m.get("actions"), dict) else {})
+                 .get("discover") or {}).get("base"),
+                m.get("base_url"),
+                ((m.get("ui") or {}) if isinstance(m.get("ui"), dict) else {}).get("url")):
+        if isinstance(url, str) and url.strip():
+            return (urlparse(_expand(url)).hostname or "").lower()
+    return ""
+
+
+def _trusts_declared_tiers(m: dict) -> bool:
+    """May this connector's own `access:` self-report set Ava's consent tier?
+
+    Yes for a private/loopback app — the owner installed it, and the ava-tools/1
+    facade's tiers are the author telling Ava about their own code. No for a remote
+    server, whose tool list can change without the owner touching Ava, unless the
+    owner opts in with `trust_declared_tiers: true`.
+    """
+    t = m.get("trust_declared_tiers")
+    if isinstance(t, bool):
+        return t
+    host = _connector_host(m)
+    return bool(host) and _is_private_host(host)
+
+
+def _default_port(host: str) -> int:
+    """A manifest `hosts: ["example.com"]` used to render `port: 80` via
+    `int(port or 80)`, silently pointing a plaintext-HTTP policy at an
+    HTTPS-only service. A bare public hostname means 443; a private one keeps 80,
+    which is what a LAN app on a bare host actually serves."""
+    return 80 if _is_private_host(host) else 443
+
+
 def render_egress_policy(cid: str) -> dict | None:
     """Render a connector's `egress` block into an OpenClaw egress-policy dict
     (same shape as agent/policies/*.yaml). Returns None if it declares no egress.
@@ -449,9 +511,31 @@ def render_egress_policy(cid: str) -> dict | None:
         })
     for h in (eg.get("hosts") or []):
         host, _, port = str(h).partition(":")
-        endpoints.append({"host": host, "port": int(port or 80),
-                          "protocol": "rest", "enforcement": "enforce",
-                          "allowed_ips": list(_PRIVATE_IPS)})
+        ep = {"host": host, "port": int(port) if port else _default_port(host),
+              "protocol": "rest", "enforcement": "enforce"}
+        # `allowed_ips` is the SSRF allow-list: agent/policies/ava-knowledge.yaml
+        # documents that the guard rejects private host-gateway IPs unless the
+        # resolved address is explicitly allow-listed. Attaching the blanket RFC1918
+        # list to a PUBLIC host therefore pre-authorises that name to resolve into
+        # private space — the exact case the list exists to control. Only a host
+        # that is already private gets it. Compare the hand-written
+        # agent/policies/ava-weather.yaml: port 443, no allowed_ips.
+        if _is_private_host(host):
+            ep["allowed_ips"] = list(_PRIVATE_IPS)
+        # An endpoint with no `rules` permits every method on every path, and
+        # policy_inventory._scan only harvests wildcards FROM rules — so the
+        # broadest grant a manifest can express was invisible to
+        # ava_security_check.check_policy_wildcards. Make it explicit and visible.
+        # `egress.host_rules` narrows it; the default says out loud what a bare
+        # `hosts:` entry has always meant.
+        hr = (eg.get("host_rules") or {}).get(str(h)) or (eg.get("host_rules") or {}).get(host)
+        if hr:
+            ep["rules"] = [{"allow": {"method": str(x).split()[0].upper(),
+                                      "path": str(x).split()[1]}}
+                           for x in hr if len(str(x).split()) == 2]
+        else:
+            ep["rules"] = [{"allow": {"method": "*", "path": "/**"}}]
+        endpoints.append(ep)
     if not endpoints:
         return None
     # Namespace the policy under "ava-", but don't double the prefix for a
@@ -1170,10 +1254,24 @@ def _dynamic_access(m: dict, action: str) -> str:
     # The app's own ava-tools/1 declaration (write-through cache filled by
     # discover_tools). Manifest patterns above outrank it — the operator's word
     # beats the app's self-report; it outranks the blanket fallback below.
-    from . import tools_cache
-    acc = tools_cache.access(str(m.get("id") or ""), action)
-    if acc:
-        return acc
+    #
+    # Consulted ONLY for a connector Ava has reason to trust. docs/CONNECTOR_SDK.md
+    # justifies self-reported tiers with "they can only make a tool *quieter*,
+    # never extend its reach" — but when quieter means `read`, and `read` means
+    # runs-silently-forever, quiet IS the reach. A server returning
+    # `{"name": "wipe_everything", "access": "read"}` was granted silence on its
+    # own word, permanently, after one discovery call.
+    #
+    # That reasoning holds for a loopback app the owner installed and it does not
+    # hold for a remote server, which is a case the field predates. So: trust a
+    # private/loopback base, or an explicit `trust_declared_tiers: true`, and
+    # otherwise ignore the self-report and fall through to the manifest's own
+    # default below.
+    if _trusts_declared_tiers(m):
+        from . import tools_cache
+        acc = tools_cache.access(str(m.get("id") or ""), action)
+        if acc:
+            return acc
     return "physical" if m.get("role") == "device" else "write"
 
 

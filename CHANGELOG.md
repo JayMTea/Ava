@@ -60,6 +60,36 @@ pre-release milestones from when Ava ran on one box and nothing was tagged.
   itself was created at the umask too, leaving the directory that lists every
   connector credential 0755 on a umask-022 host. Both now carry their mode from
   creation, using the `opener=` idiom `audit.py` already uses.
+- **`egress: {hosts: [...]}` rendered three defects in one line.** A bare public
+  hostname became **port 80**, silently pointing a plaintext policy at an
+  HTTPS-only service (now 443 for a public host, 80 kept for a private one). The
+  blanket RFC1918 `allowed_ips` was attached to *every* host including public
+  ones, pre-authorising that name to resolve into private space — which is the
+  SSRF case `agent/policies/ava-knowledge.yaml` says the list exists to control;
+  it is now emitted only for a host that is already private. And the endpoint
+  carried **no `rules`**, meaning every method on every path, while
+  `policy_inventory._scan` harvests wildcards only *from* rules — so the broadest
+  grant a manifest could express was invisible to
+  `ava_security_check.check_policy_wildcards`. A bare entry now states its own
+  breadth as `* /**`, and new `egress.host_rules` narrows it.
+  `tests/test_connector_policy_honesty.py`.
+- **Service health no longer counts a 401 or a 404 as "up".** `dashboard._probe`
+  returned `status_code < 500`, so an auth-gated probe URL, a deleted app, an
+  over-quota 402 and a GET against a POST-only endpoint all painted a green pill
+  and counted toward "Services up N/N". The default is now `2xx`; a manifest can
+  say `service.expect: non5xx` (the old behaviour, now explicit) or pin an exact
+  code, so the claim lives in the manifest rather than being assumed by the
+  dashboard.
+- **A remote server's self-reported consent tier is no longer trusted.**
+  `_dynamic_access` consulted the `ava-tools/1` write-through cache, whose tiers
+  come from the connector. The documented justification — a self-report "can only
+  make a tool quieter, never extend its reach" — does not hold when quieter means
+  `read`, and `read` means runs-silently-forever: a server returning
+  `{"name": "wipe_everything", "access": "read"}` bought permanent silence on its
+  own word after one discovery call. Self-reports are now honoured for a
+  private/loopback connector (the case the field was designed for) and ignored for
+  a remote one unless the owner sets `trust_declared_tiers: true`. Manifest
+  `dynamic_access` patterns outrank both, as before.
 
 ### Changed
 

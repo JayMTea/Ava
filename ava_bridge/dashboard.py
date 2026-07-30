@@ -554,12 +554,32 @@ MONITORED_SERVICES = [
 ]
 
 
-def _probe(url: str) -> Optional[bool]:
+def _probe(url: str, expect: str = "2xx") -> Optional[bool]:
+    """Is the service at `url` up? `expect` says which claim the probe is making.
+
+    This used to be `status_code < 500` unconditionally, which paints a green pill
+    and counts toward "Services up N/N" for a **401** (probe URL needs auth), a
+    **404** (app deleted, route renamed), a **402** (over quota) and a **405**
+    (probing a POST-only endpoint with GET). "Something answered" is a real signal
+    but it is not the signal the dashboard claims to show, and a confidently wrong
+    green is worse than an honest unknown.
+
+    Default is now `2xx` — the service answered, and answered OK. A manifest can
+    opt back into the old behaviour with `service.expect: non5xx` when that is
+    genuinely what it means (a probe URL that legitimately 401s, say), which makes
+    the weaker claim explicit in the manifest rather than implicit in the dashboard.
+    `service.expect: <int>` pins one exact status.
+    """
     try:
-        r = requests.get(url, timeout=2)
-        return r.status_code < 500
+        r = requests.get(url, timeout=2, allow_redirects=False)
     except Exception:  # noqa: BLE001
         return False
+    exp = str(expect or "2xx").lower()
+    if exp == "non5xx":
+        return r.status_code < 500
+    if exp.isdigit():
+        return r.status_code == int(exp)
+    return 200 <= r.status_code < 300
 
 
 def ops_services() -> dict:
@@ -575,7 +595,7 @@ def ops_services() -> dict:
                         "systemd": None, "probe_ok": None, "status": "off",
                         "feature": feat}
         unit_state = _systemctl(["--user", "is-active", s["unit"]]) if s.get("unit") else None
-        probe_ok = _probe(s["probe"]) if s.get("probe") else None
+        probe_ok = _probe(s["probe"], s.get("expect") or "2xx") if s.get("probe") else None
         if unit_state == "active" or probe_ok is True:
             status = "up"
         elif unit_state in ("inactive", "failed", "deactivating") or probe_ok is False:

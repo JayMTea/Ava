@@ -21,6 +21,8 @@ import pathlib
 import re
 import subprocess
 
+import pytest
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 # Extensions worth scanning. Binary formats are skipped: they cannot be reviewed
@@ -99,7 +101,46 @@ _FORBIDDEN: list[tuple[re.Pattern, str]] = [
 # fork it does not, this check is inert, and nothing has been disclosed. That
 # asymmetry is correct: these are names only the maintainer can accidentally
 # reintroduce, because only the maintainer has the apps.
-_PRIVATE_NAMES_FILE = ROOT / ".git" / "info" / "private-names"
+def _git_info_dir() -> pathlib.Path:
+    """The real `.git/info`, which is NOT `ROOT/.git/info` inside a worktree.
+
+    In a linked worktree `ROOT/.git` is a *file* containing `gitdir: <path>`, so
+    `ROOT/.git/info/private-names` raises NotADirectoryError, `_private_patterns`
+    caught OSError, returned no patterns, and this guard passed while checking
+    nothing. Measured: a branch developed in a worktree carried a forbidden name
+    into a tracked test file and this test stayed green in that worktree — the same
+    class of thing this repo keeps finding, a check reporting safety it does not
+    have.
+
+    `info/` is per-repository, not per-worktree, so a linked worktree must resolve
+    to the COMMON dir. `git rev-parse --git-common-dir` is the supported way to ask.
+    """
+    try:
+        out = subprocess.run(["git", "rev-parse", "--git-common-dir"],
+                             cwd=ROOT, capture_output=True, text=True, timeout=10)
+        if out.returncode == 0 and out.stdout.strip():
+            p = pathlib.Path(out.stdout.strip())
+            return (p if p.is_absolute() else ROOT / p).resolve() / "info"
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return ROOT / ".git" / "info"
+
+
+_PRIVATE_NAMES_FILE = _git_info_dir() / "private-names"
+
+
+def test_the_private_names_guard_is_not_silently_disabled() -> None:
+    """A guard that reads no patterns passes trivially, so prove it read some.
+
+    Skips only where there genuinely are none — a fork or a fresh clone — which is
+    distinguishable from "could not find the file" now that the path resolves
+    through --git-common-dir.
+    """
+    if not _PRIVATE_NAMES_FILE.exists():
+        pytest.skip(f"no {_PRIVATE_NAMES_FILE} — a fork or a fresh clone")
+    assert _private_patterns(), (
+        f"{_PRIVATE_NAMES_FILE} exists but yielded no patterns, so every check "
+        "below is vacuous.")
 
 
 def _private_patterns() -> list[tuple[re.Pattern, str]]:
