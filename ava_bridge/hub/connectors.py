@@ -921,7 +921,8 @@ def set_connector_enabled(cid: str, body: dict):
     Refused when the two roots are the SAME directory (AVA_HOME unset, so it
     resolves to the code root): there the "stub" would overwrite the built-in
     manifest it is meant to shadow. That collapse is real on a single-box install
-    and is exactly why the fleet keeps AVA_HOME outside the checkout.
+    and is exactly why a multi-user control plane keeps AVA_HOME outside
+    the checkout.
     """
     if not _ID_RE.match(cid):
         return JSONResponse({"ok": False, "error": "bad id"}, status_code=400)

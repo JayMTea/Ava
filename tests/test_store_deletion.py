@@ -275,8 +275,8 @@ def test_the_secrets_store_reports_its_real_size(tmp_path, monkeypatch) -> None:
     store = next(s for s in data_api.stores()["stores"] if s["id"] == "secrets")
     assert store["bytes"] >= 41, (
         f"secrets reports {store['bytes']} bytes; a hardcoded 0 makes the Data "
-        "page's total_bytes under-report, which `fleet attest` recorded as a "
-        "degradation of its own.")
+        "page's total_bytes under-report, which a control plane's evidence "
+        "bundle recorded as a degradation of its own.")
 
 
 def test_a_credential_is_attributed_to_the_connector_that_reads_it() -> None:
