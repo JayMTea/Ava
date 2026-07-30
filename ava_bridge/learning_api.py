@@ -78,8 +78,16 @@ def learning_code_apply(proposal_id: str):
                 msg += " (checks passed)"
         if res.get("commit"):
             msg += f" · commit {res['commit']}"
-        if res.get("restart"):
-            msg += " · restarting bridge"
+        # Report what HAPPENED. This said " · restarting bridge" whenever a
+        # restart was wanted, regardless of whether one occurred — and on any
+        # install without an active systemd unit (which is every fork, since no
+        # .service file ships) none ever did.
+        _rr = res.get("restart_result") or {}
+        if _rr.get("ok"):
+            msg += f" · {_rr.get('detail', 'restarting bridge')}"
+        elif res.get("restart"):
+            msg += " · RESTART NEEDED: " + str(_rr.get("detail") or "restart Ava "
+                                               "to pick up the change")
         return {"ok": True, "message": msg, "files": res.get("files", []),
                 "commit": res.get("commit"), "restart": res.get("restart", False),
                 "branch": res.get("branch")}

@@ -575,13 +575,12 @@ def apply_turn(tid: str, restart: bool = False) -> dict:
         if tid in state.code_turns:
             state.code_turns[tid]["applied"] = True
 
-    if restart:
-        # Detached so the response flushes before the bridge restarts itself.
-        subprocess.Popen(["bash", "-lc",
-                          "sleep 1; systemctl --user restart ava-bridge.service"],
-                         start_new_session=True)
+    from .code_agent import restart_bridge
+
+    restart_result = restart_bridge() if restart else None
 
     return {"ok": True, "files": changed, "commit": commit, "restart": restart,
+            "restart_result": restart_result,
             "commit_failed": cp.returncode != 0,
             "commit_error": (cp.stderr or "").strip() if cp.returncode != 0 else ""}
 

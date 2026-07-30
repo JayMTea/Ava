@@ -14,6 +14,7 @@ own — but she can never silently change auth, egress policy, or the deploy scr
 without the owner clicking Approve. See access_policy.py for the tiers.
 """
 import os
+import shutil
 import subprocess
 import uuid
 from datetime import datetime, timezone
@@ -142,13 +143,67 @@ def _apply_edits(edits: list[dict], message: str, restart: bool = False) -> dict
     if cp.returncode == 0:
         commit = (_git(["rev-parse", "--short", "HEAD"]).stdout or "").strip()
 
-    if restart:
-        subprocess.Popen(["bash", "-lc",
-                          "sleep 1; systemctl --user restart ava-bridge.service"],
-                         start_new_session=True)
+    restart_result = restart_bridge() if restart else None
     return {"files": changed, "commit": commit,
+            "restart_result": restart_result,
             "commit_failed": cp.returncode != 0,
             "commit_error": (cp.stderr or "").strip() if cp.returncode != 0 else ""}
+
+
+
+# ---- restarting ourselves ---------------------------------------------------- #
+# `systemctl --user restart ava-bridge.service` was fired-and-forgotten here, and
+# **that unit ships nowhere**: `git ls-files` has no .service file, so it exists
+# only on the maintainer's box. Popen with start_new_session and no captured output
+# means the failure is invisible, while the Hub appended " · restarting bridge" to
+# the message — so every forker who approved a code change was told a restart
+# happened that could not have.
+#
+# There is no single correct restart on every install, which is why guessing was
+# wrong: under Docker the manager is the restart policy, under `ava up` in a
+# terminal there is no manager at all, and only a systemd install has a unit.
+# So detect, and claim only what was actually done.
+_BRIDGE_UNIT = "ava-bridge.service"
+
+
+def restart_plan() -> tuple[str, str]:
+    """(method, detail). `method` is one of systemd | container | manual."""
+    from . import auth
+
+    unit = os.environ.get("AVA_BRIDGE_UNIT", _BRIDGE_UNIT)
+    if shutil.which("systemctl"):
+        try:
+            p = subprocess.run(["systemctl", "--user", "is-active", unit],
+                               capture_output=True, text=True, timeout=10)
+            if (p.stdout or "").strip() == "active":
+                return "systemd", unit
+        except (OSError, subprocess.SubprocessError):
+            pass
+    if auth.in_container():
+        return "container", (
+            "running in a container: the restart policy owns the process, so Ava "
+            "will not stop itself. Run `docker compose restart ava` to pick up the "
+            "change.")
+    return "manual", (
+        f"no active `{unit}` and not in a container, so nothing here can restart "
+        "the bridge. Stop and re-run it (`ava up`) to pick up the change. Set "
+        "AVA_BRIDGE_UNIT if your systemd unit has another name.")
+
+
+def restart_bridge() -> dict:
+    """Restart if we genuinely can. Reports what happened, never assumes."""
+    method, detail = restart_plan()
+    if method != "systemd":
+        return {"attempted": False, "method": method, "ok": False, "detail": detail}
+    # Detached so the response flushes before the bridge goes down.
+    try:
+        subprocess.Popen(["systemctl", "--user", "restart", detail],
+                         start_new_session=True)
+    except (OSError, subprocess.SubprocessError) as e:
+        return {"attempted": True, "method": method, "ok": False,
+                "detail": f"{type(e).__name__}: {e}"}
+    return {"attempted": True, "method": method, "ok": True,
+            "detail": f"restarting {detail}"}
 
 
 def _needs_bridge_restart(edits: list[dict]) -> bool:
