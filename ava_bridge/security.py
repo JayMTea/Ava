@@ -49,18 +49,35 @@ def secure_opener(path: str, flags: int) -> int:
 # /internal request.
 #
 # These sets are derived from what each agent/mcp_server_<group>/ ACTUALLY calls,
-# not from what sounds tidy — `content` carries connectors because
-# mcp_server_content drives the connector action bridge and the device-event
-# ingest. Getting that wrong is why enforcing this table was never safe before:
-# it would have broken live tools rather than only the escalation it targets.
+# not from what sounds tidy. Getting that wrong is why enforcing this table was
+# never safe before: it would have broken live tools rather than only the
+# escalation it targets.
 #
 # The one that matters: `content` is the group whose server runs web_fetch, i.e.
 # where prompt injection actually arrives. It must never carry `code_change`.
+#
+# `content` no longer carries `connectors`. It used to, and the comment here said
+# why: mcp_server_content drove both the connector action bridge and the
+# device-event ingest, so the group that reads attacker-controlled web pages held
+# the token for every connected app's tools and every device actuation. The
+# `connectors` group below was minted by install.sh and enforced by group_may()
+# but had no server behind it, so SECURITY.md §3's claim that the
+# injection-bearing group's blast radius is bounded was not true of connectors.
+#
+# The fix was to give the group its own server rather than to narrow the table:
+# `agent/mcp_server_connectors/` now holds the generated per-app tools and the
+# device-event tool, install.sh discovers it like any other, and `content` keeps
+# only what its remaining tools actually call. A narrowed table with the tools
+# still in mcp_server_content would have broken them instead.
 INTERNAL_SCOPE_GROUPS: dict[str, frozenset[str]] = {
     "admin": frozenset({"logs", "perf", "config", "policies", "code_change",
                         "model"}),
-    "content": frozenset({"documents", "run_gpu_job", "model", "web",
-                          "connectors"}),
+    "content": frozenset({"documents", "run_gpu_job", "model", "web"}),
+    # Measured, not assumed: the only routes the moved tools call are
+    # /internal/devices/events (device_events.mjs) and /internal/connector/<cid>/*
+    # (the generated per-app tools). `model` was NOT added — nothing here asks for
+    # it, and adding a scope on the assumption that a server probably needs it is
+    # the same mistake as leaving `connectors` on `content`.
     "connectors": frozenset({"connectors"}),
     "productivity": frozenset({"learning", "model"}),
     "system": frozenset({"architecture", "model"}),

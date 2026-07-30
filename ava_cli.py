@@ -551,7 +551,7 @@ def cmd_verify(_args) -> int:
     # 1. Connector SDK — one manifest generates tools + egress policy, in lockstep
     print("Connector SDK  (manifest → tools + egress policy)")
     pol_dir = os.path.join(settings.CODE_ROOT, "agent", "policies", "generated")
-    tool_root = os.path.join(settings.CODE_ROOT, "agent", "mcp_server_content", "connectors")
+    tool_root = os.path.join(settings.CODE_ROOT, "agent", "mcp_server_connectors", "apps")
     pol_drift, tool_drift, lockstep_gap = [], [], []
     if os.path.isdir(pol_dir):
         for name in sorted(os.listdir(pol_dir)):
@@ -840,7 +840,7 @@ def cmd_connector(args) -> int:
             for t in connectors.tool_files(cid):
                 if args.write:
                     outdir = os.path.join(settings.CODE_ROOT, "agent",
-                                          "mcp_server_content", "connectors", cid)
+                                          "mcp_server_connectors", "apps", cid)
                     os.makedirs(outdir, exist_ok=True)
                     p = os.path.join(outdir, t["name"])
                     with open(p, "w", encoding="utf-8") as f:
@@ -1607,7 +1607,7 @@ def main() -> int:
     cp = sub.add_parser("connector", help="list / scaffold / generate policies+tools for connectors")
     cp.add_argument("action", choices=["list", "apps", "new", "policies", "tools"])
     cp.add_argument("name", nargs="?", help="connector name (for new / policies / tools)")
-    cp.add_argument("--write", action="store_true", help="write generated files (policies -> agent/policies/generated, tools -> agent/mcp_server_content/connectors)")
+    cp.add_argument("--write", action="store_true", help="write generated files (policies -> agent/policies/generated, tools -> agent/mcp_server_connectors/apps)")
     cp.set_defaults(func=cmd_connector)
     apn = sub.add_parser("app", help="scaffold the ava-tools/1 agent surface inside YOUR app repo")
     apn.add_argument("action", choices=["new"])

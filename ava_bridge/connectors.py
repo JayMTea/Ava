@@ -929,7 +929,7 @@ def undeployed() -> List[dict]:
     now = time.time()
     if _undeployed_cache["list"] is not None and now - float(_undeployed_cache["ts"]) < 30:
         return _undeployed_cache["list"]  # type: ignore[return-value]
-    root = os.path.join(config.ROOT, "agent", "mcp_server_content", "connectors")
+    root = os.path.join(config.ROOT, "agent", "mcp_server_connectors", "apps")
     out = []
     for m in load():
         files = tool_files(m["id"])

@@ -8,7 +8,7 @@ extend-exclude = [
     "overlay",
     ".venv",
     "docs",
-    "agent/mcp_server_content/connectors",
+    "agent/mcp_server_connectors/apps",
     "agent/policies/generated",
 ]
 

@@ -75,7 +75,7 @@ frontend/src/overlay/
 
 # Generated connector artifacts (derived from a connector.yaml by
 # `ava connector tools|policies` — regenerated at setup, not source).
-agent/mcp_server_content/connectors/
+agent/mcp_server_connectors/apps/
 agent/policies/generated/
 
 # Architecture SSOT manifest + .d2 sources (deployment-specific).

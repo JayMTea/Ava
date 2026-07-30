@@ -45,7 +45,7 @@ class UndeployedTests(unittest.TestCase):
         self.assertEqual(out[0]["tools"], 2)     # find_tool + call meta pair
 
     def test_deployed_connector_not_reported(self):
-        d = os.path.join(self.root, "agent", "mcp_server_content", "connectors", "myapp")
+        d = os.path.join(self.root, "agent", "mcp_server_connectors", "apps", "myapp")
         os.makedirs(d)
         for t in connectors.tool_files("myapp"):
             open(os.path.join(d, t["name"]), "w").write(t["source"])

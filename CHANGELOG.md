@@ -112,6 +112,22 @@ pre-release milestones from when Ava ran on one box and nothing was tagged.
 
 ### Added
 
+- **`agent/mcp_server_connectors/` — the capability group that was minted and
+  unused.** `install.sh` handed out a `connectors` token and `group_may()` enforced
+  a `connectors` scope, but no server existed behind it, so the generated per-app
+  tools and the device-event tool lived in `mcp_server_content` and ran on the
+  **content** token. That is the group whose server runs `web_fetch` — the one place
+  attacker-controlled text arrives — so a prompt-injected page could reach every
+  connected app's action bridge and every device actuation. `SECURITY.md` §3's claim
+  that the injection-bearing group's blast radius is bounded was not true of
+  connectors. The fix gives the group its own server rather than narrowing the
+  table: `install.sh` discovers it with no change, `device_events.mjs` moves into it,
+  generated tools now land in `agent/mcp_server_connectors/apps/<cid>/`, and
+  `content` keeps only what its remaining tools actually call. Narrowing the table
+  first would have 403'd live tools instead. `tests/test_mcp_server_scopes.py` now
+  derives each server's required scopes from the `/internal/...` routes its tools
+  reference and fails **both** ways — a missing scope and a surplus one, the
+  direction that breaks nothing and therefore survives.
 - **A `sensitive` consent tier** — no side effects, but it discloses something.
   Ava's tiers conflated two independent axes: `read` meant "no side effects" and
   was implemented as "runs silently, forever". An author who wanted *"ask before

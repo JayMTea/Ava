@@ -235,7 +235,7 @@ def list_connectors():
     perf / egress-count fields for the Ops panel. Two endpoints, two audiences —
     management vs monitoring — so neither UI carries the other's fields."""
     pol_dir = os.path.join(settings.CODE_ROOT, "agent", "policies", "generated")
-    tool_root = os.path.join(settings.CODE_ROOT, "agent", "mcp_server_content", "connectors")
+    tool_root = os.path.join(settings.CODE_ROOT, "agent", "mcp_server_connectors", "apps")
     user_root = settings.home("connectors")
     out = []
     for m in connectors.catalog():  # includes disabled, so they can be re-enabled
@@ -753,7 +753,7 @@ def generate_connector(cid: str, write: int = 0):
             with open(pp, "w", encoding="utf-8") as f:
                 f.write(policy_yaml)
             wrote.append(os.path.relpath(pp, settings.CODE_ROOT))
-        tdir = os.path.join(settings.CODE_ROOT, "agent", "mcp_server_content", "connectors", cid)
+        tdir = os.path.join(settings.CODE_ROOT, "agent", "mcp_server_connectors", "apps", cid)
         for t in tools:
             os.makedirs(tdir, exist_ok=True)
             tp = os.path.join(tdir, t["name"])
@@ -797,7 +797,7 @@ def delete_connector(cid: str):
                             status_code=404)
     # What is about to be destroyed, captured BEFORE destroying it — a record
     # written afterwards cannot say what was there.
-    tdir = os.path.join(settings.CODE_ROOT, "agent", "mcp_server_content", "connectors", cid)
+    tdir = os.path.join(settings.CODE_ROOT, "agent", "mcp_server_connectors", "apps", cid)
     pol = os.path.join(settings.CODE_ROOT, "agent", "policies", "generated", f"{cid}.yaml")
     had_tools = os.path.isdir(tdir)
     had_policy = os.path.isfile(pol)
@@ -820,7 +820,7 @@ def delete_connector(cid: str):
     try:
         if had_tools:
             shutil.rmtree(tdir)
-            removed.append(f"agent/mcp_server_content/connectors/{cid}")
+            removed.append(f"agent/mcp_server_connectors/apps/{cid}")
     except OSError:
         pass
     try:
