@@ -137,6 +137,38 @@ services:
       - "127.0.0.1:11434:11434"
     restart: unless-stopped
 
+  # --- inference: AMD GPU users (ROCm) ---
+  # A SEPARATE service from `ollama`, not a variant of it, for two reasons that
+  # both break a single merged service:
+  #   * different image tag (`:rocm` carries the ROCm runtime, ~4 GB more), and
+  #   * `/dev/kfd` does not exist on a non-AMD host, so a service declaring it
+  #     fails to start everywhere else — including on the cpu profile.
+  # Compose profiles keep them mutually exclusive, and the model cache is shared
+  # so switching profiles does not re-download weights.
+  #
+  # `group_add: render, video` is required, not decorative: /dev/kfd is owned by
+  # the render group, and without it the container sees the device node and is
+  # refused by permissions — which surfaces as "no GPU detected" rather than as a
+  # permissions error.
+  #
+  # ⚠️ NOT VERIFIED ON DEVICE — see deploy/profiles/rocm.env.
+  ollama-rocm:
+    profiles: ["rocm"]
+    image: ollama/ollama:rocm
+    volumes:
+      - ${AVA_HOME:-./ava-data}/models/ollama:/root/.ollama
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    group_add:
+      - video
+      - render
+    security_opt:
+      - seccomp:unconfined
+    ports:
+      - "127.0.0.1:11434:11434"
+    restart: unless-stopped
+
   # --- inference: NVIDIA GPU users ---
   # The default brain here is deliberately SMALL (~16 GB VRAM at the default
   # utilization) so that `--profile gpu` starts on an ordinary GPU. This is the
@@ -204,6 +236,18 @@ services:
   # --- image / video generation (optional) ---
   # Uses the upstream the GPU service image; mount your checkpoints under
   # $AVA_HOME/models/gpusvc. Enable the `gpu-service` connector in ava.yaml to wire it.
+  # MEASURED 2026-07-29: this service had no `devices`, no `runtime` and no
+  # `deploy.resources.reservations`, and Docker never grants GPU access
+  # implicitly — an image cannot opt itself in, because that is a daemon-level
+  # decision. So GPU workloads under the `full` profile was **CPU-only on
+  # every platform**, while `profiles/full.env` throttled vLLM to
+  # AVA_VLLM_GPU_UTIL=0.55 to "leave room for the GPU model-class image work" that could
+  # never use it. Two defects reinforcing each other: renders were slow for a
+  # reason nobody could see, and the brain gave up 45% of the pool for nothing.
+  #
+  # The reservation below is the same block vllm carries. It is NVIDIA-specific
+  # (`driver: nvidia`), which is correct for now — there is no AMD equivalent of
+  # this profile yet, and `rocm` runs Ollama with no image engine.
   gpu-service:
     profiles: ["full"]
     image: ${AVA_GPU_SERVICEUI_IMAGE:-ghcr.io/ai-dock/gpu-service:latest}
@@ -211,6 +255,13 @@ services:
       - "127.0.0.1:8189:8188"
     volumes:
       - ${AVA_HOME:-./ava-data}/models/gpusvc:/opt/the GPU service/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: ["gpu"]
     restart: unless-stopped
 # The `cloud` profile starts only the ava service; set in .env:
 #   AVA_BACKEND_URL=https://api.openai.com/v1  (or your provider's /v1 base)

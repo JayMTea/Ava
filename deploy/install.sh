@@ -12,7 +12,7 @@
 #
 # Env knobs:
 #   AVA_DIR       where to install         (default: ~/ava, ignored inside a clone)
-#   AVA_PROFILE   cpu|gpu|cloud|full|agent (default: auto-detected)
+#   AVA_PROFILE   cpu|gpu|rocm|cloud|full|agent (default: auto-detected)
 #   AVA_MODEL     override the model the profile ships with
 #   AVA_REPO      git URL to clone from    (only when NOT run inside a clone)
 #   AVA_INSTALL_DRY_RUN=1   write .env and stop, touching no images (for CI)
@@ -22,7 +22,7 @@ set -euo pipefail
 
 AVA_DIR="${AVA_DIR:-$HOME/ava}"
 AVA_REPO="${AVA_REPO:-}"
-_PROFILES="cpu gpu cloud full agent"
+_PROFILES="cpu gpu rocm cloud full agent"
 
 # If we're already inside a clone (the common `git clone && cd deploy && ./install.sh`
 # path), install in place and skip cloning entirely.
@@ -44,33 +44,29 @@ die() { printf '\033[31mError:\033[0m %s\n' "$*" >&2; exit 1; }
 # Gated on arm64 as well as Darwin: an Intel Mac has no Metal unified-memory story
 # worth steering to, and sending it down the bare-metal path just denies it the
 # working Docker one.
+_BARE_METAL=0
 if [ "$(uname -s 2>/dev/null || true)" = "Darwin" ] \
    && [ "$(uname -m 2>/dev/null || true)" = "arm64" ]; then
   say "Detected Apple Silicon ($(uname -m 2>/dev/null || echo '?'))."
   if [ "${AVA_FORCE_DOCKER:-0}" != "1" ]; then
-    cat <<EOF
-On Apple Silicon, run Ava bare-metal so inference uses the Metal GPU + unified
-memory (Docker Desktop can't pass the GPU through, so its inference is CPU-only):
-
-  cd "${AVA_DIR}"
-  python3 -m venv .venv && . .venv/bin/activate
-  pip install -r requirements.txt && pip install -e .
-  ava setup && ava doctor && ava up
-
-Then install a native engine and pull a model (do NOT use the vLLM default):
-  brew install ollama && ollama serve
-  ollama pull llama3.1:8b         # size it to your Mac; see docs/CHOOSE_A_MODEL.md
-Full recipe: deploy/README.md, "Apple Silicon (Mac mini / Studio)".
-
-To use the (CPU-only) Docker path anyway, re-run with AVA_FORCE_DOCKER=1.
-EOF
-    exit 0
+    # This used to print the recipe and `exit 0` — a documented platform with no
+    # installer, which is why deploy/platforms.conf could not honestly call Apple
+    # Silicon anything better than simulated. It now installs, further down, after
+    # the clone step so there is a checkout to install INTO.
+    _BARE_METAL=1
+    say "Installing bare metal so inference can use the Metal GPU and unified memory."
+    say "(Docker Desktop cannot pass the Apple GPU through; AVA_FORCE_DOCKER=1 forces it.)"
+  else
+    say "AVA_FORCE_DOCKER=1 — proceeding with the CPU-only Docker path on macOS."
   fi
-  say "AVA_FORCE_DOCKER=1 — proceeding with the CPU-only Docker path on macOS."
 fi
 
-command -v docker >/dev/null 2>&1 || die "Docker is required — https://docs.docker.com/get-docker/"
-docker compose version >/dev/null 2>&1 || die "Docker Compose v2 is required."
+# Docker is a requirement of the Docker path only. Demanding it on the bare-metal
+# path would refuse to install on exactly the machine that cannot use it.
+if [ "$_BARE_METAL" = "0" ]; then
+  command -v docker >/dev/null 2>&1 || die "Docker is required — https://docs.docker.com/get-docker/"
+  docker compose version >/dev/null 2>&1 || die "Docker Compose v2 is required."
+fi
 
 # A user-supplied profile must name a file we actually ship. Unvalidated, a typo
 # was passed straight to compose, which started only the always-on `ava` service
@@ -82,26 +78,89 @@ if [ -n "${AVA_PROFILE:-}" ]; then
   esac
 fi
 
-# Auto-pick a profile from available hardware.
-# Say up front how well this exact hardware class is actually known. The support
-# matrix is worthless if it lives only in the docs — an owner should learn at
-# install time whether their platform is verified on real hardware or merely
-# simulated, because that is the difference between "this works" and "the logic
-# is tested and the numbers are unconfirmed". Best-effort: a missing checkout,
-# missing python3 or unparsable table must never block an install.
-if command -v python3 >/dev/null 2>&1 && [ -n "${_SCRIPT_DIR:-}" ]; then
-  _tier_line="$(cd "${_SCRIPT_DIR}/.." 2>/dev/null \
-                && python3 -m ava_bridge.platforms --detect 2>/dev/null)" || _tier_line=""
-  [ -n "${_tier_line}" ] && say "Platform: ${_tier_line}"
+# Ask the HAL what this machine is. install.sh used to run its own vendor probes,
+# which meant the installer's idea of the hardware and the app's could disagree —
+# and did: `nvidia-smi`-or-CPU has no branch for ROCm, Level Zero or an APU, so a
+# 128 GB Strix Halo box silently got the CPU-Ollama profile with no explanation.
+# One detector, in ava_bridge/hwinfo.py, is the fix; deploy/platforms.conf maps
+# its answer to a profile.
+#
+# This runs unconditionally, even when the user pinned AVA_PROFILE, because the
+# platform line and its verification tier are worth saying either way — an owner
+# should learn at install time whether their hardware class is verified on real
+# hardware or merely simulated. Only the profile assignment is conditional.
+#
+# Best-effort on purpose: with AVA_REPO set this runs BEFORE the clone, so the
+# module may not exist yet. Failure falls through to the shell probes below, which
+# remain the only vendor detection allowed in this file.
+if [ -n "${_SCRIPT_DIR:-}" ] && command -v python3 >/dev/null 2>&1; then
+  _detect="$(cd "${_SCRIPT_DIR}/.." 2>/dev/null \
+             && python3 -m ava_bridge.platforms --install-detect 2>/dev/null)" \
+    || _detect=""
+  if [ -n "${_detect}" ]; then
+    eval "${_detect}"
+    say "Platform: ${AVA_DETECTED_LABEL} [${AVA_DETECTED_TIER}]"
+    case "${AVA_DETECTED_TIER}" in
+      ci-simulated)
+        warn "This hardware class is tested by simulation, not on real hardware."
+        warn "The install should work; the numbers Ava reports are unconfirmed here."
+        warn "Help fix that: python3 tools/ondevice_check.py --record" ;;
+      unsupported)
+        warn "${AVA_DETECTED_LABEL} is not a supported target — continuing anyway." ;;
+    esac
+    # An APU reports a tiny BIOS VRAM carve-out, so say which memory model was
+    # chosen and how to override it. Getting this wrong is the difference between
+    # gating on 128 GB and gating on 512 MiB.
+    case "${AVA_DETECTED_MEM_MODEL}" in
+      unified)  say "Memory model: unified (system RAM is the fit pool). Override: AVA_GPU_MEMORY_MODEL=discrete" ;;
+      discrete) say "Memory model: discrete (GPU VRAM is the fit pool). Override: AVA_GPU_MEMORY_MODEL=unified" ;;
+    esac
+    [ -z "${AVA_PROFILE:-}" ] && AVA_PROFILE="${AVA_DETECTED_PROFILE}"
+  fi
 fi
 
-# Having a GPU is not the same as having enough of one: the gpu profile serves a
-# model on vLLM, and if the weights plus KV cache do not fit, the container fails
-# its start check and Docker retries it. Detecting that here — where we can say so
-# in one sentence — beats letting the user discover it from a restart loop.
+# `bare-metal` is a real value in deploy/platforms.conf but NOT a compose profile,
+# so it must never reach `profiles/<name>.env`. It gets here when a Mac user passes
+# AVA_FORCE_DOCKER=1: the HAL still says darwin-apple, the table still says
+# bare-metal, and the Docker path would then die looking for profiles/bare-metal.env
+# with a message about an unknown profile — technically true, unhelpful, and the
+# user's own flag caused it. CPU-only Docker is the honest answer there.
+if [ "${AVA_PROFILE:-}" = "bare-metal" ]; then
+  if [ "$_BARE_METAL" = "1" ]; then
+    : # the bare-metal installer below handles it; nothing to map
+  else
+    say "Docker on this platform has no GPU access, so using the cpu profile."
+    AVA_PROFILE="cpu"
+  fi
+fi
+
+# HAL-EXEMPT-BEGIN: identification fallback — the HAL could not answer (no clone
+# yet, or no python3), so a coarse shell probe is better than refusing to install.
+# tests/test_install_detection.py bounds this region.
 if [ -z "${AVA_PROFILE:-}" ]; then
+  # shellcheck disable=SC2015
   if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
     AVA_PROFILE="gpu"
+  elif command -v rocm-smi >/dev/null 2>&1 && rocm-smi >/dev/null 2>&1; then
+    AVA_PROFILE="rocm"
+  else
+    AVA_PROFILE="cpu"
+  fi
+  warn "Detected the profile with shell probes (the HAL was unavailable): ${AVA_PROFILE}"
+fi
+# HAL-EXEMPT-END
+
+# HAL-EXEMPT-BEGIN: sizing, not identification. "Is there ENOUGH GPU for the
+# default model" and "is a container runtime registered" are different questions
+# from "what hardware is this", and both are properly the installer's business.
+if [ "$AVA_PROFILE" = "gpu" ] && [ "${AVA_DETECTED_MEM_MODEL:-}" = "unified" ]; then
+  # On unified memory the VRAM query returns N/A BY DESIGN, so the discrete-VRAM
+  # sizing gate below does not apply and warning that it "could not read GPU
+  # memory" is noise about a reading that cannot exist. Model fit on this class is
+  # a system-RAM question, which model_fit.py already answers at runtime.
+  say "Unified memory — skipping the discrete-VRAM sizing check (fit is a system-RAM question here)."
+elif [ "$AVA_PROFILE" = "gpu" ]; then
+  if command -v nvidia-smi >/dev/null 2>&1; then
     _vram_mib="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null \
                  | tr -d ' ' | sort -rn | head -1)"
     case "$_vram_mib" in
@@ -119,24 +178,51 @@ if [ -z "${AVA_PROFILE:-}" ]; then
         fi
         ;;
     esac
-
-    # A driver is not a runtime. nvidia-smi proves the host can talk to the GPU;
-    # it proves nothing about `docker run --gpus all` working, which needs the
-    # NVIDIA container toolkit. Without it the vllm container dies at start with
-    # a message about an unknown runtime, which reads like an Ava bug.
-    if [ "$AVA_PROFILE" = "gpu" ] && [ "${AVA_SKIP_GPU_RUNTIME_CHECK:-0}" != "1" ]; then
-      if ! docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q nvidia; then
-        warn "nvidia-smi works, but Docker has no 'nvidia' runtime registered."
-        warn "That is the NVIDIA Container Toolkit, installed separately from the driver:"
-        warn "  https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html"
-        warn "Falling back to the cpu profile. Re-run with AVA_SKIP_GPU_RUNTIME_CHECK=1 to override."
-        AVA_PROFILE="cpu"
-      fi
-    fi
   else
+    warn "Profile is gpu but nvidia-smi is absent — falling back to cpu."
     AVA_PROFILE="cpu"
   fi
 fi
+
+# A driver is not a runtime. nvidia-smi proves the host can talk to the GPU; it
+# proves nothing about `docker run --gpus all` working, which needs the NVIDIA
+# container toolkit. Without it the vllm container dies at start with a message
+# about an unknown runtime, which reads like an Ava bug.
+#
+# Deliberately OUTSIDE the sizing block: this applies to every gpu-profile box,
+# including unified memory. It briefly lived inside the discrete-VRAM branch, and
+# a GB10 with no container toolkit would then have sailed past it into a restart
+# loop — the sizing question and the runtime question are independent.
+if [ "$AVA_PROFILE" = "gpu" ] && [ "${AVA_SKIP_GPU_RUNTIME_CHECK:-0}" != "1" ]; then
+  if ! docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q nvidia; then
+    warn "The NVIDIA driver works, but Docker has no 'nvidia' runtime registered."
+    warn "That is the NVIDIA Container Toolkit, installed separately from the driver:"
+    warn "  https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html"
+    warn "Falling back to the cpu profile. Re-run with AVA_SKIP_GPU_RUNTIME_CHECK=1 to override."
+    AVA_PROFILE="cpu"
+  fi
+fi
+
+# The ROCm equivalent of the container-toolkit check. A driver is not device
+# access: the rocm profile bind-mounts /dev/kfd and /dev/dri into the container,
+# and if the kernel driver is not loaded those nodes do not exist, so the service
+# fails to start with a message about a missing device rather than about ROCm.
+if [ "$AVA_PROFILE" = "rocm" ] && [ "${AVA_SKIP_GPU_RUNTIME_CHECK:-0}" != "1" ]; then
+  if [ ! -e /dev/kfd ] || [ ! -e /dev/dri ]; then
+    warn "No /dev/kfd or /dev/dri — the amdgpu kernel driver does not look loaded."
+    warn "The rocm profile passes those devices through to Ollama, so it cannot start."
+    warn "Install ROCm (or load amdgpu), then re-run. Falling back to the cpu profile."
+    warn "Re-run with AVA_SKIP_GPU_RUNTIME_CHECK=1 to override."
+    AVA_PROFILE="cpu"
+  elif ! id -nG 2>/dev/null | tr ' ' '\n' | grep -qx render; then
+    warn "You are not in the 'render' group; /dev/kfd access usually needs it."
+    warn "  sudo usermod -aG render,video \$USER   # then log out and back in"
+    warn "Continuing with the rocm profile — it may still work if permissions allow."
+  fi
+fi
+
+# HAL-EXEMPT-END
+
 say "Hardware profile: $AVA_PROFILE"
 
 if [ "${_IN_CLONE:-0}" = "1" ]; then
@@ -148,6 +234,79 @@ else
   [ -n "$AVA_REPO" ] || die "Set AVA_REPO to your fork's git URL, or run this from inside a clone (git clone <you>/ava && cd ava/deploy && ./install.sh)."
   say "Cloning Ava into $AVA_DIR"
   git clone --depth 1 "$AVA_REPO" "$AVA_DIR" || die "clone failed"
+fi
+
+# ── bare-metal path (Apple Silicon) ───────────────────────────────────────────
+# Everything below this block is Docker. This runs the recipe deploy/README.md
+# documents, in the same order, and stops at the same place the Docker path does.
+if [ "$_BARE_METAL" = "1" ]; then
+  cd "$AVA_DIR"
+  command -v python3 >/dev/null 2>&1 \
+    || die "python3 is required. Install it from python.org, or: brew install python@3.12"
+
+  # Refuse an unsupported interpreter up front rather than failing three minutes
+  # into a wheel build. pyproject.toml is the source of truth for the floor.
+  python3 - <<'PY' || die "Python 3.11+ is required for the bare-metal path."
+import sys
+raise SystemExit(0 if sys.version_info >= (3, 11) else 1)
+PY
+
+  if [ -n "${AVA_INSTALL_DRY_RUN:-}" ]; then
+    say "AVA_INSTALL_DRY_RUN=1 — bare-metal path validated; not creating the venv."
+    say "Would run: python3 -m venv .venv; pip install -r requirements.txt -e .; ava setup"
+    exit 0
+  fi
+
+  if [ -d .venv ]; then
+    say "Reusing the existing virtualenv at $AVA_DIR/.venv"
+  else
+    say "Creating a virtualenv at $AVA_DIR/.venv"
+    python3 -m venv .venv || die "venv creation failed"
+  fi
+  # shellcheck disable=SC1091
+  . .venv/bin/activate || die "could not activate .venv"
+
+  say "Installing dependencies (this pulls torch for the voice extras — a few minutes)"
+  python3 -m pip install --upgrade pip >/dev/null 2>&1 || true
+  python3 -m pip install -r requirements.txt || die "pip install -r requirements.txt failed"
+  python3 -m pip install -e . || die "pip install -e . failed"
+
+  # An engine, because Ava is a control layer and has no brain of its own. Ollama
+  # is the Mac default: it ships a Metal build, it is one brew away, and unlike
+  # vLLM it actually runs here — `models.engine_servable_here('vllm')` returns
+  # False on darwin-apple for exactly this reason.
+  if command -v ollama >/dev/null 2>&1; then
+    say "Found ollama on PATH."
+  elif command -v brew >/dev/null 2>&1; then
+    say "Installing ollama (brew)"
+    brew install ollama || warn "brew install ollama failed — install it yourself: https://ollama.com/download"
+  else
+    warn "No ollama and no brew. Install an engine before first chat:"
+    warn "  https://ollama.com/download    (or LM Studio, or llama.cpp)"
+  fi
+
+  say "Configuring Ava"
+  ava setup || die "ava setup failed"
+  ava doctor || warn "ava doctor reported problems — read them above before starting."
+
+  cat <<EOF
+
+Ava is installed at ${AVA_DIR}. To start it:
+
+  cd "${AVA_DIR}" && . .venv/bin/activate && ava up
+
+First run needs a model. Size it to your Mac (see docs/CHOOSE_A_MODEL.md):
+
+  ollama serve &
+  ollama pull llama3.1:8b
+
+Then confirm the hardware readings on this machine, and help make Apple Silicon a
+verified platform rather than a simulated one:
+
+  python3 tools/ondevice_check.py --record
+
+EOF
+  exit 0
 fi
 
 cd "$AVA_DIR/deploy"

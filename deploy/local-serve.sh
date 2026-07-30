@@ -55,9 +55,32 @@ if [ -f "$REPO/.env" ]; then
   unset _ava_real_env
 fi
 
-# Default image is aarch64 (DGX/GB10-class hosts). On x86_64 override it:
-#   VLLM_IMAGE=vllm/vllm-openai:latest ./deploy/local-serve.sh
-IMAGE="${VLLM_IMAGE:-vllm/vllm-openai:v0.20.0-aarch64-cu130-ubuntu2404}"
+# The image is resolved from the host architecture, not pinned to the maintainer's.
+# It used to default to the aarch64 CUDA-13 tag unconditionally, with a comment
+# telling x86_64 users to override — so the documented default did not even PULL
+# on the majority of NVIDIA hardware. A default that is wrong for most readers is
+# a broken default, however well commented.
+case "$(uname -m 2>/dev/null || true)" in
+  aarch64|arm64) _vllm_default="vllm/vllm-openai:v0.20.0-aarch64-cu130-ubuntu2404" ;;
+  *)             _vllm_default="vllm/vllm-openai:latest" ;;
+esac
+IMAGE="${VLLM_IMAGE:-$_vllm_default}"
+
+# Accelerator flags for `docker run`, by vendor. vLLM needs a CUDA or ROCm device;
+# there is no CPU story worth serving here, so an unknown accelerator refuses
+# rather than starting a container that will OOM or hang.
+_gpu_args() {
+  if command -v nvidia-smi >/dev/null 2>&1; then
+    printf '%s' "--gpus all"
+  elif [ -e /dev/kfd ] && [ -e /dev/dri ]; then
+    # ROCm: device nodes plus the groups that own them. Untested on device —
+    # see the linux-amd-* rows in deploy/platforms.conf.
+    printf '%s' "--device /dev/kfd --device /dev/dri --group-add video --group-add render"
+  else
+    printf '%s' ""
+  fi
+}
+GPU_ARGS="$(_gpu_args)"
 # Hugging Face cache the container mounts. Defaults to the model store under
 # AVA_HOME (matching `ava setup`); override with HF_CACHE or AVA_HOME in .env.
 HF_CACHE="${HF_CACHE:-${AVA_HOME:-$REPO}/models/hf}"
@@ -159,12 +182,24 @@ fi
 # Docker — check your parsers are right before committing to a multi-minute load.
 if [ -n "${AVA_SERVE_DRY_RUN:-}" ]; then
   echo "[local-serve] DRY RUN — would exec:"
-  printf '  docker run -d --gpus all --name %s %s\n' "$NAME" "$IMAGE"
+  printf '  arch=%s  image=%s\n' "$(uname -m 2>/dev/null || echo '?')" "$IMAGE"
+  printf '  accelerator args: %s\n' "${GPU_ARGS:-<none detected>}"
+  printf '  docker run -d %s --name %s %s\n' "$GPU_ARGS" "$NAME" "$IMAGE"
   printf '    %s\n' "$@"
   exit 0
 fi
 
-docker run -d --gpus all --shm-size=32g \
+if [ -z "$GPU_ARGS" ]; then
+  echo "[local-serve] No CUDA or ROCm device found. vLLM has no useful CPU mode," >&2
+  echo "[local-serve] so this would start a container that cannot serve." >&2
+  echo "[local-serve] Use Ollama instead: cd deploy && cp profiles/cpu.env .env && docker compose up -d" >&2
+  echo "[local-serve] (Set AVA_SERVE_FORCE_NO_GPU=1 to try anyway.)" >&2
+  [ "${AVA_SERVE_FORCE_NO_GPU:-0}" = "1" ] || exit 1
+fi
+
+# GPU_ARGS is a deliberate multi-word flag list, so it must word-split.
+# shellcheck disable=SC2086
+docker run -d $GPU_ARGS --shm-size=32g \
   --restart "$RESTART" \
   -v "${HF_CACHE}:/root/.cache/huggingface" \
   -p "${AVA_SERVE_BIND:-${OMNI_BIND:-127.0.0.1}}:${PORT}:8000" \
