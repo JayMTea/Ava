@@ -133,23 +133,69 @@ def update_item(mid: int, text: str | None = None, pinned: bool | None = None) -
         return False
 
 
-def delete_item(mid: int) -> bool:
+def _digest(text: str) -> str:
+    """A short content hash, so a deletion record can prove WHAT was removed.
+
+    The text itself is gone unrecoverably once deleted — which is the point of a
+    delete — so the ledger cannot quote it. A digest lets the record say "an item
+    whose content hashed to X existed and was destroyed", which is provable
+    without retaining the thing destroyed and is not reversible into it.
+    """
+    import hashlib
+    return hashlib.sha256((text or "").encode("utf-8")).hexdigest()[:16]
+
+
+def delete_item(mid: int, *, reason: str = "") -> bool:
+    """Delete one item, and record that it happened.
+
+    **The audit call lives HERE, not in the route.** It used to live only in
+    `hub/memory.py`'s handler, which meant any other caller of this function
+    deleted owner memories with no ledger trace at all — and one already did (see
+    `delete_source`, reached from `index_document`). `docs/MEMORY.md` promises that
+    edits and deletions "are logged the same way", so the promise has to be kept
+    by the layer that performs the act, not by one of its callers.
+    """
     try:
         with _LOCK, _conn() as con:
+            row = con.execute("SELECT kind, source, text FROM items WHERE id=?",
+                              (mid,)).fetchone()
             con.execute("DELETE FROM items WHERE id=?", (mid,))
-            return con.execute("SELECT changes()").fetchone()[0] > 0
+            gone = con.execute("SELECT changes()").fetchone()[0] > 0
     except Exception:  # noqa: BLE001
         return False
+    if gone:
+        audit.record("memory_delete", scope="item", id=mid, rows=1,
+                     kind_deleted=(row["kind"] if row else None),
+                     source=(row["source"] if row else None),
+                     digest=_digest(row["text"] if row else ""),
+                     reason=reason or "owner request")
+    return gone
 
 
-def delete_source(source: str) -> int:
-    """Remove every item from one source (e.g. before re-indexing an upload)."""
+def delete_source(source: str, *, reason: str = "") -> int:
+    """Remove every item from one source (e.g. before re-indexing an upload).
+
+    Audited for a sharper reason than `delete_item`: this is a BULK delete, and
+    `index_document` calls it automatically on every re-upload of the same
+    filename. So the single most frequent path by which owner memories were
+    destroyed left no trace whatsoever, and it was not even user-initiated.
+
+    `reason` distinguishes a re-index from an erasure. Without it the ledger would
+    show what looks like someone deleting their notes when they actually just
+    re-uploaded a file — a true record that misleads is barely better than none.
+    """
     try:
         with _LOCK, _conn() as con:
+            digests = [_digest(r["text"]) for r in con.execute(
+                "SELECT text FROM items WHERE source=?", (source,)).fetchall()]
             cur = con.execute("DELETE FROM items WHERE source=?", (source,))
-            return cur.rowcount
+            rows = cur.rowcount
     except Exception:  # noqa: BLE001
         return 0
+    if rows:
+        audit.record("memory_delete", scope="source", source=source, rows=rows,
+                     digests=digests[:64], reason=reason or "owner request")
+    return rows
 
 
 # ---- document ingestion ----------------------------------------------------- #
@@ -179,7 +225,9 @@ def index_document(att_id: str, filename: str, text: str, max_chunks: int = 120)
     if not config.MEMORY_ENABLED or not (text or "").strip():
         return 0
     source = f"upload:{filename}"
-    delete_source(source)
+    # Named so the ledger reads as a re-index rather than as the owner erasing
+    # their own notes — this is the automatic bulk delete that had no trace at all.
+    delete_source(source, reason="reindex: document re-uploaded")
     n = 0
     for i, chunk in enumerate(chunk_text(text)[:max_chunks]):
         if add("doc", f"[{filename}] {chunk}", source=source,
@@ -330,3 +378,24 @@ def self_check() -> tuple[bool, str]:
         return True, f"{c['facts']} facts · {c['doc_chunks']} doc chunks"
     except Exception as e:  # noqa: BLE001
         return False, str(e)
+
+
+def delete_all(*, reason: str = "") -> int:
+    """Erase EVERY memory item. Returns the row count removed.
+
+    Separate from `delete_source`/`delete_item` because it is the whole-store
+    erasure the Data page offers, and it records a count rather than per-item
+    digests: hashing every row of a store the owner is deliberately emptying would
+    put the entire memory corpus's fingerprints in the ledger, which is a privacy
+    regression dressed as an audit improvement.
+    """
+    try:
+        with _LOCK, _conn() as con:
+            n = con.execute("SELECT count(*) FROM items").fetchone()[0]
+            con.execute("DELETE FROM items")
+    except Exception:  # noqa: BLE001
+        return 0
+    if n:
+        audit.record("memory_delete", scope="all", rows=n,
+                     reason=reason or "owner emptied the store")
+    return int(n)

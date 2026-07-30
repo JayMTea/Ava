@@ -28,7 +28,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
-from .. import connectors, perf_mgmt, runtime, settings
+from .. import audit, connectors, perf_mgmt, runtime, settings
 import uuid
 import yaml as _yaml
 from .. import connectors as _c, grants
@@ -725,24 +725,49 @@ def delete_connector(cid: str):
                                 status_code=400)
         return JSONResponse({"ok": False, "error": f"unknown connector '{cid}'"},
                             status_code=404)
+    # What is about to be destroyed, captured BEFORE destroying it — a record
+    # written afterwards cannot say what was there.
+    tdir = os.path.join(settings.CODE_ROOT, "agent", "mcp_server_content", "connectors", cid)
+    pol = os.path.join(settings.CODE_ROOT, "agent", "policies", "generated", f"{cid}.yaml")
+    had_tools = os.path.isdir(tdir)
+    had_policy = os.path.isfile(pol)
+    policy_digest = ""
+    if had_policy:
+        try:
+            import hashlib
+            with open(pol, "rb") as f:
+                policy_digest = hashlib.sha256(f.read()).hexdigest()[:16]
+        except OSError:
+            pass
+
     try:
         shutil.rmtree(user_dir)
     except OSError as e:
         return JSONResponse({"ok": False, "error": f"could not remove: {e}"},
                             status_code=500)
     # Best-effort cleanup of generated agent surface so the sandbox can be re-synced.
-    tdir = os.path.join(settings.CODE_ROOT, "agent", "mcp_server_content", "connectors", cid)
-    pol = os.path.join(settings.CODE_ROOT, "agent", "policies", "generated", f"{cid}.yaml")
+    removed = ["connectors/" + cid]
     try:
-        if os.path.isdir(tdir):
+        if had_tools:
             shutil.rmtree(tdir)
+            removed.append(f"agent/mcp_server_content/connectors/{cid}")
     except OSError:
         pass
     try:
-        if os.path.isfile(pol):
+        if had_policy:
             os.remove(pol)
+            removed.append(f"agent/policies/generated/{cid}.yaml")
     except OSError:
         pass
+
+    # This deletes an EGRESS POLICY, which is the thing that bounds what the
+    # sandboxed agent may reach for that app. Removing one silently meant the
+    # security posture of the box changed with nothing in the ledger to show it —
+    # and the README markets the Data tab's "audited deletes". Recorded with the
+    # policy's digest so the record proves which policy went, not just that one did.
+    audit.record("connector_delete", id=cid, removed=removed,
+                 had_policy=had_policy, policy_digest=policy_digest,
+                 had_tools=had_tools)
     connectors.load(force=True)
     perf_mgmt.refresh_sources()
     return {"ok": True}

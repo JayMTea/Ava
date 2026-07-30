@@ -356,11 +356,29 @@ async def auth_gate(request: Request, call_next):
                 {"error": "forbidden",
                  "detail": f"the '{group}' capability group may not call {path}"},
                 status_code=403)
-        return await call_next(request)
+        # Attributed to the AGENT: /internal/* is the sandbox-tool callback
+        # surface, so anything recorded downstream of here was done by Ava acting,
+        # not by the owner clicking. That distinction is the whole point of the
+        # audit `actor` field — "did I do this, or did my agent?" was previously
+        # unanswerable for every event in the ledger.
+        from . import audit as _audit
+        _tok = _audit.set_actor("agent")
+        try:
+            return await call_next(request)
+        finally:
+            _audit.reset_actor(_tok)
     # The device-event ingest endpoint bypasses the cookie gate the same way:
     # callers are apps, not browsers, with their own per-connector bearer check.
     if path in _PUBLIC_PATHS or _is_ingest(path) or is_authed(request):
-        return await call_next(request)
+        # A cookie-authenticated request is the OWNER; a public path or a device
+        # ingest is neither owner nor agent, so it stays unattributed rather than
+        # being labelled with a plausible guess.
+        from . import audit as _audit
+        _tok = _audit.set_actor("owner" if is_authed(request) else "unknown")
+        try:
+            return await call_next(request)
+        finally:
+            _audit.reset_actor(_tok)
     if any(path == p or path.startswith(p + "/") for p in API_PREFIXES):
         return JSONResponse({"error": "auth required"}, status_code=401)
     # First run (no password yet) -> onboarding screen, not a dead login wall.

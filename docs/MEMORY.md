@@ -35,6 +35,19 @@ Every recall that reaches a turn is written to the audit ledger
 "why did she say that?" Manual edits (`memory_edit`) and distillation runs
 (`memory_distill`) are logged the same way.
 
+**Deletions are recorded by the store itself** (`memory_delete`), not by the route
+that asked — so every path that removes memory leaves a trace, including the one
+that is not user-initiated: re-uploading a document with the same filename
+replaces its chunks, and that bulk delete is recorded with
+`reason: "reindex: document re-uploaded"` rather than looking like an erasure.
+
+Each record carries a **short content digest** of what was removed, never the text.
+The content is gone — that is what a delete means — so the ledger cannot quote it;
+a digest lets the record show *that a specific thing existed and was destroyed*
+without retaining it and without being reversible into it. `tests/`
+`test_destructive_paths_audited.py` fails the build if a function that destroys
+persisted data stops recording it.
+
 ## How distillation works
 
 The existing learning scheduler (`features.learning`) runs a

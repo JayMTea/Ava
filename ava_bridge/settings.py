@@ -352,8 +352,26 @@ def write_backend_key(backend_id: str, key: str) -> None:
     os.chmod(p, 0o600)
 
 
+def _audit_secret(action: str, **fields) -> None:
+    """Record a credential lifecycle event. NAME only, never the value.
+
+    Deferred import: `audit._path()` already reaches back into this module for
+    `logs_dir()`, so a module-level import here would be a cycle.
+    """
+    try:
+        from . import audit
+        audit.record("secret", action=action, **fields)
+    except Exception:  # noqa: BLE001 — auditing must never break a settings write
+        pass
+
+
 def delete_backend_key(backend_id: str) -> None:
-    """Remove a per-backend key file if present (best-effort)."""
+    """Remove a per-backend key file if present (best-effort).
+
+    Audited because removing a stored credential is a security-relevant change to
+    the box and left no trace at all — the caller (`hub/models.py`) does not record
+    it either, so the flight recorder was silent about a key disappearing.
+    """
     bid = _safe_backend_id(backend_id)
     if not bid:
         return
@@ -361,6 +379,7 @@ def delete_backend_key(backend_id: str) -> None:
     try:
         if p.is_file():
             p.unlink()
+            _audit_secret("delete", scope="backend_key", backend=bid)
     except OSError:
         pass
 
@@ -432,11 +451,17 @@ def set_env_secret(name: str, value: str) -> None:
 
 
 def clear_env_secret(name: str) -> None:
-    """Remove a saved connector credential if present (best-effort)."""
+    """Remove a saved connector credential if present (best-effort).
+
+    Audited for the same reason as `delete_backend_key`: `hub/connectors.py` calls
+    this when a token field is submitted empty, so a credential could vanish as a
+    side effect of an edit with nothing on the record.
+    """
     p = _env_secret_path(name)
     try:
         if p.is_file():
             p.unlink()
+            _audit_secret("delete", scope="connector_credential", name=name)
     except OSError:
         pass
 

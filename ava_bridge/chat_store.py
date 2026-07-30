@@ -31,7 +31,7 @@ import threading
 import time
 import uuid
 
-from . import config, settings, state  # state: attachments only, never chats
+from . import audit, config, settings, state  # state: attachments only, never chats
 
 # One lock for read-modify-write sequences (append-and-retitle, rename). SQLite
 # handles concurrent access itself; this serialises the compound operations that
@@ -201,7 +201,14 @@ def snapshot(cid: str) -> dict | None:
 
 
 def delete(cid: str) -> dict | None:
-    """Remove a conversation and its messages. Returns the removed chat, or None."""
+    """Remove a conversation and its messages. Returns the removed chat, or None.
+
+    Audited HERE rather than only in `chats_api`'s route, for the reason
+    memory_store's delete functions carry: the route's record covers the route's
+    callers and nothing else, so any future caller erases a conversation silently.
+    The route's own `chat_delete` record stays — it says the owner asked; this one
+    says how many messages actually left the database.
+    """
     with _LOCK, _db() as con:
         row = con.execute("SELECT * FROM chats WHERE id=?", (cid,)).fetchone()
         if row is None:
@@ -209,6 +216,9 @@ def delete(cid: str) -> dict | None:
         gone = _chat(row, _messages_for(con, cid))
         con.execute("DELETE FROM messages WHERE chat_id=?", (cid,))
         con.execute("DELETE FROM chats WHERE id=?", (cid,))
+    audit.record("chat_delete", scope="store", id=cid,
+                 title=(gone.get("title") or "")[:80],
+                 messages=len(gone.get("messages") or []))
     return gone
 
 
@@ -495,3 +505,22 @@ def _db() -> sqlite3.Connection:
     """Open the store, running the one-time legacy import on first use."""
     _ensure_migrated()
     return _conn()
+
+
+def delete_all(*, reason: str = "") -> int:
+    """Erase every conversation. Returns the chat count removed.
+
+    The product-path entry point, distinct from `reset()` — which stays an
+    unaudited test utility so a fixture does not spray records into the ledger.
+    tests/test_destructive_paths_audited.py allowlists `reset()` on exactly that
+    basis, and its comment says to remove the entry if a product path ever calls
+    it; this function exists so that stays true.
+    """
+    with _LOCK, _db() as con:
+        n = con.execute("SELECT count(*) FROM chats").fetchone()[0]
+        con.execute("DELETE FROM messages")
+        con.execute("DELETE FROM chats")
+    if n:
+        audit.record("chat_delete", scope="all", chats=int(n),
+                     reason=reason or "owner emptied the store")
+    return int(n)
