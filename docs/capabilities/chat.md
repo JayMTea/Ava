@@ -243,10 +243,12 @@ what actually thinks, see [Choosing a model](../CHOOSE_A_MODEL.md) and
 [the agent runtime](../AGENT_RUNTIME.md).
 
 **The composer's "Code mode" toggle is not wired in this UI.** Flipping it and
-sending a message returns a system line pointing at the classic UI at `/legacy`.
+sending a message returns a system line pointing you at the Control Center.
 Self-editing is real, but it is driven from **Operations → Control Center**, not
 from the chat composer — see
-[the agent: tools, skills & self-improvement](agent.md).
+[the agent: tools, skills & self-improvement](agent.md). (The line used to point
+at the classic UI at `/legacy`; that panel's routes were removed when self-editing
+moved behind the approval gate, so it now says so instead of failing.)
 
 ## Where to go next
 

@@ -346,7 +346,10 @@ export function useChat() {
         push({
           kind: 'sys',
           id: uid(),
-          text: 'Code mode isn’t available in the new UI yet — open the classic UI at /legacy.',
+          // Do NOT send people to /legacy: that panel POSTs to /api/code/turn,
+          // which no longer exists, so following the old advice ended in a 404.
+          // Governed self-editing runs from the Control Center.
+          text: 'Code mode isn’t wired to the composer. Ava’s governed self-editing runs from Operations → Control Center, where each change waits for your approval.',
           icon: 'code',
         });
         return;

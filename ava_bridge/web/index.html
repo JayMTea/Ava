@@ -1498,6 +1498,16 @@ codeModelEl.addEventListener('change', () => localStorage.setItem('ava.codemodel
 if (localStorage.getItem('ava.codemode') === '1') setCodeMode(true);
 
 async function runCodeTurn(t){
+  // /api/code/turn, /api/code/apply and /api/code/discard no longer exist —
+  // governed self-editing moved to the approval-gated Control Center, and only
+  // /api/code/models and /api/code-turns survived. This panel is a strangler-fig
+  // leftover, so it must say so rather than POST into a 404 and report
+  // "could not start". Everything below this guard is dead with it and should be
+  // deleted together with the #codebar toggle when /legacy is retired.
+  addCot('Code mode').fail(
+    'Self-editing moved to Operations → Control Center in the new UI. '
+    + 'This classic panel is no longer wired.');
+  return;
   const cot = addCot('Ava is reading the code & planning');
   const t0 = Date.now();
   try{
