@@ -35,7 +35,7 @@ copied into `$AVA_HOME/connectors/`.
 
 ## Worked examples you can copy in
 
-Three complete manifests ship under [`examples/`](../../examples/).
+Six complete manifests ship under [`examples/`](../../examples/).
 Each is a folder you copy into your data root — no edits to Ava's core:
 
 | Example | Copy it in with | What it demonstrates |
@@ -43,6 +43,9 @@ Each is a folder you copy into your data root — no edits to Ava's core:
 | `hello-app` | `cp -r examples/hello-app "$AVA_HOME/connectors/hello"` | The whole loop end to end: health row, left-rail iframe tab, and a live-discovered tool set. |
 | `device-app` | `cp -r examples/device-app "$AVA_HOME/connectors/device-demo"` | `role: device` plus **push** ingest — the app hands Ava sensor events when *it* decides. |
 | `home-assistant` | `cp -r examples/home-assistant "$AVA_HOME/connectors/home-assistant"` | A real MCP integration over the legacy HTTP+SSE transport, with every actuating tool pinned to the `physical` tier. |
+| `stridewell` | `cp -r examples/stridewell "$AVA_HOME/connectors/stridewell"` | A health app over **real MCP**. Its reads are `sensitive`, not `read` — the tier answers what a disclosure costs, not whether the call mutates. |
+| `ledgerline` | `cp -r examples/ledgerline "$AVA_HOME/connectors/ledgerline"` | Personal finance, **read-only by design**, with `confirm:` on the one tool that produces a portable file. |
+| `hearthwire` | `cp -r examples/hearthwire "$AVA_HOME/connectors/hearthwire"` | Home control — the only example that declares `physical`, the tier Ava will never infer for you, plus `confirm:` on the door lock. |
 
 Two of them are worth reading as opposite ends of the model.
 

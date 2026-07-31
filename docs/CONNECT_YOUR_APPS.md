@@ -14,8 +14,8 @@ is for developers building their own connector, and its full reference is the
 ## The no-code way: from the browser
 
 Everything happens in the app, on the **Setup → Connectors** page. No files, no
-terminal. The whole flow takes under a minute; here it is end to end, narrated
-(sound on):
+terminal. Here it is end to end, narrated (sound on) — about two minutes, and the
+connecting itself takes well under one of them:
 
 <video controls playsinline preload="metadata"
        style="width:100%;border-radius:8px"

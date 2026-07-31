@@ -763,6 +763,30 @@ service:                  # shown in the dashboard's Service health matrix
 """
 
 
+def _resolve_connector_ids(connectors, name):
+    """The ids to act on, or None if a NAMED connector does not exist.
+
+    `ids = [name] if name else all` meant a typo produced an empty result and a
+    cheerful "0 tool(s) written — run `cd agent && ./install.sh` to deploy", which
+    reads as a completed deploy step. A forker who fat-fingers a name during setup
+    believed they had generated and deployed tools that were never generated.
+    """
+    known = [m["id"] for m in connectors.all()]
+    if not name:
+        return known
+    if name not in known:
+        print(f"{BAD} no such connector: {name}")
+        if known:
+            near = [k for k in known if k.startswith(name[:3])] or known
+            print(f"   known: {', '.join(sorted(known))}")
+            if near and near != known:
+                print(f"   did you mean: {', '.join(sorted(near))}?")
+        else:
+            print("   none are installed — see `ava connector new <name>`")
+        return None
+    return [name]
+
+
 def cmd_connector(args) -> int:
     from ava_bridge import connectors
     if args.action == "list":
@@ -839,7 +863,9 @@ def cmd_connector(args) -> int:
         return 0
     if args.action == "policies":
         import yaml as _yaml
-        ids = [args.name] if args.name else [m["id"] for m in connectors.all()]
+        ids = _resolve_connector_ids(connectors, args.name)
+        if ids is None:
+            return 1
         wrote = 0
         for cid in ids:
             pol = connectors.render_egress_policy(cid)
@@ -861,7 +887,9 @@ def cmd_connector(args) -> int:
                   f"run `cd agent && ./install.sh` to deploy into the sandbox.")
         return 0
     if args.action == "tools":
-        ids = [args.name] if args.name else [m["id"] for m in connectors.all()]
+        ids = _resolve_connector_ids(connectors, args.name)
+        if ids is None:
+            return 1
         wrote = 0
         for cid in ids:
             # tool_files decides the shape: find/call meta tools for dynamic or

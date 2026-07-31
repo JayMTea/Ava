@@ -100,7 +100,7 @@ service:
 
 # --- Agent egress (optional) ------------------------------------------------
 # What Ava's sandboxed agent tools may reach for this connector. Rendered into
-# an OpenClaw egress policy automatically (ava connector egress <id>).
+# an OpenClaw egress policy automatically (ava connector policies <id> --write).
 # egress:
 #   routes: ["POST /internal/connector/myapp/do_thing"]  # bridge routes
 #   hosts:  ["127.0.0.1:9000"]                            # direct endpoints

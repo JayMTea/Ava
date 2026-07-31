@@ -44,11 +44,15 @@ __all__ = ["FacadeSource", "RegistrySource", "ToolSource", "serve_mcp"]
 # echoed back when we can serve it — version negotiation is a courtesy here
 # because tools/list + tools/call have been stable across every revision.
 PROTOCOL_VERSION = "2025-03-26"
+# Every revision this adapter can actually serve over Streamable HTTP. Anything
+# else is answered with PROTOCOL_VERSION rather than parroted back.
+SUPPORTED_VERSIONS = ("2025-06-18", "2025-03-26")
 SERVER_NAME = "ava-mcp-adapter"
 SERVER_VERSION = "1"
 
 # JSON-RPC error codes (spec-defined; -32603 covers our transport failures).
 _PARSE_ERROR = -32700
+_INVALID_PARAMS = -32602
 _INVALID_REQUEST = -32600
 _METHOD_NOT_FOUND = -32601
 _INTERNAL_ERROR = -32603
@@ -199,8 +203,12 @@ def serve_mcp(source: ToolSource, host: str = "127.0.0.1", port: int = 9300,
     Set block=False to run it on a background thread.
     """
     mcp_path = path if path.startswith("/") else "/" + path
-    sessions: set = set()
-    lock = threading.Lock()
+    # No session registry, deliberately. One was kept here and never consulted: ids
+    # were minted on initialize and stored, but no request path checked membership,
+    # so a fabricated Mcp-Session-Id was accepted and tools/list worked with no
+    # initialize at all — while the set grew for the process lifetime. A registry
+    # that is not enforced is worse than none, because it reads like a control. The
+    # lock that guarded it went with it.
 
     def handle(msg: dict) -> dict | None:
         """One JSON-RPC message -> one response (None for notifications)."""
@@ -219,8 +227,13 @@ def serve_mcp(source: ToolSource, host: str = "127.0.0.1", port: int = 9300,
 
         if method == "initialize":
             want = str((msg.get("params") or {}).get("protocolVersion") or "")
+            # Negotiate, do not echo. Echoing whatever arrived told a client its
+            # revision was supported even when it was not: a 2024-11-05 client was
+            # answered "2024-11-05" and then expected the HTTP+SSE transport this
+            # adapter has never implemented. The spec's guidance is to answer with a
+            # version we actually speak and let the client decide.
             info: dict = {
-                "protocolVersion": want or PROTOCOL_VERSION,
+                "protocolVersion": want if want in SUPPORTED_VERSIONS else PROTOCOL_VERSION,
                 "capabilities": {"tools": {"listChanged": False}},
                 "serverInfo": {"name": server_name, "version": SERVER_VERSION},
             }
@@ -245,7 +258,9 @@ def serve_mcp(source: ToolSource, host: str = "127.0.0.1", port: int = 9300,
             params = msg.get("params") or {}
             name = str(params.get("name") or "").strip()
             if not name:
-                return fail(_INVALID_REQUEST, "tools/call requires a tool name")
+                # -32602 Invalid params, not -32600 Invalid request: the envelope
+                # was fine, the params were not. Clients branch on this code.
+                return fail(_INVALID_PARAMS, "tools/call requires a tool name")
             try:
                 result, is_error = source.call_tool(name, params.get("arguments") or {})
             except Exception as e:  # noqa: BLE001 — a crashing tool is data, not a 500
@@ -308,11 +323,12 @@ def serve_mcp(source: ToolSource, host: str = "127.0.0.1", port: int = 9300,
                 return self._send(400, {"jsonrpc": "2.0", "id": None,
                                         "error": {"code": _INVALID_REQUEST,
                                                   "message": "batch requests are not supported"}})
+            # A session id is still ISSUED on initialize, because the spec lets a
+            # server hand one out and clients echo it back — but nothing is stored
+            # or enforced, and pretending otherwise was the old bug.
             session = (self.headers.get("Mcp-Session-Id") or "").strip() or None
             if msg.get("method") == "initialize":
                 session = secrets.token_urlsafe(16)
-                with lock:
-                    sessions.add(session)
             resp = handle(msg)
             # A notification gets 202 and an empty body — clients (Ava's
             # included) don't read one and must not block waiting for it.
