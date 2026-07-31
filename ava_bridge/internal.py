@@ -309,8 +309,19 @@ async def internal_extract(request: Request):
 @router.get("/internal/devices/events")
 def internal_device_events(request: Request):
     """Recent pushed device events, for Ava's `device_events` MCP tool. Token-gated
-    (reuses the ava-knowledge /internal egress; scoped to the `content` group)."""
-    if not authorized(request, scope="content"):
+    (reuses the ava-knowledge /internal egress).
+
+    No per-handler `scope=` here, deliberately. This handler used to pass
+    `scope="content"`, which was correct while device_events.mjs lived in
+    mcp_server_content — and became a second, contradicting gate the moment the
+    tool moved to agent/mcp_server_connectors/. ROUTE_SCOPES says
+    /internal/devices needs `connectors`, so auth_gate let the connectors token
+    in and this line then 401'd it, while the `content` token was refused 403
+    upstream. The result was a route NO derived token could reach, i.e. the
+    documented tool could not work at all. Enforcement is central (see
+    ROUTE_SCOPES above); this call only asserts that some valid token was shown.
+    """
+    if not authorized(request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     cid = (request.query_params.get("connector") or "").strip() or None
     try:

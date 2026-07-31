@@ -157,6 +157,69 @@ _BLOCK_TYPES: dict = {
 MANIFEST_VERSION = 1
 
 
+def _declared_urls(m: dict):
+    """[(label, raw, expanded)] for the URL-shaped values core dials."""
+    out = []
+
+    def add(label, raw):
+        if raw:
+            out.append((label, str(raw), _expand(str(raw))))
+
+    svc = m.get("service")
+    if isinstance(svc, dict):
+        add("service.probe", svc.get("probe"))
+    acts = m.get("actions")
+    disc = acts.get("discover") if isinstance(acts, dict) else None
+    if isinstance(disc, dict):
+        add("actions.discover.base", disc.get("base"))
+    mcp = m.get("mcp")
+    if isinstance(mcp, dict):
+        add("mcp.url", mcp.get("url"))
+    ui = m.get("ui")
+    if isinstance(ui, dict):
+        add("ui.url", ui.get("url"))
+    return out
+
+
+def _bad_url(raw: str, url: str) -> str | None:
+    """Why core cannot dial this URL, or None.
+
+    `ava device new` writes `base: "http://127.0.0.1:PORT"` for the owner to
+    edit, and an unedited one used to validate CLEAN: the connector loaded, a
+    full egress policy rendered, and the only symptom was a connection error at
+    discovery time that named neither the manifest nor the placeholder. Checking
+    that the port parses catches the placeholder and a fat-fingered port alike,
+    without this function having to know the template's vocabulary.
+
+    An UNSET `${VAR}` is not that bug and must not be reported as one. Every
+    example manifest that documents "export HASS_URL first" expands to nothing
+    until the owner does, and the first version of this check turned all of them
+    red on a clean checkout — an error message telling the owner their example
+    is malformed when they have simply not configured it yet. So a value that
+    interpolates and comes back without a scheme is left alone; once the var IS
+    set, whatever it produced is checked like anything else.
+    """
+    from urllib.parse import urlsplit
+    try:
+        parts = urlsplit(url)
+    except ValueError as e:
+        return f"is not a URL ({e})"
+    if parts.scheme not in ("http", "https"):
+        if "${" in raw:
+            return None
+        return "needs an http:// or https:// scheme"
+    try:
+        _ = parts.port  # the parse IS the check
+    except ValueError:
+        tail = url.rsplit(":", 1)[-1].split("/")[0]
+        hint = (" — that is the placeholder `ava device new` writes for you to "
+                "replace") if tail == "PORT" else ""
+        return f"has a non-numeric port {tail!r}{hint}"
+    if not parts.hostname:
+        return "has no host"
+    return None
+
+
 def _validate(m: dict, path: str, errors: list | None) -> None:
     """Type-check the blocks core reads, and QUARANTINE the bad ones in memory.
 
@@ -218,6 +281,12 @@ def _validate(m: dict, path: str, errors: list | None) -> None:
                            "error": f"action `{a.get('id')}` declares `access: {acc}`, "
                                     f"not a consent tier ({', '.join(_TIERS)}) — it is "
                                     "being inferred from the HTTP method instead"})
+    for label, raw, url in _declared_urls(m):
+        why = _bad_url(raw, url)
+        if why:
+            shown = raw if raw == url else f"{raw} -> {url}"
+            errors.append({"id": cid, "path": path, "severity": "error",
+                           "error": f"`{label}: {shown}` — {why}"})
 
 
 def _merge_all(errors: list | None = None) -> dict:
@@ -471,6 +540,19 @@ def _default_port(host: str) -> int:
     return 80 if _is_private_host(host) else 443
 
 
+def _dedupe_rules(rules: list) -> list:
+    """Drop repeated allow-rules, keeping the first of each (method, path)."""
+    seen, out = set(), []
+    for r in rules:
+        a = r.get("allow") or {}
+        key = (str(a.get("method", "")).upper(), str(a.get("path", "")))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(r)
+    return out
+
+
 def render_egress_policy(cid: str) -> dict | None:
     """Render a connector's `egress` block into an OpenClaw egress-policy dict
     (same shape as agent/policies/*.yaml). Returns None if it declares no egress.
@@ -513,6 +595,14 @@ def render_egress_policy(cid: str) -> dict | None:
                                 "path": f"/internal/connector/{cid}/__tools"}})
         rules.append({"allow": {"method": "POST",
                                 "path": f"/internal/connector/{cid}/__call"}})
+    # A manifest may also spell out a route this function derives — declaring
+    # `GET /internal/connector/<id>/__tools` under egress.routes is the obvious
+    # thing to write, and all three shipped demo manifests did. The rule then
+    # appeared twice in the generated policy. Duplicates change nothing about
+    # what is allowed, but a security policy that repeats itself is one a
+    # reviewer has to diff line by line to be sure the copies agree. First
+    # occurrence wins, so the manifest's own ordering survives.
+    rules = _dedupe_rules(rules)
     if rules:
         endpoints.append({
             "host": _BRIDGE_HOST, "port": _BRIDGE_PORT, "protocol": "rest",

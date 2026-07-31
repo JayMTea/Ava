@@ -21,6 +21,7 @@ Ava's stated posture is that it reports what it can prove. These three did not:
 Compare the hand-written `agent/policies/ava-weather.yaml`: port 443, no
 `allowed_ips`, `GET /**` only. That is the shape a generated policy should have.
 """
+import os
 import unittest
 from unittest import mock
 
@@ -207,6 +208,97 @@ class SelfReportedTierTrustTests(unittest.TestCase):
             self.assertTrue(connectors._is_private_host(h), h)
         for h in ("example.com", "api.example.org", "8.8.8.8", "1.1.1.1", ""):
             self.assertFalse(connectors._is_private_host(h), h)
+
+
+class UnresolvedPlaceholderTests(unittest.TestCase):
+    """`ava device new` writes `base: "http://127.0.0.1:PORT"` and an unedited
+    one validated CLEAN: the connector loaded, `load_errors()` was empty, and a
+    full egress policy rendered against a URL nothing can dial. The owner's only
+    symptom was a connection error at discovery time naming neither the manifest
+    nor the placeholder.
+    """
+
+    def _errs(self, m):
+        out = []
+        connectors._validate(m, "t.yaml", out)
+        return [e["error"] for e in out]
+
+    def test_the_unedited_template_port_is_an_error(self):
+        m = {"id": "d", "actions": {"discover": {"base": "http://127.0.0.1:PORT",
+                                                 "list": "/tools", "call": "/call"}}}
+        errs = self._errs(m)
+        self.assertTrue(errs, "the placeholder must not validate clean")
+        self.assertIn("PORT", errs[0])
+        self.assertIn("ava device new", errs[0], "name where it came from")
+
+    def test_a_real_port_validates(self):
+        m = {"id": "d", "actions": {"discover": {"base": "http://127.0.0.1:9700",
+                                                 "list": "/tools", "call": "/call"}}}
+        self.assertEqual(self._errs(m), [])
+
+    def test_an_unset_env_var_is_not_an_error(self):
+        """Every example that says "export HASS_URL first" expands to nothing on
+        a clean checkout. Reporting that as malformed tells the owner their
+        example is broken when they have simply not configured it — the first
+        version of this check did exactly that to examples/home-assistant."""
+        m = {"id": "d", "mcp": {"url": "${DEFINITELY_UNSET_VAR_XYZ}/mcp"}}
+        self.assertEqual(self._errs(m), [])
+
+    def test_a_SET_env_var_producing_a_bad_url_is_still_an_error(self):
+        m = {"id": "d", "mcp": {"url": "${AVA_TEST_HOST}/mcp"}}
+        with mock.patch.dict(os.environ, {"AVA_TEST_HOST": "http://h.local:NOPE"}):
+            errs = self._errs(m)
+        self.assertTrue(errs, "interpolating to a bad URL must still be caught")
+        self.assertIn("NOPE", errs[0])
+
+    def test_the_shipped_registry_has_no_such_error(self):
+        connectors.load()
+        self.assertEqual(connectors.load_errors(), [])
+
+
+class NoDuplicateRulesTests(unittest.TestCase):
+    """A generated egress policy must not repeat a rule.
+
+    Duplicates allow nothing extra, so nothing breaks and nobody notices — which
+    is the problem. A reviewer reading a security policy has to diff the copies
+    line by line to be sure they agree, and all three shipped demo manifests had
+    every rule twice: they spelled out `GET /internal/connector/<id>/__tools`
+    under `egress.routes`, which is the obvious thing to write, and the renderer
+    derives the same two routes from the `discover:` block.
+    """
+
+    def _rules(self, cid):
+        pol = connectors.render_egress_policy(cid) or {}
+        return [(r["allow"]["method"], r["allow"]["path"])
+                for np in (pol.get("network_policies") or {}).values()
+                for ep in (np.get("endpoints") or [])
+                for r in (ep.get("rules") or [])]
+
+    def test_no_shipped_connector_renders_a_rule_twice(self):
+        checked = 0
+        for m in connectors.load():
+            rules = self._rules(m["id"])
+            if not rules:
+                continue
+            checked += 1
+            self.assertEqual(len(rules), len(set(rules)), (
+                f"{m['id']}'s generated policy repeats a rule: "
+                f"{sorted({r for r in rules if rules.count(r) > 1})}. Drop it "
+                "from egress.routes — a discovery/MCP connector's __tools and "
+                "__call routes are derived automatically."))
+        self.assertTrue(checked, "no connector rendered any rule — did the "
+                                 "registry or the renderer move?")
+
+    def test_hand_declaring_a_derived_route_is_absorbed(self):
+        """The manifests are clean now; this is what keeps a user's copy clean.
+        Without _dedupe_rules this renders four rules instead of two."""
+        m = {"id": "dup", "mcp": {"url": "http://127.0.0.1:9200/mcp"},
+             "egress": {"routes": ["GET /internal/connector/dup/__tools",
+                                   "POST /internal/connector/dup/__call"]}}
+        with _with(m):
+            rules = self._rules("dup")
+        self.assertEqual(len(rules), 2, f"expected 2 rules, got {rules}")
+        self.assertEqual(len(rules), len(set(rules)))
 
 
 if __name__ == "__main__":

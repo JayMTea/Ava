@@ -439,6 +439,40 @@ def host_is_trusted(request) -> tuple[bool, str]:
         "rebinding: a page on someone else's domain, re-resolved to this machine, "
         "reaching Ava from your own browser with your own cookie.")
 
+def _shell_bounce(request: Request, path: str):
+    """Bounce a TOP-LEVEL visit to an app URL into the Ava shell, or None.
+
+    `phone_bridge.app_ui_proxy` already does this for the single-origin case:
+    someone who types or bookmarks `/apps/<id>/` lands in the bare app with no
+    Ava around it, so it redirects to `/#<id>`. With `apps.origin` configured
+    that line is unreachable — the origin split answers first, and the owner
+    gets `{"error":"forbidden","detail":"no embed token"}` as a raw JSON page.
+    Measured, both directions: 403 on the apps host, 404 on the main one. The
+    stranding the redirect exists to prevent came back as soon as the feature
+    that needed it most was turned on.
+
+    Only for a top-level navigation. The iframe load itself sends
+    `Sec-Fetch-Dest: iframe` and must keep getting the 403 — that refusal IS the
+    boundary. `fetch()` from app JS sends `empty` and is likewise untouched.
+
+    The target is `server.public_url`, which the owner configured; nothing from
+    the request reaches it, so this cannot become an open redirect. The cid is
+    charset-checked before it goes in the fragment.
+    """
+    if request.method != "GET":
+        return None
+    if request.headers.get("sec-fetch-dest") != "document":
+        return None
+    from . import apps_origin as _apps_origin
+    if not _apps_origin.configured() or not _apps_origin.is_app_path(path):
+        return None
+    cid = _apps_origin.cid_from_path(path) or ""
+    if not cid or not all(c.isalnum() or c in "-_" for c in cid):
+        return None
+    return RedirectResponse(f"{config.PUBLIC_URL.rstrip('/')}/#{cid}",
+                            status_code=302)
+
+
 async def auth_gate(request: Request, call_next):
     path = request.url.path
     # HOST ALLOWLIST, before everything — including the origin split and
@@ -463,6 +497,9 @@ async def auth_gate(request: Request, call_next):
     from . import apps_origin as _apps_origin
     _why = _apps_origin.refuses(request, path)
     if _why is not None:
+        _bounce = _shell_bounce(request, path)
+        if _bounce is not None:
+            return _bounce
         return JSONResponse({"error": "wrong origin", "detail": _why},
                             status_code=404)
     if _apps_origin.configured() and _apps_origin.on_apps_host(request):
@@ -470,6 +507,9 @@ async def auth_gate(request: Request, call_next):
         # no session here by design, so the embed token is the whole gate.
         _ok, _set, _reason = _apps_origin.authorize(request, path)
         if not _ok:
+            _bounce = _shell_bounce(request, path)
+            if _bounce is not None:
+                return _bounce
             return JSONResponse({"error": "forbidden", "detail": _reason},
                                 status_code=403)
         _resp = await call_next(request)

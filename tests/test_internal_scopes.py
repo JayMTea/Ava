@@ -126,5 +126,88 @@ class DocsMatchTheCodeTests(unittest.TestCase):
             "forgot to pass a scope."))
 
 
+class TwoGatesMustNotContradictTests(unittest.TestCase):
+    """A per-handler `authorized(request, scope=...)` is a SECOND gate, and the
+    two vocabularies look alike enough to hide a contradiction: ROUTE_SCOPES maps
+    a path to a *capability*, while `scope=` names a *group*. `content` is both a
+    group name and a plausible capability name, which is how this shipped:
+
+        /internal/devices/events   ROUTE_SCOPES -> "connectors"
+                                   handler      -> scope="content"
+
+    auth_gate admitted the `connectors` token (its server holds device_events.mjs)
+    and the handler then 401'd it; the `content` token was refused 403 upstream
+    before reaching the handler. No derived token could call the route at all, so
+    the documented `device_events` tool was dead — while both gates individually
+    looked correct.
+
+    AST, not a text scan: `scope="content"` also appears in the prose above and in
+    ROUTE_SCOPES' own comment block. Seven guards in this repo have matched their
+    own explanation; this one reads the call node.
+    """
+
+    def _handlers_with_a_scope(self):
+        """[(module, route, group)] for every /internal handler passing scope=."""
+        import ast
+        found = []
+        for rel in _tracked("*.py"):
+            if rel.startswith(("tests/", "qa/")):
+                continue
+            src = _read(rel)
+            if "/internal/" not in src:
+                continue
+            try:
+                tree = ast.parse(src)
+            except SyntaxError:  # pragma: no cover - a broken file fails elsewhere
+                continue
+            for node in ast.walk(tree):
+                if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                routes = [
+                    d.args[0].value
+                    for d in node.decorator_list
+                    if isinstance(d, ast.Call) and d.args
+                    and isinstance(d.args[0], ast.Constant)
+                    and isinstance(d.args[0].value, str)
+                    and d.args[0].value.startswith("/internal/")
+                ]
+                if not routes:
+                    continue
+                for call in ast.walk(node):
+                    if not (isinstance(call, ast.Call)
+                            and isinstance(call.func, ast.Name)
+                            and call.func.id == "authorized"):
+                        continue
+                    for kw in call.keywords:
+                        if kw.arg == "scope" and isinstance(kw.value, ast.Constant):
+                            for route in routes:
+                                found.append((rel, route, kw.value.value))
+        return found
+
+    def test_a_handler_scope_never_contradicts_ROUTE_SCOPES(self):
+        offenders = [
+            (rel, route, group)
+            for rel, route, group in self._handlers_with_a_scope()
+            if not internal.group_may(group, route)
+        ]
+        self.assertFalse(offenders, (
+            "these handlers gate on a group the central table does not let reach "
+            f"the route, so NO derived token can call them: {offenders}. Either "
+            "drop the per-handler scope= (enforcement is central, in "
+            "auth.auth_gate -> internal.group_may) or fix ROUTE_SCOPES. Remember "
+            "scope= names a GROUP and ROUTE_SCOPES holds a CAPABILITY."))
+
+    def test_the_device_events_route_is_reachable_by_its_own_server(self):
+        """The behavioural half. The guard above compares two tables; this asserts
+        the tool's actual token reaches the route, which is what was broken."""
+        route = "/internal/devices/events"
+        self.assertTrue(internal.group_may("connectors", route), (
+            "device_events.mjs lives in agent/mcp_server_connectors/, so it "
+            "presents the `connectors` group token. If this fails the tool 403s."))
+        self.assertFalse(internal.group_may("content", route), (
+            "the `content` group runs web_fetch — the surface prompt injection "
+            "arrives on. It must not reach device actuation or ingest."))
+
+
 if __name__ == "__main__":
     unittest.main()

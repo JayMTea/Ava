@@ -543,7 +543,18 @@ def cmd_up(args) -> int:
            # See serve.py: only trusted peers may assert scheme/address.
            "--proxy-headers",
            "--forwarded-allow-ips", ",".join(_cfg.TRUSTED_PROXIES)]
-    return subprocess.call(cmd, cwd=settings.CODE_ROOT)
+    # Tell the bridge which port it is actually being bound to. Without this,
+    # `ava up --port 9455` binds 9455 while the child re-reads server.port from
+    # ava.yaml, so the first-run banner prints the CLAIM URL on the configured
+    # port: measured as "open http://localhost:8096/setup?claim=…" from a bridge
+    # listening on 9455. The one URL a new owner is told to click, pointing at a
+    # port with nothing on it — or, on this box, at a different Ava entirely.
+    env = dict(os.environ)
+    if args.port:
+        env["AVA_PORT"] = str(port)
+    if args.host:
+        env["AVA_HOST"] = str(host)
+    return subprocess.call(cmd, cwd=settings.CODE_ROOT, env=env)
 
 
 def cmd_verify(_args) -> int:
@@ -787,6 +798,26 @@ def _resolve_connector_ids(connectors, name):
     return [name]
 
 
+def _why_no_tools(connectors, cid: str) -> str:
+    """Why `ava connector tools <cid>` emitted nothing.
+
+    Four of seven shipped connectors generate no tools, and the CLI printed a
+    bare blank screen for all four — indistinguishable from a crash. The old
+    note was gated on whether ANY connector in the registry declared actions, so
+    one connector that did muted the explanation for every connector that
+    didn't.
+    """
+    acts = [a for a in connectors.actions() if a.get("connector") == cid]
+    if not acts:
+        return ("the manifest declares no `actions:` — nothing to generate. "
+                "Health probes and egress still work")
+    named = ", ".join(a["id"] for a in acts if a.get("id")) or "unnamed"
+    return (f"its {len(acts)} action(s) ({named}) declare no `path:`, so they "
+            "are not generic-proxy actions. A generated tool calls "
+            f"/internal/connector/{cid}/<action>, which needs one — an action "
+            "served by a built-in Ava tool instead is correct without it")
+
+
 def cmd_connector(args) -> int:
     from ava_bridge import connectors
     if args.action == "list":
@@ -870,6 +901,10 @@ def cmd_connector(args) -> int:
         for cid in ids:
             pol = connectors.render_egress_policy(cid)
             if not pol:
+                if not args.write:
+                    print(f"# ---- {cid} ----\n"
+                          f"  (no egress policy: the manifest declares no "
+                          f"`egress:` block and nothing that derives one)")
                 continue
             text = _yaml.safe_dump(pol, sort_keys=False)
             if args.write:
@@ -894,7 +929,11 @@ def cmd_connector(args) -> int:
         for cid in ids:
             # tool_files decides the shape: find/call meta tools for dynamic or
             # large static connectors, else one tool per generic-proxy action.
-            for t in connectors.tool_files(cid):
+            files = connectors.tool_files(cid)
+            if not files and not args.write:
+                print(f"# ---- {cid} ----\n  (no tools to generate: "
+                      f"{_why_no_tools(connectors, cid)})")
+            for t in files:
                 if args.write:
                     outdir = os.path.join(settings.CODE_ROOT, "agent",
                                           "mcp_server_connectors", "apps", cid)
@@ -909,8 +948,6 @@ def cmd_connector(args) -> int:
         if args.write:
             print(f"\n{wrote} tool(s) written — run `cd agent && ./install.sh` to "
                   f"deploy into the sandbox.")
-        elif not any((m.get('actions') for m in connectors.all())):
-            print("  (no generic-proxy actions to generate tools for)")
         return 0
     return 1
 
@@ -1673,7 +1710,15 @@ def main() -> int:
     cp = sub.add_parser("connector", help="list / scaffold / generate policies+tools for connectors")
     cp.add_argument("action", choices=["list", "apps", "new", "policies", "tools"])
     cp.add_argument("name", nargs="?", help="connector name (for new / policies / tools)")
-    cp.add_argument("--write", action="store_true", help="write generated files (policies -> agent/policies/generated, tools -> agent/mcp_server_connectors/apps)")
+    # The two paths are relative to the INSTALL root, not AVA_HOME. They are the
+    # same directory on a bare-metal install and different ones under Docker,
+    # where AVA_HOME is a mounted data volume — so an unqualified relative path
+    # sends half the users to a directory that has no agent/ in it.
+    cp.add_argument("--write", action="store_true",
+                    help=f"write generated files under the install root "
+                         f"({settings.CODE_ROOT}): policies -> "
+                         f"agent/policies/generated, tools -> "
+                         f"agent/mcp_server_connectors/apps")
     cp.set_defaults(func=cmd_connector)
     apn = sub.add_parser("app", help="scaffold the ava-tools/1 agent surface inside YOUR app repo")
     apn.add_argument("action", choices=["new"])

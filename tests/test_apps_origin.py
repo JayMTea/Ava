@@ -224,5 +224,70 @@ class CookieScopeTests(unittest.TestCase):
                          "one app's cookie must not be offered to another's proxy")
 
 
+class TopLevelVisitBouncesToTheShellTests(unittest.TestCase):
+    """A bookmarked app URL must land in Ava, and only a bookmark may.
+
+    `phone_bridge.app_ui_proxy` redirects a typed `/apps/<id>/` to `/#<id>` so
+    nobody is stranded in the bare app. With `apps.origin` set the origin split
+    answers first and that line never runs — measured as a raw
+    `{"error":"forbidden","detail":"no embed token"}` page on the apps host and a
+    `{"error":"wrong origin"}` on the main one.
+
+    The bounce is gated on `Sec-Fetch-Dest: document`, which is the whole safety
+    argument: the iframe load itself sends `iframe` and app JS sends `empty`, and
+    both must keep getting the 403 — that refusal IS the boundary this module
+    exists to draw. These four cases are the negative controls.
+    """
+
+    def _gate(self, dest, method="GET", path="/apps/crm/", public="http://ava.test:8096"):
+        from unittest import mock as _mock
+
+        from ava_bridge import auth
+        req = _mock.Mock()
+        req.method = method
+        req.headers = {"sec-fetch-dest": dest} if dest else {}
+        with _mock.patch.object(apps_origin, "configured", return_value=ORIGIN), \
+             _mock.patch.object(auth.config, "PUBLIC_URL", public):
+            return auth._shell_bounce(req, path)
+
+    def test_a_typed_url_is_bounced_into_the_shell(self):
+        r = self._gate("document")
+        self.assertIsNotNone(r, "a top-level visit must not get raw JSON")
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(r.headers["location"], "http://ava.test:8096/#crm")
+
+    def test_the_iframe_load_itself_is_never_bounced(self):
+        self.assertIsNone(self._gate("iframe"),
+                          "bouncing the frame would replace the app with Ava")
+
+    def test_app_javascript_is_never_bounced(self):
+        self.assertIsNone(self._gate("empty"),
+                          "a 302 to the shell would read as success to fetch()")
+
+    def test_a_non_navigation_method_is_never_bounced(self):
+        self.assertIsNone(self._gate("document", method="POST"))
+
+    def test_a_path_that_is_not_a_clean_cid_is_never_bounced(self):
+        for bad in ("/apps/../etc/passwd", "/apps", "/apps//", "/api/hub/x"):
+            self.assertIsNone(self._gate("document", path=bad), bad)
+
+    def test_the_target_comes_from_config_not_the_request(self):
+        """No request field reaches the Location header, so no open redirect."""
+        r = self._gate("document", public="https://elsewhere.example")
+        self.assertEqual(r.headers["location"], "https://elsewhere.example/#crm")
+
+    def test_nothing_is_bounced_when_the_split_is_off(self):
+        from unittest import mock as _mock
+
+        from ava_bridge import auth
+        req = _mock.Mock()
+        req.method = "GET"
+        req.headers = {"sec-fetch-dest": "document"}
+        with _mock.patch.object(apps_origin, "configured", return_value=None):
+            self.assertIsNone(auth._shell_bounce(req, "/apps/crm/"),
+                              "single-origin installs already redirect in "
+                              "phone_bridge.app_ui_proxy; two would fight")
+
+
 if __name__ == "__main__":
     unittest.main()

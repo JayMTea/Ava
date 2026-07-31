@@ -108,11 +108,20 @@ def _dispatch(name: str, args: dict) -> tuple:
     if missing:
         return {"error": f"bad arguments: missing {', '.join(missing)}"}, 400
     try:
-        return t["handler"](args or {})
+        out = t["handler"](args or {})
     except (TypeError, ValueError) as e:
         return {"error": f"bad arguments: {e}"}, 400
     except Exception as e:  # noqa: BLE001 — a message, never a blank 500
         return {"error": str(e)}, 500
+    # Handlers return (payload, status). Forgetting the status is the first
+    # mistake everyone makes, and it used to fail at the CALL site — outside the
+    # try above — so the app dropped the connection with 'ValueError: not enough
+    # values to unpack' in its own log and nothing at all in the response. Name
+    # the tool and the contract instead.
+    if not (isinstance(out, tuple) and len(out) == 2):
+        return {"error": f"tool '{name}' returned {type(out).__name__}, not a "
+                         "(payload, status) pair — e.g. `return {'ok': True}, 200`"}, 500
+    return out
 
 
 def _listing() -> dict:

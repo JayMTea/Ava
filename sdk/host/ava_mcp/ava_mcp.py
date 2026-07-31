@@ -305,6 +305,18 @@ def serve_mcp(source: ToolSource, host: str = "127.0.0.1", port: int = 9300,
                 return self._send(405, {"error": "this MCP endpoint is POST-only"})
             self._send(404, {"error": "not found"})
 
+        def do_DELETE(self):
+            # Streamable HTTP's session-termination verb. BaseHTTPRequestHandler
+            # answers an unimplemented method with an HTML 501 error PAGE, so a
+            # client doing correct teardown got `Content-Type: text/html` from an
+            # endpoint that is JSON everywhere else. 405 is what the spec names
+            # for a server that does not let clients end sessions, and this one
+            # keeps none to end.
+            if self.path.split("?")[0] != mcp_path:
+                return self._send(404, {"error": "not found"})
+            self._send(405, {"error": "this MCP endpoint keeps no session state, "
+                                      "so there is nothing to terminate"})
+
         def do_POST(self):
             if self.path.split("?")[0] != mcp_path:
                 return self._send(404, {"error": "not found"})

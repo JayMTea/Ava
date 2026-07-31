@@ -49,7 +49,8 @@ dynamic_access:
   log_*: write
   "*": sensitive
 
-egress:
-  routes:
-    - "GET /internal/connector/stridewell/__tools"
-    - "POST /internal/connector/stridewell/__call"
+# No `egress:` block is needed. A connector with a discovery/MCP facade reaches
+# the agent through exactly two policed bridge routes — GET .../__tools and
+# POST .../__call — and `ava connector policies` derives both from the `actions:
+# discover:` block above. Spelling them out here as well is the obvious thing to
+# write, and it used to render each rule TWICE in the generated policy.
