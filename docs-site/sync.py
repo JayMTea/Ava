@@ -36,6 +36,7 @@ BRANCH = os.environ.get("AVA_DOCS_BRANCH", "master")
 CURATED: dict[str, str] = {
     "README.md": "overview.md",
     "CONTRIBUTING.md": "CONTRIBUTING.md",
+    "TRADEMARK.md": "TRADEMARK.md",
     "SECURITY.md": "SECURITY.md",
     "CHANGELOG.md": "CHANGELOG.md",
     "deploy/README.md": "deploy/README.md",

@@ -243,4 +243,7 @@ carry their own licenses; see [NOTICE](NOTICE).
 Forking and commercial use are both fine and need no permission. Apache-2.0 asks two
 things of a redistribution: keep the license and copyright notices, and carry
 [NOTICE](NOTICE) along with it (§4). It grants no trademark rights (§6), so please do
-not present a fork as the original.
+not present a fork as the original — [TRADEMARK.md](TRADEMARK.md) says what that
+means in practice. Short version: the code is yours, the name is not, and Ava's
+built-in [branding](docs/BRANDING.md) makes calling your install something else a
+two-minute job.

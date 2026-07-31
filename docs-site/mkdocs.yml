@@ -145,5 +145,6 @@ nav:
       - On your phone (PWA): docs/MOBILE.md
   - Project:
       - Contributing: CONTRIBUTING.md
+      - Trademark: TRADEMARK.md
       - Releasing: docs/RELEASING.md
       - Changelog: CHANGELOG.md
