@@ -45,6 +45,8 @@ CONTRACTS = {
     "/api/hub/agent/status": ["runtime", "enabled", "available", "tools",
                               "sandbox_model", "sandbox_provider"],
     "/api/hub/agent/skills": ["skills", "errors", "summary"],
+    "/api/hub/agent/provision/state": ["state", "scopes", "items", "pending",
+                                       "counts", "sandbox", "scopes_to_provision"],
     "/api/hub/voice/status": [],
     "/api/hub/memory": [],
     "/api/hub/memory/export": [],
@@ -110,6 +112,30 @@ class TestApiContracts(unittest.TestCase):
             self.assertFalse(skill_keys - set(s), f"{s.get('id')}: missing {skill_keys - set(s)}")
             self.assertIn(s["deployed"], ("deployed", "stale", "undeployed", "unknown"))
             self.assertIn(s["source"], ("core", "overlay"))
+
+    def test_provision_state_is_honest_on_a_box_with_no_sandbox(self):
+        """The fresh-fork path, and the one most likely to regress.
+
+        The QA box has no nemoclaw and no sandbox, so every scope must report
+        `unknown` — "we could not look" — and contribute NOTHING to `pending`.
+        The failure this pins is the inverse: reporting `undeployed` for a sandbox
+        that was never examined, which shows the owner a to-do list they cannot
+        action and an Apply button that dies at the bootstrap guard.
+        """
+        body = CLIENT.get("/api/hub/agent/provision/state").json()
+        legal = {"deployed", "stale", "undeployed", "unknown"}
+        for scope, row in body["scopes"].items():
+            self.assertIn(row["state"], legal, f"{scope}: illegal drift state")
+            self.assertEqual(row["pending"], row["counts"]["stale"]
+                             + row["counts"]["undeployed"],
+                             f"{scope}: pending disagrees with its own counts")
+        self.assertEqual(
+            body["pending"],
+            body["counts"]["stale"] + body["counts"]["undeployed"],
+            "unknown items are leaking into the pending-changes count")
+        for item in body["items"]:
+            self.assertIn(item["state"], legal)
+            self.assertIn(item["scope"], ("persona", "policies", "servers", "skills"))
 
     def test_agent_skill_detail_returns_full_markdown(self):
         # The expand action lazy-fetches one skill's SKILL.md body.

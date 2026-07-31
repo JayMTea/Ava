@@ -55,10 +55,52 @@ class AgentRuntime(ABC):
         """Path to the session transcript inside the sandbox (for live CoT)."""
         return None
 
-    def provision(self, auto_install: bool = False) -> dict:
+    def provision(self, auto_install: bool = False, scope: str = "all",
+                  on_line=None) -> dict:
         """Make the runtime ready (install CLI, create sandbox, deploy tools).
-        Idempotent. Returns {ok, steps, detail}."""
-        return {"ok": True, "steps": [], "detail": "no provisioning needed"}
+        Idempotent. Returns {ok, steps, detail, scope}.
+
+        `scope` is one of ava_bridge.provision.ALL_SCOPES: changing a persona
+        should not cost a full redeploy of every server, skill and policy.
+
+        `on_line` is an optional `(str) -> None` called with each output line as
+        it arrives. A callback rather than a generator because there are three
+        implementations — in-process, subprocess line iteration, and an HTTP POST
+        — and a callback is the only shape that works identically for all three
+        while leaving the return value unchanged for existing callers.
+        """
+        return {"ok": True, "steps": [], "detail": "no provisioning needed",
+                "scope": scope}
+
+    # ---- observation seams (ava_bridge/provision.py) ------------------------
+    # Safe no-op defaults on purpose: a runtime that cannot answer yields
+    # `source="none"`, which the drift ladder renders as `unknown` — "we could
+    # not look" — rather than inventing a verdict or raising.
+
+    def registry_record(self) -> dict | None:
+        """This sandbox's entry in the agent runtime's own registry, if any."""
+        return None
+
+    def live(self) -> dict:
+        """{live, reason} — is the sandbox actually up and reachable right now?
+
+        Distinct from `available()`, which answers "can I serve a turn": a runtime
+        can be configured and installed while its container is stopped, and the
+        drift report must say so rather than report an empty sandbox.
+        """
+        return {"live": self.available(), "reason": ""}
+
+    def read_file(self, path: str, timeout: int = 20) -> str | None:
+        """Read a file from inside the sandbox. None when unsupported."""
+        return None
+
+    def digest(self, paths: list[str], timeout: int = 30) -> dict[str, str]:
+        """{path: sha256} for files inside the sandbox. {} when unsupported.
+
+        Takes a LIST so an implementation can answer every path of every scope in
+        one round trip rather than one exec per file.
+        """
+        return {}
 
     def status(self) -> dict:
         """Rich health for `ava doctor` / the ops dashboard."""

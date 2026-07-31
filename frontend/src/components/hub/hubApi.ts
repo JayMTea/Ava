@@ -107,6 +107,77 @@ export interface SkillList {
   category_order?: string[];
 }
 
+// ---- Provisioning: what the sandbox is running vs what the repo declares -----
+// The four states are the same vocabulary skills have always used, so a badge
+// written for one domain reads correctly for all of them. `unknown` means "we
+// could not look" — NOT "it is missing" — and never counts as pending.
+export type DriftState = 'deployed' | 'stale' | 'undeployed' | 'unknown';
+export type ProvisionScope = 'persona' | 'policies' | 'servers' | 'skills';
+
+export interface ProvisionItem {
+  scope: ProvisionScope;
+  id: string;
+  label: string;
+  state: DriftState;
+  source: 'registry' | 'probe' | 'manifest' | 'none';
+  rel?: string;
+  verified?: boolean | null;
+  verify_detail?: string;
+}
+
+export interface ProvisionScopeState {
+  state: DriftState;
+  pending: number;
+  source: string;
+  counts: { deployed: number; stale: number; undeployed: number; unknown: number; total: number };
+}
+
+export interface ProvisionState {
+  ok: boolean;
+  state: DriftState;
+  runtime: string;
+  enabled: boolean;
+  location: 'local' | 'remote';
+  sandbox: {
+    name: string | null;
+    live: boolean;
+    reason: string;
+    rebuilt: boolean;
+    model: string | null;
+    versions: { nemoclaw?: string | null; openshell?: string | null; agent?: string | null };
+  };
+  run: { scope?: string; ended?: number; rc?: number } | null;
+  scopes: Record<ProvisionScope, ProvisionScopeState>;
+  items: ProvisionItem[];
+  counts: { deployed: number; stale: number; undeployed: number; unknown: number; total: number };
+  /** stale + undeployed. NEVER includes `unknown`. */
+  pending: number;
+  scopes_to_provision: ProvisionScope[];
+}
+
+export interface ProvisionStep {
+  scope: string;
+  id: string;
+  ok: boolean;
+  detail: string;
+}
+
+export interface ProvisionJob {
+  status: 'idle' | 'running' | 'done' | 'error';
+  id: string | null;
+  scope: string | null;
+  started_at: number | null;
+  ended_at: number | null;
+  rc: number | null;
+  steps: ProvisionStep[];
+  log: string[];
+  seq: number;
+  detail: string;
+  /** false where the runtime cannot stream (remote): the view must not draw a
+   *  checklist that never fills. */
+  observable: boolean;
+}
+
 // ---- Connectors (Hub view) --------------------------------------------------
 export interface HubConnector {
   id: string;
@@ -488,11 +559,22 @@ export const hub = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name }),
     }),
-  agentProvision: () =>
-    req<{ ok: boolean; steps: { step: string; ok: boolean; detail: string }[]; detail: string }>(
-      '/api/hub/agent/provision',
-      { method: 'POST' },
-    ),
+  // Non-blocking: returns a job id and the run streams into provisionJob().
+  // `steps`/`detail` are still in the response so an older committed dist against
+  // a newer bridge renders something rather than crashing on a missing key.
+  agentProvision: (scope: ProvisionScope | 'all' = 'all') =>
+    req<{
+      ok: boolean; job_id?: string; scope?: string; status?: string;
+      steps?: { step: string; ok: boolean; detail: string }[]; detail?: string;
+      error?: string; error_code?: string;
+    }>(`/api/hub/agent/provision?scope=${scope}`, { method: 'POST' }),
+
+  provisionState: () =>
+    req<ProvisionState>('/api/hub/agent/provision/state', { cache: 'no-store' }),
+
+  provisionJob: (since = 0) =>
+    req<ProvisionJob>(`/api/hub/agent/provision/status?since=${since}`,
+      { cache: 'no-store' }),
 
   // Connectors
   connectors: () =>

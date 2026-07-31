@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import shlex
 import subprocess
 import time
@@ -49,6 +50,7 @@ class NemoClawRuntime(AgentRuntime):
     def __init__(self):
         self._avail_cache = {"ts": 0.0, "ok": None}
         self._info_cache = {"ts": 0.0, "info": None}
+        self._registry_cache: dict = {"ts": 0.0, "record": None}
 
     # ---- identity / plumbing ------------------------------------------------
     @property
@@ -241,21 +243,148 @@ class NemoClawRuntime(AgentRuntime):
                     data = json.loads(out[out.find("{"):] or "{}")
                     for s in (data.get("sandboxes") or []):
                         if isinstance(s, dict) and s.get("name") == self.sandbox:
+                            # `connected` is the liveness signal live() reads. It
+                            # rides along here because this call already parses it
+                            # and costs nothing extra.
                             info = {"model": s.get("model"),
-                                    "provider": s.get("provider")}
+                                    "provider": s.get("provider"),
+                                    "connected": s.get("connected")}
                             break
                 except Exception:  # noqa: BLE001 — a CLI format change must not break status
                     info = None
         c.update(ts=now, info=info)
         return info
 
-    def provision(self, auto_install: bool = False) -> dict:
+    # ---- observation seams (ava_bridge/provision.py) ------------------------
+    def registry_record(self) -> dict | None:
+        """This sandbox's entry in `~/.nemoclaw/sandboxes.json`.
+
+        NemoClaw's own registry, and the single best provisioning-assert source
+        on the box: it carries `customPolicies[]` (each with the full applied
+        content, so a policy can be diffed byte-for-byte with no CLI call), plus
+        `imageTag`, `model`, `provider` and the nemoclaw/openshell/agent versions.
+        Crucially it is readable with the container STOPPED — which is exactly
+        when you most want to know what is live.
+
+        30s cache. Never raises: a renamed file or a NemoClaw format change must
+        degrade to `unknown`, not break the panel.
+        """
+        now = time.time()
+        c = self._registry_cache
+        if now - c["ts"] < 30:
+            return c["record"]
+        record = None
+        home = os.environ.get("NEMOCLAW_HOME") or os.path.expanduser("~/.nemoclaw")
+        try:
+            with open(os.path.join(home, "sandboxes.json"), encoding="utf-8") as f:
+                data = json.load(f)
+            entry = (data.get("sandboxes") or {}).get(self.sandbox)
+            record = entry if isinstance(entry, dict) else None
+        except Exception:  # noqa: BLE001
+            record = None
+        c.update(ts=now, record=record)
+        return record
+
+    def live(self) -> dict:
+        """{live, reason} from `nemoclaw list --json`'s `connected` flag.
+
+        DELIBERATELY NOT `nemoclaw <sandbox> status --json`: that command is not
+        read-only. Running it restarted the OpenShell Docker gateway and killed a
+        host process ("Existing OpenShell Docker-driver gateway is stale;
+        restarting… Stopped host openshell-gateway process"). `list --json` is
+        cheap, side-effect free, and sandbox_info() already makes the call.
+        """
+        if not (self.cli and os.path.exists(self.cli)):
+            return {"live": False, "reason": "the nemoclaw CLI is not installed"}
+        info = self.sandbox_info()
+        if info is None:
+            return {"live": False, "reason": f"sandbox '{self.sandbox}' not found"}
+        connected = info.get("connected")
+        if connected is None:
+            # Older CLI with no `connected` field — do not guess either way.
+            return {"live": bool(self.available()), "reason": ""}
+        if connected:
+            return {"live": True, "reason": ""}
+        return {"live": False,
+                "reason": f"the sandbox container for '{self.sandbox}' is not running"}
+
+    def read_file(self, path: str, timeout: int = 20) -> str | None:
+        out = self.exec(f"cat -- {shlex.quote(path)}", timeout=timeout)
+        return out if out else None
+
+    def digest(self, paths: list[str], timeout: int = 30) -> dict[str, str]:
+        """{path: sha256} for files inside the sandbox, in ONE exec.
+
+        `sha256sum` prints `<sum>␣␣<path>`; a missing file goes to stderr (dropped)
+        so it simply does not appear in the result — which the drift ladder reads
+        as `undeployed`, correctly.
+        """
+        if not paths:
+            return {}
+        quoted = " ".join(shlex.quote(p) for p in paths)
+        out = self.exec(f"sha256sum -- {quoted} 2>/dev/null", timeout=timeout)
+        found: dict[str, str] = {}
+        for line in (out or "").splitlines():
+            parts = line.strip().split(None, 1)
+            if len(parts) == 2 and len(parts[0]) == 64:
+                found[parts[1].strip()] = parts[0]
+        return found
+
+    def glob_digest(self, pattern: str, timeout: int = 30) -> dict[str, str]:
+        """Like digest(), but for a shell glob — for skills, whose in-sandbox
+        directory is the SKILL.md frontmatter `name:`, not the repo directory."""
+        out = self.exec(f"sha256sum -- {pattern} 2>/dev/null", timeout=timeout)
+        found: dict[str, str] = {}
+        for line in (out or "").splitlines():
+            parts = line.strip().split(None, 1)
+            if len(parts) == 2 and len(parts[0]) == 64:
+                found[parts[1].strip()] = parts[0]
+        return found
+
+    def _stream(self, argv: list[str], timeout: int, on_line) -> tuple[int, str]:
+        """Like `_run`, but hands each output line to `on_line` as it arrives.
+
+        Same line-iteration shape as hub/models.py's model pull: merge stderr,
+        text mode, line-buffered, strip ANSI. Used by the provision job so the
+        Hub can render progress instead of a spinner.
+        """
+        ansi = re.compile(r"\x1b\[[0-9;]*m")
+        buf: list[str] = []
+        try:
+            proc = subprocess.Popen(argv, stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT, text=True, bufsize=1)
+        except Exception as e:  # noqa: BLE001
+            return 1, str(e)
+        try:
+            assert proc.stdout is not None
+            for line in proc.stdout:
+                line = ansi.sub("", line).rstrip()
+                buf.append(line)
+                if line:
+                    try:
+                        on_line(line)
+                    except Exception:  # noqa: BLE001 — a bad sink must not kill the deploy
+                        pass
+            rc = proc.wait(timeout=timeout)
+        except Exception as e:  # noqa: BLE001
+            proc.kill()
+            return 1, "\n".join(buf) + f"\n{e}"
+        return rc, "\n".join(buf)
+
+    def provision(self, auto_install: bool = False, scope: str = "all",
+                  on_line=None) -> dict:
         """Make NemoClaw ready, idempotently:
           1. ensure the `nemoclaw` CLI (via NVIDIA's official installer if asked;
              the npm package is a stub — needs Node >=22.16 + a Docker daemon),
           2. ensure the sandbox exists (guides you to `nemoclaw onboard`),
           3. deploy Ava's tools/policies/skills via agent/install.sh.
-        Returns {ok, steps, detail}."""
+
+        `scope` narrows step 3 to `agent/install.sh --only <scope>`. There is no
+        version-skew problem here the way there is for the remote runtime:
+        install.sh lives at config.ROOT/agent/install.sh, the same checkout as
+        this file, so the flag it is handed is always one it understands.
+
+        Returns {ok, steps, detail, scope}."""
         steps: list[dict] = []
 
         def step(name, ok, detail):
@@ -292,7 +421,8 @@ class NemoClawRuntime(AgentRuntime):
         else:
             step("install-cli", True, self.cli)
         if not (bool(self.cli) and os.path.exists(self.cli)) and not _which("nemoclaw"):
-            return {"ok": False, "steps": steps, "detail": "nemoclaw CLI missing"}
+            return {"ok": False, "steps": steps, "detail": "nemoclaw CLI missing",
+                    "scope": scope}
 
         # 2. sandbox
         if self._sandbox_exists():
@@ -302,18 +432,26 @@ class NemoClawRuntime(AgentRuntime):
                  f"sandbox '{self.sandbox}' not found. Run `nemoclaw onboard` "
                  "(interactive: configures inference endpoint + credentials, then "
                  "creates the sandbox), then re-run provisioning.")
-            return {"ok": False, "steps": steps, "detail": "run `nemoclaw onboard`"}
+            return {"ok": False, "steps": steps, "detail": "run `nemoclaw onboard`",
+                    "scope": scope}
 
         # 3. deploy tools/policies/skills
         install_sh = os.path.join(config.ROOT, "agent", "install.sh")
         if os.path.exists(install_sh):
-            rc, out = self._run(["bash", install_sh], timeout=600)
-            step("deploy", rc == 0, "agent/install.sh" + ("" if rc == 0 else f" rc={rc}: {out[-200:]}"))
+            argv = ["bash", install_sh]
+            if scope and scope != "all":
+                argv += ["--only", scope]
+            if on_line is not None:
+                rc, out = self._stream(argv, timeout=600, on_line=on_line)
+            else:
+                rc, out = self._run(argv, timeout=600)
+            step("deploy", rc == 0, "agent/install.sh" + ("" if rc == 0
+                                                          else f" rc={rc}: {out[-200:]}"))
         else:
             step("deploy", False, "agent/install.sh not found")
 
         ok = all(s["ok"] for s in steps)
-        return {"ok": ok, "steps": steps,
+        return {"ok": ok, "steps": steps, "scope": scope,
                 "detail": "provisioned" if ok else "provisioning incomplete — see steps"}
 
     def status(self) -> dict:

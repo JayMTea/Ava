@@ -19,10 +19,16 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from . import config
+from . import provision as provision_mod
 from .runtime import nemoclaw
 
 app = FastAPI(title="ava-agent-runtime")
 _rt = nemoclaw()
+
+# What this container can do, advertised on /healthz so the bridge's
+# RemoteRuntime can refuse to ask for something an older build would silently
+# mishandle. Additive only: dropping an entry is a breaking change.
+CAPABILITIES = ["provision.scope", "provision.assert"]
 
 
 @app.middleware("http")
@@ -38,7 +44,7 @@ async def _auth(request: Request, call_next):
 def healthz():
     # `ready` gates the bridge's RemoteRuntime.available(): true only once the
     # sandbox exists and the CLI resolves (onboarding finished).
-    return {"ok": True, "ready": _rt.available()}
+    return {"ok": True, "ready": _rt.available(), "capabilities": CAPABILITIES}
 
 
 @app.get("/status")
@@ -82,7 +88,28 @@ def warm():
 @app.post("/provision")
 async def provision(request: Request):
     body = await request.json()
-    return _rt.provision(auto_install=bool(body.get("auto_install")))
+    scope = str(body.get("scope") or "all")
+    # 400 rather than a silent fall-through to `all`. This route reads its body
+    # with .get() and ignores unknown keys, so a newer bridge asking an older
+    # container for a persona-only apply used to get a full ten-minute redeploy
+    # reported as success. Refusing a scope we do not know is the other half of
+    # the /healthz capability handshake.
+    if scope not in provision_mod.ALL_SCOPES:
+        return JSONResponse(
+            {"ok": False, "error": f"unsupported scope {scope!r}",
+             "error_code": "unknown_scope",
+             "supported": list(provision_mod.ALL_SCOPES)}, status_code=400)
+    return _rt.provision(auto_install=bool(body.get("auto_install")), scope=scope)
+
+
+@app.post("/registry_record")
+async def registry_record():
+    """The sandbox's NemoClaw registry entry, for the bridge's drift report.
+
+    The bridge container cannot read ~/.nemoclaw itself — the CLI, the Docker
+    socket and that registry all live out here.
+    """
+    return {"record": _rt.registry_record()}
 
 
 def main() -> int:

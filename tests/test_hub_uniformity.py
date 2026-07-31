@@ -29,7 +29,7 @@ def test_shared_primitives_are_not_rehandrolled() -> None:
         if "/ui/" in f.as_posix():
             continue
         text = f.read_text()
-        for prim in ("Badge", "StatRow"):
+        for prim in ("Badge", "StatRow", "DriftBadge"):
             if re.search(rf"^\s*(export\s+)?function {prim}\(", text, re.M):
                 offenders.append(f"{f.relative_to(ROOT)} redefines {prim}")
     assert not offenders, (
@@ -158,6 +158,37 @@ def test_agent_status_reports_the_CONFIGURED_runtime_not_the_local_one() -> None
         "so the panel cannot tell which host cli/sandbox describe.")
 
 
+def test_agent_provision_drives_the_CONFIGURED_runtime_not_the_local_one() -> None:
+    """The mirror image of the test above, and the half that was missed.
+
+    `agent_status` was fixed to report the configured runtime, but `agent_provision`
+    kept hardcoding `runtime.nemoclaw()`. So on `agent.runtime: remote` the panel
+    correctly named the remote agent host while the Provision button deployed into
+    the bridge container instead — failing on a missing CLI, or succeeding against
+    the wrong machine.
+    """
+    import ast
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+
+    # The route itself must not resolve a runtime; it delegates to the job runner.
+    hub_src = (root / "ava_bridge" / "hub" / "agent.py").read_text(encoding="utf-8")
+    fn = next(n for n in ast.walk(ast.parse(hub_src))
+              if isinstance(n, ast.FunctionDef) and n.name == "agent_provision")
+    calls = {c.func.attr for c in ast.walk(fn)
+             if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute)}
+    assert "nemoclaw" not in calls, (
+        "agent_provision resolves the LOCAL runtime directly. Use the configured "
+        "one so the button provisions the host the operator actually chose.")
+
+    # …and wherever the resolution actually happens, it must be configured().
+    job_src = (root / "ava_bridge" / "provision_job.py").read_text(encoding="utf-8")
+    assert "configured()" in job_src and "nemoclaw()" not in job_src, (
+        "the provision job resolves the local runtime instead of the configured "
+        "one, so on `agent.runtime: remote` it deploys into the bridge container.")
+
+
 def test_the_agent_panel_hides_local_rows_on_a_remote_runtime() -> None:
     from pathlib import Path
 
@@ -168,3 +199,69 @@ def test_the_agent_panel_hides_local_rows_on_a_remote_runtime() -> None:
         "renders as 'not installed'.")
     assert "this container is not the agent host" in src, (
         "the remediation note still tells a remote owner to install a local CLI.")
+
+
+def test_one_provisioning_vocabulary() -> None:
+    """The four drift phrasings exist in exactly one place.
+
+    Skills used to own a private `skillDeployBadge` whose copy said
+    "edited · re-provision" / "not deployed · re-provision" / "provision to load".
+    When the persona and egress policies grew the same states, three panels each
+    telling the owner to re-provision would have been three copies of one call to
+    action — none of them next to the button. The badge states a fact; the
+    instruction lives in PendingChangesBar, once.
+    """
+    src = (ROOT / "frontend/src/components/hub/provisionView.ts").read_text()
+    assert "DRIFT_LABEL" in src, "the drift vocabulary moved out of provisionView.ts"
+    offenders = []
+    for f in _tracked(f"{HUB}/*.tsx") + _tracked(f"{HUB}/**/*.tsx"):
+        if f.name == "DriftBadge.tsx":
+            continue
+        text = f.read_text()
+        for phrase in ("re-provision</Badge>", "provision to load", "not deployed ·"):
+            if phrase in text:
+                offenders.append(f"{f.relative_to(ROOT)}: {phrase!r}")
+    assert not offenders, (
+        "these panels hand-roll the drift vocabulary instead of using "
+        "<DriftBadge> from hub/ui:\n  " + "\n  ".join(offenders))
+
+
+def test_the_two_apply_verbs_stay_separate() -> None:
+    """*Restart Ava* (an ava.yaml value read at boot) and *apply to the agent*
+    (things the sandbox holds) are different actions with different mechanisms.
+
+    PersonaPanel used to call BOTH: `onRestart()` painted a warn banner naming a
+    `docker compose restart` the owner did not need to run, while its own message
+    told them to go and re-provision. A persona save touches nothing the bridge
+    reads at boot.
+    """
+    persona = (ROOT / "frontend/src/components/hub/panels/PersonaPanel.tsx").read_text()
+    # Code, not prose: the file explains in a comment WHY the call is gone, and a
+    # bare substring check would flag its own explanation.
+    code = re.sub(r"//[^\n]*|/\*.*?\*/", "", persona, flags=re.S)
+    assert "onRestart" not in code, (
+        "PersonaPanel calls onRestart again. Saving a persona needs no bridge "
+        "restart — the prompt is rebuilt when changes reach the agent. Use "
+        "markProvisionDirty('persona').")
+    assert "markProvisionDirty" in persona, (
+        "PersonaPanel no longer signals that the persona is waiting to reach Ava, "
+        "so the pending-changes bar cannot appear after a save.")
+
+
+def test_provision_run_degrades_honestly_on_a_remote_runtime() -> None:
+    """RemoteRuntime has no streaming primitive, so steps arrive only at the end.
+    An empty checklist that never fills is a lie dressed as progress."""
+    src = (ROOT / "frontend/src/components/hub/panels/ProvisionRun.tsx").read_text()
+    assert "observable" in src, (
+        "ProvisionRun no longer distinguishes an unobservable run, so a remote "
+        "provision renders a checklist that never fills.")
+    assert "doesn’t report step-by-step" in src, (
+        "the remote-runtime explanation is gone.")
+
+
+def test_the_tab_badge_has_a_consumer() -> None:
+    """`.hub-tab-badge` sat in hub.css with zero consumers for months. Guard
+    against a half-revert quietly restoring that state."""
+    hub_view = (ROOT / "frontend/src/components/hub/HubView.tsx").read_text()
+    assert "hub-tab-badge" in hub_view, (
+        "nothing renders .hub-tab-badge, so per-tab pending counts are dead CSS.")

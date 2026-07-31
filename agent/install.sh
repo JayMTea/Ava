@@ -21,7 +21,13 @@
 # To add a capability: run ./new-tool.sh <name>, implement it, add a policy if it
 # needs network, then re-run ./install.sh. Nothing else to wire up.
 #
-#   usage: ./install.sh
+#   usage: ./install.sh [--only persona|policies|servers|skills|all[,...]] [--dry-run]
+#
+#   --only     deploy just part of the kit. Changing a persona costs one file
+#              write; a full run re-pushes five MCP servers, eight skills and
+#              eight policies, then nudges the gateway. Default: all.
+#   --dry-run  print the plan and exit 0. Touches nothing, needs no sandbox and
+#              no CLI — which is what makes the scope matrix testable in CI.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SANDBOX="${AVA_OC_SANDBOX:-my-assistant}"
@@ -33,6 +39,99 @@ OVERLAY="${AVA_OVERLAY:-$HERE/../overlay/agent}"
 # /sandbox/.openclaw/mcp_server_<category>/ (see the loop below). A `DEST` here
 # named a path nothing is ever deployed to, and the closing message printed it.
 NOISE='UNDICI|trace-warnings|ExperimentalWarning|qqbot|Config warning|^[│◇├╮╯ ]*$|─'
+
+# Set once, up here: §2c's mcp_server_*/ glob and §6's skills/*/ glob both rely
+# on it, and it used to be set inside §1 — so any future change that skips the
+# policy section would silently turn it off for the sections that follow.
+shopt -s nullglob
+
+# Run a nemoclaw command, print only its interesting output, and return the
+# CLI's OWN exit status — not grep's.
+#
+# Two bugs pointed in opposite directions before this existed:
+#   * `… | grep -vE "$NOISE" | tail -N` with no `|| true` (the server deploy and
+#     the register call): `grep -v` exits 1 when it filters EVERYTHING, pipefail
+#     propagates that, and `set -e` then aborted an otherwise-successful deploy.
+#   * `… || true` (policy-add, skill install): fixed the above by also swallowing
+#     genuine failures, which is how a rejected egress policy stayed invisible
+#     for months.
+# Capturing first and filtering second fixes both: callers that must abort can
+# let `set -e` see the real status, and callers that must continue write an
+# explicit `|| echo WARNING`.
+_run_cli() {
+  local out rc                      # NOT `local out=$(...)` — that masks $?
+  out="$("$@" 2>&1)"; rc=$?
+  printf '%s\n' "$out" | grep -vE "$NOISE" | tail -3 || true
+  return $rc
+}
+
+# Machine-readable progress, alongside (never instead of) the human `[ava] …`
+# lines — a hand-run reads exactly as it always did. ava_bridge/provision_job.py
+# splits these on tabs into steps and keeps them out of the log.
+#
+# A separate channel rather than parsing the prose, because parsing prose is how
+# a progress view silently stops updating the day somebody rewords an echo.
+#   scope  id  ok|fail  [detail]
+_step() { printf '[ava::step]\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "${4:-}"; }
+
+# --- Scope selection ---------------------------------------------------------
+# Scope names are shared with `ava_bridge/provision.py` SCOPES and the Hub's
+# domain keys. One spelling everywhere.
+SCOPES_ALL="persona policies servers skills"
+ONLY=""
+DRY_RUN=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --only)    ONLY="${2:-}"; shift 2 ;;
+    --only=*)  ONLY="${1#--only=}"; shift ;;
+    --dry-run) DRY_RUN=1; shift ;;
+    -h|--help) sed -n '2,31p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    *) echo "[ava] ERROR: unknown flag '$1' (try --only or --dry-run)" >&2; exit 2 ;;
+  esac
+done
+ONLY="${ONLY:-${AVA_PROVISION_ONLY:-all}}"
+# Reject an unknown scope LOUDLY. A future scope name arriving at an older copy
+# of this script must fail, never silently fall through to doing everything —
+# that is the shell-level half of the capability handshake the remote runtime
+# does over /healthz.
+for _s in ${ONLY//,/ }; do
+  case " all $SCOPES_ALL " in
+    *" $_s "*) ;;
+    *) echo "[ava] ERROR: unknown scope '$_s' (want: all, ${SCOPES_ALL// /, })" >&2
+       exit 2 ;;
+  esac
+done
+_want() { case ",$ONLY," in *,all,*) return 0 ;; *",$1,"*) return 0 ;; *) return 1 ;; esac; }
+
+# Sections are gated on _want; this says which, in one place, for --dry-run and
+# for the humans reading a diff. Pure: no CLI, no sandbox, no writes.
+_plan() {
+  local n=0 d
+  for base in "$HERE" "$OVERLAY"; do
+    [ -d "$base" ] || continue
+    for d in "$base"/mcp_server_*/; do
+      [ -f "${d}_server.mjs" ] && n=$((n + 1))
+    done
+  done
+  echo "[ava] plan: scope=$ONLY"
+  _want policies && echo "[ava]   §1 apply egress policies"                || true
+  echo   "[ava]   §2/2b/2c proxy + tokens + server discovery (always)"
+  _want servers  && echo "[ava]   §3 push MCP server bytes"                || true
+  # The registration pass ALWAYS registers every discovered server, whatever the
+  # scope — it is delete-then-recreate, so registering a subset would unregister
+  # the rest. The count below is the guard a test can assert on.
+  { _want persona || _want servers; } \
+                 && echo "[ava]   §4/5 register servers=$n + write persona"  || true
+  _want skills   && echo "[ava]   §6 install skills"                       || true
+  { _want servers || [ "$ONLY" = "all" ]; } \
+                 && echo "[ava]   §7 nudge gateway"                        || true
+  echo "[ava]   servers discovered: $n"
+}
+
+if [ "$DRY_RUN" = "1" ]; then
+  _plan
+  exit 0
+fi
 
 echo "[ava] sandbox=$SANDBOX"
 
@@ -71,8 +170,9 @@ if [ "$_BRIDGE_PORT_RESOLVED" != "8096" ]; then
 fi
 _POLTMP="$(mktemp -d)"
 trap 'rm -rf "$_POLTMP"' EXIT
+POLICY_FAILED=0
 
-shopt -s nullglob
+if _want policies; then
 for poldir in "$HERE/policies" "$HERE/policies/generated" "$OVERLAY/policies" "$OVERLAY/policies/generated"; do
   [ -d "$poldir" ] || continue
   for pol in "$poldir"/*.yaml; do
@@ -82,17 +182,41 @@ for poldir in "$HERE/policies" "$HERE/policies/generated" "$OVERLAY/policies" "$
       _send="$_POLTMP/$(basename "$pol")"
       sed "s/port: 8096\b/port: ${_BRIDGE_PORT_RESOLVED}/g" "$pol" > "$_send"
     fi
-    "$NEMOCLAW" "$SANDBOX" policy-add --from-file "$_send" --yes 2>&1 | grep -vE "$NOISE" | tail -2 || true
+    # Deliberately non-fatal: one rejected policy must not strand the other
+    # seven or the MCP deploy that follows. But it is REPORTED now — this used
+    # to be a bare `|| true`, which is why ava-email-read-only sat unapplied
+    # with nothing in Ava saying so.
+    if _run_cli "$NEMOCLAW" "$SANDBOX" policy-add --from-file "$_send" --yes; then
+      _step policies "$(basename "$pol" .yaml)" ok
+    else
+      echo "[ava] WARNING: policy $(basename "$pol") was NOT applied (see output above)" >&2
+      _step policies "$(basename "$pol" .yaml)" fail "policy-add rejected the file"
+      POLICY_FAILED=$((POLICY_FAILED + 1))
+    fi
   done
 done
+if [ "$POLICY_FAILED" -gt 0 ]; then
+  echo "[ava] WARNING: ${POLICY_FAILED} egress polic(ies) did not apply — the tools that" >&2
+  echo "[ava]          depend on them will be blocked by the sandbox's deny-by-default." >&2
+fi
+fi  # _want policies
 
 # And tell the tools where the bridge is, so they do not fall back to the default.
 # Every generated .mjs reads AVA_BRIDGE_URL first; nothing was setting it.
 export AVA_BRIDGE_URL="${AVA_BRIDGE_URL:-http://host.openshell.internal:${_BRIDGE_PORT_RESOLVED}}"
 
 # --- 2. Discover the guard proxy (only present inside the sandbox shell) ------
+# The trailing `|| true` is load-bearing: `grep -oE` exits 1 when it matches
+# NOTHING, which is exactly what happens when the sandbox is stopped or its
+# HTTPS_PROXY is unset. Under `set -o pipefail` that status became the command
+# substitution's, and `set -e` aborted the whole install right here — silently,
+# because stderr is sent to /dev/null and grep prints nothing on no-match. The
+# fallback on the next line, written for precisely this case, was unreachable:
+# provisioning against a stopped sandbox died after applying the policies with
+# no error message of any kind. Here we genuinely do not care about the exit
+# status, only about the captured text, so discarding it is correct.
 PROXY="$("$NEMOCLAW" "$SANDBOX" exec --no-tty -- bash -lc 'printf %s "$HTTPS_PROXY"' 2>/dev/null \
-  | grep -oE 'https?://[^[:space:]]+' | head -1)"
+  | grep -oE 'https?://[^[:space:]]+' | head -1 || true)"
 # Fallback = OpenShell's default sandbox-gateway address; export PROXY to
 # override if your sandbox uses a different one.
 PROXY="${PROXY:-http://10.200.0.1:3128}"
@@ -136,6 +260,32 @@ mapfile -t CATS < <(printf '%s\n' "${!CAT_SRC[@]}" | sort)
 [ "${#CATS[@]}" -gt 0 ] || { echo "[ava] ERROR: no mcp_server_* dirs found" >&2; exit 1; }
 echo "[ava] discovered ${#CATS[@]} mcp server(s): ${CATS[*]}"
 
+# Server names + registration specs. Computed HERE, in discovery, because this
+# pass is pure — it needs no sandbox and must run unconditionally.
+#
+# ⚠️  DO NOT move this back inside the §3 deploy loop. §4/5 does a
+# delete-then-recreate on every /^ava-/ key in d.mcp.servers, driven by
+# SPECS_JSON. If SPECS_JSON is ever empty, that registers NOTHING and
+# UNREGISTERS EVERY AVA MCP SERVER — including the overlay's private ones. It
+# would exit 0, print a green log, and the only symptom would be a chat turn
+# hours later where a tool silently doesn't fire.
+#
+# (`${SPECS[*]}` on an empty array errors under `set -u` on bash 3.2/macOS —
+# loud — but yields `[]` on bash 4.4+/Linux — silent. Hence the explicit guard.)
+declare -A SERVER_NAME=()
+SPECS=()
+for cat in "${CATS[@]}"; do
+  name="${NAME_OVERRIDE[$cat]:-ava-tools-$cat}"
+  SERVER_NAME["$cat"]="$name"
+  SPECS+=("{\"name\":\"${name}\",\"path\":\"/sandbox/.openclaw/mcp_server_${cat}/_server.mjs\",\"group\":\"${cat}\"}")
+done
+SPECS_JSON="[$(IFS=,; echo "${SPECS[*]}")]"
+if [ "$SPECS_JSON" = "[]" ]; then
+  echo "[ava] ERROR: refusing to register 0 MCP servers — that would unregister" >&2
+  echo "[ava]        every ava-* server already in the sandbox." >&2
+  exit 1
+fi
+
 # Token groups = discovered categories + the shared "connectors" group.
 GROUPS_JSON="$(printf '%s\n' "${CATS[@]}" connectors | sort -u \
   | python3 -c 'import sys,json; print(json.dumps([l.strip() for l in sys.stdin if l.strip()]))')"
@@ -159,21 +309,21 @@ PY
 # --- 3. Deploy MCP servers (one independent server per category) -------------
 # The set is whatever §2c discovered, so adding/removing a category dir (core or
 # overlay) needs no edits here. Each server is small + fully independent.
-declare -A SERVER_NAME=()
-SPECS=()
+if _want servers; then
 for cat in "${CATS[@]}"; do
-  name="${NAME_OVERRIDE[$cat]:-ava-tools-$cat}"
-  SERVER_NAME["$cat"]="$name"
+  name="${SERVER_NAME[$cat]}"
   src="${CAT_SRC[$cat]}"
   dest="/sandbox/.openclaw/mcp_server_${cat}"
-  SPECS+=("{\"name\":\"${name}\",\"path\":\"${dest}/_server.mjs\",\"group\":\"${cat}\"}")
   echo "[ava] deploying mcp_server_${cat} → $dest ($name)…"
   B64="$(tar czf - -C "$src" . | base64 -w0)"
   # Simple deployment: extract to dest, check syntax
   CMD='rm -rf "$DEST"; mkdir -p "$DEST"; echo "$0" | base64 -d | tar xzf - -C "$DEST"; node --check "$DEST/_server.mjs" && echo "[ava] ok: $NAME" || echo "[ava] WARNING: $NAME (syntax error)"'
-  "$NEMOCLAW" "$SANDBOX" exec --no-tty -- env DEST="$dest" NAME="$name" bash -c "$CMD" "$B64" 2>&1 | grep -vE "$NOISE" | tail -3
+  _run_cli "$NEMOCLAW" "$SANDBOX" exec --no-tty -- env DEST="$dest" NAME="$name" bash -c "$CMD" "$B64"
+  _step servers "$name" ok
 done
-SPECS_JSON="[$(IFS=,; echo "${SPECS[*]}")]"
+else
+  echo "[ava] skipping MCP server byte push (scope=$ONLY)"
+fi
 
 # --- 4 & 5. Register MCP servers + persona + scoped-token tool settings ------
 # Add new MCP servers here with the narrowest token group that covers their
@@ -181,6 +331,7 @@ SPECS_JSON="[$(IFS=,; echo "${SPECS[*]}")]"
 # Render the persona from persona.txt.tmpl using ava.yaml identity config (brand/
 # owner/persona). Prefer the repo venv (has pyyaml) so ava.yaml is honoured; fall
 # back to system python3 (renders a neutral persona from built-in defaults).
+if _want persona || _want servers; then
 PY="$HERE/../.venv/bin/python"; [ -x "$PY" ] || PY="$(command -v python3)"
 PROMPT="$("$PY" "$HERE/render_persona.py")"
 PROMPT_B64="$(printf %s "$PROMPT" | base64 -w0)"
@@ -243,7 +394,18 @@ console.log("[ava] config written, " + servers.length + " servers registered, pe
 JS
 )"
 JS_B64="$(printf %s "$JS" | base64 -w0)"
-"$NEMOCLAW" "$SANDBOX" exec --no-tty -- bash -lc 'AVA_P="$(echo "$0" | base64 -d)" AVA_PROXY="$1" AVA_TOKENS="$3" AVA_SERVERS="$4" node -e "$(echo "$2" | base64 -d)" </dev/null' "$PROMPT_B64" "$PROXY" "$JS_B64" "$TOKENS_JSON" "$SPECS_JSON" 2>&1 | grep -vE "$NOISE" | tail -3
+_run_cli "$NEMOCLAW" "$SANDBOX" exec --no-tty -- bash -lc 'AVA_P="$(echo "$0" | base64 -d)" AVA_PROXY="$1" AVA_TOKENS="$3" AVA_SERVERS="$4" node -e "$(echo "$2" | base64 -d)" </dev/null' "$PROMPT_B64" "$PROXY" "$JS_B64" "$TOKENS_JSON" "$SPECS_JSON"
+# The persona lands in workspace/IDENTITY.md, which OpenClaw folds into the
+# system prompt it generates AT SESSION START — so an existing conversation keeps
+# the old voice until it is restarted. Say so rather than implying it is instant.
+_step servers "registration" ok "${#CATS[@]} server(s) registered"
+if _want persona; then
+  echo "[ava] persona written — new sessions pick it up"
+  _step persona "IDENTITY.md" ok "${#PROMPT} chars"
+fi
+else
+  echo "[ava] skipping server registration + persona (scope=$ONLY)"
+fi
 
 # --- 6. Native skills (core + optional overlay) ------------------------------
 # Portable sha256 (Linux sha256sum / macOS shasum) so the deploy manifest below
@@ -251,12 +413,21 @@ JS_B64="$(printf %s "$JS" | base64 -w0)"
 _sha256() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}';
             else shasum -a 256 "$1" | awk '{print $1}'; fi; }
 skills_manifest=""
+if _want skills; then
 for skroot in "$HERE/skills" "$OVERLAY/skills"; do
   [ -d "$skroot" ] || continue
   for sk in "$skroot"/*/; do
     [ -f "${sk}SKILL.md" ] || continue
     echo "[ava] installing skill: $(basename "$sk")…"
-    "$NEMOCLAW" "$SANDBOX" skill install "$sk" 2>&1 | grep -vE "$NOISE" | tail -3 || true
+    # Non-fatal for the same reason as policy-add above, but reported. NOTE the
+    # manifest row below is written either way — it records INTENT, which is why
+    # ava_bridge/provision.py verifies against the sandbox rather than trusting it.
+    if _run_cli "$NEMOCLAW" "$SANDBOX" skill install "$sk"; then
+      _step skills "$(basename "$sk")" ok
+    else
+      echo "[ava] WARNING: skill $(basename "$sk") was NOT installed (see output above)" >&2
+      _step skills "$(basename "$sk")" fail "skill install failed"
+    fi
     _name="$(basename "$sk")"; _sum="$(_sha256 "${sk}SKILL.md")"
     skills_manifest="${skills_manifest:+$skills_manifest,}{\"name\":\"$_name\",\"sha256\":\"$_sum\"}"
   done
@@ -269,16 +440,23 @@ if mkdir -p "$DATA_DIR" 2>/dev/null; then
   printf '[%s]\n' "$skills_manifest" > "$DATA_DIR/skills_deployed.json"
   echo "[ava] wrote skills deploy manifest -> $DATA_DIR/skills_deployed.json"
 fi
+else
+  echo "[ava] skipping skills (scope=$ONLY)"
+fi
 
 # --- 7. Best-effort gateway refresh (don't block; recover can hang) ----------
 # mcp.* hot-reloads and the agent runs embedded, so a full recover isn't required.
 # IMPORTANT: recover spawns a detached `ssh -f` tunnel that inherits our stdout;
 # if that fd is a pipe the script appears to hang forever. Send recover's output
 # to a log file (and close stdin) so the pipe closes and install.sh exits cleanly.
-echo "[ava] nudging gateway (best-effort, 20s cap; log: /tmp/ava-recover.log)…"
-timeout 20 "$NEMOCLAW" "$SANDBOX" recover </dev/null >/tmp/ava-recover.log 2>&1 \
-  && echo "[ava] gateway recovered" \
-  || echo "[ava] recover skipped/slow (ok — mcp hot-reloads; see /tmp/ava-recover.log)"
+# Only worth it when server registration changed; a persona/skill/policy-only run
+# has nothing for the gateway to pick up.
+if _want servers; then
+  echo "[ava] nudging gateway (best-effort, 20s cap; log: /tmp/ava-recover.log)…"
+  timeout 20 "$NEMOCLAW" "$SANDBOX" recover </dev/null >/tmp/ava-recover.log 2>&1 \
+    && echo "[ava] gateway recovered" \
+    || echo "[ava] recover skipped/slow (ok — mcp hot-reloads; see /tmp/ava-recover.log)"
+fi
 
 echo "[ava] done. Tools auto-load from ${#CATS[@]} server(s): ${CATS[*]}"
 echo "[ava]   add one with:  ./new-tool.sh <name> --category <cat> [--server <srv>]"

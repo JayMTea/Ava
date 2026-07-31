@@ -56,6 +56,24 @@ Any user-facing optional capability lives in `ava_bridge/features.py`:
   `hub/ui/` (`Tile`, `Legend`, `Badge`, `StatRow`, `HubMessage`), and one
   `.tone-*` → `--tone` colour system in `hub.css` (no per-panel icon-tile or
   tone-colour classes). `tests/test_hub_uniformity.py` fails a regression.
+- **Two apply verbs, never conflated.** *Restart Ava* = an `ava.yaml` value the
+  bridge reads at boot → `RestartBanner`, driven by `restart_required` on a
+  `hub.*` mutation. *Apply to the agent* = persona / skills / policies / tool
+  servers, which live in the NemoClaw sandbox → `PendingChangesBar`, driven by
+  the `deployed | stale | undeployed | unknown` vocabulary from
+  `ava_bridge/provision.py`. A mutation calls `onRestart()` **only if the
+  response actually set `restart_required`**; it calls
+  `markProvisionDirty(scope)` when it changed something the sandbox holds.
+  Never both, never the wrong one. (PersonaPanel did both, and the restart it
+  demanded was never needed. Five call sites still call `onRestart()`
+  unconditionally while the backend tells them whether it is required —
+  `AgentPanel` ×3, `VoicePanel` ×2 — which is the same bug awaiting the same
+  fix.) The owner-facing verb is **Apply**; "provision" stays in the API path,
+  the CLI and the type names.
+- Drift is a **server fact**, never client state: it must survive a reload, a
+  second tab, an edit made on disk, and a provision run from the CLI.
+  `unknown` means "we could not look inside the sandbox", not "it is missing",
+  and never counts as pending.
 - Python: `ruff check`, tests with `python -m pytest tests/ -q`.
 - Convention guards follow the `tests/test_diagram_sync.py` style: static
   scans over `git ls-files` that run anywhere, failing with instructions.

@@ -66,9 +66,16 @@ class Policy:
     endpoints: int = 0
     rules: int = 0
     binaries: int = 0
-    # `ava-email-read-only` declares `network_policies: {}` and gates a tool list
-    # instead. Without this count it renders as an empty policy, which is how a
-    # real grant gets mistaken for dead weight and deleted.
+    # A policy may declare `network_policies: {}` and gate a tool list instead;
+    # without this count it renders as empty, which is how a real grant gets
+    # mistaken for dead weight and deleted.
+    #
+    # The policy that motivated this field, `ava-email-read-only`, turned out NOT
+    # to be such a grant: it granted no egress, and its three tools called
+    # `/internal/emails`, a route that never existed in the bridge. It was a stub
+    # for an unbuilt feature that had never applied to the sandbox, and the
+    # provisioning drift report is what finally surfaced that. Removed. The field
+    # stays because the shape it guards against is still legitimate.
     tools: int = 0
     wildcards: list[Wildcard] = field(default_factory=list)
     parse_error: str = ""
