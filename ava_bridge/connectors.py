@@ -857,7 +857,7 @@ def render_find_tool(cid: str) -> str:
         f"then invoke the chosen action with {cid}_call.")
     return f"""// AUTO-GENERATED from connectors/{cid}/connector.yaml (meta: find_tool).
 // Regenerate with:  ava connector tools {cid} --write
-const BRIDGE = process.env.AVA_BRIDGE_URL || 'http://host.openshell.internal:8096';
+const BRIDGE = process.env.AVA_BRIDGE_URL || 'http://host.openshell.internal:{_bridge_port()}';
 
 export default {{
   name: '{cid}_find_tool',
@@ -896,7 +896,7 @@ def render_call_tool(cid: str) -> str:
         f"input schema with {cid}_find_tool first.")
     return f"""// AUTO-GENERATED from connectors/{cid}/connector.yaml (meta: call).
 // Regenerate with:  ava connector tools {cid} --write
-const BRIDGE = process.env.AVA_BRIDGE_URL || 'http://host.openshell.internal:8096';
+const BRIDGE = process.env.AVA_BRIDGE_URL || 'http://host.openshell.internal:{_bridge_port()}';
 
 export default {{
   name: '{cid}_call',
@@ -1145,10 +1145,25 @@ def discover_tools(cid: str, query: str = "", limit: int = 0) -> dict:
     try:
         r = requests.get(base + spec["list"], headers=_discover_headers(spec), timeout=20,
                          allow_redirects=False)
+        # Status FIRST. This used to go straight to r.json() and only report an
+        # error when the PARSE failed — but a FastAPI 404 body is `{"detail":"Not
+        # Found"}`, which parses perfectly. So pointing a facade connector at a
+        # server with no /tools route returned ok/verified with zero tools, and the
+        # endpoint whose docstring promises "only when Ava genuinely spoke MCP to it
+        # a moment ago" reported verified:true for a handshake that 404'd.
+        if not (200 <= r.status_code < 300):
+            return {"error": f"{cid} discovery returned HTTP {r.status_code}"}
         try:
-            return _filter_tools(_remember(r.json()), query, limit)
+            body = r.json()
         except Exception:  # noqa: BLE001
-            return {"error": f"{cid} discovery returned {r.status_code}"}
+            return {"error": f"{cid} discovery returned non-JSON "
+                             f"({(r.headers.get('Content-Type') or '?').split(';')[0]})"}
+        # A 200 that is not the facade's shape is not a discovery either. Without
+        # this, any JSON object counts as success and the tool list is silently [].
+        if not isinstance(body, dict) or not isinstance(body.get("tools"), list):
+            return {"error": f"{cid} discovery returned no tools list "
+                             f"(got keys: {sorted(body)[:5] if isinstance(body, dict) else type(body).__name__})"}
+        return _filter_tools(_remember(body), query, limit)
     except Exception as e:  # noqa: BLE001
         return {"error": f"{cid} discovery unreachable: {e}"}
 

@@ -531,6 +531,18 @@ def _render(app_id: str, label: str, framework: str, port: int, ui: bool) -> dic
     return out
 
 
+def valid_id(candidate: str) -> bool:
+    """Is this a usable connector/app/device id?
+
+    Public because ava_cli needs the SAME rule: `ava connector new` and
+    `ava device new` joined an unchecked name onto AVA_HOME, so `../../x` wrote
+    outside it and still printed "+ created". Exposed as a function rather than
+    letting callers reach for `_ID_RE`, which tests/test_module_boundaries.py
+    correctly refuses to allow across modules.
+    """
+    return bool(_ID_RE.match(candidate or ""))
+
+
 def create(app_id: str, framework: str = "fastapi", port: int = 9000,
            out_dir: str = ".", ui: bool = False, label: str | None = None) -> list[str]:
     """Write the scaffold into <out_dir>/ava/. Refuses to overwrite existing

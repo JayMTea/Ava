@@ -690,7 +690,8 @@ edits":
 python examples/hello-app/server.py        # serves http://127.0.0.1:8477
 
 # 2. Register it with Ava by dropping the folder into your data root
-cp -r examples/hello-app "$AVA_HOME/connectors/hello"   # $AVA_HOME defaults to the repo root
+mkdir -p "${AVA_HOME:-$PWD}/connectors"          # ava setup does not create this
+cp -r examples/hello-app "$AVA_HOME/connectors/hello"
 
 # 3. Generate its agent tools + egress policy and load them into the sandbox.
 #    The first two write into the repo and need nothing installed. install.sh

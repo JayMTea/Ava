@@ -634,8 +634,13 @@ async def connector_new(body: dict):
     if body.get("ui"):
         ui_url = base_url or str((disc_in or {}).get("base") or "").strip()
         if ui_url:
-            manifest["ui"] = {"label": label, "icon": "grid",
-                              "embed": "iframe", "url": ui_url}
+            # No `icon:` key. CLAUDE.md: an undeclared icon comes back null ON
+            # PURPOSE so appIcon() can hash the app id into a stable, distinct
+            # glyph. Writing "grid" here made every GUI-connected app identical in
+            # the rail — the very failure that convention exists to prevent, moved
+            # from apps() into the scaffolder. The owner can still pick one in
+            # Setup -> Connectors -> Appearance, which writes ui.icon back here.
+            manifest["ui"] = {"label": label, "embed": "iframe", "url": ui_url}
     # Split-container apps (nginx SPA + separate API port): the UI lives at a
     # DIFFERENT address than the tool surface. ui.api routes the embedded UI's
     # /api calls to the API origin — /apps/<id>/api/<p> is reconstructed as
@@ -643,8 +648,8 @@ async def connector_new(body: dict):
     # /api/* paths (the only ones this proxy route matches).
     ui_url2 = str(body.get("ui_url") or "").strip()
     if ui_url2:
-        manifest["ui"] = {"label": label, "icon": "grid",
-                          "embed": "iframe", "url": ui_url2}
+        # Same reasoning as above — let appIcon() hash the id.
+        manifest["ui"] = {"label": label, "embed": "iframe", "url": ui_url2}
         api_base = base_url or str((disc_in or {}).get("base") or "").strip()
         if api_base and api_base.rstrip("/") != ui_url2.rstrip("/"):
             manifest["ui"]["api"] = {"base": api_base, "prefix": "/api"}

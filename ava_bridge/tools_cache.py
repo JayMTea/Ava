@@ -80,10 +80,30 @@ def update(cid: str, tools: list) -> None:
         if not name:
             continue
         acc = str(t.get("access") or "").lower()
-        entry[name[:64]] = {
-            "access": acc if acc in _TIERS else "write",
-            "description": str(t.get("description") or "")[:200],
-        }
+        # Record ONLY a tier the tool actually self-declared. Defaulting an
+        # undeclared tool to "write" here silently overwrote the caller's own
+        # fallback: connectors._dynamic_access consults this cache BEFORE the
+        # role:device rule, so one discovery call turned a relay/lock from the
+        # never-grantable `physical` tier into grantable `write` — defeating the
+        # one tier the code refuses to infer. Absent means "unknown, ask the
+        # manifest", which is what _dynamic_access is for.
+        # Three cases, and the middle one used to be lost:
+        #   declared + valid   -> record it
+        #   declared + invalid -> "write", conservatively. The app ASKED for a gate
+        #                         and typo'd the tier; refusing to gate would be
+        #                         the unsafe reading.
+        #   declared nothing   -> record NO access at all.
+        # That last case is the fix. Writing "write" for an undeclared tool
+        # overwrote the caller's own fallback: _dynamic_access consults this cache
+        # before the role:device rule, so ONE discovery call turned a relay or lock
+        # from the never-grantable `physical` tier into grantable `write` — undoing
+        # the one tier the code deliberately refuses to infer. Absent means "the
+        # app said nothing", which lets the manifest decide, and the non-device
+        # default is still `write` there.
+        rec = {"description": str(t.get("description") or "")[:200]}
+        if "access" in t:
+            rec["access"] = acc if acc in _TIERS else "write"
+        entry[name[:64]] = rec
     with _lock:
         data = {k: dict(v) for k, v in _load().items()}
         if entry:

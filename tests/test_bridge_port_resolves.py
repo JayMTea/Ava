@@ -45,8 +45,16 @@ def test_no_bare_8096_literal_survives_in_the_generator() -> None:
 def test_the_generated_tool_template_interpolates_the_port() -> None:
     """A placeholder that is not interpolated ships broken JavaScript."""
     src = (ROOT / "ava_bridge" / "connectors.py").read_text(encoding="utf-8")
-    line = next(ln for ln in src.splitlines() if "const BRIDGE" in ln)
-    assert "{_bridge_port()}" in line, (
+    # EVERY template, not the first. `next(...)` inspected one line and passed while
+    # the OTHER TWO still hardcoded 8096 — and those two are the ones used for every
+    # `mcp:`/discover connector, i.e. the SDK's headline path. A guard that stops at
+    # the first match is how a fix lands on one of three sites and reports success.
+    lines = [ln for ln in src.splitlines() if "const BRIDGE" in ln]
+    assert len(lines) >= 3, (
+        f"expected at least 3 BRIDGE templates (static, find_tool, call_tool), found "
+        f"{len(lines)} — if a template was removed, update this floor deliberately.")
+    for line in lines:
+        assert "{_bridge_port()}" in line, (
         f"the tool template does not interpolate the port: {line.strip()!r}. My "
         "first cut used a placeholder NAME inside an f-string, which would have "
         "emitted `BRIDGE_PORT_PLACEHOLDER` into the JavaScript verbatim.")

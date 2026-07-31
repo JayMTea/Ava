@@ -13,6 +13,7 @@ It exposes thermostat, lights, scenes and a door lock, and it exists to demonstr
 python examples/hearthwire/server.py           # serves http://127.0.0.1:8483
 
 # 2. Register it with Ava by dropping the folder into your data root
+mkdir -p "${AVA_HOME:-$PWD}/connectors"          # ava setup does not create this
 cp -r examples/hearthwire "$AVA_HOME/connectors/hearthwire"
 
 # 3. Restart Ava — "Hearthwire" is now in the left rail

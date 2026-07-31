@@ -13,6 +13,7 @@ It exposes steps, resting heart rate, sleep and workout logging, and it exists t
 python examples/stridewell/server.py           # serves http://127.0.0.1:8481
 
 # 2. Register it with Ava by dropping the folder into your data root
+mkdir -p "${AVA_HOME:-$PWD}/connectors"          # ava setup does not create this
 cp -r examples/stridewell "$AVA_HOME/connectors/stridewell"
 
 # 3. Restart Ava — "Stridewell" is now in the left rail

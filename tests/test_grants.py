@@ -246,6 +246,11 @@ class TierCacheTests(unittest.TestCase):
     def test_discover_tools_writes_through(self):
         self._facade_app()
         resp = mock.Mock()
+        # discover_tools now checks the HTTP status BEFORE parsing — a FastAPI 404
+        # body parses fine, so status was the only thing separating "discovered" from
+        # "that route does not exist". A Mock's status_code is a Mock, so it must be
+        # set explicitly or the comparison is meaningless.
+        resp.status_code = 200
         resp.json.return_value = {"facade": "ava-tools/1", "tools": [
             {"name": "list_things", "access": "read", "description": "d"}]}
         with mock.patch("requests.get", return_value=resp):

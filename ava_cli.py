@@ -494,6 +494,16 @@ def cmd_setup(args) -> int:
     # so a fork's tree matches the author's and `ava models pull` has a home.
     dirs = ensure_model_dirs()
     _row(OK, "model dirs", f"{dirs['root']}/{{hf,ollama,gpusvc}}")
+
+    # connectors/ is where every example tells a forker to copy a manifest, and
+    # setup did not create it — so the FIRST thing anyone tries after chat works
+    # ("cp -r examples/hello-app $AVA_HOME/connectors/hello") died with "No such
+    # file or directory". Six example READMEs and three docs all carried that same
+    # broken line. Creating it here is the fix; the mkdir -p those docs now show is
+    # belt-and-braces for an AVA_HOME that predates this.
+    _conn = settings.home("connectors")
+    os.makedirs(_conn, exist_ok=True)
+    _row(OK, "connectors dir", _conn)
     cp = _write_gpusvc_paths(dirs["gpusvc"])
     _row(OK, "gpusvc paths", cp or "kept existing gpusvc/extra_model_paths.yaml")
 
@@ -783,6 +793,16 @@ def cmd_connector(args) -> int:
         if not args.name:
             print(f"{BAD} usage: ava connector new <name>")
             return 1
+        # Validate BEFORE joining. `os.path.join(home, name)` with an unchecked
+        # name is a path traversal: `ava connector new ../../../tmp/x` wrote the
+        # manifest outside AVA_HOME entirely and still printed "+ created". A
+        # space in the id was equally accepted and produced tools whose fetch path
+        # carried a raw space. `ava app new` already refused both through
+        # scaffold._ID_RE; reuse that rather than add a second, drifting rule.
+        from ava_bridge.scaffold import valid_id
+        if not valid_id(args.name):
+            print(f"{BAD} id must be 2-32 chars: a-z 0-9 _ - (starting with a letter)")
+            return 1
         d = os.path.join(settings.home("connectors"), args.name)
         path = os.path.join(d, "connector.yaml")
         if os.path.exists(path):
@@ -951,6 +971,11 @@ def cmd_device(args) -> int:
     if args.action == "new":
         if not args.name:
             print(f"{BAD} usage: ava device new <name>")
+            return 1
+        # Same traversal hole as `connector new` — same fix, same regex.
+        from ava_bridge.scaffold import valid_id
+        if not valid_id(args.name):
+            print(f"{BAD} id must be 2-32 chars: a-z 0-9 _ - (starting with a letter)")
             return 1
         d = os.path.join(settings.home("connectors"), args.name)
         path = os.path.join(d, "connector.yaml")

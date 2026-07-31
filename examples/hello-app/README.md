@@ -12,7 +12,8 @@ changes to Ava's code**.
 python examples/hello-app/server.py        # serves http://127.0.0.1:8477
 
 # 2. Register it with Ava by dropping the folder into your data root
-cp -r examples/hello-app "$AVA_HOME/connectors/hello"   # $AVA_HOME defaults to the repo root
+mkdir -p "${AVA_HOME:-$PWD}/connectors"          # ava setup does not create this
+cp -r examples/hello-app "$AVA_HOME/connectors/hello"
 
 # 3. Restart Ava (or `ava up`) and open the web app
 #    -> "Hello App" now appears in the left rail

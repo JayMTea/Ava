@@ -205,6 +205,7 @@ event pusher); replace the faked device I/O with yours.
 # 1. Register the connector (the example's manifest declares id: device-demo)
 #    then restart Ava (or `ava up`) — a running Ava answers 404 "has not enabled
 #    ingest" until it reloads the new manifest, so do this BEFORE the app pushes.
+mkdir -p "${AVA_HOME:-$PWD}/connectors"          # ava setup does not create this
 cp -r examples/device-app "$AVA_HOME/connectors/device-demo"
 
 # 2. Get this connector's inbound push token

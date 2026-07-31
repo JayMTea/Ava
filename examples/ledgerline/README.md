@@ -13,6 +13,7 @@ It exposes account balances, spending summaries and statement export, and it exi
 python examples/ledgerline/server.py           # serves http://127.0.0.1:8482
 
 # 2. Register it with Ava by dropping the folder into your data root
+mkdir -p "${AVA_HOME:-$PWD}/connectors"          # ava setup does not create this
 cp -r examples/ledgerline "$AVA_HOME/connectors/ledgerline"
 
 # 3. Restart Ava — "Ledgerline" is now in the left rail
