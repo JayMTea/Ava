@@ -95,6 +95,11 @@ ASSETS: dict[str, str] = {
     "docs/assets/connect-app-1-connectors.png": "docs/assets/connect-app-1-connectors.png",
     "docs/assets/connect-app-2-detected.png": "docs/assets/connect-app-2-detected.png",
     "docs/assets/connect-app-3-connected.png": "docs/assets/connect-app-3-connected.png",
+    # The walkthrough gained two beats — the app embedded in the rail, and a question
+    # answered from its own data. ASSETS is an explicit allow-list, so a new image
+    # referenced from a page is a 404 on the site until it is named here.
+    "docs/assets/connect-app-4-embedded.png": "docs/assets/connect-app-4-embedded.png",
+    "docs/assets/connect-app-5-asked.png": "docs/assets/connect-app-5-asked.png",
     "docs/assets/connect-device-tour.mp4": "docs/assets/connect-device-tour.mp4",
     "docs/assets/choose-model-tour.mp4": "docs/assets/choose-model-tour.mp4",
     "docs/assets/install-tour.mp4": "docs/assets/install-tour.mp4",

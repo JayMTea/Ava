@@ -24,7 +24,11 @@ terminal. The whole flow takes under a minute; here it is end to end, narrated
   Your browser can't play video. <a href="../assets/connect-app-tour.mp4">Download the walkthrough</a>.
 </video>
 
-*(The recording uses sample data; your instance will show your own apps.)*
+*(The app in the recording is a real one — Stridewell, a personal training log with
+its own codebase, its own SQLite file and an MCP server, which knows nothing about
+Ava. The six tools Ava discovers are the ones its server actually advertises, and the
+figures it reports at the end come out of its own database. Ava's surrounding numbers
+are sample data.)*
 
 ### Step 1: Open Setup, then Connectors
 
@@ -44,7 +48,7 @@ MCP servers over Streamable HTTP, Ava's `ava-tools/1` facade, and OpenAPI. A
 server that only speaks MCP's deprecated HTTP+SSE transport must be wired by
 hand with `mcp: {url: …/sse}` — see the [Connector SDK](CONNECTOR_SDK.md).)
 
-![The Connect an app form: name and address filled in, Detect clicked, and "Found 3 tools" listed with their names](assets/connect-app-2-detected.png)
+![The Connect an app form: name and address filled in, Detect clicked, and "Found 6 tools" listed by name — today_summary, sleep_last_night, week_summary, recent_workouts, weight_trend and log_workout](assets/connect-app-2-detected.png)
 
 When detection succeeds you'll see the app's tools listed by name. Two optional
 safety switches appear with them:
@@ -99,9 +103,22 @@ token, appearance, manifest editor, and remove, lives in the row's **⋯** menu)
   isn't reachable from the browser, the page shows the one command that loads
   them (`cd agent && ./install.sh`); run it once and you're done.
 
-Now ask Ava to use the app: *"create a note about tomorrow's demo"*. The tool
-call shows up in the chat's tool chips and on the Operations page like
-everything else Ava does.
+### Step 5: It gets its own place in the sidebar
+
+A connected app is not just a set of tools. It appears under **Apps** in the left
+rail, carrying its own accent colour, and Ava reverse-proxies its web UI
+same-origin — so the app's own interface renders inside Ava, already signed in,
+with no second front end to build:
+
+![Stridewell's own web page embedded in Ava: its stat cards for steps, resting heart rate, sleep, weight and this week's sessions, above a table of recent workouts](assets/connect-app-4-embedded.png)
+
+### Step 6: Ask
+
+Now just ask. Ava picks the tool, calls it, and answers out of the app's own
+data. The call shows up in the chat's tool chips and on the Operations page like
+everything else Ava does:
+
+![A chat turn: the question "How did my training go this week?" answered with six sessions, 261 active minutes and 22.8 kilometres, noting the figures came from Stridewell on this machine, with a Tools used chip beneath](assets/connect-app-5-asked.png)
 
 ---
 
