@@ -5,7 +5,7 @@ import type { HubConnector } from './hubApi';
 
 export type TabId =
   | 'overview' | 'hardware' | 'agent' | 'connectors'
-  | 'voice' | 'persona' | 'memory' | 'budgets' | 'history' | 'system';
+  | 'voice' | 'persona' | 'branding' | 'memory' | 'budgets' | 'history' | 'system';
 
 // Kinds that are internal plumbing (bridge, inference router) or models (vLLM
 // Omni, the GPU service) — they run behind the scenes / live in the Models tab, not on

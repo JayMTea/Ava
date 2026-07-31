@@ -6,7 +6,7 @@
 export const METRICS: Record<string, string> = {
   // ---- Vitals · KPI strip ----
   spend:
-    'Cloud API dollars spent in this window. Running Ava on your own hardware is free — this only moves when she calls a paid cloud model.',
+    'Cloud API dollars spent in this window. Running Ava on your own hardware is free — this only moves when it calls a paid cloud model.',
   energy:
     'Estimated electricity the GPU used, in kilowatt-hours. Recent hours use your GPU\'s own power readings where it reports them; older data and non-reporting GPUs use a nominal wattage, so a long window is mostly an estimate.',
   throughput:
@@ -46,7 +46,7 @@ export const METRICS: Record<string, string> = {
   completed:
     'Proposals you approved and Ava has applied.',
   apps:
-    'Apps Ava is connected to and can propose changes for. Ava herself is always included; other apps appear only while connected.',
+    'Apps Ava is connected to and can propose changes for. The assistant itself is always included; other apps appear only while connected.',
 
   // ---- Operations · KPI strip ----
   activeTurns:

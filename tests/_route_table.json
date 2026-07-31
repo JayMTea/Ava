@@ -322,6 +322,48 @@
   "APIRoute"
  ],
  [
+  "/api/hub/branding",
+  [
+   "GET"
+  ],
+  "APIRoute"
+ ],
+ [
+  "/api/hub/branding",
+  [
+   "POST"
+  ],
+  "APIRoute"
+ ],
+ [
+  "/api/hub/branding/asset/{slot}",
+  [
+   "DELETE"
+  ],
+  "APIRoute"
+ ],
+ [
+  "/api/hub/branding/asset/{slot}",
+  [
+   "POST"
+  ],
+  "APIRoute"
+ ],
+ [
+  "/api/hub/branding/export",
+  [
+   "GET"
+  ],
+  "APIRoute"
+ ],
+ [
+  "/api/hub/branding/import",
+  [
+   "POST"
+  ],
+  "APIRoute"
+ ],
+ [
   "/api/hub/connectors",
   [
    "GET"
@@ -914,6 +956,13 @@
   "/assets",
   [],
   "Mount"
+ ],
+ [
+  "/brand/asset/{slot}",
+  [
+   "GET"
+  ],
+  "APIRoute"
  ],
  [
   "/docs",

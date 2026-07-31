@@ -4,6 +4,7 @@ import { Icon } from '../../lib/icons';
 import { fixForCode } from '../../lib/fixes';
 import { AppDot, appAccent, appForTool } from '../../lib/appColor';
 import { FixLink } from './Media';
+import { useBrandName } from '../../lib/brandContext';
 
 async function copyText(s: string): Promise<boolean> {
   try {
@@ -86,6 +87,7 @@ export function AvaMessage({
   onReplay?: () => void;
   children?: React.ReactNode;
 }) {
+  const brand = useBrandName();
   const [copied, setCopied] = useState(false);
   return (
     <div className="bubble ava">
@@ -133,13 +135,13 @@ export function AvaMessage({
           <span>{copied ? 'Copied' : 'Copy'}</span>
         </button>
         {onRetry && (
-          <button type="button" className="msgact" title="Ask Ava the same thing again" onClick={onRetry}>
+          <button type="button" className="msgact" title={`Ask ${brand} the same thing again`} onClick={onRetry}>
             <Icon name="refresh" />
             <span>Retry</span>
           </button>
         )}
         {onReplay && (
-          <button type="button" className="msgact" title="Replay Ava's spoken reply" onClick={onReplay}>
+          <button type="button" className="msgact" title={`Replay ${brand}’s spoken reply`} onClick={onReplay}>
             <Icon name="mic" />
             <span>Replay</span>
           </button>

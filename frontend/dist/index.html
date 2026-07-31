@@ -6,24 +6,53 @@
 <meta name="theme-color" content="#262624">
 <link rel="icon" href="/favicon.ico" sizes="48x48">
 <link rel="apple-touch-icon" href="/assets/icons/apple-touch-icon.png">
+<!-- The boot script below replaces this from the cached brand. This is
+     what a profile with nothing cached sees for one frame. -->
 <title>Ava</title>
 <script>
-  // Stamp the theme before first paint so there is no dark→light flash.
-  // Mirrors the resolution order in src/lib/theme.ts (saved → OS → dark).
+  // Stamp the theme AND the brand before first paint, so there is neither a
+  // dark→light flash nor a blue→brand one. Mirrors src/lib/theme.ts (saved →
+  // OS → dark) and src/lib/brand.ts applyBrand() respectively.
+  //
+  // This runs from the PRECACHED shell, which is why the mechanism lives here
+  // rather than in a stylesheet the server renders: the service worker serves
+  // index.html offline, so a brand that needed a request would be missing in
+  // exactly the case a PWA exists for. The cache is written by the last
+  // successful fetch; a brand-new profile paints Ava's default for one frame
+  // and revalidate() corrects it, which is the same deal the theme stamp has
+  // always made.
+  //
+  // TWO try blocks, not one: a corrupt brand cache must not cost the theme
+  // stamp. Sharing a block would have made a single bad JSON value produce a
+  // light-mode user staring at a dark app.
   (function () {
+    var d = document.documentElement;
     try {
       var t = localStorage.getItem('ava.theme');
       if (t !== 'light' && t !== 'dark') {
         t = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
       }
-      document.documentElement.setAttribute('data-theme', t);
-    } catch (e) { document.documentElement.setAttribute('data-theme', 'dark'); }
+      d.setAttribute('data-theme', t);
+    } catch (e) { d.setAttribute('data-theme', 'dark'); }
+    try {
+      var b = JSON.parse(localStorage.getItem('ava.brand') || 'null');
+      if (b && b.accent) {
+        d.style.setProperty('--brand-accent', b.accent);
+        d.style.setProperty('--brand-accent-light', b.accent_light || b.accent);
+        d.setAttribute('data-brand', 'on');
+      }
+      if (b && b.chrome) {
+        var m = document.querySelector('meta[name="theme-color"]');
+        if (m) m.setAttribute('content', b.chrome);
+      }
+      if (b && b.name) document.title = b.name;
+    } catch (e) { /* no brand cached, or unreadable: Ava's own look, which is correct */ }
   })();
 </script>
-  <script type="module" crossorigin src="/assets/index-CXD0HO_Y.js"></script>
+  <script type="module" crossorigin src="/assets/index-CzMmHvby.js"></script>
   <link rel="modulepreload" crossorigin href="/assets/rolldown-runtime-QTnfLwEv.js">
   <link rel="modulepreload" crossorigin href="/assets/react-DksRg-8j.js">
-  <link rel="stylesheet" crossorigin href="/assets/index-C1SJr05P.css">
+  <link rel="stylesheet" crossorigin href="/assets/index-p16eOxk6.css">
 <link rel="manifest" href="/manifest.webmanifest"></head>
 <body>
 <div id="root"></div>

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Icon } from '../../lib/icons';
-import { api } from '../../lib/api';
 import { MemoryPanel } from './MemoryPanel';
 import { type TabId } from './shared';
 import { useResource } from './hooks';
@@ -9,6 +8,8 @@ import { HardwarePanel } from './panels/HardwarePanel';
 import { AgentPanel } from './panels/AgentPanel';
 import { VoicePanel } from './panels/VoicePanel';
 import { PersonaPanel } from './panels/PersonaPanel';
+import { BrandingPanel } from './panels/BrandingPanel';
+import { useBrandName } from '../../lib/brandContext';
 import { BudgetsPanel } from './panels/BudgetsPanel';
 import { HistoryPanel } from './panels/HistoryPanel';
 import { SystemPanel } from './panels/SystemPanel';
@@ -24,6 +25,7 @@ import { useProvisionState } from '../../hooks/useProvisionState';
 // Polls so it appears on any Hub tab while a call is blocked waiting.
 // ─────────────────────────────────────────────────────────────────────────────
 function ApprovalsBanner() {
+  const brand = useBrandName();
   const [pending, setPending] = useState<PendingApproval[]>([]);
   useEffect(() => {
     let alive = true;
@@ -44,7 +46,7 @@ function ApprovalsBanner() {
           <span style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
             <span style={{ color: 'var(--accent)', display: 'inline-flex' }}><Icon name="lock" /></span>
             <span>
-              <b>Approve action?</b> Ava wants to run <code>{p.action}</code> on <b>{p.connector}</b>
+              <b>Approve action?</b> {brand} wants to run <code>{p.action}</code> on <b>{p.connector}</b>
               {Object.keys(p.args).length > 0 && (
                 <span style={{ color: 'var(--muted)' }}> · {Object.entries(p.args).map(([k, v]) => `${k}=${v}`).join(', ')}</span>
               )}
@@ -83,6 +85,7 @@ const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: 'connectors', label: 'Connectors', icon: 'panel' },
   { id: 'voice', label: 'Voice', icon: 'mic' },
   { id: 'persona', label: 'Persona', icon: 'bot' },
+  { id: 'branding', label: 'Branding', icon: 'image' },
   { id: 'memory', label: 'Memory', icon: 'db' },
   { id: 'budgets', label: 'Budgets', icon: 'chart' },
   { id: 'history', label: 'History', icon: 'activity' },
@@ -112,12 +115,13 @@ function writeTabHash(t: TabId): void {
 // banner used to say "restart Ava" and name no command, leaving the user to
 // guess between a compose service and a bare process.
 function RestartBanner({ show, docker }: { show: boolean; docker?: boolean }) {
+  const brand = useBrandName();
   if (!show) return null;
   return (
     <div className="hub-restart">
       <Icon name="refresh" />
       <span>
-        Saved to <b>ava.yaml</b>. Restart Ava to apply the change
+        Saved to <b>ava.yaml</b>. Restart {brand} to apply the change
         {docker === undefined ? '' : ':'}
         {docker === true && <> <code>cd deploy &amp;&amp; docker compose restart ava</code></>}
         {docker === false && <> <code>./bin/ava up</code> (restart the service you started it with)</>}
@@ -140,8 +144,10 @@ export function HubView() {
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
   const [restart, setRestart] = useState(false);
-  const [brand, setBrand] = useState('Ava');
-  useEffect(() => { api.brand().then((b) => b?.name && setBrand(b.name)).catch(() => {}); }, []);
+  // Was a SECOND /api/brand fetch, independent of App.tsx's, because passing the
+  // name down as a prop through here to the panels was worse than duplicating
+  // the request. The context makes that a false choice.
+  const brand = useBrandName();
   const notifyRestart = useCallback(() => setRestart(true), []);
   // Only used to name the right restart command in the banner. A failure here is
   // deliberately silent: the banner simply omits the command rather than
@@ -200,6 +206,7 @@ export function HubView() {
         {tab === 'connectors' && <ConnectorsPanel />}
         {tab === 'voice' && <VoicePanel onRestart={notifyRestart} />}
         {tab === 'persona' && <PersonaPanel />}
+        {tab === 'branding' && <BrandingPanel />}
         {tab === 'memory' && <MemoryPanel />}
         {tab === 'budgets' && <BudgetsPanel />}
         {tab === 'history' && <HistoryPanel />}

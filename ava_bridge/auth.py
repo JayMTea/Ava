@@ -329,7 +329,23 @@ def login_record(ip: str, ok: bool) -> None:
 _PUBLIC_PATHS = {"/login", "/logout", "/setup", "/api/health", "/favicon.ico",
                  # PWA shell: browsers fetch the manifest and service worker
                  # without credentials context — they must not bounce to /login.
-                 "/manifest.webmanifest", "/sw.js"}
+                 "/manifest.webmanifest", "/sw.js",
+                 # Branding images the SIGN-IN page needs, which the browser
+                 # fetches before any cookie exists. Listed by fixed slot (see
+                 # brand.SLOTS) rather than by a /brand/ prefix, so this stays an
+                 # exact-match set and no future /brand/* route is public by
+                 # accident. The handler still 404s these unless `brand.public`
+                 # is true, so being reachable is not the same as being served.
+                 "/brand/asset/logo", "/brand/asset/logo_light",
+                 "/brand/asset/wordmark", "/brand/asset/wordmark_light",
+                 "/brand/asset/icon",
+                 # The DERIVED sizes the PWA manifest points at. The manifest is
+                 # itself public, so an installing browser fetches these without
+                 # a session — gating them would give every branded install a
+                 # broken home-screen icon.
+                 "/brand/asset/favicon", "/brand/asset/pwa-192",
+                 "/brand/asset/pwa-512", "/brand/asset/pwa-maskable-512",
+                 "/brand/asset/apple-touch-icon"}
 
 # Path prefixes that should answer 401 JSON (API-shaped) rather than redirect
 # to /login when unauthenticated. Overlay route modules may append their own

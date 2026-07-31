@@ -32,8 +32,16 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     // it sends one — see features.preflight) instead of a bare status line, so
     // callers can show "voice is turned off…" + a fix-it link, not "-> 503".
     const body = await r.json().catch(() => null) as { error?: string; error_code?: string } | null;
-    const err = new Error(body?.error || `${path} -> ${r.status}`) as Error & { code?: string };
+    const err = new Error(body?.error || `${path} -> ${r.status}`) as Error & {
+      code?: string; detail?: unknown;
+    };
     if (body?.error_code) err.code = body.error_code;
+    // The whole parsed body, so a caller can act on STRUCTURED detail rather
+    // than only on the message. Setup → Branding needs this: a refused accent
+    // comes back with the contrast ratios and a suggested replacement colour,
+    // and re-deriving those client-side would mean a second implementation of
+    // the OKLab walk that only the server should own.
+    if (body) err.detail = body;
     throw err;
   }
   return (await r.json()) as T;

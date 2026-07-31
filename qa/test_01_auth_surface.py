@@ -14,13 +14,18 @@ import pytest
 
 from qa import helpers
 
-PUBLIC = {"/login", "/logout", "/setup", "/api/health", "/favicon.ico",
-          "/manifest.webmanifest", "/sw.js"}
-# Imported, never re-listed. A local copy drifted from the app's own list and
-# went stale on /thumb: the app correctly answered 401 for /thumb/audit while this
-# test demanded a 303 page redirect, so the suite failed on correct behaviour.
-# Importing the source of truth makes that drift impossible.
-from ava_bridge.auth import API_PREFIXES as _APP_API_PREFIXES  # noqa: E402
+# Both imported, never re-listed. A local copy of API_PREFIXES drifted from the
+# app's own list and went stale on /thumb: the app correctly answered 401 for
+# /thumb/audit while this test demanded a 303 page redirect, so the suite failed
+# on correct behaviour.
+#
+# PUBLIC used to sit right above that comment as exactly the same hand-maintained
+# copy the comment argues against — and it bit the same way the first time the
+# app's allowlist grew: adding the five branding asset slots to
+# auth._PUBLIC_PATHS failed this file for the app being right. Importing the
+# source of truth makes that drift impossible for both.
+from ava_bridge.auth import API_PREFIXES as _APP_API_PREFIXES
+from ava_bridge.auth import _PUBLIC_PATHS as PUBLIC
 
 API_PREFIXES = tuple(f"{p}/" for p in _APP_API_PREFIXES)
 

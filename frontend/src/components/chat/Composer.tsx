@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Attachment } from '../../lib/types';
 import { Icon } from '../../lib/icons';
+import { useBrandName } from '../../lib/brandContext';
 
 interface Props {
   text: string;
@@ -46,6 +47,8 @@ export function Composer({
   ctxTokens,
   ctxMax,
 }: Props) {
+  const brand = useBrandName();
+
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const recRef = useRef<MediaRecorder | null>(null);
@@ -116,7 +119,7 @@ export function Composer({
         <button
           type="button"
           className={'codetoggle' + (codeMode ? ' on' : '')}
-          title="Code mode — Ava edits her own code with Claude"
+          title={`Code mode — ${brand} edits its own code with Claude`}
           onClick={() => onToggleCode(!codeMode)}
         >
           <Icon name="code" />
@@ -166,7 +169,7 @@ export function Composer({
           ref={taRef}
           id="text"
           placeholder={
-            recording ? 'Listening… tap the mic to send' : codeMode ? 'Tell Ava what to change…' : 'Reply to Ava…'
+            recording ? 'Listening… tap the mic to send' : codeMode ? `Tell ${brand} what to change…` : `Reply to ${brand}…`
           }
           value={text}
           autoComplete="off"
@@ -198,7 +201,7 @@ export function Composer({
           <div className="spacer" />
           <button type="button"
             className={'ibtn mic' + (recording ? ' rec' : '')}
-            title={recording ? 'Tap to send' : 'Ask Ava with your voice'}
+            title={recording ? 'Tap to send' : `Ask ${brand} with your voice`}
             aria-label={recording ? 'Stop and send' : 'Voice message'}
             disabled={busy}
             onClick={toggleMic}

@@ -230,6 +230,83 @@ def brand_name() -> str:
     return (get("brand.name", "Ava", env="AVA_NAME") or "Ava").strip()
 
 
+def brand_tagline() -> str:
+    """The tagline, read LIVE.
+
+    It existed only as `config.AVA_TAGLINE`, bound at import — so after a Setup
+    save the name (live, here) and the tagline (frozen, there) disagreed until a
+    restart. Everything that can read brand through this module now does.
+    """
+    return (get("brand.tagline", "your private, self-hosted assistant",
+                env="AVA_TAGLINE") or "").strip()
+
+
+# The colour and asset keys below are all blank by default, and blank means
+# "Ava's shipped look" rather than "unset". See ava_bridge/brand.py — the
+# frontend never matches its override rules unless one of these is non-empty, so
+# an install that never re-brands renders from the tokens it always did.
+def brand_accent() -> str:
+    """#rrggbb, or "" for Ava's own accent. Validated by brand.check_accent
+    before it is ever written; this read is deliberately permissive so a
+    hand-edited ava.yaml cannot stop the app booting."""
+    return (get("brand.accent", "", env="AVA_BRAND_ACCENT") or "").strip()
+
+
+def brand_accent_light() -> str:
+    return (get("brand.accent_light", "", env="AVA_BRAND_ACCENT_LIGHT") or "").strip()
+
+
+def brand_chrome() -> str:
+    """The browser/OS chrome bar and PWA splash colour."""
+    return (get("brand.chrome", "", env="AVA_BRAND_CHROME") or "").strip()
+
+
+def brand_asset(slot: str) -> str:
+    """The stored filename for one asset slot, or "". Callers must go through
+    brand.asset_name(), which enforces the slot enum and rejects anything with a
+    path separator in it."""
+    env = {"logo": "AVA_BRAND_LOGO", "logo_light": "AVA_BRAND_LOGO_LIGHT",
+           "wordmark": "AVA_BRAND_WORDMARK",
+           "wordmark_light": "AVA_BRAND_WORDMARK_LIGHT",
+           "icon": "AVA_BRAND_ICON"}.get(slot)
+    if env is None:
+        return ""
+    return (get(f"brand.{slot}", "", env=env) or "").strip()
+
+
+def brand_public() -> bool:
+    """Whether the sign-in and first-run pages carry the brand.
+
+    Default true, and that is not a new disclosure: `/api/health` is public and
+    already returns the name, and login.html has always rendered it in the
+    <title> and <h1>. Set false and those pages render Ava's shipped default —
+    not a blank page, which would announce that something is being hidden.
+    """
+    return get_bool("brand.public", True, env="AVA_BRAND_PUBLIC")
+
+
+def brand_a11y_check() -> bool:
+    """Whether to refuse an accent that makes Ava's own UI unreadable.
+
+    An escape hatch exists because without one a corporate brand mandate becomes
+    a reason to patch the source, and a guard that gets patched out protects
+    nothing. Calibrated so Ava's own default passes with 0.01 to spare — see
+    ava_bridge/brand.py.
+    """
+    return get_bool("brand.accessibility_check", True, env="AVA_BRAND_A11Y_CHECK")
+
+
+def brand_dir() -> str:
+    """Where uploaded brand assets live.
+
+    `branding/`, NOT `brand/`. AVA_HOME defaults to the code root (see AVA_HOME
+    above), so on a default install `$AVA_HOME/brand/` IS the repo's own
+    gitignored `brand/` folder of logo source art — and "reset to defaults",
+    which clears this directory, would have deleted it.
+    """
+    return get("paths.branding", home("branding"), env="AVA_BRAND_DIR")
+
+
 def owner_name() -> str:
     """Who the assistant serves. Empty = a neutral 'the user'."""
     return (get("owner.name", "", env="AVA_OWNER_NAME") or "").strip()
@@ -280,7 +357,7 @@ def ensure_dirs() -> None:
     # mkdir it, so the first step of "add support for your engine" was a
     # directory that did not exist.
     for d in (data_dir(), logs_dir(), media_dir(), upload_dir(), secrets_dir(),
-              home("alloc_drivers")):
+              brand_dir(), home("alloc_drivers")):
         os.makedirs(d, exist_ok=True)
 
 

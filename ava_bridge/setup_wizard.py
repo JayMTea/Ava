@@ -17,7 +17,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.concurrency import run_in_threadpool
 
-from . import config, connectors, features, settings
+from . import brand as _brand, config, connectors, features, settings
 
 router = APIRouter()
 
@@ -57,8 +57,7 @@ def wizard_page():
     {"ok": true}, set the flag, wrote no backend — and locked the only screen
     that could fix it. Re-entrant means the worst case is landing here again.
     """
-    brand = settings.brand_name()
-    return HTMLResponse(_WIZARD_PAGE.replace("__BRAND__", brand))
+    return HTMLResponse(_brand.render_page(_WIZARD_PAGE))
 
 
 @router.get("/api/setup/hardware")

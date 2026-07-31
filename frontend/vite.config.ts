@@ -43,11 +43,47 @@ const pwa = VitePWA({
       /^\/api/, /^\/apps/, /^\/media/, /^\/uploads/, /^\/internal/,
       /^\/login/, /^\/logout/, /^\/setup/, /^\/legacy/,
     ],
+    // NOTE: the webmanifest is dropped from the precache by the companion
+    // plugin below, NOT here. `manifestTransforms` only sees the manifest
+    // workbox builds from globPatterns; the webmanifest arrives separately via
+    // additionalManifestEntries and a transform never sees it. Measured: adding
+    // a filter here left `grep -c manifest.webmanifest dist/sw.js` at 1.
   },
 });
 
+// Keep the webmanifest OUT of the service-worker precache.
+//
+// ava_bridge/pages.py:pwa_manifest() rewrites the manifest from config AT
+// REQUEST TIME, precisely so a re-brand needs no rebuild. That was silently
+// defeated for every INSTALLED client: vite-plugin-pwa pushes
+// `{url: manifestFilename}` into workbox.additionalManifestEntries, so a
+// controlling service worker served the BUILT manifest — the one that says
+// "Ava" — and the server's branded version never reached the browser. The
+// home-screen icon label is the single most visible place a wrong brand shows
+// up, and the least expected to be wrong.
+//
+// It has to be done through the plugin's own extendManifestEntries API:
+// `globIgnores` cannot reach it (globPatterns does not list .webmanifest, so it
+// is not a glob hit), and `workbox.manifestTransforms` never sees it either —
+// that only transforms the manifest workbox builds from globs, while this entry
+// is concatenated separately. Both were tried and both left the entry in place.
+// The plugin populates the entries during option resolution, so any later hook
+// can filter them.
+//
+// Verified from the ARTIFACT, not the config: `grep -c manifest.webmanifest
+// dist/sw.js` must be 0. tests/test_brand_pwa.py asserts it on every run.
+const dropManifestFromPrecache = {
+  name: 'ava:manifest-not-precached',
+  apply: 'build' as const,
+  buildStart() {
+    const api = (pwa as any[]).find((p) => p?.api?.extendManifestEntries)?.api;
+    api?.extendManifestEntries((entries: (string | { url: string })[]) =>
+      entries.filter((e) => (typeof e === 'string' ? e : e.url) !== 'manifest.webmanifest'));
+  },
+};
+
 export default defineConfig({
-  plugins: [react(), pwa],
+  plugins: [react(), pwa, dropManifestFromPrecache],
   base: '/',
   build: {
     outDir: 'dist',

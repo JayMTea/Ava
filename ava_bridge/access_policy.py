@@ -40,6 +40,7 @@ _DENY = [
     "ava.yaml*", ".ava.yaml.*",
     "connector_grants.yaml",    # the connector consent ledger = self-approval
     "connector_tools_cache.json",   # declared tool tiers = the JIT-consent surface
+    "branding/**",              # the owner's uploaded logo/icon art, not the agent's
     "bin/**", "gpusvc/**", "media/**", "logs/**", "enroll/**",
     "*.onnx", "*.npy", "*.ckpt", "*.ort", "*.pem", "*.key",
 ]

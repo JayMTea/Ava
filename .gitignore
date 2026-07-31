@@ -118,6 +118,13 @@ gpusvc/extra_model_paths.yaml
 # and the frontend-dist-drift CI job would fail on the way past.
 brand/
 
+# Uploaded brand assets ($AVA_HOME/branding/ — Setup → Branding). Anchored,
+# unlike `brand/` above, because this is one specific runtime directory rather
+# than a name that could legitimately appear nested. Deliberately NOT the same
+# folder as `brand/`: AVA_HOME defaults to the code root, so they would collide,
+# and "reset to Ava's defaults" clears this one.
+/branding/
+
 # Docs site — generated staging + build output
 docs-site/docs/
 docs-site/site/

@@ -53,6 +53,7 @@ CURATED: dict[str, str] = {
     "docs/CHOOSE_A_MODEL.md": "docs/CHOOSE_A_MODEL.md",
     "docs/MEMORY.md": "docs/MEMORY.md",
     "docs/PERSONA.md": "docs/PERSONA.md",
+    "docs/BRANDING.md": "docs/BRANDING.md",
     "docs/EVIDENCE.md": "docs/EVIDENCE.md",
     "docs/BIOMETRICS.md": "docs/BIOMETRICS.md",
     "docs/MOBILE.md": "docs/MOBILE.md",

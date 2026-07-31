@@ -5,9 +5,45 @@
 #   - `ava setup` writes a starter version of this file for you.
 # ─────────────────────────────────────────────────────────────────────────────
 
-brand:                     # re-brand the whole app (name shown in UI + /api/brand)
+brand:                     # make it yours — Setup → Branding writes this block
   name: Ava               # [AVA_NAME]  the assistant's name
   tagline: your private, self-hosted assistant   # [AVA_TAGLINE]
+
+  # Every key below is BLANK by default, and blank means Ava's shipped look,
+  # byte for byte — not "unset, pick a fallback". Nothing here is a paid or
+  # gated feature: re-branding your own install is the whole premise, and
+  # tests/test_no_capability_gate.py fails the build if that ever changes.
+
+  # One colour is all you set. Hover, the faint chip fills, the active-pill text
+  # and border, and chart series 1 are all derived from it, in BOTH themes.
+  # Refused if it would make Ava's own UI unreadable (white text sits on this
+  # colour in ~15 places, including your own chat bubble).
+  accent: ""              # [AVA_BRAND_ACCENT]        #rrggbb
+  accent_light: ""        # [AVA_BRAND_ACCENT_LIGHT]  light-theme accent;
+                          #   blank = use `accent` in both themes
+  chrome: ""              # [AVA_BRAND_CHROME]        browser/OS chrome bar and
+                          #   PWA splash; blank = the theme's canvas colour
+
+  # Images live in $AVA_HOME/branding/, uploaded from Setup → Branding. These
+  # hold FILENAMES inside that folder, never paths. PNG / WebP / JPEG only —
+  # SVG is refused because Ava serves assets from its own origin and sets no
+  # Content-Security-Policy, which would make an uploaded SVG stored XSS.
+  logo: ""                # [AVA_BRAND_LOGO]       square mark (sign-in, header)
+  logo_light: ""          # [AVA_BRAND_LOGO_LIGHT] light-theme variant; blank = logo
+  wordmark: ""            # [AVA_BRAND_WORDMARK]   wide lockup (sidebar head);
+                          #   blank = `name` as text, which is today's look
+  wordmark_light: ""      # [AVA_BRAND_WORDMARK_LIGHT]
+  icon: ""                # [AVA_BRAND_ICON]       ≥512px square source for the
+                          #   favicon, PWA icons and home-screen tile
+
+  # Show the brand on the sign-in / first-run pages, which anyone who can reach
+  # the port can see. false = those pages render Ava's shipped default (not a
+  # blank page — that would announce something is hidden).
+  public: true            # [AVA_BRAND_PUBLIC]
+
+  # Refuse an accent that fails WCAG against Ava's own surfaces. Calibrated so
+  # Ava's default passes with 0.01 to spare. Turn it off only deliberately.
+  accessibility_check: true   # [AVA_BRAND_A11Y_CHECK]
 
 owner:                     # who the assistant serves (drives the persona + tools)
   name: ""                # [AVA_OWNER_NAME]      e.g. "Sam" — blank = a neutral "the user"
@@ -269,6 +305,12 @@ features:
   web_search: false        # [AVA_WEB_SEARCH] self-hosted SearXNG + guarded fetch
   image: true              # [AVA_IMAGE] GPU workloads via the gpu-service
                            #   connector
+  branding: true           # [AVA_BRANDING] may THIS install change its own name,
+                           #   colour and logo (Setup -> Branding). On by default;
+                           #   re-branding what you self-host is the premise, not
+                           #   an add-on. Gates the WRITE path only — an instance
+                           #   whose brand was set from outside still renders it
+                           #   with this off, it just cannot be edited here.
   learning: true           # [AVA_LEARNING] periodic local-first self-analysis:
                            #   parks code/chat improvement proposals for approval
   memory: true             # [AVA_MEMORY] long-term memory distilled from chats and

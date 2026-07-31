@@ -23,11 +23,11 @@ import json
 import os
 import time
 
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Form, Request, Response
 from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
                                RedirectResponse)
 
-from . import auth, config
+from . import auth, brand, config, settings
 from .auth import (claim_hint, clear_claim, client_ip, current_password,
                    is_authed, login_locked, login_record, may_claim,
                    rotate_secret, set_password,
@@ -38,10 +38,23 @@ from .security import constant_time_equals
 # ---- Web templates (externalised to ava_bridge/web/*.html) -------------------
 with open(os.path.join(config.WEB_DIR, "index.html"), encoding="utf-8") as _f:
     LEGACY_PAGE = _f.read()
+# Held UNSUBSTITUTED. These used to be branded at import — `LOGIN_PAGE` by a
+# blanket `.read().replace("Ava", config.AVA_NAME)` — which had three defects:
+#
+#   1. A substring replace over the whole document. It worked only because
+#      login.html happened to contain no other word starting "Ava"; the first
+#      time anyone wrote "Available" in that page, the corporate name would have
+#      been spliced through the middle of it.
+#   2. It ran once, at import, so a brand saved from Setup needed a full restart
+#      to reach the sign-in page — which is precisely the restart the Branding
+#      panel is designed not to need.
+#   3. It disagreed with setup.html, which already used a `__BRAND__` sentinel.
+#
+# All three pages now carry sentinels and are rendered per request by _render().
 with open(os.path.join(config.WEB_DIR, "login.html"), encoding="utf-8") as _f:
-    LOGIN_PAGE = _f.read().replace("Ava", config.AVA_NAME)
+    LOGIN_TMPL = _f.read()
 with open(os.path.join(config.WEB_DIR, "setup.html"), encoding="utf-8") as _f:
-    SETUP_PAGE = _f.read().replace("__BRAND__", config.AVA_NAME)
+    SETUP_TMPL = _f.read()
 
 # ---- New Vite + React SPA (frontend/dist) -----------------------------------
 # The primary UI is the built SPA. The single-file legacy UI stays reachable at
@@ -53,6 +66,12 @@ if os.path.isfile(_spa_index_path):
         SPA_PAGE = _f.read()
 else:
     SPA_PAGE = None
+
+def _render(tmpl: str, msg: str = "") -> str:
+    """Thin alias for brand.render_page — kept so the four call sites below
+    read the same as they always did."""
+    return brand.render_page(tmpl, msg)
+
 
 def _claim_html() -> str:
     """The claim instructions, as one HTML line. Escaped because it embeds a
@@ -71,14 +90,14 @@ def login_get(request: Request):
         return RedirectResponse("/", status_code=303)
     if auth.needs_setup():   # no password yet -> first-run onboarding, not a login wall
         return RedirectResponse("/setup", status_code=303)
-    return HTMLResponse(LOGIN_PAGE.replace("<!--MSG-->", ""))
+    return HTMLResponse(_render(LOGIN_TMPL))
 
 @router.post("/login")
 def login_post(request: Request, password: str = Form("")):
     ip = client_ip(request) or "?"
     if login_locked(ip):
         return HTMLResponse(
-            LOGIN_PAGE.replace("<!--MSG-->", "Too many attempts &mdash; wait a minute."),
+            _render(LOGIN_TMPL, "Too many attempts &mdash; wait a minute."),
             status_code=429)
     pw = current_password()
     if pw and constant_time_equals(password, pw):
@@ -89,7 +108,7 @@ def login_post(request: Request, password: str = Form("")):
     login_record(ip, ok=False)
     time.sleep(0.5)
     return HTMLResponse(
-        LOGIN_PAGE.replace("<!--MSG-->", "Incorrect password."), status_code=401)
+        _render(LOGIN_TMPL, "Incorrect password."), status_code=401)
 
 @router.get("/setup", response_class=HTMLResponse)
 def setup_get(request: Request):
@@ -98,12 +117,12 @@ def setup_get(request: Request):
         return RedirectResponse("/login", status_code=303)
     if not may_claim(request):
         return HTMLResponse(
-            SETUP_PAGE.replace(
-                "<!--MSG-->",
-                "This Ava has not been claimed yet, and you are not connecting "
-                "from the machine it runs on. " + _claim_html()),
+            _render(SETUP_TMPL,
+                    f"This {html.escape(brand.pre_auth_name())} has not been "
+                    "claimed yet, and you are not connecting from the machine "
+                    "it runs on. " + _claim_html()),
             status_code=403)
-    return HTMLResponse(SETUP_PAGE.replace("<!--MSG-->", ""))
+    return HTMLResponse(_render(SETUP_TMPL))
 
 @router.post("/setup")
 def setup_post(request: Request, password: str = Form(""), confirm: str = Form("")):
@@ -115,16 +134,16 @@ def setup_post(request: Request, password: str = Form(""), confirm: str = Form("
     # proves they can read the server's disk.
     if not may_claim(request):
         return HTMLResponse(
-            SETUP_PAGE.replace("<!--MSG-->", "Setup requires the claim token. " + _claim_html()),
+            _render(SETUP_TMPL, "Setup requires the claim token. " + _claim_html()),
             status_code=403)
     password = (password or "").strip()
     if len(password) < 8:
         return HTMLResponse(
-            SETUP_PAGE.replace("<!--MSG-->", "Password must be at least 8 characters."),
+            _render(SETUP_TMPL, "Password must be at least 8 characters."),
             status_code=400)
     if password != (confirm or "").strip():
         return HTMLResponse(
-            SETUP_PAGE.replace("<!--MSG-->", "Passwords do not match."), status_code=400)
+            _render(SETUP_TMPL, "Passwords do not match."), status_code=400)
     set_password(password)
     clear_claim()       # the window is over; the instance now has an owner
     # Fresh install -> continue into the onboarding wizard (hardware, backend,
@@ -211,10 +230,23 @@ def pwa_manifest():
     try:
         with open(p, encoding="utf-8") as f:
             man = json.load(f)
-        man["name"] = config.AVA_NAME
-        man["short_name"] = config.AVA_NAME
-        if config.AVA_TAGLINE:
-            man["description"] = config.AVA_TAGLINE
+        man["name"] = brand.name()
+        man["short_name"] = brand.name()
+        if brand.tagline():
+            man["description"] = brand.tagline()
+        # The loop this docstring opened but never closed. Patching only the
+        # NAME left a branded install with Ava's blue splash and Ava's icon on
+        # the home screen — the two most visible pixels of a re-brand.
+        if brand.icon_source():
+            man["icons"] = [
+                {"src": "/brand/asset/pwa-192", "sizes": "192x192", "type": "image/png"},
+                {"src": "/brand/asset/pwa-512", "sizes": "512x512", "type": "image/png"},
+                {"src": "/brand/asset/pwa-maskable-512", "sizes": "512x512",
+                 "type": "image/png", "purpose": "maskable"},
+            ]
+        if brand.chrome():
+            man["theme_color"] = brand.chrome()
+            man["background_color"] = brand.chrome()
         return JSONResponse(man, media_type="application/manifest+json")
     except (OSError, ValueError):
         # A malformed or unreadable manifest must not break install; serve the
@@ -232,10 +264,79 @@ def pwa_sw():
 
 @router.get("/favicon.ico", include_in_schema=False)
 def favicon():
+    """The tab icon, branded when there is a brand.
+
+    Serves a PNG under the .ico path when branded, which is correct: browsers
+    honour the Content-Type, not the extension. Keeping the path unchanged means
+    tests/_route_table.json is untouched and every existing <link rel="icon">
+    keeps working.
+    """
+    branded = brand.derived_icon("favicon")
+    if branded:
+        return FileResponse(branded, media_type="image/png",
+                            headers={"Cache-Control": "no-cache"})
     p = os.path.join(FRONTEND_DIST, "favicon.ico")
     if not os.path.isfile(p):
         return JSONResponse({"error": "not built"}, status_code=404)
     return FileResponse(p, media_type="image/x-icon")
+
+@router.get("/brand/asset/{slot}", include_in_schema=False)
+def brand_asset(slot: str, request: Request):
+    """Serve one branding image.
+
+    `slot` is a FIXED ENUM, not a filename — the five names in brand.SLOTS and
+    nothing else. That is why there is no traversal defence here: there is no
+    caller-supplied path to traverse with. The stored filename never appears in
+    a URL, so the only copy of it stays on the server.
+
+    Conditionally public. The sign-in page needs an <img> the browser fetches
+    before any cookie exists, so when `brand.public` is true these paths are in
+    auth._PUBLIC_PATHS; when it is false an unauthenticated caller gets the same
+    404 an unset slot gives, which tells them nothing either way.
+
+    404 rather than a placeholder image on an unset slot: a fallback would make
+    "did my upload actually work?" unanswerable from the browser.
+    """
+    if slot not in brand.SLOTS and slot not in brand.DERIVED:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    if not brand.brand_is_public() and not is_authed(request):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    if slot in brand.DERIVED:
+        # Rendered from the one `icon` source (or the logo) on first request and
+        # cached. These are what the PWA manifest points at.
+        path = brand.derived_icon(slot)
+        if not path:
+            return JSONResponse({"error": "not found"}, status_code=404)
+    else:
+        fname = brand.asset_name(slot)
+        if not fname:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        path = os.path.join(settings.brand_dir(), fname)
+        if not os.path.isfile(path):
+            return JSONResponse({"error": "not found"}, status_code=404)
+    st = os.stat(path)
+    # A strong validator from (mtime_ns, size) so a re-upload is visible at once
+    # while repeat loads are 304s. Deliberately NOT the `max-age=31536000,
+    # immutable` that media_api uses for /thumb: that is right for a
+    # content-addressed filename and wrong for a stable slot URL, where the
+    # bytes behind the same path change every time the owner uploads.
+    etag = f'W/"{st.st_mtime_ns:x}-{st.st_size:x}"'
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers={"ETag": etag,
+                                                  "Cache-Control": "no-cache"})
+    # Always PNG: ingest_asset re-encodes through Pillow, so whatever was
+    # uploaded, what is stored and served is a PNG this process produced.
+    ctype = "image/png"
+    return FileResponse(path, media_type=ctype, headers={
+        "ETag": etag,
+        "Cache-Control": "no-cache",
+        # The bytes are re-encoded by Pillow on ingest so they are known-good,
+        # but nosniff costs nothing and keeps a future format addition from
+        # turning into a content-type confusion bug.
+        "X-Content-Type-Options": "nosniff",
+        "Content-Disposition": "inline",
+    })
+
 
 @router.get("/legacy", response_class=HTMLResponse)
 def legacy_index():

@@ -384,6 +384,41 @@ export interface ProbeResult {
 export interface PersonaPreset { id: string; label: string; text: string }
 export interface PersonaFormatChoice { id: string; label: string; hint: string }
 
+export interface BrandContrast {
+  ok: boolean;
+  blocking: string[];
+  warnings: string[];
+  ratios: Record<string, number>;
+  /** A same-hue colour that passes, offered as a one-click fix on a refusal. */
+  suggest: string;
+}
+
+export interface BrandingSettings {
+  name: string;
+  tagline: string;
+  /** '' means Ava's shipped value — NOT "unset, pick a fallback". */
+  accent: string;
+  accent_light: string;
+  chrome: string;
+  public: boolean;
+  accessibility_check: boolean;
+  branded: boolean;
+  assets: Record<string, { set: boolean; url: string | null }>;
+  /** From the server so the panel never hardcodes a value the backend enforces. */
+  defaults: {
+    name: string; tagline: string; accent: string; accent_light: string;
+    chrome_dark: string; chrome_light: string;
+  };
+  limits: {
+    name_max: number; tagline_max: number; slots: string[];
+    text_on_accent_min: number; accent_on_canvas_min: number;
+  };
+  contrast: BrandContrast;
+  /** Present keys are outranking ava.yaml, so a save will not bite. */
+  env_overrides: Partial<Record<string, string>>;
+  config_error?: string;
+}
+
 export interface PersonaSettings {
   /** Empty on a fresh install — the shipped prompt carries no personality. */
   style: string;
@@ -701,6 +736,39 @@ export const hub = {
    *  owner can verify by hand rather than trusting `enrolled: false`. */
   voiceDelete: () =>
     req<VoiceDeleteReceipt>('/api/hub/voice/delete', { method: 'POST' }),
+
+  // Branding — how Ava LOOKS (name, colour, logo). Free, ungated, and
+  // deliberately so: see ava_bridge/hub/branding.py.
+  branding: () => req<BrandingSettings>('/api/hub/branding'),
+  saveBranding: (body: Partial<Pick<BrandingSettings,
+    'name' | 'tagline' | 'accent' | 'accent_light' | 'chrome' | 'public' | 'accessibility_check'>>) =>
+    req<{
+      ok: boolean; error?: string; error_code?: string;
+      restart_required?: boolean; reprovision_required?: boolean;
+      contrast?: BrandContrast;
+    }>('/api/hub/branding', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+
+  uploadBrandAsset: (slot: string, file: File) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    // No Content-Type header: the browser must set the multipart boundary.
+    return req<{ ok: boolean; slot: string; url: string }>(
+      `/api/hub/branding/asset/${encodeURIComponent(slot)}`, { method: 'POST', body: fd });
+  },
+  clearBrandAsset: (slot: string) =>
+    req<{ ok: boolean }>(`/api/hub/branding/asset/${encodeURIComponent(slot)}`,
+      { method: 'DELETE' }),
+
+  importBrandPack: (file: File) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return req<{ ok: boolean; applied: string[]; assets: string[] }>(
+      '/api/hub/branding/import', { method: 'POST', body: fd });
+  },
 
   // Persona — how Ava talks (empty by default; see ava_bridge/hub/persona.py)
   persona: () => req<PersonaSettings>('/api/hub/persona'),

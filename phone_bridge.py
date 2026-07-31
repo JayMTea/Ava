@@ -31,7 +31,7 @@ import voice_ava as va
 # The Experience plane is now a thin face over the ava_bridge package; each module
 # owns one concern. Routes below only authenticate, serve, capture input, and
 # forward to Ava-the-agent. See ava_bridge/__init__.py for the map.
-from ava_bridge import config, settings, state
+from ava_bridge import brand, config, settings, state
 from ava_bridge.version import version as _ava_version
 from ava_bridge.config import (
     RATE, MEDIA_DIR, UPLOAD_DIR, PHONE_THRESHOLD,
@@ -272,22 +272,38 @@ def _resolved_model() -> str:
 def health():
     # Public (pre-auth) endpoint: expose only what the unauthenticated client
     # needs for the token counter; keep speaker-gate internals private.
+    # `brand` was removed here on purpose. This endpoint is PUBLIC (auth.py
+    # _PUBLIC_PATHS), so it named the instance to anyone who could reach the
+    # port — and it had ZERO consumers: lib/api.ts does not declare the field,
+    # qa/test_02_api_contracts requires only ["ok"], and no fixture reads it.
+    # A pre-auth disclosure with no caller is not a feature to preserve. The
+    # sign-in page still shows the name unless `brand.public` is false, which is
+    # a deliberate, documented choice rather than an accident of a health probe.
     return {
         "ok": True,
         "model": _resolved_model(),
         "ctx_max": config.CTX_MAX,
         "ctx_base": config.CTX_BASE,
-        "brand": config.AVA_NAME,
         "version": _AVA_VERSION,
     }
 
 
 @app.get("/api/brand")
-def brand():
-    """Assistant name/tagline (config brand.* -> ava.yaml/env). Lets a fork
-    re-brand the whole UI without editing React — the SPA reads this."""
-    return {"name": config.AVA_NAME, "tagline": config.AVA_TAGLINE,
-            "version": _AVA_VERSION}
+def brand_api():
+    """The brand the SPA renders: name, tagline, colours, and which asset slots
+    are filled. Lets a fork re-brand the whole UI without editing React.
+
+    Reads the LIVE accessors, not the import-time `config.AVA_*` constants, so a
+    save from Setup → Branding is visible on the next request instead of after a
+    restart. That split is also why `settings.brand_tagline()` had to exist: the
+    name was live here and the tagline was frozen there, and the two disagreed.
+
+    Still cookie-gated (it is under /api and not in auth._PUBLIC_PATHS). The
+    pre-auth surfaces are server-rendered and already hold the config in-process,
+    so nothing needs this endpoint before sign-in — making it public would be
+    attack surface bought for no caller.
+    """
+    return {**brand.payload(), "version": _AVA_VERSION}
 
 
 # Dashboard routes (Vitals + Operations) moved to ava_bridge/dashboard.py and

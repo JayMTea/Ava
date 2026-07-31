@@ -4,6 +4,8 @@ import { InfoTip } from '../dashboard/layout';
 import { METRICS } from '../dashboard/metrics';
 import type { LearnContext, LearningCycle, Proposal, StagedChange } from '../../lib/types';
 import { Icon } from '../../lib/icons';
+import { appAccent } from '../../lib/appColor';
+import { useBrandName } from '../../lib/brandContext';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -32,11 +34,17 @@ const APP_META: Record<string, { label: string; sub: string }> = {
 function appMeta(key: string) {
   return APP_META[key] || { label: key, sub: 'connected app' };
 }
-const APP_COLORS = ['#007acc', '#4f8a8b', '#7c6f9f', '#b08968', '#5e8c6a', '#9a6a8c', '#6a7fa8'];
+// Ava's own row renders in the brand accent; every connected app resolves
+// through appAccent(), which is what CLAUDE.md mandates for anything that
+// represents a connected app. This file used to carry a SECOND palette with its
+// own `% 7` hash, so the same connector got one colour here and a different one
+// in the rail — and its first entry was the shipped accent, hardcoded, which
+// no re-brand could reach. appColor.tsx honours a connector's manifest `ui.color` override
+// and hashes `% 8` over the theme-aware --app-accent-N tokens.
 function appColor(key: string): string {
-  let h = 0;
-  for (const c of key) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-  return APP_COLORS[h % APP_COLORS.length];
+  // appColor.tsx:58 — core sections are Ava's own surfaces and are never
+  // attributed to an app, so this one keeps the assistant's own accent.
+  return key === 'ava' ? 'var(--accent)' : appAccent(key);
 }
 
 function statusOf(p: Proposal): string {
@@ -334,6 +342,7 @@ function CycleCard({
 // Main
 // ─────────────────────────────────────────────────────────────────────────────
 export function LearningView({ embedded = false }: { embedded?: boolean } = {}) {
+  const brand = useBrandName();
   const [codeCycles, setCodeCycles] = useState<LearningCycle[]>([]);
   const [chatCycles, setChatCycles] = useState<LearningCycle[]>([]);
   const [loading, setLoading] = useState(true);
@@ -544,7 +553,7 @@ export function LearningView({ embedded = false }: { embedded?: boolean } = {}) 
               </div>
               {buckets.length === 0 ? (
                 <div className="lv-state">{learningEnabled
-                  ? 'No activity yet. Ava will add proposals as she works across apps.'
+                  ? `No activity yet. ${brand} will add proposals as it works across apps.`
                   : 'Learning is turned off (features.learning: false) — no proposals will be generated. Enable it in Setup → System to let Ava suggest improvements.'}</div>
               ) : (
                 <div className="app-grid">

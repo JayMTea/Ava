@@ -85,7 +85,7 @@ export function MemoryPanel() {
       )}
       <Panel
         title="Teach Ava"
-        subtitle="Add a fact she should remember — it's recalled whenever a chat message looks related."
+        subtitle="Add a fact it should remember — it's recalled whenever a chat message looks related."
       >
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <input
@@ -105,7 +105,7 @@ export function MemoryPanel() {
 
       <Panel
         title="What Ava remembers"
-        subtitle="Her long-term memory: facts distilled from chats plus uploaded-document content. Everything is yours to correct, pin, delete, or export — and every recall she uses in a reply is logged under History."
+        subtitle="Long-term memory: facts distilled from chats plus uploaded-document content. Everything is yours to correct, pin, delete, or export — and every recall used in a reply is logged under History."
         right={
           <span style={{ display: 'flex', gap: 8 }}>
             <a className="hub-btn ghost sm" href="/api/hub/memory/export" download>
@@ -140,7 +140,7 @@ export function MemoryPanel() {
           : items.length === 0 ? (
             <EmptyState text={query
               ? 'No memories match that search.'
-              : 'Nothing here yet. Facts appear as the learning cycle distills your chats; documents as you upload them; or teach her one above.'} />
+              : 'Nothing here yet. Facts appear as the learning cycle distills your chats; documents as you upload them; or teach it one above.'} />
           ) : (
             <div>
               {items.map((m) => {

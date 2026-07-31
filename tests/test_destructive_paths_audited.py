@@ -48,6 +48,16 @@ _ALLOW = {
                                                       # the failure path. Ava's own
                                                       # telemetry, never owner data.
     ("ava_bridge/alloc/ledger.py", "_writable"),      # a write-probe file
+    ("ava_bridge/brand.py", "ingest_asset"),          # the mkstemp of an atomic
+                                                      # image write, unlinked only
+                                                      # on the failure path
+
+    # --- a regenerable cache, never owner content ----------------------------- #
+    # $AVA_HOME/branding/derived/ holds favicon/PWA sizes RENDERED from the
+    # owner's uploaded source, which is audited separately by brand.discard_file.
+    # The source survives; these rebuild on the next request. A row per resize
+    # would bury the upload and delete events that actually matter.
+    ("ava_bridge/brand.py", "_clear_derived"),
 
     # --- a helper whose only caller audits, with the store NAMED -------------- #
     # `_rm_tree_files` receives a bare root path and does not know which store it

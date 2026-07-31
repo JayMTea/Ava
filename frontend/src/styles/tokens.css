@@ -210,3 +210,42 @@
   --disabled-txt:#a8a49b;
   --focus-line:#c9b8ae;
 }
+
+/* =========================================================================
+   CUSTOM ACCENT — Setup → Branding
+   Engaged ONLY when the pre-paint script in index.html finds a cached brand and
+   stamps <html data-brand="on">. An install that has never been re-branded never
+   matches these selectors, so everything above stays byte-for-byte the palette
+   that shipped. That is why nothing in the two blocks above was edited to add
+   this: --accent-tint (#8ec9f0) and --accent-line (#1d4e75) are HAND-PICKED, not
+   formulaic — no simple mix reproduces them — so rewriting them as derivations
+   would have silently shifted every existing install's pixels.
+
+   One input, not eight: the boot script sets --brand-accent (and its light
+   counterpart) as an inline style on <html>, and every token below falls out of
+   it. A server that shipped eight pre-computed hexes could disagree with the CSS
+   about how they were derived; one value cannot.
+
+   The tint/line approximations here are deliberate. They only ever apply to a
+   CUSTOM accent, where there is no hand-picked "correct" value to reproduce.
+
+   Specificity: the light rule is (0,3,0) and beats both the (0,2,0) rule above
+   it and the (0,2,0) :root[data-theme="light"] block, so it wins in both
+   directions without !important.
+   ========================================================================= */
+:root[data-brand="on"] {
+  --accent:       var(--brand-accent);
+  --accent-hover: color-mix(in srgb, var(--accent) 86%, #000);
+  --accent-soft:  color-mix(in srgb, var(--accent) 16%, transparent);
+  --accent-tint:  color-mix(in oklab, var(--accent) 45%, #fff);
+  --accent-line:  color-mix(in oklab, var(--accent) 55%, var(--line));
+  /* chartTheme.ts reads --chart-1 at runtime via getComputedStyle, so the
+     dashboard follows the brand for free. */
+  --chart-1:      var(--accent);
+}
+:root[data-theme="light"][data-brand="on"] {
+  --accent:       var(--brand-accent-light, var(--brand-accent));
+  --accent-soft:  color-mix(in srgb, var(--accent) 14%, transparent);
+  --accent-tint:  color-mix(in oklab, var(--accent) 80%, #000);
+  --accent-line:  color-mix(in oklab, var(--accent) 30%, var(--line));
+}

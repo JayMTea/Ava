@@ -1,15 +1,17 @@
+import type { ComponentType } from 'react';
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
-import type { ComponentType } from 'react';
+import { ActionConsole } from './components/ActionConsole';
+import { AppFrame } from './components/AppFrame';
+import { ArtifactPanel } from './components/artifact/ArtifactPanel';
+import { ChatView } from './components/chat/ChatView';
+import { Composer } from './components/chat/Composer';
+import { Lightbox } from './components/chat/Media';
 import { Drawer } from './components/Drawer';
 import { Header } from './components/Header';
-import { Composer } from './components/chat/Composer';
-import { ChatView } from './components/chat/ChatView';
-import { ArtifactPanel } from './components/artifact/ArtifactPanel';
-import { Lightbox } from './components/chat/Media';
-import { AppFrame } from './components/AppFrame';
 import { ViewErrorBoundary } from './components/ViewErrorBoundary';
-import { ActionConsole } from './components/ActionConsole';
+import { useBrandName } from './lib/brandContext';
+
 // Lazy: these two are the ONLY views that draw charts, so they are the only ones
 // that pull recharts (~9.6 MB installed). Imported eagerly they landed in the main
 // chunk, so a chat-only session downloaded a charting library it never rendered.
@@ -20,10 +22,11 @@ const VitalsView = lazy(() => import('./components/dashboard/VitalsView')
   .then((m) => ({ default: m.VitalsView })));
 const OpsView = lazy(() => import('./components/dashboard/OpsView')
   .then((m) => ({ default: m.OpsView })));
-import { HubView } from './components/hub/HubView';
+
+import { Skeleton } from './components/dashboard/layout';
 import { DataView } from './components/data/DataView';
 import { HardwareBubble } from './components/HardwareBubble';
-import { Skeleton } from './components/dashboard/layout';
+import { HubView } from './components/hub/HubView';
 import { useChat } from './hooks/useChat';
 import { api } from './lib/api';
 import { registerApps } from './lib/appColor';
@@ -77,16 +80,12 @@ export default function App() {
     window.addEventListener('ava:apps-changed', load);
     return () => window.removeEventListener('ava:apps-changed', load);
   }, []);
-  // Branding (name/tagline) — config-driven so a fork re-brands with no code edits.
-  const [brand, setBrand] = useState('Ava');
-  useEffect(() => {
-    api.brand().then((b) => {
-      if (b?.name) {
-        setBrand(b.name);
-        document.title = b.name;
-      }
-    }).catch(() => { /* keep default */ });
-  }, []);
+  // Branding — from the context, which the pre-paint script in index.html has
+  // already applied to the DOM. This used to be a local useState('Ava') plus its
+  // own /api/brand fetch, which meant one guaranteed frame of "Ava" on every
+  // load of a re-branded install, and a second identical fetch in HubView
+  // because threading the value down as a prop was worse than duplicating it.
+  const brand = useBrandName();
   // Active tab: prefer the URL hash (bookmark/back-button), then the last-used
   // tab from localStorage, else the vitals home.
   const [view, setView] = useState<View>(() => {

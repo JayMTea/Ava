@@ -52,6 +52,23 @@ REGISTRY: dict[str, dict] = {
         "default": False,
         "env": "AVA_VOICE",
     },
+    # Editing this install's OWN look: name, colour, logo, icons. On by default,
+    # because re-branding the thing you are self-hosting is the premise, not an
+    # add-on. This switch is about WHO may edit, never about who has paid;
+    # tests/test_no_capability_gate.py fails the build if that ever changes.
+    #
+    # It gates the WRITE path only. An instance whose brand was set from outside
+    # still RENDERS that brand with the switch off; what it loses is the ability
+    # to change it. That asymmetry is the whole point of the switch: a control
+    # plane that provisions instances can pin AVA_BRANDING=0 from outside the
+    # container and hand its members a branded Ava they cannot re-brand, using
+    # nothing but the `env` key every entry here already carries.
+    "branding": {
+        "label": "Branding",
+        "sub": "change the name, colour and logo of this install",
+        "default": True,
+        "env": "AVA_BRANDING",
+    },
     # Both have their own detail panels, but they DO get a checkbox here: each
     # one reads your conversations, and LearningView/MemoryPanel both tell the
     # owner to "enable it in Setup → System" — a control that did not exist,
