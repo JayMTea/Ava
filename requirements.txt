@@ -5,11 +5,29 @@
 # in a separate the GPU service service. See deploy/README.md.
 # NOTE: fastapi 0.138.x + starlette 1.3.x silently drop every route on a
 # prefixed APIRouter (breaks the whole /api/hub/* Hub API on include_router).
-# Pinned to the last combo where include_router works. Verify before bumping:
+# FASTAPI is what stays pinned for that reason; starlette 1.3.1 is fine WITH
+# 0.136.3, which is not obvious and was measured rather than assumed. Verify
+# before bumping either:
 #   APIRouter(prefix="/x") + a route must still resolve after app.include_router().
+#
+# starlette 1.2.1 -> 1.3.1 on 2026-07-31, for two advisories that both land on
+# code Ava actually runs: request.form() limits silently ignored for
+# application/x-www-form-urlencoded (GHSA, high — /login and /setup are public
+# and take form bodies), and an unvalidated request path concatenated into the
+# authority when request.url is reconstructed (low — but auth_gate classifies
+# EVERY request from request.url.path, so a poisoned reconstruction is an
+# auth-gate question, not a cosmetic one).
+#
+# Verified before bumping, on a throwaway venv with fastapi held at 0.136.3:
+#   * APIRouter(prefix="/x") -> GET /x/ping returns 200 (the check above)
+#   * 1265 passed, 7 skipped
+#   * a real bridge boots; /api/hub/{system,persona,memory,models,cost,
+#     connectors} all 200, and openapi paths == 148 — byte-identical to the
+#     same probe on 1.2.1, including which paths 404 (agent/voice/governance
+#     have no bare GET, on both versions).
 fastapi==0.136.3
 uvicorn[standard]==0.51.0
-starlette==1.2.1
+starlette==1.3.1
 requests==2.34.2
 # [socks] is load-bearing, not cosmetic: web search/fetch default to Tor
 # (config.WEB_TOR_SOCKS = socks5h://127.0.0.1:9050) and httpx only gains a SOCKS
