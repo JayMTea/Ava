@@ -62,6 +62,13 @@ def test_install_sh_rewrites_the_policy_port_and_sets_the_tool_url() -> None:
         "is blocked by its own egress policy.")
     assert "port: 8096" in sh and "sed" in sh, (
         "the port substitution is gone; the policies carry the default literal.")
+    # KNOWN GAP (do not "fix" by deleting the export): the host-side `export`
+    # cannot actually reach a tool process. §4/5 registers each server into
+    # openclaw.json as {command, args} with NO `env` key, so the tool is spawned
+    # by OpenClaw without the host's environment and every generated .mjs still
+    # falls back to the compiled-in 8096. The real fix is an `env` block on the
+    # server spec, which belongs in the commit that already rewrites that JS.
+    # Until then this assertion pins the intent, not a working mechanism.
     assert "export AVA_BRIDGE_URL" in sh, (
         "nothing sets AVA_BRIDGE_URL, so every generated tool falls back to the "
         "compiled-in default port.")

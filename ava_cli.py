@@ -714,13 +714,22 @@ def cmd_agent(args) -> int:
         print()
         return 0
     if action == "provision":
-        print(f"{B}Provisioning the agent runtime (NemoClaw)…{X}")
-        res = runtime.nemoclaw().provision(auto_install=args.install)
+        scope = getattr(args, "only", "all") or "all"
+        from ava_bridge import provision as provision_mod
+        if scope not in provision_mod.ALL_SCOPES:
+            print(f"{BAD} unknown scope {scope!r} "
+                  f"(want: {', '.join(provision_mod.ALL_SCOPES)})")
+            return 2
+        what = "the agent runtime (NemoClaw)" if scope == "all" else f"{scope}"
+        print(f"{B}Provisioning {what}…{X}")
+        # `configured()`, not `nemoclaw()`: on `agent.runtime: remote` the local
+        # CLI is the wrong machine entirely.
+        res = runtime.configured().provision(auto_install=args.install, scope=scope)
         for s in res.get("steps", []):
             print(f"  {OK if s['ok'] else BAD} {s['step']}: {s['detail']}")
         print(f"\n{OK if res['ok'] else WARN} {res['detail']}")
         return 0 if res["ok"] else 1
-    print(f"{BAD} usage: ava agent status | provision [--install]")
+    print(f"{BAD} usage: ava agent status | provision [--install] [--only SCOPE]")
     return 1
 
 
@@ -1603,6 +1612,10 @@ def main() -> int:
     ap.add_argument("action", nargs="?", choices=["status", "provision"], default="status")
     ap.add_argument("--install", action="store_true",
                     help="auto `npm install -g nemoclaw` if the CLI is missing")
+    ap.add_argument("--only", default="all",
+                    metavar="SCOPE",
+                    help="deploy just part of the kit: persona, policies, "
+                         "servers, skills (comma-separated), or all (default)")
     ap.set_defaults(func=cmd_agent)
     cp = sub.add_parser("connector", help="list / scaffold / generate policies+tools for connectors")
     cp.add_argument("action", choices=["list", "apps", "new", "policies", "tools"])

@@ -46,28 +46,38 @@ export function Header({
             turns think with the SANDBOX model and bypass the router, so this
             control only steers the tool-less fallback path — the title must
             not promise "which model answers" when it doesn't. */}
-        {showGhost && models.length > 0 && (
-          <label
-            className="model-pick"
-            title={agentModel
-              ? `Ava answers with ${agentModel.split('/').pop()} (agent sandbox). This picker only sets the fallback model used if the agent is stopped.`
-              : 'Which model answers'}
+        {/* With the agent live this was a <select> that steered a path nothing
+            was using: every option was suffixed "· fallback" and the tooltip
+            spent 25 words explaining that the obvious reading was wrong. Three
+            apologies for one control. A <select> is a promise; when the thing it
+            promises isn't what happens, don't ship the control — name the model
+            that IS answering and point at where it's changed. The fallback stays
+            fully configurable in Setup → Agent, which already manages exactly
+            that. */}
+        {showGhost && agentModel ? (
+          <a
+            className="model-pick model-pick-static"
+            href="#hub/agent"
+            title={`Ava answers with ${agentModel.split('/').pop()} in the agent sandbox. Change it in Setup → Agent.`}
           >
+            <Icon name="bot" />
+            <span>{agentModel.split('/').pop()}</span>
+          </a>
+        ) : showGhost && models.length > 0 ? (
+          <label className="model-pick" title="Which model answers">
             <Icon name="bot" />
             <select
               value={model}
               onChange={(e) => onSetModel?.(e.target.value)}
               disabled={!onSetModel || models.length < 2}
-              aria-label={agentModel ? 'Select fallback model' : 'Select model'}
+              aria-label="Select model"
             >
               {models.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {(m.label || m.id) + (agentModel ? ' · fallback' : '')}
-                </option>
+                <option key={m.id} value={m.id}>{m.label || m.id}</option>
               ))}
             </select>
           </label>
-        )}
+        ) : null}
         {showGhost && (
           <button type="button"
             className={'ghostbtn' + (ghost ? ' on' : '')}

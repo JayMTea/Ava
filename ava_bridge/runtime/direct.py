@@ -22,6 +22,26 @@ class DirectRuntime(AgentRuntime):
     def available(self) -> bool:
         return True  # only needs the inference endpoint, checked at call time
 
+    def provision(self, auto_install: bool = False, scope: str = "all",
+                  on_line=None) -> dict:
+        """There is nothing to provision, and saying so is not the same as `ok`.
+
+        The base class returns a cheerful `{"ok": True, "detail": "no provisioning
+        needed"}`, which is true for a runtime that has no sandbox — but as the
+        answer to an owner who just clicked Apply expecting their persona to
+        reach Ava, it is a small lie. Direct has no sandbox, so nothing they
+        edited went anywhere.
+        """
+        return {
+            "ok": False,
+            "steps": [],
+            "scope": scope,
+            "error_code": "direct_runtime_has_no_sandbox",
+            "detail": ("the tool-less direct runtime has no sandbox to deploy "
+                       "into — persona, skills and policies only reach an agent "
+                       "runtime. Set agent.runtime to nemoclaw and provision it."),
+        }
+
     def _system_prompt(self) -> str:
         return (f"You are {config.AVA_NAME}, {config.AVA_TAGLINE}. You run locally "
                 "and privately on the user's own hardware. Be warm, concise, direct, "

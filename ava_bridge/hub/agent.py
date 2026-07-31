@@ -9,7 +9,7 @@ the failure a fresh install is most likely to hit.
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
-from .. import config, runtime, settings
+from .. import config, provision, provision_job, runtime, settings
 from .. import skills
 
 router = APIRouter()
@@ -46,8 +46,14 @@ def agent_skills():
     """The agent's skills, auto-discovered from agent/skills + the overlay (drop
     a folder → it appears; no registration). Each carries its deploy state
     (deployed/stale/undeployed/unknown) so the UI shows what's actually live in
-    the sandbox vs newly added. See ava_bridge/skills.py."""
-    return {"skills": skills.catalog(), "errors": skills.load_errors(),
+    the sandbox vs newly added. See ava_bridge/skills.py.
+
+    The state is overlaid from ava_bridge/provision.py rather than taken from
+    skills.py directly: skills.py can only consult install.sh's manifest, which
+    records what a deploy ATTEMPTED. provision.py prefers what the sandbox
+    actually holds. Same response shape either way."""
+    return {"skills": provision.apply_skill_states(skills.catalog()),
+            "errors": skills.load_errors(),
             "summary": skills.summary(), "category_order": skills.category_order()}
 
 @router.get("/agent/skills/{skill_id}")
@@ -112,11 +118,53 @@ async def agent_skill_set_category(skill_id: str, request: Request):
         return JSONResponse({"ok": False, "error": "unknown skill"}, status_code=404)
     return {"ok": True}
 
+@router.get("/agent/provision/state")
+def agent_provision_state(force: int = 0):
+    """What the sandbox is actually running vs what this checkout declares.
+
+    A sync `def` so FastAPI runs it in a threadpool, and it reads only files —
+    the NemoClaw registry, the policy/skill/server trees, the rendered persona.
+    It never execs into the sandbox, so it is safe to poll and it still answers
+    correctly when the container is stopped (which is precisely when the owner
+    most wants to know what is live).
+    """
+    return provision.state(force=bool(force))
+
+
 @router.post("/agent/provision")
-def agent_provision():
+def agent_provision(scope: str = "all"):
     # auto_install=False on purpose: never run the curl|bash CLI installer from a
     # browser. This checks the CLI + sandbox and deploys Ava's tools/policies if
     # both are present; installing the CLI stays a deliberate terminal step
     # (`ava agent provision --install`).
-    return runtime.nemoclaw().provision(auto_install=False)
+    #
+    # `configured()`, not `nemoclaw()` — the same bug agent_status() above already
+    # fixed, and for the same reason. This hardcoded the LOCAL runtime, so on
+    # `agent.runtime: remote` the panel correctly reported the remote agent host
+    # while this button provisioned the bridge container instead: it would fail on
+    # a missing CLI, or worse, succeed against the wrong machine.
+    if scope not in provision.ALL_SCOPES:
+        return JSONResponse({"ok": False, "error": f"unknown scope {scope!r}",
+                             "error_code": "unknown_scope",
+                             "supported": list(provision.ALL_SCOPES)}, status_code=400)
+    started, snap = provision_job.start(scope=scope, auto_install=False)
+    if not started:
+        # 409, not a queue. Two concurrent deploys into one sandbox would
+        # interleave writes to openclaw.json.
+        return JSONResponse(
+            {"ok": False, "error": "a provisioning run is already in progress",
+             "error_code": "provision_running",
+             "job_id": snap.get("id"), "scope": snap.get("scope"),
+             "status": snap.get("status")}, status_code=409)
+    # `steps` and `detail` are present but empty on purpose: a fork shipping an
+    # older committed frontend/dist reads those keys, and an absent key would be
+    # a crash where an empty list is merely a build that cannot show progress.
+    return {"ok": True, "job_id": snap["id"], "scope": scope, "status": "running",
+            "steps": [], "detail": "applying changes — watch Setup → Agent"}
+
+
+@router.get("/agent/provision/status")
+def agent_provision_status(since: int = 0):
+    """Progress of the current (or last) run. `since` ships only new log lines."""
+    return provision_job.snapshot(since=since)
 

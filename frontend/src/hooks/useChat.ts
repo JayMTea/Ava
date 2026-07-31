@@ -654,7 +654,7 @@ export function useChat() {
   }, []);
 
   // ---- model picker (which brain Ava uses) --------------------------------
-  useEffect(() => {
+  const loadModel = useCallback(() => {
     api
       .getModel()
       .then((r) => {
@@ -670,6 +670,15 @@ export function useChat() {
       })
       .catch(() => {});
   }, []);
+  useEffect(() => { loadModel(); }, [loadModel]);
+  // This was a one-shot fetch on mount, so after a provision changed the sandbox
+  // model the header kept naming a model Ava no longer used until a page reload.
+  // An event rather than a poll: the value changes maybe twice a year, and this
+  // keeps useChat from importing hub code. Same idiom as `ava:apps-changed`.
+  useEffect(() => {
+    window.addEventListener('ava:agent-provisioned', loadModel);
+    return () => window.removeEventListener('ava:agent-provisioned', loadModel);
+  }, [loadModel]);
 
   const setModelMode = useCallback(async (mode: string) => {
     setModelState(mode);

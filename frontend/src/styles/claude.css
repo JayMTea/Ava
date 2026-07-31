@@ -203,6 +203,11 @@ header .sub { display:none; }
   color:var(--muted); background:var(--wash-5); border:1px solid var(--line);
   border-radius:999px; padding:4px 10px 4px 12px; font-size:12px; }
 .model-pick svg { width:14px; height:14px; }
+/* The read-only variant shown while the agent runtime is answering: it names the
+   sandbox model and links to where that model is actually changed, instead of a
+   dropdown that steers a path nothing is using. */
+.model-pick-static { text-decoration:none; cursor:pointer; max-width:180px; }
+.model-pick-static span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .model-pick select { appearance:none; background:transparent; border:0; color:var(--txt);
   font:inherit; font-size:12px; cursor:pointer; max-width:160px; padding-right:2px; }
 .model-pick select:disabled { cursor:default; opacity:.85; }

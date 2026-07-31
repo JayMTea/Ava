@@ -28,7 +28,7 @@ class RemoteRuntime(AgentRuntime):
     supports_cot = True
 
     def __init__(self):
-        self._avail_cache = {"ts": 0.0, "ok": None}
+        self._avail_cache: dict = {"ts": 0.0, "ok": None, "caps": []}
 
     # ---- plumbing -----------------------------------------------------------
     def _url(self, path: str) -> str:
@@ -53,12 +53,19 @@ class RemoteRuntime(AgentRuntime):
         if c["ok"] is not None and now - c["ts"] < 15:
             return bool(c["ok"])
         ok = False
+        caps: list = []
         try:
             r = requests.get(self._url("/healthz"), headers=self._headers(), timeout=3)
-            ok = r.ok and bool((r.json() or {}).get("ready"))
+            body = (r.json() or {}) if r.ok else {}
+            ok = r.ok and bool(body.get("ready"))
+            # Rides along on the health probe so capabilities() is free. A shim
+            # that predates scoped provisioning has no such key, which is exactly
+            # the fail-closed default provision() wants.
+            got = body.get("capabilities")
+            caps = [str(c) for c in got] if isinstance(got, list) else []
         except Exception:  # noqa: BLE001
             ok = False
-        c.update(ts=now, ok=ok)
+        c.update(ts=now, ok=ok, caps=caps)
         return ok
 
     # ---- one turn -----------------------------------------------------------
@@ -101,11 +108,60 @@ class RemoteRuntime(AgentRuntime):
             return False
 
     # ---- provisioning / status ---------------------------------------------
-    def provision(self, auto_install: bool = False) -> dict:
+    def capabilities(self) -> list[str]:
+        """What the agent-runtime container on the other end supports.
+
+        Carried on /healthz, which available() already polls every 15s — so this
+        costs no extra round trip — and which is the one route the shim's auth
+        middleware skips, so it works independently of token setup.
+        """
+        self.available()  # refreshes the shared cache
+        return list(self._avail_cache.get("caps") or [])
+
+    def provision(self, auto_install: bool = False, scope: str = "all",
+                  on_line=None) -> dict:
+        """Provision the remote agent, refusing to silently widen the scope.
+
+        The shim reads its body with `body.get(...)` and ignores unknown keys, so
+        a container built before scoped provisioning existed would take
+        `{"scope": "persona"}`, run a FULL provision — re-pushing every MCP
+        server and reinstalling every skill — and report success. The UI would
+        then tell the owner their persona was applied, which is true, alongside
+        ten minutes of work they did not ask for.
+
+        An old container returns no `capabilities` key, so this fails closed by
+        construction, with no version parsing (ava_bridge.version is `0.0.0+dev`
+        on a checkout, which makes any semver comparison meaningless).
+        """
+        if scope and scope != "all" and "provision.scope" not in self.capabilities():
+            return {
+                "ok": False, "steps": [], "scope": scope,
+                "error_code": "remote_scope_unsupported",
+                "detail": ("this agent-runtime container predates scoped "
+                           "provisioning, so it cannot apply just "
+                           f"'{scope}'. Rebuild it, or apply everything."),
+            }
         try:
-            return self._post("/provision", {"auto_install": auto_install}, timeout=900)
+            return self._post("/provision",
+                              {"auto_install": auto_install, "scope": scope},
+                              timeout=900)
         except Exception as e:  # noqa: BLE001
-            return {"ok": False, "steps": [], "detail": f"agent service unreachable: {e}"}
+            return {"ok": False, "steps": [], "scope": scope,
+                    "detail": f"agent service unreachable: {e}"}
+
+    def registry_record(self) -> dict | None:
+        """The remote sandbox's NemoClaw registry entry, when the shim can serve it."""
+        if "provision.assert" not in self.capabilities():
+            return None
+        try:
+            return (self._post("/registry_record", {}, timeout=10) or {}).get("record")
+        except Exception:  # noqa: BLE001
+            return None
+
+    def live(self) -> dict:
+        ok = self.available()
+        return {"live": ok,
+                "reason": "" if ok else f"the agent service at {config.AGENT_URL} is not ready"}
 
     def status(self) -> dict:
         out = {"name": self.name, "available": False, "url": config.AGENT_URL,

@@ -5,8 +5,10 @@ import { ResourceError } from '../ui/ResourceState';
 import { useAction, useResource } from '../hooks';
 import { hub } from '../hubApi';
 import { Badge } from '../ui/Badge';
+import { DriftBadge } from '../ui/DriftBadge';
 import { HubMessage } from '../ui/HubMessage';
 import { Legend } from '../ui/Legend';
+import { markProvisionDirty, startProvision, useProvisionState } from '../../../hooks/useProvisionState';
 
 // Persona — how Ava talks. Blank on a fresh install, on purpose: the shipped
 // prompt template carries only operational directives, so nothing about this
@@ -14,11 +16,19 @@ import { Legend } from '../ui/Legend';
 // POINTS: picking one drops its text into the editable box, and what gets saved is
 // the text, never the preset name. That way editing a preset upstream can never
 // retroactively change how an existing install's assistant talks.
-export function PersonaPanel({ onRestart }: { onRestart: () => void }) {
+// `onRestart` is deliberately gone. A persona save writes persona.style/format to
+// ava.yaml and the prompt is rebuilt at PROVISION time — nothing about it needs a
+// bridge restart. Calling it painted a warn-toned banner naming a
+// `docker compose restart ava` the owner did not need to run, while the panel's
+// own message told them to do something else entirely. Two apply verbs, one of
+// them wrong. See the convention in CLAUDE.md.
+export function PersonaPanel() {
   const pRes = useResource(() => hub.persona());
   const { data: p, reload } = pRes;
+  const { state: prov } = useProvisionState();
   const [style, setStyle] = useState('');
   const [format, setFormat] = useState('chat');
+  const [applying, setApplying] = useState(false);
   const { busy, message, run } = useAction();
 
   // Seed from the server, and re-seed after a save. Nothing is sent until the
@@ -33,13 +43,16 @@ export function PersonaPanel({ onRestart }: { onRestart: () => void }) {
     const r = await hub.savePersona({ style, format });
     if (r.error) return r.error;
     reload();
-    onRestart();
-  }, 'Saved — re-provision the agent in Setup → Agent for it to take effect.');
+    // The bar picks it up from here — no navigation instruction, no homework.
+    markProvisionDirty('persona');
+  }, 'Saved.');
 
   const styleMax = p?.style_max ?? 4000;
   const overrides = p?.env_overrides ?? {};
   const overridden = Object.keys(overrides);
   const isSet = (p?.style ?? '').trim() !== '';
+  const personaState = prov?.scopes?.persona?.state;
+  const personaStale = personaState === 'stale' || personaState === 'undeployed';
 
   return (
     <>
@@ -96,7 +109,10 @@ export function PersonaPanel({ onRestart }: { onRestart: () => void }) {
             <div className="hub-field">
               <label>
                 Ava's voice, in your words
+                {/* Two badges answering two different questions: is there a
+                    value at all, and is the value the one Ava is running. */}
                 {!isSet && <> <Badge tone="muted">not set</Badge></>}
+                {personaState && <> <DriftBadge state={personaState} /></>}
               </label>
               <textarea
                 className="hub-input"
@@ -138,6 +154,27 @@ export function PersonaPanel({ onRestart }: { onRestart: () => void }) {
               </button>
             </div>
             <HubMessage message={message} />
+            {/* The actual fix for "I saved it and nothing changed": the answer is
+                here, next to the button that caused it, instead of a navigation
+                instruction in a message the next action wipes. */}
+            {personaStale && (
+              <div className="hub-note">
+                <Icon name="info" />
+                <span>
+                  Saved, but Ava is still using the previous version.{' '}
+                  <button
+                    type="button" className="hub-btn ghost sm" disabled={applying}
+                    onClick={async () => {
+                      setApplying(true);
+                      await startProvision('persona');
+                      setApplying(false);
+                    }}
+                  >
+                    {applying ? 'Applying…' : 'Apply now'}
+                  </button>
+                </span>
+              </div>
+            )}
           </>
         ) : <EmptyState text="Loading…" />}
       </Panel>
@@ -150,7 +187,7 @@ export function PersonaPanel({ onRestart }: { onRestart: () => void }) {
             { icon: 'activity', term: 'Use the tools', desc: 'Live questions get a real tool call — weather comes from get_weather, never from memory.' },
             { icon: 'image', term: 'Never fake a render', desc: 'Ava may only say an image was created if it actually called run_gpu_job and got a confirmation.' },
             { icon: 'shield', term: 'Know its own reach', desc: <>The sandbox warns that outbound network is deny-by-default; Ava is told that this does <b>not</b> apply to its own tools, so it stops claiming it has no web access.</> },
-            { icon: 'info', term: 'Takes effect on provision', desc: <>The prompt is built when the agent runtime is provisioned, so re-provision in <b>Setup → Agent</b> after saving.</> },
+            { icon: 'info', term: 'Takes effect when you apply', desc: <>Your voice is compiled into Ava’s prompt when your changes reach the agent. Saving stages it; the bar at the top of Setup applies it in one click.</> },
           ]}
         />
       </Panel>

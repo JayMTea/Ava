@@ -231,6 +231,20 @@
   "APIRoute"
  ],
  [
+  "/api/hub/agent/provision/state",
+  [
+   "GET"
+  ],
+  "APIRoute"
+ ],
+ [
+  "/api/hub/agent/provision/status",
+  [
+   "GET"
+  ],
+  "APIRoute"
+ ],
+ [
   "/api/hub/agent/skills",
   [
    "GET"

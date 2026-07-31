@@ -89,7 +89,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: sudo apt-get update && sudo apt-get install -y shellcheck
-      - run: shellcheck -S warning deploy/*.sh bin/ava qa/run.sh run.sh run_bridge.sh
+      # agent/install.sh is the only path that writes into the NemoClaw sandbox,
+      # and a shell bug there is silent (see tests/test_install_scope_contract.py).
+      - run: shellcheck -S warning deploy/*.sh bin/ava qa/run.sh run.sh run_bridge.sh agent/install.sh
 
   test:
     runs-on: ubuntu-latest

@@ -9,7 +9,10 @@ import { hub } from '../hubApi';
 import { ResourceError } from '../ui/ResourceState';
 import type { Backend, BackendTestResult, BenchResult, PullStatus, Skill, SkillList } from '../hubApi';
 import { Badge } from '../ui/Badge';
+import { DriftBadge } from '../ui/DriftBadge';
 import { StatRow } from '../ui/StatRow';
+import { DriftBoard, ProvisionRun } from './ProvisionRun';
+import { startProvision, useProvisionState } from '../../../hooks/useProvisionState';
 
 // Agent — runtime status + provisioning, the multi-model brain manager, the
 // model store, benchmarks, and the skills list. ENGINE_PRESETS is the "add a
@@ -520,20 +523,24 @@ function BenchPanel() {
 export function AgentPanel({ onRestart }: { onRestart: () => void }) {
   const stRes = useResource(() => hub.agentStatus());
   const { data: st, reload: load } = stRes;
-  const [steps, setSteps] = useState<{ step: string; ok: boolean; detail: string }[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [detail, setDetail] = useState('');
+  const { state: prov, job } = useProvisionState();
 
-  // Provision is bespoke — it renders a step list, not a one-line message.
+  // The run is server-side now, so it survives a page reload and a second tab —
+  // and the button stops being the only feedback. It used to block for up to ten
+  // minutes with nothing but a disabled label, which cannot distinguish slow from
+  // hung, and install.sh has a documented hang mode.
   const provision = useCallback(async () => {
-    setBusy(true); setSteps(null); setDetail('');
-    try {
-      const r = await hub.agentProvision();
-      setSteps(r.steps || []); setDetail(r.detail || '');
-      load();
-    } catch (e) { setDetail((e as Error).message); }
+    setBusy(true); setDetail('');
+    const r = await startProvision('all');
+    if (!r.ok && r.error) setDetail(r.error);
     setBusy(false);
+    load();
   }, [load]);
+
+  const running = job?.status === 'running';
+  const pending = prov?.pending ?? 0;
 
   return (
     <>
@@ -604,26 +611,25 @@ export function AgentPanel({ onRestart }: { onRestart: () => void }) {
         </div>
       )}
 
-      <div className="hub-btn-row">
-        <button type="button" className="hub-btn" onClick={provision} disabled={busy}>
-          <Icon name="refresh" />{busy ? 'Provisioning…' : 'Provision / re-check'}
-        </button>
-      </div>
+      <DriftBoard state={prov} />
 
-      {steps && (
-        <div className="hub-steps">
-          {steps.map((s, i) => (
-            <div className="hub-step" key={i}>
-              <span className={'hub-step-mark ' + (s.ok ? 'ok' : 'bad')}><Icon name={s.ok ? 'check' : 'close'} /></span>
-              <span style={{ minWidth: 0 }}>
-                <b>{s.step}</b>
-                <div className="hub-step-detail">{s.detail}</div>
-              </span>
-            </div>
-          ))}
-          {detail && <div className="hub-msg" style={{ color: 'var(--muted)' }}>{detail}</div>}
+      {/* While a run is live the button is REPLACED by the run view, not
+          disabled: a disabled button reads as broken, a moving step reads as
+          working. `Provision / re-check` was a slash-compound precisely because
+          one button was doing two jobs. */}
+      {!running && (
+        <div className="hub-btn-row">
+          <button type="button" className="hub-btn" onClick={provision} disabled={busy}>
+            <Icon name={pending ? 'check' : 'refresh'} />
+            {busy ? 'Applying…'
+              : pending ? `Apply ${pending} change${pending === 1 ? '' : 's'}`
+              : 'Re-check agent'}
+          </button>
         </div>
       )}
+      {detail && <div className="hub-msg" style={{ color: 'var(--muted)' }}>{detail}</div>}
+
+      <ProvisionRun job={job} />
     </Panel>
 
     <div className="hub-section" />
@@ -648,18 +654,9 @@ const SKILL_ICONS = new Set([
   'sparkles', 'graduation', 'bot', 'db', 'gauge', 'search', 'panel',
 ]);
 
-function skillDeployBadge(state: Skill['deployed']) {
-  switch (state) {
-    case 'deployed':
-      return <Badge tone="ok">live</Badge>;
-    case 'stale':
-      return <Badge tone="warn">edited · re-provision</Badge>;
-    case 'undeployed':
-      return <Badge tone="warn">not deployed · re-provision</Badge>;
-    default:
-      return <Badge tone="muted">provision to load</Badge>;
-  }
-}
+// (The local skillDeployBadge lived here. It is now <DriftBadge> in hub/ui, so
+// skills, the persona, policies and tool servers all speak one vocabulary — and
+// so the call to action appears once, in the bar, rather than on every row.)
 
 // How the list is sectioned adapts to what the OWNER has categorized — the
 // product ships no taxonomy (categories live in ava.yaml, not shipped skills):
@@ -735,7 +732,7 @@ function SkillRow({ s, open, onToggle, body, dragging, onDragStart, onDragEnd }:
           </span>
           <span className="skill-summary">{s.summary || s.description}</span>
         </span>
-        {skillDeployBadge(s.deployed)}
+        <DriftBadge state={s.deployed} />
         <span className={'skill-chevron' + (open ? ' open' : '')}><Icon name="expand" /></span>
       </button>
       {open && (

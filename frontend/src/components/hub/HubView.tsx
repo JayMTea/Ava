@@ -15,6 +15,9 @@ import { SystemPanel } from './panels/SystemPanel';
 import { ConnectorsPanel } from './panels/ConnectorsPanel';
 import { hub } from './hubApi';
 import type { PendingApproval } from './hubApi';
+import { PendingChangesBar } from './PendingChangesBar';
+import { tabPending } from './provisionView';
+import { useProvisionState } from '../../hooks/useProvisionState';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Approvals banner — the agent parked a sensitive action; the operator decides.
@@ -37,11 +40,7 @@ function ApprovalsBanner() {
   return (
     <div style={{ marginBottom: 16 }}>
       {pending.map((p) => (
-        <div key={p.id} className="hub-restart" style={{
-          background: 'rgba(0,122,204,0.10)', color: 'var(--txt)',
-          borderColor: 'color-mix(in srgb, var(--accent) 45%, transparent)',
-          justifyContent: 'space-between', flexWrap: 'wrap', gap: 10,
-        }}>
+        <div key={p.id} className="hub-restart accent spread">
           <span style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
             <span style={{ color: 'var(--accent)', display: 'inline-flex' }}><Icon name="lock" /></span>
             <span>
@@ -148,6 +147,11 @@ export function HubView() {
   // deliberately silent: the banner simply omits the command rather than
   // becoming an error the user cannot act on.
   const { data: sys } = useResource(() => hub.system());
+  // A tab badge counts only what THAT tab owns, so one persona edit does not
+  // light up two tabs and read as two changes. Suppressed while a run is in
+  // flight: counts ticking down mid-deploy just flicker.
+  const { state: prov, job: provJob } = useProvisionState();
+  const tabBadges = provJob?.status === 'running' ? {} : tabPending(prov);
 
   return (
     <div className="hub view-scroll">
@@ -164,15 +168,30 @@ export function HubView() {
           </form>
         </div>
 
+        {/* Order is deliberate: an approval blocks a live, in-flight agent call
+            with a human waiting on it. Pending changes block nothing. */}
         <ApprovalsBanner />
+        <PendingChangesBar onGo={setTab} />
         <RestartBanner show={restart} docker={sys?.docker} />
 
         <div className="hub-tabs">
-          {TABS.map((t) => (
-            <button type="button" key={t.id} className={'hub-tab' + (tab === t.id ? ' active' : '')} onClick={() => setTab(t.id)}>
-              <Icon name={t.icon} />{t.label}
-            </button>
-          ))}
+          {TABS.map((t) => {
+            const n = tabBadges[t.id] ?? 0;
+            return (
+              <button
+                type="button" key={t.id}
+                className={'hub-tab' + (tab === t.id ? ' active' : '')}
+                aria-label={n > 0
+                  ? `${t.label} — ${n} change${n === 1 ? '' : 's'} waiting to reach Ava`
+                  : undefined}
+                onClick={() => setTab(t.id)}
+              >
+                <Icon name={t.icon} />{t.label}
+                {/* The pill is decoration; the meaning is in the aria-label. */}
+                {n > 0 && <span className="hub-tab-badge" aria-hidden="true">{n}</span>}
+              </button>
+            );
+          })}
         </div>
 
         {tab === 'overview' && <Overview onGo={setTab} />}
@@ -180,7 +199,7 @@ export function HubView() {
         {tab === 'agent' && <AgentPanel onRestart={notifyRestart} />}
         {tab === 'connectors' && <ConnectorsPanel />}
         {tab === 'voice' && <VoicePanel onRestart={notifyRestart} />}
-        {tab === 'persona' && <PersonaPanel onRestart={notifyRestart} />}
+        {tab === 'persona' && <PersonaPanel />}
         {tab === 'memory' && <MemoryPanel />}
         {tab === 'budgets' && <BudgetsPanel />}
         {tab === 'history' && <HistoryPanel />}

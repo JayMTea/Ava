@@ -355,6 +355,16 @@ def catalog(force: bool = False) -> List[dict]:
     return items
 
 
+def invalidate() -> None:
+    """Force the next catalog() to re-read the filesystem.
+
+    Public because ava_bridge/provision.py must drop this cache alongside its own
+    after a deploy, and tests/test_module_boundaries.py bans reaching into
+    another module's `_CACHE`.
+    """
+    _CACHE["ts"] = 0.0
+
+
 def load_errors() -> List[dict]:
     """Skills whose SKILL.md couldn't be read/parsed on the last catalog()."""
     if _CACHE["list"] is None:
