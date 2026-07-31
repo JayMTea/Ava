@@ -33,6 +33,19 @@ ava.reading("temperature", 21.5, "C")
 ava.event("motion", "Front door", severity="warn", notify=True)
 ```
 
+`ava device token` prints a human-readable block, so `$(ava device token …)` is
+**not** the token — capture just the token:
+
+```bash
+export AVA_TOKEN="$(ava device token greenhouse | sed -n 3p | tr -d '[:space:]')"
+```
+
+`reading()` / `event()` return `False` instead of raising when Ava refuses a push,
+and print the status: `401` (wrong token), `404` (the connector has no
+`ingest.enabled: true`, or Ava hasn't reloaded its manifest), `429` (Ava's
+per-connector rate limit — ~600 events/min, bursts to 60). A `4xx` is not
+retried, so downsample on your side rather than pushing faster than that.
+
 ## Pull (the facade Ava's `actions.discover` points at)
 
 ```python
@@ -62,3 +75,10 @@ board's pushed readings/events to Ava — about 15 lines of glue.
 | `Tool(name, description, run, schema, required)` | one pull capability |
 | `serve_pull(tools, host, port, block=True)` | run the `/tools`+`/call`+`/health` facade |
 | `SerialRelay(port, baud).tools()/.call()/.pump(ava)` | bridge a USB board |
+
+`Tool` has no `access` field, so the `serve_pull` facade reports no consent
+tier. That is fine for a `role: device` connector — Ava classifies undiscovered
+device tools as `physical` — but declare a `"*": physical` (or `write`)
+`dynamic_access` catch-all in the manifest rather than relying on a tier the
+facade never sends. It also means putting [`ava_mcp`](ava_mcp/README.md) in
+front of a `serve_pull` facade has no tiers to carry through.

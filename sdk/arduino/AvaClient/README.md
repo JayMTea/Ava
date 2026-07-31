@@ -54,8 +54,15 @@ void loop() {
 }
 ```
 
-Get the token with `ava device token <connector-id>` (or, once Phase 1 lands, the
-"Show device push token" button in Setup → Connectors).
+Get the token with `ava device token <connector-id>`, or copy it from
+**Setup → Connectors → ⋯ → Push token**.
+
+> **Let Ava answer to its LAN address first.** A board pushing to
+> `192.168.1.50:8096` sends `Host: 192.168.1.50`, and a default install only
+> answers to loopback — every push comes back `421 untrusted host`. Add the
+> address your boards use to `ava.yaml` (`server.public_url`, or
+> `server.trusted_hosts: ["192.168.1.50"]`) and restart Ava. See
+> [DEVICE_CONNECTORS.md → Pushing from another machine](../../../docs/DEVICE_CONNECTORS.md#pushing-from-another-machine-a-board-on-your-lan).
 
 ## Add pull (Ava reads/commands the device)
 
@@ -71,12 +78,21 @@ ava.addCommand("set_relay", "Turn the relay on/off", setRelay);
 
 // networked board:
 WiFiClient c = server.available(); if (c) ava.handleHttp(c);
-// or USB board (relayed by sdk/host serial_bridge.py):
+// or USB board (relayed by sdk/host/examples/serial_bridge.py):
 ava.handleStream(Serial);
 ```
 
 Then point the connector's `actions.discover.base` at the board (networked) or at
 the host adapter (serial), and deploy its egress policy.
+
+> **Commands can't advertise their arguments yet.** `addCommand()` takes no
+> schema, so the `/tools` reply this library emits always carries an empty
+> `"inputSchema": {"type":"object","properties":{}}`. Ava therefore has no
+> declared `on` field to fill in for `set_relay`, and a call that arrives with no
+> arguments makes `argBool(args, "on")` return its default (`false`) — the relay
+> silently stays off. Until the library can declare arguments, spell them out in
+> the description (`"Turn the relay on/off — argument: on (boolean)"`), and make
+> the default of every `arg*()` call the safe one.
 
 ## Examples
 

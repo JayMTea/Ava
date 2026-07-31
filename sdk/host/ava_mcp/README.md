@@ -15,9 +15,25 @@ your app  ──ava-tools/1──▶  ava_mcp  ──MCP / JSON-RPC──▶  an
 
 Stdlib only. No dependency on Ava.
 
+## Install
+
+Nothing to install — but `ava_mcp` is a plain package, not an installed
+entry point, so `python -m ava_mcp` only resolves if the package's **parent**
+directory is on `sys.path`. Any one of these works:
+
+```bash
+cp -r sdk/host/ava_mcp /path/to/your/app/     # copy it next to your code
+PYTHONPATH=sdk/host python -m ava_mcp …       # or point PYTHONPATH at sdk/host
+cd sdk/host && python -m ava_mcp …            # or just run from there
+```
+
+Run from the repo root without one of those and you get
+`No module named ava_mcp`.
+
 ## Run it as a sidecar (no code change)
 
 ```bash
+cd sdk/host          # or copy ava_mcp/ next to your app — see Install above
 python -m ava_mcp --facade http://127.0.0.1:8097 --port 9310 \
                   --token-env MYAPP_TOKEN --auth-env MYAPP_MCP_TOKEN
 ```
@@ -43,14 +59,21 @@ read it. They are two different credentials:
 | `--auth-env` | the **MCP endpoint** | the MCP client, calling the adapter |
 
 Leave `--auth-env` off only when the port is unreachable from anywhere you don't
-trust — without it, anyone who can reach it can call every tool. The adapter
-warns on startup when it's unset.
+trust — without it, anyone who can reach it can call every tool.
+
+**The startup warning does not cover you here.** The adapter warns only when you
+*name* a variable that turns out to be empty (`--auth-env MYAPP_MCP_TOKEN` with
+`MYAPP_MCP_TOKEN` unset). Omit the flag entirely and it starts wide open and
+silent — the only signal is the missing `(bearer-protected)` suffix on the
+startup line. Always pass `--auth-env`.
 
 ## Mount it in-process instead
 
 For a Python app that would rather not run a second process:
 
 ```python
+import os
+
 from ava_mcp import RegistrySource, serve_mcp
 
 source = RegistrySource(
@@ -96,7 +119,12 @@ adapter is up without holding a credential.
 
 | Symbol | Purpose |
 |---|---|
-| `FacadeSource(base_url, token, tools_path, call_path)` | front a running `ava-tools/1` facade |
+| `FacadeSource(base_url, token, tools_path, call_path, timeout)` | front a running `ava-tools/1` facade |
 | `RegistrySource(tools, dispatch)` | serve an in-process tool registry |
-| `serve_mcp(source, host, port, path, auth_token, block)` | run the MCP server |
+| `serve_mcp(source, host, port, path, auth_token, server_name, block, instructions)` | run the MCP server |
 | `python -m ava_mcp --facade URL` | the sidecar CLI |
+
+Defaults: `serve_mcp` binds `127.0.0.1:9300` at `/mcp` and **blocks**; pass
+`block=False` to run it on a daemon thread. The sidecar CLI additionally takes
+`--host`, `--path`, `--tools-path`, `--call-path` and `--name`
+(`python -m ava_mcp --help`).

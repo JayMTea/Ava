@@ -87,10 +87,20 @@ To generate the agent tools and the egress allow-list so the sandboxed agent may
 reach the bridge proxy for this app:
 
 ```bash
-ava connector tools    greenhouse --write   # -> agent/mcp_server_content/connectors/greenhouse/
+ava connector tools    greenhouse --write   # -> agent/mcp_server_connectors/apps/greenhouse/
 ava connector policies greenhouse --write   # -> agent/policies/generated/greenhouse.yaml
 cd agent && ./install.sh                    # deploy into the sandbox
 ```
+
+The generator already derives the two `/internal/connector/<id>/__tools|__call` rules
+from `actions.discover`, so the `egress.routes` above are optional — listing them
+just repeats what is generated.
+
+**First call asks.** A `role: device` connector's tools are gated by JIT consent:
+the first call parks an approval prompt in the dashboard and the call *blocks*
+until you approve it (or 403s with `not run — awaiting-approval timeout` after
+120s). Expect that when you test the pull path from a script instead of from the
+UI.
 
 ---
 
@@ -112,11 +122,43 @@ Content-Type: application/json
   "ts": 1720000000 }             // optional; Ava stamps it if absent
 ```
 
-Returns `{ "ok": true, "seq": N }`. What Ava does with it:
+Returns `{ "ok": true, "seq": N }`. The other answers you can get:
 
-- **Stores** it in `${AVA_LOGS}/devices/<id>.jsonl` (bounded and self-managing,
-  with no external database), so it survives restarts and Ava can answer *"did
-  anything happen?"*.
+| Code | Means |
+|---|---|
+| 401 `unauthorized` | wrong/missing bearer for **this** connector id |
+| 404 `connector <id> has not enabled ingest` | no `ingest.enabled: true`, or Ava hasn't reloaded the manifest yet (restart) |
+| 413 `event too large` | body over 64 KiB |
+| 429 `rate limited` | per-connector token bucket: ~600 events/min, bursts to 60 (`AVA_DEVICES_RATE_PER_MIN`, `AVA_DEVICES_BURST`) |
+| 400 `invalid json` / a field error | unusable payload |
+| 421 `untrusted host` | Ava doesn't answer to the `Host:` your device sent — see below |
+
+Batch or downsample on your side if you sample faster than that — a 429'd event
+is dropped, not queued.
+
+### Pushing from another machine (a board on your LAN)
+
+Ava only answers to `Host:` names it recognises: loopback, `server.host`, the
+host in `server.public_url`, and anything in `server.trusted_hosts`. A device that
+posts to Ava's LAN address sends `Host: 192.168.1.50`, which a default install
+does **not** recognise — every push comes back `421 untrusted host` with a
+DNS-rebinding explanation. Name the address your devices use, in `ava.yaml`:
+
+```yaml
+server:
+  public_url: "http://192.168.1.50:8096"   # or:
+  trusted_hosts: ["192.168.1.50", "ava.your-tailnet.ts.net"]
+```
+
+Either one is enough; restart Ava afterwards. (Loopback-only devices — a host
+adapter or app on the same machine — need none of this.)
+
+What Ava does with an accepted event:
+
+- **Stores** it in `$AVA_HOME/logs/devices/<id>.jsonl` (the logs root honours
+  `paths.logs` / `AVA_LOGS_DIR`). Bounded and self-managing — 8 MiB per file,
+  3 rotations kept, no external database — so it survives restarts and Ava can
+  answer *"did anything happen?"*.
 - **Surfaces it live** on the dashboard: every event rides the ops SSE stream as
   a `device.event` frame and lands at the top of the **Device events** panel on
   the Operations page (the panel appears once your first event arrives).
@@ -128,7 +170,17 @@ Returns `{ "ok": true, "seq": N }`. What Ava does with it:
 ### Authentication
 
 Each connector has its own inbound **bearer token**, derived from Ava's root
-secret (`HMAC(root, "ava-ingest:<id>")`). Print it with `ava device token <id>`.
+secret (`HMAC(root, "ava-ingest:<id>")`). Print it with `ava device token <id>`,
+or copy it from **Setup → Connectors → ⋯ → Push token**.
+
+`ava device token` prints a human-readable block (the token plus a ready-made
+`curl`), so it is *not* pipe-safe — `$(ava device token <id>)` captures the whole
+block. To put just the token in an env var:
+
+```bash
+export AVA_INGEST_TOKEN="$(ava device token greenhouse | sed -n 3p | tr -d '[:space:]')"
+```
+
 It is deliberately **not** Ava's internal tool token: an app that can push events
 **cannot** reach Ava's `/internal/*` tool surface. Rotating the connector id
 rotates the token. Keep it secret; treat it like a password.
@@ -151,6 +203,8 @@ event pusher); replace the faked device I/O with yours.
 
 ```bash
 # 1. Register the connector (the example's manifest declares id: device-demo)
+#    then restart Ava (or `ava up`) — a running Ava answers 404 "has not enabled
+#    ingest" until it reloads the new manifest, so do this BEFORE the app pushes.
 cp -r examples/device-app "$AVA_HOME/connectors/device-demo"
 
 # 2. Get this connector's inbound push token
@@ -160,7 +214,7 @@ ava device token device-demo        # copy the token it prints
 export AVA_URL=http://localhost:8096
 export AVA_CID=device-demo
 export AVA_INGEST_TOKEN=<the token from step 2>
-python examples/device-app/server.py
+python examples/device-app/server.py    # serves 127.0.0.1:8479 (DEVICE_APP_PORT)
 
 # 4. Generate its agent tools + egress policy and load them into the sandbox
 #    (or use Setup -> Connectors -> Deploy)
@@ -168,7 +222,7 @@ ava connector tools    device-demo --write
 ava connector policies device-demo --write
 cd agent && ./install.sh
 
-# 5. Restart Ava (or `ava up`) so it loads the connector, then:
+# 5. Then, with Ava running:
 ava device list                     # shows device-demo (pull,push)
 ava device events device-demo       # watch the pushed motion + readings arrive
 ```
@@ -198,4 +252,4 @@ the connector SDK's `mcp:` block, with actuation gated behind the never-grantabl
 - Connector SDK (the base): [CONNECTOR_SDK.md](CONNECTOR_SDK.md)
 - Code: `ava_bridge/devices.py` (store), the ingest route + `device.event` in
   `phone_bridge.py`, `ava_bridge/internal.ingest_token` (token),
-  `agent/mcp_server_content/devices/device_events.mjs` (agent tool).
+  `agent/mcp_server_connectors/devices/device_events.mjs` (agent tool).

@@ -100,7 +100,8 @@ actions:                      # OPTIONAL — agent tools (see §5)
 
 `${VAR}` references expand from connector vars (`AVA_HOME`, `AVA_LOGS`,
 `AVA_DATA`, `ROOT`) and then the process environment, so `${MYCRM_API_URL}`
-resolves from Ava's config or env.
+resolves from Ava's config or env. `${NAME:-default}` falls back to `default`
+when `NAME` is unset or empty, so one manifest can serve bare metal and Docker.
 
 ### Credentials: the manifest names the token, never holds it
 
@@ -183,10 +184,25 @@ needs a second **origin**, which is what `apps.origin` does — see the block in
 origins to a browser (separate cookie jars, no `parent` access), so it needs no
 second listener. With it set, `/apps/*` is served only on that host, everything
 else is refused there, and Ava hands the frame a short-lived per-connector token
-instead of a session.
+instead of a session (`/api/apps/<id>/embed` is what the shell asks for that URL;
+it answers `{"url": …, "isolated": true}`).
 
-It is **unset by default** — turning it on requires you to make a second name
-resolve to this box — so until you do, the paragraph above is the security model,
+**Set `server.trusted_hosts` at the same time, or every app tile breaks.** Ava's
+DNS-rebinding guard refuses any `Host` it doesn't recognise, and `apps.origin` is
+not added to that list automatically — so with `apps.origin` alone, `/apps/*` is
+refused on Ava's own host (`404 wrong origin`, by design) *and* the apps host
+itself answers `421 Misdirected Request`, leaving the app reachable at neither
+name. Both names must be declared:
+
+```yaml
+apps:
+  origin: "http://apps.ava.local:8096"   # [AVA_APPS_ORIGIN]
+server:
+  trusted_hosts: ["apps.ava.local"]      # without this the frame 421s
+```
+
+`apps.origin` is **unset by default** — turning it on requires you to make a second
+name resolve to this box — so until you do, *iframe security* above is the security model,
 and `embed: none` (a tile plus Ava's generic action console, no remote code in
 Ava's page) is the safer default for an app whose bytes you do not control.
 
@@ -333,7 +349,7 @@ GET /tools
        "name": "list_personas",          // ^[a-z][a-z0-9_]{1,31}$
        "description": "…",               // <=200 chars — the agent reads this
        "inputSchema": {"type": "object", "properties": {…}, "required": […]},
-       "access": "read"                  // read | write | destructive
+       "access": "read"                  // read|sensitive|write|destructive|physical
      }]
    }
 
@@ -350,12 +366,17 @@ Rules of the road:
   REST surface. Don't expose destructive ops you wouldn't hand an assistant: a
   good default is to expose no deletes at all and keep deleting in the app's
   own UI.
-- **`access` drives JIT consent** on Ava's side: `read` runs silently, `write`
-  asks the operator on first use ("Always allow" is remembered), `destructive`
-  asks every time and can never be always-allowed. Omitted -> `write` (safe).
-  Tiers are self-reported: they can only make a tool *quieter*, never extend
-  its reach — the egress policy, the operator's gate, and the audit ledger are
-  Ava's, not the app's.
+- **`access` drives JIT consent** on Ava's side: `read` runs silently,
+  `sensitive`/`write` ask the operator on first use ("Always allow" is
+  remembered), `destructive`/`physical` ask every time and can never be
+  always-allowed. Omitted -> `write` (safe). Full table under *Access tiers*
+  below. Tiers are self-reported: they can only make a tool *quieter*, never
+  extend its reach — the egress policy, the operator's gate, and the audit
+  ledger are Ava's, not the app's. And "quieter" is only honoured for a
+  connector whose base is **loopback/private**: for a remote server Ava ignores
+  the self-report and falls back to `write` unless the manifest opts in with
+  `trust_declared_tiers: true`, because a remote tool list can change without
+  the owner touching Ava.
 - **Results are for a model.** Return compact JSON; prefer ids and URLs over
   payloads; never inline binary/base64 blobs.
 - **Auth is required** unless the surface is loopback-only *and* you are certain
@@ -396,12 +417,24 @@ are optional; anything present prefills the Hub's connect form.
 {
   "facade": "ava-tools/1",
   "label": "Hello App",
-  "tools": "/tools",              // path to the facade listing (default /tools)
-  "call": "/call",                // path tools are invoked at (default /call)
-  "health": "/api/health",        // prefills the health-probe field
-  "ui": true                      // serves an embeddable web UI (sidebar tile)
+  "tools": "/tools",
+  "call": "/call",
+  "health": "/health",
+  "ui": true
 }
 ```
+
+| Field | Meaning |
+|---|---|
+| `facade` | `"ava-tools/1"` — the only required field |
+| `label` | friendly name, prefills the connect form |
+| `tools` | path to the facade listing (default `/tools`) |
+| `call` | path tools are invoked at (default `/call`) |
+| `health` | prefills the health-probe field |
+| `ui` | `true` if the app serves an embeddable web UI (sidebar tile) |
+
+(Comments are shown as a table because the document your app serves must be
+strict JSON — `//` comments would make Detect's parse fail.)
 
 ### MCP servers (`mcp:`): wrap any Model Context Protocol server
 
@@ -447,8 +480,10 @@ to also cut its network. The Setup → Connect an app GUI offers this as a
 one-click toggle, defaulted on when Docker is available.
 
 **Per-action approval (`confirm`).** Gate a sensitive tool behind your explicit
-OK: put `confirm: true` on a static action, or `confirm: true` at the connector
-level to gate every action. When the agent calls a gated action the call
+OK: put `confirm: true` on a static action, `confirm: true` at the connector
+level to gate every action, or `confirm: [action_id, …]` at the connector level to
+gate just those. An author `confirm:` outranks the tier — it always asks and can
+never be granted away. When the agent calls a gated action the call
 **pauses**, an approval prompt appears with the arguments, and the action runs
 only if you approve (or is refused on deny or timeout). Every request and
 decision is written to the audit ledger.
@@ -459,9 +494,16 @@ decision is written to the audit ledger.
 | Tier | At call time |
 |---|---|
 | `read` | runs silently |
+| `sensitive` | no side effects, but **discloses** something (a chat corpus, a mailbox, a location history). Asks on first use; "Always allow" grants durably. Never inferred: it must be declared. |
 | `write` | asks on first use; "Always allow" grants durably |
 | `destructive` | asks every time — never grantable |
 | `physical` | **moves something in the real world** (relay, lock, valve). Asks every time — never grantable. Never inferred: it must be declared. |
+
+Those five are the whole set (`ava_bridge/connectors.py` `_TIERS`); a value that
+isn't one of them is an error row on Setup → Connectors, and the action falls
+back to being inferred from its HTTP method. Inference only ever yields `read`
+(GET/HEAD), `destructive` (DELETE, or a *delete* in the id/path) or `write` —
+`sensitive` and `physical` exist precisely because no HTTP shape implies them.
 
 Dynamic tools (MCP / discovered) have no static declaration to infer from, so
 the manifest classifies them by name pattern — first match wins:
@@ -474,9 +516,12 @@ dynamic_access:
 ```
 
 Classification order is: the manifest's `dynamic_access` patterns (the operator's
-word — always wins) → the tier the app self-reported on its last `/tools` (plain
-MCP servers report none, so those land on `write`) → otherwise `write`, or
-`physical` on a `role: device` connector. **A `role: device` connector should
+word — always wins) → the tier the app self-reported on its last `/tools`, **but
+only for a loopback/private base** or with `trust_declared_tiers: true` (plain
+MCP servers report none anyway, so those land on `write`) → otherwise `write`, or
+`physical` on a `role: device` connector. A misspelled tier in `dynamic_access`
+fails *closed* to `destructive` and shows an error row, rather than silently
+falling through to `write`. **A `role: device` connector should
 always declare a `"*": physical` catch-all**: the device fallback only applies to
 tools Ava has never discovered, so once a tool has been seen the self-reported
 `write` wins and "Always allow" becomes offerable. See the
@@ -497,7 +542,10 @@ stdlib-only adapter that fronts it with genuine MCP, so the same tools answer
 Ava and any MCP client that supports protocol revision 2025-03-26:
 
 ```bash
-python -m ava_mcp --facade http://127.0.0.1:8097 --port 9310 \
+# ava_mcp is not an installed package — its PARENT dir must be on sys.path, so
+# either point PYTHONPATH at sdk/host (below), `cd sdk/host` first, or
+# `cp -r sdk/host/ava_mcp /path/to/your/app/` and run it from there.
+PYTHONPATH=sdk/host python -m ava_mcp --facade http://127.0.0.1:8097 --port 9310 \
                   --token-env MYAPP_TOKEN --auth-env MYAPP_MCP_TOKEN
 ```
 
@@ -554,9 +602,11 @@ Only `name` + `description` are required; everything else is **derived
 automatically** (title humanized from the name, summary cut from the
 description, tools inferred). The card also shows a **deploy state** —
 `live` / `edited · re-provision` / `not deployed · re-provision` — computed by
-comparing the repo SKILL.md against the `data/skills_deployed.json` manifest that
-`install.sh` writes, so a just-added skill honestly reads "re-provision" until
-you run `ava agent provision`. A convention guard
+comparing the repo SKILL.md against the `$AVA_HOME/data/skills_deployed.json`
+manifest that `install.sh` writes, so a just-added skill honestly reads
+"re-provision" until you run `ava agent provision`. On a fresh fork that manifest
+does not exist yet, so the state is *unknown* rather than a lie about being
+deployed, and every card reads **`provision to load`**. A convention guard
 (`tests/test_skill_frontmatter.py`) fails CI if a shipped SKILL.md lacks valid
 frontmatter.
 
@@ -642,7 +692,11 @@ python examples/hello-app/server.py        # serves http://127.0.0.1:8477
 # 2. Register it with Ava by dropping the folder into your data root
 cp -r examples/hello-app "$AVA_HOME/connectors/hello"   # $AVA_HOME defaults to the repo root
 
-# 3. Generate its agent tools + egress policy and load them into the sandbox
+# 3. Generate its agent tools + egress policy and load them into the sandbox.
+#    The first two write into the repo and need nothing installed. install.sh
+#    DEPLOYS into a NemoClaw sandbox, so it needs the agent runtime provisioned
+#    first (`ava agent provision --install`); without it it stops with
+#    "nemoclaw CLI not found" / "sandbox not found" and changes nothing.
 ava connector tools    hello --write
 ava connector policies hello --write
 (cd agent && ./install.sh)
