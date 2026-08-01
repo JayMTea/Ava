@@ -28,12 +28,19 @@ git clone https://github.com/JayMTea/Ava && cd Ava/deploy && ./install.sh
 Already inside a clone? `cd deploy && ./install.sh` — the installer detects that
 it is in a checkout and installs in place rather than cloning again.
 
-> **On Windows?** Use **Git Bash**, which ships with Git for Windows, so cloning
-> the repo means you already have it. Neither of the other two shells can run
-> this: Command Prompt fails on `./install.sh` with `'.' is not recognized`, and
-> PowerShell cannot execute a bash script at all (5.1 also rejects `&&`). Docker
-> Desktop is the only other requirement, and it serves Git Bash like any other
-> shell. The command is identical — there is no separate Windows installer.
+> **On Windows?** Use **Git Bash**. It is a separate application, not a command
+> you type: press the Windows key, type `Git Bash`, press Enter, and run the
+> command above at the `$` prompt. It ships with Git for Windows, so cloning the
+> repo means you already have it.
+>
+> Neither shell Windows opens by default will work. Command Prompt fails on
+> `./install.sh` with `'.' is not recognized as an internal or external command`;
+> PowerShell cannot execute a bash script at all, and 5.1 additionally rejects
+> `&&`. If you see either, you are in the wrong window — nothing is broken.
+>
+> Docker Desktop is the only other requirement, and it serves Git Bash like any
+> other shell. The command is identical to the one above; there is no separate
+> Windows installer.
 
 Or pick the profile yourself. Copy it to `.env` and start; the profile selection
 lives in the file, so every later `logs` / `down` / `pull` sees the same settings:
