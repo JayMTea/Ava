@@ -122,18 +122,11 @@ def for_platform(platform_id: str, mem_model: str | None = None) -> Platform | N
     return rows[0]
 
 
-# --- rendered docs tables ---------------------------------------------------- #
-# Two views of the same rows, because the two docs answer different questions:
-# deploy/README.md asks "which install path do I take", HWINFO_VALIDATION.md asks
-# "what can Ava read on this hardware". They used to be hand-maintained and had
-# already drifted about Apple Silicon.
-_MARK = {
-    "verified-on-device": ':ava-check:{ title="Verified on device" }',
-    "ci-native": ':ava-check:{ title="Verified by CI on real hardware of this class" }',
-    "ci-simulated": ':ava-close:{ title="Logic tested by simulation; numbers unconfirmed" }',
-    "community-reported": ':ava-check:{ title="Reported by a community on-device run" }',
-    "unsupported": ':ava-close:{ title="Not a supported target" }',
-}
+# --- rendered docs table ------------------------------------------------------ #
+# HWINFO_VALIDATION.md asks "what can Ava read on this hardware", and is the only
+# published view of these rows. deploy/README.md used to carry a second, install-
+# path view; both were hand-maintained and had already drifted about Apple Silicon,
+# which is why the rows moved here even though only one table renders from them.
 _MEM_LABEL = {"unified": "system RAM (unified)", "discrete": "free VRAM",
               "system": "system RAM", "unknown": "system RAM (unverified)"}
 _POWER_LABEL = {"nvml-or-smi": "Yes (NVML / nvidia-smi)", "amd-hwmon": "Yes (amdgpu hwmon)",
@@ -153,18 +146,7 @@ def render_markdown(view: str) -> str:
                        f"| {_POWER_LABEL.get(p.power_source, p.power_source)} "
                        f"| {p.tier} | {ev} |")
         return "\n".join(out)
-    if view == "install":
-        out = ["| Your machine | Profile | Local engine | Verified on device |",
-               "|---|---|---|---|"]
-        for p in rows:
-            if p.tier == "unsupported":
-                continue
-            prof = ("bare metal" if p.profile == "bare-metal"
-                    else f"`{p.profile}` profile")
-            out.append(f"| {p.label} | {prof} | {p.engine} "
-                       f"| {_MARK.get(p.tier, p.tier)} |")
-        return "\n".join(out)
-    raise ValueError(f"unknown view {view!r} (want 'hwinfo' or 'install')")
+    raise ValueError(f"unknown view {view!r} (want 'hwinfo')")
 
 
 BEGIN = "<!-- platforms:begin:{view} — generated from deploy/platforms.conf -->"
@@ -268,8 +250,7 @@ def _main(argv: list[str]) -> int:
         return 0
     if args[0] == "--sync":
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        targets = [("hwinfo", os.path.join(root, "docs", "HWINFO_VALIDATION.md")),
-                   ("install", os.path.join(root, "deploy", "README.md"))]
+        targets = [("hwinfo", os.path.join(root, "docs", "HWINFO_VALIDATION.md"))]
         changed = []
         for view, path in targets:
             with open(path, encoding="utf-8") as f:

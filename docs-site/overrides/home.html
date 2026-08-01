@@ -49,15 +49,14 @@
   <section class="ava-features">
     <div class="md-grid">
       <ul class="ava-cards">
-        <li>
-          <h3>Voice, gated to <em>you</em></h3>
-          <p>Speech in, speech out, fully on-device. Enroll a voiceprint and
-          Ava answers your voice only.</p>
-        </li>
-        {#- Four cards, not six. "MCP, but governed" folded into the card below
-            (the acronym is kept so a developer still scans it, but it no longer
-            spends a whole card on a term a novice cannot read), and "Private by
-            default" folded into the hero tagline, where the promise belongs. -#}
+        {#- Three cards, not four: the grid is three columns wide, so a fourth
+            card orphaned itself onto a second row. What the dropped two claimed
+            still ships and is still claimed, just not here. Voice moved into the
+            hero tagline. Self-editing moved into the observability card below,
+            where "approvals" already lived. "MCP, but governed" stays folded
+            into the first card (the acronym is kept so a developer still scans
+            it, but it no longer spends a whole card on a term a novice cannot
+            read), and "Private by default" stays in the hero. -#}
         <li>
           <h3>Drives the apps you already run</h3>
           <p>Point Ava at an app and it becomes a tab: Ava watches it, charts
@@ -66,13 +65,15 @@
         </li>
         <li>
           <h3>You can see everything it does</h3>
-          <p>Tokens/sec, latency, cost and energy, live jobs, alerts,
-          approvals. If you can't observe it, you can't trust it.</p>
+          <p>Tokens/sec, latency, cost and energy, live jobs, alerts. Even the
+          changes Ava writes to its own source land as git commits that wait on
+          your approval. If you can't observe it, you can't trust it.</p>
         </li>
         <li>
-          <h3>Improves itself, with your approval</h3>
-          <p>Source changes land as git commits. Each waits for your approval
-          by default; secrets and models are never writable.</p>
+          <h3>Personalized by you, not for you</h3>
+          <p>Ava ships with no personality: you write how it talks. It learns
+          what matters from your chats and your files, recalls it when relevant,
+          and logs every recall. Read, correct or delete any of it.</p>
         </li>
       </ul>
     </div>

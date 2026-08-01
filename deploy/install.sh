@@ -491,8 +491,14 @@ if [ "$_ok" = 1 ]; then
   #
   # So ask the container, which can always read its own file. AVA_HOME is pinned to
   # /data by docker-compose.yml and Ava keeps its stores in $AVA_HOME/data.
+  #
+  # MSYS_NO_PATHCONV=1: in Git Bash (the Windows path) MSYS rewrites any argument
+  # that looks like a Unix absolute path into a Windows one, so /data/data/setup_claim
+  # reaches the container as C:/Program Files/Git/data/data/setup_claim and the read
+  # silently fails. That lands on the "could not read the token" branch below — the
+  # last step of the documented install, turned into a dead end on Windows only.
   if [ -z "$_claim" ]; then
-    _claim="$(docker compose exec -T ava cat /data/data/setup_claim 2>/dev/null \
+    _claim="$(MSYS_NO_PATHCONV=1 docker compose exec -T ava cat /data/data/setup_claim 2>/dev/null \
               | tr -d '[:space:]' || true)"
   fi
   # And if exec is unavailable, the bridge already printed the link on startup
@@ -507,7 +513,7 @@ if [ "$_ok" = 1 ]; then
     say "Ava is up. Open this link to set your admin password:"
     say "  http://localhost:8096/setup?claim=$_claim"
     say "(the link is single-use — it stops working the moment a password is set)"
-  elif docker compose exec -T ava test -f /data/data/setup_claim 2>/dev/null; then
+  elif MSYS_NO_PATHCONV=1 docker compose exec -T ava test -f /data/data/setup_claim 2>/dev/null; then
     # A token EXISTS and we could not get it. That is not the same as "no gate", and
     # saying "sign in" here is how a first run becomes a 403 with no way forward.
     warn "Ava is up, but this shell could not read the first-run token."

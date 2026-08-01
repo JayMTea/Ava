@@ -15,9 +15,13 @@ hide:
 ## Get running in minutes
 
 ```bash
+# Windows: run this in Git Bash, NOT Command Prompt or PowerShell
 git clone https://github.com/JayMTea/Ava && cd Ava/deploy && ./install.sh
 # it finishes by printing a one-time link; open that to set your admin password
 ```
+
+Git Bash ships with Git for Windows, so cloning the repo means you already have
+it. Command Prompt and PowerShell cannot run a shell script.
 
 One command detects your hardware, downloads a model, and gets you chatting in
 your browser. Everything after that happens in the in-app **Setup hub**: wire in

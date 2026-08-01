@@ -2,41 +2,8 @@
 
 Ava is **self-hosted and single-tenant**: you run your own instance on your own
 hardware, point it at your own models, and connect your own apps. This is step
-one of getting started: fork (or clone) the repo, then pick the path for your
-machine.
-
-<!-- platforms:begin:install — generated from deploy/platforms.conf -->
-| Your machine | Profile | Local engine | Verified on device |
-|---|---|---|---|
-| Unified-memory NVIDIA (GB10 / Grace-Blackwell) | `gpu` profile | vllm | :ava-check:{ title="Verified on device" } |
-| Linux + discrete NVIDIA (RTX / data-centre) | `gpu` profile | vllm | :ava-close:{ title="Logic tested by simulation; numbers unconfirmed" } |
-| AMD APU (Strix Halo / Ryzen AI Max) | `rocm` profile | ollama | :ava-close:{ title="Logic tested by simulation; numbers unconfirmed" } |
-| AMD discrete (Radeon / ROCm) | `rocm` profile | ollama | :ava-close:{ title="Logic tested by simulation; numbers unconfirmed" } |
-| Intel Arc / Xe | `cpu` profile | ollama | :ava-close:{ title="Logic tested by simulation; numbers unconfirmed" } |
-| Linux, GPU present but unidentifiable | `cpu` profile | ollama | :ava-close:{ title="Logic tested by simulation; numbers unconfirmed" } |
-| CPU-only Linux | `cpu` profile | ollama | :ava-check:{ title="Verified by CI on real hardware of this class" } |
-| Apple Silicon (Mac mini / Studio / laptop) | bare metal | ollama | :ava-close:{ title="Logic tested by simulation; numbers unconfirmed" } |
-| Windows + NVIDIA | `gpu` profile | ollama | :ava-close:{ title="Logic tested by simulation; numbers unconfirmed" } |
-| Windows, no NVIDIA | `cpu` profile | ollama | :ava-close:{ title="Logic tested by simulation; numbers unconfirmed" } |
-| Unrecognised platform (gating disabled) | `cloud` profile | openai | :ava-close:{ title="Logic tested by simulation; numbers unconfirmed" } |
-<!-- platforms:end -->
-
-Apple Silicon runs [bare metal with a native engine](#apple-silicon-mac-mini-studio)
-because Docker can't reach the Apple GPU; every other row is
-[Docker](#1-docker-recommended) with the profile shown. With just an API key, use
-the `cloud` profile and no local accelerator is involved.
-
-**That last column is a claim about evidence, not a promise about quality.** A tick
-means the code has been run on real hardware of that class — either by a human who
-committed the report, or by a CI job on a runner of that class. A cross means the
-detection logic is tested by simulation and expected to work, but **the numbers are
-unconfirmed on that hardware**. Nothing in this table is marketing: the row for the
-maintainer's own machine is the only one carrying a committed on-device report.
-
-Both this table and the fuller one in
-[Hardware support](../docs/HWINFO_VALIDATION.md) render from
-`deploy/platforms.conf` (`python3 -m ava_bridge.platforms --sync`), so they cannot
-drift apart the way two hand-maintained tables did.
+one of getting started: pick the path for your machine and run it. The command
+below clones the repo for you, so a fresh box needs nothing but Docker and git.
 
 However you install, verify the wiring afterwards: open **Setup → Hardware** and
 Ava should show your machine, detected automatically.
@@ -53,8 +20,20 @@ The easy path — detects your hardware, picks a profile, resolves your model's
 vLLM flags, and waits for the app to actually answer before saying it is done:
 
 ```bash
-cd deploy && ./install.sh
+# Windows: run this in Git Bash, NOT Command Prompt or PowerShell
+git clone https://github.com/JayMTea/Ava && cd Ava/deploy && ./install.sh
+# it finishes by printing a one-time link; open that to set your admin password
 ```
+
+Already inside a clone? `cd deploy && ./install.sh` — the installer detects that
+it is in a checkout and installs in place rather than cloning again.
+
+> **On Windows?** Use **Git Bash**, which ships with Git for Windows, so cloning
+> the repo means you already have it. Neither of the other two shells can run
+> this: Command Prompt fails on `./install.sh` with `'.' is not recognized`, and
+> PowerShell cannot execute a bash script at all (5.1 also rejects `&&`). Docker
+> Desktop is the only other requirement, and it serves Git Bash like any other
+> shell. The command is identical — there is no separate Windows installer.
 
 Or pick the profile yourself. Copy it to `.env` and start; the profile selection
 lives in the file, so every later `logs` / `down` / `pull` sees the same settings:
@@ -252,12 +231,12 @@ docker compose pull && docker compose up -d
 Verifying a fork's own build? Swap `jaymtea` / `JayMTea` for your owner in both
 places, keeping the same lowercase-registry, cased-identity split.
 
-One-line install on a fresh box (auto-detects GPU/CPU). Run it from inside your
-clone, or point `AVA_REPO` at your fork:
+Installing **from a fork**, without cloning it first? Point `AVA_REPO` at your
+fork and pipe its own copy of the installer (the plain one-liner is at the top of
+this page, and is the same script):
 
 ```bash
-git clone https://github.com/JayMTea/Ava && cd Ava/deploy && ./install.sh
-# from a fork, standalone (replace `master` with your fork's default branch or a release tag):
+# replace `master` with your fork's default branch or a release tag:
 AVA_REPO=https://github.com/<you>/ava.git bash -c "$(curl -fsSL https://raw.githubusercontent.com/<you>/ava/master/deploy/install.sh)"
 ```
 

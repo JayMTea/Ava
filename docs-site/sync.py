@@ -307,7 +307,8 @@ def main() -> int:
         print("WARNING: missing sources:\n  " + "\n  ".join(missing))
     if not REPO_BASE:
         print("note: AVA_DOCS_REPO_BASE unset — links into repo source are rendered "
-              "as plain labels (set it once the repo is public)")
+              "as plain labels. The docs workflow sets it; export "
+              "AVA_DOCS_REPO_BASE=https://github.com/JayMTea/Ava to preview as published.")
     print(f"staged {len(CURATED)} pages + {len(ASSETS)} assets -> {OUT}")
     return 0
 

@@ -179,7 +179,7 @@ def test_committed_evidence_reports_match_their_row() -> None:
 
 
 def test_the_rendered_docs_tables_match_the_conf() -> None:
-    """Both docs tables must be what --sync would write.
+    """The docs table must be what --sync would write.
 
     Same shape as tests/test_diagram_sync.py: the derived artifact is checked
     against its source by a test that needs no toolchain, so "edited the table,
@@ -187,8 +187,7 @@ def test_the_rendered_docs_tables_match_the_conf() -> None:
     that contradicts `ava doctor`.
     """
     require_git()
-    targets = [("hwinfo", "docs/HWINFO_VALIDATION.md"),
-               ("install", "deploy/README.md")]
+    targets = [("hwinfo", "docs/HWINFO_VALIDATION.md")]
     stale = []
     for view, rel in targets:
         text = (ROOT / rel).read_text(encoding="utf-8")

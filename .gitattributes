@@ -1,0 +1,16 @@
+# Shell scripts MUST check out with LF, on every platform.
+#
+# Git for Windows defaults to core.autocrlf=true, which rewrites every text file
+# to CRLF on checkout. A CRLF `install.sh` is not a slightly-odd script: bash
+# reads the trailing \r as part of the command and the very first line dies with
+# `$'\r': command not found`. The documented one-line install
+# (`git clone … && cd Ava/deploy && ./install.sh`) runs fine in Git Bash, which
+# ships with Git for Windows — but only if the checkout did not corrupt it first.
+#
+# This is repo-wide, not deploy-only: agent-entrypoint.sh and the qa/ scripts are
+# executed the same way and break the same way.
+*.sh text eol=lf
+
+# Same reasoning inverted: PowerShell is happiest with CRLF, and .ps1 files are
+# only ever run on Windows.
+*.ps1 text eol=crlf

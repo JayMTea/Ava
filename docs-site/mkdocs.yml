@@ -1,12 +1,14 @@
 site_name: Ava
 site_description: A self-hosted personal AI operating layer. Chat, voice, GPU workloads, and app automation on your own hardware.
 site_url: https://JayMTea.github.io/Ava/
-# PRE-LAUNCH: the repo is private, so github.com/JayMTea/Ava is a 404 to anyone
-# who is not a collaborator. Publishing the site with a repo widget would ship a
-# dead "View on GitHub" pill on every page, so the widget is driven by the SAME
-# switch as sync.py's source-link rewriting: set AVA_DOCS_REPO_BASE when the
-# repo goes public and both light up together. Unset, Material renders no
-# widget and javascripts/chrome.js skips the pill (it no-ops without the anchor).
+# The repo went public on 2026-07-30 and .github/workflows/docs.yml sets
+# AVA_DOCS_REPO_BASE, so the published site carries the widget and the pill and
+# sync.py mints real source links. The switch stays rather than being hardcoded
+# because it drives three things that must agree (widget, pill, and sync.py's
+# link rewriting), and because a LOCAL `python docs-site/sync.py` runs with it
+# unset: Material then renders no widget and javascripts/chrome.js skips the pill
+# (it no-ops without the anchor), which is the right local default. Export it to
+# preview the site exactly as published.
 repo_url: !ENV [AVA_DOCS_REPO_BASE, ""]
 repo_name: JayMTea/Ava
 copyright: Apache-2.0 &middot; The Ava Authors
