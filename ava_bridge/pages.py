@@ -180,6 +180,17 @@ def setup_get(request: Request):
 def setup_post(request: Request, password: str = Form(""), confirm: str = Form("")):
     if not auth.needs_setup():   # password already set -> can't reset via this screen
         return RedirectResponse("/login", status_code=303)
+    # Checked BEFORE the claim, because it is the one refusal that applies to
+    # every install. may_claim() is not a CSRF defence: it stops a drive-by on
+    # Docker only as a side effect of the peer being the bridge gateway, and on
+    # bare metal a loopback caller passes it with no token, so any page the owner
+    # visits during the first-run window could set the admin password.
+    ok, why = auth.same_site_write(request)
+    if not ok:
+        return HTMLResponse(
+            _render_claim("That request did not come from this page "
+                          f"({html.escape(why)}). Start setup from Ava itself."),
+            status_code=403)
     # An unclaimed instance bound off-loopback is otherwise first-come-first-served:
     # whoever on the network reaches it first sets the admin password and the owner
     # is locked out of their own box. Loopback callers are trusted; everyone else

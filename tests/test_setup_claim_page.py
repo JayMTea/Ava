@@ -173,3 +173,62 @@ def test_a_hostile_claim_is_never_reflected_into_the_page(fresh) -> None:
     r = client.get("/setup", params={"claim": hostile})
     assert r.status_code == 403
     assert "<script>alert(1)</script>" not in r.text
+
+
+# ---- Cross-site writes ------------------------------------------------------
+def test_a_cross_site_form_post_cannot_set_the_admin_password(fresh) -> None:
+    """POST /setup takes exactly `password` and `confirm`, which makes a
+    cross-site auto-submitting form a CORS *simple* request: no preflight, and
+    the Host header is this bridge's own so host_is_trusted() passes it.
+
+    may_claim() was never the defence here. It stops this on Docker only as a
+    side effect of the peer being the bridge gateway; on bare metal a loopback
+    caller passes the gate with no token at all, so any page the owner visited
+    during the first-run window could have claimed their instance.
+    """
+    client, token = fresh
+    evil = client.post(f"/setup?claim={token}",
+                       data={"password": "attacker-pw-01",
+                             "confirm": "attacker-pw-01"},
+                       headers={"sec-fetch-site": "cross-site"},
+                       follow_redirects=False)
+    assert evil.status_code == 403, (
+        "a cross-site POST carrying a valid claim set the admin password")
+    assert not auth.current_password()
+
+
+def test_a_mismatched_origin_is_refused_for_clients_without_sec_fetch(fresh) -> None:
+    client, token = fresh
+    evil = client.post(f"/setup?claim={token}",
+                       data={"password": "attacker-pw-01",
+                             "confirm": "attacker-pw-01"},
+                       headers={"origin": "http://evil.example"},
+                       follow_redirects=False)
+    assert evil.status_code == 403
+    assert not auth.current_password()
+
+
+def test_the_pages_own_form_still_goes_through(fresh) -> None:
+    """What a real browser sends when submitting the form Ava rendered."""
+    client, token = fresh
+    action = _form_action(client.get("/setup", params={"claim": token}).text)
+    done = client.post(action,
+                       data={"password": "hunter2hunter2",
+                             "confirm": "hunter2hunter2"},
+                       headers={"sec-fetch-site": "same-origin",
+                                "origin": "http://testserver"},
+                       follow_redirects=False)
+    assert done.status_code == 303, "the browser's own same-origin submit was refused"
+    assert auth.current_password() == "hunter2hunter2"
+
+
+def test_a_non_browser_client_is_not_locked_out(fresh) -> None:
+    """No Sec-Fetch-Site and no Origin means no browser sent this, and a request
+    no browser sent cannot be CSRF. curl, the health probes and CI rely on it."""
+    client, token = fresh
+    done = client.post(f"/setup?claim={token}",
+                       data={"password": "hunter2hunter2",
+                             "confirm": "hunter2hunter2"},
+                       follow_redirects=False)
+    assert done.status_code == 303
+    assert auth.current_password() == "hunter2hunter2"

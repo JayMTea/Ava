@@ -512,6 +512,10 @@ if [ "$_ok" = 1 ]; then
   if [ -n "$_claim" ]; then
     say "Ava is up. Open this link to set your admin password:"
     say "  http://localhost:8096/setup?claim=$_claim"
+    # Also on its own line: terminals wrap long URLs, and a wrapped link that is
+    # copied in two pieces loses the query string — which on this URL is the only
+    # part that matters. The bare token can be retyped.
+    say "  (token alone, if that link wrapped: $_claim)"
     say "(the link is single-use — it stops working the moment a password is set)"
   elif MSYS_NO_PATHCONV=1 docker compose exec -T ava test -f /data/data/setup_claim 2>/dev/null; then
     # A token EXISTS and we could not get it. That is not the same as "no gate", and

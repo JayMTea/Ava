@@ -8,6 +8,7 @@ registered route and assert its unauthenticated behavior class:
   * anything else redirects (303) to the login/setup flow.
 Plus cookie hygiene and scoped internal tokens.
 """
+import re
 import unittest
 
 import pytest
@@ -159,6 +160,8 @@ class TestAuthSurface(unittest.TestCase):
         machine). Anyone else must present the token printed to the server's
         console, which is a proof that you can read the server's disk.
         """
+        import os
+        import tempfile
         from unittest import mock
 
         from fastapi.testclient import TestClient
@@ -193,6 +196,31 @@ class TestAuthSurface(unittest.TestCase):
                 # A near-miss is still refused.
                 self.assertEqual(
                     remote.get(f"/setup?claim={token}x").status_code, 403)
+
+                # The case this suite never covered: a remote caller who HOLDS a
+                # valid token must be able to finish, not merely be shown the
+                # form. Everything above posts without a token, so the password
+                # step being unreachable for every Docker install looked exactly
+                # like a correctly-armed gate.
+                form = remote.get(f"/setup?claim={token}").text
+                action = re.search(r'<form[^>]*action="([^"]*)"', form).group(1)
+                self.assertIn(token, action,
+                              "the password form drops the claim on submit")
+                # set_password() writes auth._PASSWORD_FILE for real, and this
+                # suite shares one app across tests — completing setup against
+                # the live path replaced QA_PASSWORD and took four later login
+                # tests down with it. Point the write somewhere disposable: what
+                # is under test is that the POST is ACCEPTED, not where the
+                # password lands.
+                with tempfile.TemporaryDirectory() as td:
+                    with mock.patch.object(auth, "_PASSWORD_FILE",
+                                           os.path.join(td, "auth_password")):
+                        done = remote.post(action,
+                                           data={"password": "hunter2hunter2",
+                                                 "confirm": "hunter2hunter2"},
+                                           headers={"sec-fetch-site": "same-origin"})
+                self.assertEqual(done.status_code, 303,
+                                 "a remote claimer could not complete first run")
             finally:
                 auth.clear_claim()
 

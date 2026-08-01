@@ -121,8 +121,8 @@ on your network to find the port sets your admin password and locks you out of
 your own install. So Ava asks for proof that you can read a file on the server's
 disk, which is the same thing as proving the machine is yours. Refusing remote
 setup outright would be the other option, but a headless box with no local
-browser has to stay claimable. Jupyter's token and Home Assistant's onboarding
-solve it the same way.
+browser has to stay claimable. Jupyter's token and Pi-hole v6's first-run
+password solve it the same way.
 
 **Why you see it on your own machine.** Under Docker, your request reaches Ava
 through the compose bridge network, so the container sees the gateway address
@@ -130,7 +130,21 @@ through the compose bridge network, so the container sees the gateway address
 from anyone else on the network, so it asks everyone. A bare-metal install on
 loopback skips the gate entirely.
 
-**If you lost the link**, read the token back and rebuild the URL yourself:
+That last point is also why the gate is not theatre on a stock install, even
+though `docker-compose.yml` publishes every port on `127.0.0.1` only: the compose
+file declares no `networks:` key, so `ollama`, `vllm`, `gpu-service` and the agent
+sandbox all sit on one flat bridge with an unauthenticated route to
+`http://ava:8096/setup` that never touches the published port. On the `agent` and
+`full` profiles one of those neighbours is a sandbox that runs model-generated
+code, started by the same `docker compose up -d`, before any password exists.
+
+**If you lost the link**, ask Ava for it:
+
+```bash
+./bin/ava claim
+```
+
+Or read the token out of the container yourself:
 
 ```bash
 docker compose exec ava cat /data/data/setup_claim

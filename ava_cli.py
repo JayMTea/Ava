@@ -715,6 +715,37 @@ def cmd_version(_args) -> int:
     return 0
 
 
+def cmd_claim(args) -> int:
+    """Print the first-run claim token and the URL that uses it.
+
+    `deploy/install.sh` prints this at the end of an install, but the documented
+    `cp profiles/<p>.env .env && docker compose up -d` path never runs it — and
+    that owner then meets the claim gate with nothing to type into it. Reading
+    the file by hand needs the container path and, on Windows, an MSYS opt-out;
+    both are things the owner should not have to know.
+    """
+    from ava_bridge import auth, config
+
+    if not auth.needs_setup():
+        print("This instance is already claimed — a password is set. "
+              "Sign in at /login.")
+        return 0
+    token = auth.claim_token()
+    if not token:
+        # claim_token() returns "" when AVA_HOME is unwritable; it refuses to
+        # block setup on bookkeeping, so say what that means rather than
+        # printing an empty line and exiting 0.
+        print(f"No claim token could be written under {config.CHATS_DIR!r}. "
+              "Setup is not gated by a token in that state; if /setup still "
+              "refuses you, fix the permissions on that directory.", file=sys.stderr)
+        return 1
+    base = (args.url or "http://localhost:8096").rstrip("/")
+    print(f"Token: {token}")
+    print(f"Open:  {base}/setup?claim={token}")
+    print("The link is single-use: it stops working the moment a password is set.")
+    return 0
+
+
 def cmd_agent(args) -> int:
     """Manage the agent runtime (NemoClaw): status + provisioning."""
     from ava_bridge import runtime, config
@@ -1698,6 +1729,10 @@ def main() -> int:
     up.add_argument("--port", type=int)
     up.set_defaults(func=cmd_up)
     sub.add_parser("version", help="print version").set_defaults(func=cmd_version)
+    clp = sub.add_parser("claim", help="print the first-run claim token and link")
+    clp.add_argument("--url", default="", metavar="BASE",
+                     help="base URL to build the link from (default http://localhost:8096)")
+    clp.set_defaults(func=cmd_claim)
     ap = sub.add_parser("agent", help="agent runtime (NemoClaw): status / provision")
     ap.add_argument("action", nargs="?", choices=["status", "provision"], default="status")
     ap.add_argument("--install", action="store_true",

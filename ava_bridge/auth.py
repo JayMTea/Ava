@@ -12,6 +12,7 @@ import ipaddress
 import os
 import secrets
 import time
+from urllib.parse import urlsplit
 
 from fastapi import Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
@@ -216,7 +217,11 @@ def set_session_cookie(resp: Response, request: Request | None = None) -> None:
 # server with no local browser must still be claimable.
 #
 # So: loopback claims freely; anyone else presents a token printed to the server's
-# own console. Same shape as Jupyter's token and Home Assistant's onboarding.
+# own console. Same shape as Jupyter's token and Pi-hole v6's first-run password.
+# NOT Home Assistant, which this comment used to cite: HA's onboarding has no
+# token and no secret to present — it trusts whoever reaches the port first, which
+# is the design this gate exists to refuse. Citing it as the same shape argued
+# the opposite of what the code does.
 
 _CLAIM_FILE = os.path.join(config.CHATS_DIR, "setup_claim")
 
@@ -265,6 +270,44 @@ def may_claim(request: Request) -> bool:
     got = (request.query_params.get("claim")
            or request.headers.get("x-ava-setup-claim") or "")
     return bool(got) and hmac.compare_digest(got.strip(), want)
+
+
+def same_site_write(request: Request) -> tuple[bool, str]:
+    """(ok, reason). Did the browser say this state-changing POST is its own?
+
+    `POST /setup` takes exactly `password` and `confirm`, which makes a
+    cross-site auto-submitting form a CORS *simple* request: no preflight, and
+    `Host: 127.0.0.1:8096` sails through `host_is_trusted()`. On the Docker path
+    `may_claim()` happens to stop it, because the peer is the bridge gateway
+    rather than loopback — but on BARE METAL a loopback caller passes the gate
+    with no token at all, so any page the owner visits during the first-run
+    window could set the admin password. The gate was never a CSRF defence; it
+    only looked like one on the install where the peer address happened to fail.
+
+    `Sec-Fetch-Site` is decided by the browser and cannot be set by page script,
+    so it is authoritative when present. `Origin` is the fallback for clients
+    that predate it. Neither present means no browser sent this, and a request
+    no browser sent cannot be cross-site request forgery — so it is allowed, and
+    curl, the health probes and the QA suite keep working.
+    """
+    sfs = (request.headers.get("sec-fetch-site") or "").strip().lower()
+    if sfs:
+        # "none" is a direct navigation (typed, bookmarked); "same-origin" is our
+        # own page. "same-site" and "cross-site" both mean another origin drove it.
+        if sfs in ("same-origin", "none"):
+            return True, ""
+        return False, f"Sec-Fetch-Site: {sfs}"
+    origin = (request.headers.get("origin") or "").strip()
+    if origin and origin.lower() not in ("null", "undefined"):
+        host = (request.headers.get("host") or "").strip().lower()
+        try:
+            netloc = urlsplit(origin).netloc.lower()
+        except ValueError:
+            return False, f"unparseable Origin: {origin!r}"
+        if netloc and host and netloc == host:
+            return True, ""
+        return False, f"Origin {origin!r} is not this host"
+    return True, ""
 
 
 def in_container() -> bool:

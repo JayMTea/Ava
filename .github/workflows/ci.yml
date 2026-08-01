@@ -537,6 +537,26 @@ jobs:
           [ "$code" = 200 ] || { echo "::error::/setup?claim=<token> returned $code, expected 200 — first run is unreachable for every forker"; exit 1; }
           echo "claim link works — a fresh install can reach the password form"
 
+          # RENDERING the form is not COMPLETING first run, and the difference is
+          # not academic: setup.html posted to a bare /setup while may_claim()
+          # reads the claim from the query string, so the token was dropped on
+          # submit and every Docker install 403'd at the password step. This step
+          # stopped at the 200 above and called it green. Post where the form
+          # actually points, so the assertion is "a fresh install can FINISH".
+          action="$(curl -s --max-time 5 "http://127.0.0.1:8096/setup?claim=$tok" \
+                    | sed -n 's|.*<form[^>]*action="\([^"]*\)".*|\1|p' | head -1)"
+          case "$action" in
+            *"claim=$tok"*) ;;
+            *) echo "::error::the password form posts to '$action', which drops the claim — submitting it cannot pass may_claim(), so first run cannot complete"; exit 1 ;;
+          esac
+          code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -X POST \
+                    --data 'password=ci-first-run-pw&confirm=ci-first-run-pw' \
+                    "http://127.0.0.1:8096${action}")"
+          [ "$code" = 303 ] || { echo "::error::POST to the form's own action returned $code, expected 303 — a fresh install cannot set a password"; docker compose logs --tail 40 ava; exit 1; }
+          code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:8096/setup)"
+          [ "$code" = 303 ] || { echo "::error::/setup returned $code after the password was set, expected 303 to /login — the instance did not actually become claimed"; exit 1; }
+          echo "first run COMPLETES — password set, setup closed"
+
           docker compose down -v
           rm -f docker-compose.override.yml
 
