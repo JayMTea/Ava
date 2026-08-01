@@ -22,7 +22,9 @@ function check(name: string, ok: boolean, extra = '') {
                      page.keyboard.press('Enter')]);
   check('logged in', !page.url().includes('/login'), page.url());
 
-  // The composer lives on the chat view (the default tab is Vitals).
+  // The composer lives on the chat view. (Landing is Setup; the walkthrough
+  // was marked seen by setup-flow.spec.ts, which runs first — without that the
+  // overlay puts #root in `inert` and nothing below can type.)
   await page.evaluate(() => { location.hash = 'chat'; });
   const composer = page.locator('textarea#text');
   await composer.waitFor({ timeout: 20000 });

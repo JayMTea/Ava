@@ -56,5 +56,30 @@ function check(name: string, ok: boolean, extra = '') {
   check('SPA shell served after onboarding', html.toLowerCase().includes('<div'));
   check('no longer redirected to setup', !page.url().includes('/setup'));
 
+  // A bare `/` must land on Setup, not Vitals. This is the whole point of the
+  // landing change: the wizard redirects here with no hash, and a metrics
+  // dashboard is the least explicable screen to someone who just installed.
+  await page.waitForFunction(() => location.hash !== '', null, { timeout: 10000 })
+    .catch(() => {});
+  check('lands on Setup, not Vitals', page.url().endsWith('#hub'), page.url());
+
+  // The first-run walkthrough must actually run on a fresh install.
+  const card = page.locator('.tour-card');
+  await card.waitFor({ timeout: 10000 }).catch(() => {});
+  check('walkthrough appears on first run', await card.count() > 0);
+
+  // Then get it out of the way for every spec that follows. It is server-side
+  // state, so this holds for the rest of the ordered run — and it must, because
+  // the overlay puts #root in `inert` and a spec cannot type through that.
+  const dismissed = await page.evaluate(async () => {
+    const r = await fetch('/api/hub/tour');
+    const pages: string[] = (await r.json()).pages || [];
+    for (const p of pages) {
+      await fetch(`/api/hub/tour/seen?page=${encodeURIComponent(p)}`, { method: 'POST' });
+    }
+    return (await (await fetch('/api/hub/tour')).json()).seen.length;
+  });
+  check('walkthrough dismissed for the rest of the run', dismissed > 0, `${dismissed} pages`);
+
   await browser.close();
 })().catch((e) => { console.error(e); process.exit(1); });
