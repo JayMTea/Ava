@@ -44,7 +44,19 @@ const pwa = VitePWA({
     // pin Ava's own mark on every installed branded client. This is the same
     // trap the webmanifest note below describes, reached by a different door —
     // .ico stays safe only because the pattern never matched it.
-    globIgnores: ['favicon.svg'],
+    // assets/brand/** is an OWNER's brand pack, gitignored at .gitignore:119.
+    // Workbox globs the OUTPUT directory, so a maintainer who has one gets those
+    // PNGs baked into dist/sw.js while a fresh checkout does not — and the build
+    // artifact stops being a function of the tracked source. That is not a
+    // theoretical drift: it is what the frontend-dist-drift job caught, and the
+    // symptom is unreadable (a sw.js whose whole minified line differs) while the
+    // cause is four files nobody can see in `git status`.
+    //
+    // A build must depend only on what is committed. Ignoring them here is also
+    // correct on its own terms: brand assets are served by the bridge and change
+    // without a rebuild, so a precached copy would pin a stale logo on every
+    // installed client — the same argument favicon.svg is ignored for.
+    globIgnores: ['favicon.svg', 'assets/brand/**'],
     navigateFallback: '/index.html',
     navigateFallbackDenylist: [
       /^\/api/, /^\/apps/, /^\/media/, /^\/uploads/, /^\/internal/,
