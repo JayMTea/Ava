@@ -32,6 +32,12 @@
  button:hover{background:var(--accent-hover)} button.ghost{background:transparent;border:1px solid var(--inputline)}
  .nav{display:flex;gap:10px} .nav button{margin-top:16px}
  .msg{color:#e58a6f;font-size:13px;text-align:center;min-height:16px;margin-top:8px}
+ .lead{font-size:14px;color:var(--muted);margin:0 0 14px}
+ .lead b{color:var(--txt)}
+ .brainName{color:var(--txt);font-size:17px;font-weight:600;word-break:break-all}
+ .brainWhere{font-size:12.5px;margin-top:2px}
+ .info p{margin:10px 0 0}
+ .fine{font-size:12px;color:var(--muted);text-align:center;margin:12px 0 0}
 </style></head><body>
  <div class="card">
   <h1>Set up __BRAND__</h1>
@@ -44,21 +50,51 @@
    <div class="nav"><button onclick="go(1)">Next</button></div>
   </div>
 
-  <!-- Step 2: backend -->
+  <!-- Step 2: the brain.
+       This asked the user to TYPE a model id and refused to finish without one,
+       while the answer sat in the bridge's own environment: install.sh resolves
+       and pulls a model, writes AVA_MODEL, and compose passes it in as
+       AVA_BACKEND_MODEL. A novice cannot know that string, and a typo produces a
+       config that looks right and fails at their first message.
+       So: confirm, do not ask. The button carries the model's NAME rather than
+       saying "Next", because that label is the only place a first-time user
+       learns the word — and they need it, since it reappears as a picker in the
+       chat header and an axis in Vitals. The full chooser is one click away and
+       loses nothing for anyone who knows what they want. -->
   <div class="step" data-step="1">
-   <div id="backendOpts"></div>
-   <div id="localFields" style="display:none">
-     <label>Engine</label>
-     <select id="engine"><option value="ollama">Ollama</option><option value="mlx">MLX (Apple Silicon)</option><option value="lmstudio">LM Studio</option><option value="llamacpp">llama.cpp</option><option value="vllm">vLLM (NVIDIA)</option></select>
-     <label>Base URL</label><input id="baseUrl" value="http://127.0.0.1:11434/v1">
-     <label>Model</label><input id="model" placeholder="llama3.2" required>
+   <div id="brainCard" style="display:none">
+    <p class="lead">__BRAND__ doesn't know anything by itself. It thinks using a
+    <b>model</b>: a file running on this machine that does the actual reading
+    and writing.</p>
+    <div class="info">
+     <div class="brainName" id="brainModel">—</div>
+     <div class="brainWhere" id="brainWhere"></div>
+     <p id="brainWhy"></p>
+    </div>
+    <button id="brainUse" onclick="useBrain()">Use this model</button>
+    <button class="ghost" onclick="showChooser()">Use a different model</button>
+    <p class="fine">Change this any time in Setup &rarr; Agent.</p>
    </div>
-   <div id="cloudFields" style="display:none">
-     <label>Provider base URL</label><input id="cBase" placeholder="https://api.openai.com/v1">
-     <label>Model</label><input id="cModel" placeholder="gpt-4o-mini" required>
-     <label>API key (stored locally in secrets/, never in ava.yaml)</label><input id="cKey" type="password">
+
+   <div id="chooser" style="display:none">
+    <div id="backendOpts"></div>
+    <div id="localFields" style="display:none">
+      <label>Engine</label>
+      <select id="engine"><option value="ollama">Ollama</option><option value="mlx">MLX (Apple Silicon)</option><option value="lmstudio">LM Studio</option><option value="llamacpp">llama.cpp</option><option value="vllm">vLLM (NVIDIA)</option></select>
+      <label>Base URL</label><input id="baseUrl" value="http://127.0.0.1:11434/v1">
+      <label>Model</label><input id="model" placeholder="llama3.2" required>
+    </div>
+    <div id="cloudFields" style="display:none">
+      <label>Provider base URL</label><input id="cBase" placeholder="https://api.openai.com/v1">
+      <label>Model</label><input id="cModel" placeholder="gpt-4o-mini" required>
+      <label>API key (stored locally in secrets/, never in ava.yaml)</label><input id="cKey" type="password">
+    </div>
    </div>
-   <div class="nav"><button class="ghost" onclick="go(0)">Back</button><button onclick="go(2)">Next</button></div>
+
+   <div class="nav">
+    <button class="ghost" onclick="go(0)">Back</button>
+    <button id="chooserNext" onclick="go(2)" style="display:none">Next</button>
+   </div>
   </div>
 
   <!-- Step 3: features + finish.
@@ -88,7 +124,33 @@
 const S={mode:null};
 function go(n){document.querySelectorAll('.step').forEach(e=>e.classList.toggle('on',+e.dataset.step===n));
   document.querySelectorAll('.dot').forEach((d,i)=>d.classList.toggle('on',i<=n));
+  if(n===1)loadBrain();
   if(n===2)loadFeatures();}
+async function loadBrain(){
+  // Nothing already thinking? Then there is a real choice to make, and the
+  // chooser IS the step — no card, no confirm-what-does-not-exist.
+  const b=await j('/api/setup/brain');S.brain=b;
+  if(!b.model){showChooser();return;}
+  document.getElementById('brainModel').textContent=b.model;
+  document.getElementById('brainWhere').textContent=
+    (b.engine?('running on '+b.engine):'configured')+' · '+
+    (b.live?'answering now':'not answering yet');
+  document.getElementById('brainWhy').textContent=b.consequence||'';
+  document.getElementById('brainUse').textContent='Use '+b.model;
+  document.getElementById('brainCard').style.display='block';
+  document.getElementById('chooser').style.display='none';
+  document.getElementById('chooserNext').style.display='none';
+}
+function showChooser(){
+  document.getElementById('brainCard').style.display='none';
+  document.getElementById('chooser').style.display='block';
+  document.getElementById('chooserNext').style.display='';
+  // Drop the confirm intent: from here the user is choosing, and save() must
+  // send what they picked rather than "use what was already there".
+  if(S.mode==='installed')S.mode=null;
+  if(!S.mode){const o=document.querySelector('[data-m=local]');if(o)o.click();}
+}
+function useBrain(){S.mode='installed';go(2);}
 async function j(u,o){const r=await fetch(u,o);return r.json();}
 (async()=>{
   const h=await j('/api/setup/hardware');
@@ -132,7 +194,14 @@ async function loadFeatures(){
     + (x.sub?` <small>${x.sub}</small>`:'') + `</label>`).join('') || 'None available.';
 }
 async function save(skip){
-  const inf = S.mode==='cloud'
+  // `installed` carries no values on purpose. The server re-derives what is in
+  // force and writes NO inference block: router_app.load_backends() builds the
+  // env backend only while inference.backends is empty, so copying the
+  // installer's model into ava.yaml would shadow it and stop it tracking
+  // deploy/.env. Confirming is not choosing.
+  const inf = S.mode==='installed'
+    ? {mode:'installed'}
+    : S.mode==='cloud'
     ? {mode:'cloud',base_url:v('cBase'),model:v('cModel'),api_key:v('cKey')}
     : {mode:'local',engine:v('engine'),base_url:v('baseUrl'),model:v('model')};
   const features={};

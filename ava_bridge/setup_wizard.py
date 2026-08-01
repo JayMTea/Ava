@@ -202,21 +202,28 @@ def _candidates() -> list[dict]:
     seen: set[str] = set()
     out: list[dict] = []
 
-    def add(cid: str, base: str, engine: str = "", note: str = ""):
+    def add(cid: str, base: str, engine: str = "", note: str = "",
+            model: str = ""):
         base = (base or "").strip().rstrip("/")
         if not base or base in seen:
             return
         seen.add(base)
         out.append({"id": cid, "base_url": base,
-                    "engine": _engine_of(base, engine), "note": note})
+                    "engine": _engine_of(base, engine), "note": note,
+                    # The MODEL each source names. This was read and thrown away:
+                    # both sources below already carry one, and dropping it is why
+                    # the wizard demanded the user retype a value it was holding.
+                    "model": (model or "").strip()})
 
     # 1. What this install already declares.
     for bid, spec in (settings.get("inference.backends", {}) or {}).items():
         if isinstance(spec, dict):
-            add(bid, spec.get("base_url", ""), spec.get("engine", ""), "configured")
+            add(bid, spec.get("base_url", ""), spec.get("engine", ""),
+                "configured", spec.get("model", ""))
     # 2. What the environment points at (compose sets this per profile).
     add("env", os.environ.get("AVA_BACKEND_URL", ""),
-        os.environ.get("AVA_BACKEND_ENGINE", ""), "from AVA_BACKEND_URL")
+        os.environ.get("AVA_BACKEND_ENGINE", ""), "from AVA_BACKEND_URL",
+        os.environ.get("AVA_BACKEND_MODEL", ""))
     # 3. The compose service names, for a container that has neither.
     add("vllm-service", "http://vllm:8002/v1", "vllm", "compose service")
     add("ollama-service", "http://ollama:11434/v1", "ollama", "compose service")
@@ -224,6 +231,100 @@ def _candidates() -> list[dict]:
     add("vllm-local", "http://127.0.0.1:8002/v1", "vllm", "local")
     add("ollama-local", "http://127.0.0.1:11434/v1", "ollama", "local")
     return out
+
+
+def recommend_brain() -> dict:
+    """What is already going to do the thinking, and what that costs the owner.
+
+    First run asked the user to TYPE a model id, and refused to finish without
+    one — while the answer sat in the bridge's own environment. `_candidates()`
+    read AVA_BACKEND_URL and AVA_BACKEND_ENGINE and stopped one variable short of
+    AVA_BACKEND_MODEL, which docker-compose.yml sets from the AVA_MODEL that
+    install.sh already resolved and pulled. A novice cannot know that string, and
+    a typo produces a config that looks right and fails at their first message.
+
+    `writes_config` is the load-bearing field. router_app.load_backends() builds
+    the env backend ONLY when inference.backends is absent or empty, so writing
+    anything there — including the correct value — permanently shadows the
+    installer's backend and stops it tracking deploy/.env. When the source is
+    already authoritative there is nothing to save, and saying so is the whole
+    point: the wizard should confirm, not copy.
+
+    Deliberately does NOT ask the engine what it holds. That needs a models
+    endpoint per engine and belongs in its own change; this reads config and
+    environment, plus one cheap health probe so the card can say whether the
+    thing is answering yet.
+    """
+    out = {"source": "none", "model": "", "engine": "", "base_url": "",
+           "live": False, "writes_config": True, "consequence": "", "tier": ""}
+
+    # Priority: what the owner (or a previous run) CHOSE beats what the installer
+    # arranged, because a chosen backend is already in force and already written.
+    primary = settings.get("inference.primary") or ""
+    backends = settings.get("inference.backends", {}) or {}
+    spec = None
+    if isinstance(backends, dict) and backends:
+        if primary and isinstance(backends.get(primary), dict):
+            spec = backends[primary]
+        else:
+            for v in backends.values():
+                if isinstance(v, dict) and str(v.get("model", "")).strip():
+                    spec = v
+                    break
+    if isinstance(spec, dict) and str(spec.get("model", "")).strip():
+        out.update(source="configured", model=str(spec["model"]).strip(),
+                   base_url=str(spec.get("base_url", "")).strip(),
+                   engine=str(spec.get("engine", "")).strip(),
+                   # Already in ava.yaml — confirming changes nothing.
+                   writes_config=False)
+    else:
+        url = os.environ.get("AVA_BACKEND_URL", "").strip()
+        model = os.environ.get("AVA_BACKEND_MODEL", "").strip()
+        if url and model:
+            out.update(source="installed", model=model, base_url=url.rstrip("/"),
+                       engine=os.environ.get("AVA_BACKEND_ENGINE", "").strip(),
+                       # THE point of this whole endpoint: the installer's value
+                       # is live via the env backend, so confirming it must not
+                       # copy it into ava.yaml and freeze it.
+                       writes_config=False)
+
+    if out["base_url"]:
+        out["engine"] = _engine_of(out["base_url"], out["engine"])
+        out["live"] = _probe(_health_url(out["base_url"], out["engine"]))
+
+    # What it costs them, in consequences rather than parameters. Reuses the tier
+    # the hardware step already shows, so the two screens cannot disagree.
+    try:
+        from . import hwinfo, model_fit
+        mem = hwinfo.fit_memory()
+        if mem.total_gb:
+            tier, _hint = model_fit.recommend_tier(mem.total_gb)
+            out["tier"] = tier
+    except Exception:  # noqa: BLE001 — a missing tier costs a sentence, not the step
+        pass
+    if out["model"]:
+        if out["tier"] in ("tiny", "cloud", ""):
+            out["consequence"] = (
+                "It runs on your processor rather than a graphics card, so "
+                "answers arrive a few words at a time and it gets facts wrong "
+                "more often than a big hosted model. Good enough to see how "
+                "Ava works.")
+        elif out["tier"] == "small":
+            out["consequence"] = (
+                "This machine can run a mid-sized model, so answers should "
+                "arrive at a readable pace. It will still be less knowledgeable "
+                "than a large hosted model.")
+        else:
+            out["consequence"] = (
+                "This machine has room for a large model, so quality should be "
+                "close to a hosted service and nothing leaves the box.")
+    return out
+
+
+@router.get("/api/setup/brain")
+def api_brain():
+    """What will do the thinking, so first run can confirm rather than ask."""
+    return recommend_brain()
 
 
 @router.get("/api/setup/backends")
@@ -294,7 +395,21 @@ async def api_save(request: Request):
     # one-shot redirect there was then no way back to the only screen that could
     # fix it. Reproduced before this change.
     if not skip:
-        if mode == "cloud":
+        if mode == "installed":
+            # The owner confirmed what is already in force. Re-derive it here
+            # rather than trusting the body: the client asserting "there is a
+            # brain" would be a way to complete setup against nothing.
+            brain = recommend_brain()
+            if not brain["model"]:
+                return JSONResponse(
+                    {"error": "Nothing is set up to do the thinking yet. Choose "
+                              "a local engine or a cloud provider.",
+                     "field": "model"}, status_code=400)
+            # And write NO inference block. router_app.load_backends() builds the
+            # env backend only while inference.backends is empty, so copying the
+            # installer's value in would shadow it and stop it tracking
+            # deploy/.env for good. Confirming is not choosing.
+        elif mode == "cloud":
             base = str(inf.get("base_url", "")).strip()
             model = str(inf.get("model", "")).strip()
             if not base:

@@ -435,14 +435,26 @@ fi
 say "Building & starting Ava (profile: $AVA_PROFILE) — first run downloads images/models"
 docker compose up -d --build
 
-# Ollama's model store starts empty and nothing else fills it, so a cpu install
-# that stopped here would present a chat box wired to a server with no model.
-if [ "$AVA_PROFILE" = "cpu" ]; then
+# Ollama's model store starts empty and nothing else fills it, so an install that
+# stopped here would present a chat box wired to a server with no model.
+#
+# Gated on the ENGINE, not the profile. It read `= "cpu"`, but rocm is equally
+# Ollama-backed (profiles/rocm.env sets AVA_BACKEND_ENGINE=ollama and the same
+# AVA_MODEL) on the `ollama-rocm` service — so every AMD install finished with an
+# empty store and a dead chat box, which is the exact failure the line above says
+# this exists to prevent. Nobody caught it because AMD is ci-simulated: no runner
+# has this hardware, and the maintainer does not own any.
+case "$AVA_PROFILE" in
+  cpu)  _ollama_svc="ollama" ;;
+  rocm) _ollama_svc="ollama-rocm" ;;
+  *)    _ollama_svc="" ;;   # gpu/full serve through vLLM, which loads at boot
+esac
+if [ -n "$_ollama_svc" ]; then
   _ollama_model="$(grep -E '^AVA_MODEL=' "$_ENV" | tail -1 | cut -d= -f2-)"
   if [ -n "$_ollama_model" ]; then
     say "Pulling ${_ollama_model} into Ollama (first run only; this takes a while)"
-    docker compose exec -T ollama ollama pull "$_ollama_model" \
-      || warn "Could not pull ${_ollama_model} — run: docker compose exec ollama ollama pull ${_ollama_model}"
+    docker compose exec -T "$_ollama_svc" ollama pull "$_ollama_model" \
+      || warn "Could not pull ${_ollama_model} — run: docker compose exec ${_ollama_svc} ollama pull ${_ollama_model}"
   fi
 fi
 

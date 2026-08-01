@@ -882,6 +882,13 @@
   "APIRoute"
  ],
  [
+  "/api/setup/brain",
+  [
+   "GET"
+  ],
+  "APIRoute"
+ ],
+ [
   "/api/stream/ops",
   [
    "GET"
