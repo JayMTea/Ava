@@ -70,7 +70,7 @@ def test_the_templates_carry_no_bare_ava_left_for_a_substring_replace():
     import os
 
     from ava_bridge import config
-    for f in ("login.html", "setup.html", "setup_wizard.html"):
+    for f in ("login.html", "setup.html", "setup_wizard.html", "claim.html"):
         with open(os.path.join(config.WEB_DIR, f), encoding="utf-8") as fh:
             body = fh.read()
         assert "Ava" not in body, f"{f} still hardcodes the brand name"
@@ -84,7 +84,7 @@ def test_the_three_pages_no_longer_each_own_a_token_block():
     import os
 
     from ava_bridge import config
-    for f in ("login.html", "setup.html", "setup_wizard.html"):
+    for f in ("login.html", "setup.html", "setup_wizard.html", "claim.html"):
         with open(os.path.join(config.WEB_DIR, f), encoding="utf-8") as fh:
             body = fh.read()
         assert "#007acc" not in body, f"{f} still hardcodes the shipped accent"

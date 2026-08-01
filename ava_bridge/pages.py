@@ -55,6 +55,8 @@ with open(os.path.join(config.WEB_DIR, "login.html"), encoding="utf-8") as _f:
     LOGIN_TMPL = _f.read()
 with open(os.path.join(config.WEB_DIR, "setup.html"), encoding="utf-8") as _f:
     SETUP_TMPL = _f.read()
+with open(os.path.join(config.WEB_DIR, "claim.html"), encoding="utf-8") as _f:
+    CLAIM_TMPL = _f.read()
 
 # ---- New Vite + React SPA (frontend/dist) -----------------------------------
 # The primary UI is the built SPA. The single-file legacy UI stays reachable at
@@ -73,13 +75,22 @@ def _render(tmpl: str, msg: str = "") -> str:
     return brand.render_page(tmpl, msg)
 
 
-def _claim_html() -> str:
-    """The claim instructions, as one HTML line. Escaped because it embeds a
-    filesystem path that comes from AVA_HOME."""
-    return ("Read the claim token on the machine Ava runs on:<br>"
-            f"<code>{html.escape(claim_read_cmd())}</code><br>"
-            f"<small>({html.escape(claim_windows_note())})</small><br>"
-            "then reload this page with <code>?claim=&lt;token&gt;</code>.")
+def _render_claim(msg: str = "") -> str:
+    """The claim step: a page of its own, not a red line over the password form.
+
+    Serving setup.html to a caller who cannot claim renders a complete, focused,
+    submittable password form that POST /setup is guaranteed to refuse — so the
+    honest reading of that screen ("fill this in") is the one thing that cannot
+    work. Ask for the one input that CAN move them forward instead.
+
+    The form is a GET at /setup with a field named `claim`, which is exactly the
+    URL shape `may_claim()` already accepts. No new way in, no second code path
+    to keep in step with the gate: the browser builds the same link install.sh
+    prints. Escaped because the command embeds a path derived from AVA_HOME.
+    """
+    return (_render(CLAIM_TMPL, msg)
+            .replace("<!--CLAIM_CMD-->", html.escape(claim_read_cmd()))
+            .replace("<!--CLAIM_NOTE-->", html.escape(claim_windows_note())))
 
 
 router = APIRouter()
@@ -117,11 +128,19 @@ def setup_get(request: Request):
     if not auth.needs_setup():
         return RedirectResponse("/login", status_code=303)
     if not may_claim(request):
+        # Two different arrivals, and telling them apart is the whole point of
+        # this branch. A BARE visit is the ordinary way to reach here on the
+        # Docker path (the container sees the bridge gateway, never 127.0.0.1),
+        # so it gets no error: nothing has gone wrong yet, and painting the first
+        # screen of a fresh install red reads as a broken install, not a gate.
+        # A visit CARRYING a claim that did not match is a real failure, and the
+        # claim form submits right back here — so saying nothing would leave a
+        # mistyped token looking identical to no token at all.
+        tried = (request.query_params.get("claim")
+                 or request.headers.get("x-ava-setup-claim") or "").strip()
         return HTMLResponse(
-            _render(SETUP_TMPL,
-                    f"This {html.escape(brand.pre_auth_name())} has not been "
-                    "claimed yet, and you are not connecting from the machine "
-                    "it runs on. " + _claim_html()),
+            _render_claim("That token was not accepted. Read it again below."
+                          if tried else ""),
             status_code=403)
     return HTMLResponse(_render(SETUP_TMPL))
 
@@ -134,8 +153,13 @@ def setup_post(request: Request, password: str = Form(""), confirm: str = Form("
     # is locked out of their own box. Loopback callers are trusted; everyone else
     # proves they can read the server's disk.
     if not may_claim(request):
+        # The password form carries no claim, so a POST only lands here when the
+        # gate closed between rendering that form and submitting it — someone
+        # else claimed the instance, or the token was rotated. Say that, rather
+        # than repeating "read the token", which is not what went wrong.
         return HTMLResponse(
-            _render(SETUP_TMPL, "Setup requires the claim token. " + _claim_html()),
+            _render_claim("This instance was claimed while that form was open. "
+                          "Read the current token below."),
             status_code=403)
     password = (password or "").strip()
     if len(password) < 8:
