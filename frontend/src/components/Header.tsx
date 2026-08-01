@@ -57,6 +57,7 @@ export function Header({
         {showGhost && agentModel ? (
           <a
             className="model-pick model-pick-static"
+            data-tour="model-chip"
             href="#hub/agent"
             title={`Ava answers with ${agentModel.split('/').pop()} in the agent sandbox. Change it in Setup → Agent.`}
           >

@@ -109,7 +109,7 @@ export function VitalsView() {
 
       {/* Budget meter — only when a budget is configured (Setup → Budgets) */}
       {budget.data && (budget.data.budgets.daily_usd || budget.data.budgets.daily_kwh) && (
-        <Panel title="Today's budget" subtitle="Spend & energy against your caps — set on the Setup → Budgets page">
+        <Panel tour="vitals-budget" title="Today's budget" subtitle="Spend & energy against your caps — set on the Setup → Budgets page">
           <div style={{ display: 'grid', gap: 14, gridTemplateColumns: '1fr 1fr' }}>
             {budget.data.budgets.daily_usd != null && (() => {
               const used = budget.data.daily_spend_usd, cap = budget.data.budgets.daily_usd!;
@@ -187,7 +187,7 @@ export function VitalsView() {
       </div>
 
       {/* Connected apps — auto-populates from the connector registry */}
-      <Panel title="Connected apps"
+      <Panel tour="vitals-apps" title="Connected apps"
         subtitle="live from Connectors — each app appears here the moment it's added">
         {apps.length ? (
           <div className="db-conn-grid">

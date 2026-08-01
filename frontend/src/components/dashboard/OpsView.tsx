@@ -129,7 +129,7 @@ export function OpsView() {
       </div>
 
       {/* Live activity feed */}
-      <Panel title="Live activity" subtitle="in-flight turns & renders (streaming)"
+      <Panel tour="ops-live" title="Live activity" subtitle="in-flight turns & renders (streaming)"
         right={<span className="db-live-dot" title="live"><i />live</span>}>
         {running.length === 0 ? <EmptyState text="Nothing running right now." /> : (
           <div className="db-feed">
@@ -224,7 +224,7 @@ export function OpsView() {
         </Panel>
 
         {/* Alerts */}
-        <Panel title="Alerts" subtitle={`${alerts.length} active`}>
+        <Panel tour="ops-alerts" title="Alerts" subtitle={`${alerts.length} active`}>
           {alerts.length === 0 ? <EmptyState text="All clear." /> : (
             <div className="db-alerts">
               {alerts.map((a) => (
@@ -264,7 +264,7 @@ export function OpsView() {
         </Panel>
 
         {/* Service health */}
-        <Panel title="Service health">
+        <Panel tour="ops-health" title="Service health">
           <div className="db-svc-grid">
             {(services.data?.services || []).map((sv) => (
               <div key={sv.name} className={`db-svc db-svc-${sv.status}`}>

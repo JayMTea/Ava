@@ -123,6 +123,17 @@
   --z-drawer:40;
   --z-modal:50;
   --z-toast:60;
+  /* The first-run walkthrough. Above --z-modal because it owns the screen during
+     first run, but deliberately BELOW --z-toast: a toast is a fact about the
+     system ("couldn't reach the bridge"), and burying error feedback under a
+     scrim during first run — when an install is most likely to be misconfigured
+     — is precisely the wrong failure. Guidance yields to facts. */
+  --z-tour:55;
+
+  /* Walkthrough scrim. A token rather than the raw rgba the older scrims use
+     (global.css:99,273,372 predate this file), so it flips with the theme
+     instead of painting a white film over light mode. */
+  --tour-scrim:rgba(0,0,0,.62);
 
   /* ---- Layout ---- */
   --col:768px;           /* centered content column width */
@@ -146,6 +157,7 @@
   --userbubble:#ecebe4;
   --input:#ffffff;
   --inputline:#dcd8cc;
+  --tour-scrim:rgba(28,25,23,.45);
 
   /* text */
   --txt:#2b2a27;

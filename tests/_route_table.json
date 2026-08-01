@@ -644,6 +644,27 @@
   "APIRoute"
  ],
  [
+  "/api/hub/tour",
+  [
+   "GET"
+  ],
+  "APIRoute"
+ ],
+ [
+  "/api/hub/tour/reset",
+  [
+   "POST"
+  ],
+  "APIRoute"
+ ],
+ [
+  "/api/hub/tour/seen",
+  [
+   "POST"
+  ],
+  "APIRoute"
+ ],
+ [
   "/api/hub/voice/delete",
   [
    "POST"

@@ -90,13 +90,17 @@ export const ago = (ts?: number | null) => {
 
 /* ---------- Panel (card) ---------- */
 export function Panel({
-  title, subtitle, right, children, className = '', pad = true,
+  title, subtitle, right, children, className = '', pad = true, tour,
 }: {
   title?: ReactNode; subtitle?: ReactNode; right?: ReactNode;
   children: ReactNode; className?: string; pad?: boolean;
+  /** Stable anchor for the first-run walkthrough. A styling class would work
+   *  until someone renamed it for styling reasons and silently unhooked a
+   *  tour step; this says what it is for. */
+  tour?: string;
 }) {
   return (
-    <section className={`db-panel ${className}`}>
+    <section className={`db-panel ${className}`} data-tour={tour}>
       {(title || right) && (
         <header className="db-panel-head">
           <div>

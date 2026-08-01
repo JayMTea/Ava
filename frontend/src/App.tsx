@@ -27,6 +27,7 @@ import { Skeleton } from './components/dashboard/layout';
 import { DataView } from './components/data/DataView';
 import { HardwareBubble } from './components/HardwareBubble';
 import { HubView } from './components/hub/HubView';
+import TourHost from './components/tour/TourHost';
 import { useChat } from './hooks/useChat';
 import { api } from './lib/api';
 import { registerApps } from './lib/appColor';
@@ -86,19 +87,35 @@ export default function App() {
   // load of a re-branded install, and a second identical fetch in HubView
   // because threading the value down as a prop was worse than duplicating it.
   const brand = useBrandName();
-  // Active tab: prefer the URL hash (bookmark/back-button), then the last-used
-  // tab from localStorage, else the vitals home.
-  const [view, setView] = useState<View>(() => {
-    const fromHash = viewFromHash();
-    if (fromHash) return fromHash;
-    if (typeof window === 'undefined') return 'vitals';
-    return localStorage.getItem('ava.view') || 'vitals';
-  });
-  // Reflect the view in the URL hash (creates a history entry so Back works) and
-  // remember it for the next visit.
+  // Active tab: the URL hash (bookmark/back-button), else Setup.
+  //
+  // Landing on Setup is deliberate and is NOT a fallback to be "fixed" back to
+  // vitals. A user arriving with no hash has almost always just installed, and
+  // Vitals is a wall of tokens/sec and kWh — the least explicable screen in the
+  // product to someone who has never seen it. Setup is where the walkthrough
+  // starts and where everything is named.
+  //
+  // The old chain read localStorage['ava.view'] in the middle here, which had a
+  // second effect worth knowing about: the first visit's default was written
+  // back immediately, so 'vitals' became a sticky preference the user had never
+  // chosen. That key is gone entirely — nothing else consumed it, and leaving
+  // the write behind would invite the read back.
+  const [view, setView] = useState<View>(() => viewFromHash() || 'hub');
+  // Reflect the view in the URL hash so Back/forward and bookmarks work. The
+  // FIRST stamp replaces rather than pushes: a bare `/` is where the setup
+  // wizard's `location.href='/'` lands, and pushing would leave `/` in history —
+  // so Back would appear to do nothing, returning to a URL that resolves to the
+  // same view and cannot re-write the hash. replaceState fires no hashchange, so
+  // the listener below cannot loop.
+  const stamped = useRef(false);
   useEffect(() => {
-    try { localStorage.setItem('ava.view', view); } catch { /* storage unavailable */ }
-    if (viewFromHash() !== view) window.location.hash = view;
+    if (viewFromHash() === view) { stamped.current = true; return; }
+    if (!stamped.current) {
+      stamped.current = true;
+      window.history.replaceState(null, '', `#${view}`);
+    } else {
+      window.location.hash = view;
+    }
   }, [view]);
   // Back/forward buttons (and manual hash edits / bookmarks) drive the view.
   useEffect(() => {
@@ -353,6 +370,7 @@ export default function App() {
       {lightbox && <Lightbox url={lightbox.url} onClose={closeLightbox} />}
 
       <HardwareBubble />
+      <TourHost view={view} />
     </>
   );
 }

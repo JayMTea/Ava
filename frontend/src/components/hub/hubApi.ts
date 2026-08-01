@@ -403,7 +403,13 @@ export interface BrandingSettings {
   public: boolean;
   accessibility_check: boolean;
   branded: boolean;
-  assets: Record<string, { set: boolean; url: string | null }>;
+  /** Per slot: what is in force (`set`/`url`), whether an image is parked by a
+   *  toggle and can be switched back to (`stashed`), and what Ava's own default
+   *  looks like (`default_url`). `set: false` alone cannot tell "never uploaded"
+   *  from "uploaded, currently showing Ava's" — those are different controls. */
+  assets: Record<string, {
+    set: boolean; url: string | null; stashed: boolean; default_url: string;
+  }>;
   /** From the server so the panel never hardcodes a value the backend enforces. */
   defaults: {
     name: string; tagline: string; accent: string; accent_light: string;
@@ -545,6 +551,15 @@ export interface SystemInfo {
 }
 
 export const hub = {
+  // First-run walkthrough. State lives server-side because Ava is single-user
+  // but multi-DEVICE: a localStorage flag would replay the whole thing on the
+  // owner's phone and after any cache clear.
+  tour: () => req<{ seen: string[]; pages: string[] }>('/api/hub/tour', { cache: 'no-store' }),
+  tourSeen: (page: string) =>
+    req<{ ok: boolean; seen: string[] }>(
+      `/api/hub/tour/seen?page=${encodeURIComponent(page)}`, { method: 'POST' }),
+  tourReset: () => req<{ ok: boolean; seen: string[] }>('/api/hub/tour/reset', { method: 'POST' }),
+
   // Models
   hardware: () => req<HardwareInfo>('/api/setup/hardware'),
   backends: () => req<BackendProbe>('/api/setup/backends'),
@@ -762,6 +777,19 @@ export const hub = {
   clearBrandAsset: (slot: string) =>
     req<{ ok: boolean }>(`/api/hub/branding/asset/${encodeURIComponent(slot)}`,
       { method: 'DELETE' }),
+
+  /** Switch one slot between Ava's shipped default and the owner's own image.
+   *  Non-destructive both ways — the image is parked, not deleted, which is
+   *  what makes this a toggle and clearBrandAsset the separate delete. */
+  setBrandAssetSource: (slot: string, source: 'default' | 'custom') =>
+    req<{ ok: boolean; slot: string; source: string; set: boolean;
+          stashed: boolean; url: string | null }>(
+      `/api/hub/branding/asset/${encodeURIComponent(slot)}/source`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source }),
+      }),
 
   importBrandPack: (file: File) => {
     const fd = new FormData();

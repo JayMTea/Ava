@@ -176,6 +176,22 @@ export function SystemPanel({ onRestart }: { onRestart: () => void }) {
           </dl>
         )}
       </Panel>
+      <div className="hub-section" />
+      <Panel title="Walkthrough" subtitle="The short guided tour shown on a fresh install.">
+        <p className="hub-note">
+          Replays the walkthrough on every page. Useful after connecting new apps,
+          or if you skipped it the first time.
+        </p>
+        <button type="button" className="hub-btn ghost" disabled={busy}
+          onClick={() => run(async () => {
+            const r = await hub.tourReset();
+            if (!r.ok) return 'could not reset the walkthrough';
+            window.dispatchEvent(new Event('ava:tour-reset'));
+            setMessage({ text: 'Walkthrough reset — it starts again on this page.', ok: true });
+          })}>
+          Show the walkthrough again
+        </button>
+      </Panel>
       <HubMessage message={message} />
     </>
   );

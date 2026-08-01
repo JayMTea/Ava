@@ -1,0 +1,94 @@
+/* First-run walkthrough. Every value is a token: a hardcoded colour here would
+   survive review and then paint a dark film over light mode, or ignore a
+   re-branded install's accent. See tokens.css.
+
+   Known and deliberate: three raw z-indexes predate the token system and paint
+   over this layer — .st-modal-backdrop (claude.css), .meta-modal (global.css)
+   and #avaToasts. The toast one is intended (see --z-tour in tokens.css); the
+   other two are only reachable by clicking a page that is `inert` for the whole
+   life of the walkthrough, so no step can reach them. Renumbering them is a
+   separate cleanup. */
+
+.tour-root {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-tour);
+}
+
+/* App.changeView drives document.startViewTransition, and only #viewPort has a
+   view-transition-name — so everything else, including a body-portalled overlay,
+   is captured into ::view-transition-group(root) and cross-faded. Without this
+   the walkthrough ghosts against itself whenever a step changes the view. */
+.tour-root { view-transition-name: tour; }
+::view-transition-old(tour),
+::view-transition-new(tour) { animation: none; }
+
+/* One of four rects tiling the viewport around the lit element (or the whole
+   screen when there is nothing to light). Opaque to pointer events on purpose —
+   this is what stops a click landing on the page being described. */
+.tour-dim {
+  position: fixed;
+  background: var(--tour-scrim);
+  pointer-events: auto;
+}
+
+/* The lit element shows through here. Transparent, but still swallows clicks. */
+.tour-hole {
+  position: fixed;
+  pointer-events: auto;
+  border-radius: var(--r-md);
+  box-shadow: 0 0 0 2px var(--accent);
+  transition: top var(--dur-slow), left var(--dur-slow),
+              width var(--dur-slow), height var(--dur-slow);
+}
+
+.tour-card {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: min(320px, calc(100vw - 2 * var(--sp-3)));
+  max-height: calc(100dvh - 2 * var(--sp-3));
+  overflow-y: auto;
+  padding: var(--sp-4);
+  background: var(--panel2);
+  color: var(--txt);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-2);
+  pointer-events: auto;
+  transition: transform var(--dur-slow);
+}
+/* Hidden for the single frame between mount and first measurement, so the card
+   is never seen at 0,0 before it is placed. */
+.tour-card:not([data-placed]) { visibility: hidden; }
+.tour-card:focus { outline: none; }
+.tour-card h3 {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+}
+.tour-card p {
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.tour-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-top: var(--sp-4);
+}
+.tour-count {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.tour-btns { display: flex; gap: var(--sp-2); }
+.tour-btns .hub-btn { margin: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .tour-hole, .tour-card { transition: none; }
+}
