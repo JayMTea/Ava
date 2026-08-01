@@ -155,6 +155,7 @@ export function ChatView({
                     status={it.status}
                     secs={it.secs}
                     error={it.error}
+                    code={it.code}
                   />
                 );
               case 'gen':

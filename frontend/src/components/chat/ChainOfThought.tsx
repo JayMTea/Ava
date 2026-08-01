@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import type { CotStep } from '../../lib/types';
 import { Icon } from '../../lib/icons';
+import { fixForCode } from '../../lib/fixes';
+import { FixLink } from './Media';
 
 interface Props {
   label: string;
@@ -8,9 +10,15 @@ interface Props {
   status: 'running' | 'done' | 'error';
   secs?: number;
   error?: string;
+  /** Machine-readable failure code, if the backend knew one. Drives the same
+   *  fix-it link that system messages and render errors already get — this was
+   *  the last failure surface without one, and it is the one a first message
+   *  lands on. */
+  code?: string;
 }
 
-export function ChainOfThought({ label, steps, status, secs, error }: Props) {
+export function ChainOfThought({ label, steps, status, secs, error, code }: Props) {
+  const fix = status === 'error' ? fixForCode(code) : undefined;
   const [open, setOpen] = useState(true);
   const cls =
     'cot' + (open && status === 'running' ? ' open' : '') + (status === 'done' ? ' cot-done' : '') + (status === 'error' ? ' cot-fail' : '');
@@ -39,6 +47,9 @@ export function ChainOfThought({ label, steps, status, secs, error }: Props) {
         <span className="cot-spin" />
         <span className="cot-lab">{headText}</span>
       </button>
+      {/* Outside the button: a link inside a button is not activatable and the
+          nesting is invalid. */}
+      {fix && <div className="gen-fixrow"><FixLink fix={fix} /></div>}
       <div className="cot-body">
         {steps.map((s, i) =>
           s.kind === 'tool' ? (

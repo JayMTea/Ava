@@ -170,6 +170,11 @@ export interface TurnStatus {
   model?: ModelInfo | null;
   ctx_tokens?: number | null;
   error?: string | null;
+  // Machine-readable ("model_unknown", "inference_down") — drives the fix-it
+  // link. turns.py has always sent it and /api/turn/<id> returns the turn dict
+  // verbatim; this type not declaring it is why a failed turn rendered a bare
+  // string with nowhere to go.
+  error_code?: string;
   degraded?: boolean;
 }
 

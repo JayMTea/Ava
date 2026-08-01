@@ -321,3 +321,73 @@ class RewriteBodyModelTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_a_completion_with_no_model_anywhere_is_refused_not_forwarded():
+    """The router owns the model, so a request with none from EITHER side is
+    unservable — and forwarding it anyway is how a first message dies.
+
+    _rewrite_body forces the backend's model onto the request, but only
+    `if want`: an empty backend model means "serves whatever is asked", which is
+    right when the CALLER named one and leaves a hole when neither did.
+    DirectRuntime posts {messages, stream} and nothing else, so that hole is the
+    exact shape of every tool-less turn. The engine then answers 400
+    `model is required` — its words for our misconfiguration, naming nothing the
+    owner can act on and matching no code, so no fix-it link.
+    """
+    reached = {"upstream": False}
+
+    def handler(request):
+        reached["upstream"] = True
+        return _resp(200, _OK_COMPLETION)
+
+    client = _mock_client(
+        {"backends": [_backend(model="")], "token": "tok"}, handler)
+    r = client.post("/v1/chat/completions",
+                    json={"messages": [{"role": "user", "content": "hi"}],
+                          "stream": False})
+    assert r.status_code == 400, (
+        f"a modelless completion was forwarded to the engine ({r.status_code}) "
+        "instead of being refused here")
+    assert not reached["upstream"], "the unservable request reached the engine"
+    assert r.json().get("error_code") == "model_unknown", (
+        "the refusal carries no code, so the chat shows a dead end rather than "
+        "a link to Setup -> Agent")
+
+
+def test_a_caller_supplied_model_still_works_on_a_modelless_backend():
+    """The `serves whatever is asked` case must survive: a backend with no model
+    of its own is legitimate when the CALLER names one."""
+    seen = {}
+
+    def handler(request):
+        seen["body"] = json.loads(request.content)
+        return _resp(200, _OK_COMPLETION)
+
+    client = _mock_client(
+        {"backends": [_backend(model="")], "token": "tok"}, handler)
+    r = client.post("/v1/chat/completions", json=_chat_body())
+    assert r.status_code == 200
+    assert seen["body"]["model"] == "whatever"
+
+
+def test_a_modelless_backend_does_not_block_one_that_works():
+    """Filtering, not an any() check: a modelless backend ordered FIRST would
+    otherwise be tried, and failover would never reach the usable one."""
+    seen = {}
+
+    def handler(request):
+        seen["host"] = request.url.host
+        seen["body"] = json.loads(request.content)
+        return _resp(200, _OK_COMPLETION)
+
+    backends = [_backend("empty", "http://backend-empty/v1", model=""),
+                _backend("good", "http://backend-good/v1", model="llama3.2")]
+    client = _mock_client({"backends": backends, "token": "tok"}, handler)
+    r = client.post("/v1/chat/completions",
+                    json={"messages": [{"role": "user", "content": "hi"}],
+                          "stream": False})
+    assert r.status_code == 200
+    assert seen["host"] == "backend-good", (
+        "the modelless backend was tried first and would have 400'd upstream")
+    assert seen["body"]["model"] == "llama3.2"

@@ -15,6 +15,7 @@ export type ChatItem =
       status: 'running' | 'done' | 'error';
       secs?: number;
       error?: string;
+      code?: string;
     }
   | {
       kind: 'gen';

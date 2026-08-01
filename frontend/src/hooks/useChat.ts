@@ -305,7 +305,9 @@ export function useChat() {
             return;
           }
           if (s.status === 'error' || (!s.status && s.error)) {
-            patch(cotId, (it) => (it.kind === 'cot' ? { ...it, status: 'error', error: s.error || 'failed' } : it));
+            patch(cotId, (it) => (it.kind === 'cot'
+              ? { ...it, status: 'error', error: s.error || 'failed', code: s.error_code }
+              : it));
             failUser();
             return;
           }

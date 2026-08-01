@@ -69,13 +69,47 @@ def test_an_empty_body_still_yields_something_actionable() -> None:
 
 
 def test_the_turn_carries_the_code_to_the_ui() -> None:
-    """/api/turn/<id> returns the turn dict verbatim, so putting the code in the
-    turn state is the entire transport. If this stops happening the fix-it link
-    silently disappears and the chat is back to a bare string."""
+    """The transport is FOUR links, and this test used to check one.
+
+    It asserted that turns.py contains the forwarding line and called that "the
+    entire transport" — which was wrong, and it passed for the whole time the
+    feature was broken. The backend sent the code, /api/turn/<id> returned it,
+    and the SPA dropped it: TurnStatus did not declare the field, the `cot` chat
+    item had nowhere to keep it, and ChainOfThought rendered a bare
+    `Failed: <text>`. A real first-run failure reached a user with no link.
+
+    So check every link, including the three on the far side of the wire. A
+    static scan is the only option here — the SPA has no component-render
+    harness — but scanning BOTH sides is the difference between proving the
+    wire is connected and proving one end of it exists.
+    """
     src = (ROOT / "ava_bridge" / "turns.py").read_text(encoding="utf-8")
     assert src.count('error_code=getattr(e, "code", "")') >= 2, (
         "a turn error handler stopped forwarding error_code — that path shows a "
         "message with no way forward")
+
+    fe = ROOT / "frontend" / "src"
+    types_ = (fe / "lib" / "types.ts").read_text(encoding="utf-8")
+    turn_block = types_[types_.index("interface TurnStatus"):]
+    turn_block = turn_block[:turn_block.index("}")]
+    assert "error_code" in turn_block, (
+        "TurnStatus does not declare error_code, so TypeScript discards the "
+        "field the backend sends and the failure has no link")
+
+    items = (fe / "lib" / "chatItems.ts").read_text(encoding="utf-8")
+    cot = items[items.index("kind: 'cot'"):]
+    assert "code?" in cot[:cot.index("}")], (
+        "the cot chat item cannot carry a code, so the poll has nowhere to put "
+        "it even if it reads it")
+
+    hook = (fe / "hooks" / "useChat.ts").read_text(encoding="utf-8")
+    assert "code: s.error_code" in hook, (
+        "the turn poll stopped carrying error_code onto the chat item")
+
+    cotc = (fe / "components" / "chat" / "ChainOfThought.tsx").read_text(encoding="utf-8")
+    assert "fixForCode" in cotc and "FixLink" in cotc, (
+        "ChainOfThought no longer renders a fix-it link — this is the surface a "
+        "failed first message lands on, and the one that had none")
 
 
 def test_the_frontend_routes_model_unknown_somewhere_useful() -> None:

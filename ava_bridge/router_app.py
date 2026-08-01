@@ -151,7 +151,11 @@ def _env_backend() -> dict | None:
     if not base:
         return None
     engine = os.environ.get("AVA_BACKEND_ENGINE", "openai").strip().lower()
-    model = os.environ.get("AVA_BACKEND_MODEL", "")
+    # .strip() like every sibling read on this function. A trailing \r from a
+    # .env written on Windows survives into the OpenAI `model` field otherwise,
+    # and the engine answers `model 'llama3.2\r' not found` — a missing-model
+    # error for a model that is right there.
+    model = os.environ.get("AVA_BACKEND_MODEL", "").strip()
     return {"id": "backend", "url": base, "model": model,
             "label": os.environ.get("AVA_BACKEND_LABEL", model or engine),
             "engine": engine,
@@ -720,6 +724,35 @@ def create_app(backends: list | None = None, *, token: str | None = None,
 
         last_err = None
         ordered = state.ordered_backends(workload, wants_tools=wants_tools)
+
+        # A completion needs a model from SOMEBODY. _rewrite_body forces the
+        # backend's id onto the request, but only `if want` — an empty backend
+        # model deliberately means "serves whatever is asked", which is right
+        # when the CALLER supplied one and leaves a hole when neither did.
+        #
+        # DirectRuntime posts {messages, stream} and nothing else, so on a fresh
+        # install whose backend carries no model the outbound body has no model
+        # at all and the engine answers `model is required`. That is the first
+        # message a new owner ever sends, and the error is the engine's words for
+        # our own misconfiguration: it names nothing they can act on and gets no
+        # fix-it link, because the string matches no known code.
+        #
+        # So when the caller named no model, drop the backends that cannot supply
+        # one and fail with a code if that leaves nothing. Filtering rather than
+        # checking `any()` matters: a modelless backend ordered FIRST would
+        # otherwise still be tried, and failover would never reach the one that
+        # works. If the caller DID name a model, every backend can serve it and
+        # nothing is filtered.
+        if is_comp and not (isinstance(body_obj, dict)
+                            and str(body_obj.get("model") or "").strip()):
+            servable = [b for b in ordered if str(b.get("model") or "").strip()]
+            if not servable:
+                return JSONResponse(
+                    {"error": "No model is configured, so there is nothing to "
+                              "answer with. Choose one in Setup -> Agent.",
+                     "error_code": "model_unknown"}, status_code=400)
+            ordered = servable
+
         for backend in ordered:
             url = f"{backend['url']}/{path}"
             body = _rewrite_body(raw, is_json, backend, reasoning, is_comp)
