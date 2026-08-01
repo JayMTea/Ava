@@ -43,6 +43,14 @@ PAIRS = {
     "hub-agent-status.json": "/api/hub/agent/status",
     "hub-backends.json": "/api/setup/backends",  # mock.ts serves it there
     "hub-models.json": "/api/hub/models",
+    # Added when the Data page and the memory/skills panels landed; the
+    # net had not been extended with them, so seven fixtures sat outside
+    # it. Endpoints taken from mock.ts's own route table, not guessed.
+    "data-stores.json": "/api/data/stores",
+    "data-chats.json": "/api/data/chats",
+    "data-maintenance.json": "/api/data/maintenance",
+    "hub-memory.json": "/api/hub/memory",
+    "hub-skills.json": "/api/hub/agent/skills",
 }
 
 # Subtrees whose keys are DATA (app names, status values, category buckets),
@@ -112,8 +120,19 @@ class TestFixtureContract(unittest.TestCase):
     def test_all_fixtures_accounted_for(self):
         """Every fixture is either mapped above or on the explicit demo-only
         list — so a NEW fixture can't silently dodge the contract net."""
-        demo_only = {"model.json", "chat-detail.json", "hub-hardware.json",
-                     "hub-models.json"}
+        # Each entry needs a REASON — "demo only" with no argument is how a
+        # fixture that could be checked stops being checked.
+        demo_only = {
+            "model.json", "chat-detail.json", "hub-hardware.json",
+            "hub-models.json",
+            # /api/hub/connectors/{cid}/grants — path-parameterised, so a bare
+            # GET cannot reach it and there is no connector-independent shape.
+            "hub-grants.json",
+            # The mock reshapes this one: it holds a map keyed by log name and
+            # serves a member of it at /api/data/logs/{name}/tail, so the file
+            # and the response are deliberately different objects.
+            "data-logs.json",
+        }
         actual = {f for f in os.listdir(FIXTURES) if f.endswith(".json")}
         unaccounted = actual - set(PAIRS) - demo_only
         self.assertFalse(
