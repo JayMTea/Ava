@@ -26,11 +26,12 @@ connecting itself takes well under one of them:
   Your browser can't play video. <a href="../assets/connect-app-tour.mp4">Download the walkthrough</a>.
 </video>
 
-*(The app in the recording is a real one — Stridewell, a personal training log with
-its own codebase, its own SQLite file and an MCP server, which knows nothing about
-Ava. The six tools Ava discovers are the ones its server actually advertises, and the
-figures it reports at the end come out of its own database. Ava's surrounding numbers
-are sample data.)*
+*(The app in the recording is a real one — [`examples/stridewell/`](../examples/stridewell/),
+a personal training log with its own codebase, its own SQLite file and an MCP server,
+which knows nothing about Ava. The six tools Ava discovers are the ones its server
+actually advertises, and the figures it reports at the end come out of its own
+database. Ava's surrounding numbers are sample data. Run it yourself and follow
+along.)*
 
 ### Step 1: Open Setup, then Connectors
 
