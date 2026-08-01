@@ -96,20 +96,52 @@ the switch in Setup → System, both described in the **Voice** note below.
 See [profiles/README.md](profiles/README.md) for what each one sets and why the
 profile lives in `.env` rather than on the command line.
 
-`install.sh` finishes by printing a **one-time claim link** — open that to create
-your admin password.
+### The claim link, and why setup asks for one
 
-If you started compose by hand instead, first-run setup is still gated: the
-published port arrives through the docker bridge, so the container sees the
-gateway address rather than `127.0.0.1` and cannot treat you as local. Read the
-token and open the link yourself:
+`install.sh` finishes by printing a link that looks like this:
+
+```
+http://localhost:8096/setup?claim=NElSIgxdL1h4Qd6x7FbDdg
+```
+
+**Open that whole link, `?claim=` and all.** Browsing to `http://localhost:8096`
+on its own will show you a red "this Ava has not been claimed yet" notice, even
+though you are sitting at the machine. That is not a bug, and the rest of this
+section is why.
+
+**What the token is.** A random value, unique to your install, generated the
+first time Ava needs one and written to `$AVA_HOME/data/setup_claim` (mode
+`0600`, readable only by the account Ava runs as). It is not tied to a person or
+an account — it belongs to the *instance*. It is deleted the moment an admin
+password is set, so it works until you finish setup and never again.
+
+**Why it exists.** The setup page has to be reachable without a password, since
+its whole job is creating the first one. Unguarded, that means the first device
+on your network to find the port sets your admin password and locks you out of
+your own install. So Ava asks for proof that you can read a file on the server's
+disk, which is the same thing as proving the machine is yours. Refusing remote
+setup outright would be the other option, but a headless box with no local
+browser has to stay claimable. Jupyter's token and Home Assistant's onboarding
+solve it the same way.
+
+**Why you see it on your own machine.** Under Docker, your request reaches Ava
+through the compose bridge network, so the container sees the gateway address
+(something like `172.18.0.1`) rather than `127.0.0.1`. It cannot tell you apart
+from anyone else on the network, so it asks everyone. A bare-metal install on
+loopback skips the gate entirely.
+
+**If you lost the link**, read the token back and rebuild the URL yourself:
 
 ```bash
 docker compose exec ava cat /data/data/setup_claim
 # then open  http://localhost:8096/setup?claim=<token>
 ```
 
-Pin `AVA_PASSWORD=...` in `deploy/.env` beforehand to skip the gate entirely.
+On Windows in Git Bash, prefix that with `MSYS_NO_PATHCONV=1` — otherwise MSYS
+rewrites the container path into a Windows one and the command prints nothing.
+
+Pin `AVA_PASSWORD=...` in `deploy/.env` before the first start to skip the gate
+entirely.
 
 > **On a Mac (Apple Silicon)?** Skip Docker. Docker Desktop on macOS can't pass
 > the Apple GPU through, so inference in a container runs CPU-only. Use the

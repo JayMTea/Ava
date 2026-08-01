@@ -19,6 +19,13 @@ git clone https://github.com/JayMTea/Ava && cd Ava/deploy && ./install.sh
 # it finishes by printing a one-time link; open that to set your admin password
 ```
 
+Open that link whole, `?claim=` and all. It carries a one-time token, unique to
+your install, that proves the machine is yours before Ava lets anyone set the
+admin password. Browsing to `localhost:8096` without it shows a "not claimed
+yet" notice even on your own machine, because under Docker the container sees
+the bridge gateway rather than localhost. The
+[Quickstart](deploy/README.md) explains it in full.
+
 On Windows, paste this instead, into whichever window you already have open:
 
 ```
