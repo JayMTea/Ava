@@ -28,9 +28,9 @@ from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
                                RedirectResponse)
 
 from . import auth, brand, config, settings
-from .auth import (claim_hint, clear_claim, client_ip, current_password,
-                   is_authed, login_locked, login_record, may_claim,
-                   rotate_secret, set_password,
+from .auth import (claim_read_cmd, claim_windows_note, clear_claim, client_ip,
+                   current_password, is_authed, login_locked, login_record,
+                   may_claim, rotate_secret, set_password,
                    set_session_cookie)
 from .config import COOKIE_NAME
 from .security import constant_time_equals
@@ -77,7 +77,8 @@ def _claim_html() -> str:
     """The claim instructions, as one HTML line. Escaped because it embeds a
     filesystem path that comes from AVA_HOME."""
     return ("Read the claim token on the machine Ava runs on:<br>"
-            f"<code>{html.escape(claim_hint().splitlines()[1].strip())}</code><br>"
+            f"<code>{html.escape(claim_read_cmd())}</code><br>"
+            f"<small>({html.escape(claim_windows_note())})</small><br>"
             "then reload this page with <code>?claim=&lt;token&gt;</code>.")
 
 

@@ -15,15 +15,20 @@ hide:
 ## Get running in minutes
 
 ```bash
-# Windows: run this in Git Bash, NOT Command Prompt or PowerShell
 git clone https://github.com/JayMTea/Ava && cd Ava/deploy && ./install.sh
 # it finishes by printing a one-time link; open that to set your admin password
 ```
 
-Git Bash is a separate application, not a command you type: press the Windows
-key, type `Git Bash`, press Enter, and run the command at the `$` prompt. It
-ships with Git for Windows, so cloning the repo means you already have it.
-Neither Command Prompt nor PowerShell can run a shell script.
+On Windows, paste this instead, into whichever window you already have open:
+
+```
+"%PROGRAMFILES%\Git\bin\bash.exe" -lc "cd ~ && git clone https://github.com/JayMTea/Ava && cd Ava/deploy && ./install.sh"
+```
+
+It hands the sequence to the bash that ships with Git for Windows, because
+Command Prompt and PowerShell cannot run a shell script themselves. The
+[Quickstart](deploy/README.md) covers the alternatives and what to do if Git
+installed somewhere other than Program Files.
 
 One command detects your hardware, downloads a model, and gets you chatting in
 your browser. Everything after that happens in the in-app **Setup hub**: wire in

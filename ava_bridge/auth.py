@@ -282,13 +282,34 @@ def claim_hint() -> str:
     address the container sees is the bridge gateway, not 127.0.0.1. Give the
     containerized reader a command that works from where they actually are.
     """
-    if in_container():
-        read_cmd = f"cd deploy && docker compose exec ava cat {_CLAIM_FILE}"
-    else:
-        read_cmd = f"cat {_CLAIM_FILE}"
     return (f"Run this on the machine Ava is installed on:\n"
-            f"    {read_cmd}\n"
+            f"    {claim_read_cmd()}\n"
+            f"    ({claim_windows_note()})\n"
             f"then open  <this-url>/setup?claim=<token>")
+
+
+def claim_read_cmd() -> str:
+    """The command that prints the token, for wherever the reader actually is."""
+    if in_container():
+        return f"cd deploy && docker compose exec ava cat {_CLAIM_FILE}"
+    return f"cat {_CLAIM_FILE}"
+
+
+def claim_windows_note() -> str:
+    """The Git Bash caveat, kept SEPARATE from the command rather than baked in.
+
+    Git Bash is the documented Windows shell, and MSYS rewrites the container
+    path in that command into a Windows one before docker ever sees it — so the
+    read returns nothing and the reader is left holding a command that appears to
+    work and prints an empty token. That is the same defect deploy/install.sh
+    carries MSYS_NO_PATHCONV=1 to avoid, and it lands here on the one screen a
+    stuck owner reaches.
+
+    Not inlined into claim_read_cmd() because Command Prompt cannot set an env
+    var inline and runs the unprefixed command fine: baking the prefix in would
+    fix one Windows shell by breaking the other.
+    """
+    return "on Windows in Git Bash, prefix that with MSYS_NO_PATHCONV=1"
 
 
 def login_locked(ip: str) -> bool:

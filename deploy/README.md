@@ -28,19 +28,26 @@ git clone https://github.com/JayMTea/Ava && cd Ava/deploy && ./install.sh
 Already inside a clone? `cd deploy && ./install.sh` — the installer detects that
 it is in a checkout and installs in place rather than cloning again.
 
-> **On Windows?** Use **Git Bash**. It is a separate application, not a command
-> you type: press the Windows key, type `Git Bash`, press Enter, and run the
-> command above at the `$` prompt. It ships with Git for Windows, so cloning the
-> repo means you already have it.
->
-> Neither shell Windows opens by default will work. Command Prompt fails on
-> `./install.sh` with `'.' is not recognized as an internal or external command`;
-> PowerShell cannot execute a bash script at all, and 5.1 additionally rejects
-> `&&`. If you see either, you are in the wrong window — nothing is broken.
->
-> Docker Desktop is the only other requirement, and it serves Git Bash like any
-> other shell. The command is identical to the one above; there is no separate
-> Windows installer.
+**On Windows**, paste this instead. It works in the Command Prompt or PowerShell
+window Windows already gave you, with nothing to open first:
+
+```
+"%PROGRAMFILES%\Git\bin\bash.exe" -lc "cd ~ && git clone https://github.com/JayMTea/Ava && cd Ava/deploy && ./install.sh"
+```
+
+That hands the whole sequence to the bash that ships with Git for Windows, so
+`~` and `&&` are bash's to interpret rather than the shell you are sitting in.
+Docker Desktop is the only other requirement. The installer is the same script;
+there is no separate Windows installer.
+
+> **Why not just run `./install.sh`?** Because the shells Windows opens by
+> default cannot. Command Prompt fails with `'.' is not recognized as an internal
+> or external command`, and PowerShell cannot execute a bash script at all
+> (5.1 also rejects `&&`). Both errors mean "wrong shell", not "broken install".
+> You can equally open **Git Bash** — Windows key, type `Git Bash`, Enter — and
+> run the plain command above at the `$` prompt. If `%PROGRAMFILES%` is wrong
+> because Git installed per-user, run `where git` and swap `cmd\git.exe` for
+> `bin\bash.exe`.
 
 Or pick the profile yourself. Copy it to `.env` and start; the profile selection
 lives in the file, so every later `logs` / `down` / `pull` sees the same settings:
