@@ -22,6 +22,7 @@ import html
 import json
 import os
 import time
+from urllib.parse import quote
 
 from fastapi import APIRouter, Form, Request, Response
 from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
@@ -73,6 +74,37 @@ def _render(tmpl: str, msg: str = "") -> str:
     """Thin alias for brand.render_page — kept so the four call sites below
     read the same as they always did."""
     return brand.render_page(tmpl, msg)
+
+
+# Deliberately does NOT diagnose. The old copy here asserted the instance had
+# been claimed while the form was open, which for the entire life of that message
+# was false: the form dropped the token, so this branch was reached by the
+# ORDINARY first run rather than by any race. A message that names a cause it
+# cannot know sends the reader hunting for a second attacker who is not there.
+_POST_REFUSED = ("That request arrived without a valid claim token. "
+                 "Read the current one below and try again.")
+
+
+def _render_setup(request: Request, msg: str = "") -> str:
+    """The password form, with its action carrying the claim the caller arrived on.
+
+    setup.html posted to a BARE /setup, and may_claim() reads the claim only from
+    the query string or the x-ava-setup-claim header — so the token that got you
+    the form was dropped the instant you submitted it. On the Docker path, where
+    the container sees the bridge gateway and never 127.0.0.1, that is EVERY
+    first run: open the printed link, get the form, type a password, and the POST
+    is refused. Nothing in the repo posted a valid claim, so nothing caught it.
+
+    The substituted value is the SERVER's token, not the bytes the request sent.
+    Echoing request input back into an HTML attribute would be a reflection bug;
+    reading our own already-verified secret cannot be. Only emitted when the
+    caller actually presented a claim: a loopback caller passes may_claim()
+    without one, and does not need to be handed a token to hold.
+    """
+    presented = (request.query_params.get("claim")
+                 or request.headers.get("x-ava-setup-claim") or "").strip()
+    qs = f"?claim={quote(auth.claim_token(), safe='')}" if presented else ""
+    return _render(SETUP_TMPL, msg).replace("__CLAIM_QS__", qs)
 
 
 def _render_claim(msg: str = "") -> str:
@@ -142,7 +174,7 @@ def setup_get(request: Request):
             _render_claim("That token was not accepted. Read it again below."
                           if tried else ""),
             status_code=403)
-    return HTMLResponse(_render(SETUP_TMPL))
+    return HTMLResponse(_render_setup(request))
 
 @router.post("/setup")
 def setup_post(request: Request, password: str = Form(""), confirm: str = Form("")):
@@ -157,18 +189,15 @@ def setup_post(request: Request, password: str = Form(""), confirm: str = Form("
         # gate closed between rendering that form and submitting it — someone
         # else claimed the instance, or the token was rotated. Say that, rather
         # than repeating "read the token", which is not what went wrong.
-        return HTMLResponse(
-            _render_claim("This instance was claimed while that form was open. "
-                          "Read the current token below."),
-            status_code=403)
+        return HTMLResponse(_render_claim(_POST_REFUSED), status_code=403)
     password = (password or "").strip()
     if len(password) < 8:
         return HTMLResponse(
-            _render(SETUP_TMPL, "Password must be at least 8 characters."),
+            _render_setup(request, "Password must be at least 8 characters."),
             status_code=400)
     if password != (confirm or "").strip():
         return HTMLResponse(
-            _render(SETUP_TMPL, "Passwords do not match."), status_code=400)
+            _render_setup(request, "Passwords do not match."), status_code=400)
     set_password(password)
     clear_claim()       # the window is over; the instance now has an owner
     # Fresh install -> continue into the onboarding wizard (hardware, backend,

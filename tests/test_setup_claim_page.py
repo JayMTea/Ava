@@ -13,6 +13,7 @@ a token and nowhere to put a password.
 """
 from __future__ import annotations
 
+import re
 from unittest import mock
 
 import pytest
@@ -83,3 +84,92 @@ def test_the_claim_form_targets_the_url_shape_the_gate_already_accepts(
         r = client.get("/setup")
     assert 'method="get"' in r.text.lower()
     assert 'action="/setup"' in r.text
+
+
+# ---- Completing first run, end to end --------------------------------------
+# These deliberately do NOT mock may_claim. The tests above assert what each
+# branch renders; these assert that the branches JOIN UP into a first run that
+# finishes. That distinction is the whole reason the bug below shipped: every
+# test in the repo either mocked the gate or checked a GET, and none had ever
+# posted a valid claim, so a POST that the gate refused looked like nobody's
+# business. Starlette's TestClient reports its peer as the literal "testclient",
+# which _is_loopback() fails closed on -- so an unmodified TestClient IS the
+# remote caller this gate is about, which is exactly the Docker first run.
+@pytest.fixture
+def fresh(tmp_path, monkeypatch):
+    """A first-run instance with no password and a real, unmocked claim token."""
+    from ava_bridge import config
+    monkeypatch.setattr(config, "CHATS_DIR", str(tmp_path))
+    monkeypatch.setattr(auth, "_CLAIM_FILE", str(tmp_path / "setup_claim"))
+    monkeypatch.setattr(auth, "_PASSWORD_FILE", str(tmp_path / "auth_password"))
+    monkeypatch.delenv("AVA_PASSWORD", raising=False)
+    app = FastAPI()
+    app.include_router(pages.router)
+    return TestClient(app), auth.claim_token()
+
+
+def _form_action(body: str) -> str:
+    m = re.search(r'<form[^>]*action="([^"]*)"', body)
+    assert m, "no form on the page"
+    return m.group(1)
+
+
+def test_a_remote_caller_can_actually_finish_first_run(fresh) -> None:
+    """The bug: setup.html posted to a BARE /setup, and may_claim() reads the
+    claim only from the query string or the x-ava-setup-claim header. So the
+    token that earned you the form was dropped on submit, and the password was
+    never set -- for every Docker install, since the container sees the bridge
+    gateway and never 127.0.0.1. Open link, type password, 403."""
+    client, token = fresh
+    page = client.get("/setup", params={"claim": token})
+    assert page.status_code == 200
+
+    action = _form_action(page.text)
+    assert token in action, (
+        f"the password form posts to {action!r}, which does not carry the claim "
+        "-- submitting it cannot pass may_claim(), so first run cannot complete")
+
+    done = client.post(action, data={"password": "hunter2hunter2",
+                                     "confirm": "hunter2hunter2"},
+                       follow_redirects=False)
+    assert done.status_code == 303, (
+        f"submitting the form the server itself rendered was refused "
+        f"({done.status_code}) -- first run is impossible for a remote caller")
+    assert auth.current_password() == "hunter2hunter2"
+
+
+def test_a_recoverable_typo_stays_recoverable(fresh) -> None:
+    """The re-render after a validation error must keep the claim too. Dropping
+    it there means one mistyped confirm field locks the owner out for good."""
+    client, token = fresh
+    action = _form_action(client.get("/setup", params={"claim": token}).text)
+
+    again = client.post(action, data={"password": "hunter2hunter2",
+                                      "confirm": "hunter2hunter3"})
+    assert again.status_code == 400
+    assert token in _form_action(again.text), (
+        "the retry form dropped the claim, so a mistyped confirmation is fatal")
+
+    short = client.post(action, data={"password": "abc", "confirm": "abc"})
+    assert short.status_code == 400
+    assert token in _form_action(short.text)
+
+
+def test_the_token_is_not_handed_to_a_caller_who_never_presented_one(fresh) -> None:
+    """A loopback caller passes may_claim() with no token, so the form has no
+    reason to carry one. Emitting it anyway would put a live secret in front of
+    whoever the relaxed branch let through."""
+    client, token = fresh
+    with mock.patch.object(pages, "may_claim", lambda request: True):
+        body = client.get("/setup").text
+    assert token not in body
+    assert _form_action(body) == "/setup"
+
+
+def test_a_hostile_claim_is_never_reflected_into_the_page(fresh) -> None:
+    """The action is built from the SERVER's token, never the request's bytes."""
+    client, _ = fresh
+    hostile = '"><script>alert(1)</script>'
+    r = client.get("/setup", params={"claim": hostile})
+    assert r.status_code == 403
+    assert "<script>alert(1)</script>" not in r.text
