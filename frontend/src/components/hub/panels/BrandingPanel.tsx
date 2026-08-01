@@ -28,30 +28,80 @@ const SWATCHES = [
 ];
 
 
-/** One image slot. Kept dumb — every decision (which slots exist, what is set)
- *  comes from the server's `limits.slots` and `assets`. */
-function AssetRow({ slot, label, hint, url, busy, onPick, onClear }: {
+/** One image slot: a two-way toggle between Ava's shipped mark and the owner's
+ *  own, with both previews visible so the choice is a picture rather than a
+ *  filename. Kept dumb — every decision (which slots exist, what is in force,
+ *  what is parked, what the default looks like) comes from the server.
+ *
+ *  "Ava default" is never disabled: it is always somewhere to go back to. The
+ *  "Yours" side is disabled only when there is nothing to go back TO — no image
+ *  in force and none parked — and in that state the file picker is the control,
+ *  because a toggle with an empty destination would be a dead switch. */
+function AssetRow({ slot, label, hint, url, stashed, defaultUrl, busy,
+                   onPick, onClear, onSource }: {
   slot: string; label: string; hint: string; url: string | null;
-  busy: boolean; onPick: (slot: string, f: File) => void; onClear: (slot: string) => void;
+  stashed: boolean; defaultUrl: string; busy: boolean;
+  onPick: (slot: string, f: File) => void;
+  onClear: (slot: string) => void;
+  onSource: (slot: string, source: 'default' | 'custom') => void;
 }) {
   const inputId = `brand-asset-${slot}`;
+  const usingCustom = Boolean(url);
+  const hasOwn = usingCustom || stashed;
+
+  const Preview = ({ src, on }: { src: string; on: boolean }) => (
+    <img
+      // The cache-buster matters on the OWNER's slot URL only: it is stable
+      // across re-uploads, so without it a replacement shows the previous image
+      // until a hard reload. Ava's default is a static file that never changes,
+      // and busting it would defeat its cache headers on every render.
+      src={src.startsWith('/brand/') ? `${src}?v=${Date.now()}` : src}
+      alt=""
+      width={40}
+      height={40}
+      style={{
+        objectFit: 'contain', borderRadius: 6, background: 'var(--panel2)',
+        opacity: on ? 1 : 0.4, transition: 'opacity .12s',
+      }}
+    />
+  );
+
   return (
     <div className="hub-field">
-      <label htmlFor={inputId}>
-        {label} {!url && <Badge tone="muted">not set</Badge>}
+      <label htmlFor={hasOwn ? undefined : inputId}>
+        {label}{' '}
+        {!usingCustom && <Badge tone="muted">Ava's default</Badge>}
       </label>
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-        {url && (
-          // The cache-buster matters: the slot URL is stable, so a re-upload
-          // would otherwise show the previous image until a hard reload.
-          <img
-            src={`${url}?v=${Date.now()}`}
-            alt=""
-            width={40}
-            height={40}
-            style={{ objectFit: 'contain', borderRadius: 6, background: 'var(--panel2)' }}
-          />
-        )}
+
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+        {defaultUrl && <Preview src={defaultUrl} on={!usingCustom} />}
+
+        <div className="hub-opts" role="group" aria-label={`${label} source`}>
+          <button
+            type="button"
+            className={'hub-opt' + (usingCustom ? '' : ' sel')}
+            aria-pressed={!usingCustom}
+            disabled={busy || !usingCustom}
+            onClick={() => onSource(slot, 'default')}
+          >
+            Ava default
+          </button>
+          <button
+            type="button"
+            className={'hub-opt' + (usingCustom ? ' sel' : '')}
+            aria-pressed={usingCustom}
+            disabled={busy || !hasOwn || usingCustom}
+            onClick={() => onSource(slot, 'custom')}
+          >
+            Yours
+          </button>
+        </div>
+
+        {url && <Preview src={url} on />}
+      </div>
+
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center',
+                    flexWrap: 'wrap', marginTop: 8 }}>
         <input
           id={inputId}
           type="file"
@@ -63,14 +113,22 @@ function AssetRow({ slot, label, hint, url, busy, onPick, onClear }: {
             e.target.value = '';   // let the same file be re-picked after an error
           }}
         />
-        {url && (
+        {hasOwn && (
+          // Distinct from the toggle on purpose: the toggle parks an image,
+          // this destroys it. Same word the server uses for the same verb.
           <button type="button" className="hub-btn ghost" disabled={busy}
                   onClick={() => onClear(slot)}>
-            Remove
+            Delete yours
           </button>
         )}
       </div>
-      <div className="bud-field-hint">{hint}</div>
+
+      <div className="bud-field-hint">
+        {hint}
+        {stashed && !usingCustom && (
+          <> Your own image is kept — switch to <b>Yours</b> to put it back.</>
+        )}
+      </div>
     </div>
   );
 }
@@ -197,13 +255,27 @@ export function BrandingPanel() {
       delete assets[slot];
       setBrand({ ...getBrand(), assets });
       return undefined;
-    }, 'Removed.');
+    }, 'Deleted.');
+
+  // The toggle. Same cached-brand bookkeeping as upload/clear, because the
+  // header and the sign-in card read that cache — without it the sidebar keeps
+  // rendering the old source until the next reload.
+  const setSource = (slot: string, source: 'default' | 'custom') =>
+    run(async () => {
+      const r = await hub.setBrandAssetSource(slot, source);
+      reload();
+      const assets = { ...getBrand().assets };
+      if (r.url) assets[slot] = r.url;
+      else delete assets[slot];
+      setBrand({ ...getBrand(), assets });
+      return undefined;
+    }, source === 'default' ? "Using Ava's default." : 'Using your image.');
 
   const ASSETS: { slot: string; label: string; hint: string }[] = [
     { slot: 'logo', label: 'Logo',
-      hint: 'A square mark. Shown on the sign-in card, and used for the favicon and home-screen icon unless you set one below.' },
+      hint: 'A square mark. Shown on the sign-in card, and used for the favicon and home-screen icon unless you set an app icon below.' },
     { slot: 'wordmark', label: 'Wordmark',
-      hint: 'A wide lockup for the sidebar. Blank renders the name as text, which is how Ava ships.' },
+      hint: "A wide lockup for the sidebar. Ava's default is the AVA wordmark; upload your own, or delete it to fall back to your name as text." },
     { slot: 'icon', label: 'App icon',
       hint: 'At least 512x512, square. Every icon size is rendered from this one — favicon, home-screen tile, and the maskable icon phones crop to a circle.' },
   ];
@@ -225,9 +297,19 @@ export function BrandingPanel() {
     }, 'Brand pack applied.');
 
   const resetAll = () => {
-    if (!window.confirm("Reset every branding value to Ava's defaults?")) return;
+    if (!window.confirm(
+      "Reset every branding value to Ava's defaults?\n\n"
+      + 'Your uploaded images are kept — each one can be switched back on individually.',
+    )) return;
+    // The images are switched to Ava's default rather than deleted, which is
+    // what makes the confirm's promise true. Before the toggle existed this
+    // button left every uploaded image in force, so an install that pressed it
+    // still wore its old logo and the label was simply wrong.
     save({ name: '', tagline: '', accent: '', accent_light: '', chrome: '', public: true },
-         "Reset to Ava's defaults.");
+         "Reset to Ava's defaults.",
+         () => { void Promise.all(
+           (lim.slots ?? []).map((s) => hub.setBrandAssetSource(s, 'default').catch(() => null)),
+         ).then(reload); });
   };
 
   return (
@@ -236,7 +318,7 @@ export function BrandingPanel() {
 
       <Panel
         title="Make it yours"
-        subtitle="Ava ships one look. Change the name it answers to, the colour it uses, and — soon — its logo. Nothing here costs anything: re-branding your own install is the point of running it yourself."
+        subtitle="Ava ships one look. Change the name it answers to, the colour it uses, and its marks. Every image starts as Ava's own and stays one click away, so trying yours is never a one-way door. Nothing here costs anything: re-branding your own install is the point of running it yourself."
       >
         {b.config_error && (
           <div className="hub-msg err" style={{ marginBottom: 12 }}>
@@ -411,9 +493,12 @@ export function BrandingPanel() {
             label={a.label}
             hint={a.hint}
             url={b.assets?.[a.slot]?.url ?? null}
+            stashed={b.assets?.[a.slot]?.stashed ?? false}
+            defaultUrl={b.assets?.[a.slot]?.default_url ?? ''}
             busy={busy}
             onPick={pickAsset}
             onClear={clearAsset}
+            onSource={setSource}
           />
         ))}
 

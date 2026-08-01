@@ -350,6 +350,13 @@
   "APIRoute"
  ],
  [
+  "/api/hub/branding/asset/{slot}/source",
+  [
+   "POST"
+  ],
+  "APIRoute"
+ ],
+ [
   "/api/hub/branding/export",
   [
    "GET"

@@ -116,6 +116,11 @@ gpusvc/extra_model_paths.yaml
 # source art parked there would be swept into the repo, into the published
 # image, and into the service-worker precache on the next `npm run build` —
 # and the frontend-dist-drift CI job would fail on the way past.
+#
+# Unanchored on purpose, so it catches a `brand/` nested anywhere. That is also
+# why Ava's own SHIPPED default marks live in frontend/public/assets/marks/ and
+# not .../brand/ — this pattern would swallow them, and a file cannot be
+# re-included once a parent directory is excluded.
 brand/
 
 # Uploaded brand assets ($AVA_HOME/branding/ — Setup → Branding). Anchored,

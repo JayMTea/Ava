@@ -80,6 +80,14 @@ body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica
   justify-content:space-between; gap:8px; }
 .brand-word { font-family:var(--serif); font-size:20px; font-weight:600; letter-spacing:.2px;
   color:var(--txt); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+/* Wordmark image head. Height-capped to the text it replaces so the head row
+   does not resize when a brand is applied; width follows the lockup's own
+   aspect. Both variants ship and the theme picks one — a wordmark is ink on
+   transparent, so one file cannot serve both canvases. */
+.brand-wm { display:block; height:22px; width:auto; max-width:158px; object-fit:contain;
+  object-position:left center; }
+[data-theme="dark"] .brand-wm-light { display:none; }
+[data-theme="light"] .brand-wm-dark { display:none; }
 .panel-head-actions { display:flex; align-items:center; gap:2px; flex:0 0 auto; }
 .panel-head .ibtn { width:34px; height:34px; border-radius:9px; background:transparent;
   color:var(--muted); }

@@ -293,6 +293,90 @@ def asset_set(slot: str) -> bool:
     return bool(asset_name(slot))
 
 
+# --- Ava's own mark, as the DEFAULT for every image slot ---------------------
+#
+# Blank still means "Ava's shipped look" — that promise is unchanged. What
+# changed is that the shipped look is now SHOWABLE: these are real files under
+# the SPA's static mount, so Setup -> Branding can render what the default
+# actually is instead of an empty row badged "not set".
+#
+# They are NOT brand assets. Nothing writes them, `asset_set()` stays false for
+# an unbranded install, `is_branded()` stays false, and a brand pack exported
+# from a default install still carries no images. The only thing they add is a
+# picture of the default.
+DEFAULT_ASSETS: dict[str, str] = {
+    "logo": "/assets/marks/ava-logo.png",
+    "logo_light": "/assets/marks/ava-logo-light.png",
+    "wordmark": "/assets/marks/ava-wordmark.png",
+    "wordmark_light": "/assets/marks/ava-wordmark-light.png",
+    # The icon set is rendered from the static favicon/PWA files rather than
+    # from one source image, so the 512 PWA tile stands in as its picture.
+    "icon": "/assets/icons/pwa-512.png",
+}
+
+
+def default_asset(slot: str) -> str:
+    """URL of the shipped Ava default for a slot, or `""` for an unknown slot."""
+    return DEFAULT_ASSETS.get(slot, "")
+
+
+# --- Stashing: a slot can be OFF without its image being destroyed -----------
+#
+# `brand.<slot>` is the active filename. `brand.<slot>_stashed` is a filename
+# that is deliberately not in force. That split is what makes the panel's
+# Ava-default / Yours control a real toggle rather than a delete with a
+# friendlier label: switching to the default parks the name, switching back
+# reinstates it, and the file never moves.
+#
+# A stashed name is NOT a slot. It is invisible to asset_name(), asset_set(),
+# is_branded(), payload(), the /brand/asset/{slot} route and brand_pack, all of
+# which enumerate SLOTS. Only the functions below and their callers see it.
+_STASH_SUFFIX = "_stashed"
+
+
+def stash_key(slot: str) -> str:
+    """The config key holding a slot's parked filename. `""` for a bad slot."""
+    return f"{slot}{_STASH_SUFFIX}" if slot in SLOTS else ""
+
+
+def stashed_name(slot: str) -> str:
+    """The parked FILENAME for a slot, or `""`.
+
+    Same traversal guard as asset_name() and for the same reason: this value is
+    joined onto a directory, and a brand pack import writes the config file this
+    reads. The guard is duplicated rather than shared because the two keys are
+    read on different paths and a helper that grew a `slot` parameter would be
+    one refactor away from accepting an arbitrary key.
+    """
+    if slot not in SLOTS:
+        return ""
+    raw = (settings.get(f"brand.{slot}{_STASH_SUFFIX}", "") or "").strip()
+    if not raw or "/" in raw or "\\" in raw or raw.startswith("."):
+        return ""
+    return raw
+
+
+def stash_patch(slot: str) -> dict:
+    """Config patch that parks the active image. `{}` when there is none.
+
+    Returned rather than saved: every other write in this module leaves the
+    `settings.save_patch` call to the route, so a failed config write cannot
+    leave the model and the file system disagreeing.
+    """
+    active = asset_name(slot)
+    if not active:
+        return {}
+    return {slot: "", f"{slot}{_STASH_SUFFIX}": active}
+
+
+def restore_patch(slot: str) -> dict:
+    """Config patch that puts the parked image back in force. `{}` if none."""
+    parked = stashed_name(slot)
+    if not parked:
+        return {}
+    return {slot: parked, f"{slot}{_STASH_SUFFIX}": ""}
+
+
 def accent_hover(base: str = "") -> str:
     """The pressed/hover shade: the accent mixed 86% toward black.
 
@@ -333,13 +417,30 @@ def pre_auth_css() -> str:
     ) % (bg, a or DEFAULT_ACCENT, hover or "#0068ad")
 
 
-# The mark that shipped: a stroke-only robot glyph, duplicated verbatim in
-# login.html and setup.html. Kept here as the fallback so there is one copy.
+# Ava's own mark: the neural-network A, whose edges trace the letter. Same
+# geometry as the favicon and the PWA icons, so the sign-in card, the browser
+# tab and the home-screen tile are one mark rather than three.
+#
+# INLINE, not an <img> at DEFAULT_ASSETS["logo"]. The sign-in page is rendered
+# before any cookie exists, so a referenced file would need its own public path;
+# inlining keeps the pre-auth surface exactly as wide as it was. It also renders
+# in `currentColor`, which the PNG cannot do — this glyph sits on the sign-in
+# card's own ink colour and has to follow it.
+#
+# This replaced a generic stroke-only robot glyph that was duplicated verbatim
+# in login.html and setup.html. One copy, here.
+# Weights are the untiled ones, NOT the favicon's. The favicon's heavier strokes
+# exist to survive a 16px tab with a coloured tile around them; this glyph fills
+# its whole box on the card's own canvas, where that weight reads as a blob.
+# Checked at the 28px the card actually renders it at.
 _SHIPPED_MARK = (
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"'
-    ' stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18"'
-    ' height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/>'
-    '<line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></svg>'
+    '<svg viewBox="22 13 96 124" fill="none" stroke="currentColor"'
+    ' stroke-width="10" stroke-linecap="round" role="img" aria-label="Ava">'
+    '<path d="M70 30L37 122M70 30l33 92M49.6 90h40.8"/>'
+    '<g fill="currentColor" stroke="none">'
+    '<circle cx="70" cy="30" r="14.4"/><circle cx="49.6" cy="90" r="10.2"/>'
+    '<circle cx="90.4" cy="90" r="12"/><circle cx="37" cy="122" r="12"/>'
+    '<circle cx="103" cy="122" r="12"/></g></svg>'
 )
 
 
@@ -504,6 +605,18 @@ def _clear_derived() -> None:
         shutil.rmtree(p, ignore_errors=True)
 
 
+def invalidate_derived() -> None:
+    """Drop the derived-icon cache from OUTSIDE this module.
+
+    The icon sizes are rendered from whatever `icon_source()` resolves to, so
+    any caller that changes which file that is has to drop them — a toggle
+    between the owner's icon and Ava's does exactly that without going through
+    ingest_asset() or clear_asset(), which are the two paths that already do it
+    for themselves.
+    """
+    _clear_derived()
+
+
 def icon_source() -> str:
     """Which uploaded file the icon set is derived from: `icon`, else `logo`.
 
@@ -584,8 +697,15 @@ def discard_file(fname: str, *, slot: str, reason: str) -> None:
 
 
 def clear_asset(slot: str) -> None:
-    """Clear a slot's image. The config key is cleared by the caller."""
+    """Delete a slot's image for good. The config keys are cleared by the caller.
+
+    BOTH files go: the one in force and the one parked by a toggle. "Delete"
+    that left a stashed copy on disk would be a lie in the one direction that
+    matters — the owner asked for the image to be gone, and a file they can no
+    longer see from the panel is the worst place for it to survive.
+    """
     discard_file(asset_name(slot), slot=slot, reason="cleared")
+    discard_file(stashed_name(slot), slot=slot, reason="cleared_stashed")
     _clear_derived()
 
 

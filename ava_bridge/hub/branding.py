@@ -58,8 +58,15 @@ def _state() -> dict:
         "public": settings.brand_public(),
         "accessibility_check": settings.brand_a11y_check(),
         "branded": brand.is_branded(),
+        # Four facts per slot, because the panel's toggle needs all four: what
+        # is in force, whether that is the owner's or Ava's, whether there is a
+        # parked image to toggle BACK to, and what Ava's own looks like. A bare
+        # `set` could not distinguish "never uploaded" from "uploaded, currently
+        # toggled off", and those render as different controls.
         "assets": {s: {"set": brand.asset_set(s),
-                       "url": f"/brand/asset/{s}" if brand.asset_set(s) else None}
+                       "url": f"/brand/asset/{s}" if brand.asset_set(s) else None,
+                       "stashed": bool(brand.stashed_name(s)),
+                       "default_url": brand.default_asset(s)}
                    for s in brand.SLOTS},
         # Served from the backend so the panel never hardcodes a number the
         # backend enforces — the reason hub/persona.py returns `style_max` and
@@ -145,8 +152,14 @@ async def upload_brand_asset(slot: str, file: UploadFile):
         return JSONResponse({"ok": False, "error": err}, status_code=422)
 
     old = brand.asset_name(slot)
+    # A slot holds ONE "yours". Uploading replaces whatever was parked by a
+    # toggle as well as whatever was in force, so the parked name is cleared in
+    # the same write and its file dropped below — otherwise toggling to Ava's
+    # default, uploading a replacement, then toggling back would resurrect the
+    # image the owner thought they had just overwritten.
+    parked = brand.stashed_name(slot)
     try:
-        settings.save_patch({"brand": {slot: fname}})
+        settings.save_patch({"brand": {slot: fname, brand.stash_key(slot): ""}})
     except settings.ConfigParseError as e:
         return JSONResponse({"error": str(e), "error_code": "config_unparseable"},
                             status_code=409)
@@ -155,6 +168,8 @@ async def upload_brand_asset(slot: str, file: UploadFile):
     # slot pointing at nothing if the config write then failed.
     if old and old != fname:
         brand.discard_file(old, slot=slot, reason="superseded")
+    if parked and parked not in (fname, old):
+        brand.discard_file(parked, slot=slot, reason="superseded_stashed")
     audit.record("brand_asset", slot=slot, action="set", bytes=len(raw), file=fname)
     return {"ok": True, "slot": slot, "url": f"/brand/asset/{slot}",
             "restart_required": False}
@@ -162,20 +177,68 @@ async def upload_brand_asset(slot: str, file: UploadFile):
 
 @router.delete("/branding/asset/{slot}")
 def clear_brand_asset(slot: str):
-    """Clear a slot: remove the file AND the config key."""
+    """Delete a slot's image for good: both files AND both config keys.
+
+    This is the destructive verb. The non-destructive one is
+    `set_brand_asset_source` below, which is what the panel's toggle calls.
+    """
     blocked = _gate()
     if blocked:
         return blocked
     if slot not in brand.SLOTS:
         return JSONResponse({"ok": False, "error": f"unknown slot '{slot}'"},
                             status_code=404)
-    brand.clear_asset(slot)   # audits the deletion itself
+    brand.clear_asset(slot)   # audits both deletions itself
     try:
-        settings.save_patch({"brand": {slot: ""}})
+        settings.save_patch({"brand": {slot: "", brand.stash_key(slot): ""}})
     except settings.ConfigParseError as e:
         return JSONResponse({"error": str(e), "error_code": "config_unparseable"},
                             status_code=409)
     return {"ok": True, "slot": slot, "restart_required": False}
+
+
+@router.post("/branding/asset/{slot}/source")
+def set_brand_asset_source(slot: str, body: dict):
+    """Toggle one slot between Ava's shipped default and the owner's own image.
+
+    Deliberately NOT a delete. `default` parks the active filename in
+    `brand.<slot>_stashed` and leaves the file where it is; `custom` puts it
+    back. That is what makes the control in the panel a toggle the owner can
+    flip both ways rather than a remove-and-re-upload wearing a switch's
+    clothing.
+
+    Idempotent in both directions: asking for the state you are already in is a
+    no-op that still returns ok, so a double-click or a stale panel cannot
+    destroy anything or 400.
+    """
+    blocked = _gate()
+    if blocked:
+        return blocked
+    if slot not in brand.SLOTS:
+        return JSONResponse({"ok": False, "error": f"unknown slot '{slot}'"},
+                            status_code=404)
+    source = str(body.get("source") or "").strip()
+    if source not in ("default", "custom"):
+        return JSONResponse({"ok": False, "error": "source must be 'default' or 'custom'"},
+                            status_code=400)
+
+    patch = brand.stash_patch(slot) if source == "default" else brand.restore_patch(slot)
+    if patch:
+        try:
+            settings.save_patch({"brand": patch})
+        except settings.ConfigParseError as e:
+            return JSONResponse({"error": str(e), "error_code": "config_unparseable"},
+                                status_code=409)
+        # The favicon and every PWA size derive from the icon slot, so a toggle
+        # has to drop that cache exactly as an upload does. Missing this showed
+        # the old icon until the process restarted.
+        brand.invalidate_derived()
+        audit.record("brand_asset", slot=slot, action=f"source:{source}")
+
+    return {"ok": True, "slot": slot, "source": source,
+            "set": brand.asset_set(slot), "stashed": bool(brand.stashed_name(slot)),
+            "url": f"/brand/asset/{slot}" if brand.asset_set(slot) else None,
+            "restart_required": False}
 
 
 @router.get("/branding/export")

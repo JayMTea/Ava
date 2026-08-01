@@ -4,11 +4,52 @@ import { createPortal } from 'react-dom';
 import type { AppEntry, ChatSummary } from '../lib/types';
 import { Icon } from '../lib/icons';
 import { AppDot, appAccent, appIcon } from '../lib/appColor';
+import { DEFAULT_BRAND } from '../lib/brand';
+import { useBrand } from '../lib/brandContext';
+
+// Ava's own wordmark, shipped under the SPA's static mount. Rendered only when
+// this install still answers to Ava's name: the lockup spells "AVA", so an
+// install renamed to something else must fall back to its own name as text
+// rather than wearing a word it is not called. An owner who wants a lockup for
+// their name uploads one — that is what the wordmark slot is for.
+const AVA_WORDMARK = {
+  dark: '/assets/marks/ava-wordmark.png',        // light ink, for the dark canvas
+  light: '/assets/marks/ava-wordmark-light.png', // dark ink, for the light canvas
+};
 
 // Rail foot flyout: the sliders icon reveals the "system" destinations (Vitals,
 // Operations, Setup) as a hover/click pop-up, so the rail itself stays just chat
 // + the user's connected apps. Rendered through a portal (the drawer clips
 // overflow) and positioned against the trigger, opening up-and-to-the-right.
+/** The sidebar head: a wordmark image when there is one to show, else the name
+ *  as text — which is what this always did before the slot had a default.
+ *
+ *  BOTH variants are rendered and CSS picks one from `data-theme`, rather than
+ *  subscribing to the theme here. A wordmark is ink on transparent, so it needs
+ *  one file per canvas, and the theme is already stamped on <html> before first
+ *  paint — reading it in React would repaint after the stamp, not with it.
+ *
+ *  An owner who fills only `wordmark` gets it on both canvases. That mirrors how
+ *  `accent_light` already behaves (blank uses `accent` in both) rather than
+ *  inventing a second rule for the same shape of problem. */
+function BrandWord({ name }: { name: string }) {
+  const { assets } = useBrand();
+  const own = assets?.wordmark || '';
+  const ownLight = assets?.wordmark_light || own;
+  const isAva = name === DEFAULT_BRAND.name;
+
+  const dark = own || (isAva ? AVA_WORDMARK.dark : '');
+  const light = ownLight || (isAva ? AVA_WORDMARK.light : '');
+
+  if (!dark) return <span className="brand-word">{name}</span>;
+  return (
+    <span className="brand-word">
+      <img className="brand-wm brand-wm-dark" src={dark} alt={name} />
+      <img className="brand-wm brand-wm-light" src={light} alt="" aria-hidden="true" />
+    </span>
+  );
+}
+
 type MenuItem = { id: string; label: string; icon: string };
 function RailFlyout({
   items, view, onView,
@@ -208,7 +249,7 @@ export function Drawer({
           groups — connected Apps and the Recents chat history. */}
       <div className="side-panel">
         <div className="panel-head">
-          <span className="brand-word">{brand}</span>
+          <BrandWord name={brand} />
           <div className="panel-head-actions">
             <button type="button"
               className={'ibtn' + (searchOpen ? ' on' : '')}
