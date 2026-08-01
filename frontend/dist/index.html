@@ -4,7 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#262624">
-<link rel="icon" href="/favicon.ico" sizes="48x48">
+<!-- SVG first: a browser that understands it takes it and ignores the .ico,
+     which is what we want on hi-dpi. The .ico stays as the fallback for those
+     that don't, AND as the branded path — /favicon.svg 404s when a brand icon
+     is set, so a branded install lands here. Order matters to no spec, but
+     matching preference order keeps the intent readable. -->
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48">
 <link rel="apple-touch-icon" href="/assets/icons/apple-touch-icon.png">
 <!-- The boot script below replaces this from the cached brand. This is
      what a profile with nothing cached sees for one frame. -->
@@ -49,7 +55,7 @@
     } catch (e) { /* no brand cached, or unreadable: Ava's own look, which is correct */ }
   })();
 </script>
-  <script type="module" crossorigin src="/assets/index-UIiFwDqd.js"></script>
+  <script type="module" crossorigin src="/assets/index-C4yMVTFU.js"></script>
   <link rel="modulepreload" crossorigin href="/assets/rolldown-runtime-QTnfLwEv.js">
   <link rel="modulepreload" crossorigin href="/assets/react-DksRg-8j.js">
   <link rel="stylesheet" crossorigin href="/assets/index-p16eOxk6.css">

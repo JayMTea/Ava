@@ -391,6 +391,9 @@ def login_record(ip: str, ok: bool) -> None:
 
 
 _PUBLIC_PATHS = {"/login", "/logout", "/setup", "/api/health", "/favicon.ico",
+                 # The vector tab icon, public for the same reason the .ico is:
+                 # the sign-in page is rendered before any cookie exists.
+                 "/favicon.svg",
                  # PWA shell: browsers fetch the manifest and service worker
                  # without credentials context — they must not bounce to /login.
                  "/manifest.webmanifest", "/sw.js",

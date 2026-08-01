@@ -345,6 +345,27 @@ def favicon():
         return JSONResponse({"error": "not built"}, status_code=404)
     return FileResponse(p, media_type="image/x-icon")
 
+@router.get("/favicon.svg", include_in_schema=False)
+def favicon_svg():
+    """The vector tab icon, for the hi-dpi displays the .ico stair-steps on.
+
+    404s when a brand icon is set, which is load-bearing rather than lazy: a
+    browser prefers the `image/svg+xml` link over the .ico, so serving Ava's own
+    mark here would silently override the icon on every branded install. The 404
+    sends the browser to /favicon.ico, which already answers with the branded
+    raster. Checking icon_source() rather than derived_icon() avoids building a
+    derived PNG only to throw it away.
+
+    Kept out of the service-worker precache (frontend/vite.config.ts), or an
+    installed client would answer this from cache and never reach the check.
+    """
+    if brand.icon_source():
+        return JSONResponse({"error": "branded"}, status_code=404)
+    p = os.path.join(FRONTEND_DIST, "favicon.svg")
+    if not os.path.isfile(p):
+        return JSONResponse({"error": "not built"}, status_code=404)
+    return FileResponse(p, media_type="image/svg+xml")
+
 @router.get("/brand/asset/{slot}", include_in_schema=False)
 def brand_asset(slot: str, request: Request):
     """Serve one branding image.

@@ -38,6 +38,13 @@ const pwa = VitePWA({
     // Single-file worker: no separate workbox-*.js chunk for the bridge to serve.
     inlineWorkboxRuntime: true,
     globPatterns: ['**/*.{js,css,html,png,svg,woff2}'],
+    // favicon.svg is a glob hit (svg is listed above) and must not be. The
+    // server route 404s it for a branded install so the browser falls back to
+    // the branded .ico; a precached copy would answer from cache instead and
+    // pin Ava's own mark on every installed branded client. This is the same
+    // trap the webmanifest note below describes, reached by a different door —
+    // .ico stays safe only because the pattern never matched it.
+    globIgnores: ['favicon.svg'],
     navigateFallback: '/index.html',
     navigateFallbackDenylist: [
       /^\/api/, /^\/apps/, /^\/media/, /^\/uploads/, /^\/internal/,

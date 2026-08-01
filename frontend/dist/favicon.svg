@@ -1,0 +1,27 @@
+<!-- Ava's tab icon, vector. Built from
+     frontend/public/assets/icons/ava-network-icon-blue.svg, simplified for
+     small sizes: heavier strokes, cross-links dropped, white on the product
+     accent so the mark carries its own contrast against any tab strip.
+
+     Served by ava_bridge/pages.py:favicon_svg(), which 404s when a brand icon
+     is set so a branded install falls back to the .ico. Kept out of the
+     service-worker precache in vite.config.ts for the same reason.
+
+     No <script>, no external refs: Ava sets no CSP, so a first-party SVG must
+     stay inert by construction. This one is authored here, never uploaded;
+     docs/BRANDING.md refuses SVG for owner-supplied images. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Ava">
+  <rect width="512" height="512" rx="112.64" fill="#007acc"/>
+  <g transform="translate(128.54,87.04) scale(2.96421) translate(-27,-18)">
+    <g stroke="#ffffff" stroke-width="14" fill="none" stroke-linecap="round">
+      <line x1="70" y1="30" x2="37" y2="122"/>
+      <line x1="70" y1="30" x2="103" y2="122"/>
+      <line x1="49.6" y1="90" x2="90.4" y2="90"/>
+    </g>
+    <circle cx="70" cy="30" r="19.200000000000003" fill="#ffffff"/>
+    <circle cx="49.6" cy="90" r="13.600000000000001" fill="#ffffff"/>
+    <circle cx="90.4" cy="90" r="16.0" fill="#ffffff"/>
+    <circle cx="37" cy="122" r="16.0" fill="#ffffff"/>
+    <circle cx="103" cy="122" r="16.0" fill="#ffffff"/>
+  </g>
+</svg>

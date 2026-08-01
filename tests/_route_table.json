@@ -854,6 +854,13 @@
   "APIRoute"
  ],
  [
+  "/api/setup/brain",
+  [
+   "GET"
+  ],
+  "APIRoute"
+ ],
+ [
   "/api/setup/connectors",
   [
    "GET"
@@ -878,13 +885,6 @@
   "/api/setup/save",
   [
    "POST"
-  ],
-  "APIRoute"
- ],
- [
-  "/api/setup/brain",
-  [
-   "GET"
   ],
   "APIRoute"
  ],
@@ -989,6 +989,13 @@
  ],
  [
   "/favicon.ico",
+  [
+   "GET"
+  ],
+  "APIRoute"
+ ],
+ [
+  "/favicon.svg",
   [
    "GET"
   ],
