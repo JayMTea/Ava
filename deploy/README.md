@@ -28,26 +28,27 @@ git clone https://github.com/JayMTea/Ava && cd Ava/deploy && ./install.sh
 Already inside a clone? `cd deploy && ./install.sh` — the installer detects that
 it is in a checkout and installs in place rather than cloning again.
 
-**On Windows**, paste this instead. It works in the Command Prompt or PowerShell
-window Windows already gave you, with nothing to open first:
+**On Windows**, run these two lines in the Command Prompt window you already
+have. Nothing to open first, no shell to choose:
 
 ```
-"%PROGRAMFILES%\Git\bin\bash.exe" -lc "cd ~ && git clone https://github.com/JayMTea/Ava && cd Ava/deploy && ./install.sh"
+git clone https://github.com/JayMTea/Ava
+cd Ava\deploy && install.cmd
 ```
 
-That hands the whole sequence to the bash that ships with Git for Windows, so
-`~` and `&&` are bash's to interpret rather than the shell you are sitting in.
-Docker Desktop is the only other requirement. The installer is the same script;
-there is no separate Windows installer.
+`install.cmd` finds the bash that ships with Git for Windows and hands it the
+same `install.sh` everyone else runs — there is no separate Windows installer,
+and no second code path to drift. Docker Desktop is the only other requirement.
+Environment knobs still work: `set AVA_PROFILE=gpu` before running it is passed
+through. You can also just double-click `install.cmd` in Explorer.
 
-> **Why not just run `./install.sh`?** Because the shells Windows opens by
-> default cannot. Command Prompt fails with `'.' is not recognized as an internal
-> or external command`, and PowerShell cannot execute a bash script at all
-> (5.1 also rejects `&&`). Both errors mean "wrong shell", not "broken install".
-> You can equally open **Git Bash** — Windows key, type `Git Bash`, Enter — and
-> run the plain command above at the `$` prompt. If `%PROGRAMFILES%` is wrong
-> because Git installed per-user, run `where git` and swap `cmd\git.exe` for
-> `bin\bash.exe`.
+> **Why not `./install.sh` directly?** Because the shells Windows opens by
+> default cannot run one. Command Prompt fails with `'.' is not recognized as an
+> internal or external command`, and PowerShell cannot execute a bash script at
+> all (5.1 also rejects `&&`). Both errors mean "wrong shell", not "broken
+> install". If you would rather use the same command as everyone else, open
+> **Git Bash** — Windows key, type `Git Bash`, Enter — and run the plain command
+> above at the `$` prompt.
 
 Or pick the profile yourself. Copy it to `.env` and start; the profile selection
 lives in the file, so every later `logs` / `down` / `pull` sees the same settings:

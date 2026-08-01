@@ -11,6 +11,10 @@
 # executed the same way and break the same way.
 *.sh text eol=lf
 
-# Same reasoning inverted: PowerShell is happiest with CRLF, and .ps1 files are
-# only ever run on Windows.
+# Same reasoning inverted, and it is not cosmetic. cmd.exe parses a batch file
+# line by line as it executes it, and LF-only endings make it mis-read labels and
+# `goto` targets — deploy/install.cmd would fail in ways that look like a broken
+# installer rather than a broken checkout. These are only ever run on Windows.
+*.cmd text eol=crlf
+*.bat text eol=crlf
 *.ps1 text eol=crlf

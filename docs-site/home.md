@@ -26,16 +26,16 @@ yet" notice even on your own machine, because under Docker the container sees
 the bridge gateway rather than localhost. The
 [Quickstart](deploy/README.md) explains it in full.
 
-On Windows, paste this instead, into whichever window you already have open:
+On Windows, run this in the Command Prompt window you already have:
 
 ```
-"%PROGRAMFILES%\Git\bin\bash.exe" -lc "cd ~ && git clone https://github.com/JayMTea/Ava && cd Ava/deploy && ./install.sh"
+git clone https://github.com/JayMTea/Ava
+cd Ava\deploy && install.cmd
 ```
 
-It hands the sequence to the bash that ships with Git for Windows, because
-Command Prompt and PowerShell cannot run a shell script themselves. The
-[Quickstart](deploy/README.md) covers the alternatives and what to do if Git
-installed somewhere other than Program Files.
+`install.cmd` hands the same installer to the bash that ships with Git for
+Windows, because Command Prompt and PowerShell cannot run a shell script
+themselves. The [Quickstart](deploy/README.md) covers the alternatives.
 
 One command detects your hardware, downloads a model, and gets you chatting in
 your browser. Everything after that happens in the in-app **Setup hub**: wire in
