@@ -99,6 +99,11 @@ ASSETS: dict[str, str] = {
     # viewer, and a caption track that 404s looks exactly like a video with no
     # captions, which is the failure nobody reports.
     "docs/assets/connect-app-tour.vtt": "docs/assets/connect-app-tour.vtt",
+    "docs/assets/ava-tour.vtt": "docs/assets/ava-tour.vtt",
+    "docs/assets/choose-model-tour.vtt": "docs/assets/choose-model-tour.vtt",
+    "docs/assets/connect-device-tour.vtt": "docs/assets/connect-device-tour.vtt",
+    "docs/assets/agent-setup-tour.vtt": "docs/assets/agent-setup-tour.vtt",
+    "docs/assets/install-tour.vtt": "docs/assets/install-tour.vtt",
     "docs/assets/connect-app-1-connectors.png": "docs/assets/connect-app-1-connectors.png",
     "docs/assets/connect-app-2-detected.png": "docs/assets/connect-app-2-detected.png",
     "docs/assets/connect-app-3-connected.png": "docs/assets/connect-app-3-connected.png",

@@ -268,6 +268,8 @@ device's `mcp:` or `actions:` block works exactly as any app's does.
        style="width:100%;border-radius:8px"
        aria-label="Screen recording: connecting a device and watching its first pushed reading arrive">
   <source src="../../assets/connect-device-tour.mp4" type="video/mp4">
+  <track kind="captions" srclang="en" label="English"
+         src="../../assets/connect-device-tour.vtt">
   Your browser can't play video. <a href="../../assets/connect-device-tour.mp4">Download the walkthrough</a>.
 </video>
 

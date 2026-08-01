@@ -143,6 +143,8 @@ idempotent; re-run it any time, and after `nemoclaw <name> rebuild`.
        style="width:100%;border-radius:8px"
        aria-label="Screen recording: provisioning the agent runtime from Setup → Agent, step by step">
   <source src="../../assets/agent-setup-tour.mp4" type="video/mp4">
+  <track kind="captions" srclang="en" label="English"
+         src="../../assets/agent-setup-tour.vtt">
   Your browser can't play video. <a href="../../assets/agent-setup-tour.mp4">Download the walkthrough</a>.
 </video>
 

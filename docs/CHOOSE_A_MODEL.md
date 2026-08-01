@@ -13,6 +13,8 @@ The whole flow takes about a minute; here it is end to end, narrated (sound on):
        style="width:100%;border-radius:8px"
        aria-label="Screen recording: picking Ava's brain, from detected hardware through linking and testing a model">
   <source src="../assets/choose-model-tour.mp4" type="video/mp4">
+  <track kind="captions" srclang="en" label="English"
+         src="../assets/choose-model-tour.vtt">
   Your browser can't play video. <a href="../assets/choose-model-tour.mp4">Download the walkthrough</a>.
 </video>
 
