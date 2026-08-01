@@ -18,6 +18,7 @@
 #   AVA_INSTALL_DRY_RUN=1   write .env and stop, touching no images (for CI)
 #   AVA_FORCE_DOCKER=1      use Docker on an Apple-Silicon Mac anyway
 #   AVA_SKIP_GPU_RUNTIME_CHECK=1  skip the nvidia-container-toolkit probe
+#   AVA_NO_BROWSER=1        do not open the first-run link (it is still printed)
 set -euo pipefail
 
 AVA_DIR="${AVA_DIR:-$HOME/ava}"
@@ -31,6 +32,38 @@ if [ -n "$_SCRIPT_DIR" ] && git -C "$_SCRIPT_DIR" rev-parse --show-toplevel >/de
   AVA_DIR="$(git -C "$_SCRIPT_DIR" rev-parse --show-toplevel)"
   _IN_CLONE=1
 fi
+
+open_browser() {
+  # Open the first-run link for the owner, the way `jupyter notebook` does — the
+  # token is not a secret they are supposed to handle, it is a proof they own the
+  # machine, and making them shuttle it by hand is ceremony, not security.
+  #
+  # Every skip below is a case where opening a browser is WRONG, not merely
+  # unnecessary, so each is checked rather than attempted-and-ignored:
+  #   * over SSH, the browser would open on the wrong machine (or not at all,
+  #     after a timeout the installer would appear to hang on)
+  #   * in CI there is no session to open into and xdg-open can block on a dbus
+  #     call that never answers
+  #   * headless Linux has no display, and xdg-open there prints an error that
+  #     reads like an install failure
+  # The link is ALWAYS printed regardless, so this can only ever save a step —
+  # never be the only way through.
+  [ "${AVA_NO_BROWSER:-0}" = "1" ] && return 0
+  [ -n "${CI:-}" ] && return 0
+  [ -n "${SSH_CONNECTION:-}${SSH_CLIENT:-}${SSH_TTY:-}" ] && return 0
+  case "$(uname -s 2>/dev/null || true)" in
+    Darwin) command -v open >/dev/null 2>&1 && open "$1" >/dev/null 2>&1 & ;;
+    MINGW*|MSYS*|CYGWIN*)
+      # Git Bash: `start` is a cmd builtin, not a program. The empty "" is the
+      # window title cmd would otherwise take the URL for.
+      command -v cmd >/dev/null 2>&1 && cmd //c start "" "$1" >/dev/null 2>&1 & ;;
+    Linux)
+      [ -z "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && return 0
+      command -v xdg-open >/dev/null 2>&1 && xdg-open "$1" >/dev/null 2>&1 & ;;
+    *) return 0 ;;
+  esac
+  return 0
+}
 
 say() { printf '\033[34m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[33mWarning:\033[0m %s\n' "$*" >&2; }
@@ -510,13 +543,15 @@ if [ "$_ok" = 1 ]; then
   fi
 
   if [ -n "$_claim" ]; then
-    say "Ava is up. Open this link to set your admin password:"
-    say "  http://localhost:8096/setup?claim=$_claim"
+    _link="http://localhost:8096/setup?claim=$_claim"
+    say "Ava is up. Opening your browser to set an admin password:"
+    say "  $_link"
     # Also on its own line: terminals wrap long URLs, and a wrapped link that is
     # copied in two pieces loses the query string — which on this URL is the only
     # part that matters. The bare token can be retyped.
     say "  (token alone, if that link wrapped: $_claim)"
     say "(the link is single-use — it stops working the moment a password is set)"
+    open_browser "$_link"
   elif MSYS_NO_PATHCONV=1 docker compose exec -T ava test -f /data/data/setup_claim 2>/dev/null; then
     # A token EXISTS and we could not get it. That is not the same as "no gate", and
     # saying "sign in" here is how a first run becomes a 403 with no way forward.

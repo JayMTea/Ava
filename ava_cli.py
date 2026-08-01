@@ -740,10 +740,32 @@ def cmd_claim(args) -> int:
               "refuses you, fix the permissions on that directory.", file=sys.stderr)
         return 1
     base = (args.url or "http://localhost:8096").rstrip("/")
+    link = f"{base}/setup?claim={token}"
     print(f"Token: {token}")
-    print(f"Open:  {base}/setup?claim={token}")
+    print(f"Open:  {link}")
     print("The link is single-use: it stops working the moment a password is set.")
+    if not args.no_browser and _can_open_browser():
+        import webbrowser
+        webbrowser.open(link)
     return 0
+
+
+def _can_open_browser() -> bool:
+    """Is there a desktop session on THIS machine to open into?
+
+    Same three refusals as deploy/install.sh's open_browser(): over SSH the
+    browser would open on the wrong machine, CI has no session at all, and a
+    headless Linux box has no display. webbrowser.open() returns True on some of
+    these after launching a text-mode browser into the terminal, which is worse
+    than doing nothing, so the check is made here rather than trusting it.
+    """
+    if os.environ.get("CI"):
+        return False
+    if any(os.environ.get(k) for k in ("SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY")):
+        return False
+    if sys.platform.startswith("linux"):
+        return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+    return True
 
 
 def cmd_agent(args) -> int:
@@ -1732,6 +1754,8 @@ def main() -> int:
     clp = sub.add_parser("claim", help="print the first-run claim token and link")
     clp.add_argument("--url", default="", metavar="BASE",
                      help="base URL to build the link from (default http://localhost:8096)")
+    clp.add_argument("--no-browser", action="store_true",
+                     help="print the link but do not open it")
     clp.set_defaults(func=cmd_claim)
     ap = sub.add_parser("agent", help="agent runtime (NemoClaw): status / provision")
     ap.add_argument("action", nargs="?", choices=["status", "provision"], default="status")
