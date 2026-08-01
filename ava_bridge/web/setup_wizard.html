@@ -36,7 +36,7 @@
  <div class="card">
   <h1>Set up __BRAND__</h1>
   <p class="sub">A few choices and you're chatting — nothing leaves your machine.</p>
-  <div class="steps"><span class="dot on"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+  <div class="steps"><span class="dot on"></span><span class="dot"></span><span class="dot"></span></div>
 
   <!-- Step 1: hardware -->
   <div class="step on" data-step="0">
@@ -61,17 +61,24 @@
    <div class="nav"><button class="ghost" onclick="go(0)">Back</button><button onclick="go(2)">Next</button></div>
   </div>
 
-  <!-- Step 3: features -->
+  <!-- Step 3: features + finish.
+       There was a fourth step here asking which connectors to enable, and it
+       was three questions a first-run user cannot answer plus one they should
+       not be asked. Bridge, Local LLM and Inference Router are all kind:core —
+       this app's own HTTP bridge, the engine it thinks with, and a router inside
+       that bridge. There is no correct answer but "leave them alone", so the
+       checkboxes offered agency that did not exist and the only available move
+       was self-harm. the GPU service, the one real option, is gated behind the `full`
+       compose profile, so on a cpu or gpu install it was pre-ticked for a
+       service that was never deployed. And the answer went nowhere:
+       connectors.load() filters on `enabled` in each MANIFEST, never on the
+       list this wrote to ava.yaml.
+       Connectors are managed in Setup -> Connectors, which has the room to
+       explain them and shows them when they actually exist. -->
   <div class="step" data-step="2">
    <label>Optional features — __BRAND__'s defaults; change any of them later in Setup &rarr; System</label>
    <div id="featList">Loading…</div>
-   <div class="nav"><button class="ghost" onclick="go(1)">Back</button><button onclick="go(3)">Next</button></div>
-  </div>
-
-  <!-- Step 4: connectors + finish -->
-  <div class="step" data-step="3">
-   <label>Enable connectors (apps __BRAND__ monitors &amp; drives)</label>
-   <div id="connList" class="info">Loading…</div>
+   <div class="nav"><button class="ghost" onclick="go(1)">Back</button></div>
    <button onclick="finish()">Finish setup</button>
    <button class="ghost" onclick="skipInference()">Skip the model for now</button>
    <div class="msg" id="msg"></div>
@@ -81,8 +88,7 @@
 const S={mode:null};
 function go(n){document.querySelectorAll('.step').forEach(e=>e.classList.toggle('on',+e.dataset.step===n));
   document.querySelectorAll('.dot').forEach((d,i)=>d.classList.toggle('on',i<=n));
-  if(n===2)loadFeatures();
-  if(n===3)loadConnectors();}
+  if(n===2)loadFeatures();}
 async function j(u,o){const r=await fetch(u,o);return r.json();}
 (async()=>{
   const h=await j('/api/setup/hardware');
@@ -117,11 +123,6 @@ async function j(u,o){const r=await fetch(u,o);return r.json();}
   const preferLocal = live.length>0 || (S.tier && S.tier!=='cloud');
   (opts.querySelector(preferLocal?'[data-m=local]':'[data-m=cloud]')).click();
 })();
-async function loadConnectors(){
-  const c=await j('/api/setup/connectors');const el=document.getElementById('connList');
-  if(!c.connectors.length){el.textContent='No connectors installed yet — add one anytime (docs/CONNECTOR_SDK.md).';return;}
-  el.innerHTML=c.connectors.map(x=>`<label class="check"><input type="checkbox" value="${x.id}" checked> ${x.label} <small>(${x.kind})</small></label>`).join('');
-}
 async function loadFeatures(){
   const f=await j('/api/setup/features');const el=document.getElementById('featList');
   // Built from features.REGISTRY, so a newly registered capability appears here
@@ -136,8 +137,11 @@ async function save(skip){
     : {mode:'local',engine:v('engine'),base_url:v('baseUrl'),model:v('model')};
   const features={};
   document.querySelectorAll('#featList input[data-feat]').forEach(i=>{features[i.dataset.feat]=i.checked;});
-  const connectors=[...document.querySelectorAll('#connList input:checked')].map(i=>i.value);
-  const body={inference:inf,features,connectors};
+  // No `connectors` key. Omitted, not empty: the save path only patches
+  // ava.yaml when the key is PRESENT, so sending [] here would have wiped the
+  // shipped `connectors: [gpu-service]` default the moment the checkbox list stopped
+  // existing. Setup -> Connectors owns that list now.
+  const body={inference:inf,features};
   if(skip) body.skip_inference=true;
   const r=await fetch('/api/setup/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const d=await r.json();
