@@ -38,6 +38,8 @@
  .brainWhere{font-size:12.5px;margin-top:2px}
  .info p{margin:10px 0 0}
  .fine{font-size:12px;color:var(--muted);text-align:center;margin:12px 0 0}
+ .info code{display:block;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+   font-size:12.5px;color:var(--txt);word-break:break-all;user-select:all}
 </style></head><body>
  <div class="card">
   <h1>Set up __BRAND__</h1>
@@ -74,6 +76,18 @@
     <button id="brainUse" onclick="useBrain()">Use this model</button>
     <button class="ghost" onclick="showChooser()">Use a different model</button>
     <p class="fine">Change this any time in Setup &rarr; Agent.</p>
+   </div>
+
+   <!-- Declared but absent: the engine answered and does not hold this model.
+        Distinct from "engine down" on purpose — we only get here when the list
+        was actually READ, so this is a fact rather than a guess, and the fix is
+        one command rather than a diagnosis. -->
+   <div id="brainMissing" style="display:none">
+    <p class="lead">__BRAND__ is set up to think using <b id="missName"></b>, but
+    the engine is running without it. One command downloads it:</p>
+    <div class="info"><code id="missCmd"></code></div>
+    <button onclick="loadBrain()">Check again</button>
+    <button class="ghost" onclick="showChooser()">Use a different model</button>
    </div>
 
    <div id="chooser" style="display:none">
@@ -126,11 +140,27 @@ function go(n){document.querySelectorAll('.step').forEach(e=>e.classList.toggle(
   document.querySelectorAll('.dot').forEach((d,i)=>d.classList.toggle('on',i<=n));
   if(n===1)loadBrain();
   if(n===2)loadFeatures();}
+function hideBrainViews(){
+  ['brainCard','brainMissing','chooser'].forEach(id=>
+    document.getElementById(id).style.display='none');
+  document.getElementById('chooserNext').style.display='none';
+}
 async function loadBrain(){
   // Nothing already thinking? Then there is a real choice to make, and the
   // chooser IS the step — no card, no confirm-what-does-not-exist.
   const b=await j('/api/setup/brain');S.brain=b;
+  hideBrainViews();
   if(!b.model){showChooser();return;}
+  if(b.source==='declared_missing'){
+    document.getElementById('missName').textContent=b.model;
+    document.getElementById('missCmd').textContent=
+      b.pull_cmd||('the engine at '+b.base_url+' must be restarted serving '+b.model);
+    document.getElementById('brainMissing').style.display='block';
+    return;
+  }
+  // The engine's OWN spelling, adopted server-side — a pulled `llama3.2` is
+  // reported by Ollama as `llama3.2:latest`, and the app sends what this says
+  // verbatim.
   document.getElementById('brainModel').textContent=b.model;
   document.getElementById('brainWhere').textContent=
     (b.engine?('running on '+b.engine):'configured')+' · '+
@@ -138,13 +168,26 @@ async function loadBrain(){
   document.getElementById('brainWhy').textContent=b.consequence||'';
   document.getElementById('brainUse').textContent='Use '+b.model;
   document.getElementById('brainCard').style.display='block';
-  document.getElementById('chooser').style.display='none';
-  document.getElementById('chooserNext').style.display='none';
 }
 function showChooser(){
-  document.getElementById('brainCard').style.display='none';
+  hideBrainViews();
   document.getElementById('chooser').style.display='block';
   document.getElementById('chooserNext').style.display='';
+  // Offer what the engine actually holds, so the one field a novice cannot fill
+  // becomes a pick. Free text stays reachable via "Other…": someone pointing at
+  // a model the engine has not loaded yet is doing something legitimate.
+  const served=(S.brain&&S.brain.served)||[],m=document.getElementById('model');
+  if(served.length&&m&&m.tagName==='INPUT'){
+    const sel=document.createElement('select');sel.id='model';
+    served.concat(['Other…']).forEach(v=>{
+      const o=document.createElement('option');o.value=o.textContent=v;sel.appendChild(o);});
+    sel.onchange=()=>{if(sel.value==='Other…'){
+      const inp=document.createElement('input');inp.id='model';
+      inp.placeholder='model id, exactly as your engine reports it';
+      sel.replaceWith(inp);inp.focus();}};
+    if(S.brain.model&&served.indexOf(S.brain.model)>=0)sel.value=S.brain.model;
+    m.replaceWith(sel);
+  }
   // Drop the confirm intent: from here the user is choosing, and save() must
   // send what they picked rather than "use what was already there".
   if(S.mode==='installed')S.mode=null;

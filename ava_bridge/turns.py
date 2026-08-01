@@ -288,9 +288,14 @@ def _run_turn_direct(tid: str, agent_text: str, chat_id: str):
     try:
         reply, tools = chat_direct(agent_text, history=history_for(chat_id))
     except Exception as e:  # noqa: BLE001
+        # `code` rather than isinstance: any raiser that knows why it failed can
+        # carry one, and the turn dict is returned verbatim by /api/turn/<id>, so
+        # this is all it takes to reach frontend/src/lib/fixes.ts. Without it the
+        # chat showed the router's own loopback URL and offered nowhere to go.
         with state.turns_lock:
             if tid in state.turns:
-                state.turns[tid].update(status="error", error=str(e))
+                state.turns[tid].update(status="error", error=str(e),
+                                        error_code=getattr(e, "code", ""))
         return
     m = which_model()
     if chat_id:
@@ -430,5 +435,6 @@ def _run_turn_guarded(tid: str, agent_text: str, sid: str, chat_id: str) -> None
     try:
         _run_turn(tid, agent_text, sid, chat_id)
     except BaseException as e:
-        _set_turn(tid, status="error", error=f"{type(e).__name__}: {e}")
+        _set_turn(tid, status="error", error=f"{type(e).__name__}: {e}",
+                  error_code=getattr(e, "code", ""))
         raise

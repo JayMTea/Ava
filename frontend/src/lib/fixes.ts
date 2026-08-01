@@ -24,6 +24,18 @@ export function fixForCode(code?: string | null): FixAction | undefined {
       tip: `Opens Setup → System — switch ${pretty(m[1])} back on under Optional features.`,
     };
   }
+  // The engine is up and simply does not hold the configured model — the most
+  // likely first-run failure, and the one place Operations is the wrong answer:
+  // nothing is down, so there is nothing there to restart. Checked BEFORE the
+  // `_down` pattern, which `model_unknown` does not match anyway but which a
+  // future `model_..._down` code would.
+  if (code === 'model_unknown') {
+    return {
+      label: 'Pick a model in Setup',
+      hash: 'hub/agent',
+      tip: 'Opens Setup → Agent — the engine is running but has no such model loaded; choose one it actually serves.',
+    };
+  }
   m = /^(.+)_down$/.exec(code);
   if (m) {
     return {

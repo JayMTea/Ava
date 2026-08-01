@@ -234,9 +234,109 @@ def roles_status() -> dict:
     }
 
 
+def models_url(base_url: str, engine: str = "") -> str:
+    """Where to ask a running engine what it is serving.
+
+    Ollama's OpenAI-compatible base ends in /v1 but its native list is at
+    /api/tags off the root, so the /v1 has to come off — the same shape as
+    setup_wizard._health_url, which is why both derive the path from the engine
+    registry rather than hardcoding it.
+    """
+    from .engines import get as _engine_get
+
+    base = (base_url or "").strip().rstrip("/")
+    if not base:
+        return ""
+    spec = _engine_get(engine) if engine else None
+    path = getattr(spec, "models_path", "/models") if spec else "/models"
+    if path.startswith("/api/") and base.endswith("/v1"):
+        base = base[:-3].rstrip("/")
+    return base + path
+
+
+def probe_serving(base_url: str, engine: str = "", key: str = "",
+                  timeout: float = 2.0) -> tuple[bool, list[str]]:
+    """(reachable, ids). Reachable is NOT "returned something".
+
+    An engine that is up with an empty store is reachable and serving nothing;
+    an engine that is down is neither. Collapsing those two into "no ids" would
+    report a running-but-empty Ollama as offline, and the dashboard would send
+    the owner hunting for a service that is fine.
+    """
+    ids = _fetch_served(base_url, engine, key, timeout)
+    return (ids is not None), (ids or [])
+
+
+def served_models(base_url: str, engine: str = "", key: str = "",
+                  timeout: float = 2.0) -> list[str]:
+    """What this engine is ACTUALLY holding, as the exact ids it will accept.
+
+    Ava sends the model id verbatim, so "close enough" is not a category: vLLM is
+    case-sensitive about `Qwen/Qwen2.5-7B-Instruct`, and Ollama reports a pulled
+    `llama3.2` as `llama3.2:latest`. Setup asked the user to type that string from
+    memory; this is how it stops having to.
+
+    Two shapes, because there are two: OpenAI-compatible returns
+    `{"data": [{"id": ...}]}` and Ollama's native /api/tags returns
+    `{"models": [{"name": ...}]}`. Returns [] on any failure — an engine that is
+    down or slow must degrade to "we do not know", never to an exception on a
+    setup screen.
+    """
+    return _fetch_served(base_url, engine, key, timeout) or []
+
+
+def _fetch_served(base_url: str, engine: str, key: str,
+                  timeout: float) -> list[str] | None:
+    """The ids, or None when the engine could not be reached at all."""
+    url = models_url(base_url, engine)
+    if not url:
+        return None
+    try:
+        import requests
+        headers = {"Authorization": f"Bearer {key}"} if key else {}
+        r = requests.get(url, timeout=timeout, headers=headers)
+        if not r.ok:
+            return None
+        body = r.json()
+    except Exception:  # noqa: BLE001 — unreachable, slow, or not JSON
+        return None
+    out: list[str] = []
+    if isinstance(body, dict):
+        for item in (body.get("data") or []):
+            if isinstance(item, dict) and str(item.get("id") or "").strip():
+                out.append(str(item["id"]).strip())
+        for item in (body.get("models") or []):
+            if isinstance(item, dict) and str(item.get("name") or "").strip():
+                out.append(str(item["name"]).strip())
+    # Stable order, no duplicates — this feeds a <select> and a comparison.
+    return sorted(dict.fromkeys(out))
+
+
+def match_served(model: str, served: list[str]) -> str:
+    """The id the engine will accept for `model`, or "" if it holds no such thing.
+
+    Forgiving in exactly one direction: a bare Ollama tag matches its `:latest`
+    form, because `ollama pull llama3.2` stores `llama3.2:latest` and the user
+    typed — or the installer wrote — the bare name. Everything else is exact,
+    since guessing at a near-miss is how you get a config that looks right and
+    fails on the first message.
+    """
+    want = (model or "").strip()
+    if not want or not served:
+        return ""
+    if want in served:
+        return want
+    if ":" not in want:
+        for s in served:
+            if s.rsplit(":", 1)[0] == want:
+                return s
+    return ""
+
+
 __all__ = [
     "gpusvc_SUBDIRS", "DEFAULT_MODELS", "OLLAMA_CHAT", "LOCAL_CHAT_ENGINES",
     "manifest", "dirs", "ensure_dirs", "present", "hf_present", "ollama_present",
     "gpusvc_present", "gguf_present", "platform_label", "detected_tier",
     "engine_servable_here", "resolve_auto", "roles_status",
+    "models_url", "served_models", "match_served", "probe_serving",
 ]

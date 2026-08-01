@@ -233,6 +233,31 @@ def _candidates() -> list[dict]:
     return out
 
 
+def _pull_cmd(base_url: str, engine: str, model: str) -> str:
+    """How to fetch a declared-but-absent model, for the box it is missing on.
+
+    The compose base URLs ARE the service names (`ollama`, `ollama-rocm`,
+    `vllm`), so this is derived rather than guessed — and getting it wrong is
+    expensive here: `docker compose exec ollama ...` fails outright under the
+    rocm profile, where the service is `ollama-rocm`.
+
+    vLLM gets nothing: it loads one model at boot from --model, so a missing one
+    is a restart with different flags, not a pull.
+    """
+    if engine != "ollama" or not model:
+        return ""
+    try:
+        from urllib.parse import urlparse
+        host = (urlparse(base_url).hostname or "").strip()
+    except Exception:  # noqa: BLE001
+        return ""
+    if not host:
+        return ""
+    if host in _LOCAL_HOSTNAMES:
+        return f"ollama pull {model}"
+    return f"docker compose exec {host} ollama pull {model}"
+
+
 def recommend_brain() -> dict:
     """What is already going to do the thinking, and what that costs the owner.
 
@@ -256,7 +281,8 @@ def recommend_brain() -> dict:
     thing is answering yet.
     """
     out = {"source": "none", "model": "", "engine": "", "base_url": "",
-           "live": False, "writes_config": True, "consequence": "", "tier": ""}
+           "live": False, "writes_config": True, "consequence": "", "tier": "",
+           "served": [], "pull_cmd": ""}
 
     # Priority: what the owner (or a previous run) CHOSE beats what the installer
     # arranged, because a chosen backend is already in force and already written.
@@ -291,6 +317,25 @@ def recommend_brain() -> dict:
     if out["base_url"]:
         out["engine"] = _engine_of(out["base_url"], out["engine"])
         out["live"] = _probe(_health_url(out["base_url"], out["engine"]))
+
+    # Ask the engine what it is actually holding, and adopt ITS spelling. Ava
+    # sends the id verbatim, so "close enough" is not a category: a pulled
+    # `llama3.2` is reported by Ollama as `llama3.2:latest`, and vLLM is
+    # case-sensitive about `Qwen/Qwen2.5-7B-Instruct`.
+    if out["live"] and out["base_url"]:
+        from . import models as _models
+        out["served"] = _models.served_models(out["base_url"], out["engine"])
+        if out["model"] and out["served"]:
+            exact = _models.match_served(out["model"], out["served"])
+            if exact:
+                out["model"] = exact
+            else:
+                # Declared but absent. Only reachable when the list was READ —
+                # an engine that is down or slow returns [] and must degrade to
+                # "we do not know", never to "your model is missing".
+                out["source"] = "declared_missing"
+                out["pull_cmd"] = _pull_cmd(out["base_url"], out["engine"],
+                                            out["model"])
 
     # What it costs them, in consequences rather than parameters. Reuses the tier
     # the hardware step already shows, so the two screens cannot disagree.
@@ -404,6 +449,15 @@ async def api_save(request: Request):
                 return JSONResponse(
                     {"error": "Nothing is set up to do the thinking yet. Choose "
                               "a local engine or a cloud provider.",
+                     "field": "model"}, status_code=400)
+            if brain["source"] == "declared_missing":
+                # The engine answered and does NOT hold this model. Completing
+                # here would hand back a finished setup whose first message 404s,
+                # which is the failure this whole screen exists to prevent.
+                return JSONResponse(
+                    {"error": f"{brain['engine'] or 'The engine'} is running but "
+                              f"does not have {brain['model']!r} yet. Download it "
+                              "first, then try again.",
                      "field": "model"}, status_code=400)
             # And write NO inference block. router_app.load_backends() builds the
             # env backend only while inference.backends is empty, so copying the

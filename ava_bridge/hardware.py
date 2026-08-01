@@ -644,17 +644,13 @@ def _loaded_models() -> list[dict]:
     # engine is surfaced as offline. Identity comes from config or the live
     # API — never from guessing what a GPU process "probably" is.
     for b in _configured_backends():
-        served: list[str] = []
-        reachable = False
-        try:
-            r = requests.get(f"{str(b.get('url', '')).rstrip('/')}/models", timeout=1.5)
-            if r.ok:
-                reachable = True
-                data = r.json().get("data") or []
-                served = [str(x.get("id") or "").strip() for x in data
-                          if str(x.get("id") or "").strip()]
-        except Exception:  # noqa: BLE001
-            pass
+        # One parser for "what is this engine serving", shared with the setup
+        # wizard. This hardcoded `/models` and the OpenAI `data[].id` shape, so
+        # an Ollama backend answered through its /v1 compatibility layer by luck
+        # and a llama.cpp one was asked at whichever path happened to be right.
+        from . import models as _models
+        reachable, served = _models.probe_serving(
+            str(b.get("url", "")), str(b.get("engine", "")), timeout=1.5)
 
         label = str(b.get("label") or "").strip()
         row = _match_backend_row(rows, served or [str(b.get("model") or "")])

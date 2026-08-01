@@ -13,6 +13,7 @@ import unittest
 from unittest import mock
 
 from ava_bridge import hardware
+from ava_bridge import models as _models
 
 # A vLLM-style engine: launcher (declares --model) + bare-cmdline worker,
 # plus an unrelated the GPU service process. Deliberately NOT an NVIDIA/Ava model —
@@ -68,13 +69,22 @@ class GpuProcessGrouping(unittest.TestCase):
         self.assertEqual([r for r in rows if r["name"] == "the GPU service"][0]["pid"], 200)
 
 
-class _Resp:
-    def __init__(self, ids):
-        self.ok = True
-        self._ids = ids
+# `_loaded_models` no longer parses /models itself — it asks
+# ava_bridge.models.probe_serving, which is now the ONE place that knows each
+# engine's list path and response shape (hardware.py hardcoded `/models` and the
+# OpenAI `data[].id` envelope, so an Ollama backend worked only via its /v1
+# compatibility layer and a llama.cpp one was asked at the wrong path entirely).
+#
+# So these patch that collaborator rather than the HTTP client. The tuple is
+# (reachable, ids): "up but serving nothing" and "down" are different rows, and
+# collapsing them would report a running-but-empty Ollama as offline. The
+# parsing itself is covered directly in tests/test_served_models.py.
+def _serving(ids):
+    return lambda url, engine="", key="", timeout=0: (True, list(ids))
 
-    def json(self):
-        return {"data": [{"id": i} for i in self._ids]}
+
+def _unreachable(url, engine="", key="", timeout=0):
+    return (False, [])
 
 
 BACKEND = {"id": "brain", "url": "http://127.0.0.1:9999/v1",
@@ -102,8 +112,8 @@ class BackendCrossCheck(unittest.TestCase):
     def test_running_engine_tags_existing_row_no_duplicate(self):
         with mock.patch.object(hardware, "_gpu_model_processes",
                                lambda: [dict(self.proc_row)]), \
-             mock.patch.object(hardware.requests, "get",
-                               lambda url, timeout=0: _Resp(["acme/Cool-LLM-7B-FP8"])):
+             mock.patch.object(_models, "probe_serving",
+                               _serving(["acme/Cool-LLM-7B-FP8"])):
             rows = hardware._loaded_models()
         self.assertEqual(len(rows), 1, "API cross-check must not add a second row")
         self.assertEqual(rows[0]["backend"], "brain")
@@ -112,10 +122,8 @@ class BackendCrossCheck(unittest.TestCase):
         self.assertEqual(served[0]["name"], "acme/Cool-LLM-7B-FP8")  # real id still shown
 
     def test_configured_engine_down_shows_offline_row_labeled_from_config(self):
-        def boom(url, timeout=0):
-            raise OSError("connection refused")
         with mock.patch.object(hardware, "_gpu_model_processes", lambda: []), \
-             mock.patch.object(hardware.requests, "get", boom):
+             mock.patch.object(_models, "probe_serving", _unreachable):
             rows = hardware._loaded_models()
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["status"], "offline")
@@ -124,8 +132,8 @@ class BackendCrossCheck(unittest.TestCase):
     def test_unnamed_engine_row_claimed_by_api_not_duplicated(self):
         bare = dict(self.proc_row, model="vLLM model", model_id=None, cmd="VLLM::EngineCore")
         with mock.patch.object(hardware, "_gpu_model_processes", lambda: [bare]), \
-             mock.patch.object(hardware.requests, "get",
-                               lambda url, timeout=0: _Resp(["acme/Cool-LLM-7B-FP8"])):
+             mock.patch.object(_models, "probe_serving",
+                               _serving(["acme/Cool-LLM-7B-FP8"])):
             rows = hardware._loaded_models()
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["model"], "Cool LLM")

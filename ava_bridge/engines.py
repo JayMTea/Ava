@@ -52,6 +52,11 @@ class Engine:
     usage: bool
     usage_reason: str
     usage_verified: bool = False
+    # Where this engine lists what it is actually serving. Separate from
+    # health_path on purpose: llama.cpp answers health at /health but models at
+    # /models, so aliasing the two would ask it the wrong question. Ollama is the
+    # only engine whose list is not the OpenAI shape, hence its override below.
+    models_path: str = "/models"
     launcher: str | None = None
     flags_table: bool = False
     pull: str | None = None
@@ -82,6 +87,7 @@ ENGINES: tuple[Engine, ...] = (
     Engine(
         key="ollama", label="Ollama", tier=FIRST_CLASS,
         health_path="/api/tags",
+        models_path="/api/tags",
         usage=True,
         usage_reason="verified: Ollama omits usage UNLESS include_usage is sent",
         usage_verified=True,
