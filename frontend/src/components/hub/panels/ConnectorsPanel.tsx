@@ -717,7 +717,14 @@ function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
             <span style={{ color: 'var(--ok)', display: 'inline-flex' }}><Icon name="check" /></span>
             <b>Found {probe!.tools?.length || 0} tool{(probe!.tools?.length || 0) === 1 ? '' : 's'}</b>
-            <span style={{ color: 'var(--muted)' }}>via {probe!.kind === 'mcp' ? `MCP (${probe!.transport})` : 'its tool list'} — Ava will discover and call these for you.</span>
+            {/* The transport is interpolated only when there IS one. It used to
+                be unconditional, and a probe response without the field rendered
+                the literal string "MCP (undefined)" to the owner — which is what
+                the published connect walkthrough shows at 0:38. The bridge always
+                sets it, so this never fired against a real Ava; the demo mock did
+                not, and the mock is what the camera sees. Guarding the render is
+                the half that protects a user, whatever answered them. */}
+            <span style={{ color: 'var(--muted)' }}>via {probe!.kind === 'mcp' ? (probe!.transport ? `MCP (${probe!.transport})` : 'MCP') : 'its tool list'} — Ava will discover and call these for you.</span>
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
             {(probe!.tools || []).slice(0, 24).map((t) => (

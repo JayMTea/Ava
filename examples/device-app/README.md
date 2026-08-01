@@ -29,7 +29,7 @@ ava device token device-demo        # copy the token it prints
 export AVA_URL=http://localhost:8096
 export AVA_CID=device-demo
 export AVA_INGEST_TOKEN=<the token from step 2>
-python examples/device-app/server.py
+python3 examples/device-app/server.py
 
 # 4. Restart Ava (or `ava up`) so it loads the connector, then:
 ava device list                     # shows device-demo (pull,push)

@@ -388,6 +388,14 @@ cost:
   # lets Ava convert energy into currency — a dollar figure reads as settled, so
   # it is withheld unless the wattage was sampled or you declared it.
   # nominal_gpu_watts: 180
+  # Caps for the Vitals budget meters, editable from Setup → Cost. Unset (or
+  # null) means no cap and a dormant meter — not a cap of zero. `daily_kwh` is
+  # withheld from the UI on a platform with no defensible wattage, for the same
+  # reason as above: a meter that divides by a cap it cannot measure prints NaN.
+  # budgets:
+  #   daily_usd: 5.00
+  #   monthly_usd: 100.00
+  #   daily_kwh: 4.0
 
 # ── Performance-log storage (self-managing; no external TSDB) ────────────────
 # Ava keeps a compact append-only performance.jsonl (one line per generation) and,

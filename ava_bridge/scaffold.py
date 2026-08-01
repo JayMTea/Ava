@@ -228,7 +228,7 @@ _STDLIB_TAIL = '''
 
 # --------------------------------------------------------------------------- #
 # Standalone server (no framework): run it next to your app as a sidecar —
-#   python ava/surface.py            # serves http://127.0.0.1:__PORT__
+#   python3 ava/surface.py           # serves http://127.0.0.1:__PORT__
 # --------------------------------------------------------------------------- #
 import json
 import os
@@ -493,7 +493,7 @@ app.use(avaSurface());   // BEFORE any express.static catch-all
 sidecar next to your app:
 
 ```bash
-python ava/surface.py        # serves /tools + /call + /health on port __PORT__
+python3 ava/surface.py       # serves /tools + /call + /health on port __PORT__
 ```
 
 Call into your app from the tool handlers however fits (imports, HTTP, files).''',

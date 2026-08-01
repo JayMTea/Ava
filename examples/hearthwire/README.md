@@ -10,7 +10,7 @@ It exposes thermostat, lights, scenes and a door lock, and it exists to demonstr
 
 ```bash
 # 1. Start the app's own web server (its UI + /health + /tools + /call)
-python examples/hearthwire/server.py           # serves http://127.0.0.1:8483
+python3 examples/hearthwire/server.py           # serves http://127.0.0.1:8483
 
 # 2. Register it with Ava by dropping the folder into your data root
 mkdir -p "${AVA_HOME:-$PWD}/connectors"          # ava setup does not create this

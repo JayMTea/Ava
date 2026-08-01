@@ -94,6 +94,11 @@ ASSETS: dict[str, str] = {
     "docs/assets/reel-poster.png": "docs/assets/reel-poster.png",
     # Connect-your-apps walkthrough (docs/CONNECT_YOUR_APPS.md).
     "docs/assets/connect-app-tour.mp4": "docs/assets/connect-app-tour.mp4",
+    # The caption sidecar the <track> element points at. ASSETS is an explicit
+    # allow-list, so an unlisted .vtt does not fail the build — it 404s at the
+    # viewer, and a caption track that 404s looks exactly like a video with no
+    # captions, which is the failure nobody reports.
+    "docs/assets/connect-app-tour.vtt": "docs/assets/connect-app-tour.vtt",
     "docs/assets/connect-app-1-connectors.png": "docs/assets/connect-app-1-connectors.png",
     "docs/assets/connect-app-2-detected.png": "docs/assets/connect-app-2-detected.png",
     "docs/assets/connect-app-3-connected.png": "docs/assets/connect-app-3-connected.png",

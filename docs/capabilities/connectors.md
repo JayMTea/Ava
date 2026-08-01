@@ -366,6 +366,8 @@ No files and no terminal: **Setup → Connectors → Connect an app**.
        style="width:100%;border-radius:8px"
        aria-label="Screen recording: connecting an app from the Setup hub, end to end">
   <source src="../../assets/connect-app-tour.mp4" type="video/mp4">
+  <track kind="captions" srclang="en" label="English"
+         src="../../assets/connect-app-tour.vtt">
   Your browser can't play video. <a href="../../assets/connect-app-tour.mp4">Download the walkthrough</a>.
 </video>
 

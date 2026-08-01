@@ -41,6 +41,14 @@ ava connector apps           # show the left-rail app registry
 id: mycrm                     # unique id (defaults to the folder name)
 label: My CRM
 kind: app                     # core | inference | media | app
+enabled: true                 # OPTIONAL, default true — set false to switch the
+                              #   connector off WITHOUT deleting it. Management
+                              #   UIs still list it so it can be turned back on;
+                              #   everything else stops seeing it.
+manifest_version: 1           # OPTIONAL — the schema this manifest was written
+                              #   for. Declare a NEWER one than Ava understands
+                              #   and it warns rather than failing, then ignores
+                              #   the blocks it does not know.
 base_url: "http://127.0.0.1:9000"   # OPTIONAL — the host that proxied action
                               #   calls go to; defaults to ui.url, then the
                               #   origin of service.probe
@@ -96,6 +104,13 @@ actions:                      # OPTIONAL — agent tools (see §5)
   #   list: "/tools"
   #   call: "/call"
   #   token_env: MYCRM_MCP_TOKEN
+
+ingest:                       # OPTIONAL — let your app PUSH events to Ava rather
+  enabled: true               #   than waiting to be asked. Get the inbound token
+  channels:                   #   with `ava device token mycrm`, then POST to
+    - { name: temperature, unit: "C" }   # /api/connectors/mycrm/events.
+    - { name: motion, kind: event }      # `channels` is descriptive only.
+                              # Full write-up: docs/DEVICE_CONNECTORS.md
 ```
 
 `${VAR}` references expand from connector vars (`AVA_HOME`, `AVA_LOGS`,
@@ -687,7 +702,7 @@ edits":
 
 ```bash
 # 1. Start the app's own web server (its UI + /health + /tools + /call)
-python examples/hello-app/server.py        # serves http://127.0.0.1:8477
+python3 examples/hello-app/server.py        # serves http://127.0.0.1:8477
 
 # 2. Register it with Ava by dropping the folder into your data root
 mkdir -p "${AVA_HOME:-$PWD}/connectors"          # ava setup does not create this

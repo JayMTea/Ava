@@ -77,8 +77,22 @@ board's pushed readings/events to Ava — about 15 lines of glue.
 | `SerialRelay(port, baud).tools()/.call()/.pump(ava)` | bridge a USB board |
 
 `Tool` has no `access` field, so the `serve_pull` facade reports no consent
-tier. That is fine for a `role: device` connector — Ava classifies undiscovered
-device tools as `physical` — but declare a `"*": physical` (or `write`)
-`dynamic_access` catch-all in the manifest rather than relying on a tier the
-facade never sends. It also means putting [`ava_mcp`](ava_mcp/README.md) in
-front of a `serve_pull` facade has no tiers to carry through.
+tier. Ava resolves one anyway, in this order — measured, not described:
+
+| What Ava has | Tier |
+|---|---|
+| a `dynamic_access` pattern in your manifest | whatever it says (**always wins**) |
+| a tier the facade declared for that tool | that tier |
+| nothing, on a `role: device` connector | `physical` |
+| nothing, on any other connector | `write` |
+
+So the default is safe today. **Declare a `"*": physical` (or `write`)
+`dynamic_access` catch-all anyway**, because the safety is coming from the
+absence of an answer rather than from a decision: the moment anything in front of
+your facade starts reporting a tier — a future SDK version, a proxy, a hand-rolled
+`/tools` — the `role: device` fallback stops applying and a relay can resolve to
+`read`, which runs silently. A manifest pattern outranks every self-report, so it
+is the one place that cannot be talked out of the answer.
+
+It also means putting [`ava_mcp`](ava_mcp/README.md) in front of a `serve_pull`
+facade has no tiers to carry through.

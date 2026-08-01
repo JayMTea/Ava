@@ -70,6 +70,36 @@ cp profiles/agent.env .env   # + full tool-using agent (opt-in, see below)
 docker compose up -d
 ```
 
+`install.sh` takes the same choice as an environment variable, which is the form
+the landing page points people at:
+
+```bash
+cd deploy
+AVA_PROFILE=full ./install.sh      # cpu | gpu | rocm | cloud | full | agent
+```
+
+Given one, `install.sh` skips detection and uses it; given none, it detects and
+prints what it chose and why. What each starts (`docker compose config
+--services`, not a description of it):
+
+| Profile | Containers | What that buys |
+|---|---|---|
+| `cpu` | ava, ollama | chat on a local model, no GPU |
+| `gpu` | ava, vllm | chat on a local model, NVIDIA |
+| `rocm` | ava, ollama-rocm | chat on a local model, AMD |
+| `cloud` | ava | chat against an API key you supply |
+| `agent` | ava, agent, vllm | **+ the tool-using agent** that drives your connected apps |
+| `full` | ava, agent, gpu-service, vllm | **+ image and video generation** |
+
+So `full` is the superset — everything `agent` runs, plus the GPU service. Both are
+opt-in for the same reason: the agent container mounts the host Docker socket,
+which is **root-equivalent** on the host, and that is your call to make rather
+than the installer's. the GPU service is additionally a second GPU tenant, competing for
+memory with the model you chat to.
+
+Voice is not a profile at all — it needs a build flag (`AVA_VOICE_DEPS=1`) *and*
+the switch in Setup → System, both described in the **Voice** note below.
+
 See [profiles/README.md](profiles/README.md) for what each one sets and why the
 profile lives in `.env` rather than on the command line.
 

@@ -131,5 +131,37 @@ class FollowingTheTemplateProducesOutputTests(unittest.TestCase):
         self.assertFalse(hard, f"the scaffolded manifest is invalid: {hard}")
 
 
+class EveryManifestKeyIsDocumentedTests(unittest.TestCase):
+    """A key the loader accepts and the SDK doc never mentions is a feature
+    nobody can find.
+
+    Three were in that state: `enabled` (how you switch a connector off without
+    deleting it — so the only discoverable way to disable one was to delete it),
+    `ingest` (the whole push direction, documented only in DEVICE_CONNECTORS.md),
+    and `manifest_version`, which the validator warns about by name.
+
+    `_BLOCK_TYPES` is the loader's own vocabulary, so this cannot drift: adding a
+    key without documenting it fails here, and the message says where to write it.
+    """
+
+    def test_no_accepted_key_is_missing_from_CONNECTOR_SDK(self):
+        import re
+
+        from ava_bridge import connectors
+        doc = (pathlib.Path(__file__).resolve().parents[1]
+               / "docs" / "CONNECTOR_SDK.md").read_text(encoding="utf-8")
+        keys = sorted(connectors._BLOCK_TYPES)
+        self.assertGreater(len(keys), 10,
+                           "_BLOCK_TYPES looks empty — did the loader move?")
+        missing = [k for k in keys
+                   if not (re.search(rf"(^|\W){re.escape(k)}:", doc, re.M)
+                           or f"`{k}`" in doc)]
+        self.assertFalse(missing, (
+            f"these manifest keys are accepted by ava_bridge.connectors but "
+            f"appear nowhere in docs/CONNECTOR_SDK.md: {missing}. Add each to "
+            "the annotated manifest in §2 — a key the loader reads and the doc "
+            "omits is a feature only the source reveals."))
+
+
 if __name__ == "__main__":
     unittest.main()

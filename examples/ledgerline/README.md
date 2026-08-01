@@ -10,7 +10,7 @@ It exposes account balances, spending summaries and statement export, and it exi
 
 ```bash
 # 1. Start the app's own web server (its UI + /health + /tools + /call)
-python examples/ledgerline/server.py           # serves http://127.0.0.1:8482
+python3 examples/ledgerline/server.py           # serves http://127.0.0.1:8482
 
 # 2. Register it with Ava by dropping the folder into your data root
 mkdir -p "${AVA_HOME:-$PWD}/connectors"          # ava setup does not create this

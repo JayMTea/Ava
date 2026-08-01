@@ -215,7 +215,7 @@ ava device token device-demo        # copy the token it prints
 export AVA_URL=http://localhost:8096
 export AVA_CID=device-demo
 export AVA_INGEST_TOKEN=<the token from step 2>
-python examples/device-app/server.py    # serves 127.0.0.1:8479 (DEVICE_APP_PORT)
+python3 examples/device-app/server.py    # serves 127.0.0.1:8479 (DEVICE_APP_PORT)
 
 # 4. Generate its agent tools + egress policy and load them into the sandbox
 #    (or use Setup -> Connectors -> Deploy)

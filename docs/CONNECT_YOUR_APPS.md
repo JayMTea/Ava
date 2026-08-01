@@ -21,6 +21,8 @@ connecting itself takes well under one of them:
        style="width:100%;border-radius:8px"
        aria-label="Screen recording: connecting an app from the Setup hub, end to end">
   <source src="../assets/connect-app-tour.mp4" type="video/mp4">
+  <track kind="captions" srclang="en" label="English"
+         src="../assets/connect-app-tour.vtt">
   Your browser can't play video. <a href="../assets/connect-app-tour.mp4">Download the walkthrough</a>.
 </video>
 
@@ -62,7 +64,7 @@ Streamable HTTP — so wire it by hand with `mcp: {url: …/sse}`, which selects
 legacy transport from the `/sse` suffix. See the
 [Connector SDK](CONNECTOR_SDK.md).)
 
-![The Connect an app form, filled in: app name Stridewell, the address box, and the Detect button, with the Access token, Health check URL and Environment variable name fields below](assets/connect-app-2-detected.png)
+![The Connect an app form after Detect: the address http://127.0.0.1:8481 with the Detect button beside it, optional Access token, Health check URL and Environment variable name fields, and below them a green result panel reading "Found 6 tools via MCP (http)" listing today_summary, sleep_last_night, week_summary, recent_workouts, weight_trend and log_workout, with an unticked "Ask me before Ava uses these" box and a Connect app button](assets/connect-app-2-detected.png)
 
 **Before** you click Detect, if what you pasted is a start command, one switch
 appears — and it has to appear first, because Detect *runs* that command:
