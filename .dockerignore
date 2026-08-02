@@ -54,3 +54,27 @@ bin/piper
 gpusvc/user
 searxng
 **/*.log
+
+# --- connectors/: default-deny, allow-list the shipped built-ins --------------
+# ava_bridge/connectors.py sets BUILTIN_DIR = <repo root>/connectors, so anything
+# in this directory at build time loads as a first-party built-in — no install
+# step, no manifest edit, present for every user of the image.
+#
+# On a maintainer's box AVA_HOME is the repo root, so `connectors/` is also where
+# that box's OWN apps get installed at runtime. .gitignore keeps those out of the
+# REPO; nothing kept them out of the IMAGE, and `COPY . /app` copies the working
+# tree, not the index. install.sh always passes --build, so a private app sitting
+# on disk shipped to whoever pulled the image.
+#
+# Hence the allow-list rather than a list of names to exclude: a new private app
+# is excluded the moment it appears, without anyone remembering to add it here
+# (and without publishing its name in a tracked file). Adding a genuinely shipped
+# built-in is a deliberate `!connectors/<id>` line — tests/test_no_private_apps_
+# shipped.py fails if this block stops covering the untracked directories.
+connectors/*
+!connectors/README.md
+!connectors/_template
+!connectors/bridge
+!connectors/gpu-service
+!connectors/local-llm
+!connectors/router

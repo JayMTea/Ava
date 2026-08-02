@@ -58,7 +58,7 @@ Or pick the profile yourself:
 
 ```bash
 cd deploy
-cp profiles/gpu.env .env      # or: cpu | cloud | full | agent
+cp profiles/gpu.env .env      # or: cpu | cuda | rocm | cloud | full | agent
 docker compose up -d
 ```
 

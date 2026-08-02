@@ -1,66 +1,36 @@
 # Apps, devices & MCP
 
-Connecting an app to Ava is one YAML file. That file — the connector
-manifest — is the whole integration: it wires the app into the dashboards,
-generates the agent's tools for it, and renders the security policy that
-decides what the agent may reach. Nothing in Ava's core changes, which is the
-point: a fork that adds three of your own apps still has zero source edits.
+A **connector** is how you tell Ava about one of your apps. It is a single YAML
+file, and that file is the whole integration: it wires the app into the
+dashboards, generates the tools the agent can call, and renders the security
+policy that decides what the agent may reach. Nothing in Ava's core changes,
+which is the point. A fork that adds three of your own apps still has zero
+source edits.
 
-This page is the *what you get* and *what stops it*. The field-by-field
-manifest reference lives in the [Connector SDK](../CONNECTOR_SDK.md).
+![A connected app running inside Ava's sidebar: its own web UI in the main pane, its tile in the left rail carrying the app's own accent colour](../assets/connect-app-4-embedded.png)
 
-## What ships
+A connected app gets its own place in the sidebar, its own health row, and its
+own tools that Ava can call in chat.
 
-Four connectors are built in and enabled on a fresh install. All four are
-plumbing — Ava's own moving parts, reported so the dashboards can say
-"healthy" honestly.
+!!! note "MCP, in one sentence"
 
-| Connector | What it contributes | Agent tools |
-|---|---|:--:|
-| `bridge` | Health row for Ava's own web app, plus the `ava` perf source every Vitals chart reads. | — |
-| `local-llm` | Health probe for the OpenAI-compatible inference server. | — |
-| `router` | Health probe for the inference router (`/healthz`). | — |
-| `gpu-service` | Health row for the image engine, gated on `features.image` so "off" never paints red. Its egress block allow-lists `POST /internal/run-gpu-job`. | — |
+    **MCP** (Model Context Protocol) is an open standard for describing the
+    tools an app offers, so any assistant can discover and call them without
+    bespoke code. Ava speaks it, but it is one of three ways to connect an app,
+    not a requirement.
 
-All four expose **no agent surface at all** — they are health and metrics
-rows, and a fresh install has **zero connector-generated agent tools**. Image
-generation does reach the agent, but through a first-party tool calling
-`/internal/run-gpu-job`, not a generated connector tool: the `gpu-service`
-action declares no `path`, so nothing is generated for it.
+## Which page does what
 
-That emptiness is the design. The apps worth connecting are *yours*, so Ava
-ships the machinery and none of the opinions. Adding your first app is
-[Setup → Connectors → Connect an app](../CONNECT_YOUR_APPS.md), or one file
-copied into `$AVA_HOME/connectors/`.
+This page is the **concept**: what a connector is, what it gives you, and what
+stops it. The step-by-step lives elsewhere.
 
-## Worked examples you can copy in
-
-Six complete manifests ship under [`examples/`](../../examples/).
-Each is a folder you copy into your data root — no edits to Ava's core:
-
-| Example | Copy it in with | What it demonstrates |
-|---|---|---|
-| `hello-app` | `cp -r examples/hello-app "$AVA_HOME/connectors/hello"` | The whole loop end to end: health row, left-rail iframe tab, and a live-discovered tool set. |
-| `device-app` | `cp -r examples/device-app "$AVA_HOME/connectors/device-demo"` | `role: device` plus **push** ingest — the app hands Ava sensor events when *it* decides. |
-| `home-assistant` | `cp -r examples/home-assistant "$AVA_HOME/connectors/home-assistant"` | A real MCP integration over the legacy HTTP+SSE transport, with every actuating tool pinned to the `physical` tier. |
-| `stridewell` | `cp -r examples/stridewell "$AVA_HOME/connectors/stridewell"` | A health app over **real MCP**. Its reads are `sensitive`, not `read` — the tier answers what a disclosure costs, not whether the call mutates. |
-| `ledgerline` | `cp -r examples/ledgerline "$AVA_HOME/connectors/ledgerline"` | Personal finance, **read-only by design**, with `confirm:` on the one tool that produces a portable file. |
-| `hearthwire` | `cp -r examples/hearthwire "$AVA_HOME/connectors/hearthwire"` | Home control — the only example that declares `physical`, the tier Ava will never infer for you, plus `confirm:` on the door lock. |
-
-Two of them are worth reading as opposite ends of the model.
-
-`hello-app` and `device-app` **bridge a tool set live**: `actions.discover`
-points at the app's own `/tools` and `/call`, so Ava fetches the schemas at
-load time and every tool the app grows appears with zero per-tool wiring. The
-alternative is declaring `actions:` statically, one entry per endpoint with an
-explicit `access:` tier — the reference for that shape is
-[`connectors/_template/connector.yaml`](../../connectors/_template/connector.yaml),
-which annotates every field.
-
-`home-assistant` is fully dynamic — the entire Home Assistant integration is
-that one manifest, and it ships **inert until configured**: an unset
-`${HASS_URL}` leaves it with nothing to talk to, so copying it in before you
-have Home Assistant costs you nothing.
+| Page | What it is for |
+|---|---|
+| This page | What a connector is, what one manifest gives you, and the permission and trust model |
+| [Connect your apps](../CONNECT_YOUR_APPS.md) | The guided, no-code walkthrough. Get-started step 4 |
+| [Connector SDK](../CONNECTOR_SDK.md) | The field-by-field manifest reference and the `ava-tools/1` facade contract |
+| [Device connectors](../DEVICE_CONNECTORS.md) | Wiring your own hardware, pull and push, with a runnable example app |
+| [Connect your Home Assistant](../CONNECT_HOME_ASSISTANT.md) | One manifest, two environment variables |
 
 ## What one manifest gives you
 
@@ -70,21 +40,21 @@ hand-maintained anywhere in Ava's core.
 - **A health row** on [Operations](operations.md) → Service health, from
   `service.probe`. Name the `features.*` flag that governs the service
   (`service.feature: image`) and a dead probe reads *off* rather than *down*.
-- **A perf source** charted on [Vitals](vitals.md), from `perf.path` — or, if
-  your app never writes a `performance.jsonl`, from the bridge itself: every
-  proxied connector call is timed and written to
-  `${AVA_LOGS}/apps/<id>/performance.jsonl` with its latency and HTTP status.
-  That file registers itself, so a brand-new app appears in Vitals on its
-  first call with no restart.
+- **A perf source** charted on [Vitals](vitals.md), from `perf.path`. If your
+  app never writes a `performance.jsonl`, the bridge writes one for it: every
+  proxied connector call is timed into `${AVA_LOGS}/apps/<id>/performance.jsonl`
+  with its latency and HTTP status, and that file registers itself, so a
+  brand-new app appears in Vitals on its first call with no restart.
 - **A dashboard tile** in the Connected apps grid, with per-app call count and
   energy attribution.
-- **A same-origin tab in the sidebar**, from a `ui:` block with
-  `embed: iframe`. Ava reverse-proxies the app under `/apps/<id>/` so it
-  inherits your session cookie — no second login, no third-party cookies.
+- **A same-origin tab in the sidebar**, from a `ui:` block with `embed: iframe`.
+  Ava reverse-proxies the app under `/apps/<id>/` so it inherits your session
+  cookie. No second login, no third-party cookies.
 - **Agent tools**, generated as `.mjs` into the sandbox
   (`ava connector tools <id> --write`, or **Deploy** in the browser).
-- **An egress policy**, rendered into the same shape as
-  `agent/policies/*.yaml` and namespaced `ava-<id>`. It allow-lists the
+- **An egress policy** (the allow-list of exactly which addresses the agent's
+  sandbox may reach; anything not on it is refused), rendered into the same
+  shape as `agent/policies/*.yaml` and namespaced `ava-<id>`. It allow-lists the
   specific bridge routes this connector's tools use, and nothing else.
 
 Also derived, and documented in the [SDK](../CONNECTOR_SDK.md): chat quick-cards
@@ -92,83 +62,154 @@ Also derived, and documented in the [SDK](../CONNECTOR_SDK.md): chat quick-cards
 role labels (`model_hints`), and a browser data-proxy that injects the app's
 bearer token server-side (`ui.api`) so the browser never sees it.
 
+??? note "What ships built in, and why it is almost nothing"
+
+    Four connectors are built in and enabled on a fresh install. All four are
+    plumbing, which is to say Ava's own moving parts, reported so the dashboards
+    can say "healthy" honestly.
+
+    | Connector | What it contributes | Agent tools |
+    |---|---|:--:|
+    | `bridge` | Health row for Ava's own web app, plus the `ava` perf source every Vitals chart reads. | none |
+    | `local-llm` | Health probe for the OpenAI-compatible inference server. | none |
+    | `router` | Health probe for the inference router (`/healthz`). | none |
+    | `gpu-service` | Health row for the image engine, gated on `features.image` so "off" never paints red. Its egress block allow-lists `POST /internal/run-gpu-job`. | none |
+
+    All four expose **no agent surface at all**. They are health and metrics
+    rows, and a fresh install has **zero connector-generated agent tools**.
+    GPU workloads does reach the agent, but through a first-party tool
+    calling `/internal/run-gpu-job`, not a generated connector tool: the
+    `gpu-service` action declares no `path`, so nothing is generated for it.
+
+    That emptiness is the design. The apps worth connecting are *yours*, so Ava
+    ships the machinery and none of the opinions.
+
+??? note "Three worked examples you can copy in"
+
+    Three complete manifests ship under [`examples/`](../../examples/). Each is a
+    folder you copy into your data root, with no edits to Ava's core:
+
+    | Example | Copy it in with | What it demonstrates |
+    |---|---|---|
+    | `hello-app` | `cp -r examples/hello-app "$AVA_HOME/connectors/hello"` | The whole loop end to end: health row, left-rail iframe tab, and a live-discovered tool set. |
+    | `device-app` | `cp -r examples/device-app "$AVA_HOME/connectors/device-demo"` | `role: device` plus **push** ingest. The app hands Ava sensor events when *it* decides. |
+    | `home-assistant` | `cp -r examples/home-assistant "$AVA_HOME/connectors/home-assistant"` | A real MCP integration over the legacy HTTP+SSE transport, with every actuating tool pinned to the `physical` tier - the one Ava will never infer for you. |
+
+    Two of them are worth reading as opposite ends of the model.
+
+    `hello-app` and `device-app` **bridge a tool set live**: `actions.discover`
+    points at the app's own `/tools` and `/call`, so Ava fetches the schemas at
+    load time and every tool the app grows appears with zero per-tool wiring.
+    The alternative is declaring `actions:` statically, one entry per endpoint
+    with an explicit `access:` tier. The reference for that shape is
+    [`connectors/_template/connector.yaml`](../../connectors/_template/connector.yaml),
+    which annotates every field.
+
+    `home-assistant` is fully dynamic. The entire Home Assistant integration is
+    that one manifest, and it ships **inert until configured**: an unset
+    `${HASS_URL}` leaves it with nothing to talk to, so copying it in before you
+    have Home Assistant costs you nothing.
+
 ## Three transports
 
 `transport` is resolved from the manifest, and it is the honest name for the
-wire protocol — not a badge that says "MCP" for anything with tools.
+wire protocol, not a badge that says "MCP" for anything with tools.
 
 | Transport | Manifest | What it is |
 |---|---|---|
 | `mcp` | `mcp:` | A real Model Context Protocol server. Ava speaks JSON-RPC 2.0 to it over Streamable HTTP, the legacy HTTP+SSE transport (what Home Assistant's MCP Server integration speaks), or stdio against a spawned subprocess. |
-| `discover` | `actions.discover` | Ava's own `ava-tools/1` HTTP facade — MCP-*shaped*, but not MCP. Ava GETs your tool list and POSTs `{name, arguments}` to call. |
+| `discover` | `actions.discover` | Ava's own `ava-tools/1` HTTP facade. MCP-*shaped*, but not MCP: Ava GETs your tool list and POSTs `{name, arguments}` to call. |
 | `rest` | `actions:` | Statically declared actions proxied to the app's own REST API, with `{tmpl}` path params filled from the call arguments. |
 
 A connector with none of those reports `none`: a UI-only app, or a push-only
 device.
 
-## The meta-tool switch
+??? note "The meta-tool switch: what happens past fifteen tools"
 
-Past roughly fifteen tools, per-action schemas bloat the agent's context on
-every single turn and tool selection degrades. So Ava collapses large tool
-sets to **exactly two generated tools**:
+    Past roughly fifteen tools, per-action schemas bloat the agent's context on
+    every single turn and tool selection degrades. So Ava collapses large tool
+    sets to **exactly two generated tools**:
 
-```
-<id>_find_tool   keyword-search this connector's actions
-<id>_call        invoke one by name
-```
+    ```
+    <id>_find_tool   keyword-search this connector's actions
+    <id>_call        invoke one by name
+    ```
 
-This happens for every dynamic connector (`mcp:` or `actions.discover` — their
-tool set is not knowable at generation time), and for any static connector
-declaring **16 or more** actions with a `path` (`META_TOOLS_MIN = 16`). Below
-that threshold you get one tool per action — so a static app declaring 15
-endpoints gives the agent 15 named tools, while the same app at 16 collapses to
-the two meta-tools, and every `mcp:`/`discover` app gets the pair regardless of
-size.
+    This happens for every dynamic connector (`mcp:` or `actions.discover`,
+    whose tool set is not knowable at generation time), and for any static
+    connector declaring **16 or more** actions with a `path`
+    (`META_TOOLS_MIN = 16`). Below that threshold you get one tool per action,
+    so a static app declaring 15 endpoints gives the agent 15 named tools, while
+    the same app at 16 collapses to the two meta-tools, and every
+    `mcp:`/`discover` app gets the pair regardless of size.
 
-The search and the cap run **server-side**, on the bridge: `find_tool` filters
-by keyword, ranks by match count, truncates to the requested limit, and
-reports the pre-cap total so the agent knows to refine. The full schema list
-never enters the sandbox.
+    The search and the cap run **server-side**, on the bridge: `find_tool`
+    filters by keyword, ranks by match count, truncates to the requested limit,
+    and reports the pre-cap total so the agent knows to refine. The full schema
+    list never enters the sandbox.
 
-Same routes, same egress policy, same approvals gate — only the tool shape
-changes. Full detail, including what happens if you mix static and dynamic
-shapes in one manifest, is in the [Connector SDK](../CONNECTOR_SDK.md).
+    Same routes, same egress policy, same approvals gate. Only the tool shape
+    changes. Full detail, including what happens if you mix static and dynamic
+    shapes in one manifest, is in the [Connector SDK](../CONNECTOR_SDK.md).
 
-## Permissions: four tiers, decided at call time
+## Permissions: five tiers, decided at call time
 
 Connecting an app never shows you an endpoint review you cannot evaluate.
 Consent is just-in-time instead, and the tier of the action decides how it is
-asked.
+asked. Every action carries exactly one tier.
 
-| Tier | Behaviour |
-|---|---|
-| `read` | Runs silently. |
-| `write` | Asks on **first** use. Answering "Always allow" silences it from then on. |
-| `destructive` | Asks **every** time. Never grantable. |
-| `physical` | Asks **every** time. Never grantable. |
+| Tier | What it means | Behaviour |
+|---|---|---|
+| `read` | No side effects, nothing private | Runs silently. |
+| `sensitive` | No side effects, but it discloses something (a mailbox, a chat corpus, a location history) | Asks on **first** use. "Always allow" silences it from then on. |
+| `write` | Has side effects | Asks on **first** use. "Always allow" silences it from then on. |
+| `destructive` | Irreversible | Asks **every** time. Never grantable. |
+| `physical` | Moves something in the real world | Asks **every** time. Never grantable. |
 
-An author's explicit `confirm: true` — on the connector or on one action —
-always asks and can never be granted away, whatever the tier.
+An author's explicit `confirm: true`, on the connector or on one action, always
+asks and can never be granted away, whatever the tier.
 
-For a static action the tier is explicit `access:` if declared, else inferred:
-`GET`/`HEAD` → `read`; `DELETE`, or "delete" in the action id or path →
-`destructive`; everything else → `write`. **`physical` is never inferred.** It
-moves something in the real world — a relay, a lock, a valve — so it has to be
-declared. The code's own justification for making it ungrantable is that a
-lock must not become a one-tap-then-silent action.
+??? note "Why `sensitive` is its own tier"
 
-!!! warning "The one exception — and it is the most security-relevant default in the model"
+    The tiers sit on two independent axes that three tiers conflated: does the
+    call have **side effects**, and does it **disclose** something?
 
-    A *dynamically discovered* tool has no static declaration to infer from.
-    It is classified by the manifest's `dynamic_access` fnmatch patterns
-    (first match wins), then by the app's own self-reported tier, and if
-    neither answers it falls back to **`physical` on a `role: device`
-    connector** and `write` everywhere else.
+    `sensitive` exists because `read` meant "no side effects" and was
+    implemented as "runs silently, forever". An author who wanted "ask before
+    you read my conversations" had to label a read `write` or `destructive`,
+    mislabelling it either way, and in the `destructive` case training you to
+    tap through the prompt that actually matters. A silent read from a
+    capability group that can also fetch an arbitrary URL is an undisclosed
+    disclosure. Enforcement is identical to `write`; the difference is that the
+    prompt can now say truthfully what it is asking about.
+
+For a static action the tier is the explicit `access:` if declared, else
+inferred: `GET`/`HEAD` becomes `read`; `DELETE`, or "delete" in the action id or
+path, becomes `destructive`; everything else becomes `write`. **`physical` is
+never inferred.** It moves something in the real world, a relay, a lock, a
+valve, so it has to be declared. The code's own justification for making it
+ungrantable is that a lock must not become a one-tap-then-silent action.
+
+!!! warning "A dynamically discovered tool has no static declaration, and that is the most security-relevant default in the model"
+
+    It is classified in this order:
+
+    1. The manifest's `dynamic_access` fnmatch patterns, first match wins. A
+       matched pattern whose tier is misspelled fails **closed** to
+       `destructive` rather than falling through.
+    2. The app's own self-reported tier, **but only from an app Ava has reason
+       to trust**: a private or loopback address, or an explicit
+       `trust_declared_tiers: true`. A remote server's tool list can change
+       without you touching Ava, and "quieter" means `read`, and `read` means
+       runs-silently-forever, so a remote server does not get to grant itself
+       silence on its own word.
+    3. Otherwise, **`physical` on a `role: device` connector** and `write`
+       everywhere else.
 
     A device's unknown verbs are presumed to move something until the author
-    says otherwise. That is why `home-assistant` — whose tool set is whatever
-    you exposed to Assist — reads live state silently but asks every single
-    time before it turns anything on, with no way to grant that away.
+    says otherwise. That is why `home-assistant`, whose tool set is whatever you
+    exposed to Assist, reads live state silently but asks every single time
+    before it turns anything on, with no way to grant that away.
 
 The operator's manifest always outranks the app's self-report. An app can
 declare one of its tools `read`; a `dynamic_access` pattern saying `physical`
@@ -178,36 +219,54 @@ An approval **blocks the calling request** on a condition variable until you
 answer, for up to 120 seconds. More than 50 parked calls fails closed to
 `denied`. Both the request and the outcome are audit events.
 
-### Grants
+### Grants: where "Always allow" is written down
 
-Answering "Always allow" writes a durable grant to
-`$AVA_HOME/connector_grants.yaml`:
+**Setup → Connectors → Permissions** lists every action of an app, grouped by
+capability, each with its tier and its grant state. `read` actions read *always
+allowed*; `destructive` and `physical` read *asks every time* and have no
+control to click; `write` and `sensitive` carry the checkbox that grants or
+revokes. That per-action list is the page where you undo an "Always allow".
 
-```yaml
-persona:
-  post_persona: {granted: "2026-07-08T20:41:00Z", by: owner}
-```
+Grant and revoke are **both** audit events, so "what can this app do, and since
+when" is always answerable from the ledger rather than from memory.
 
-Revoking is deleting the entry — from **Setup → Connectors → Permissions**, or
-the API. Grant and revoke are **both** audit events, so "what can this app do,
-and since when" is always answerable from the ledger rather than from memory.
+!!! note "What you are asked at connect time is coarser"
 
-That file is also on the agent's hard-deny list: the self-editing access
-policy refuses to write `connector_grants.yaml` at all, alongside `ava.yaml`,
-`secrets/**` and `.git/**`. The reasoning is in the source comment — the
-grants file is the connector consent ledger, so a writable one is
-self-approval. Ava cannot grant herself a permission you did not give her.
-See [the agent page](agent.md) for the rest of that policy.
+    The **Connect an app** form has one switch, *Ask me before Ava uses these*,
+    which sets `confirm: true` for the whole connector. It is deliberately
+    all-or-nothing: at connect time you have not used the app yet, so there is
+    nothing to evaluate per tool. The per-action control appears afterwards,
+    under Permissions.
+
+??? note "The grants file, and why the agent cannot write it"
+
+    Answering "Always allow" writes a durable grant to
+    `$AVA_HOME/connector_grants.yaml`:
+
+    ```yaml
+    persona:
+      post_persona: {granted: "2026-07-08T20:41:00Z", by: owner}
+    ```
+
+    Revoking is deleting the entry, from Setup → Connectors → Permissions or the
+    API.
+
+    That file is also on the agent's hard-deny list: the self-editing access
+    policy refuses to write `connector_grants.yaml` at all, alongside
+    `ava.yaml`, `secrets/**` and `.git/**`. The reasoning is in the source
+    comment. The grants file is the connector consent ledger, so a writable one
+    is self-approval. Ava cannot grant herself a permission you did not give
+    her. See [the agent page](agent.md) for the rest of that policy.
 
 ## The trust boundary
 
 This is the part worth being precise about.
 
-**Ava's sandboxed agent never talks to a connector's API, and never talks to
-an MCP server.** Not to a local one, not to a remote one. The MCP client runs
-host-side, in the bridge. A stdio MCP server runs as a host process you
-declared in the manifest — the same trust model as any MCP desktop client —
-but the agent's blast radius does not include it.
+**Ava's sandboxed agent never talks to a connector's API, and never talks to an
+MCP server.** Not to a local one, not to a remote one. The MCP client runs
+host-side, in the bridge. A stdio MCP server runs as a host process you declared
+in the manifest, the same trust model as any MCP desktop client, but the agent's
+blast radius does not include it.
 
 What the agent can reach is one generic bridge route:
 
@@ -225,44 +284,50 @@ POST /internal/connector/<id>/__call      invoke by name
 
 For an MCP connector, **those two routes are the entire agent-side surface.**
 The sandbox reaches the bridge over `host.openshell.internal:8096` holding a
-capability-scoped internal token, and the policy engine enforces the route
-list; everything else is denied by the sandbox's network policy.
+capability-scoped internal token, and the policy engine enforces the route list.
+Everything else is denied by the sandbox's network policy.
 
-Every call through that route is recorded:
-
-- an `egress` audit event with the connector, the tool, and the outcome — the
-  HTTP status when it ran, or `blocked:denied` / `blocked:timeout` when the
-  approvals gate refused it. Refused calls are on the record too, which is the
-  half most systems drop.
-- latency and status into that app's perf log, which is how a connected app
-  shows up on Vitals without writing a line of telemetry itself.
-
-Read the ledger under **Setup → History**, or export it from
-[Data](data.md) → Maintenance.
+Every call through that route is recorded twice: as an `egress` audit event with
+the connector, the tool and the outcome (the HTTP status when it ran, or
+`blocked:denied` / `blocked:timeout` when the approvals gate refused it), and as
+latency and status in that app's perf log. Refused calls are on the record too,
+which is the half most systems drop. Read the ledger under **Data → History**,
+or export it from [Data](data.md) → Maintenance.
 
 ### What contains the server, per transport
 
 The paragraphs above are about the **agent**, and they hold for every MCP
 transport. What is contained on the *server* side differs, and it is worth
-stating plainly rather than leaving one sentence to cover three cases:
+stating plainly rather than leaving one sentence to cover three cases.
 
-| `transport` | What constrains the server |
-|---|---|
-| `http` / `sse` | **Nothing.** The bridge posts to the URL from your manifest. There is no host allow-list and no SSRF guard on this path — unlike Ava's web-search fetch, which re-validates every redirect hop. A remote MCP server is as trusted as the operator who declared it. |
-| `stdio` + `sandbox: docker` | A throwaway container: read-only rootfs, tmpfs `/tmp` and `/root`, `--cpus 1`, `--memory 512m`, `--pids-limit 256`, `no-new-privileges`, no host mounts, and only the `env:` your manifest declares. Network defaults to `bridge` (outbound is open) — set `network: none` to cut it. |
-| `stdio` (default) | A host process running as the bridge user, with your filesystem and your network. The one mitigation is that Ava passes it a **stripped environment** rather than `os.environ`, so it does not inherit `ANTHROPIC_API_KEY` or your connector credentials — anything it legitimately needs you declare in `env:`. |
+!!! warning "A default `stdio` server runs on your host, as you, with your files"
 
-So `sandbox: docker` is the setting that makes "contained" true of the server as
-well as the agent. Ava negotiates MCP revision `2025-03-26`
-(`ava_bridge/mcp_client.py`).
+    | `transport` | What constrains the server |
+    |---|---|
+    | `http` / `sse` | **Nothing.** The bridge posts to the URL from your manifest. There is no host allow-list and no SSRF guard on this path, unlike Ava's web-search fetch, which re-validates every redirect hop. A remote MCP server is as trusted as the operator who declared it. |
+    | `stdio` + `sandbox: docker` | A throwaway container: read-only rootfs, tmpfs `/tmp` and `/root`, `--cpus 1`, `--memory 512m`, `--pids-limit 256`, `no-new-privileges`, no host mounts, and only the `env:` your manifest declares. Network defaults to `bridge` (outbound is open); set `network: none` to cut it. |
+    | `stdio` (default) | A host process running as the bridge user, with your filesystem and your network. The one mitigation is that Ava passes it a **stripped environment** rather than `os.environ`, so it does not inherit `ANTHROPIC_API_KEY` or your connector credentials. Anything it legitimately needs, you declare in `env:`. |
+
+    `sandbox: docker` is the setting that makes "contained" true of the server
+    as well as the agent. Detecting a start command **runs** that command, so
+    the Connect an app form defaults to contained: it ticks the isolation box
+    when Docker is available, and when Docker is absent it refuses to detect
+    rather than silently downgrading, unless you explicitly choose to run the
+    command on the host.
+
+Ava negotiates MCP revision `2025-03-26` (`ava_bridge/mcp_client.py`).
 
 ## Devices
 
-A connector is a device if it declares `role: device` **or** an `ingest:`
-block. `role: device` groups it under Devices in the UI and switches the
-dynamic-tool fallback to `physical`; `ingest:` opens the push channel. They
-are independent, and both are additive on top of the normal pull path — a
-device's `mcp:` or `actions:` block works exactly as any app's does.
+A connector is a device if it declares `role: device` **or** an `ingest:` block.
+`role: device` groups it under Devices in the UI and switches the dynamic-tool
+fallback to `physical`; `ingest:` opens the push channel. They are independent,
+and both are additive on top of the normal pull path: a device's `mcp:` or
+`actions:` block works exactly as any app's does.
+
+**Pull** is Ava asking. **Push** is your app deciding ("motion detected", "tank
+at 12%") and handing Ava the event. The device logic and the decision to notify
+both stay in your app.
 
 <video controls playsinline preload="metadata"
        style="width:100%;border-radius:8px"
@@ -273,27 +338,21 @@ device's `mcp:` or `actions:` block works exactly as any app's does.
   Your browser can't play video. <a href="../../assets/connect-device-tour.mp4">Download the walkthrough</a>.
 </video>
 
-### Push: your app hands Ava an event
+Connecting a device, and its first pushed reading arriving on Operations.
 
-Pull is Ava asking. Push is your app deciding — "motion detected", "tank at
-12%" — and handing Ava the event. The device logic and the decision to notify
-both stay in your app.
-
-Authentication is a **per-connector bearer token**, derived from Ava's root
-internal token:
+Push is authenticated with a **per-connector bearer token**, derived from Ava's
+root internal token:
 
 ```
 HMAC-SHA256(internal_token, "ava-ingest:<id>")
 ```
 
 That is a deliberately **separate namespace** from the `ava-internal:<group>`
-tokens Ava's own sandboxed MCP servers hold. An app that can push events
-cannot reach `/internal/*` — it holds a token that authorizes exactly one
-thing. There is no new secret store, and changing the connector id rotates
-its token.
-
-Read yours with `ava device token <id>`, or copy it from the ⋯ menu on
-**Setup → Connectors** (*Push token*).
+tokens Ava's own sandboxed MCP servers hold. An app that can push events cannot
+reach `/internal/*`: it holds a token that authorizes exactly one thing. There
+is no new secret store, and changing the connector id rotates its token. Read
+yours with `ava device token <id>`, or copy it from the ⋯ menu on **Setup →
+Connectors** (*Push token*).
 
 ```bash
 curl -X POST http://127.0.0.1:8096/api/connectors/greenhouse/events \
@@ -302,63 +361,46 @@ curl -X POST http://127.0.0.1:8096/api/connectors/greenhouse/events \
        "severity":"warn","notify":true,"message":"Bed 3 is dry"}'
 ```
 
-The guards run in this order, and each has its own status code:
+Every accepted event is appended to `${AVA_LOGS}/devices/<id>.jsonl`, enters a
+500-entry in-process ring that feeds the `device.event` frame on the
+`GET /api/stream/ops` live stream so it appears on Operations immediately, and
+if it is `notify`, `warn` or `critical`, is raised as an alert. Read events back
+from Operations → Device events, `GET /api/devices`, `ava device events <id>`,
+or the agent's own `device_events` tool.
 
-1. **Bearer token** — wrong or missing → `401`.
-2. **`ingest.enabled`** in the manifest → `404` if the connector never opted in.
-3. **Token bucket**, per connector — 600 events/min, burst 60 → `429`.
-4. **Body cap**, 64 KiB — a single event is tiny → `413`.
-5. **JSON parse** → `400`.
-6. **Field normalization** → `400` with the reason.
+??? note "The ingest contract: guards, status codes and accepted fields"
 
-Accepted fields:
+    The guards run in this order, and each has its own status code
+    (`phone_bridge.py`):
 
-| Field | Notes |
-|---|---|
-| `type` | `event` or `reading`. Defaults to `event`; anything else is rejected. |
-| `name` | **Required.** Capped at 64 characters. |
-| `ts` | Unix seconds. Defaults to now. |
-| `value` | Coerced to float where possible, else kept as a capped string. |
-| `unit` | Capped at 16 characters. |
-| `message` | Capped at 500 characters. |
-| `severity` | `info`, `warn` or `critical`. Anything else is dropped. |
-| `notify` | Boolean. |
+    1. **Bearer token.** Wrong or missing gives `401`.
+    2. **`ingest.enabled`** in the manifest. `404` if the connector never opted
+       in.
+    3. **Token bucket**, per connector: 600 events/min, burst 60, gives `429`.
+    4. **Body cap**, 64 KiB, since a single event is tiny, gives `413`.
+    5. **JSON parse** gives `400`.
+    6. **Field normalization** gives `400` with the reason.
 
-Every accepted event does three things: it is appended to
-`${AVA_LOGS}/devices/<id>.jsonl` under an advisory lock, with the same bounded
-rotation the perf log uses — best-effort, so a full disk never fails your
-app's push; it enters a 500-entry in-process ring with a monotonic sequence
-number, which feeds the `device.event` frame on the `/api/stream/ops` SSE
-stream so it appears on Operations live; and if it is `notify`, `warn` or
-`critical`, it is raised as an alert. Operations has a per-browser **Speak
-alerts** toggle that reads those aloud.
+    Accepted fields:
 
-Read events back from Operations → Device events, `GET /api/devices`,
-`ava device events <id>`, or the agent's own `device_events` tool.
+    | Field | Notes |
+    |---|---|
+    | `type` | `event` or `reading`. Defaults to `event`; anything else is rejected. |
+    | `name` | **Required.** Capped at 64 characters. |
+    | `ts` | Unix seconds. Defaults to now. |
+    | `value` | Coerced to float where possible, else kept as a capped string. |
+    | `unit` | Capped at 16 characters. |
+    | `message` | Capped at 500 characters. |
+    | `severity` | `info`, `warn` or `critical`. Anything else is dropped. |
+    | `notify` | Boolean. |
 
-The full walkthrough, including a runnable example app in about 150 lines, is
-in [Device connectors](../DEVICE_CONNECTORS.md). For Home Assistant
-specifically, see [Connect your Home Assistant](../CONNECT_HOME_ASSISTANT.md).
+    The device log uses the same bounded rotation the perf log uses, under an
+    advisory lock, and is best-effort, so a full disk never fails your app's
+    push. Operations has a per-browser **Speak alerts** toggle that reads
+    `notify` events aloud.
 
-## Manifest robustness
-
-A connector manifest is a file *you* wrote, so the loader treats it as such.
-
-- **Per-block quarantine, never per-connector.** If a block is the wrong type
-  — `egress:` as a string instead of a mapping — that block is dropped from
-  the **in-memory** copy and reported, and the rest of the connector loads.
-  Your file is never rewritten. The reason is concrete: the one screen that
-  can fix a broken manifest is Setup → Connectors, which is also the screen a
-  crash on `egress:` would take down.
-- **Unknown top-level keys warn**, rather than silently doing nothing — that
-  is how `egres:` goes unnoticed forever. Prefix your own keys with `x_` to
-  silence the warning.
-- **A newer `manifest_version` still loads**, with a warning that unknown
-  blocks are ignored. Forward-compatibility by ignoring what it does not
-  understand is what keeps a fork's manifests portable.
-- **A malformed YAML file never crashes boot.** It lands in the load-error
-  list, which is surfaced at the top of Setup → Connectors and in
-  `ava doctor`, so a bad manifest is visible rather than absent.
+    The full walkthrough, including a runnable example app in about 150 lines,
+    is in [Device connectors](../DEVICE_CONNECTORS.md).
 
 ## Connecting one from the browser
 
@@ -373,49 +415,72 @@ No files and no terminal: **Setup → Connectors → Connect an app**.
   Your browser can't play video. <a href="../../assets/connect-app-tour.mp4">Download the walkthrough</a>.
 </video>
 
-Name the app, then paste **where it is** — a web address like
-`http://127.0.0.1:9000`, or a start command like
-`npx -y @modelcontextprotocol/server-filesystem ~/notes` — and click
-**Detect**. Ava probes it in order: a self-describing `/.well-known/ava.json`,
-then MCP over Streamable HTTP, then the `ava-tools/1` facade at `/tools`, then
-a published OpenAPI spec (`/openapi.json`, `/swagger.json`, `/openapi`) whose
-paths it turns into a pre-filled action list. If nothing is discoverable, the
-form lets you declare the actions by hand. A start-command server can be run
-inside an isolated container from the same form.
+Naming an app, pasting its address, detecting its tools, and deploying it. The
+guided version of this, with a screenshot per step, is
+[Connect your apps](../CONNECT_YOUR_APPS.md).
+
+You paste either a web address like `http://127.0.0.1:9000` or a start command
+like `npx -y @modelcontextprotocol/server-filesystem ~/notes`, and **Credentials
+never enter the manifest**: the manifest stores only the *name* of an
+environment variable, and a value you paste is saved once to Ava's server-side
+secret store and presented to the agent tools and the embedded UI from there.
 
 ![The Connectors list after connecting: the new app at the top, enabled, with its action count and deploy state](../assets/connect-app-3-connected.png)
 
-Connectors group by identity, not protocol — **Devices**, **Apps**, **Tools**
-— because a device that speaks MCP is still a device. Each row carries its
-transport badge (MCP / tool facade / REST), its action count, its credential
-state, and a deploy indicator that appears only when the generated tools or
-egress policy have drifted from the manifest. From the row you get:
+Connectors group by identity, not protocol (**Devices**, **Apps**, **Tools**),
+because a device that speaks MCP is still a device.
 
-- **Permissions** — every action grouped by capability, with its tier and its
-  grant state. This is where you revoke an "Always allow".
-- **Preview** — the exact tools and egress policy the manifest renders, without
-  touching the agent.
-- **Deploy** / **Redeploy** — regenerate both into the sandbox.
-- **⋯** — push token, credential, **Appearance** (icon and accent colour),
-  an inline **manifest editor**, disable, and remove.
+??? note "What Detect probes for, and what each row gives you"
 
-Credentials never enter the manifest. It stores only the *name* of an
-environment variable; if you paste a value, it is saved once to Ava's
-server-side secret store and presented to the agent tools and the embedded UI
-from there.
+    **Detect** tries, in sequence: a self-describing `/.well-known/ava.json`,
+    then MCP over Streamable HTTP, then the `ava-tools/1` facade at `/tools`,
+    then a published OpenAPI spec (`/openapi.json`, `/swagger.json`,
+    `/openapi`) whose paths it turns into a pre-filled action list. If nothing
+    is discoverable, the form lets you declare the actions by hand.
 
-The step-by-step version of this flow, with screenshots, is
-[Connect your apps](../CONNECT_YOUR_APPS.md).
+    Each connector row carries its transport badge, its action count, its
+    credential state, and a deploy indicator that appears only when the
+    generated tools or egress policy have drifted from the manifest. From the
+    row you get:
+
+    - **Permissions**, the per-action tier and grant list described above. This
+      is where you revoke an "Always allow".
+    - **Preview**, the exact tools and egress policy the manifest renders,
+      without touching the agent.
+    - **Deploy** / **Redeploy**, which regenerates both into the sandbox.
+    - **⋯**, holding the push token, the credential, **Appearance** (icon and
+      accent colour), an inline manifest editor, disable and remove.
+
+??? note "Manifest robustness: what happens when your YAML is wrong"
+
+    A connector manifest is a file *you* wrote, so the loader treats it as such.
+
+    - **Per-block quarantine, never per-connector.** If a block is the wrong
+      type, `egress:` as a string instead of a mapping, that block is dropped
+      from the **in-memory** copy and reported, and the rest of the connector
+      loads. Your file is never rewritten. The reason is concrete: the one
+      screen that can fix a broken manifest is Setup → Connectors, which is also
+      the screen a crash on `egress:` would take down.
+    - **Unknown top-level keys warn**, rather than silently doing nothing, which
+      is how `egres:` goes unnoticed forever. Prefix your own keys with `x_` to
+      silence the warning.
+    - **A newer `manifest_version` still loads**, with a warning that unknown
+      blocks are ignored. Forward-compatibility by ignoring what it does not
+      understand is what keeps a fork's manifests portable.
+    - **A malformed YAML file never crashes boot.** It lands in the load-error
+      list, which is surfaced at the top of Setup → Connectors and in
+      `ava doctor`, so a bad manifest is visible rather than absent.
 
 ## Where to go next
 
-- **[Connect your apps](../CONNECT_YOUR_APPS.md)** — the guided no-code walkthrough.
-- **[Connector SDK](../CONNECTOR_SDK.md)** — the full manifest reference, the
+- [**Connect your apps**](../CONNECT_YOUR_APPS.md) is the guided no-code
+  walkthrough.
+- [**Connector SDK**](../CONNECTOR_SDK.md) is the full manifest reference, the
   `ava-tools/1` facade contract, embed tiers, and a runnable example.
-- **[Device connectors](../DEVICE_CONNECTORS.md)** — the pull and push paths for
-  your own hardware.
-- **[Connect your Home Assistant](../CONNECT_HOME_ASSISTANT.md)** — one manifest,
-  two environment variables.
-- **[The agent](agent.md)** — the sandbox on the other side of the boundary,
+- [**Device connectors**](../DEVICE_CONNECTORS.md) covers the pull and push
+  paths for your own hardware.
+- [**Connect your Home Assistant**](../CONNECT_HOME_ASSISTANT.md) is one
+  manifest and two environment variables.
+- [**The agent**](agent.md) is the sandbox on the other side of the boundary,
   and the capability-scoped tokens that police it.
-- **[Security](../../SECURITY.md)** — the trust model end to end.
+- [**Security**](../../SECURITY.md) is the trust model end to end.
