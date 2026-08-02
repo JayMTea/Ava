@@ -554,6 +554,11 @@ export const hub = {
   // First-run walkthrough. State lives server-side because Ava is single-user
   // but multi-DEVICE: a localStorage flag would replay the whole thing on the
   // owner's phone and after any cache clear.
+  // Can Ava answer right now? no-store because this is install truth, and a
+  // cached "yes" outliving a broken engine is the failure it exists to catch.
+  inference: () => req<{ ok: boolean; code?: string; detail?: string;
+                         model?: string; engine?: string }>(
+    '/api/hub/agent/inference', { cache: 'no-store' }),
   tour: () => req<{ seen: string[]; pages: string[] }>('/api/hub/tour', { cache: 'no-store' }),
   tourSeen: (page: string) =>
     req<{ ok: boolean; seen: string[] }>(

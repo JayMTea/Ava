@@ -28,6 +28,7 @@ import { DataView } from './components/data/DataView';
 import { HardwareBubble } from './components/HardwareBubble';
 import { HubView } from './components/hub/HubView';
 import TourHost from './components/tour/TourHost';
+import InferenceBanner from './components/InferenceBanner';
 import { useChat } from './hooks/useChat';
 import { api } from './lib/api';
 import { registerApps } from './lib/appColor';
@@ -370,6 +371,7 @@ export default function App() {
       {lightbox && <Lightbox url={lightbox.url} onClose={closeLightbox} />}
 
       <HardwareBubble />
+      <InferenceBanner />
       <TourHost view={view} />
     </>
   );

@@ -224,6 +224,13 @@
   "APIRoute"
  ],
  [
+  "/api/hub/agent/inference",
+  [
+   "GET"
+  ],
+  "APIRoute"
+ ],
+ [
   "/api/hub/agent/provision",
   [
    "POST"

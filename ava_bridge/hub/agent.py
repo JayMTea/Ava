@@ -168,3 +168,57 @@ def agent_provision_status(since: int = 0):
     """Progress of the current (or last) run. `since` ships only new log lines."""
     return provision_job.snapshot(since=since)
 
+
+
+@router.get("/agent/inference")
+def agent_inference():
+    """Can Ava actually answer right now?
+
+    Nothing else answers this. `setup_completed()` reports a flag and says so in
+    its own docstring — it stays True for an install whose model was later
+    deleted, whose engine stopped, or whose config was hand-edited. So the first
+    thing that ever noticed was the engine, one turn later, by which time a new
+    owner has already read "Failed" as "this product does not work".
+
+    The `code` field is the point: it feeds frontend/src/lib/fixes.ts, which
+    resolves a Setup destination from the code PATTERN. So this needs no mapping
+    table of its own and stays correct when new codes appear.
+    """
+    from .. import models as _models
+    from .. import router_app as _router
+
+    try:
+        backends = _router.load_backends()
+    except Exception as e:  # noqa: BLE001 — a broken config must still answer
+        return {"ok": False, "code": "config_unparseable",
+                "detail": f"Could not read the inference config: {e}"}
+
+    servable = [b for b in backends if str(b.get("model") or "").strip()]
+    if not servable:
+        # Distinguishing this from "engine down" matters: nothing is broken to
+        # restart, a value is simply missing, and Operations is the wrong place
+        # to send someone.
+        return {"ok": False, "code": "model_unknown", "model": "", "engine": "",
+                "detail": "No model is configured, so there is nothing to answer "
+                          "with. Choose one in Setup -> Agent."}
+
+    b = servable[0]
+    model = str(b.get("model")).strip()
+    engine = str(b.get("engine") or "").strip()
+    base = str(b.get("url") or "")
+    reachable, served = _models.probe_serving(base, engine, timeout=2.0)
+    if not reachable:
+        return {"ok": False, "code": "inference_down", "model": model,
+                "engine": engine,
+                "detail": f"The {engine or 'inference'} service is not answering, "
+                          "so Ava cannot reply yet. It may still be starting."}
+    # Reachable but not holding it. Only reported when the list was actually
+    # READ — an engine that answered with nothing is a different thing from one
+    # that did not answer, and calling a warming engine "missing your model"
+    # would send the owner to fix something that is fine.
+    if served and not _models.match_served(model, served):
+        return {"ok": False, "code": "model_unknown", "model": model,
+                "engine": engine,
+                "detail": f"{engine or 'The engine'} is running but does not have "
+                          f"{model!r}. Choose one it serves, or download it."}
+    return {"ok": True, "code": "", "model": model, "engine": engine, "detail": ""}

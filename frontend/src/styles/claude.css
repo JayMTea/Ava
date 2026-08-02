@@ -673,3 +673,33 @@ header .sub { display:none; }
   .chat-empty h2 { font-size:26px; }
   .lv-inner, .sv-inner { padding:18px 12px 48px; }
 }
+
+/* "Ava cannot answer" — app-wide, above everything except the walkthrough.
+   Fixed rather than in flow: it must be visible from Chat, Vitals and Setup
+   alike, and none of those share a layout container. Tokens only, so it reads
+   correctly in light mode and on a re-branded install. */
+.inf-banner {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: var(--z-toast);
+  display: flex; align-items: center; justify-content: center;
+  gap: var(--sp-3);
+  padding: 9px var(--sp-4);
+  background: var(--panel2);
+  border-bottom: 1px solid var(--line);
+  box-shadow: var(--shadow-1);
+  font-size: var(--fs-sm);
+  color: var(--txt);
+}
+/* A missing model is a fault; a warming engine is a status. The tint says which
+   without the copy having to shout. */
+.inf-banner.err { border-bottom-color: var(--err); }
+.inf-banner-text { min-width: 0; }
+.inf-banner-fix {
+  color: var(--accent); text-decoration: none; font-weight: var(--fw-medium);
+  white-space: nowrap;
+}
+.inf-banner-fix:hover { text-decoration: underline; }
+@media (max-width: 760px) {
+  .inf-banner { flex-wrap: wrap; justify-content: flex-start; gap: var(--sp-2); }
+}

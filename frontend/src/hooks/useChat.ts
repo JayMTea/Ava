@@ -308,6 +308,10 @@ export function useChat() {
             patch(cotId, (it) => (it.kind === 'cot'
               ? { ...it, status: 'error', error: s.error || 'failed', code: s.error_code }
               : it));
+            // The banner polls slowly; a failure here is proof something is
+            // wrong NOW, so let it re-check rather than disagreeing with the
+            // error the user is looking at for up to 20 seconds.
+            window.dispatchEvent(new Event('ava:turn-failed'));
             failUser();
             return;
           }
