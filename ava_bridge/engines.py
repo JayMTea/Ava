@@ -108,7 +108,7 @@ ENGINES: tuple[Engine, ...] = (
         usage=True,
         usage_reason="verified: Ollama omits usage UNLESS include_usage is sent",
         usage_verified=True,
-        launcher="the `ollama` / `ollama-rocm` compose services",
+        launcher="the `ollama` / `ollama-cuda` / `ollama-rocm` compose services",
         pull="ava models pull --auto (ollama pull)",
         note="The portable GPU path: handles CUDA, ROCm and Metal itself.",
     ),

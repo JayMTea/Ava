@@ -51,6 +51,9 @@ PAIRS = {
     "data-maintenance.json": "/api/data/maintenance",
     "hub-memory.json": "/api/hub/memory",
     "hub-skills.json": "/api/hub/agent/skills",
+    # Added when Setup → Agent split into sub-panels and Persona got its own
+    # mocked route (demo/src/engine/mock.ts serves it at the same path).
+    "hub-persona.json": "/api/hub/persona",
 }
 
 # Subtrees whose keys are DATA (app names, status values, category buckets),

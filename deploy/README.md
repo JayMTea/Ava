@@ -1,31 +1,36 @@
-# Installing & running Ava
+# Install Ava on your hardware
 
-Ava is **self-hosted and single-tenant**: you run your own instance on your own
-hardware, point it at your own models, and connect your own apps. This is step
-one of getting started: pick the path for your machine and run it. The command
-below clones the repo for you, so a fresh box needs nothing but Docker and git.
+<ul class="ava-steps" markdown="1">
+<li class="is-now"><span><b>Step 1</b>Install</span></li>
+<li markdown="span">[<b>Step 2</b>Pick a model](../docs/CHOOSE_A_MODEL.md)</li>
+<li markdown="span">[<b>Step 3</b>Set up the agent](../docs/AGENT_RUNTIME.md)</li>
+<li markdown="span">[<b>Step 4</b>Connect your apps](../docs/CONNECT_YOUR_APPS.md)</li>
+</ul>
 
-However you install, verify the wiring afterwards: open **Setup → Hardware** and
-Ava should show your machine, detected automatically.
+**What you end up with.** Ava running on your own machine at
+`http://localhost:8096`, with your own admin password set. It is
+**self-hosted and single-tenant**: your instance, your hardware, your models.
 
-Then continue to step two, [picking Ava's brain](../docs/CHOOSE_A_MODEL.md).
+**How long.** About five minutes of your attention. The first run downloads
+container images and model weights in the background, which is the slow part.
+The installer waits up to three minutes for the app to answer, then tells you
+whether it did.
+
+**What you need first.** Docker, Docker Compose v2, and git. Plus disk for the
+weights: the default NVIDIA model is `Qwen/Qwen2.5-7B-Instruct`, 14.2 GiB.
 
 ---
 
-## 1. Docker (recommended)
+## 1. Run one command
 
-Requires Docker and Docker Compose v2.
-
-The easy path — detects your hardware, picks a profile, resolves your model's
-vLLM flags, and waits for the app to actually answer before saying it is done:
+The installer clones the repo, detects your hardware, picks a profile, resolves
+your model's vLLM flags, and waits for the app to actually answer before saying it is done.
 
 ```bash
-# Windows: run this in Git Bash, NOT Command Prompt or PowerShell
 git clone https://github.com/JayMTea/Ava && cd Ava/deploy && ./install.sh
-# it finishes by printing a one-time link; open that to set your admin password
 ```
 
-Already inside a clone? `cd deploy && ./install.sh` — the installer detects that
+Already inside a clone? `cd deploy && ./install.sh` - the installer detects that
 it is in a checkout and installs in place rather than cloning again.
 
 **On Windows**, run these two lines in the Command Prompt window you already
@@ -36,316 +41,25 @@ git clone https://github.com/JayMTea/Ava
 cd Ava\deploy && install.cmd
 ```
 
-`install.cmd` finds the bash that ships with Git for Windows and hands it the
-same `install.sh` everyone else runs — there is no separate Windows installer,
-and no second code path to drift. Docker Desktop is the only other requirement.
-Environment knobs still work: `set AVA_PROFILE=gpu` before running it is passed
-through. You can also just double-click `install.cmd` in Explorer.
+??? note "Why Windows gets its own command (and what the errors mean)"
+    `install.cmd` finds the bash that ships with Git for Windows and hands it the
+    same `install.sh` everyone else runs - there is no separate Windows installer,
+    and no second code path to drift. Docker Desktop is the only other requirement.
+    Environment knobs still work: `set AVA_PROFILE=gpu` before running it is passed
+    through. You can also just double-click `install.cmd` in Explorer.
 
-> **Why not `./install.sh` directly?** Because the shells Windows opens by
-> default cannot run one. Command Prompt fails with `'.' is not recognized as an
-> internal or external command`, and PowerShell cannot execute a bash script at
-> all (5.1 also rejects `&&`). Both errors mean "wrong shell", not "broken
-> install". If you would rather use the same command as everyone else, open
-> **Git Bash** — Windows key, type `Git Bash`, Enter — and run the plain command
-> above at the `$` prompt.
+    **Why not `./install.sh` directly?** Because the shells Windows opens by
+    default cannot run one. Command Prompt fails with `'.' is not recognized as an
+    internal or external command`, and PowerShell cannot execute a bash script at
+    all (5.1 also rejects `&&`). Both errors mean "wrong shell", not "broken
+    install". If you would rather use the same command as everyone else, open
+    **Git Bash** - Windows key, type `Git Bash`, Enter - and run the plain command
+    above at the `$` prompt.
 
-Or pick the profile yourself. Copy it to `.env` and start; the profile selection
-lives in the file, so every later `logs` / `down` / `pull` sees the same settings:
-
-```bash
-cd deploy
-cp profiles/cpu.env   .env   # no GPU  -> Ollama for inference
-cp profiles/gpu.env   .env   # NVIDIA GPU -> vLLM
-cp profiles/cloud.env .env   # bring an API key, no local model (edit .env first)
-cp profiles/full.env  .env   # everything, incl. image/video (the GPU service)
-cp profiles/agent.env .env   # + full tool-using agent (opt-in, see below)
-
-docker compose up -d
-```
-
-`install.sh` takes the same choice as an environment variable, which is the form
-the landing page points people at:
-
-```bash
-cd deploy
-AVA_PROFILE=full ./install.sh      # cpu | gpu | rocm | cloud | full | agent
-```
-
-Given one, `install.sh` skips detection and uses it; given none, it detects and
-prints what it chose and why. What each starts (`docker compose config
---services`, not a description of it):
-
-| Profile | Containers | What that buys |
-|---|---|---|
-| `cpu` | ava, ollama | chat on a local model, no GPU |
-| `gpu` | ava, vllm | chat on a local model, NVIDIA |
-| `rocm` | ava, ollama-rocm | chat on a local model, AMD |
-| `cloud` | ava | chat against an API key you supply |
-| `agent` | ava, agent, vllm | **+ the tool-using agent** that drives your connected apps |
-| `full` | ava, agent, gpu-service, vllm | **+ image and video generation** |
-
-So `full` is the superset — everything `agent` runs, plus the GPU service. Both are
-opt-in for the same reason: the agent container mounts the host Docker socket,
-which is **root-equivalent** on the host, and that is your call to make rather
-than the installer's. the GPU service is additionally a second GPU tenant, competing for
-memory with the model you chat to.
-
-Voice is not a profile at all — it needs a build flag (`AVA_VOICE_DEPS=1`) *and*
-the switch in Setup → System, both described in the **Voice** note below.
-
-See [profiles/README.md](profiles/README.md) for what each one sets and why the
-profile lives in `.env` rather than on the command line.
-
-### The claim link, and why setup asks for one
-
-`install.sh` finishes by printing a link that looks like this:
-
-```
-http://localhost:8096/setup?claim=NElSIgxdL1h4Qd6x7FbDdg
-```
-
-**Open that whole link, `?claim=` and all.** Browsing to `http://localhost:8096`
-on its own will show you a red "this Ava has not been claimed yet" notice, even
-though you are sitting at the machine. That is not a bug, and the rest of this
-section is why.
-
-**What the token is.** A random value, unique to your install, generated the
-first time Ava needs one and written to `$AVA_HOME/data/setup_claim` (mode
-`0600`, readable only by the account Ava runs as). It is not tied to a person or
-an account — it belongs to the *instance*. It is deleted the moment an admin
-password is set, so it works until you finish setup and never again.
-
-**Why it exists.** The setup page has to be reachable without a password, since
-its whole job is creating the first one. Unguarded, that means the first device
-on your network to find the port sets your admin password and locks you out of
-your own install. So Ava asks for proof that you can read a file on the server's
-disk, which is the same thing as proving the machine is yours. Refusing remote
-setup outright would be the other option, but a headless box with no local
-browser has to stay claimable. Jupyter's token and Pi-hole v6's first-run
-password solve it the same way.
-
-**Why you see it on your own machine.** Under Docker, your request reaches Ava
-through the compose bridge network, so the container sees the gateway address
-(something like `172.18.0.1`) rather than `127.0.0.1`. It cannot tell you apart
-from anyone else on the network, so it asks everyone. A bare-metal install on
-loopback skips the gate entirely.
-
-That last point is also why the gate is not theatre on a stock install, even
-though `docker-compose.yml` publishes every port on `127.0.0.1` only: the compose
-file declares no `networks:` key, so `ollama`, `vllm`, `gpu-service` and the agent
-sandbox all sit on one flat bridge with an unauthenticated route to
-`http://ava:8096/setup` that never touches the published port. On the `agent` and
-`full` profiles one of those neighbours is a sandbox that runs model-generated
-code, started by the same `docker compose up -d`, before any password exists.
-
-**If you lost the link**, ask Ava for it:
-
-```bash
-./bin/ava claim
-```
-
-Or read the token out of the container yourself:
-
-```bash
-docker compose exec ava cat /data/data/setup_claim
-# then open  http://localhost:8096/setup?claim=<token>
-```
-
-On Windows in Git Bash, prefix that with `MSYS_NO_PATHCONV=1` — otherwise MSYS
-rewrites the container path into a Windows one and the command prints nothing.
-
-Pin `AVA_PASSWORD=...` in `deploy/.env` before the first start to skip the gate
-entirely.
-
-> **On a Mac (Apple Silicon)?** Skip Docker. Docker Desktop on macOS can't pass
-> the Apple GPU through, so inference in a container runs CPU-only. Use the
-> bare-metal path below — see [Apple Silicon (Mac mini / Studio)](#apple-silicon-mac-mini-studio).
-
-Good to know:
-
-- **All state lives in one folder** (`AVA_HOME`, default `deploy/ava-data/`):
-  config, chats, media, logs, models. To back up, copy that folder.
-
-- **Password**: pin the admin password ahead of time with `AVA_PASSWORD=...` in
-  `deploy/.env`; otherwise the first-run screen sets it.
-
-- **Model**: choose one with `AVA_MODEL=...` (gpu profile) or via `ava.yaml`. The
-  gpu profile defaults to `Qwen/Qwen2.5-7B-Instruct`: 14.2 GiB of BF16 weights,
-  which needs ~18 GB of VRAM once a 32768-token KV cache is counted at the default
-  0.90 memory share. `install.sh` sizes for that in three tiers — below 12 GB it
-  falls back to the cpu profile, between 12 and 18 GB it keeps the GPU and serves
-  `Qwen/Qwen2.5-3B-Instruct` instead (same tool parser, same 32k context), and at
-  18 GB or more it serves the default. Pin `AVA_MODEL=` to override any of that.
-
-    The context is not the lever to reach for on a small card: 32768 is chosen to
-    clear the ~29k tokens Ava's own system prompt and tool schemas occupy, so
-    shortening it breaks the agent before it saves you any memory. Scaling up is the
-    deliberate act:
-
-    | Variable | Default | Notes |
-    |---|---|---|
-    | `AVA_MODEL` | `Qwen/Qwen2.5-7B-Instruct` | Any model vLLM can serve. Set it, then re-run `./install.sh` (or `./resolve-model-flags.sh --env <model> >> .env`) so its parsers follow. |
-    | `AVA_VLLM_GPU_UTIL` | `0.90` | Fraction of GPU memory vLLM may take. `profiles/full.env` lowers it to `0.55`, where the GPU service shares the pool. |
-    | `AVA_VLLM_MAX_LEN` | resolved | Context ceiling, **clamped to what the model actually supports** — vLLM raises rather than clamping, so asking for more than the checkpoint allows means it never boots. |
-    | `AVA_VLLM_MODEL_FLAGS` | resolved | `--tool-call-parser`, `--reasoning-parser` and any model-specific boot flags, as one string. |
-
-    You no longer pick a parser by hand. `deploy/model-flags.conf` maps a model to
-    its parsers and real context length, and `deploy/resolve-model-flags.sh` is the
-    only thing that reads it — `install.sh`, `local-serve.sh` and compose all go
-    through it, so the container and bare-metal paths cannot disagree. A parser
-    that does not match the model returns no `tool_calls` *silently*, and every
-    turn then runs to timeout, so this is the one setting worth getting right.
-    An unknown model family serves without tool-calling rather than guessing.
-    See [docs/CHOOSE_A_MODEL.md](../docs/CHOOSE_A_MODEL.md).
-
-- **Inference backend**: chat flows bridge → embedded router (`:8010` in-container)
-  → the profile's engine. `AVA_BACKEND_URL`/`ENGINE`/`MODEL` come from
-  `deploy/profiles/<profile>.env`, which you copy to `deploy/.env`. Compose has
-  **no default** for them and refuses to start without them: the bridge runs
-  under every profile, so any one default is wrong for the others — the old
-  global `http://vllm:8002/v1` pointed the `cpu` profile at a service it never
-  started. For `cloud`, `AVA_BACKEND_URL` and `AVA_MODEL` ship empty (`ENGINE` is
-  already `openai`), as does `AVA_INFERENCE_KEY` — which is *not* start-guarded,
-  so an empty key starts cleanly and fails on the first turn instead.
-
-- **Agent**: the container runs the tool-less assistant by default. For the
-  **full tool-using agent** (self-coding, connectors, memory) in Docker, opt into
-  the `agent` profile: `cp profiles/agent.env .env && docker compose up -d`
-  (that file already sets the `AVA_AGENT_ENABLED` / `AVA_AGENT_RUNTIME` /
-  `AVA_ROUTER_HOST` trio, which all three have to be right together). This
-  runs a separate agent container that mounts the host Docker socket, which is
-  **root-equivalent** on the host; it is opt-in for that reason. Full setup and
-  the security caveat: [AGENT_RUNTIME.md, Full agent in Docker](../docs/AGENT_RUNTIME.md).
-
-- **Voice**: the default image ships `ffmpeg` for audio handling, but not the
-  speech models, which are ~2 GB of torch/whisper/speechbrain. Voice enrollment
-  and transcription both need those, so **neither works on the default image** —
-  build with them by setting `AVA_VOICE_DEPS=1` in `deploy/.env` before `docker compose up
-  -d --build`, then turn the capability on in **Setup → System → Optional
-  features** (`features.voice` is off by default). Both steps are needed: the
-  switch alone has nothing to run, and the deps alone leave the switch off.
-
-- **GPU workloads**: needs the GPU service, which only the `full` profile starts. On
-  any other profile the switch reports `image_down` rather than pretending.
-
-- **Web search**: no profile provisions SearXNG or Tor, so this does **not** work
-  out of the box in Docker. `AVA_WEB_SEARXNG_URL` defaults to
-  `http://127.0.0.1:8888`, which inside the `ava` container is the *container's*
-  loopback — not your host's — so a SearXNG you run on the host is not reachable
-  at that address either. To wire it up: run SearXNG yourself, then set
-  `AVA_WEB_SEARXNG_URL` to an address the container can actually reach (a compose
-  service name, or `http://host.docker.internal:8888` with the matching
-  `extra_hosts`). Host-side fetch stays fail-closed over Tor by default, so
-  leaving Tor unprovisioned means fetch errors rather than clearnet requests —
-  set `AVA_WEB_TOR=0` to accept direct egress instead.
-
-- **GPU telemetry in the bridge container**: compose grants the GPU to the
-  *inference* service only, so **Setup → Hardware** reports no GPU even on an
-  NVIDIA box, and sizes its model tier from system memory instead. The panel
-  says so rather than implying a driver fault. To surface the real card, drop a
-  `deploy/docker-compose.override.yml` next to the compose file:
-
-  ```yaml
-  services:
-    ava:
-      deploy:
-        resources:
-          reservations:
-            devices:
-              - driver: nvidia
-                count: all
-                capabilities: ["utility"]   # telemetry only — no compute claimed
-  ```
-
-    Compose merges `docker-compose.override.yml` automatically. It is opt-in
-    rather than shipped because a `devices:` reservation makes compose **refuse to
-    start at all** on a host without the NVIDIA container runtime — which is every
-    `cpu` and `cloud` install, and every Mac.
-
-### Verified install (recommended)
-
-Published images are **cosign-signed** (Sigstore keyless; the signature proves
-the image came from this repo's release CI). Pull the signed image instead of
-building locally by setting `AVA_IMAGE` in `deploy/.env`, and verify it first:
-
-Replace `X.Y.Z` below with a version that exists — see the
-[Releases page](https://github.com/JayMTea/Ava/releases). (`release.yml`
-publishes an image only on a `v*` tag push, so a version that has not been
-released yet returns 403 from GHCR.)
-
-The two spellings are not interchangeable: the **image tag is `X.Y.Z`** while the
-**git tag in the certificate identity is `vX.Y.Z`**, and the registry path is
-lowercased while the certificate identity keeps the repo's case. Substituting one
-value for both is why a copy-pasted verify fails.
-
-```bash
-# Verify the release image (see SECURITY.md §9 for the exact identity regex):
-cosign verify ghcr.io/jaymtea/ava-bridge:X.Y.Z \
-  --certificate-identity-regexp "https://github.com/JayMTea/.+/.github/workflows/release.yml@refs/tags/vX.Y.Z" \
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com
-
-echo "AVA_IMAGE=ghcr.io/jaymtea/ava-bridge:X.Y.Z" >> deploy/.env
-docker compose pull && docker compose up -d
-```
-
-Verifying a fork's own build? Swap `jaymtea` / `JayMTea` for your owner in both
-places, keeping the same lowercase-registry, cased-identity split.
-
-Installing **from a fork**, without cloning it first? Point `AVA_REPO` at your
-fork and pipe its own copy of the installer (the plain one-liner is at the top of
-this page, and is the same script):
-
-```bash
-# replace `master` with your fork's default branch or a release tag:
-AVA_REPO=https://github.com/<you>/ava.git bash -c "$(curl -fsSL https://raw.githubusercontent.com/<you>/ava/master/deploy/install.sh)"
-```
-
-> **Note:** `ollama`/`vllm`/`gpu-service` are upstream images (override `gpu-service`
-> with `AVA_GPU_SERVICEUI_IMAGE`). The `ava/bridge` image is built locally by default,
-> or set `AVA_IMAGE` to the signed published image (above). Model weights
-> download on first run and carry their own licenses (surfaced at setup).
-
----
-
-## 2. Bare metal with the `ava` CLI
-
-If you would rather run it directly (for example, you already have Python and a
-GPU stack):
-
-```bash
-python -m venv .venv && . .venv/bin/activate
-pip install -r requirements.txt
-cd frontend && npm install && npm run build && cd ..
-
-./bin/ava setup              # creates AVA_HOME, generates secrets + admin password, ava.yaml
-./bin/ava models pull --auto # downloads a model that fits your hardware (once, large)
-
-# Start an inference engine — `ava up` runs the WEB APP, never an engine.
-bash deploy/local-serve.sh   # NVIDIA + Docker: serves the model with vLLM
-# Apple Silicon / CPU:  ollama serve  &&  ollama pull <tag>  (see CHOOSE_A_MODEL.md)
-
-./bin/ava doctor     # verifies hardware, dirs, config, inference, services
-./bin/ava up         # runs the web app on http://localhost:8096
-```
-
-The engine step is the one people skip, and skipping it produces a working web
-app whose first message fails — so `ava doctor` **exits non-zero** when nothing
-can serve a chat turn, which stops the `&&` chain right at the missing step.
-
-`ava setup` prints your generated admin password (or pass `--password`).
-
-`./bin/ava` works from the checkout with no install step. To get a plain `ava`
-command on your `PATH` instead, swap the `pip install -r requirements.txt` line
-for `pip install -e .` — it installs the same dependencies and adds the console
-script. Keep the `-e`: Ava runs *from* this checkout, and a non-editable install
-would leave it looking for `frontend/dist`, `config.example.yaml` and
-`agent/install.sh` inside `site-packages`, where they are not.
-
-A healthy run looks like this — `doctor` shows the hardware it detected, and
-`up` prints the address to open:
-
-![Terminal: ava setup and ava doctor passing with green checks, including hardware Apple M4 Max with 128 GB unified memory, then ava up printing http://localhost:8096](../docs/assets/install-1-terminal.png)
+!!! note "On a Mac (Apple Silicon)? Skip Docker."
+    Docker Desktop on macOS cannot pass the Apple GPU through, so inference in a
+    container runs CPU-only. Use the bare-metal path below instead (collapsed under
+    "Install bare metal instead") - it reaches the Metal GPU.
 
 The same install end to end, narrated (sound on):
 
@@ -353,121 +67,272 @@ The same install end to end, narrated (sound on):
        style="width:100%;border-radius:8px"
        aria-label="Screen recording: installing Ava from a terminal, through setup, doctor, and up, then opening the web app">
   <source src="../docs/assets/install-tour.mp4" type="video/mp4">
+  <track kind="captions" srclang="en" label="English"
+         src="../docs/assets/install-tour.vtt">
   Your browser can't play video. <a href="../docs/assets/install-tour.mp4">Download the walkthrough</a>.
 </video>
 
-### Inference on bare metal
+*(The recording covers both routes: the Mac command-line install and the
+one-line Docker install.)*
 
-Chat flows **bridge → router → your engine**. The OpenAI-compatible router
-starts **inside `ava up` automatically** (embedded, `127.0.0.1:8010`), so you
-never need a second service. An always-on standalone unit
-(`uvicorn ava_router:app --host 127.0.0.1 --port 8010`) is detected at startup
-and used instead. Declare your engine in `ava.yaml`:
+## 2. The profile it picks for you
 
-```yaml
-inference:
-  primary: local
-  backends:
-    local:
-      engine: ollama                      # vllm | ollama | llamacpp | openai
-      base_url: http://127.0.0.1:11434/v1
-      model: llama3.2
+A **profile** is which set of containers Ava starts. Detection handles this: the
+installer reads your hardware, chooses a row below, and prints what it chose and
+why. You only pick one yourself if you want something other than what it found.
+
+| Profile | Pick this if | Containers | What that buys |
+|---|---|---|---|
+| `cpu` | no GPU, under 4 GB of VRAM, or Docker cannot reach the card | ava, ollama | chat on a local model, no GPU |
+| `cuda` | you have an NVIDIA card with 4-12 GB of VRAM | ava, ollama-cuda | chat on a local model, on your NVIDIA GPU |
+| `gpu` | you have an NVIDIA card with 12 GB or more | ava, vllm | chat on a local model, NVIDIA |
+| `rocm` | you have an AMD card or APU | ava, ollama-rocm | chat on a local model, AMD |
+| `cloud` | you would rather pay an API than run a model | ava | chat against an API key you supply |
+| `agent` | you want the tool-using agent (read the warning) | ava, agent, vllm | **+ the tool-using agent** that drives your connected apps |
+| `full` | you also want image and video generation | ava, agent, gpu-service, vllm | **+ image and video generation** |
+
+To pin one instead: `AVA_PROFILE=full ./install.sh`.
+
+??? note "Why there are two NVIDIA profiles, and how to force the one you want"
+
+    They run different **engines**, and the engines need different amounts of VRAM
+    for the same model, because they load it in different formats.
+
+    `gpu` runs **vLLM** on FP16 weights: the shipped 7B is 14.2 GiB of weights plus a
+    32k KV cache at 0.90 memory utilization, so it wants ~18 GB - 12 GB with the 3B
+    the installer downshifts to. `cuda` runs **Ollama** on quantized GGUF weights:
+    llama3.2 (3B) at Q4_K_M is 2 GiB, and with its KV cache, CUDA context and a
+    little headroom it needs about 4 GB. Everything between those two floors is a
+    card that vLLM cannot use and Ollama can - a 6 GB laptop RTX, for instance.
+    Before `cuda` existed those cards were sent to `cpu`, several times slower for
+    exactly the same answer, because one FP16-shaped threshold decided both.
+
+    `cuda` needs the **NVIDIA Container Toolkit**, not just the driver: `nvidia-smi`
+    working proves the *host* can talk to the card, not that the daemon can hand it
+    to a container. Confirm with:
+
+    ```bash
+    docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi
+    ```
+
+    The installer asks the same question before it chooses, and falls back to `cpu`
+    rather than starting a service Docker will refuse. **To force `cuda`** - a card
+    the probe misjudged, or a runtime registered in a way `docker info` does not
+    show:
+
+    ```bash
+    AVA_PROFILE=cuda AVA_SKIP_GPU_RUNTIME_CHECK=1 ./install.sh
+    # or, without the installer:
+    cd deploy && cp profiles/cuda.env .env && docker compose up -d
+    ```
+
+!!! warning "`agent` and `full` grant root-equivalent access to your machine"
+    Both start an extra `agent` container that mounts the host Docker socket
+    (`/var/run/docker.sock`), which is **root-equivalent** on the host. That is how
+    it spawns the sandbox - the isolated container that runs model-generated code.
+    Ava makes it opt-in because it is your call to make rather than the
+    installer's. The five auto-detected profiles (`cpu`, `cuda`, `gpu`, `rocm`,
+    `cloud`) never grant it. `full` additionally starts the GPU service, a second GPU
+    tenant competing for memory with the model you chat to.
+
+## 3. Open the link the installer prints
+
+The installer finishes by printing a link, and opens it in your browser for you
+unless you are over SSH, in CI, or headless:
+
+```
+http://localhost:8096/setup?claim=NElSIgxdL1h4Qd6x7FbDdg
 ```
 
-`ava models pull --auto` downloads a model sized to your hardware and prints
-this stanza for you. `ava doctor` checks the route chat *actually* uses.
+**Open that whole link, `?claim=` and all.** Browsing to `http://localhost:8096`
+on its own shows a red "this Ava has not been claimed yet" notice, even though
+you are sitting at the machine. The token proves you can read a file on the
+server's disk, which is the same thing as proving the machine is yours. It is
+single-use: it stops working the moment a password is set.
 
-**Tool calling per engine** (matters for the full agent; plain chat works
-regardless):
+**If you lost the link**, ask Ava for it:
 
-| Engine | Tool calls | Launch requirement |
-|---|---|---|
-| vLLM | native | `--enable-auto-tool-choice --tool-call-parser <parser for your model>` (both are required; wrong parser = tools silently return as prose) |
-| Ollama | native | none (tool-capable models only) |
-| llama.cpp | opt-in | `llama-server --jinja` with a tool-call chat template; otherwise declare `tools: none` on the backend |
-| cloud (openai) | native | none |
-
-**Exposing the router beyond localhost**: set `inference.router.host: 0.0.0.0`.
-Every `/v1/*` call then requires the router token
-(`$AVA_HOME/secrets/router_token`) as a `Bearer` / `X-Ava-Router-Token`
-header. Loopback (the default) needs no token for `/v1/*`.
-
-### Apple Silicon (Mac mini / Studio)
-
-A Mac is **unified-memory** hardware: CPU and GPU share one RAM pool and there is
-no `nvidia-smi`. **Ava does not serve vLLM on a Mac** — upstream macOS support is
-experimental, build-from-source and CPU-only unless you add the community
-`vllm-metal` plugin. Run bare metal with a native engine (Ollama, llama.cpp, MLX,
-LM Studio) so inference uses the Metal GPU. The hardware layer detects
-Apple Silicon automatically and gates model routing on the shared RAM pool (a
-512 GB Studio runs a 70B comfortably; a 24 GB mini should stay ~8B).
-
-```bash
-python3 -m venv .venv && . .venv/bin/activate
-pip install -r requirements.txt              # no CUDA/vLLM wheels; clean on arm64
-
-# a native, OpenAI-compatible engine (any of these work; Ollama shown):
-brew install ollama && ollama serve &
-ollama pull llama3.1:70b                      # sized to YOUR Mac's memory
-
-./bin/ava setup      # on a Mac this seeds an Ollama backend, not the vLLM default
-./bin/ava doctor     # confirms it detects Apple Silicon + the right memory tier
-./bin/ava up         # http://localhost:8096
-```
-
-Notes:
-
-- **`ava models pull --auto` is Apple-aware** — on a Mac it fetches an Ollama
-  model sized to your memory, never the CUDA-only vLLM default
-  (`Qwen/Qwen2.5-7B-Instruct`), which cannot be served on Apple Silicon.
-
-- LM Studio and MLX also work — point the backend `base_url` at their
-  OpenAI-compatible endpoint (see the Apple example in
-  [`config.example.yaml`](../config.example.yaml)).
-
-- GPU **memory** shows in the dashboard; util/temp/power read blank on Apple
-  (no unprivileged API) — that's expected, not a fault.
-
----
-
-## 3. Configuration
-
-Everything is driven by **`$AVA_HOME/ava.yaml`** (copied from
-[`config.example.yaml`](../config.example.yaml) by `ava setup`) plus environment
-overrides. **No source edits, ever.** Highlights:
-
-| Setting | What it does |
+| How you installed | Command |
 |---|---|
-| `server.port` | web app port (default 8096); env `AVA_PORT` |
-| `inference.backends` | your model engines (vLLM / Ollama / llama.cpp / cloud) |
-| `agent.sandbox` | the agent runtime sandbox name |
-| `features.*` | `image`, `web_search`, `voice` (Setup → System → Optional features), plus `learning` and `memory`, which have their own panels |
-| `connectors` | the apps Ava monitors and drives |
+| Docker | `cd deploy && docker compose exec ava ./bin/ava claim` |
+| Bare metal | `./bin/ava claim` |
 
-Secrets live outside `ava.yaml` and outside the repo: the admin password in
-`$AVA_HOME/data/auth_password`, the session signing key in
-`$AVA_HOME/data/.secret`, the router token and cloud API key under
-`$AVA_HOME/secrets/` — or supply any of them by env (`AVA_PASSWORD`,
-`AVA_SECRET`, `AVA_ROUTER_TOKEN`, `AVA_INFERENCE_KEY`). Full inventory:
-[SECURITY.md §4](../SECURITY.md).
+Or pin `AVA_PASSWORD=...` in `deploy/.env` before the first start and skip the
+gate entirely.
 
----
+??? note "Why setup asks for a claim token, and the attack it stops"
+    **What the token is.** A random value, unique to your install, generated the
+    first time Ava needs one and written to `$AVA_HOME/data/setup_claim` (mode
+    `0600`, readable only by the account Ava runs as). It is not tied to a person or
+    an account - it belongs to the *instance*. It is deleted the moment an admin
+    password is set, so it works until you finish setup and never again.
 
-## 4. Connecting your own apps
+    **Why it exists.** The setup page has to be reachable without a password, since
+    its whole job is creating the first one. Unguarded, that means the first device
+    on your network to find the port sets your admin password and locks you out of
+    your own install. So Ava asks for proof that you can read a file on the server's
+    disk, which is the same thing as proving the machine is yours. Refusing remote
+    setup outright would be the other option, but a headless box with no local
+    browser has to stay claimable. Jupyter's token and Pi-hole v6's first-run
+    password solve it the same way.
 
-Wire your apps into Ava from the browser (**Setup → Connectors → Connect an
-app**: paste an address, click Detect, done) or from the CLI with a connector
-manifest. The step-by-step guide, with screenshots and a video of the whole
-flow, is [Connect your apps](../docs/CONNECT_YOUR_APPS.md); the full manifest
-reference is the [Connector SDK](../docs/CONNECTOR_SDK.md).
+    **Why you see it on your own machine.** Under Docker, your request reaches Ava
+    through the compose bridge network, so the container sees the gateway address
+    (something like `172.18.0.1`) rather than `127.0.0.1`. It cannot tell you apart
+    from anyone else on the network, so it asks everyone. A bare-metal install on
+    loopback skips the gate entirely.
 
----
+    That last point is also why the gate is not theatre on a stock install, even
+    though `docker-compose.yml` publishes every port on `127.0.0.1` only: the compose
+    file declares no `networks:` key, so `ollama`, `vllm`, `gpu-service` and the agent
+    sandbox all sit on one flat bridge with an unauthenticated route to
+    `http://ava:8096/setup` that never touches the published port. On the `agent` and
+    `full` profiles one of those neighbours is a sandbox that runs model-generated
+    code, started by the same `docker compose up -d`, before any password exists.
+
+    **Reading the token by hand.** `./bin/ava claim` is the supported route, but the
+    file is there if you want it:
+
+    ```bash
+    docker compose exec ava cat /data/data/setup_claim
+    # then open  http://localhost:8096/setup?claim=<token>
+    ```
+
+    On Windows in Git Bash, prefix that with `MSYS_NO_PATHCONV=1` - otherwise MSYS
+    rewrites the container path into a Windows one and the command prints nothing.
+
+    If `docker compose exec` is unavailable, the bridge printed the link on startup,
+    so the logs carry it: `docker compose logs ava | grep 'setup?claim='`.
+
+## 4. Good to know
+
+- **All state lives in one folder** (`AVA_HOME`, default `deploy/ava-data/`):
+  config, chats, media, logs, models. To back Ava up, copy that folder.
+
+- **Setup → Hardware reports no GPU under Docker**, even on an NVIDIA box:
+  compose grants the GPU to the *inference* service only. The panel says so
+  rather than implying a driver fault, and sizes your model tier from system
+  memory instead. The override is one file - see the
+  [install reference](../docs/INSTALL_REFERENCE.md).
+
+- **Web search does not work out of the box in Docker.** No profile starts
+  SearXNG or Tor, so the switch reports the service as down rather than
+  pretending. Wiring one up is in the
+  [install reference](../docs/INSTALL_REFERENCE.md), with voice, image
+  generation and the model-sizing knobs.
+
+!!! note "The default install has no tools, no memory and no connectors"
+    The container runs the tool-less assistant by default: chat works, but there is
+    no tool use, no memory recall, no connectors and no self-editing. To add the
+    **full tool-using agent** to an install you already have, switch to the `agent`
+    profile: `cp profiles/agent.env .env && docker compose up -d` (that file already
+    sets the `AVA_AGENT_ENABLED` / `AVA_AGENT_RUNTIME` / `AVA_ROUTER_HOST` trio,
+    which all three have to be right together). It grants the same root-equivalent
+    Docker socket warned about in step 2. Full setup:
+    [Set up the agent](../docs/AGENT_RUNTIME.md).
+
+??? note "Verify the signed image (optional)"
+    Published images are **cosign-signed** (Sigstore keyless; the signature proves
+    the image came from this repo's release CI). Pull the signed image instead of
+    building locally by setting `AVA_IMAGE` in `deploy/.env`, and verify it first:
+
+    Replace `X.Y.Z` below with a version that exists - see the
+    [Releases page](https://github.com/JayMTea/Ava/releases). (`release.yml`
+    publishes an image only on a `v*` tag push, so a version that has not been
+    released yet returns 403 from GHCR.)
+
+    The two spellings are not interchangeable: the **image tag is `X.Y.Z`** while the
+    **git tag in the certificate identity is `vX.Y.Z`**, and the registry path is
+    lowercased while the certificate identity keeps the repo's case. Substituting one
+    value for both is why a copy-pasted verify fails.
+
+    ```bash
+    # Verify the release image (see SECURITY.md §9 for the exact identity regex):
+    cosign verify ghcr.io/jaymtea/ava-bridge:X.Y.Z \
+      --certificate-identity-regexp "https://github.com/JayMTea/.+/.github/workflows/release.yml@refs/tags/vX.Y.Z" \
+      --certificate-oidc-issuer https://token.actions.githubusercontent.com
+
+    echo "AVA_IMAGE=ghcr.io/jaymtea/ava-bridge:X.Y.Z" >> deploy/.env
+    docker compose pull && docker compose up -d
+    ```
+
+    Verifying a fork's own build? Swap `jaymtea` / `JayMTea` for your owner in both
+    places, keeping the same lowercase-registry, cased-identity split.
+
+    `ollama`/`vllm`/`gpu-service` are upstream images (override `gpu-service` with
+    `AVA_GPU_SERVICEUI_IMAGE`). The `ava/bridge` image is built locally by default, or set
+    `AVA_IMAGE` to the signed published image (above). Model weights download on
+    first run and carry their own licenses (surfaced at setup).
+
+??? note "Install bare metal instead (Python, your own GPU stack, or a Mac)"
+    If you would rather run it directly - for example, you already have Python and a
+    GPU stack, or you are on Apple Silicon where Docker cannot reach the GPU:
+
+    ```bash
+    python -m venv .venv && . .venv/bin/activate
+    pip install -r requirements.txt
+    cd frontend && npm install && npm run build && cd ..
+
+    ./bin/ava setup              # creates AVA_HOME, generates secrets + admin password, ava.yaml
+    ./bin/ava models pull --auto # downloads a model that fits your hardware (once, large)
+
+    # Start an inference engine - `ava up` runs the WEB APP, never an engine.
+    bash deploy/local-serve.sh   # NVIDIA + Docker: serves the model with vLLM
+    # Apple Silicon / CPU:  ollama serve  &&  ollama pull <tag>  (see CHOOSE_A_MODEL.md)
+
+    ./bin/ava doctor     # verifies hardware, dirs, config, inference, services
+    ./bin/ava up         # runs the web app on http://localhost:8096
+    ```
+
+    The engine step is the one people skip, and skipping it produces a working web
+    app whose first message fails - so `ava doctor` **exits non-zero** when nothing
+    can serve a chat turn, which stops the `&&` chain right at the missing step.
+
+    `ava setup` prints your generated admin password (or pass `--password`).
+
+    `./bin/ava` works from the checkout with no install step. To get a plain `ava`
+    command on your `PATH` instead, swap the `pip install -r requirements.txt` line
+    for `pip install -e .` - it installs the same dependencies and adds the console
+    script. Keep the `-e`: Ava runs *from* this checkout, and a non-editable install
+    would leave it looking for `frontend/dist`, `config.example.yaml` and
+    `agent/install.sh` inside `site-packages`, where they are not.
+
+    A healthy run looks like this - `doctor` shows the hardware it detected, and
+    `up` prints the address to open:
+
+    ![Terminal: ava setup and ava doctor passing with green checks, including hardware Apple M4 Max with 128 GB unified memory, then ava up printing http://localhost:8096](../docs/assets/install-1-terminal.png)
+
+    Engine wiring, per-engine tool-calling support and the Apple Silicon recipe are
+    in the [install reference](../docs/INSTALL_REFERENCE.md).
+
+## 5. Check it worked
+
+Open **Setup → Hardware**. Ava should show your machine - chip, usable memory,
+and a recommended model tier - detected automatically, with nothing for you to
+configure.
+
+[![The Hardware tab: a Workstation Tier hero card reading "Unified memory comfortably fits large local models", with Compute and Usable memory below it, and a note that the tier sets which models Ava recommends](../docs/assets/choose-model-1-hardware.png)](../docs/assets/choose-model-1-hardware.png)
+
+Under Docker the GPU row reads as unavailable and the tier is sized from system
+memory instead, as described above. That is expected, not a fault.
 
 ## Troubleshooting
 
-- `ava doctor` is the first stop; it shows what's missing.
 - Health check: `curl http://localhost:8096/api/health`.
 - Docker logs: `docker compose logs -f ava`.
+- Bare metal: `ava doctor` is the first stop; it shows what is missing.
 - No GPU? `cd deploy && cp profiles/cpu.env .env` (Ollama) or
   `cp profiles/cloud.env .env` (an API key), then `docker compose up -d`. The
   profile lives in `.env`, never as `--profile` on the command line.
+- Everything else - manual profiles, the env-var reference, engine wiring,
+  Apple Silicon, `ava.yaml` - is in the
+  [install reference](../docs/INSTALL_REFERENCE.md).
+
+---
+
+## Next: pick a model
+
+Ava has no brain until you point it at one. That happens in the app and takes
+about a minute.
+
+**→ [Step 2: Pick a model](../docs/CHOOSE_A_MODEL.md)**

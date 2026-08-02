@@ -271,12 +271,34 @@ def _proc_meminfo() -> MemInfo:
 
 
 # --- discrete VRAM ----------------------------------------------------------- #
-def vram_mem() -> MemInfo:
-    """Free/total dedicated GPU VRAM summed across GPUs, or an empty MemInfo.
+# Why the probe reports a STATUS as well as a reading.
+#
+# An empty MemInfo used to mean two opposite things, and the fit layer could not
+# tell them apart:
+#
+#   "this box has no dedicated VRAM by design" — GB10/Grace reports N/A, Apple
+#   Silicon has none, a CPU-only box has none. Falling back to system RAM is
+#   CORRECT, because system RAM really is the pool a model will live in.
+#
+#   "no reader could run" — no NVML, no nvidia-smi on PATH, a container that was
+#   granted no GPU. Falling back to system RAM is WRONG: it advertises the host's
+#   whole RAM as if it were accelerator memory, so Setup recommends a tier the
+#   card cannot serve. On a 6 GB laptop card inside Docker this read 15.4 GB and
+#   labelled it with the GPU's name.
+#
+# Reported as a separate value rather than folded into MemInfo because MemInfo's
+# three fields are load-bearing in model_fit, alloc/capacity and platforms.
+_PROBE_MEASURED = "measured"    # a reader returned real numbers
+_PROBE_NA = "na"                # a reader RAN and the device said N/A
+_PROBE_UNREADABLE = "unreadable"  # a card exists but nothing could read it
+_PROBE_NONE = "none"            # no accelerator at all
 
-    Returns nothing on unified-memory hardware (GB10 reports N/A), on Apple
-    Silicon (no NVIDIA), or without an NVIDIA driver — the fit-limiting resource
-    there is system memory, resolved separately.
+
+def vram_probe() -> tuple[MemInfo, str]:
+    """(reading, status) for dedicated GPU VRAM — see the note above.
+
+    `status` is the load-bearing half: it is what lets `fit_pool()` refuse to
+    pass system RAM off as an accelerator pool.
     """
     nv = _nvml()
     if nv is not None:
@@ -289,14 +311,31 @@ def vram_mem() -> MemInfo:
                 total += m.total
             if total > 0:
                 g = 1024 ** 3
-                return MemInfo(free_gb=free / g, total_gb=total / g,
-                               source="vram-nvml")
+                return (MemInfo(free_gb=free / g, total_gb=total / g,
+                                source="vram-nvml"), _PROBE_MEASURED)
+            # NVML answered and reported no dedicated pool: unified by design.
+            return MemInfo(), _PROBE_NA
         except Exception:  # noqa: BLE001 — fall through to nvidia-smi
             pass
     amd = _vram_amdgpu()
     if amd.readable:
-        return amd
-    return _vram_smi()
+        return amd, _PROBE_MEASURED
+    smi, smi_status = _vram_smi_probe()
+    if smi_status != _PROBE_UNREADABLE:
+        return smi, smi_status
+    # Nothing could read a pool. A DRM card still tells us whether there is
+    # hardware here at all — "we could not look" and "there is nothing" are
+    # different answers and the UI says different things for each.
+    return MemInfo(), (_PROBE_UNREADABLE if _drm_cards() else _PROBE_NONE)
+
+
+def vram_mem() -> MemInfo:
+    """Free/total dedicated GPU VRAM summed across GPUs, or an empty MemInfo.
+
+    Back-compat wrapper over `vram_probe()`; callers that need to distinguish
+    "no VRAM by design" from "could not read" must use that instead.
+    """
+    return vram_probe()[0]
 
 
 def _vram_amdgpu() -> MemInfo:
@@ -391,20 +430,20 @@ def _drm_names() -> list[str]:
     return out
 
 
-def _vram_smi() -> MemInfo:
-    """`nvidia-smi` shell fallback for VRAM (also yields N/A on unified memory)."""
+def _vram_smi_probe() -> tuple[MemInfo, str]:
+    """`nvidia-smi` shell fallback for VRAM, with why-it-failed. See vram_probe."""
     smi = _which("nvidia-smi")
     if not smi:
-        return MemInfo()
+        return MemInfo(), _PROBE_UNREADABLE
     try:
         out = subprocess.run(
             [smi, "--query-gpu=memory.free,memory.total",
              "--format=csv,noheader,nounits"],
             capture_output=True, text=True, timeout=2.0)
     except Exception:  # noqa: BLE001
-        return MemInfo()
+        return MemInfo(), _PROBE_UNREADABLE
     if out.returncode != 0 or not out.stdout.strip():
-        return MemInfo()
+        return MemInfo(), _PROBE_UNREADABLE
     free = total = 0.0
     saw = False
     for line in out.stdout.strip().splitlines():
@@ -417,7 +456,15 @@ def _vram_smi() -> MemInfo:
             saw = True
         except ValueError:
             continue
-    return MemInfo(free, total, "vram-smi") if saw else MemInfo()
+    if saw:
+        return MemInfo(free, total, "vram-smi"), _PROBE_MEASURED
+    # It ran, it listed GPUs, and every field was N/A: unified memory reported
+    # as VRAM. That is an ANSWER, not a failure — GB10 depends on this branch.
+    return MemInfo(), _PROBE_NA
+
+
+def _vram_smi() -> MemInfo:
+    return _vram_smi_probe()[0]
 
 
 # --- the unified answer the fit layer wants ---------------------------------- #
@@ -427,6 +474,108 @@ def _vram_smi() -> MemInfo:
 # cached so ordering every inference request costs ~nothing.
 _FIT_TTL_S = float(os.environ.get("AVA_FIT_MEM_TTL", "3.0"))
 _fit_cache: dict = {"ts": 0.0, "info": None}
+
+
+@dataclass
+class PoolInfo:
+    """WHICH pool the fit layer is gating on, not just how big it is.
+
+    The floating monitor and Setup used to render a memory number next to an
+    accelerator's name with nothing in the payload saying whether they were the
+    same thing. On a 6 GB laptop card inside Docker that read
+    "GPU · 15.4 GB usable" — the card's name beside the host's RAM. These fields
+    are what let a UI say which pool it is looking at, and admit when it cannot
+    see one. Owner-facing wording stays in the frontend (CLAUDE.md); this is the
+    fact it renders.
+    """
+    free_gb: float | None = None
+    total_gb: float | None = None
+    source: str | None = None
+    # vram = a dedicated accelerator pool; unified = one pool shared by CPU and
+    # GPU (Apple, GB10); system = plain RAM with no accelerator behind it.
+    kind: str = "unknown"
+    accelerated: bool = False
+    accel_name: str | None = None
+    accel_status: str = _PROBE_NONE
+    # True when this pool is a slice of a bigger machine (a container limit, or
+    # the WSL2 VM's default half of the host's RAM). The number stays correct
+    # for anything running inside; it just is not the machine's.
+    capped: bool = False
+    cap_kind: str | None = None
+
+    @property
+    def readable(self) -> bool:
+        return self.free_gb is not None
+
+
+def _cgroup_limit_gb() -> float | None:
+    """This process's memory ceiling from cgroup v2 then v1, or None."""
+    g = 1024 ** 3
+    for path in ("/sys/fs/cgroup/memory.max",
+                 "/sys/fs/cgroup/memory/memory.limit_in_bytes"):
+        raw = _read_sysfs(path)
+        if not raw or raw == "max":
+            continue
+        try:
+            v = int(raw)
+        except ValueError:
+            continue
+        # Unlimited is spelled as a huge sentinel (~2^63) rather than absent.
+        if v <= 0 or v > (1 << 62):
+            continue
+        return v / g
+    return None
+
+
+def _pool_cap(total_gb: float | None) -> tuple[bool, str | None]:
+    """(capped, why) — is this pool a slice of a larger machine?
+
+    Two cases actually reach users: a container with a memory limit, and WSL2,
+    which hands its VM half the host's RAM by default. Neither is visible in
+    MemTotal, which is why a 32 GB laptop reported 15.4 GB as though that were
+    all it had.
+    """
+    lim = _cgroup_limit_gb()
+    if lim is not None and total_gb and lim < total_gb * 0.99:
+        return True, "cgroup"
+    if "microsoft" in (_read_sysfs("/proc/sys/kernel/osrelease") or "").lower():
+        # The host's true total is NOT readable from inside the VM; saying it is
+        # capped without inventing a number is the honest half we can deliver.
+        return True, "wsl2-vm"
+    return False, None
+
+
+def fit_pool() -> PoolInfo:
+    """The memory pool model-fit gates on, and what kind of pool it is.
+
+    Resolves the question `fit_memory()` could only half-answer: a discrete card
+    whose probe merely FAILED is no longer silently replaced by system RAM.
+    """
+    m = fit_memory()
+    vram, status = vram_probe()
+    sysm = system_mem()
+    name = None
+    try:
+        g = gpu()
+        name = g.name or None
+    except Exception:  # noqa: BLE001 — telemetry must never break a fit read
+        pass
+
+    if status == _PROBE_MEASURED and m.source and m.source.startswith("vram"):
+        kind, accel = "vram", True
+    elif status == _PROBE_NA:
+        # A reader ran and the device reports no separate pool: unified memory,
+        # and the accelerator really can use all of it.
+        kind, accel = "unified", True
+    else:
+        # UNREADABLE or NONE. The pool is plain system RAM either way, and it is
+        # NOT an accelerator pool — the distinction the old code could not make.
+        kind, accel = "system", False
+
+    capped, cap_kind = _pool_cap(sysm.total_gb if kind != "vram" else None)
+    return PoolInfo(free_gb=m.free_gb, total_gb=m.total_gb, source=m.source,
+                    kind=kind, accelerated=accel, accel_name=name,
+                    accel_status=status, capped=capped, cap_kind=cap_kind)
 
 
 def fit_memory() -> MemInfo:

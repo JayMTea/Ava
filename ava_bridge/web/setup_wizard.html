@@ -198,8 +198,24 @@ async function j(u,o){const r=await fetch(u,o);return r.json();}
 (async()=>{
   const h=await j('/api/setup/hardware');
   S.tier=h.tier;
+  // Say WHICH pool the number is. This used to print the accelerator's name
+  // beside whatever `fit_gb` happened to be, with nothing checking they were
+  // the same thing — so a 6 GB laptop card inside Docker read
+  // "GPU · 15.4 GB usable", which is the card's name next to the host's RAM.
+  const poolLabel = {
+    vram:    () => `<b>${h.gpu||'Graphics card'}</b> · ${h.fit_gb} GB of video memory`,
+    unified: () => `<b>${h.gpu||'Shared memory'}</b> · ${h.fit_gb} GB shared with the processor`,
+    system:  () => `<b>Processor</b> · ${h.fit_gb} GB of system memory`,
+  }[h.pool_kind] || (() => `<b>Local compute</b> · ${h.fit_gb} GB usable`);
+  // A pool that is a slice of a bigger machine is still the right number for
+  // anything running in here — it just is not the machine's, and saying so is
+  // the difference between "my laptop has 32 GB, why does this say 15?" and an
+  // answer.
+  const capNote = !h.capped ? '' : (h.cap_kind === 'wsl2-vm'
+    ? `<br><small>This is the memory of the Linux VM __BRAND__ runs in, not the machine's. Windows gives WSL2 half the host's RAM by default — raise it in %USERPROFILE%\\.wslconfig and run <code>wsl --shutdown</code>.</small>`
+    : `<br><small>This container is limited to ${h.fit_gb} GB; the machine it runs on may have more.</small>`);
   document.getElementById('hw').innerHTML = (h.fit_gb
-    ? `<b>${h.gpu||'Local compute'}</b> · ${h.fit_gb} GB usable (${h.source||'detected'})<br>Recommended tier: <b>${h.tier}</b> — ${h.hint}`
+    ? poolLabel() + ` (${h.source||'detected'})<br>Recommended tier: <b>${h.tier}</b> — ${h.hint}` + capNote
     : `No local GPU pool detected — a cloud key is the easy path.<br><small>${h.hint||''}</small>`)
     + (h.note ? `<br><small>${h.note}</small>` : '');
   const b=await j('/api/setup/backends');

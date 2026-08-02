@@ -12,7 +12,7 @@
 #
 # Env knobs:
 #   AVA_DIR       where to install         (default: ~/ava, ignored inside a clone)
-#   AVA_PROFILE   cpu|gpu|rocm|cloud|full|agent (default: auto-detected)
+#   AVA_PROFILE   cpu|cuda|gpu|rocm|cloud|full|agent (default: auto-detected)
 #   AVA_MODEL     override the model the profile ships with
 #   AVA_REPO      git URL to clone from    (only when NOT run inside a clone)
 #   AVA_INSTALL_DRY_RUN=1   write .env and stop, touching no images (for CI)
@@ -23,7 +23,7 @@ set -euo pipefail
 
 AVA_DIR="${AVA_DIR:-$HOME/ava}"
 AVA_REPO="${AVA_REPO:-}"
-_PROFILES="cpu gpu rocm cloud full agent"
+_PROFILES="cpu cuda gpu rocm cloud full agent"
 
 # If we're already inside a clone (the common `git clone && cd deploy && ./install.sh`
 # path), install in place and skip cloning entirely.
@@ -186,6 +186,66 @@ fi
 # HAL-EXEMPT-BEGIN: sizing, not identification. "Is there ENOUGH GPU for the
 # default model" and "is a container runtime registered" are different questions
 # from "what hardware is this", and both are properly the installer's business.
+
+# ── The host GPU, measured once, before anything decides anything about it ────
+# This used to be a `_vram_mib` local inside the gpu branch: read, printed,
+# branched on, then dropped on the floor. Three later steps need it — the
+# container-runtime gate, the profile branch, and the managed .env block this
+# script writes at the end — so it is read here, once, and kept.
+_nvidia_smi=0
+_host_gpu_name=""
+_host_gpu_vram_mib=""
+if command -v nvidia-smi >/dev/null 2>&1; then
+  _nvidia_smi=1
+  # Name and memory from ONE query so the two describe the SAME card. Asking
+  # separately takes the first card's name and the largest card's memory, which
+  # on a multi-GPU box describes a machine that does not exist.
+  # `tr -d '\r'`: this script runs under Git Bash on Windows (install.cmd hands
+  # it there), where nvidia-smi is a native .exe and ends every line CRLF. Only
+  # the LAST field carries the \r, which today is the number the digit-strip
+  # below cleans anyway — so this is defence, not a fix: reorder the query, or
+  # meet a driver that answers one column, and the \r lands in a NAME that gets
+  # written into deploy/.env and handed to the container.
+  _smi_rows="$(nvidia-smi --query-gpu=name,memory.total \
+               --format=csv,noheader,nounits 2>/dev/null | tr -d '\r' || true)"
+  _host_gpu_name="$(printf '%s\n' "$_smi_rows" | awk -F',' '
+      NF > 1 {
+        n = $1; gsub(/^[ \t]+|[ \t]+$/, "", n)
+        m = $2; gsub(/[^0-9]/, "", m)
+        if (pick == "") pick = n          # first card, if none reports memory
+        if (m != "" && m + 0 > best) { best = m + 0; pick = n }
+      }
+      END { print pick }')"
+  # Largest card wins: "does the model fit" is a question about ONE device.
+  # Unified memory answers N/A here BY DESIGN, so this stays empty there rather
+  # than becoming a zero — the `case` below still treats non-numeric as unknown.
+  _host_gpu_vram_mib="$(printf '%s\n' "$_smi_rows" | awk -F',' '
+      { m = $NF; gsub(/[^0-9]/, "", m); if (m != "" && m + 0 > best) best = m + 0 }
+      END { if (best > 0) print best }')"
+fi
+
+# ── Can Docker actually hand that GPU to a container? ────────────────────────
+# A driver is not a runtime. nvidia-smi proves the HOST can talk to the GPU; it
+# proves nothing about `docker run --gpus all` working, which needs the NVIDIA
+# Container Toolkit. Without it a GPU-reserving service dies at start with a
+# message about an unknown runtime, which reads like an Ava bug.
+#
+# This ran AFTER the profile was chosen and only when the profile was already
+# `gpu`. So a box that had just been dumped to `cpu` for having a small card was
+# never asked whether its Docker could reach the GPU at all — and on the machine
+# that prompted this change, it could. The answer now DECIDES the branch below,
+# so it has to be known first. It is asked for any box with an NVIDIA card.
+_nvidia_docker="unknown"
+if [ "$_BARE_METAL" = "0" ] && { [ "$_nvidia_smi" = "1" ] || [ "$AVA_PROFILE" = "gpu" ]; }; then
+  if [ "${AVA_SKIP_GPU_RUNTIME_CHECK:-0}" = "1" ]; then
+    _nvidia_docker="yes"        # the owner overrode the probe; take their word
+  elif docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q nvidia; then
+    _nvidia_docker="yes"
+  else
+    _nvidia_docker="no"
+  fi
+fi
+
 if [ "$AVA_PROFILE" = "gpu" ] && [ "${AVA_DETECTED_MEM_MODEL:-}" = "unified" ]; then
   # On unified memory the VRAM query returns N/A BY DESIGN, so the discrete-VRAM
   # sizing gate below does not apply and warning that it "could not read GPU
@@ -193,13 +253,12 @@ if [ "$AVA_PROFILE" = "gpu" ] && [ "${AVA_DETECTED_MEM_MODEL:-}" = "unified" ]; 
   # a system-RAM question, which model_fit.py already answers at runtime.
   say "Unified memory — skipping the discrete-VRAM sizing check (fit is a system-RAM question here)."
 elif [ "$AVA_PROFILE" = "gpu" ]; then
-  if command -v nvidia-smi >/dev/null 2>&1; then
-    _vram_mib="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null \
-                 | tr -d ' ' | sort -rn | head -1)"
+  if [ "$_nvidia_smi" = "1" ]; then
+    _vram_mib="$_host_gpu_vram_mib"
     case "$_vram_mib" in
       ''|*[!0-9]*) warn "Could not read GPU memory from nvidia-smi — assuming the gpu profile fits." ;;
       *)
-        say "Detected GPU memory: ${_vram_mib} MiB"
+        say "Detected GPU memory: ${_vram_mib} MiB${_host_gpu_name:+ (${_host_gpu_name})}"
         # ARITHMETIC, not a remembered number. The old gate was 16000 MiB, which
         # green-lit an RTX 4080 (16376 MiB) for a model that cannot serve on it:
         #
@@ -216,15 +275,61 @@ elif [ "$AVA_PROFILE" = "gpu" ]; then
         #
         #   weights + KV at 0.90  =>  (14.2 + 2) / 0.90  =  18.0 GiB
         #
-        # Three tiers, so a 16 GB card gets a working GPU install instead of being
-        # dumped to CPU:
+        # Tiers, so a card gets the best engine it can actually run instead of
+        # being dumped to CPU. The two below are vLLM's, and are not to be
+        # relaxed — they are what stops an RTX 4080 from OOMing on load:
         _need_default_mib=18000
         _need_small_mib=12000
-        if [ "$_vram_mib" -lt "$_need_small_mib" ]; then
-          warn "Only ${_vram_mib} MiB of GPU memory — too little to serve a useful"
-          warn "model, so falling back to the cpu profile. Ollama on CPU is slow but"
-          warn "it actually starts."
+        # A FOURTH number, and a different question. Both figures above size vLLM
+        # serving FP16, which is right for vLLM — but the branch under them lands
+        # on OLLAMA, which serves quantized GGUF, and applying an FP16 floor to a
+        # Q4 engine is how a perfectly usable 6 GB card got declared useless and
+        # handed a CPU-only Ollama several times slower for the same answer.
+        #
+        # Same arithmetic discipline, for the model profiles/cuda.env ships:
+        #
+        #   llama3.2 (3B) Q4_K_M weights                       2.0 GiB
+        #   KV cache, 8192 tokens, fp16
+        #     (28 layers x 8 KV heads x 128 dim x 2 x 2 B
+        #      = 0.109 MiB/token, x 8192 tokens)               0.9 GiB
+        #   CUDA context + compute/graph buffers               0.6 GiB
+        #   framebuffer a laptop card already spends driving
+        #     the screen it is attached to                     0.5 GiB
+        #   ------------------------------------------------------------
+        #   weights + KV + context + headroom                  4.0 GiB
+        #
+        #   -> 4.0 GiB = 4096 MiB
+        _need_quantized_mib=4096
+        if [ "$_vram_mib" -lt "$_need_quantized_mib" ]; then
+          warn "Only ${_vram_mib} MiB of GPU memory — under the ${_need_quantized_mib} MiB a quantized"
+          warn "3B needs to sit entirely on the card, so falling back to the cpu"
+          warn "profile. Ollama on CPU is slow but it actually starts."
           AVA_PROFILE="cpu"
+        elif [ "$_vram_mib" -lt "$_need_small_mib" ]; then
+          # The card is too small for vLLM and big enough for Ollama. That is a
+          # real GPU install, not a fallback — but only if the daemon can pass the
+          # device through, because profiles/cuda.env starts a service that
+          # RESERVES it and compose refuses to start such a service otherwise.
+          if [ "$_nvidia_docker" = "yes" ]; then
+            AVA_PROFILE="cuda"
+            say "${_vram_mib} MiB is under the ${_need_small_mib} MiB vLLM needs even for a 3B in FP16,"
+            say "but comfortably over the ${_need_quantized_mib} MiB a quantized model needs. Using the"
+            say "cuda profile: Ollama with CUDA, serving GGUF weights on your GPU."
+            if [ -n "${AVA_MODEL:-}" ]; then
+              warn "AVA_MODEL is pinned to ${AVA_MODEL}, which will be passed to Ollama as a"
+              warn "TAG (llama3.1:8b), not a Hugging Face repo id. Unset it to take the"
+              warn "profile's default, or pin an Ollama tag."
+            fi
+          else
+            warn "${_vram_mib} MiB would serve a quantized model on the GPU (the cuda profile),"
+            warn "but Docker has no 'nvidia' runtime registered, so no container here can"
+            warn "reach the card. That is the NVIDIA Container Toolkit, installed separately"
+            warn "from the driver:"
+            warn "  https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html"
+            warn "Falling back to the cpu profile. Install it and re-run to use the GPU,"
+            warn "or re-run with AVA_SKIP_GPU_RUNTIME_CHECK=1 to override this probe."
+            AVA_PROFILE="cpu"
+          fi
         elif [ "$_vram_mib" -lt "$_need_default_mib" ]; then
           # A 12-18 GB card: keep the GPU, downshift the model. 3B is ~6.2 GiB of
           # weights and resolves the same hermes tool parser and the same 32768
@@ -249,23 +354,22 @@ elif [ "$AVA_PROFILE" = "gpu" ]; then
   fi
 fi
 
-# A driver is not a runtime. nvidia-smi proves the host can talk to the GPU; it
-# proves nothing about `docker run --gpus all` working, which needs the NVIDIA
-# container toolkit. Without it the vllm container dies at start with a message
-# about an unknown runtime, which reads like an Ava bug.
+# The gpu profile's half of the container-toolkit question, unchanged in effect:
+# vLLM reserves the device too, so no runtime means no start. The PROBE moved
+# above the sizing block (its answer now picks between cuda and cpu); this is
+# just the consequence for `gpu`, and `unknown` cannot fire it — that value means
+# nobody asked, which is not the same as "no".
 #
 # Deliberately OUTSIDE the sizing block: this applies to every gpu-profile box,
 # including unified memory. It briefly lived inside the discrete-VRAM branch, and
 # a GB10 with no container toolkit would then have sailed past it into a restart
 # loop — the sizing question and the runtime question are independent.
-if [ "$AVA_PROFILE" = "gpu" ] && [ "${AVA_SKIP_GPU_RUNTIME_CHECK:-0}" != "1" ]; then
-  if ! docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q nvidia; then
-    warn "The NVIDIA driver works, but Docker has no 'nvidia' runtime registered."
-    warn "That is the NVIDIA Container Toolkit, installed separately from the driver:"
-    warn "  https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html"
-    warn "Falling back to the cpu profile. Re-run with AVA_SKIP_GPU_RUNTIME_CHECK=1 to override."
-    AVA_PROFILE="cpu"
-  fi
+if [ "$AVA_PROFILE" = "gpu" ] && [ "$_nvidia_docker" = "no" ]; then
+  warn "The NVIDIA driver works, but Docker has no 'nvidia' runtime registered."
+  warn "That is the NVIDIA Container Toolkit, installed separately from the driver:"
+  warn "  https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html"
+  warn "Falling back to the cpu profile. Re-run with AVA_SKIP_GPU_RUNTIME_CHECK=1 to override."
+  AVA_PROFILE="cpu"
 fi
 
 # The ROCm equivalent of the container-toolkit check. A driver is not device
@@ -415,6 +519,20 @@ _model="${AVA_MODEL:-$(grep -E '^AVA_MODEL=' "$_SRC" | head -1 | cut -d= -f2-)}"
   if [ "${AVA_PROFILE}" = "gpu" ] || [ "${AVA_PROFILE}" = "full" ] || [ "${AVA_PROFILE}" = "agent" ]; then
     bash ./resolve-model-flags.sh --env "$_model" 2>/dev/null || true
   fi
+  # The host GPU this script MEASURED, declared so the container can report it.
+  #
+  # Nothing inside the bridge container can discover this: compose reserves the
+  # device for the inference service only, so the bridge's own probes correctly
+  # find no GPU — which is why Setup → Hardware says "no GPU under Docker" on a
+  # machine with a working card. This script is the one process that stands on
+  # the host and reads the truth, and it used to print the number and let it die
+  # as a shell local. Declaring it is the only way it crosses the boundary.
+  #
+  # Written only when actually measured. An absent line means "not declared",
+  # which a consumer must not read as "no GPU" — and a `0` would say exactly the
+  # wrong thing on unified memory, where memory.total answers N/A by design.
+  [ -n "$_host_gpu_name" ] && printf 'AVA_DECLARED_HOST_GPU_NAME=%s\n' "$_host_gpu_name"
+  [ -n "$_host_gpu_vram_mib" ] && printf 'AVA_DECLARED_HOST_GPU_VRAM_MIB=%s\n' "$_host_gpu_vram_mib"
   printf '%s\n' "$_END"
 } >> "$_ENV"
 say "Wrote deploy/.env (profile: $AVA_PROFILE, model: ${_model:-<yours to set>})"
@@ -446,6 +564,7 @@ docker compose up -d --build
 # has this hardware, and the maintainer does not own any.
 case "$AVA_PROFILE" in
   cpu)  _ollama_svc="ollama" ;;
+  cuda) _ollama_svc="ollama-cuda" ;;
   rocm) _ollama_svc="ollama-rocm" ;;
   *)    _ollama_svc="" ;;   # gpu/full serve through vLLM, which loads at boot
 esac
@@ -471,7 +590,7 @@ for _ in $(seq 1 90); do
   sleep 2
 done
 
-# The auto-detected profiles (gpu/cpu/rocm/cloud) all leave AVA_AGENT_ENABLED=0,
+# The auto-detected profiles (gpu/cuda/cpu/rocm/cloud) all leave AVA_AGENT_ENABLED=0,
 # because the agent runtime needs the NemoClaw CLI already present and Ava
 # deliberately will not run a `curl | bash` installer on anyone's behalf. That is a
 # defensible default — but landing there SILENTLY is not, because README.md sells
@@ -495,22 +614,40 @@ esac
 # `restart: on-failure:3`, so an OOM-looping engine is invisible here: the old
 # script printed "Ava is up." over a chat box that errored on every message with
 # no visible cause. Ask the engine directly.
-if [ "$_ok" = 1 ] && [ "${AVA_PROFILE}" != "cpu" ] && [ "${AVA_PROFILE}" != "cloud" ]; then
+#
+# WHICH engine, on WHICH port, comes from the profile rather than being assumed.
+# This probed :8002 and named `vllm` for every profile that was not cpu or cloud,
+# so a rocm install — which serves Ollama on :11434 — was told its engine was
+# dead and sent to the logs of a service that profile never starts. cuda would
+# have inherited exactly the same wrong answer.
+_eng_port=""
+_eng_svc=""
+case "$AVA_PROFILE" in
+  cpu|cloud) : ;;   # cloud is someone else's uptime; cpu just proved itself by pulling
+  cuda|rocm) _eng_port="11434"; _eng_svc="$_ollama_svc" ;;
+  *)         _eng_port="8002";  _eng_svc="vllm" ;;
+esac
+if [ "$_ok" = 1 ] && [ -n "$_eng_port" ]; then
   say "Checking the inference engine ..."
   _eng=0
   for _ in $(seq 1 60); do
-    if curl -fsS -o /dev/null --max-time 3 http://localhost:8002/v1/models 2>/dev/null; then
+    if curl -fsS -o /dev/null --max-time 3 "http://localhost:${_eng_port}/v1/models" 2>/dev/null; then
       _eng=1; break
     fi
     sleep 2
   done
   if [ "$_eng" != 1 ]; then
-    warn "The bridge is up but the inference engine is NOT answering on :8002."
+    warn "The bridge is up but the inference engine is NOT answering on :${_eng_port}."
     warn "Chat will fail on every message until it does. Most likely it ran out of"
     warn "GPU memory loading the model — check with:"
-    warn "  cd deploy && docker compose logs --tail 40 vllm"
-    warn "Then either pick a smaller model (AVA_MODEL=...) or lower the context"
-    warn "(AVA_VLLM_MAX_LEN=...), and re-run ./install.sh."
+    warn "  cd deploy && docker compose logs --tail 40 ${_eng_svc}"
+    if [ "$_eng_svc" = "vllm" ]; then
+      warn "Then either pick a smaller model (AVA_MODEL=...) or lower the context"
+      warn "(AVA_VLLM_MAX_LEN=...), and re-run ./install.sh."
+    else
+      warn "Then pick a smaller model (AVA_MODEL=<an ollama tag>) and re-run ./install.sh,"
+      warn "or drop to the cpu profile: cp profiles/cpu.env .env && docker compose up -d"
+    fi
   fi
 fi
 

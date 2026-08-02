@@ -2,7 +2,7 @@
 # copy it to .env, and start:
 #
 #   cd deploy
-#   cp profiles/gpu.env .env      # or cpu / cloud / full / agent
+#   cp profiles/gpu.env .env      # or cpu / cuda / rocm / cloud / full / agent
 #   docker compose up -d
 #
 # Or let deploy/install.sh detect your hardware and write .env for you.
@@ -68,7 +68,7 @@ services:
       # saying why. `:?` turns that into an instruction at second zero.
       #
       # deploy/profiles/*.env carries the right trio for each profile.
-      AVA_BACKEND_URL: ${AVA_BACKEND_URL:?no backend configured — run deploy/install.sh, or `cd deploy && cp profiles/<cpu|gpu|cloud|full|agent>.env .env && docker compose up -d`. For the cloud profile, fill in the empty values in .env.}
+      AVA_BACKEND_URL: ${AVA_BACKEND_URL:?no backend configured — run deploy/install.sh, or `cd deploy && cp profiles/<cpu|cuda|gpu|rocm|cloud|full|agent>.env .env && docker compose up -d`. For the cloud profile, fill in the empty values in .env.}
       AVA_BACKEND_ENGINE: ${AVA_BACKEND_ENGINE:?set with AVA_BACKEND_URL — see deploy/profiles/}
       # The router sends this string verbatim as the OpenAI `model` field, so it
       # must be what the engine was STARTED with; a mismatch is a 404 per turn.
@@ -77,6 +77,22 @@ services:
       # the GPU service endpoint for the image pipeline + gpu-service connector (`full`
       # profile only — in other profiles the connector row just shows down).
       AVA_GPU_SERVICE: ${AVA_GPU_SERVICE:-http://gpu-service:8188}
+      # The host's GPU, MEASURED by deploy/install.sh and DECLARED to the bridge.
+      #
+      # This service is never given a GPU (compose reserves devices for the
+      # inference services only), so nothing inside this container can discover
+      # the card the machine actually has — that is why Setup → Hardware reports
+      # no GPU under Docker even on an NVIDIA box. install.sh is the one process
+      # that stands on the host and reads it, and it used to print the number and
+      # let it die as a shell local. A declared host fact is the ONLY way the
+      # truth crosses this boundary.
+      #
+      # `declared`, not `detected`, in the name on purpose: the container did not
+      # measure this and cannot re-check it, so a consumer must present it as the
+      # installer's claim about the host, never as its own reading. Empty means
+      # "nobody declared one" — never "there is no GPU".
+      AVA_DECLARED_HOST_GPU_NAME: ${AVA_DECLARED_HOST_GPU_NAME:-}
+      AVA_DECLARED_HOST_GPU_VRAM_MIB: ${AVA_DECLARED_HOST_GPU_VRAM_MIB:-}
     volumes:
       - ${AVA_HOME:-./ava-data}:/data
     ports:
@@ -128,6 +144,11 @@ services:
   # profiles/cpu.env already wires the bridge to this service. The model store
   # starts EMPTY, so first run needs one pull (deploy/install.sh does it):
   #   docker compose exec ollama ollama pull llama3.2
+  #
+  # NO `devices:` and NO `deploy.resources.reservations` here, ever. This is the
+  # service every GPU-less machine depends on, and a reservation it cannot
+  # satisfy makes compose refuse to start it — see `ollama-cuda` below, which is
+  # the accelerated variant precisely so this one stays startable anywhere.
   ollama:
     profiles: ["cpu"]
     image: ollama/ollama:latest
@@ -169,7 +190,44 @@ services:
       - "127.0.0.1:11434:11434"
     restart: unless-stopped
 
-  # --- inference: NVIDIA GPU users ---
+  # --- inference: NVIDIA GPU users, quantized (profile `cuda`) ---
+  # Ollama with CUDA, for a card that is worth using but cannot hold vLLM's FP16
+  # weights plus a 32k KV cache — the `vllm` service below needs ~18 GB for the
+  # default 7B, while a Q4_K_M 3B is ~2 GB of weights and runs entirely on a
+  # 6 GB laptop card. Without this service such a card had nowhere to go but the
+  # cpu profile, several times slower for the same answer.
+  #
+  # A SEPARATE service from `ollama`, not a `deploy.resources` block bolted onto
+  # it, for the reason the `gpu-service` comment below states: "Docker never grants
+  # GPU access implicitly — an image cannot opt itself in, because that is a
+  # daemon-level decision." The reservation therefore has to be DECLARED, and a
+  # service that declares it cannot start on a host with no NVIDIA runtime. That
+  # is the same trap `ollama-rocm` documents ("/dev/kfd does not exist on a
+  # non-AMD host, so a service declaring it fails to start everywhere else —
+  # including on the cpu profile"), and `ollama` is the one service the
+  # GPU-less majority depends on. Compose profiles keep the three mutually
+  # exclusive.
+  #
+  # Unlike ROCm this needs no special image: the CUDA runtime ships in the
+  # default `ollama/ollama` tag, so `cpu` and `cuda` pull the same image and
+  # share the same model cache — switching between them re-downloads nothing.
+  ollama-cuda:
+    profiles: ["cuda"]
+    image: ollama/ollama:latest
+    volumes:
+      - ${AVA_HOME:-./ava-data}/models/ollama:/root/.ollama
+    ports:
+      - "127.0.0.1:11434:11434"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: ["gpu"]
+    restart: unless-stopped
+
+  # --- inference: NVIDIA GPU users, FP16 (profile `gpu`) ---
   # The default brain here is deliberately SMALL (~16 GB VRAM at the default
   # utilization) so that `--profile gpu` starts on an ordinary GPU. This is the
   # first command README.md tells a new user to run; it previously defaulted to a

@@ -63,18 +63,29 @@ def wizard_page():
 @router.get("/api/setup/hardware")
 def api_hardware():
     from . import hwinfo, model_fit
-    out = {"fit_gb": None, "source": None, "tier": "cloud", "hint": "",
-           "gpu": None, "platform": None, "note": ""}
+    out = {"fit_gb": None, "free_gb": None, "source": None, "tier": "cloud",
+           "hint": "", "gpu": None, "platform": None, "note": "",
+           # WHICH pool the number above is. Without these the page could only
+           # print a size next to an accelerator's name and hope they matched —
+           # which on a 6 GB laptop card inside Docker rendered the card's name
+           # beside the host's 15.4 GB of RAM.
+           "pool_kind": "unknown", "accelerated": False,
+           "accel_measurable": False, "capped": False, "cap_kind": None}
     try:
         out["platform"] = hwinfo.platform_id()
     except Exception:  # noqa: BLE001
         pass
     try:
-        mem = hwinfo.fit_memory()
-        out["fit_gb"] = round(mem.total_gb, 1) if mem.total_gb else None
-        out["source"] = mem.source
-        if mem.total_gb:
-            tier, hint = model_fit.recommend_tier(mem.total_gb)
+        pool = hwinfo.fit_pool()
+        out["fit_gb"] = round(pool.total_gb, 1) if pool.total_gb else None
+        out["free_gb"] = round(pool.free_gb, 1) if pool.free_gb else None
+        out["source"] = pool.source
+        out["pool_kind"] = pool.kind
+        out["accelerated"] = pool.accelerated
+        out["accel_measurable"] = pool.accel_status == "measured"
+        out["capped"], out["cap_kind"] = pool.capped, pool.cap_kind
+        if pool.total_gb:
+            tier, hint = model_fit.recommend_tier(pool.total_gb)
             out["tier"], out["hint"] = tier, hint
         else:
             out["hint"] = "no local GPU/unified pool detected — use a cloud key"
@@ -98,9 +109,15 @@ def api_hardware():
     # grants it only to the inference service. Saying "No local GPU detected" on
     # a box that plainly has one reads as a broken install and sends people
     # hunting for a driver problem they do not have — so name the actual reason
-    # and the actual fix. Only when we found nothing: a container WITH access
-    # reports its GPU normally and needs no explanation.
-    if not out["gpu"] and not out["note"]:
+    # and the actual fix.
+    #
+    # Gated on UNMEASURABILITY, not on namelessness. `not out["gpu"]` looked
+    # equivalent and is not: under WSL2 the DRM card has no readable PCI vendor,
+    # so the name degrades to the literal string "GPU" (hwinfo._vendor_label),
+    # which is truthy — and this explanation was therefore suppressed on exactly
+    # the machines that needed it. deploy/README.md promises "the panel says so
+    # rather than implying a driver fault"; this is what keeps that true.
+    if not out["accel_measurable"] and not out["note"]:
         try:
             from .auth import in_container
             if in_container():
@@ -236,10 +253,11 @@ def _candidates() -> list[dict]:
 def _pull_cmd(base_url: str, engine: str, model: str) -> str:
     """How to fetch a declared-but-absent model, for the box it is missing on.
 
-    The compose base URLs ARE the service names (`ollama`, `ollama-rocm`,
-    `vllm`), so this is derived rather than guessed — and getting it wrong is
-    expensive here: `docker compose exec ollama ...` fails outright under the
-    rocm profile, where the service is `ollama-rocm`.
+    The compose base URLs ARE the service names (`ollama`, `ollama-cuda`,
+    `ollama-rocm`, `vllm`), so this is derived rather than guessed — and getting
+    it wrong is expensive here: `docker compose exec ollama ...` fails outright
+    under the rocm profile, where the service is `ollama-rocm`, and under cuda,
+    where it is `ollama-cuda`.
 
     vLLM gets nothing: it loads one model at boot from --model, so a missing one
     is a restart with different flags, not a pull.

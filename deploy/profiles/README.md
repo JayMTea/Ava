@@ -4,7 +4,7 @@ Pick one, copy it to `deploy/.env`, start:
 
 ```bash
 cd deploy
-cp profiles/gpu.env .env      # or cpu / cloud / full / agent
+cp profiles/gpu.env .env      # or cpu / cuda / rocm / cloud / full / agent
 docker compose up -d
 ```
 
@@ -31,8 +31,10 @@ every profile.
 
 | Profile | Serves inference with | Notes |
 |---|---|---|
-| `cpu.env` | Ollama, on the CPU | Slow but starts anywhere. `install.sh` picks this for any box under 16 GB of VRAM, and for boxes with no GPU. |
-| `gpu.env` | vLLM on an NVIDIA GPU | Needs ~16 GB VRAM for the shipped default model. |
+| `cpu.env` | Ollama, on the CPU | Slow but starts anywhere. `install.sh` picks this for a box with no usable GPU — under 4 GB of VRAM, or a card Docker cannot reach. |
+| `cuda.env` | Ollama on an NVIDIA GPU | Quantized GGUF weights, so it fits where vLLM does not: `install.sh` picks it between 4 GB and 12 GB of VRAM. Needs the NVIDIA Container Toolkit. |
+| `rocm.env` | Ollama on an AMD GPU | The AMD equivalent of `cuda.env`. ⚠️ not verified on device. |
+| `gpu.env` | vLLM on an NVIDIA GPU | Needs ~18 GB VRAM for the shipped default model at the default 0.90 memory share (14.2 GiB of FP16 weights plus a 32k KV cache). `install.sh` picks it at 12 GB or more and downshifts to a 3B between 12 and 18 GB. |
 | `cloud.env` | Someone else's API | **You must fill in three values** — the file ships them empty on purpose, so compose stops with an instruction instead of guessing. |
 | `full.env` | vLLM + the GPU service + the agent | Everything. Shares one GPU pool, so it lowers the vLLM memory share. |
 | `agent.env` | vLLM + the tool-using agent | Also sets the three variables the agent runtime needs, which used to be a manual step documented three sections away. |
