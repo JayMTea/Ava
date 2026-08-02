@@ -397,22 +397,23 @@ _PUBLIC_PATHS = {"/login", "/logout", "/setup", "/api/health", "/favicon.ico",
                  # PWA shell: browsers fetch the manifest and service worker
                  # without credentials context — they must not bounce to /login.
                  "/manifest.webmanifest", "/sw.js",
-                 # Branding images the SIGN-IN page needs, which the browser
-                 # fetches before any cookie exists. Listed by fixed slot (see
-                 # brand.SLOTS) rather than by a /brand/ prefix, so this stays an
-                 # exact-match set and no future /brand/* route is public by
-                 # accident. The handler still 404s these unless `brand.public`
-                 # is true, so being reachable is not the same as being served.
-                 "/brand/asset/logo", "/brand/asset/logo_light",
-                 "/brand/asset/wordmark", "/brand/asset/wordmark_light",
-                 "/brand/asset/icon",
-                 # The DERIVED sizes the PWA manifest points at. The manifest is
-                 # itself public, so an installing browser fetches these without
-                 # a session — gating them would give every branded install a
-                 # broken home-screen icon.
-                 "/brand/asset/favicon", "/brand/asset/pwa-192",
-                 "/brand/asset/pwa-512", "/brand/asset/pwa-maskable-512",
-                 "/brand/asset/apple-touch-icon"}
+                 # Ava's own app icons, which the PUBLIC manifest and index.html
+                 # point at. An installing browser fetches these with no session,
+                 # so gating them means a home-screen tile with no picture on it.
+                 # They were reachable only by accident before: a branded install
+                 # got the (public) /brand/asset/pwa-* sizes instead, and an
+                 # UNBRANDED one — the default — quietly 303'd to /setup here.
+                 # Now that the icon is always Ava's, this is the only path, so
+                 # it has to work. Listed exactly, not by prefix, so the rest of
+                 # the built bundle stays behind the login wall.
+                 "/assets/icons/pwa-192.png", "/assets/icons/pwa-512.png",
+                 "/assets/icons/pwa-maskable-512.png",
+                 "/assets/icons/apple-touch-icon.png"}
+# No /brand/asset/* is public any more. Those slots are the owner's logo and
+# wordmark, which now appear only INSIDE the signed-in app — the sign-in card
+# renders Ava's mark inline (brand.pre_auth_mark), so nothing pre-auth fetches
+# one, and leaving them reachable would publish an owner's artwork to anyone who
+# could reach the port.
 
 # Path prefixes that should answer 401 JSON (API-shaped) rather than redirect
 # to /login when unauthenticated. Overlay route modules may append their own

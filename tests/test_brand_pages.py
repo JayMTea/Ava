@@ -164,22 +164,44 @@ def test_asset_slot_is_an_enum_not_a_filename(client):
 
 
 def test_every_slot_in_the_enum_is_routable_and_no_other_name_is():
-    """The enum is the whole allowlist, so it is worth stating as one."""
-    assert set(brand.SLOTS) == {"logo", "logo_light", "wordmark",
-                                "wordmark_light", "icon"}
+    """The enum is the whole allowlist, so it is worth stating as one.
+
+    `icon` is NOT in it. The favicon, the PWA tile and the maskable icon are
+    Ava's on every install."""
+    assert set(brand.SLOTS) == {"logo", "logo_light", "wordmark", "wordmark_light"}
     assert brand.asset_name("../../etc/passwd") == ""
     assert brand.asset_name("nope") == ""
 
 
-def test_asset_slots_are_public_so_the_sign_in_page_can_show_a_logo():
+def test_no_brand_asset_is_public():
+    """These used to be public so the sign-in card could <img> the owner's logo.
+    It renders Ava's mark inline now, so nothing pre-auth needs one — and an
+    owner's artwork should not be fetchable by anyone who can reach the port."""
     from ava_bridge.auth import _PUBLIC_PATHS
-    for slot in brand.SLOTS:
-        assert f"/brand/asset/{slot}" in _PUBLIC_PATHS
+    leaked = [p for p in _PUBLIC_PATHS if p.startswith("/brand/asset/")]
+    assert not leaked, f"owner brand assets are publicly reachable: {leaked}"
 
 
-def test_unset_slot_404s_rather_than_serving_a_placeholder(client):
-    """A fallback image makes "did my upload work?" unanswerable."""
-    assert client.get("/brand/asset/logo").status_code == 404
+def test_avas_own_app_icons_stay_public():
+    """The mirror of the test above, and the half that is easy to lose. The PWA
+    manifest is public and points at these; gating them gives every install a
+    home-screen tile with no picture on it."""
+    from ava_bridge.auth import _PUBLIC_PATHS
+    for p in ("/assets/icons/pwa-192.png", "/assets/icons/pwa-512.png",
+              "/assets/icons/pwa-maskable-512.png",
+              "/assets/icons/apple-touch-icon.png"):
+        assert p in _PUBLIC_PATHS, f"{p} is behind the login wall"
+
+
+def test_unset_slot_is_not_served(client):
+    """A fallback image makes "did my upload work?" unanswerable. The slot is no
+    longer a public path, so unauthenticated it is now the auth gate that answers
+    rather than the handler's own 404 — which layer says no is an accident of
+    fixture state, as the bad-slot test above already notes. What matters is that
+    no bytes come back."""
+    r = client.get("/brand/asset/logo")
+    assert r.status_code in (303, 403, 404), r.status_code
+    assert not r.headers.get("content-type", "").startswith("image/")
 
 
 # ---- The switch that lets a control plane hand out an unbrandable instance ---

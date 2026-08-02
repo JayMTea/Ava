@@ -213,13 +213,26 @@ def test_a_pack_that_sets_nothing_is_refused() -> None:
 
 # ---- Atomicity --------------------------------------------------------------
 def test_a_pack_that_fails_midway_writes_no_config(_home) -> None:
-    """Validate everything, THEN commit. A pack failing on its fourth image must
-    not leave three-fifths of a brand applied."""
+    """Validate everything, THEN commit. A pack failing on a later image must not
+    leave part of a brand applied."""
     good, svg = _png(), b"<svg xmlns='http://www.w3.org/2000/svg'></svg>"
     with pytest.raises(brand_pack.PackError):
         brand_pack.import_pack(_pack(brand_block={"name": "X", "accent": "#2f7d4f"},
-                                     files={"logo.png": good, "icon.png": svg}))
+                                     files={"logo.png": good, "wordmark.png": svg}))
     assert _home == [], "config was written despite a failed import"
+
+
+def test_a_pack_exported_before_the_icon_slot_was_removed_still_imports(_home) -> None:
+    """Upgrade path. Packs in the wild carry an `icon.png`; the slot no longer
+    exists, so it is ignored rather than refused — the rest of the brand applies
+    and the tab icon stays Ava's, which is the whole point."""
+    good = _png()
+    brand_pack.import_pack(_pack(brand_block={"name": "X", "accent": "#2f7d4f"},
+                                 files={"logo.png": good, "icon.png": good}))
+    assert _home, "a pack carrying a legacy icon.png was rejected outright"
+    written = _home[-1]["brand"]
+    assert written.get("name") == "X"
+    assert "icon" not in written, "the legacy icon slot was written to config"
 
 
 # ---- Round trip -------------------------------------------------------------

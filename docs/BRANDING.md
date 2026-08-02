@@ -1,7 +1,14 @@
 # Branding
 
 Ava ships one look. This is how you replace it with yours — the name it answers
-to, its colour, its logo, and the icon on your home screen.
+to, its colour, and its logo.
+
+**The app icon is not brandable, deliberately.** The browser tab, the
+home-screen tile and the maskable icon are Ava's on every install, however the
+install is named. Branding changes what the app looks like *to the person signed
+into it*; it does not change what the product identifies itself as. The sign-in
+card follows the same rule and shows Ava's mark. Everything else below is
+yours.
 
 **None of it costs anything.** Re-branding software you self-host is the premise
 of self-hosting it, not an upsell, and that is enforced rather than promised:
@@ -36,9 +43,8 @@ save of empty strings, not a special path.
 | Accent | `brand.accent` | **everything** — see below |
 | Light accent | `brand.accent_light` | optional; blank uses `accent` in both themes |
 | Chrome | `brand.chrome` | the browser/phone status bar around the app, and the PWA splash |
-| Logo | `brand.logo` | sign-in card; the icon source if no `icon` is set |
+| Logo | `brand.logo` | the square mark inside the signed-in app |
 | Wordmark | `brand.wordmark` | sidebar head; blank renders the name as text, which is how Ava ships |
-| Icon | `brand.icon` | favicon, PWA icons, home-screen tile |
 
 ### One colour, not eight
 
@@ -82,10 +88,12 @@ Every upload is **re-encoded through Pillow**. What gets stored is a PNG this
 server produced, never the bytes you sent, which means EXIF, appended payloads
 and format trickery stop existing rather than needing to be detected.
 
-Set `icon` to a square image of at least 512px and Ava renders the whole set from
-it: favicon (48), PWA 192 and 512, a maskable 512 padded to the safe zone phones
-crop to a circle, and an apple-touch 180. If you set only a `logo`, that is used
-as the icon source too — one upload is enough.
+There is no icon slot. The favicon, the PWA 192/512, the maskable 512 and the
+apple-touch 180 are Ava's shipped files and are served unconditionally — nothing
+is rendered from an upload. Earlier versions derived that set from a `brand.icon`
+you uploaded, falling back to `brand.logo`, which meant uploading a logo silently
+re-branded your browser tab. Both paths are gone; `tests/test_brand_icon_is_ava.py`
+fails if either returns.
 
 ---
 
@@ -102,8 +110,7 @@ brand.zip
 ├── logo.png
 ├── logo_light.png
 ├── wordmark.png
-├── wordmark_light.png
-└── icon.png
+└── wordmark_light.png
 ```
 
 `MANIFEST.json`:
@@ -184,7 +191,9 @@ using an Ava someone else set up and Branding is greyed out, that is why.
 ```
 $AVA_HOME/ava.yaml            the brand: block
 $AVA_HOME/branding/           uploaded images, content-addressed
-$AVA_HOME/branding/derived/   generated icon sizes (safe to delete; rebuilt)
+$AVA_HOME/branding/derived/   legacy; only on installs upgraded from a version
+                              that rendered branded icons. Cleared whenever
+                              branding is touched. Safe to delete.
 ```
 
 `branding/` is deliberately **not** `brand/`: `AVA_HOME` defaults to the code

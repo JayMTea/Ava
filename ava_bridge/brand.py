@@ -33,7 +33,15 @@ from . import settings
 # takes the slot rather than a filename. A filename in a URL or a config value is
 # a path-traversal primitive; a slot is not one, so the bug class does not exist
 # rather than being defended against.
-SLOTS: tuple[str, ...] = ("logo", "logo_light", "wordmark", "wordmark_light", "icon")
+#
+# THE APP ICON IS NOT A SLOT, deliberately. The favicon, the PWA tile and the
+# maskable icon are Ava's, always, on every install — they are how the product
+# identifies itself in a browser tab and on a home screen, and that identity is
+# not the owner's to change. Only surfaces *inside* the signed-in app follow the
+# owner's brand. `icon` used to live here and the icon set was rendered from it
+# (falling back to `logo`, so even uploading a logo re-branded the tab); both are
+# gone, and tests/test_brand_icon_is_ava.py fails if either comes back.
+SLOTS: tuple[str, ...] = ("logo", "logo_light", "wordmark", "wordmark_light")
 
 # Colour keys, in the order the panel shows them.
 COLOR_KEYS: tuple[str, ...] = ("accent", "accent_light", "chrome")
@@ -304,14 +312,15 @@ def asset_set(slot: str) -> bool:
 # an unbranded install, `is_branded()` stays false, and a brand pack exported
 # from a default install still carries no images. The only thing they add is a
 # picture of the default.
+# The logo's default is the PWA tile, not `/assets/marks/ava-logo.png`. Those two
+# are the same mark at different stroke weights, and showing both in the panel —
+# one labelled "Logo", one labelled "App icon" — read as two near-identical
+# choices with no stated difference between them. One picture of Ava's mark.
 DEFAULT_ASSETS: dict[str, str] = {
-    "logo": "/assets/marks/ava-logo.png",
+    "logo": "/assets/icons/pwa-512.png",
     "logo_light": "/assets/marks/ava-logo-light.png",
     "wordmark": "/assets/marks/ava-wordmark.png",
     "wordmark_light": "/assets/marks/ava-wordmark-light.png",
-    # The icon set is rendered from the static favicon/PWA files rather than
-    # from one source image, so the 512 PWA tile stands in as its picture.
-    "icon": "/assets/icons/pwa-512.png",
 }
 
 
@@ -445,10 +454,14 @@ _SHIPPED_MARK = (
 
 
 def pre_auth_mark() -> str:
-    """The logo for the sign-in card: the owner's image, or the shipped glyph."""
-    if brand_is_public() and asset_set("logo"):
-        return ('<img src="/brand/asset/logo" alt="" width="28" height="28" '
-                'style="border-radius:6px;object-fit:contain">')
+    """The mark on the sign-in card. ALWAYS Ava's, never the owner's.
+
+    Same rule as the favicon, for the same reason: this is drawn before anyone
+    has authenticated, so it is the product identifying itself to a visitor
+    rather than the app dressing itself for its owner. The owner's logo appears
+    once they are signed in. `brand.public` still governs the NAME, the TAGLINE
+    and the chrome colour on this page — it just no longer swaps the mark.
+    """
     return _SHIPPED_MARK
 
 
@@ -508,16 +521,12 @@ MAX_ASSET_BYTES = 2 * 1024 * 1024
 ALLOWED_FORMATS = frozenset({"PNG", "WEBP", "JPEG"})
 MIN_PX, MAX_PX = 64, 4096
 
-# The sizes derived from the one `icon` source. Names double as the slot in the
-# serving URL, so nothing here is a filename either.
-DERIVED = {
-    "favicon": 48,
-    "pwa-192": 192,
-    "pwa-512": 512,
-    "pwa-maskable-512": 512,
-    "apple-touch-icon": 180,
-}
-_MASKABLE_SAFE_PAD = 0.10   # 10% each side — the maskable safe-zone convention
+# There is no DERIVED map any more, and that absence is the feature. It used to
+# render favicon/pwa-192/pwa-512/pwa-maskable-512/apple-touch-icon from whatever
+# `icon_source()` resolved to, which is precisely the re-branding of the tab and
+# the home screen that must not happen. Those sizes now come from the built
+# frontend (`frontend/dist/assets/icons/*`, already listed in the built
+# manifest.webmanifest) and nothing renders them at request time.
 
 
 def _pillow():
@@ -597,78 +606,19 @@ def ingest_asset(slot: str, raw: bytes) -> tuple[str, str]:
 
 
 def _clear_derived() -> None:
-    """Drop the derived-icon cache. Cheap to rebuild, wrong to keep."""
+    """Remove `$AVA_HOME/branding/derived/`, left behind by older installs.
+
+    Nothing writes to that directory any more — the favicon and PWA sizes are
+    Ava's shipped files and are never rendered from an upload. It is cleared on
+    every ingest so an install that WAS serving an owner-branded favicon stops
+    doing so the first time branding is touched after the upgrade, rather than
+    keeping a stale tab icon nobody can find the setting for.
+    """
     import os
     import shutil
     p = os.path.join(settings.brand_dir(), "derived")
     if os.path.isdir(p):
         shutil.rmtree(p, ignore_errors=True)
-
-
-def invalidate_derived() -> None:
-    """Drop the derived-icon cache from OUTSIDE this module.
-
-    The icon sizes are rendered from whatever `icon_source()` resolves to, so
-    any caller that changes which file that is has to drop them — a toggle
-    between the owner's icon and Ava's does exactly that without going through
-    ingest_asset() or clear_asset(), which are the two paths that already do it
-    for themselves.
-    """
-    _clear_derived()
-
-
-def icon_source() -> str:
-    """Which uploaded file the icon set is derived from: `icon`, else `logo`.
-
-    Falling back to the logo means one upload is enough to re-brand the
-    home-screen tile, which is the thing people forget to do and then notice on
-    their phone a week later.
-    """
-    return asset_name("icon") or asset_name("logo")
-
-
-def derived_icon(name: str) -> str:
-    """Absolute path to a derived icon, building it on first use. '' if there is
-    no source image or the render fails."""
-    import os
-    size = DERIVED.get(name)
-    src_name = icon_source()
-    if size is None or not src_name:
-        return ""
-    d = settings.brand_dir()
-    src = os.path.join(d, src_name)
-    if not os.path.isfile(src):
-        return ""
-    out_dir = os.path.join(d, "derived")
-    out = os.path.join(out_dir, f"{name}.png")
-    if os.path.isfile(out) and os.path.getmtime(out) >= os.path.getmtime(src):
-        return out
-    Image = _pillow()
-    try:
-        os.makedirs(out_dir, exist_ok=True)
-        img = Image.open(src)
-        img.load()
-        img = img.convert("RGBA")
-        if name == "pwa-maskable-512":
-            # A maskable icon is cropped to a circle by the launcher, so the
-            # artwork has to sit inside a safe zone or the mark loses its edges.
-            inner = int(size * (1 - 2 * _MASKABLE_SAFE_PAD))
-            art = img.resize((inner, inner), Image.LANCZOS)
-            canvas = Image.new("RGBA", (size, size), _maskable_bg())
-            off = (size - inner) // 2
-            canvas.paste(art, (off, off), art)
-            img = canvas
-        else:
-            img = img.resize((size, size), Image.LANCZOS)
-        img.save(out, format="PNG", optimize=True)
-        return out
-    except Exception:  # noqa: BLE001 — a bad source must not 500 the manifest
-        return ""
-
-
-def _maskable_bg() -> tuple[int, int, int, int]:
-    h = normalize_hex(chrome()) or DARK_BG
-    return (int(h[1:3], 16), int(h[3:5], 16), int(h[5:7], 16), 255)
 
 
 def discard_file(fname: str, *, slot: str, reason: str) -> None:
