@@ -229,10 +229,8 @@ def set_brand_asset_source(slot: str, body: dict):
         except settings.ConfigParseError as e:
             return JSONResponse({"error": str(e), "error_code": "config_unparseable"},
                                 status_code=409)
-        # The favicon and every PWA size derive from the icon slot, so a toggle
-        # has to drop that cache exactly as an upload does. Missing this showed
-        # the old icon until the process restarted.
-        brand.invalidate_derived()
+        # No icon cache to invalidate any more: the favicon and every PWA size
+        # are Ava's shipped files, so a slot toggle cannot change them.
         audit.record("brand_asset", slot=slot, action=f"source:{source}")
 
     return {"ok": True, "slot": slot, "source": source,

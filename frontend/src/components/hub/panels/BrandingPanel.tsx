@@ -271,13 +271,15 @@ export function BrandingPanel() {
       return undefined;
     }, source === 'default' ? "Using Ava's default." : 'Using your image.');
 
+  // No 'icon' row. The favicon, the home-screen tile and the maskable icon are
+  // Ava's on every install and are not configurable — see ava_bridge/brand.py
+  // SLOTS. The Logo row lost its "used for the favicon…" clause with them: it
+  // was the sentence that made a logo upload silently re-brand the browser tab.
   const ASSETS: { slot: string; label: string; hint: string }[] = [
     { slot: 'logo', label: 'Logo',
-      hint: 'A square mark. Shown on the sign-in card, and used for the favicon and home-screen icon unless you set an app icon below.' },
+      hint: 'A square mark, shown inside the app once you are signed in. The browser tab and home-screen icon always stay Ava.' },
     { slot: 'wordmark', label: 'Wordmark',
       hint: "A wide lockup for the sidebar. Ava's default is the AVA wordmark; upload your own, or delete it to fall back to your name as text." },
-    { slot: 'icon', label: 'App icon',
-      hint: 'At least 512x512, square. Every icon size is rendered from this one — favicon, home-screen tile, and the maskable icon phones crop to a circle.' },
   ];
 
   const importPack = (f: File) =>
@@ -357,8 +359,13 @@ export function BrandingPanel() {
             onChange={(e) => { setName(e.target.value); setDirty(true); }}
           />
           <div className="bud-field-hint">
-            Reaches the header, the sign-in page, the browser tab, the home-screen icon and
-            the assistant's own sense of what it is called. Clear it to go back to “{d.name}”.
+            {/* Deliberately says LABEL, not icon. The name still titles the tab
+                and names the home-screen shortcut; the picture on both is Ava's
+                and is not configurable. Saying "the home-screen icon" here is
+                what set the expectation that the artwork followed too. */}
+            Reaches the header, the sign-in page, the browser tab's title, the
+            home-screen label and the assistant's own sense of what it is called.
+            Clear it to go back to “{d.name}”.
           </div>
         </div>
 
@@ -480,9 +487,10 @@ export function BrandingPanel() {
             Show the brand on the sign-in page
           </label>
           <div className="bud-field-hint">
-            Anyone who can reach this address sees the sign-in page. Off means it renders
-            Ava's own default instead — not a blank card, which would only advertise that
-            something is being hidden.
+            Anyone who can reach this address sees the sign-in page, so this covers the
+            name, the tagline and the colour on it. Off means it renders Ava's own
+            default instead — not a blank card, which would only advertise that
+            something is being hidden. The mark on that card is always Ava's either way.
           </div>
         </div>
 

@@ -52,11 +52,12 @@ _ALLOW = {
                                                       # image write, unlinked only
                                                       # on the failure path
 
-    # --- a regenerable cache, never owner content ----------------------------- #
-    # $AVA_HOME/branding/derived/ holds favicon/PWA sizes RENDERED from the
-    # owner's uploaded source, which is audited separately by brand.discard_file.
-    # The source survives; these rebuild on the next request. A row per resize
-    # would bury the upload and delete events that actually matter.
+    # --- a LEGACY cache, never owner content ---------------------------------- #
+    # $AVA_HOME/branding/derived/ held favicon/PWA sizes rendered from the owner's
+    # upload, back when the app icon was brandable. Nothing writes there now —
+    # the icon set is Ava's shipped files — so this only sweeps up what an install
+    # upgrading into this version left behind. The owner's uploaded SOURCE is
+    # untouched and its own deletion is audited by brand.discard_file.
     ("ava_bridge/brand.py", "_clear_derived"),
 
     # --- a helper whose only caller audits, with the store NAMED -------------- #

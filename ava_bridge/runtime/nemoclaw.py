@@ -25,6 +25,77 @@ except Exception:  # noqa: BLE001
     perf_log = None
 
 
+def _json_docs(text: str):
+    """Yield every JSON value embedded in `text`, in order.
+
+    `_run` merges stderr into stdout, so a CLI banner, a deprecation notice or a
+    gateway warning routinely arrives ahead of the payload. Scanning with
+    raw_decode finds the document wherever it starts, rather than guessing with
+    `text.find("{")` / `text.find("[")` — that guess took the FIRST bracket in the
+    output, so `{"warnings": [], "sandboxes": [...]}` parsed the empty warnings
+    list and a top-level array parsed only its first element.
+    """
+    dec = json.JSONDecoder()
+    i, n = 0, len(text)
+    while i < n:
+        starts = [p for p in (text.find("{", i), text.find("[", i)) if p != -1]
+        if not starts:
+            return
+        s = min(starts)
+        try:
+            val, end = dec.raw_decode(text, s)
+        except ValueError:
+            i = s + 1          # not a document after all — keep scanning
+            continue
+        yield val
+        i = end
+
+
+def _records_in(doc) -> list[dict]:
+    """Sandbox records inside one decoded document, whatever nests them."""
+    if isinstance(doc, list):
+        return [d for d in doc if isinstance(d, dict) and "name" in d]
+    if isinstance(doc, dict):
+        named = doc.get("sandboxes")
+        if isinstance(named, list):
+            hits = [d for d in named if isinstance(d, dict) and "name" in d]
+            if hits:
+                return hits
+        for v in doc.values():          # a future CLI may nest it under a parent
+            hits = _records_in(v)
+            if hits:
+                return hits
+    return []
+
+
+def _sandbox_records(out: str) -> list[dict]:
+    """Every sandbox in a `nemoclaw list --json` payload, whatever shape it takes.
+
+    Handles a top-level array, `{"sandboxes": [...]}`, either one behind banner
+    text, and the same nested under a parent key. Two separate hand-rolled parsers
+    used to do this — one scanning for `{`, one for `[` — and they disagreed:
+    the `{` one returned nothing for a top-level array, which surfaced as *Ava's
+    brain reading empty while the agent was plainly answering*. That is a symptom
+    nobody can debug from the UI, so the parse is shared and total rather than
+    clever.
+    """
+    for doc in _json_docs(out):
+        hits = _records_in(doc)
+        if hits:
+            return hits
+    return []
+
+
+def _first(rec: dict, *keys: str):
+    """First present, non-None value among `keys`. Defensive against the CLI
+    renaming a field: an unknown key name must not become a blank brain."""
+    for k in keys:
+        v = rec.get(k)
+        if v is not None:
+            return v
+    return None
+
+
 def _find_key(obj, key):
     """Depth-first search for the first value of `key` in a nested dict/list."""
     if isinstance(obj, dict):
@@ -51,6 +122,11 @@ class NemoClawRuntime(AgentRuntime):
         self._avail_cache = {"ts": 0.0, "ok": None}
         self._info_cache = {"ts": 0.0, "info": None}
         self._registry_cache: dict = {"ts": 0.0, "record": None}
+        # Raw `nemoclaw list --json`, shared by the three probes that all shell
+        # out to it. Opt-in per call site (see _list_json) — never a blanket TTL.
+        self._list_cache: dict = {"ts": 0.0, "rc": 1, "out": ""}
+        # `nemoclaw <sandbox> doctor --json`, read only by status().
+        self._doctor_cache: dict = {"ts": 0.0, "health": None}
 
     # ---- identity / plumbing ------------------------------------------------
     @property
@@ -88,7 +164,13 @@ class NemoClawRuntime(AgentRuntime):
         c = self._avail_cache
         if c["ok"] is not None and now - c["ts"] < 30:
             return bool(c["ok"])
-        ok = bool(self.cli) and os.path.exists(self.cli) and self._sandbox_exists(timeout=10)
+        # max_age=30 spends the SAME staleness budget this method already
+        # promises one line above — not a new one. Without it, status() shelled
+        # out for a list that sandbox_info() had fetched moments earlier.
+        # An indeterminate probe still counts as unavailable: _list_json caches
+        # the return code too, so a cached failure stays a failure.
+        ok = (bool(self.cli) and os.path.exists(self.cli)
+              and self._sandbox_exists(timeout=10, max_age=30))
         c.update(ts=now, ok=ok)
         return ok
 
@@ -193,20 +275,46 @@ class NemoClawRuntime(AgentRuntime):
         except Exception as e:  # noqa: BLE001
             return 1, str(e)
 
-    def _sandbox_exists(self, timeout: int = 30) -> bool:
+    def _list_json(self, timeout: int = 30, max_age: float = 0.0) -> tuple[int, str]:
+        """`nemoclaw list --json`, optionally served from a short shared cache.
+
+        Three probes shell out to this same command — available(), sandbox_info()
+        and status() — and status() ran it TWICE per request on top of the call
+        sandbox_info() had just made. With the sandbox container down each one
+        burns its full timeout, which is how Setup → Agent came to sit on
+        "Loading agent status…" for the better part of a minute.
+
+        `max_age=0` (the DEFAULT) always shells out, and that default is the
+        important half: provision() gates on a sandbox the owner may have created
+        seconds ago with `nemoclaw onboard`, so a stale "not found" there would
+        abort a provision that should have run. Caching is opt-in, per call site,
+        and only where the answer is being *displayed* rather than acted on.
+        """
+        now = time.time()
+        c = self._list_cache
+        if max_age > 0 and c["ts"] and now - c["ts"] < max_age:
+            return int(c["rc"]), str(c["out"])
+        rc, out = self._run([self.cli, "list", "--json"], timeout=timeout)
+        c.update(ts=now, rc=rc, out=out)
+        return rc, out
+
+    def _sandbox_exists(self, timeout: int = 30, max_age: float = 0.0) -> bool:
         """Does `self.sandbox` exist? `timeout` is bounded lower by available(),
-        which runs this on the turn path and must not stall a reply."""
+        which runs this on the turn path and must not stall a reply. `max_age`
+        opts into the shared list cache — see _list_json for why it defaults off."""
         if not (self.cli and os.path.exists(self.cli)):
             return False
-        rc, out = self._run([self.cli, "list", "--json"], timeout=timeout)
+        rc, out = self._list_json(timeout=timeout, max_age=max_age)
         if rc != 0:
             return False
-        try:
-            data = json.loads(out[out.find("["):] or "[]")
-            names = [s.get("name") for s in data] if isinstance(data, list) else []
-            return self.sandbox in names
-        except Exception:  # noqa: BLE001
-            return self.sandbox in out
+        # No substring fallback. `self.sandbox in out` used to catch the parse
+        # failures, and it answered TRUE for "error: sandbox 'ava' not found" and
+        # for a box named 'ava-old' when looking for 'ava'. A false positive here
+        # is the expensive direction: available() then selects this runtime and
+        # every turn burns the full ~120s tool timeout before failing — the exact
+        # outcome available()'s docstring exists to prevent. An unreadable payload
+        # is indeterminate, and indeterminate counts as unavailable.
+        return any(r.get("name") == self.sandbox for r in _sandbox_records(out))
 
     def sandbox_info(self, wait: bool = True) -> dict | None:
         """{model, provider} of THIS sandbox from `nemoclaw list --json` — the
@@ -237,21 +345,20 @@ class NemoClawRuntime(AgentRuntime):
             return c["info"]
         info = None
         if self.cli and os.path.exists(self.cli):
-            rc, out = self._run([self.cli, "list", "--json"], timeout=15)
+            # Populates the shared list cache, so a status() call right behind
+            # this one gets its sandbox_exists answer for free.
+            rc, out = self._list_json(timeout=15)
             if rc == 0:
-                try:
-                    data = json.loads(out[out.find("{"):] or "{}")
-                    for s in (data.get("sandboxes") or []):
-                        if isinstance(s, dict) and s.get("name") == self.sandbox:
-                            # `connected` is the liveness signal live() reads. It
-                            # rides along here because this call already parses it
-                            # and costs nothing extra.
-                            info = {"model": s.get("model"),
-                                    "provider": s.get("provider"),
-                                    "connected": s.get("connected")}
-                            break
-                except Exception:  # noqa: BLE001 — a CLI format change must not break status
-                    info = None
+                for s in _sandbox_records(out):
+                    if s.get("name") == self.sandbox:
+                        # `connected` is the liveness signal live() reads. It
+                        # rides along here because this call already parses it
+                        # and costs nothing extra.
+                        info = {"model": _first(s, "model", "modelId", "model_id"),
+                                "provider": _first(s, "provider", "providerId",
+                                                   "provider_id"),
+                                "connected": _first(s, "connected", "isConnected")}
+                        break
         c.update(ts=now, info=info)
         return info
 
@@ -465,14 +572,38 @@ class NemoClawRuntime(AgentRuntime):
                "sandbox_provider": info.get("provider"),
                "sandbox_exists": None, "health": None}
         if cli_ok:
-            out["sandbox_exists"] = self._sandbox_exists()
-            rc, txt = self._run([self.cli, self.sandbox, "doctor", "--json"], timeout=30)
-            if rc == 0:
-                try:
-                    out["health"] = json.loads(txt[txt.find("{"):] or "{}")
-                except Exception:  # noqa: BLE001
-                    out["health"] = {"raw": txt[:400]}
+            # Both of these used to shell out on EVERY poll of this panel, each
+            # with a 30s timeout, on top of the two calls above. With the sandbox
+            # container down nothing answers quickly and the request took the best
+            # part of a minute — the panel showed "Loading agent status…" the whole
+            # time while the rest of it, fed by a different endpoint, had painted.
+            # This route only DISPLAYS the answers, so both may be a few seconds
+            # stale; the 30s window matches available()'s existing cache, so an
+            # onboard or a removal still surfaces within one poll either way.
+            out["sandbox_exists"] = self._sandbox_exists(max_age=30)
+            out["health"] = self._doctor(max_age=30)
         return out
+
+    def _doctor(self, max_age: float = 0.0) -> dict | None:
+        """`nemoclaw <sandbox> doctor --json`, parsed. None when it cannot answer.
+
+        Cached like the list probe and for the same reason: it is the slowest of
+        the four calls status() makes, it is read only for display, and a failure
+        is cached too so a dead sandbox is not re-probed on every poll.
+        """
+        now = time.time()
+        c = self._doctor_cache
+        if max_age > 0 and c["ts"] and now - c["ts"] < max_age:
+            return c["health"]
+        health = None
+        rc, txt = self._run([self.cli, self.sandbox, "doctor", "--json"], timeout=30)
+        if rc == 0:
+            try:
+                health = json.loads(txt[txt.find("{"):] or "{}")
+            except Exception:  # noqa: BLE001
+                health = {"raw": txt[:400]}
+        c.update(ts=now, health=health)
+        return health
 
 
 def _which(name: str) -> str | None:

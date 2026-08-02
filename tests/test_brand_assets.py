@@ -148,55 +148,46 @@ def test_the_stored_filename_is_content_addressed_and_has_no_path(tmp_path) -> N
     assert fname.startswith("logo-") and fname.endswith(".png")
 
 
-# ---- Derived icons ----------------------------------------------------------
-def test_derived_icons_render_at_the_right_sizes(monkeypatch) -> None:
-    from PIL import Image
+# ---- The app icon is not brandable -----------------------------------------
+# These replace five tests that pinned the opposite: that the icon set rendered
+# from an `icon` upload, that it FELL BACK to the logo so one upload re-branded
+# the home-screen tile, and that the maskable size padded to its safe zone. All
+# of that machinery is gone. The tab and the home screen are Ava's on every
+# install, so there is nothing left to render.
+def test_the_icon_slot_cannot_be_uploaded_to(monkeypatch) -> None:
+    """The upload path refuses the slot outright, so a client that still knows
+    the old name cannot re-brand the tab by calling the API directly."""
+    monkeypatch.setattr(settings, "_CFG", {}, raising=False)
     fname, err = brand.ingest_asset("icon", _png(512, 512))
-    assert not err, err
-    monkeypatch.setattr(settings, "_CFG", {"brand": {"icon": fname}}, raising=False)
-    for name, size in brand.DERIVED.items():
-        path = brand.derived_icon(name)
-        assert path, f"{name} did not render"
-        with Image.open(path) as im:
-            assert im.size == (size, size), name
+    assert not fname and "unknown slot" in err, (
+        "the 'icon' slot still accepts an upload — the browser tab is "
+        "re-brandable again")
 
 
-def test_the_maskable_icon_pads_to_its_safe_zone(monkeypatch) -> None:
-    """A launcher crops a maskable icon to a circle, so artwork that runs to the
-    edge loses its edges. The corner pixel must therefore be the padding, not
-    the artwork."""
-    from PIL import Image
-    fname, err = brand.ingest_asset("icon", _png(512, 512, color=(255, 0, 0)))
-    assert not err
-    monkeypatch.setattr(settings, "_CFG",
-                        {"brand": {"icon": fname, "chrome": "#123456"}}, raising=False)
-    with Image.open(brand.derived_icon("pwa-maskable-512")) as im:
-        assert im.convert("RGB").getpixel((2, 2)) == (0x12, 0x34, 0x56)
-        assert im.convert("RGB").getpixel((256, 256)) == (255, 0, 0)
-
-
-def test_the_icon_set_falls_back_to_the_logo(monkeypatch) -> None:
-    """One upload should be enough to fix the home-screen tile — the thing people
-    forget and then notice on their phone a week later."""
+def test_uploading_a_logo_does_not_touch_the_icon_set(monkeypatch) -> None:
+    """The regression that motivated this: `icon_source()` fell back to the logo,
+    so an owner who only ever uploaded a logo silently changed the favicon and
+    the home-screen tile too."""
     fname, err = brand.ingest_asset("logo", _png(512, 512))
     assert not err
     monkeypatch.setattr(settings, "_CFG", {"brand": {"logo": fname}}, raising=False)
-    assert brand.icon_source() == fname
-    assert brand.derived_icon("pwa-192")
+    for gone in ("icon_source", "derived_icon", "DERIVED"):
+        assert not hasattr(brand, gone), (
+            f"brand.{gone} is back. The icon set must not be rendered from an "
+            "owner upload — see SLOTS.")
 
 
-def test_no_source_means_no_derived_icons(monkeypatch) -> None:
-    monkeypatch.setattr(settings, "_CFG", {}, raising=False)
-    assert brand.icon_source() == ""
-    assert brand.derived_icon("pwa-192") == ""
-
-
-def test_clearing_a_slot_removes_the_file_and_the_derived_cache(monkeypatch) -> None:
-    fname, err = brand.ingest_asset("icon", _png(512, 512))
+def test_clearing_a_slot_removes_the_file_and_the_legacy_derived_cache(monkeypatch) -> None:
+    """The `derived/` directory is legacy now, but an install upgrading INTO this
+    version may still have one holding an owner-branded favicon. Touching
+    branding must clear it, or a stale tab icon outlives the setting for it."""
+    fname, err = brand.ingest_asset("logo", _png(512, 512))
     assert not err
-    monkeypatch.setattr(settings, "_CFG", {"brand": {"icon": fname}}, raising=False)
-    assert brand.derived_icon("pwa-192")
-    assert os.path.isdir(os.path.join(settings.brand_dir(), "derived"))
-    brand.clear_asset("icon")
+    monkeypatch.setattr(settings, "_CFG", {"brand": {"logo": fname}}, raising=False)
+    stale = os.path.join(settings.brand_dir(), "derived")
+    os.makedirs(stale, exist_ok=True)
+    with open(os.path.join(stale, "favicon.png"), "wb") as fh:
+        fh.write(b"stale")
+    brand.clear_asset("logo")
     assert not os.path.isfile(os.path.join(settings.brand_dir(), fname))
-    assert not os.path.isdir(os.path.join(settings.brand_dir(), "derived"))
+    assert not os.path.isdir(stale), "a legacy derived favicon survived"

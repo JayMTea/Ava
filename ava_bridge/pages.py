@@ -299,16 +299,10 @@ def pwa_manifest():
         man["short_name"] = brand.name()
         if brand.tagline():
             man["description"] = brand.tagline()
-        # The loop this docstring opened but never closed. Patching only the
-        # NAME left a branded install with Ava's blue splash and Ava's icon on
-        # the home screen — the two most visible pixels of a re-brand.
-        if brand.icon_source():
-            man["icons"] = [
-                {"src": "/brand/asset/pwa-192", "sizes": "192x192", "type": "image/png"},
-                {"src": "/brand/asset/pwa-512", "sizes": "512x512", "type": "image/png"},
-                {"src": "/brand/asset/pwa-maskable-512", "sizes": "512x512",
-                 "type": "image/png", "purpose": "maskable"},
-            ]
+        # `icons` is deliberately NOT patched. The home-screen tile and the
+        # maskable icon are Ava's on every install — the built manifest already
+        # points at /assets/icons/*, and an owner upload must not redirect them.
+        # The name and the chrome colour below are the owner's; the mark is not.
         if brand.chrome():
             man["theme_color"] = brand.chrome()
             man["background_color"] = brand.chrome()
@@ -329,17 +323,12 @@ def pwa_sw():
 
 @router.get("/favicon.ico", include_in_schema=False)
 def favicon():
-    """The tab icon, branded when there is a brand.
+    """The tab icon. Ava's, always — there is no branded branch.
 
-    Serves a PNG under the .ico path when branded, which is correct: browsers
-    honour the Content-Type, not the extension. Keeping the path unchanged means
-    tests/_route_table.json is untouched and every existing <link rel="icon">
-    keeps working.
+    This is the clearest case of the rule: whatever an install calls itself, the
+    browser tab says Ava. It used to serve a PNG rendered from the owner's icon
+    (or, via a fallback, from their logo) under this path.
     """
-    branded = brand.derived_icon("favicon")
-    if branded:
-        return FileResponse(branded, media_type="image/png",
-                            headers={"Cache-Control": "no-cache"})
     p = os.path.join(FRONTEND_DIST, "favicon.ico")
     if not os.path.isfile(p):
         return JSONResponse({"error": "not built"}, status_code=404)
@@ -349,18 +338,11 @@ def favicon():
 def favicon_svg():
     """The vector tab icon, for the hi-dpi displays the .ico stair-steps on.
 
-    404s when a brand icon is set, which is load-bearing rather than lazy: a
-    browser prefers the `image/svg+xml` link over the .ico, so serving Ava's own
-    mark here would silently override the icon on every branded install. The 404
-    sends the browser to /favicon.ico, which already answers with the branded
-    raster. Checking icon_source() rather than derived_icon() avoids building a
-    derived PNG only to throw it away.
-
-    Kept out of the service-worker precache (frontend/vite.config.ts), or an
-    installed client would answer this from cache and never reach the check.
+    Always served now. It used to 404 whenever a brand icon was set, because a
+    browser prefers the `image/svg+xml` link over the .ico and Ava's own mark
+    here would have overridden the owner's — the opposite of today's rule, where
+    Ava's mark winning is the point.
     """
-    if brand.icon_source():
-        return JSONResponse({"error": "branded"}, status_code=404)
     p = os.path.join(FRONTEND_DIST, "favicon.svg")
     if not os.path.isfile(p):
         return JSONResponse({"error": "not built"}, status_code=404)
@@ -370,36 +352,33 @@ def favicon_svg():
 def brand_asset(slot: str, request: Request):
     """Serve one branding image.
 
-    `slot` is a FIXED ENUM, not a filename — the five names in brand.SLOTS and
+    `slot` is a FIXED ENUM, not a filename — the four names in brand.SLOTS and
     nothing else. That is why there is no traversal defence here: there is no
     caller-supplied path to traverse with. The stored filename never appears in
     a URL, so the only copy of it stays on the server.
 
-    Conditionally public. The sign-in page needs an <img> the browser fetches
-    before any cookie exists, so when `brand.public` is true these paths are in
-    auth._PUBLIC_PATHS; when it is false an unauthenticated caller gets the same
-    404 an unset slot gives, which tells them nothing either way.
+    The icon sizes (`favicon`, `pwa-192`, `pwa-512`, `pwa-maskable-512`,
+    `apple-touch-icon`) used to be served from here too, rendered on demand from
+    the owner's upload. They are Ava's now and come from the built frontend, so
+    those names 404 like any other unknown slot.
+
+    Conditionally public. `brand.public` puts these paths in auth._PUBLIC_PATHS;
+    when it is false an unauthenticated caller gets the same 404 an unset slot
+    gives, which tells them nothing either way.
 
     404 rather than a placeholder image on an unset slot: a fallback would make
     "did my upload actually work?" unanswerable from the browser.
     """
-    if slot not in brand.SLOTS and slot not in brand.DERIVED:
+    if slot not in brand.SLOTS:
         return JSONResponse({"error": "not found"}, status_code=404)
     if not brand.brand_is_public() and not is_authed(request):
         return JSONResponse({"error": "not found"}, status_code=404)
-    if slot in brand.DERIVED:
-        # Rendered from the one `icon` source (or the logo) on first request and
-        # cached. These are what the PWA manifest points at.
-        path = brand.derived_icon(slot)
-        if not path:
-            return JSONResponse({"error": "not found"}, status_code=404)
-    else:
-        fname = brand.asset_name(slot)
-        if not fname:
-            return JSONResponse({"error": "not found"}, status_code=404)
-        path = os.path.join(settings.brand_dir(), fname)
-        if not os.path.isfile(path):
-            return JSONResponse({"error": "not found"}, status_code=404)
+    fname = brand.asset_name(slot)
+    if not fname:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    path = os.path.join(settings.brand_dir(), fname)
+    if not os.path.isfile(path):
+        return JSONResponse({"error": "not found"}, status_code=404)
     st = os.stat(path)
     # A strong validator from (mtime_ns, size) so a re-upload is visible at once
     # while repeat loads are 304s. Deliberately NOT the `max-age=31536000,
