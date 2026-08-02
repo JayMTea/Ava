@@ -127,30 +127,35 @@ export function StatusPill({ status }: { status: string }) {
   return <span className={`db-pill pill-${tone}`}><i className="db-dot" />{status}</span>;
 }
 
-/* ---------- TimeSeries (multi-line) ---------- */
-// `xTickFmt`/`xTipFmt` let the caller adapt the axis to the selected range
-// (clock for a day, weekday for a week, month/year for long ranges). Both take a
-// unix-seconds timestamp; they default to a clock so short series still read well.
+/* ---------- RangeSelector (time window for a timeseries panel) ---------- */
+// A dropdown, not a segmented control: six chips never fit beside a title in a
+// half-width panel header, so the group wrapped onto a second row and read as
+// broken. A native <select> also brings arrow keys, Home/End, type-ahead and the
+// mobile wheel picker for free — where the old role="tablist" was decorative
+// (no aria-controls, no roving tabindex, so arrows did nothing). Same choice the
+// Data page's retention picker already made.
+//
+// No `appearance: none`: the native arrow and the native popup are what make it
+// keyboard- and touch-correct, and tokens.css sets `color-scheme` per theme, so
+// the browser paints the option list on-theme by itself.
+//
+// `label` names the chart, because two of these on one page must not both
+// announce themselves as "Time range".
 export function RangeSelector({
-  value, onChange,
+  value, onChange, label,
 }: {
-  value: RangeKey; onChange: (r: RangeKey) => void;
+  value: RangeKey; onChange: (r: RangeKey) => void; label?: string;
 }) {
   return (
-    <div className="db-seg db-range" role="tablist" aria-label="Time range">
-      {RANGES.map((r) => (
-        <button
-          key={r.key}
-          type="button"
-          role="tab"
-          aria-selected={value === r.key}
-          className={'db-seg-btn' + (value === r.key ? ' on' : '')}
-          onClick={() => onChange(r.key)}
-        >
-          {r.label}
-        </button>
-      ))}
-    </div>
+    <select
+      className="db-select"
+      data-tour="range"
+      aria-label={label ? `Time range — ${label}` : 'Time range'}
+      value={value}
+      onChange={(e) => onChange(e.target.value as RangeKey)}
+    >
+      {RANGES.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
+    </select>
   );
 }
 

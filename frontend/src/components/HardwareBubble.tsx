@@ -291,7 +291,7 @@ export function HardwareBubble() {
               </button>
             ) : (
               <div style={{ color: 'var(--muted)', fontSize: 11, lineHeight: 1.35 }}>
-                No model linked yet — pick one in Setup → Agent.
+                No model linked yet — pick one in Setup → Agent → Brain.
               </div>
             )}
           </div>

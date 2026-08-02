@@ -1,6 +1,6 @@
 # 0004. Use TALA as the diagram layout engine
 
-- **Status:** Superseded (historical) — reverted to ELK. Unlicensed TALA renders
+- **Status:** Superseded (historical) - reverted to ELK. Unlicensed TALA renders
   stamp an unlicensed-copy watermark across the output (three tracked diagrams
   shipped watermarked; `tests/test_no_owner_identity.py` now fails the build on
   that watermark text), so
@@ -19,8 +19,8 @@ diagrams.
 ## Decision
 
 Use **TALA** (Terrastruct's proprietary layout engine, `d2plugin-tala`) as the
-layout engine for all generated diagrams. The choice is a single manifest token —
-`diagram_style.d2.layout: tala` — so every diagram (and every future one) inherits
+layout engine for all generated diagrams. The choice is a single manifest token -
+`diagram_style.d2.layout: tala` - so every diagram (and every future one) inherits
 it automatically. The API token lives in `~/.config/tstruct/auth.json` (`0600`,
 outside git).
 
@@ -42,6 +42,6 @@ outside git).
 
 ## Alternatives considered
 
-- **ELK (bundled, free)** — viable fallback; orthogonal routing but less tuned for
+- **ELK (bundled, free)** - viable fallback; orthogonal routing but less tuned for
   architecture diagrams. Retained as the documented fallback.
-- **dagre (default)** — rejected: curved spline edges, less crisp for this content.
+- **dagre (default)** - rejected: curved spline edges, less crisp for this content.

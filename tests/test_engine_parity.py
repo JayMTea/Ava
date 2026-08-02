@@ -26,7 +26,10 @@ from gitfiles import ROOT, require_git
 
 from ava_bridge import engines, model_fit, models, router_app, setup_wizard
 
-_AGENT_PANEL = "frontend/src/components/hub/panels/AgentPanel.tsx"
+# ENGINE_PRESETS moved with the brain manager when the 1174-line AgentPanel
+# was split into one file per Agent sub-tab. AgentPanel.tsx is now only the
+# sub-tab router, so this scan follows the presets rather than the old path.
+_AGENT_PANEL = "frontend/src/components/hub/panels/BrainPanel.tsx"
 _PRESET_VALUE = re.compile(r"\{\s*value:\s*'([a-z0-9.-]+)'")
 
 

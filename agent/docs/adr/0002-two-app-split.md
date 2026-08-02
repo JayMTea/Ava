@@ -1,6 +1,6 @@
 # 0002. Split Experience (`:8445`) and Admin (`:8444`) front doors
 
-- **Status:** Superseded (historical) — the productized single-tenant build serves
+- **Status:** Superseded (historical) - the productized single-tenant build serves
   one bridge on `:8096` (loopback by default) with a unified auth gate; the Admin
   surface became the in-app Command Center. Kept for the decision history.
 - **Date:** 2026-06-28
@@ -18,9 +18,9 @@ casual daily use.
 
 Run two separate front doors, both exposed only via Tailscale:
 
-- **`:8445` — Experience app** (`phone_bridge.py`, FastAPI on `127.0.0.1:8096`):
+- **`:8445` - Experience app** (`phone_bridge.py`, FastAPI on `127.0.0.1:8096`):
   voice/chat/image, password-gated with a signed-session cookie.
-- **`:8444` — Admin dashboard** (OpenClaw Control on `127.0.0.1:18789`): agent
+- **`:8444` - Admin dashboard** (OpenClaw Control on `127.0.0.1:18789`): agent
   control and memory, reached via its own token.
 
 Each binds loopback and is published independently through `tailscale serve`.
@@ -40,5 +40,5 @@ Each binds loopback and is published independently through `tailscale serve`.
 
 ## Alternatives considered
 
-- **Single unified app on one port** — rejected: couples the highest-privilege
+- **Single unified app on one port** - rejected: couples the highest-privilege
   controls to the highest-traffic surface.

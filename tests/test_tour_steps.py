@@ -97,7 +97,7 @@ def test_the_vitals_budget_panel_is_not_hidden_until_a_cap_is_set() -> None:
     .get, and nothing seeds one at install). So the one user the walkthrough is
     built for — a brand new one — was the one user guaranteed to reach the
     "Spend and energy" step with the panel absent and nothing highlighted.
-    Setup → Budgets already learned this (hub/panels/BudgetsPanel.tsx: "Unlike the
+    The budgets panel already learned this (hub/panels/BudgetsPanel.tsx: "Unlike the
     old bar it ALWAYS renders"); Vitals must not drift back."""
     body = VITALS.read_text(encoding="utf-8")
     panel = body.rindex("<Panel", 0, body.index('tour="vitals-budget"'))

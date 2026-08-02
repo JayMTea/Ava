@@ -1,0 +1,101 @@
+# Ava — "what leaves your machine".
+# Hand-authored for the privacy story on docs/capabilities/data.md, SECURITY.md
+# and the Why Ava? page. Deliberately small: every box is something an owner
+# recognises, not a component name, and the whole picture is meant to be read
+# in one glance without zooming.
+#
+# The switch name lives INSIDE each box on the right, not on its arrow: five
+# labelled arrows out of one node lays out as spaghetti at any width, and the
+# owner-facing question ("what turns this on?") belongs with the thing it turns
+# on. One arrow crosses the boundary, and it carries the whole claim.
+#
+# Every claim here is code-backed. If a default changes, fix this file in the
+# same PR:
+#   web_search / learning_cloud_fallback defaults  -> ava_bridge/features.py
+#   loopback bind + sandbox egress model           -> SECURITY.md sections 2 and 3
+#   ANTHROPIC_API_KEY as opt-in third-party egress -> SECURITY.md section 5
+#
+# Render:  python agent/docs/arch.py sync   (registered in STATIC_D2)
+
+direction: right
+
+style: {
+  fill: "#ffffff"
+}
+
+classes: {
+  grp: {
+    style: {
+      stroke: "#94a3b8"
+      stroke-width: 1
+      fill: "#ffffff"
+      font-color: "#c96442"
+      font-size: 13
+      bold: true
+    }
+  }
+  node: {
+    style: {
+      stroke: "#e2e8f0"
+      stroke-width: 1
+      fill: "#f8fafc"
+      font-color: "#1e293b"
+      font-size: 11
+      border-radius: 6
+    }
+  }
+  # An exit that exists only because you turned it on. Dashed, and the same
+  # shape as any other node, so it reads as a choice rather than a leak.
+  optin: {
+    style: {
+      stroke: "#cbd5e1"
+      stroke-width: 1
+      fill: "#ffffff"
+      font-color: "#1e293b"
+      font-size: 11
+      border-radius: 6
+      stroke-dash: 3
+    }
+  }
+}
+
+box: "Your computer" {
+  class: grp
+
+  ava: "Ava" {
+    class: node
+  }
+
+  stays: "Stays here. Always.\n\nYour chats and history\nWhat Ava remembers about you\nYour files, images and artifacts\nYour voiceprint\nThe model weights\nYour connected apps' data\nYour secrets and API keys" {
+    class: node
+  }
+
+  ava -> stays: "" {
+    style.stroke: "#94a3b8"
+  }
+}
+
+out: "Leaves only if you switch it on" {
+  class: grp
+
+  search: "A web search\nSetup → Optional features → Web search\noff by default" {
+    class: optin
+  }
+  cloud: "Your prompt, to a cloud model\nonly if you pick a cloud model as the brain\nno cloud model configured by default" {
+    class: optin
+  }
+  fallback: "One learning cycle\nSetup → Optional features → Cloud fallback\noff by default" {
+    class: optin
+  }
+  weights: "A model download\nwhen you pull one from the model store" {
+    class: optin
+  }
+  remote: "Reaching Ava from your phone\nonly over a private network you set up\nloopback only by default" {
+    class: optin
+  }
+}
+
+box -> out: "Nothing crosses this line unless you turn it on" {
+  style.stroke: "#94a3b8"
+  style.stroke-dash: 3
+}

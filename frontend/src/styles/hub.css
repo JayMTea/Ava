@@ -72,6 +72,68 @@
   justify-content: center;
 }
 
+/* ---- nested tab bar (a page tab's own sections, e.g. Setup -> Agent) ----
+   Deliberately NOT `.hub-tabs`, and not a modifier on it. That selector is a
+   walkthrough anchor (components/tour/steps.ts) and is matched bare by a dozen
+   scripts under demo/; a second nesting level sharing the name makes every one
+   of them ambiguous, and `.first()` is a coin toss dressed up as a fix.
+
+   It must also not LOOK like the page tab bar — an underline row inside an
+   underline row reads as two peers, not as a parent and its sections. So:
+   pills on a track, and no icons (icons are the page bar's signature). */
+.hub-subtabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 3px;
+  margin: 0 0 var(--sp-5);
+  width: fit-content;
+  max-width: 100%;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+}
+.hub-subtab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  background: transparent;
+  border: 0;
+  border-radius: var(--r-pill);
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color var(--dur-fast), background var(--dur-fast);
+}
+.hub-subtab:hover { color: var(--txt); }
+.hub-subtab.active {
+  background: var(--accent-soft);
+  color: var(--accent-tint);
+  box-shadow: inset 0 0 0 1px var(--accent-line);
+}
+.hub-subtab .hub-subtab-badge {
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: var(--r-pill);
+  background: var(--accent);
+  color: #fff;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+/* Narrow: the track goes full-width so the labels wrap into a tidy block
+   rather than a ragged sausage that trails off the panel edge. */
+@media (max-width: 700px) {
+  .hub-subtabs { width: 100%; border-radius: var(--r-md); }
+}
+
 /* ---- section spacing between panels ---- */
 .hub-section { margin-bottom: var(--sp-5); }
 .hub-section:last-child { margin-bottom: 0; }
@@ -154,7 +216,14 @@
 }
 .hub-check:last-child { border-bottom: 0; }
 .hub-check input { margin-top: 3px; width: 16px; height: 16px; accent-color: var(--accent); }
-.hub-check-main { min-width: 0; }
+/* The title and its sub-label are both <span>, so without an explicit display
+   they laid out inline and ran together as one sentence with no separator:
+   "This is a device (sensor / hardware)Ava will let it push readings…". The
+   `margin-top` below was dead for the same reason (margins do not apply to the
+   block axis of an inline box). This shipped, and is burned into the connect-app
+   and connect-device walkthrough videos for 43 seconds. Lay the two out as a
+   column so the sub-label is visibly a sub-label. */
+.hub-check-main { min-width: 0; display: flex; flex-direction: column; }
 .hub-check-title { color: var(--txt); font-size: var(--fs-sm); }
 .hub-check-sub { color: var(--muted); font-size: var(--fs-xs); margin-top: 2px; }
 

@@ -1,7 +1,8 @@
 """Setup (Hub) UI uniformity guard — keeps the shared-primitive refactor from
 rotting back into per-panel copies.
 
-The nine Setup tabs (frontend/src/components/hub/) share one small set of
+The six Setup tabs (frontend/src/components/hub/) — and the Agent tab's own
+sub-tabs, which are panels in the same folder — share one small set of
 building blocks: the data/action hooks (hooks.ts), the view primitives
 (ui/Tile, ui/Legend, ui/Badge, ui/StatRow, ui/HubMessage), and one `--tone`
 colour system in hub.css. It's easy for the next feature to hand-roll a local
@@ -192,8 +193,10 @@ def test_agent_provision_drives_the_CONFIGURED_runtime_not_the_local_one() -> No
 def test_the_agent_panel_hides_local_rows_on_a_remote_runtime() -> None:
     from pathlib import Path
 
+    # The runtime status rows split out of AgentPanel.tsx (now just the Agent
+    # sub-tab router) into their own sub-tab panel; the guard follows the rows.
     src = (Path(__file__).resolve().parents[1] / "frontend" / "src" / "components"
-           / "hub" / "panels" / "AgentPanel.tsx").read_text(encoding="utf-8")
+           / "hub" / "panels" / "AgentRuntimePanel.tsx").read_text(encoding="utf-8")
     assert "st.location !== 'remote'" in src, (
         "the CLI/Sandbox rows are unconditional again, so a working remote agent "
         "renders as 'not installed'.")
@@ -265,3 +268,52 @@ def test_the_tab_badge_has_a_consumer() -> None:
     hub_view = (ROOT / "frontend/src/components/hub/HubView.tsx").read_text()
     assert "hub-tab-badge" in hub_view, (
         "nothing renders .hub-tab-badge, so per-tab pending counts are dead CSS.")
+
+
+def test_setup_routing_has_no_unreachable_redirects() -> None:
+    """A retired Setup address must not also be a live tab.
+
+    hubRoute.ts keeps `#hub/persona`, `#hub/budgets` and friends working after
+    Persona/Voice/Memory became Agent sub-tabs, Budgets merged into Hardware and
+    History moved to Data. Those tables are consulted BEFORE the tab lookup, so
+    an entry that names a live tab silently shadows it — the tab becomes
+    unreachable and the redirect reads as working. Cheap to assert, invisible in
+    review.
+    """
+    route = (ROOT / HUB / "hubRoute.ts").read_text(encoding="utf-8")
+    tab_ids = set(re.findall(r"'([a-z]+)'", re.search(
+        r"export type TabId =(.+?);",
+        (ROOT / HUB / "shared.ts").read_text(encoding="utf-8"), re.S).group(1)))
+    assert tab_ids, "could not parse TabId out of hub/shared.ts"
+
+    offenders = []
+    for table in ("MOVED_TABS", "MERGED_TABS", "RELOCATED_TABS"):
+        body = re.search(rf"{table}[^=]*= \{{(.*?)\}};", route, re.S)
+        assert body, f"hubRoute.ts no longer defines {table}"
+        for key in re.findall(r"(\w+):", body.group(1)):
+            if key in tab_ids:
+                offenders.append(f"{table}.{key} shadows the live '{key}' tab")
+    assert not offenders, (
+        "Retired-address tables must name addresses that no longer exist:\n  "
+        + "\n  ".join(offenders)
+    )
+
+
+def test_every_agent_subtab_is_rendered() -> None:
+    """Each id in AGENT_SUBTABS must be mounted by the Agent sub-tab router.
+
+    The bar renders straight from AGENT_SUBTABS, so adding an entry without a
+    matching branch in AgentPanel.tsx yields a clickable tab that shows an empty
+    page — and the address it writes still resolves, so nothing errors.
+    """
+    route = (ROOT / HUB / "hubRoute.ts").read_text(encoding="utf-8")
+    panel = (ROOT / HUB / "panels/AgentPanel.tsx").read_text(encoding="utf-8")
+    block = re.search(r"AGENT_SUBTABS = \[(.*?)\] as const;", route, re.S)
+    assert block, "hubRoute.ts no longer defines AGENT_SUBTABS"
+    ids = re.findall(r"id: '([\w-]+)'", block.group(1))
+    assert ids, "parsed no sub-tab ids out of AGENT_SUBTABS"
+    missing = [i for i in ids if f"sub === '{i}'" not in panel]
+    assert not missing, (
+        "AgentPanel.tsx renders nothing for sub-tab(s) " + ", ".join(missing)
+        + " — every AGENT_SUBTABS entry needs a `{sub === '<id>' && <Panel/>}` branch."
+    )

@@ -46,7 +46,7 @@ through five `architecture` MCP tools.
 
 ## Alternatives considered
 
-- **Hand-drawn diagrams (Lucidchart/Confluence/draw.io)** — rejected: rots, no drift
+- **Hand-drawn diagrams (Lucidchart/Confluence/draw.io)** - rejected: rots, no drift
   detection, lives outside version control.
-- **Diagrams-as-code without drift checking** — rejected: still drifts from the
+- **Diagrams-as-code without drift checking** - rejected: still drifts from the
   *actual* systemd/ports/tools state.

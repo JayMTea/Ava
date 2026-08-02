@@ -28,7 +28,7 @@ generated policy-trace diagram (rendered locally by `arch.py sync`) visualizes i
 ### Positive
 - **Blast-radius containment:** a compromised tool can still only reach its own
   group's declared destinations (e.g. weather → Open-Meteo GET only).
-- No ambient authority — permissions never leak between capability groups.
+- No ambient authority - permissions never leak between capability groups.
 - Auditable: each policy is an explicit, readable contract.
 
 ### Negative / trade-offs
@@ -40,7 +40,7 @@ generated policy-trace diagram (rendered locally by `arch.py sync`) visualizes i
 
 ## Alternatives considered
 
-- **One broad sandbox egress rule** — rejected: defeats least privilege; one bad
+- **One broad sandbox egress rule** - rejected: defeats least privilege; one bad
   tool compromises everything.
-- **No sandboxing (agent on host)** — rejected: removes the confinement boundary
+- **No sandboxing (agent on host)** - rejected: removes the confinement boundary
   entirely.

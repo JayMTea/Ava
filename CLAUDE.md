@@ -49,13 +49,28 @@ Any user-facing optional capability lives in `ava_bridge/features.py`:
   fixture-contract test additionally needs an owner-local capture harness and
   skips cleanly without it.
 - **Setup (Hub) UI is one system.** Every Setup tab lives in its own
-  `frontend/src/components/hub/panels/*.tsx` (HubView.tsx is just the tab
-  router) and builds from the shared pieces, not per-panel copies: the
-  data/action hooks in `hub/hooks.ts` (`useResource`/`useAction` — never a
-  hand-rolled load or a hardcoded `hub-msg err`), the view primitives in
-  `hub/ui/` (`Tile`, `Legend`, `Badge`, `StatRow`, `HubMessage`), and one
-  `.tone-*` → `--tone` colour system in `hub.css` (no per-panel icon-tile or
-  tone-colour classes). `tests/test_hub_uniformity.py` fails a regression.
+  `frontend/src/components/hub/panels/*.tsx` and builds from the shared pieces,
+  not per-panel copies: the data/action hooks in `hub/hooks.ts`
+  (`useResource`/`useAction` — never a hand-rolled load or a hardcoded
+  `hub-msg err`), the view primitives in `hub/ui/` (`Tile`, `Legend`, `Badge`,
+  `StatRow`, `HubMessage`), and one `.tone-*` → `--tone` colour system in
+  `hub.css` (no per-panel icon-tile or tone-colour classes).
+  `tests/test_hub_uniformity.py` fails a regression.
+- **One address, one owner.** `App.tsx` owns hash segment 0 and nothing else.
+  Setup's remaining segments — `#hub/<tab>` and, for the one tab with sections
+  of its own, `#hub/agent/<sub>` — are resolved by the pure `hub/hubRoute.ts`
+  and applied by `HubView` alone. `AgentPanel` is a tab router that takes `sub`
+  as a prop; it must never read the hash itself. Two `hashchange` listeners
+  racing over one URL, with a retired-address rewrite in the middle, is the bug
+  the App/HubView split exists to prevent, and a third segment is not a reason
+  to reintroduce it. Retired addresses live in `MOVED_TABS` / `MERGED_TABS` /
+  `RELOCATED_TABS` and are rewritten with `history.replaceState` — assigning
+  `location.hash` would push a history entry and make Back redirect forever.
+- **A surface has exactly one home.** `MemoryPanel` was mounted on both Setup
+  and Data, and Setup → History rendered the same audit ledger as Data → Logs →
+  Audit, each footer naming the other as the real one. When two places would
+  show the same thing, one owns it and the other links to it — and the link
+  says where it goes, so it never reads as a local tab.
 - **Two apply verbs, never conflated.** *Restart Ava* = an `ava.yaml` value the
   bridge reads at boot → `RestartBanner`, driven by `restart_required` on a
   `hub.*` mutation. *Apply to the agent* = persona / skills / policies / tool

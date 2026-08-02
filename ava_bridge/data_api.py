@@ -182,7 +182,7 @@ _REFUSED = {
         "instead — change the password in Setup → System, or clear one connector "
         "credential in Setup → Connectors."),
     "models": (
-        "The voiceprint has its own destruction path (Setup → Voice), which also "
+        "The voiceprint has its own destruction path (Setup → Agent → Voice), which also "
         "resets the derived gate threshold and evicts the copy cached in the "
         "running process — a plain delete here would leave the gate scoring "
         "against a print that no longer exists. It would also remove the 80 MB "
@@ -436,7 +436,7 @@ def stores():
     if vp_present:
         model_items.append({"name": "voiceprint.npy",
                             "what": "your enrolled voiceprint (biometric). "
-                                    "Delete it in Setup → Voice."})
+                                    "Delete it in Setup → Agent → Voice."})
     if os.path.isdir(os.path.join(mdir, "ecapa")):
         model_items.append({"name": "ecapa/",
                             "what": "public pretrained speaker-embedding weights "

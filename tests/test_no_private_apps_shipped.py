@@ -142,11 +142,19 @@ def test_no_tracked_file_lives_under_a_private_app() -> None:
 
 def test_no_tracked_doc_or_example_names_a_private_app() -> None:
     """A name leaks as prose long after the folder stops shipping — a docs table
-    row, a link to a folder that no longer exists, a screenshot's alt text."""
+    row, a link to a folder that no longer exists, a screenshot's alt text.
+
+    Matched as a plain substring, NOT as `\\b<name>\\b`. A word boundary needs a
+    non-word character on both sides, and `_` is a word character — so the
+    bounded pattern sailed past `<app>_token` in a screenshot's alt text, which
+    is exactly the shape these names take once they appear as identifiers
+    (`<app>_token`, `<app>.log_workout`, `<app>-api`). These names are
+    distinctive enough that a substring hit is a real hit.
+    """
     private = _private_apps()
     if not private:
         return
-    patterns = {n: re.compile(rf"\b{re.escape(n)}\b", re.I) for n in private}
+    patterns = {n: re.compile(re.escape(n), re.I) for n in private}
     offenders = []
     for rel in tracked():
         if rel.split("/")[0] not in (*_APP_DIRS, "docs"):

@@ -58,8 +58,8 @@ export function Header({
           <a
             className="model-pick model-pick-static"
             data-tour="model-chip"
-            href="#hub/agent"
-            title={`Ava answers with ${agentModel.split('/').pop()} in the agent sandbox. Change it in Setup → Agent.`}
+            href="#hub/agent/brain"
+            title={`Ava answers with ${agentModel.split('/').pop()} in the agent sandbox. Change it in Setup → Agent → Brain.`}
           >
             <Icon name="bot" />
             <span>{agentModel.split('/').pop()}</span>

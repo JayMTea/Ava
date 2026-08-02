@@ -1,12 +1,18 @@
 # Running two models on one box
 
-Ava keeps one model resident. The moment you add a second heavy one — an image
-pipeline, a video model, a voice sidecar on the GPU — you have a problem that has
-nothing to do with either model working correctly: **they want the same memory, and
-there is not enough for both.**
+**Is this page for you?** Only if you run a second heavy model beside Ava's
+brain - an image pipeline, a video model, a voice model on the GPU. Two models
+that each work perfectly will still fight, because they want the same memory and
+there is not enough for both. The result is not a clean error. It is a restart
+loop, a render killed halfway, or a machine that just gets slow and no single
+component looks responsible.
 
-This page is about that. It is optional: with nothing declared, Ava behaves exactly
-as it always has.
+This page shows you how to declare which models may hold memory, so Ava checks
+that something fits *before* it starts it. It is entirely optional. Declare
+nothing and Ava behaves exactly as it always has.
+
+Reading time about ten minutes. You will not have to change how you launch
+anything, only how you tell Ava about it.
 
 ---
 
@@ -22,7 +28,7 @@ box:
 | The language model, resident | 48.7 GB |
 | One image render (FLUX.2 weights) | 66.5 GB |
 
-Any two of those fit. All three never do — and no `--gpu-memory-utilization` setting
+Any two of those fit. All three never do - and no `--gpu-memory-utilization` setting
 changes that, because the sum simply exceeds the machine.
 
 What happens without coordination is worse than a clean failure:
@@ -41,19 +47,19 @@ If you only ever run one model, none of this applies to you.
 ## What Ava does about it
 
 You **declare** which models may hold memory. Ava then checks whether something fits
-*before* it starts, and frees room by releasing models you declared — never anything
+*before* it starts, and frees room by releasing models you declared - never anything
 you did not.
 
 Three ideas carry the whole design:
 
 **Declared, never discovered.** Only models under `alloc.models` are ever started,
-stopped, or unloaded. Anything else holding memory is counted — so Ava never promises
-memory someone else has — and named, so you can see it. It is never touched. The
+stopped, or unloaded. Anything else holding memory is counted - so Ava never promises
+memory someone else has - and named, so you can see it. It is never touched. The
 blast radius is your config file, not a heuristic.
 
 **Ask for what you need, not for someone else's memory.** A caller says *"I am about
 to use this model"*. It never says *"stop that other thing"*. That inversion is why a
-pipeline added later inherits coordination instead of having to remember it — the
+pipeline added later inherits coordination instead of having to remember it - the
 failure that produced those 7,997 restarts was a new render path that simply did not
 know it was supposed to pause anything.
 
@@ -61,7 +67,7 @@ know it was supposed to pause anything.
 load, and a service manager reports "active" the instant the process starts. A model
 that hit an out-of-memory error during warm-up, caught it, and served HTTP anyway is
 indistinguishable from a healthy one to any liveness check. On the development box
-one did exactly that for **six days** — its own `/health` said so the whole time,
+one did exactly that for **six days** - its own `/health` said so the whole time,
 because nothing read it. Ava reads it.
 
 ---
@@ -86,7 +92,7 @@ alloc:
 
 If that id matches an `inference.backends.<id>` you already configured, its
 `weight_gb` / `min_free_gb` / `tier` are **inherited from the `fit:` block you already
-wrote** — you do not restate them. Same for a connector's unit and health probe.
+wrote** - you do not restate them. Same for a connector's unit and health probe.
 
 Check what Ava now sees:
 
@@ -140,7 +146,7 @@ Run on `enforce` alone for a while. When you are satisfied, set `evict: true`.
 
 **It refuses to start what provably cannot fit.** This is the important one, and it is
 the actual cure for a restart storm rather than a cap on its symptoms. A model waiting
-for room is *deferred*, not failed — it never counts against the give-up budget, so it
+for room is *deferred*, not failed - it never counts against the give-up budget, so it
 stays retryable forever and returns the moment room appears. Measured with a
 permanently-short pool: **zero start attempts** over ~56 simulated hours.
 
@@ -153,8 +159,8 @@ models and all processes. Exceed it and Ava **quiesces**: it stops actuating ent
 and every lease becomes advisory. Its failure mode is to become a no-op, never a loop.
 
 **It will not preempt work in flight.** A live lease at your own priority or better is
-never taken. Lower-priority holders do yield — that is what declaring a priority is
-for — and a model that is merely resident and idle is fair game.
+never taken. Lower-priority holders do yield - that is what declaring a priority is
+for - and a model that is merely resident and idle is fair game.
 
 **It will not touch what it did not stop.** Ava restores only models it released
 itself. A model you shut down deliberately stays down.
@@ -169,26 +175,29 @@ where it is running:
 | Your machine | What Ava reads |
 |---|---|
 | Discrete GPU | free VRAM |
-| Unified memory (Apple Silicon, Grace-class) | the system pool — a device-memory query returns nothing there |
+| Unified memory (Apple Silicon, Grace-class) | the system pool - a device-memory query returns nothing there |
 | CPU-only, or nothing readable | **unknown**, which means *never gate* |
 
 Unknown never becomes zero. A box Ava cannot measure behaves exactly as it did before
-this layer existed. A driver whose tooling is missing — no container runtime, no
-service manager — degrades to observe-only: still reported, never actuated.
+this layer existed. A driver whose tooling is missing - no container runtime, no
+service manager - degrades to observe-only: still reported, never actuated.
 
-> **One number matters, and it is easy to get wrong.** Use `MemAvailable`, not
-> `MemFree`. They differ by however much reclaimable page cache is holding recently-read
-> model weights — on the development box, by ~40 GB. A monitor reading `MemFree` will
-> tell you the machine is at 93% when it is at 59%, and several tools do read it,
-> including some engines' own memory displays. `ava alloc status` always shows which
-> source it used.
+!!! note "One number matters, and it is easy to get wrong"
+
+    Use `MemAvailable`, not `MemFree`. They differ by however much reclaimable
+    page cache is holding recently-read model weights - on the development box,
+    by ~40 GB. A monitor reading `MemFree` will tell you the machine is at 93%
+    when it is at 59%, and several tools do read it, including some engines' own
+    memory displays. `ava alloc status` always shows which source it used.
 
 ---
 
 ## Adding support for your engine
 
-Built-in drivers cover a container, a service unit, and an HTTP unload endpoint. For
-anything else, write one file in `$AVA_HOME/alloc_drivers/`:
+Built-in drivers cover a container, a service unit, and an HTTP unload endpoint. If
+yours is one of those, you are done - skip this section.
+
+Write one file in `$AVA_HOME/alloc_drivers/`:
 
 ```python
 from ava_bridge.alloc.base import ModelDriver, ReleaseMode, Residency, ActionResult
@@ -223,7 +232,7 @@ DRIVER = MyEngineDriver
 
 Then `driver: myengine` in your model's block, and drop the file in
 `$AVA_HOME/alloc_drivers/` (created for you by `ava setup`). Nothing in Ava's
-core changes. If it does not load, `ava doctor` names the file and the reason —
+core changes. If it does not load, `ava doctor` names the file and the reason -
 a missing `DRIVER` symbol and a missing `name` are both reported, because both
 would otherwise fail silently.
 
@@ -231,7 +240,7 @@ Three rules worth internalising, because each prevents a specific silent failure
 
 - **Implement `acquire()` if any release option is reversible.** The base class's
   no-op default exists for engines that reload themselves on next use, and it
-  returns `ok=True` unconditionally — so a driver that stops something but does
+  returns `ok=True` unconditionally - so a driver that stops something but does
   not override `acquire` gets marked restored without being restarted, and
   never comes back. If your engine genuinely reloads on demand, say so with
   `SELF_RESTORING = True` instead, and `validate()` will stop asking.
@@ -239,7 +248,7 @@ Three rules worth internalising, because each prevents a specific silent failure
   `wait_free` returned. Memory reclaim is asynchronous; "we ran the stop
   command" and "the memory is back" are different facts, and only the second
   licenses starting something else. Use `acted=True` to say the thing IS down
-  even when the pool did not move — that is what makes Ava owe you a restore
+  even when the pool did not move - that is what makes Ava owe you a restore
   rather than leaving it stopped forever.
 - **`resident=None` means unknown and must never become `False`.** Memory you
   cannot see is memory the planner must not promise to free.
@@ -253,7 +262,7 @@ active while the condition persists and clear themselves when it is fixed:
 
 | Alert | Meaning |
 |---|---|
-| `alloc_degraded_<model>` | **Running but no weights loaded.** The dangerous one — its port answers, so nothing else notices. |
+| `alloc_degraded_<model>` | **Running but no weights loaded.** The dangerous one - its port answers, so nothing else notices. |
 | `alloc_absent_<model>` | Declared, but not installed here. Usually a typo, or config carried from another machine. |
 | `alloc_unfit_<model>` | Has not been able to start for a sustained period. |
 | `alloc_unknown_hog` | Undeclared processes holding memory while a declared model is blocked. |
@@ -271,75 +280,90 @@ ava alloc resume              # un-quiesce
 
 ## Another application on the same box
 
-A second app can hold leases without importing Ava — that is how two applications
+A second app can hold leases without importing Ava - that is how two applications
 stop fighting over one pool: exactly one component decides, and the other asks.
 
-```
-POST   /lease            {"model": "my-render", "reason": "render",
-                          "ttl_s": 300, "wait": false}
-         -> {"lease_id": "...", "state": "pending", "granted": true,
-             "ready": false, "poll_after_s": 1.5}
-GET    /lease/<id>       -> {"state": "active", "ready": true,
-                             "released": ["my-llm"]}
-POST   /lease/<id>/heartbeat
-DELETE /lease/<id>
-```
+??? note "The lease API (four endpoints, on Ava's router, token-guarded)"
 
-On Ava's router, token-guarded — these endpoints can stop and start models.
+    These endpoints can stop and start models, so they require the router token.
 
-**Send `"wait": false` and poll.** The verdict is known immediately; the *room* is not,
-because stopping a container and waiting for the kernel to hand its memory back takes
-minutes. So the acquire answers at once with `state: pending`, makes the room on its own
-thread, and you poll `GET /lease/<id>` until `ready`. Three states are terminal:
-`active` (go), `failed` (a release errored — you are uncoordinated, not blocked), and
-`gone` (the lease no longer exists).
+    ```
+    POST   /lease            {"model": "my-render", "reason": "render",
+                              "ttl_s": 300, "wait": false}
+             -> {"lease_id": "...", "state": "pending", "granted": true,
+                 "ready": false, "poll_after_s": 1.5}
+    GET    /lease/<id>       -> {"state": "active", "ready": true,
+                                 "released": ["my-llm"]}
+    POST   /lease/<id>/heartbeat
+    DELETE /lease/<id>
+    ```
 
-The alternative — holding the request open — sounds simpler and is a trap worth
-describing, because it cost a night here. It makes your HTTP socket timeout into a
-policy decision, and that number was chosen with no knowledge of what it is waiting for.
-When it fires mid-release the client concludes nothing is coordinating, falls back to
-coordinating for itself, and now **two components are stopping the same container** —
-the exact failure the broker exists to remove. Polling puts the waiting where it is
-visible and where it knows what it is waiting for. (`"wait": true` is still the default,
-so a client written before the poll endpoint existed is never told to start early.)
+    **Send `"wait": false` and poll.** The verdict is known immediately; the
+    *room* is not, because stopping a container and waiting for the kernel to
+    hand its memory back takes minutes. So the acquire answers at once with
+    `state: pending`, makes the room on its own thread, and you poll
+    `GET /lease/<id>` until `ready`. Three states are terminal: `active` (go),
+    `failed` (a release errored - you are uncoordinated, not blocked), and
+    `gone` (the lease no longer exists).
 
-Two rules for a client, both of which are about that same hazard:
+    A caller inside Ava proves it is alive by holding a file lock the kernel
+    releases if it dies; an HTTP caller cannot, so a remote lease carries a
+    deadline instead. Stop renewing and Ava reclaims it, which is what stops a
+    killed client from holding memory reserved forever.
+
+    The client is ~200 lines of standard library that the other app vendors, on
+    the same terms as any other cross-app file - the same shape as the
+    device-side helper in [`sdk/host/ava_device/`](../sdk/host/ava_device/).
+
+**Two rules for a client**, both about the same hazard - becoming a second actor:
 
 - **Distinguish "timed out" from "refused".** Refused means nothing is running, so
-  coordinating locally is safe. A timeout means the broker may still be acting — so
+  coordinating locally is safe. A timeout means the broker may still be acting - so
   proceed *without* a local fallback rather than becoming the second actor.
 - **Renew from the moment you acquire, not from the moment you are granted.** Making
   room can take longer than the TTL, and a lease that lapses while its own release is
   still running gets reaped out from under the work it was making room for.
 
-A caller inside Ava proves it is alive by holding a file lock the kernel releases if it
-dies; an HTTP caller cannot, so a remote lease carries a deadline instead. Stop renewing
-and Ava reclaims it, which is what stops a killed client from holding memory reserved
-forever.
+??? note "Why polling, and not a request held open (a night it cost)"
 
-The client is ~200 lines of standard library that the other app vendors, on the same
-terms as any other cross-app file — the same shape as the device-side helper in
-[`sdk/host/ava_device/`](../sdk/host/ava_device/).
+    Holding the request open sounds simpler and is a trap. It makes your HTTP
+    socket timeout into a policy decision, and that number was chosen with no
+    knowledge of what it is waiting for. When it fires mid-release the client
+    concludes nothing is coordinating, falls back to coordinating for itself,
+    and now **two components are stopping the same container** - the exact
+    failure the broker exists to remove. Polling puts the waiting where it is
+    visible and where it knows what it is waiting for.
+
+    (`"wait": true` is still the default, so a client written before the poll
+    endpoint existed is never told to start early.)
 
 ---
 
 ## One operating rule
 
 **Start a declared model through Ava, not by running its launch script directly.** A
-raw `docker run` or `systemctl start` is a start with no lease and no fit check — Ava
-would have refused it — and doing that on a busy box is how you oversubscribe the very
+raw `docker run` or `systemctl start` is a start with no lease and no fit check - Ava
+would have refused it - and doing that on a busy box is how you oversubscribe the very
 pool this exists to protect. Use `ava alloc restore`, the lease API, or a boot unit
 that Ava knows about.
 
 The launch script stays the *mechanism*. Ava is the *interface*.
 
-> **Put the client's opt-in where the code is, not where the service manager is.** If
-> the other app enables leasing from a systemd drop-in, an environment file, or a
-> wrapper script, then anything launched another way — a batch script, a REPL, a cron
-> job, a colleague's one-off — silently reverts to whatever it did before, and nothing
-> anywhere records that it happened. Put the default in a module every entry point
-> imports, and make opting *out* the explicit act. Coordination that only applies to
-> processes started the blessed way is coordination you cannot rely on.
+??? note "Put the client's opt-in where the code is, not where the service manager is"
 
-**Next step:** [Connect your apps](CONNECTOR_SDK.md) so the rest of your stack can ask
-for memory the same way.
+    If the other app enables leasing from a systemd drop-in, an environment
+    file, or a wrapper script, then anything launched another way - a batch
+    script, a REPL, a cron job, a colleague's one-off - silently reverts to
+    whatever it did before, and nothing anywhere records that it happened. Put
+    the default in a module every entry point imports, and make opting *out* the
+    explicit act. Coordination that only applies to processes started the
+    blessed way is coordination you cannot rely on.
+
+---
+
+## Where to next
+
+- **Wire the rest of your stack in** so it can ask for memory the same way:
+  [Connector SDK](CONNECTOR_SDK.md).
+- **Choosing the model that holds that memory in the first place:**
+  [Pick a model](CHOOSE_A_MODEL.md).

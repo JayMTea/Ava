@@ -93,6 +93,7 @@ every file is self-contained. The one `conftest.py` does exactly one thing
 | `test_no_blocking_routes.py` | An `async def` route may not do blocking work on the event loop. |
 | `test_no_eval_data.py` | Standing decision (docs/dev/INTENT_ROUTING_AND_RELIABILITY_PLAN.md, Phase 3): the product ships eval TOOLING only — never an eval dataset. No seed… |
 | `test_no_owner_identity.py` | Nothing tracked may carry the owner's identity, a private sibling app, an absolute home path, or a proprietary-tool watermark. |
+| `test_no_private_apps_shipped.py` | A development-only app must not reach the repo, the docs, or the IMAGE — `.dockerignore` default-denies `connectors/` because `COPY . /app` copies the working tree. |
 | `test_password_change.py` | Changing the admin password from inside the product, and revoking sessions. |
 | `test_path_roots.py` | There is exactly ONE resolver for where runtime state lives: `ava_bridge.settings`. |
 | `test_settings_errors.py` | A broken ava.yaml must be loud, and must never be overwritten. |

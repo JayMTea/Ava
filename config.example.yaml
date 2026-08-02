@@ -300,7 +300,7 @@ features:
                            #   voiceprint is ENROLLED, not by a switch — this file
                            #   used to document `voiceprint: false`, which nothing
                            #   read, so setting it left verification fully active.
-                           #   Enroll or destroy it in Setup -> Voice
+                           #   Enroll or destroy it in Setup -> Agent -> Voice
                            #   (docs/BIOMETRICS.md).
   web_search: false        # [AVA_WEB_SEARCH] self-hosted SearXNG + guarded fetch
   image: true              # [AVA_IMAGE] GPU workloads via the gpu-service
@@ -317,7 +317,7 @@ features:
                            #   uploads, recalled when relevant, every recall audit-
                            #   logged. Turning it OFF is the kill switch for the
                            #   feature the README leads with — view/correct/delete/
-                           #   export it all from Setup -> Memory (docs/MEMORY.md).
+                           #   export it all from Setup -> Agent -> Memory (docs/MEMORY.md).
   learning_cloud_fallback: false
                            # [AVA_LEARNING_CLOUD_FALLBACK] when a learning or
                            #   memory-distillation cycle can't be completed by

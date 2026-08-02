@@ -2,7 +2,9 @@
 // harness, so the decision lives in a pure function and gets covered here.
 // Everything asserted below is a claim the UI must NOT make wrongly.
 import { describe, expect, it } from 'vitest';
-import { barView, currentStep, DRIFT_LABEL, mergeJob, summarize, tabPending } from './provisionView';
+import {
+  agentSubPending, barView, currentStep, DRIFT_LABEL, mergeJob, summarize, tabPending,
+} from './provisionView';
 import type { ProvisionItem, ProvisionJob, ProvisionState } from './hubApi';
 
 function state(over: Partial<ProvisionState> = {}): ProvisionState {
@@ -172,18 +174,28 @@ describe('summarize', () => {
 });
 
 describe('tabPending', () => {
-  it('lights up only the tab that owns the change', () => {
+  it('rolls a persona edit up onto the agent tab, which now owns it', () => {
     const s = state({ items: [item('persona', 'IDENTITY.md', 'stale')] });
-    expect(tabPending(s)).toEqual({ persona: 1 });
+    expect(tabPending(s)).toEqual({ agent: 1 });
   });
 
   it('routes skills to the agent tab', () => {
     expect(tabPending(state({ items: [item('skills', 'a', 'stale')] }))).toEqual({ agent: 1 });
   });
 
+  it('sums persona and skills onto the one agent tab', () => {
+    const s = state({ items: [item('persona', 'IDENTITY.md', 'stale'), item('skills', 'a', 'stale')] });
+    expect(tabPending(s)).toEqual({ agent: 2 });
+  });
+
   it('sums policies and servers onto connectors', () => {
     const s = state({ items: [item('policies', 'a', 'stale'), item('servers', 'b', 'stale')] });
     expect(tabPending(s)).toEqual({ connectors: 2 });
+  });
+
+  it('keeps connectors off the agent tab', () => {
+    const s = state({ items: [item('policies', 'a', 'stale')] });
+    expect(tabPending(s).agent).toBeUndefined();
   });
 
   it('is empty when the agent is disabled', () => {
@@ -192,6 +204,48 @@ describe('tabPending', () => {
 
   it('is empty for a null state', () => {
     expect(tabPending(null)).toEqual({});
+  });
+});
+
+describe('agentSubPending', () => {
+  it('names the sub-tab that owns the change', () => {
+    expect(agentSubPending(state({ items: [item('persona', 'IDENTITY.md', 'stale')] })))
+      .toEqual({ persona: 1 });
+    expect(agentSubPending(state({ items: [item('skills', 'a', 'stale')] })))
+      .toEqual({ skills: 1 });
+  });
+
+  it('splits a mixed set across sub-tabs instead of collapsing it', () => {
+    const s = state({ items: [item('persona', 'IDENTITY.md', 'stale'), item('skills', 'a', 'stale')] });
+    expect(agentSubPending(s)).toEqual({ persona: 1, skills: 1 });
+  });
+
+  it('ignores connector scopes — they are not a section of Agent', () => {
+    const s = state({ items: [item('policies', 'a', 'stale'), item('servers', 'b', 'stale')] });
+    expect(agentSubPending(s)).toEqual({});
+  });
+
+  it('badges no sub-tab for runtime — the drift board already lists every scope', () => {
+    const s = state({ items: [item('persona', 'p', 'stale'), item('skills', 'a', 'stale')] });
+    expect(agentSubPending(s).runtime).toBeUndefined();
+  });
+
+  it('is empty when the agent is disabled, and for a null state', () => {
+    expect(agentSubPending(state({ enabled: false, items: [item('skills', 'a', 'stale')] }))).toEqual({});
+    expect(agentSubPending(null)).toEqual({});
+  });
+
+  // The invariant the nesting creates. A page-level count that does not add up
+  // to what you find inside is worse than no count at all.
+  it('the agent tab badge equals the sum of its sub-tab badges', () => {
+    const s = state({
+      items: [item('persona', 'IDENTITY.md', 'stale'), item('skills', 'a', 'stale'),
+        item('skills', 'b', 'undeployed'), item('policies', 'c', 'stale'),
+        item('skills', 'c', 'unknown')],
+    });
+    const sum = Object.values(agentSubPending(s)).reduce((a, b) => a + b, 0);
+    expect(tabPending(s).agent).toBe(sum);
+    expect(sum).toBe(3);
   });
 });
 

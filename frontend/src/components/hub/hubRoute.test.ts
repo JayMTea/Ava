@@ -38,8 +38,21 @@ describe('parseHubHash', () => {
     expect(parse('#hub/overview').canonical).toBe('hub');
   });
 
-  it('is not the Setup router at all for another view', () => {
-    expect(parse('#vitals')).toMatchObject({ tab: 'overview', canonical: 'hub' });
+  // HubView is still mounted when the hash flips to another view, and its
+  // listener fires on that same event. If a foreign address looked like a Setup
+  // address needing canonicalisation, the handler would rewrite `#data` to
+  // `#hub` and yank the user straight back out of the page they asked for.
+  it('flags an address belonging to another view, so nothing canonicalises it', () => {
+    for (const h of ['#vitals', '#data', '#data/history', '#chat', '#ops', '#some-app', '']) {
+      expect(parse(h).foreign).toBe(true);
+    }
+  });
+
+  it('never flags a Setup address as foreign', () => {
+    for (const h of ['#hub', '#hub/system', '#hub/agent', '#hub/agent/voice',
+      '#hub/persona', '#hub/budgets', '#hub/history', '#hub/nonsense']) {
+      expect(parse(h).foreign).toBeUndefined();
+    }
   });
 });
 

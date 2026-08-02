@@ -40,8 +40,8 @@ the system as it actually is, not as it was once drawn.
 [![Trust zones from the internet down to the sandbox: an untrusted internet/LAN zone, a Tailscale TLS + auth-gate perimeter, a loopback-only host zone holding the bridge, the 0600 secrets and Tor-only web egress, and a Docker sandbox with no ambient egress that reaches the bridge only over enumerated /internal routes with a scoped token](diagrams/security.svg)](diagrams/security.svg)
 
 **System**, **Network**, and **Policy** (the per-tool egress trace) render this
-install's *actual* topology — device labels, whichever private sibling apps are
-connected, and install-specific filesystem paths — so they are generated locally
+install's *actual* topology - device labels, whichever private sibling apps are
+connected, and install-specific filesystem paths - so they are generated locally
 and gitignored rather than committed. Run `python agent/docs/arch.py render` to
 produce `diagrams/system.svg`, `diagrams/network.svg`, and `diagrams/policy.svg`
 for your own deployment.
@@ -54,8 +54,7 @@ The SSOT manifest (`architecture.yaml`) and the deployment-specific `.d2`
 sources (system, network, policy) stay **gitignored**. `security.d2` and
 `security.svg` are committed as the reference topology: the security diagram is
 built from the manifest's app-agnostic `security` block, so a fork can
-regenerate it — edit `architecture.yaml`, never the generated `.d2`. `arch.py`
+regenerate it - edit `architecture.yaml`, never the generated `.d2`. `arch.py`
 (the sync/check/render pipeline) skips gracefully when the manifest is absent.
-See also the root
-[README.md](../../README.md) and
+See also [Why Ava?](../../docs/WHY_AVA.md) and
 [docs/CONNECTOR_SDK.md](../../docs/CONNECTOR_SDK.md).

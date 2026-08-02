@@ -1,4 +1,4 @@
-"""Setup -> Voice panel: voiceprint enrolment and the speaker gate.
+"""Setup -> Agent -> Voice panel: voiceprint enrolment and the speaker gate.
 
 Uploading clips enrols the biometric voiceprint the speaker gate compares
 against. The clip limits live here with the route that enforces them, and both

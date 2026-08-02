@@ -1,72 +1,97 @@
 ---
 template: home.html
-title: "Ava: your private, self-hosted AI operating layer"
-description: A self-hosted personal AI operating layer. Chat, voice, GPU workloads, and app automation on your own hardware.
+title: "Ava: a private AI assistant that runs on your own computer"
+description: A private AI assistant you host yourself. Chat, voice, GPU workloads, and app automation on hardware you own.
 hide:
   - navigation
   - toc
 ---
 
 <!-- Landing page source. Staged to index.md by sync.py (links are
-     repo-relative, rewritten exactly like README links). The hero, feature
-     grid, and screenshot live in overrides/home.html; this file is only the
-     typeset content below them. House style: no emoji, no em dashes. -->
+     repo-relative, rewritten exactly like README links). The hero, tour reel,
+     and feature grid live in overrides/home.html; this file is only the
+     typeset content below them. House style: no emoji, no em dashes.
+     Every claim here is code-backed: profiles come from deploy/profiles/*.env
+     and deploy/install.sh, the claim token from deploy/README.md.
+
+     "Learn more" comes BEFORE the install section on purpose. A visitor who is
+     not ready to paste a shell command needs a route out that is not the back
+     button; the old order gave them a `git clone` first. -->
+
+## Learn more
+
+| Page | What it covers |
+|---|---|
+| [What Ava does](docs/capabilities/index.md) | Every capability, one page each |
+| [Why Ava?](docs/WHY_AVA.md) | What it is, what it is not, where it stands |
+| [Quickstart](deploy/README.md) | What each profile includes, Docker and bare metal |
+| [Connect your apps](docs/CONNECT_YOUR_APPS.md) | Wire in your apps from the browser |
 
 ## Get running in minutes
+
+One command detects your hardware, downloads a model, and gets you chatting in
+your browser.
 
 ```bash
 git clone https://github.com/JayMTea/Ava && cd Ava/deploy && ./install.sh
 # it finishes by printing a one-time link; open that to set your admin password
 ```
 
-Open that link whole, `?claim=` and all. It carries a one-time token, unique to
-your install, that proves the machine is yours before Ava lets anyone set the
-admin password. Browsing to `localhost:8096` without it shows a "not claimed
-yet" notice even on your own machine, because under Docker the container sees
-the bridge gateway rather than localhost. The
-[Quickstart](deploy/README.md) explains it in full.
+Open that link whole, `?claim=` and all. Everything after that is browser setup:
+connect your apps, enroll your voice, set budgets.
 
-On Windows, run this in the Command Prompt window you already have:
+??? note "Why the link carries a `?claim=` token"
 
-```
-git clone https://github.com/JayMTea/Ava
-cd Ava\deploy && install.cmd
-```
+    It carries a one-time token, unique to your install, that proves the machine
+    is yours before Ava lets anyone set the admin password. Browsing to
+    `localhost:8096` without it shows a "not claimed yet" notice even on your own
+    machine, because under Docker the container sees the bridge gateway rather
+    than localhost. The [Quickstart](deploy/README.md) explains it in full.
 
-`install.cmd` hands the same installer to the bash that ships with Git for
-Windows, because Command Prompt and PowerShell cannot run a shell script
-themselves. The [Quickstart](deploy/README.md) covers the alternatives.
+??? note "On Windows, run `install.cmd` instead"
 
-One command detects your hardware, downloads a model, and gets you chatting in
-your browser. Everything after that happens in the in-app **Setup hub**: wire in
-your apps, enroll your voice, set budgets.
+    Run these two lines in the Command Prompt window you already have:
 
-That gets you chat, on a local model. GPU workloads and the agent that drives
-your other apps are opt-in: `AVA_PROFILE=full ./install.sh`, which grants the
-agent a root-equivalent Docker socket and so stays your call, not the
-installer's. Voice needs one build flag. The [Quickstart](deploy/README.md)
-covers all three.
+    ```
+    git clone https://github.com/JayMTea/Ava
+    cd Ava\deploy && install.cmd
+    ```
 
-## Learn more
+    `install.cmd` hands the same installer to the bash that ships with Git for
+    Windows, because Command Prompt and PowerShell cannot run a shell script
+    themselves. The [Quickstart](deploy/README.md) covers the alternatives.
 
-- [What Ava does](docs/capabilities/index.md): every capability, taken apart
-- [Why Ava?](README.md): what it is, what it is not, where it stands
-- [Quickstart](deploy/README.md): what each profile includes, Docker and bare metal
-- [Connect your apps](docs/CONNECT_YOUR_APPS.md): wire in your apps from the browser
+Chat on a local model is the default. Everything else is a profile:
+`AVA_PROFILE=full ./install.sh`.
+
+| Profile | What you get | Pick this if |
+|---|---|---|
+| `cpu`, `cuda`, `gpu`, `rocm` | Chat on a local model | Nothing to decide, the installer detects which fits |
+| `cloud` | Chat against an API key you supply | You would rather not run a model here |
+| `agent` | The above, plus the agent that drives your apps | You want Ava to act, not only answer |
+| `full` | Everything `agent` runs, plus image and video | You want pictures too |
+
+!!! warning "`agent` and `full` grant a root-equivalent Docker socket"
+
+    Both mount the host's Docker socket into the agent container. That socket is
+    **root-equivalent on the host**: anything holding it can do anything root
+    can. It is how the agent spawns its sandbox, the walled-off container it
+    runs tools inside. Granting it stays your call, not the installer's, which
+    is why neither profile is auto-detected. `gpu` runs everything except the
+    tool-using agent without it.
+
+Voice is not a profile: it needs a build flag (`AVA_VOICE_DEPS=1`) and a switch
+in Setup.
 
 ## Who built this
 
-Ava is built and maintained by **Joshua Thompson** — [GitHub](https://github.com/JayMTea)
+Ava is built and maintained by **Joshua Thompson** - [GitHub](https://github.com/JayMTea)
 · [LinkedIn](https://www.linkedin.com/in/joshua-thompson-b89913105).
 
-Open to collaboration, and there is one contribution worth more than the rest right
-now: Ava claims four first-class hardware families and only some are verified on real
-silicon — the others are labelled `ci-simulated` because nobody has run them. If you
-have an Apple Silicon Mac, an AMD Strix Halo, a discrete Radeon or a plain x86 box,
-`python3 tools/ondevice_check.py --record --json` produces exactly the evidence the
-support matrix is missing. Either it promotes a row from claimed to verified, or it
-hands back a defect list — both are useful, and the second is more useful.
+Open to collaboration, and the contribution worth most right now is a hardware
+report from silicon Ava has not been verified on: see
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 Questions, ideas, or just tell me what you are building:
 [open an issue](https://github.com/JayMTea/Ava/issues). Security reports go privately
-instead — see [SECURITY.md](SECURITY.md).
+instead - see [SECURITY.md](SECURITY.md).

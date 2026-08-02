@@ -34,13 +34,13 @@ fails if it drifts. It used to be maintained by hand alongside a second table in
 `tools/ondevice_check.py` on real hardware of that class and committed the report
 named in Evidence. `ci-native` means a CI job exercises the real code on real
 hardware of that class. `ci-simulated` means the decision logic is tested against
-constructed or recorded sysfs bytes — **the parsing is tested, the numbers are
+constructed or recorded sysfs bytes - **the parsing is tested, the numbers are
 not**. `community-reported` is someone else's on-device report.
 `unsupported` is detected and refused.
 
 Two honest consequences of that vocabulary, as of this writing: the AMD rows are
 `ci-simulated` against **constructed** fixtures, because the maintainer owns no
-AMD hardware and Strix Halo cannot be rented — see the warning at the top of
+AMD hardware and Strix Halo cannot be rented - see the warning at the top of
 `tests/test_hwinfo_amd.py`. And Apple Silicon stays `ci-simulated` until either
 someone runs the on-device check or the repo goes public and a `macos-14` CI
 runner becomes available.
@@ -56,7 +56,7 @@ python3 tools/ondevice_check.py --record   # write docs/evidence/<key>-<date>.js
 ```
 
 It refuses to record when there are hard failures, or when the machine matches no
-row — evidence from a box that fails its own checks is worse than none. Then point
+row - evidence from a box that fails its own checks is worse than none. Then point
 that row's `evidence` at the file, raise its `tier`, and run
 `python3 -m ava_bridge.platforms --sync` so both docs tables follow.
 

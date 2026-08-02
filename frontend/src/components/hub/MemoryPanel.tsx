@@ -11,8 +11,14 @@ import type { MemoryItem } from './hubApi';
 
 // Memory — everything Ava remembers long-term, readable and correctable.
 // Facts come from the learning cycle's distiller or manual entry; doc chunks
-// from uploads. Recalls that influenced a turn are in History (memory_recall).
-// Shared by Setup → Memory and the Data page, so both stay one implementation.
+// from uploads. Recalls that influenced a turn are in Data → History
+// (memory_recall).
+//
+// One home: Setup → Agent → Memory. This file used to be mounted BOTH there and
+// as a Data page tab — the same component, same props, same data, twice — which
+// left no way to tell which one you were looking at or which was authoritative.
+// The Data page keeps the store-level facts and operations (size, count, export,
+// empty) and links here for the reading. Keep it that way.
 //
 // Each row is typed by where it came from — the same "identity glyph + text +
 // quiet meta line + one visible action + ⋯ menu" grammar as a connector row, so

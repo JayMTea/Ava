@@ -23,6 +23,11 @@ export function PendingChangesBar({ onGo }: { onGo?: (t: TabId) => void }) {
 
   // Falls back to the hash when there is no tab setter, so the bar can render
   // somewhere that does not own the Hub's tab state.
+  //
+  // Bare `hub/agent` is deliberate, not an unfinished address: it is the
+  // canonical form of Agent → Runtime (hubRoute.ts keeps the default sub-tab
+  // out of the URL), which is the sub-tab holding the Apply button this bar
+  // sends you to. Spelling out `/runtime` would only get rewritten back.
   const go = () => {
     if (onGo) onGo('agent');
     else location.hash = 'hub/agent';

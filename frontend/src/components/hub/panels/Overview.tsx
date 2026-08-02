@@ -47,9 +47,10 @@ export function Overview({ onGo }: { onGo: (t: TabId) => void }) {
       {firstErr && <ResourceError r={firstErr} label="your setup status" />}
       <Panel title="Welcome" subtitle="Set up and control everything from here — no terminal required.">
         <p className="hub-note" style={{ border: 0, padding: 0, background: 'none' }}>
-          Each tab configures one piece: your <b>hardware</b>, the <b>agent</b> — its model (brain),
-          tools, and memory — the <b>connectors</b> that wire in your apps, and <b>system</b> settings
-          like self-editing governance. Changes are written to <b>ava.yaml</b> — never to source.
+          Each tab configures one piece: your <b>hardware</b> and its spend caps, the <b>agent</b>
+          — its brain, persona, skills, memory and voice — the <b>connectors</b> that wire in your
+          apps, and <b>system</b> settings like self-editing governance. Changes are written to
+          <b> ava.yaml</b> — never to source.
         </p>
       </Panel>
 
@@ -57,12 +58,12 @@ export function Overview({ onGo }: { onGo: (t: TabId) => void }) {
       <div className="ov-cards">
         {card('hardware', 'chart', 'Hardware',
           hw ? <Badge tone="accent">{hw.tier} tier</Badge> : <Badge>detecting…</Badge>,
-          hw?.gpu ? hw.gpu : 'GPU · memory · model tier')}
+          hw?.gpu ? hw.gpu : 'GPU · memory · tier · budgets')}
         {card('agent', 'bot', 'Agent',
           agent?.available ? <Badge tone="ok">{agent.name} ready</Badge>
             : agent?.enabled === false ? <Badge tone="muted">disabled</Badge>
               : <Badge tone="warn">not provisioned</Badge>,
-          engineUp ? 'model (engine up) · tools · memory' : 'model · tools · memory · sandbox')}
+          engineUp ? 'brain (engine up) · skills · memory' : 'brain · persona · skills · memory · voice')}
         {card('connectors', 'panel', 'Connectors',
           <Badge tone="accent">{enabledConns} enabled</Badge>,
           'apps Ava monitors & drives')}

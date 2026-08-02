@@ -73,6 +73,15 @@ export interface HubRoute {
   canonical: string;
   /** Set when the address belongs to another view; the caller navigates there. */
   leaveTo?: string;
+  /**
+   * The address is not Setup's at all (`#vitals`, `#data/history`, an app id).
+   *
+   * HubView stays mounted for the instant between the hash changing and
+   * App.tsx swapping the view, and its listener fires on that same event. Without
+   * this flag it would "canonicalise" `#data` to `#hub` and yank the user back —
+   * so `canonical` must never be acted on when this is set.
+   */
+  foreign?: boolean;
 }
 
 /**
@@ -96,7 +105,7 @@ export function hubHash(tab: TabId, sub: AgentSubTab = DEFAULT_SUB): string {
 export function parseHubHash(hash: string, tabIds: readonly string[]): HubRoute {
   const parts = hash.replace(/^#\/?/, '').split('/');
   if (parts[0] !== 'hub') {
-    return { tab: 'overview', sub: DEFAULT_SUB, canonical: 'hub' };
+    return { tab: 'overview', sub: DEFAULT_SUB, canonical: 'hub', foreign: true };
   }
 
   const seg = parts[1] ?? '';

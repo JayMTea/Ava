@@ -48,6 +48,11 @@ STATIC_D2: list[tuple[str, str, str]] = [
      os.path.join(ROOT, "docs", "assets", "agent-remote-runtime.svg"), "elk"),
     (os.path.join(ROOT, "docs", "assets", "architecture.d2"),
      os.path.join(ROOT, "docs", "assets", "architecture.svg"), "elk"),
+    # "What leaves your machine" — the owner-facing privacy picture. Hand-authored
+    # like the two above (no manifest, no deployment specifics), so it renders
+    # through render_static and is covered by tests/test_diagram_sync.py.
+    (os.path.join(ROOT, "docs", "assets", "egress.d2"),
+     os.path.join(ROOT, "docs", "assets", "egress.svg"), "elk"),
 ]
 # The generated services table lives in the PRIVATE dev notes (deployment-specific,
 # gitignored). The public README.md is hand-authored and app-agnostic.

@@ -156,6 +156,97 @@ def test_every_profile_selects_itself() -> None:
         f"start the right services — {offenders}")
 
 
+def test_an_accelerator_claim_never_lands_on_a_profile_that_must_start_anywhere() -> None:
+    """A service that DEMANDS a device may not run under `cpu`.
+
+    Docker never grants GPU access implicitly, so an accelerated service has to
+    declare it — `devices: [/dev/kfd]` for ROCm, a `deploy.resources.reservations`
+    entry for NVIDIA. The cost of declaring it is that the service then cannot
+    start at all on a host that cannot satisfy it.
+
+    `cpu` is the profile for every machine with no usable GPU, which is the
+    entire population it exists for. So the accelerated variants are separate
+    services (`ollama-cuda`, `ollama-rocm`) rather than a block bolted onto the
+    shared `ollama`, and this is the guard that keeps them separate — the
+    tempting one-line "just add a reservation to ollama" breaks every GPU-less
+    install, and it breaks it at `docker compose up`, before any log exists.
+    """
+    compose = _compose()
+    offenders: list[str] = []
+    for name, svc in (compose.get("services") or {}).items():
+        reserves = [
+            d for d in (((svc.get("deploy") or {}).get("resources") or {})
+                        .get("reservations") or {}).get("devices") or []
+        ]
+        claims = bool(svc.get("devices")) or bool(reserves) or bool(svc.get("runtime"))
+        if not claims:
+            continue
+        declared = svc.get("profiles")
+        if not declared:
+            offenders.append(f"{name}: claims a device but declares no profiles, "
+                             "so it starts under every one of them")
+        elif "cpu" in declared:
+            offenders.append(f"{name}: claims a device and runs under the cpu profile")
+    assert not offenders, (
+        "these services demand hardware the cpu profile's machines do not have, "
+        "so compose refuses to start them and the install dies before the app "
+        f"ever runs — {offenders}")
+
+
+def test_every_ollama_profile_has_its_own_service_and_shares_the_model_cache() -> None:
+    """Switching accelerators must not re-download the weights.
+
+    `ollama`, `ollama-cuda` and `ollama-rocm` are three services because their
+    device declarations differ, not because their model stores do. Pointing them
+    at different volumes would make `cpu -> cuda` a multi-GB re-download of
+    bytes already on disk, which is the kind of cost nobody attributes to the
+    profile switch that caused it.
+    """
+    compose = _compose()
+    services = compose.get("services") or {}
+    ollamas = {n: s for n, s in services.items()
+               if str(s.get("image", "")).startswith("ollama/ollama")}
+    assert len(ollamas) >= 2, (
+        "expected at least the shared `ollama` service and one accelerated "
+        f"variant, found {sorted(ollamas)}")
+
+    stores = {n: [v for v in (s.get("volumes") or []) if "/root/.ollama" in str(v)]
+              for n, s in ollamas.items()}
+    empty = sorted(n for n, v in stores.items() if not v)
+    assert not empty, f"these Ollama services mount no model store: {empty}"
+    distinct = {tuple(v) for v in stores.values()}
+    assert len(distinct) == 1, (
+        "the Ollama services mount different model stores, so switching profiles "
+        f"re-downloads weights that are already on disk — {stores}")
+
+
+def test_the_bridge_is_told_the_host_gpu_it_cannot_see() -> None:
+    """install.sh measures the host GPU; the bridge container must receive it.
+
+    Compose reserves the device for the inference service only, so nothing in the
+    `ava` container can discover the card — its own probes correctly find none.
+    The measurement therefore has to arrive as a DECLARED value or the truth
+    never crosses the boundary, which is why Setup → Hardware could only ever say
+    "no GPU under Docker" on a machine with a working one.
+    """
+    ava = (_compose().get("services") or {}).get("ava") or {}
+    env = ava.get("environment") or {}
+    missing = [k for k in ("AVA_DECLARED_HOST_GPU_NAME",
+                           "AVA_DECLARED_HOST_GPU_VRAM_MIB") if k not in env]
+    assert not missing, (
+        "the ava service no longer receives the host GPU deploy/install.sh "
+        f"measured, so the container cannot report it at all — {missing}")
+
+    install = (ROOT / "deploy" / "install.sh").read_text(encoding="utf-8")
+    unwritten = [k for k in ("AVA_DECLARED_HOST_GPU_NAME",
+                             "AVA_DECLARED_HOST_GPU_VRAM_MIB")
+                 if f"{k}=%s" not in install]
+    assert not unwritten, (
+        "deploy/install.sh no longer writes these into its managed .env block, "
+        "so compose interpolates the empty default and the reading it took on "
+        f"the host dies as a shell local again — {unwritten}")
+
+
 def test_the_bridge_port_is_published_on_loopback_only() -> None:
     ava = (_compose().get("services") or {}).get("ava") or {}
     ports = [str(p) for p in (ava.get("ports") or [])]

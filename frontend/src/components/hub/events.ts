@@ -2,8 +2,8 @@ import type { Tone } from './ui/Tile';
 
 // Shared audit-event typing — a glyph + human label + tone per backend event
 // kind, so the ledger reads like the connectors/memory lists instead of raw
-// event names. Used by both Setup → History and the Data → Logs audit view, so
-// the same event looks the same in both places. Tone: accent = the agent
+// event names. Used by Data → History (the ledger) and the Data → Logs tails,
+// so the same event looks the same wherever it surfaces. Tone: accent = the agent
 // changed something, warn/err = permission or destructive, ok = a normal turn,
 // muted = passive/system. Unknown kinds fall back to a humanised label.
 export const EVENT_META: Record<string, { icon: string; label: string; tone: Tone }> = {

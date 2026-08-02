@@ -25,5 +25,5 @@ What we decided to do, stated plainly.
 
 ## Alternatives considered
 
-- **<Alternative A>** — why not.
-- **<Alternative B>** — why not.
+- **<Alternative A>** - why not.
+- **<Alternative B>** - why not.

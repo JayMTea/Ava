@@ -96,8 +96,9 @@ def test_every_ollama_backed_profile_pulls_its_model() -> None:
         "through Ollama too and will finish with an empty model store")
 
     # Each Ollama-backed profile must name the compose service that holds ITS
-    # store; `ollama` does not exist under the rocm profile.
-    for profile, service in (("cpu", "ollama"), ("rocm", "ollama-rocm")):
+    # store; `ollama` does not exist under the rocm or cuda profiles.
+    for profile, service in (("cpu", "ollama"), ("cuda", "ollama-cuda"),
+                             ("rocm", "ollama-rocm")):
         env = (root / "deploy" / "profiles" / f"{profile}.env").read_text(encoding="utf-8")
         if "AVA_BACKEND_ENGINE=ollama" not in env:
             continue          # profile stopped using Ollama; nothing to pull

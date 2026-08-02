@@ -174,7 +174,7 @@ def _voiceprint(*, redact: bool) -> dict:
         "bytes": sum(p.stat().st_size for p in present),
         "mtime": max((p.stat().st_mtime for p in present), default=None),
         "special_category": "GDPR Art. 9 biometric data",
-        "destruction": "Setup → Voice → Delete voiceprint (docs/BIOMETRICS.md)",
+        "destruction": "Setup → Agent → Voice → Delete voiceprint (docs/BIOMETRICS.md)",
     }
     if redact or not present:
         out["digest"] = None

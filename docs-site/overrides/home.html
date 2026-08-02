@@ -1,8 +1,8 @@
 {#-
   Landing page template (used by the homepage only, via `template: home.html`
-  front matter in docs-site/home.md). Renders a full-bleed hero, feature grid,
-  and dashboard screenshot in the theme's empty `hero` block, then the page's
-  own markdown (quickstart, architecture) as normal typeset content below.
+  front matter in docs-site/home.md). Renders a full-bleed hero, the tour reel,
+  and the feature grid in the theme's empty `hero` block, then the page's own
+  markdown (learn more, quickstart) as normal typeset content below.
   Styles live in docs-site/stylesheets/extra.css under "Landing page".
 
   Every claim on this page is code-backed. If a feature changes, fix the copy
@@ -17,7 +17,7 @@
     <div class="md-grid">
       {#- The wordmark stands in for the old "Meet Ava" eyebrow: it says the
           same thing in the brand's own letterforms. Masked, not <img>, so it
-          inks from currentColor and survives the dark scheme — see
+          inks from currentColor and survives the dark scheme - see
           .ava-wordmark in stylesheets/extra.css. -#}
       <span class="ava-wordmark ava-hero__mark" role="img" aria-label="Ava"></span>
       <h1>Your AI. Your hardware.</h1>
@@ -29,20 +29,54 @@
       <p class="ava-hero__kicker">
         Free and open source. Runs any model, local or cloud.
       </p>
-      {#- ONE primary action. The old second button ("Why Ava?") competed with it
-          and sent the least-committed visitor into the deepest page on the site;
-          it is the quiet link below now. The note is deliberate self-selection:
-          it tells a non-developer the price of entry before they spend a click,
-          and tells a developer the install is trivial. -#}
+      {#- ONE primary action, plus one no-commitment action. The old second
+          button ("Why Ava?") competed with the primary and sent the
+          least-committed visitor into the deepest page on the site; it is the
+          quiet link below now. "Watch the tour" is not that: it is an in-page
+          anchor to #see-it, which now sits directly under this hero, so the
+          visitor who is not ready for a shell command has somewhere to go that
+          is not a document. Ghost styling keeps it visibly secondary. The note
+          is deliberate self-selection: it tells a non-developer the price of
+          entry before they spend a click, and tells a developer the install is
+          trivial. -#}
       <div class="ava-hero__actions">
         {#- deploy/README.md builds to deploy/ (MkDocs maps README.md to the
             directory index), so link the directory, not deploy/README/. -#}
         <a class="ava-btn ava-btn--primary" href="{{ 'deploy/' | url }}">Get started</a>
+        <a class="ava-btn ava-btn--ghost" href="#see-it">Watch the tour</a>
       </div>
       <p class="ava-hero__note">
         One command to install. Everything after that is browser setup.
         <a href="{{ 'overview/' | url }}">Why Ava?</a>
       </p>
+    </div>
+  </section>
+
+  {#- The tour sits directly under the hero, not below three cards: showing the
+      product beats describing it, and the hero's second button anchors here.
+      #see-it is that anchor - renaming the id breaks the button. -#}
+  <section class="ava-shot" id="see-it">
+    <div class="md-grid">
+      <h2>See it do something real</h2>
+      <p>A plain-language question, the apps Ava drives to answer it, and what a
+      whole week of that costs. Under a minute.</p>
+      <div class="ava-media">
+        {#- Captions, not "sound on". The old copy told the viewer to unmute,
+            which is the one instruction a muted-by-default browser and a
+            deaf viewer both cannot follow. docs/assets/ava-tour.vtt is staged
+            by sync.py (it is in ASSETS - an unlisted .vtt 404s silently and
+            looks exactly like a video with no captions). -#}
+        <video class="ava-reel" controls playsinline preload="metadata"
+               poster="{{ 'docs/assets/reel-poster.png' | url }}"
+               aria-label="A walkthrough of Ava: a plain-language question answered from your calendar and the forecast, the connected apps in the sidebar, push-to-talk voice, and the Vitals dashboard showing zero spend for the week">
+          <track kind="captions" srclang="en" label="English" default src="{{ 'docs/assets/ava-tour.vtt' | url }}">
+          <source src="{{ 'docs/assets/ava-tour.mp4' | url }}" type="video/mp4">
+          Your browser can't play video.
+          <a href="{{ 'docs/assets/ava-tour.mp4' | url }}">Download the walkthrough</a>.
+        </video>
+        <button class="ava-expand" type="button" data-expand-target=".ava-reel"
+                aria-label="Expand video" title="Expand">&#10530;</button>
+      </div>
     </div>
   </section>
 
@@ -52,49 +86,36 @@
         {#- Three cards, not four: the grid is three columns wide, so a fourth
             card orphaned itself onto a second row. What the dropped two claimed
             still ships and is still claimed, just not here. Voice moved into the
-            hero tagline. Self-editing moved into the observability card below,
-            where "approvals" already lived. "MCP, but governed" stays folded
-            into the first card (the acronym is kept so a developer still scans
-            it, but it no longer spends a whole card on a term a novice cannot
-            read), and "Private by default" stays in the hero. -#}
+            hero tagline, "Private by default" stays in the hero, and
+            self-editing moved into the observability card, where "approvals"
+            already lived.
+
+            Outcome first, jargon last or gone: these bodies ran 127 words and
+            opened on "egress policy" and "Tokens/sec, latency", which is the
+            vocabulary of someone auditing Ava, not someone deciding whether to
+            run it. They are ~75 words now. MCP is still named once, at the END
+            of a sentence a novice can already read, so a developer still scans
+            it. Nothing was demoted from claim to vibe: the tokens/sec-and-cost
+            detail is Vitals' page, the fence around a tool server is ADR 0003,
+            and both are one click away. -#}
         <li>
           <h3>Drives the apps you already run</h3>
           <p>Point Ava at an app and it becomes a tab: Ava watches it, charts
-          it, and calls its actions. Any MCP server plugs in the same way,
-          fenced behind an auto-generated egress policy.</p>
+          it, acts in it. MCP tool servers plug in the same way, each one
+          network-fenced.</p>
         </li>
         <li>
           <h3>You can see everything it does</h3>
-          <p>Tokens/sec, latency, cost and energy, live jobs, alerts. Even the
-          changes Ava writes to its own source land as git commits that wait on
-          your approval. If you can't observe it, you can't trust it.</p>
+          <p>Watch it work: speed, cost and energy on screen. Changes Ava writes
+          to its own code wait for your approval as git commits.</p>
         </li>
         <li>
           <h3>Personalized by you, not for you</h3>
-          <p>Ava ships with no personality: you write how it talks. It learns
-          what matters from your chats and your files, recalls it when relevant,
-          and logs every recall. Read, correct or delete any of it.</p>
+          <p>Ava ships with no personality. You write how it talks. It learns
+          from your chats and files, and you can read, correct or delete any of
+          it.</p>
         </li>
       </ul>
-    </div>
-  </section>
-
-  <section class="ava-shot">
-    <div class="md-grid">
-      <h2>See it do something real</h2>
-      <p>A plain-language question, the apps Ava drives to answer it, and what a
-      whole week of that costs. Under a minute. Press play, sound on.</p>
-      <div class="ava-media">
-        <video class="ava-reel" controls playsinline preload="metadata"
-               poster="{{ 'docs/assets/reel-poster.png' | url }}"
-               aria-label="A walkthrough of Ava: a plain-language question answered from your calendar and the forecast, the connected apps in the sidebar, push-to-talk voice, and the Vitals dashboard showing zero spend for the week">
-          <source src="{{ 'docs/assets/ava-tour.mp4' | url }}" type="video/mp4">
-          Your browser can't play video.
-          <a href="{{ 'docs/assets/ava-tour.mp4' | url }}">Download the walkthrough</a>.
-        </video>
-        <button class="ava-expand" type="button" data-expand-target=".ava-reel"
-                aria-label="Expand video" title="Expand">&#10530;</button>
-      </div>
     </div>
   </section>
 

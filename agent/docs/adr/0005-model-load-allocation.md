@@ -8,8 +8,8 @@
 
 Ava can sense hardware and decide what fits, but nothing acts on the decision.
 `ava_bridge/hwinfo.py` reads the pool, `ava_bridge/model_fit.py` ranks backends
-against it — and says so about itself: *"it does not launch, size, or quantize
-engines (nothing in this repo does — the vLLM servers are pre-started)."*
+against it - and says so about itself: *"it does not launch, size, or quantize
+engines (nothing in this repo does - the vLLM servers are pre-started)."*
 
 That gap has a cost. `model_fit.fits_now(profile, free_gb, assume_loaded=False)`
 is a complete cold-load admission predicate: implemented, unit-tested, and served
@@ -56,15 +56,15 @@ Add `ava_bridge/alloc/`: a **lease broker over declared models**.
    lease locks; "is this model paused" is a driver probe; "who owns this eviction"
    is who holds that model's `flock`. The kernel releasing locks on process death
    *is* the crash-recovery mechanism, so no timeout heuristic is needed to detect
-   a dead holder — and two owners of one eviction becomes unrepresentable.
+   a dead holder - and two owners of one eviction becomes unrepresentable.
 5. **Library core plus optional daemon.** The importable core is complete on its
    own; the periodic reconciler holds no authority and runs in-process. Nothing
    new to install.
-6. **The allocator may deny, degrade, or no-op — never block, loop, or lie.** A
+6. **The allocator may deny, degrade, or no-op - never block, loop, or lie.** A
    global action budget quiesces it into a pure no-op if it ever thrashes.
 7. **A remote acquire answers before the room exists.** `POST /lease` with
-   `wait: false` returns the verdict — known immediately, since admission comes from
-   the plan rather than from executing it — as `state: pending`, runs the release on
+   `wait: false` returns the verdict - known immediately, since admission comes from
+   the plan rather than from executing it - as `state: pending`, runs the release on
    a worker thread, and the caller polls `GET /lease/<id>`. Holding the request open
    instead delegates the question *"has coordination failed?"* to the client's socket
    timeout, a number chosen with no knowledge of what it is waiting for; when it fires
@@ -74,7 +74,7 @@ Add `ava_bridge/alloc/`: a **lease broker over declared models**.
 
 Portability is a hard requirement, not a later concern. All memory reads go
 through the `hwinfo` HAL; unreadable memory means *unknown*, which means **do not
-gate** — never zero. An absent `alloc:` block means every lease is granted and
+gate** - never zero. An absent `alloc:` block means every lease is granted and
 nothing is ever stopped, i.e. exactly the behaviour that shipped before this
 layer. A fork on a discrete GPU, on Apple Silicon, on CPU only, or without a
 container runtime gets correct-but-coarser behaviour, never a regression.
@@ -102,7 +102,7 @@ container runtime gets correct-but-coarser behaviour, never a regression.
   cannot provide the `flock` semantics the design relies on. Both are detected and
   reported rather than assumed.
 - Actuation is convergent, not transactional. A successor to a dead actor
-  re-probes and converges rather than resuming a half-finished action — correct,
+  re-probes and converges rather than resuming a half-finished action - correct,
   but it means an action may be attempted more than once.
 - Releasing a model has a restore cost, so a poorly-declared priority can trade
   throughput for latency. Mitigated by coalescing and an adaptive cooldown.
@@ -113,7 +113,7 @@ container runtime gets correct-but-coarser behaviour, never a regression.
 - `hwinfo.py` still requires three edit sites to add an accelerator, and its
   docstring references a provider class that does not exist. A
   `hwinfo_providers/` refactor would make that one file, and is tracked
-  separately — the alloc layer depends on exactly one hardware function, so it
+  separately - the alloc layer depends on exactly one hardware function, so it
   does not block.
 - `RouterState.ordered_backends()` unconditionally re-pins the configured primary
   to the front, which silently defeats a shed verdict. A real bug, but on the
@@ -121,13 +121,13 @@ container runtime gets correct-but-coarser behaviour, never a regression.
 
 ## Alternatives considered
 
-- **Advisory only — compute fit, report, never act.** Zero risk, but leaves the
+- **Advisory only - compute fit, report, never act.** Zero risk, but leaves the
   operator monitoring memory by hand, which is the problem.
-- **Full lifecycle owner — the allocator is the only thing allowed to start a
+- **Full lifecycle owner - the allocator is the only thing allowed to start a
   model.** Maximum control, but it becomes a single point of failure for the box
   booting at all, and it cannot govern models it did not launch.
 - **Per-application coordination** (the status quo: each app pauses the engine it
-  knows about). Rejected: it is exactly how the restart storm happened — policy at
+  knows about). Rejected: it is exactly how the restart storm happened - policy at
   call sites is opt-out-by-default for any new call site, and two applications
   cannot agree on who owns the pause.
 - **Cap the engine's memory fraction so everything cofits.** Necessary hygiene and

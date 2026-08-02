@@ -150,7 +150,7 @@ def test_redact_biometrics_withholds_it_and_records_that_it_did() -> None:
 
 def test_the_voiceprint_entry_points_at_the_destruction_path() -> None:
     vp = attest.build(now=0.0)["artifacts"]["stores"]["data"]["stores"]["voiceprint"]
-    assert "Setup → Voice" in vp["destruction"]
+    assert "Agent → Voice" in vp["destruction"]
     assert vp["special_category"].startswith("GDPR Art. 9")
 
 

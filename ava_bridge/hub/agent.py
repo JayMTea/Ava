@@ -160,7 +160,7 @@ def agent_provision(scope: str = "all"):
     # older committed frontend/dist reads those keys, and an absent key would be
     # a crash where an empty list is merely a build that cannot show progress.
     return {"ok": True, "job_id": snap["id"], "scope": scope, "status": "running",
-            "steps": [], "detail": "applying changes — watch Setup → Agent"}
+            "steps": [], "detail": "applying changes — watch Setup → Agent → Runtime"}
 
 
 @router.get("/agent/provision/status")

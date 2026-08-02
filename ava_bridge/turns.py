@@ -267,7 +267,7 @@ def _tooling_note(direct: bool) -> str:
                 "active, so you have NO app tools this turn"
                 + (f" (connected apps: {apps})" if apps else "")
                 + ". If the question needs an app's data or actions, say so "
-                "plainly and point the user to Setup → Agent to provision the "
+                "plainly and point the user to Setup → Agent → Runtime to provision the "
                 "runtime. Never invent tool results.]\n\n")
     if not missing:
         return creds + _capabilities_note()

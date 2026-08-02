@@ -3,15 +3,19 @@ import { useResource } from '../hooks';
 import { hub } from '../hubApi';
 import { ResourceState } from '../ui/ResourceState';
 import { Tile } from '../ui/Tile';
+import { BudgetsPanel } from './BudgetsPanel';
 
 // Hardware — detected compute + the recommended model tier it implies (the tier
-// is the headline, since it drives which models Ava suggests on the Agent tab).
+// is the headline, since it drives which models Ava suggests under Agent), then
+// the spend and energy caps. Budgets used to be its own tab; a cap reads better
+// beside the machine that spends it than as a peer of Persona and Voice.
 export function HardwarePanel() {
   const hwRes = useResource(() => hub.hardware());
 
   return (
+    <>
     <Panel title="Your hardware"
-      subtitle="Detected automatically — it sets the recommended model tier. Pick and download the model itself under the Agent tab.">
+      subtitle="Detected automatically — it sets the recommended model tier. Pick and download the model itself under Agent → Brain.">
       <ResourceState r={hwRes} label="your hardware"
         empty={<EmptyState text="Detecting hardware…" />}>
         {(hw) => (
@@ -31,11 +35,16 @@ export function HardwarePanel() {
             <div className="hub-note" style={{ marginTop: 14 }}>{hw.note}</div>
           )}
           <div className="hub-note" style={{ marginTop: 14 }}>
-            The tier sets which models Ava recommends. Pick and download one under the <b>Agent</b> tab.
+            The tier sets which models Ava recommends. Pick and download one under
+            <b> Agent → Brain</b>.
           </div>
         </>
         )}
       </ResourceState>
     </Panel>
+
+    <div className="hub-section" />
+    <BudgetsPanel />
+    </>
   );
 }

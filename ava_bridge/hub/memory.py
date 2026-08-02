@@ -1,4 +1,6 @@
-"""Setup -> Memory panel: what Ava remembers, and forgetting it.
+"""Setup -> Agent -> Memory panel: what Ava remembers, and forgetting it.
+
+The route path stays /api/hub/memory — that is the API surface, not the page.
 
 Reads and edits the memory store's entries. Deletions are audited, because
 "forget this" is a claim the owner should be able to verify after the fact.

@@ -1,15 +1,18 @@
 import { useState } from 'react';
-import { Icon } from '../../../lib/icons';
-import { EmptyState, Panel, ago } from '../../dashboard/layout';
-import { eventMeta, humanize } from '../events';
-import { useResource } from '../hooks';
-import { hub } from '../hubApi';
-import type { AuditEvent } from '../hubApi';
-import { Legend } from '../ui/Legend';
-import { Tile } from '../ui/Tile';
+import { Icon } from '../../lib/icons';
+import { EmptyState, Panel, ago } from '../dashboard/layout';
+import { eventMeta, humanize } from '../hub/events';
+import { useResource } from '../hub/hooks';
+import { hub } from '../hub/hubApi';
+import type { AuditEvent } from '../hub/hubApi';
+import { Legend } from '../hub/ui/Legend';
+import { Tile } from '../hub/ui/Tile';
 
-// History — the flight recorder (durable audit ledger). Event typing (glyph +
-// label + tone per kind) is shared with the Data → Logs view via hub/events.ts.
+// History — the flight recorder (durable audit ledger). Was Setup → History,
+// which rendered the same ledger the Data → Logs "Audit" source did: one
+// humanised, one a raw key=value dump, each of their footers pointing at the
+// other as the real home. It lives here now, and Logs no longer carries audit.
+// Event typing (glyph + label + tone per kind) is still shared via hub/events.ts.
 // The kind-specific facts (everything except the label + timestamp), joined for
 // the quiet meta line under the title.
 function eventDetail(e: AuditEvent): string {
@@ -61,7 +64,7 @@ const HISTORY_CATS: { id: string; label: string; kinds: string[] }[] = [
   { id: 'system', label: 'System', kinds: ['route', 'job', 'egress', 'data_export', 'data_maintenance'] },
 ];
 
-export function HistoryPanel() {
+export function HistoryTab() {
   const [cat, setCat] = useState('');
   const { data: audit, error: err, reload: load } = useResource(() => hub.audit(300));
   const events = audit?.events ?? null;
@@ -77,9 +80,9 @@ export function HistoryPanel() {
       subtitle="A durable, append-only record of everything the agent did. Survives restarts and the agent can't rewrite it (logs/audit.jsonl)."
       right={<button type="button" className="hub-btn ghost sm" onClick={load}><Icon name="refresh" />Refresh</button>}
     >
-      <div className="hub-tabs" style={{ marginBottom: 14, borderBottom: 0 }}>
+      <div className="hub-subtabs" style={{ marginBottom: 14 }}>
         {HISTORY_CATS.map((f) => (
-          <button type="button" key={f.id} className={'hub-tab' + (cat === f.id ? ' active' : '')} onClick={() => setCat(f.id)}>
+          <button type="button" key={f.id} className={'hub-subtab' + (cat === f.id ? ' active' : '')} onClick={() => setCat(f.id)}>
             {f.label}{events && <span className="hist-tab-n">{count(f)}</span>}
           </button>
         ))}
@@ -119,7 +122,7 @@ export function HistoryPanel() {
           { icon: 'lock', term: 'Permissions', desc: 'Connector grants, revokes, and one-off approvals.' },
           { icon: 'activity', term: 'System', desc: 'Intent routing, media jobs, and data export / maintenance.' },
         ]}
-        foot={<div>Append-only — nothing here can be altered after the fact. The full audit with export lives on the <b>Data</b> page.</div>}
+        foot={<div>Append-only — nothing here can be altered after the fact. The raw file, its size on disk and a whole-archive export are on the <b>Overview</b> and <b>Maintenance</b> tabs.</div>}
       />
     </Panel>
   );

@@ -1,23 +1,20 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Icon } from '../../lib/icons';
-import { MemoryPanel } from './MemoryPanel';
 import { type TabId } from './shared';
+import { DEFAULT_SUB, hubHash, parseHubHash } from './hubRoute';
+import type { AgentSubTab, HubRoute } from './hubRoute';
 import { useResource } from './hooks';
 import { Overview } from './panels/Overview';
 import { HardwarePanel } from './panels/HardwarePanel';
 import { AgentPanel } from './panels/AgentPanel';
-import { VoicePanel } from './panels/VoicePanel';
-import { PersonaPanel } from './panels/PersonaPanel';
 import { BrandingPanel } from './panels/BrandingPanel';
 import { useBrandName } from '../../lib/brandContext';
-import { BudgetsPanel } from './panels/BudgetsPanel';
-import { HistoryPanel } from './panels/HistoryPanel';
 import { SystemPanel } from './panels/SystemPanel';
 import { ConnectorsPanel } from './panels/ConnectorsPanel';
 import { hub } from './hubApi';
 import type { PendingApproval } from './hubApi';
 import { PendingChangesBar } from './PendingChangesBar';
-import { tabPending } from './provisionView';
+import { agentSubPending, tabPending } from './provisionView';
 import { useProvisionState } from '../../hooks/useProvisionState';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -78,38 +75,26 @@ function ApprovalsBanner() {
 // Shared bits
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Six tabs, down from eleven. Persona, Voice and Memory sat here as peers of
+// Agent even though they ARE the agent — they are now its sub-tabs. Budgets
+// merged into Hardware (a cap belongs beside the machine that spends it) and
+// History moved to Data, which already rendered the same audit ledger.
 const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: 'overview', label: 'Overview', icon: 'gauge' },
   { id: 'hardware', label: 'Hardware', icon: 'chart' },
   { id: 'agent', label: 'Agent', icon: 'bot' },
   { id: 'connectors', label: 'Connectors', icon: 'panel' },
-  { id: 'voice', label: 'Voice', icon: 'mic' },
-  { id: 'persona', label: 'Persona', icon: 'bot' },
   { id: 'branding', label: 'Branding', icon: 'image' },
-  { id: 'memory', label: 'Memory', icon: 'db' },
-  { id: 'budgets', label: 'Budgets', icon: 'chart' },
-  { id: 'history', label: 'History', icon: 'activity' },
   { id: 'system', label: 'System', icon: 'sliders' },
 ];
 
-// The Hub sub-tab is kept in the URL hash as a second segment (#hub/<tab>) so a
-// refresh or a bookmark lands back where you were. App.tsx's top-level router
-// reads only the FIRST segment (`viewFromHash` does split('/')[0]), so this
-// segment is invisible to it — no coupling, no fight over the hash.
+// The Hub sub-tab is kept in the URL hash as a second segment (#hub/<tab>), and
+// Agent's own section as a third (#hub/agent/<sub>), so a refresh or a bookmark
+// lands back where you were. App.tsx's top-level router reads only the FIRST
+// segment (`viewFromHash` does split('/')[0]), so both are invisible to it — no
+// coupling, no fight over the hash. The arithmetic itself lives in hubRoute.ts
+// so vitest can cover the retired addresses; this file just applies it.
 const TAB_IDS = TABS.map((t) => t.id);
-
-function tabFromHash(): TabId {
-  if (typeof window === 'undefined') return 'overview';
-  const parts = window.location.hash.replace(/^#\/?/, '').split('/');
-  if (parts[0] !== 'hub') return 'overview';
-  return (TAB_IDS as string[]).includes(parts[1]) ? (parts[1] as TabId) : 'overview';
-}
-
-function writeTabHash(t: TabId): void {
-  // Overview is the default, so keep its URL clean as plain #hub.
-  const next = t === 'overview' ? 'hub' : `hub/${t}`;
-  if (window.location.hash.replace(/^#\/?/, '') !== next) window.location.hash = next;
-}
 
 // `docker` comes from /api/hub/system, which already reports the runtime — the
 // banner used to say "restart Ava" and name no command, leaving the user to
@@ -134,12 +119,41 @@ function RestartBanner({ show, docker }: { show: boolean; docker?: boolean }) {
 // Main
 // ─────────────────────────────────────────────────────────────────────────────
 export function HubView() {
-  // Tab lives in the URL hash so it survives a refresh (#hub/<tab>).
-  const [tab, setTabState] = useState<TabId>(() => tabFromHash());
-  const setTab = useCallback((t: TabId) => { setTabState(t); writeTabHash(t); }, []);
+  // Tab and Agent's sub-tab both live in the URL hash so they survive a refresh.
+  const [route, setRoute] = useState<HubRoute>(() => parseHubHash(
+    typeof window === 'undefined' ? '' : window.location.hash, TAB_IDS));
+  const { tab, sub } = route;
+
+  const go = useCallback((t: TabId, s: AgentSubTab = DEFAULT_SUB) => {
+    const next = hubHash(t, s);
+    setRoute({ tab: t, sub: s, canonical: next });
+    if (window.location.hash.replace(/^#\/?/, '') !== next) window.location.hash = next;
+  }, []);
+  const setTab = useCallback((t: TabId) => go(t), [go]);
+  const setSub = useCallback((s: AgentSubTab) => go('agent', s), [go]);
+
   // Back/forward and manual hash edits move the tab too.
   useEffect(() => {
-    const onHash = () => setTabState(tabFromHash());
+    const onHash = () => {
+      const r = parseHubHash(window.location.hash, TAB_IDS);
+      // Someone navigated away from Setup entirely. We are still mounted for the
+      // instant before App.tsx swaps the view, and this listener fires on that
+      // same event — so touching the hash here would drag them straight back.
+      if (r.foreign) return;
+      // A tab that moved to another VIEW (History -> Data) is not ours to
+      // resolve — segment 0 belongs to App.tsx. Hand it over and stop.
+      if (r.leaveTo) { window.location.replace(`#${r.leaveTo}`); return; }
+      setRoute(r);
+      // A retired address (#hub/persona) or a junk sub-tab resolves to a
+      // DIFFERENT url than the one in the bar. Rewrite with replaceState, never
+      // by assigning location.hash: assigning pushes a history entry, so Back
+      // would return to #hub/persona and redirect again — a Back button that
+      // looks broken. replaceState fires no hashchange, so this cannot loop.
+      if (window.location.hash.replace(/^#\/?/, '') !== r.canonical) {
+        window.history.replaceState(null, '', `#${r.canonical}`);
+      }
+    };
+    onHash();  // canonicalise the address we LOADED on, not just later ones
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
@@ -153,11 +167,15 @@ export function HubView() {
   // deliberately silent: the banner simply omits the command rather than
   // becoming an error the user cannot act on.
   const { data: sys } = useResource(() => hub.system());
-  // A tab badge counts only what THAT tab owns, so one persona edit does not
-  // light up two tabs and read as two changes. Suppressed while a run is in
-  // flight: counts ticking down mid-deploy just flicker.
+  // A tab badge counts only what THAT tab owns, so one edit does not light up
+  // two tabs and read as two changes. Persona now lives inside Agent, so it
+  // rolls up into the Agent badge and reappears split across the sub-tab bar —
+  // the two must agree, and provisionView.test.ts asserts the sum. Suppressed
+  // while a run is in flight: counts ticking down mid-deploy just flicker.
   const { state: prov, job: provJob } = useProvisionState();
-  const tabBadges = provJob?.status === 'running' ? {} : tabPending(prov);
+  const running = provJob?.status === 'running';
+  const tabBadges = running ? {} : tabPending(prov);
+  const subBadges = running ? {} : agentSubPending(prov);
 
   return (
     <div className="hub view-scroll">
@@ -202,14 +220,11 @@ export function HubView() {
 
         {tab === 'overview' && <Overview onGo={setTab} />}
         {tab === 'hardware' && <HardwarePanel />}
-        {tab === 'agent' && <AgentPanel onRestart={notifyRestart} />}
+        {tab === 'agent' && (
+          <AgentPanel onRestart={notifyRestart} sub={sub} onSub={setSub} badges={subBadges} />
+        )}
         {tab === 'connectors' && <ConnectorsPanel />}
-        {tab === 'voice' && <VoicePanel onRestart={notifyRestart} />}
-        {tab === 'persona' && <PersonaPanel />}
         {tab === 'branding' && <BrandingPanel />}
-        {tab === 'memory' && <MemoryPanel />}
-        {tab === 'budgets' && <BudgetsPanel />}
-        {tab === 'history' && <HistoryPanel />}
         {tab === 'system' && <SystemPanel onRestart={notifyRestart} />}
       </div>
     </div>

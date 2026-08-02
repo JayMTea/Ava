@@ -8,7 +8,7 @@ export type RangeKey = 'day' | 'week' | 'month' | '3month' | 'year' | '5year';
 
 export interface RangeDef {
   key: RangeKey;
-  label: string;        // selector chip text
+  label: string;        // menu option + panel subtitle text
   since: string;        // API window, e.g. '7d' (m/h/d units)
   bucket: string;       // API aggregation step, e.g. '1h'
   pollMs: number;       // live-refresh cadence for this range
@@ -36,17 +36,17 @@ export const RANGES: RangeDef[] = [
     tip: (t) => fmt(t, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit' }),
   },
   {
-    key: '3month', label: '3M', since: '90d', bucket: '1d', pollMs: 60000,
+    key: '3month', label: '3 months', since: '90d', bucket: '1d', pollMs: 60000,
     tick: (t) => fmt(t, { month: 'short', day: 'numeric' }),
     tip: (t) => fmt(t, { month: 'short', day: 'numeric', year: 'numeric' }),
   },
   {
-    key: 'year', label: '1Y', since: '365d', bucket: '1d', pollMs: 60000,
+    key: 'year', label: '1 year', since: '365d', bucket: '1d', pollMs: 60000,
     tick: (t) => fmt(t, { month: 'short' }),
     tip: (t) => fmt(t, { month: 'short', day: 'numeric', year: 'numeric' }),
   },
   {
-    key: '5year', label: '5Y', since: '1825d', bucket: '7d', pollMs: 60000,
+    key: '5year', label: '5 years', since: '1825d', bucket: '7d', pollMs: 60000,
     tick: (t) => fmt(t, { month: 'short', year: '2-digit' }),
     tip: (t) => fmt(t, { month: 'short', year: 'numeric' }),
   },

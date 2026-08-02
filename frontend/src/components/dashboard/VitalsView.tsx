@@ -178,9 +178,11 @@ export function VitalsView() {
 
       {/* Row: inference throughput + model share */}
       <div className="db-grid db-grid-2">
+        {/* The range is no longer repeated in the subtitle: the picker states it
+            plainly two inches to the right, and the header needs the width. */}
         <Panel title={<>Inference throughput <InfoTip text={METRICS.throughputSeries} label="Inference throughput" /></>}
-          subtitle={`tokens/sec by model · ${tr.label}`}
-          right={<RangeSelector value={tokRange} onChange={setTokRange} />}>
+          subtitle="tokens/sec by model"
+          right={<RangeSelector value={tokRange} onChange={setTokRange} label="Inference throughput" />}>
           {tokSeries.loading ? <Skeleton /> :
             tokSeries.data && tokSeries.data.points.length ?
               <TimeSeries points={tokSeries.data.points} series={tokSeries.data.series} unit=""
@@ -243,15 +245,13 @@ export function VitalsView() {
 
       {/* Hardware */}
       <Panel title={<>Hardware <InfoTip text={METRICS.hardwareSeries} label="Hardware telemetry" /></>}
-        subtitle={`live device telemetry · ${hr.label}`}
-        right={
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {lh?.gpu.power != null && (
-              <span className="db-panel-right-note">{Math.round(lh.gpu.power)} W</span>
-            )}
-            <RangeSelector value={hwRange} onChange={setHwRange} />
-          </div>
-        }>
+        subtitle="live device telemetry"
+        right={<>
+          {lh?.gpu.power != null && (
+            <span className="db-panel-right-note">{Math.round(lh.gpu.power)} W</span>
+          )}
+          <RangeSelector value={hwRange} onChange={setHwRange} label="Hardware" />
+        </>}>
         <div className="db-gauges">
           <Gauge value={lh?.gpu.util ?? null} label="GPU util" help={METRICS.gpuUtil} />
           <Gauge value={lh?.gpu.temp ?? null} label="GPU temp" unit="°" max={100} warnAt={78} critAt={88} help={METRICS.gpuTemp} />

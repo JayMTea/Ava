@@ -1,16 +1,38 @@
 # Ava Connector SDK
 
-> Add your own app to Ava by dropping in a folder, with **no edits to Ava's
-> code**. A connector gives your app a left-rail tile, an embedded (or native)
-> UI, a health row on the Ops dashboard, a performance source, live agent tools,
-> and an auto-generated egress policy, all derived from one `connector.yaml`.
+Add your own app to Ava by dropping in a folder, with **no edits to Ava's
+code**. A connector gives your app a left-rail tile, an embedded (or native) UI,
+a health row on the Ops dashboard, a performance source, live agent tools, and
+an auto-generated egress policy (an allow-list of the exact network destinations
+Ava's agent may reach on your app's behalf) - all derived from one
+`connector.yaml`.
 
 This is the productization contract: fork Ava, connect **your** apps, ship.
 
-> **Just wiring an existing app in?** You don't need this page. Use the browser
-> flow in [Connect your apps](CONNECT_YOUR_APPS.md) (Setup → Connectors →
-> Connect an app); it writes this manifest for you. This page is the reference
-> for everything a connector can declare.
+!!! note "Are you on the right page?"
+
+    **This page is for developers.** It is the complete reference for everything
+    a `connector.yaml` can declare, and it is long on purpose.
+
+    **If you just want to connect an app you already run**, you do not need any
+    of it. Use the browser flow in
+    [Connect your apps](CONNECT_YOUR_APPS.md) (Setup → Connectors → Connect an
+    app), which detects the app and writes the manifest for you. Come back here
+    when you want to change something it wrote, or when the app is one you are
+    building yourself.
+
+### What's on this page
+
+| § | Section | Answers |
+|---|---|---|
+| 1 | [Where connectors live](#1-where-connectors-live) | Which folder do I drop it in, and how do I scaffold one? |
+| 2 | [The manifest](#2-the-manifest) | Every field, annotated - and how credentials are named but never held |
+| 3 | [The three embed tiers](#3-the-three-embed-tiers-how-your-ui-renders) | How does my UI render inside Ava, and what does embedding trust? |
+| 4 | [Browser data-proxy](#4-browser-data-proxy-uiapi) | How does my browser UI call my own API without shipping a token to it? |
+| 5 | [Agent tools](#5-agent-tools) | How do I give Ava tools - declared, discovered, or a real MCP server - and what gets an approval prompt? |
+| 6 | [What's derived automatically](#6-whats-derived-automatically) | What do I get for free from that one file? |
+| 7 | [Worked example](#7-worked-example-connect-the-sample-app) | Show me a complete runnable one |
+| 8 | [First-party vs third-party](#8-first-party-vs-third-party-tiers) | Which path am I on? |
 
 ---
 
@@ -25,13 +47,47 @@ Manifests are discovered from two roots (the second overrides the first by id):
 Drop a folder in, restart Ava (or `ava up`), done. Folders starting with `_`/`.`
 are ignored (that is why `_template/` is skipped).
 
-Scaffold one:
+### Scaffold and deploy one, end to end
+
+The GUI writes a manifest for you; these five commands are the same thing by
+hand. Each connector declares its health probe, metrics source, egress policy
+and agent actions, and the dashboard, charts and agent tools all follow from it.
 
 ```bash
-ava connector new mycrm      # writes $AVA_HOME/connectors/mycrm/connector.yaml
+ava connector new mycrm                 # scaffold $AVA_HOME/connectors/mycrm/connector.yaml
+$EDITOR "$AVA_HOME/connectors/mycrm/connector.yaml"   # see the warning below
+ava connector tools    mycrm --write    # generate the agent tools
+ava connector policies mycrm --write    # generate its egress policy
+(cd agent && ./install.sh)              # load them into the agent sandbox
+```
+
+```bash
 ava connector list           # show all loaded connectors
 ava connector apps           # show the left-rail app registry
 ```
+
+(Or click **Deploy** on the connector's row in Setup → Connectors, which runs
+the last three for you.)
+
+!!! note "Don't skip the edit"
+
+    The scaffold is the annotated reference template with every optional block
+    commented out, so it declares a health probe and nothing else. Until you
+    uncomment an `actions:` list or an `mcp:` block there is no agent surface to
+    render, and both generate commands say so quietly rather than failing:
+
+    ```
+    $ ava connector tools mycrm --write
+
+    0 tool(s) written — run `cd agent && ./install.sh` to deploy into the sandbox.
+    $ echo $?
+    0
+    ```
+
+    `./install.sh` also needs the agent runtime provisioned first. Without a
+    NemoClaw CLI or sandbox it stops with the exact next command
+    (`ava agent provision --install`, or `nemoclaw onboard`) rather than
+    half-deploying.
 
 ---
 
@@ -123,22 +179,22 @@ when `NAME` is unset or empty, so one manifest can serve bare metal and Docker.
 Every auth field above (`auth.token_env`, `mcp.token_env`, `discover.token_env`,
 `ui.api.token_env`, and any `${VAR}`) is the **name of an environment variable**,
 not the secret. The value is resolved on the bridge, host-side, only when a
-request is about to leave for your app — so the sandboxed agent never sees it,
+request is about to leave for your app - so the sandboxed agent never sees it,
 and it is never written to the manifest. This is the hard **Ava-never-has-
 passwords** invariant.
 
 The value can come from two places, checked in this order:
 
 1. **A real environment variable** (`export MYCRM_API_TOKEN=…`, systemd
-   `EnvironmentFile=`, Docker `environment:`) — always wins.
-2. **Ava's secret store** — paste the token once in **Setup → Connectors** (the
+   `EnvironmentFile=`, Docker `environment:`) - always wins.
+2. **Ava's secret store** - paste the token once in **Setup → Connectors** (the
    *Access token / API key* field on connect, or *Add credential* on an existing
    row). It's saved `0600` under `$AVA_HOME/secrets/env/<NAME>`, survives restarts
    and every **redeploy** (you're never re-prompted), and is never placed in Ava's
-   own environment, so no subprocess — the sandboxed agent included — inherits it.
+   own environment, so no subprocess - the sandboxed agent included - inherits it.
    (One deliberate exception: a `${NAME}` you write into an `mcp.env` block is
    resolved and handed to that stdio server, because that is the whole point of
-   declaring it.) Forkers don't have to touch `.env` at all — if you paste a value
+   declaring it.) Forkers don't have to touch `.env` at all - if you paste a value
    without naming a variable, Ava derives a stable one (`<CID>_TOKEN`).
 
 Deploy/redeploy only regenerate tools + egress policy; they never read or ask for
@@ -146,7 +202,7 @@ a credential.
 
 The one saved token does double duty: Ava sends it with your **agent tools** and,
 for an `iframe` app, **presents it to the embedded UI** so the owner isn't asked
-to log in to an app they already connected — see *Single sign-on* in §3.
+to log in to an app they already connected - see *Single sign-on* in §3.
 
 ---
 
@@ -158,7 +214,7 @@ the app body:
 
 | `embed` | Who it's for | How Ava renders it |
 |---|---|---|
-| **`iframe`** | **Third-party apps** (the common case) | Ava reverse-proxies your app's web UI **same-origin** under `/apps/<id>/` and shows it in an `<iframe>`. Same-origin means Ava's session cookie already gates the route, and if your app has its **own** login you make it seamless with one small step — see *Single sign-on* below. Ava's theme is passed as `?theme=light\|dark`. |
+| **`iframe`** | **Third-party apps** (the common case) | Ava reverse-proxies your app's web UI **same-origin** under `/apps/<id>/` and shows it in an `<iframe>`. Same-origin means Ava's session cookie already gates the route, and if your app has its **own** login you make it seamless with one small step - see *Single sign-on* below. Ava's theme is passed as `?theme=light\|dark`. |
 | **`native`** | First-party React views | Renders `NATIVE_VIEWS[view]`, provided by an optional gitignored overlay (`frontend/src/overlay/views/*`). Reserved for apps bundled into the frontend. |
 | **`none`** | Apps with tools but no UI | Ava renders a generic **action console** listing the app's agent actions. |
 
@@ -168,62 +224,68 @@ Ava's session cookie is `httpOnly` + `SameSite=Lax` + host-only, so a raw
 `http://127.0.0.1:9000` iframe would receive **no** cookie. Ava proxies your app
 under its **own** origin (`/apps/<id>/`) so Ava's own cookie gates the route and
 your app's own storage (a session cookie or a `localStorage` token) persists like
-a normal same-origin visit. If your app has **no** auth of its own, you're done —
+a normal same-origin visit. If your app has **no** auth of its own, you're done -
 Ava's gate is the only door. If it **does** have a login, see the next section.
 
 ### iframe security
 
-The iframe is sandboxed (`allow-scripts allow-forms allow-same-origin
-allow-popups allow-downloads`). Because the proxy makes it same-origin, treat
-the embedded app as trusted code: review a third-party app before enabling it,
-as you would any plugin.
+!!! warning "Embedding an app grants it your whole Ava session"
 
-**Be specific about what "trusted code" means here.** `allow-scripts` +
-`allow-same-origin` is a documented no-op pairing — the frame keeps Ava's origin.
-Ava serves no CSP and `/api/hub/*` has no CSRF or `Origin` check, so an embedded
-app's JavaScript runs with your session and can call Ava's own API. Concretely, it
-can approve Ava's consent prompts on your behalf:
+    The iframe is sandboxed (`allow-scripts allow-forms allow-same-origin
+    allow-popups allow-downloads`), but `allow-scripts` + `allow-same-origin` is
+    a documented no-op pairing: the frame keeps Ava's origin. Ava serves no CSP
+    and `/api/hub/*` has no CSRF or `Origin` check, so an embedded app's
+    JavaScript runs with your session and can call Ava's own API. It can also
+    reach `parent.*`.
 
-```js
-fetch('/api/hub/approvals').then(r => r.json())
-  .then(j => j.pending.forEach(p => fetch('/api/hub/approvals/' + p.id, {method: 'POST'})));
-```
+    Concretely, it can approve Ava's consent prompts on your behalf:
 
-It can also reach `parent.*`. Embedding an app is therefore closer to installing a
-browser extension than to opening a tab.
+    ```js
+    fetch('/api/hub/approvals').then(r => r.json())
+      .then(j => j.pending.forEach(p => fetch('/api/hub/approvals/' + p.id, {method: 'POST'})));
+    ```
+
+    Embedding an app is closer to installing a browser extension than to opening
+    a tab. **Review a third-party app before enabling it.** For an app whose
+    bytes you do not control, `embed: none` - a tile plus Ava's generic action
+    console, with no remote code in Ava's page - is the safer default.
 
 An `Origin` check cannot close this: the proxy makes the frame *genuinely*
 same-origin, so every request header is identical to the real SPA's. Isolating it
-needs a second **origin**, which is what `apps.origin` does — see the block in
-`config.example.yaml`. Two hostnames pointing at the same machine and port are two
-origins to a browser (separate cookie jars, no `parent` access), so it needs no
-second listener. With it set, `/apps/*` is served only on that host, everything
-else is refused there, and Ava hands the frame a short-lived per-connector token
-instead of a session (`/api/apps/<id>/embed` is what the shell asks for that URL;
-it answers `{"url": …, "isolated": true}`).
+needs a second **origin**, which is what `apps.origin` does.
 
-**Set `server.trusted_hosts` at the same time, or every app tile breaks.** Ava's
-DNS-rebinding guard refuses any `Host` it doesn't recognise, and `apps.origin` is
-not added to that list automatically — so with `apps.origin` alone, `/apps/*` is
-refused on Ava's own host (`404 wrong origin`, by design) *and* the apps host
-itself answers `421 Misdirected Request`, leaving the app reachable at neither
-name. Both names must be declared:
+??? note "Isolating embedded apps on a second origin (`apps.origin`)"
 
-```yaml
-apps:
-  origin: "http://apps.ava.local:8096"   # [AVA_APPS_ORIGIN]
-server:
-  trusted_hosts: ["apps.ava.local"]      # without this the frame 421s
-```
+    See the block in `config.example.yaml`. Two hostnames pointing at the same
+    machine and port are two origins to a browser (separate cookie jars, no
+    `parent` access), so it needs no second listener. With it set, `/apps/*` is
+    served only on that host, everything else is refused there, and Ava hands
+    the frame a short-lived per-connector token instead of a session
+    (`/api/apps/<id>/embed` is what the shell asks for that URL; it answers
+    `{"url": …, "isolated": true}`).
 
-`apps.origin` is **unset by default** — turning it on requires you to make a second
-name resolve to this box — so until you do, *iframe security* above is the security model,
-and `embed: none` (a tile plus Ava's generic action console, no remote code in
-Ava's page) is the safer default for an app whose bytes you do not control.
+    **Set `server.trusted_hosts` at the same time, or every app tile breaks.**
+    Ava's DNS-rebinding guard refuses any `Host` it doesn't recognise, and
+    `apps.origin` is not added to that list automatically - so with
+    `apps.origin` alone, `/apps/*` is refused on Ava's own host (`404 wrong
+    origin`, by design) *and* the apps host itself answers `421 Misdirected
+    Request`, leaving the app reachable at neither name. Both names must be
+    declared:
+
+    ```yaml
+    apps:
+      origin: "http://apps.ava.local:8096"   # [AVA_APPS_ORIGIN]
+    server:
+      trusted_hosts: ["apps.ava.local"]      # without this the frame 421s
+    ```
+
+    `apps.origin` is **unset by default** - turning it on requires you to make a
+    second name resolve to this box - so until you do, the warning above is the
+    security model.
 
 ### Make your UI mount-agnostic (the one requirement on your app)
 
-Embedded, your app is served from `/apps/<id>/` instead of `/` — so a UI built
+Embedded, your app is served from `/apps/<id>/` instead of `/` - so a UI built
 with **absolute** URLs (`/assets/main.js`, `fetch('/api/things')`) breaks under
 the proxy while working standalone. The same build must work at both mounts:
 
@@ -248,7 +310,7 @@ Everything else is handled by the proxy: your HTML is always revalidated (so a
 rebuild shows up on reload), `/apps/<id>/api/*` reaches your same-origin API
 with no manifest config, and a top-level visit to `/apps/<id>/` bounces the
 user back into Ava's shell. One more tip from the field: gate your UI build on
-a typecheck (`tsc -b --noEmit && vite build`) — bundlers don't catch unbound
+a typecheck (`tsc -b --noEmit && vite build`) - bundlers don't catch unbound
 identifiers, and a broken bundle inside an iframe is painful to debug.
 
 ### Single sign-on: apps with their own login
@@ -256,16 +318,16 @@ identifiers, and a broken bundle inside an iframe is painful to debug.
 If your app has its **own** password/login, don't make the owner sign in again
 after they've already connected it in Ava. The owner connects **once** (they
 paste your app's token in Setup → Connectors, or it's auto-detected); Ava then
-**presents that saved token on every embedded request** — the same value it uses
+**presents that saved token on every embedded request** - the same value it uses
 for your agent tools. Two small steps make your app honor it:
 
 1. **Accept a static token as a full session.** Alongside your human login,
    treat a configured static token (referenced by your manifest's `token_env`,
    e.g. `auth.token_env: MYAPP_TOKEN`) as authenticated on every route your UI
    hits. Ava sends it as `Authorization: Bearer <token>` when the browser has no
-   session of its own (a fresh embed). Media tags that can't set headers work too
-   — Ava injects on the proxied request, so a plain `withBase('/media/x')` is
-   authenticated without a `?token=`.
+   session of its own (a fresh embed). Media tags that can't set headers work
+   too, because Ava injects on the proxied request, so a plain
+   `withBase('/media/x')` is authenticated without a `?token=`.
 
 2. **When embedded, skip your own login screen.** You already derive `MOUNT`
    (above); a non-empty `MOUNT` means "running inside Ava," where Ava's injected
@@ -282,12 +344,14 @@ const [authed, setAuthed] = useState(() => !!getToken() || EMBEDDED);
 
 That's the whole contract. Standalone (direct at your port) your password login
 is unchanged; embedded in Ava it's single sign-on. Ava resolves the token only
-on the bridge when building the request — it never reaches the browser or the
+on the bridge when building the request - it never reaches the browser or the
 sandboxed agent (the *Ava-never-has-passwords* invariant, §2).
 
-> **Self-describe it (optional, nicer onboarding).** Advertise the token name in
-> `/.well-known/ava.json` as `"auth": {"token_env": "MYAPP_TOKEN"}` (§5). Ava's
-> connect form then pre-fills the field so the owner just pastes the value.
+!!! note "Self-describe it (optional, nicer onboarding)"
+
+    Advertise the token name in `/.well-known/ava.json` as
+    `"auth": {"token_env": "MYAPP_TOKEN"}` (§5). Ava's connect form then
+    pre-fills the field so the owner just pastes the value.
 
 ---
 
@@ -300,9 +364,11 @@ injected server-side (the browser never sees the token). `base` defaults to the
 connector's own base: top-level `base_url`, else `ui.url`, else the origin of
 `service.probe`.
 
-> **First-party note:** an app that also streams **media** (arbitrary non-API
-> paths) may keep a dedicated full reverse-proxy instead, for example a media app
-> with its own `/<app>/*` proxy. The generic `/apps/<id>/api` proxy is API-only.
+!!! note "First-party note"
+
+    An app that also streams **media** (arbitrary non-API paths) may keep a
+    dedicated full reverse-proxy instead, for example a media app with its own
+    `/<app>/*` proxy. The generic `/apps/<id>/api` proxy is API-only.
 
 ---
 
@@ -314,7 +380,7 @@ Two shapes, both reached through **one** generic bridge route
 ### Declared (`actions.static`)
 
 Each becomes a generated tool calling your REST API through the proxy (up to 15
-of them — see below):
+of them - see below):
 
 ```yaml
 actions:
@@ -332,12 +398,12 @@ Generate the `.mjs` tools: `ava connector tools mycrm --write`.
 
 **Above 15 actions Ava switches to meta tools.** Declare 16 or more static
 actions with a `path` (`META_TOOLS_MIN = 16`) and Ava stops generating one tool
-per action: it emits two instead — `<id>_find_tool` (keyword-searches your action
-set) and `<id>_call` (invokes one by name) — so a large REST surface can't flood
+per action: it emits two instead - `<id>_find_tool` (keyword-searches your action
+set) and `<id>_call` (invokes one by name) - so a large REST surface can't flood
 the agent's context on every turn. Same routes, same egress policy, same
 approvals gate; only the tool shape changes. Declaring `actions.discover` or
 `mcp:` alongside `actions.static` does the same swap but routes `<id>_call` to
-the discover/MCP endpoint, leaving the declared actions unreachable — so don't
+the discover/MCP endpoint, leaving the declared actions unreachable - so don't
 mix the two shapes in one manifest.
 
 ### Discovered (`actions.discover`)
@@ -345,12 +411,12 @@ mix the two shapes in one manifest.
 Bridges an app that implements the **`ava-tools/1` HTTP facade** below: Ava GETs
 `list` for the tool schemas and POSTs `call` `{name, arguments}` to invoke, so a
 whole tool set is wired from one manifest with no per-tool declaration. This is
-MCP-*shaped* but it is Ava's own protocol, **not MCP** — a server that speaks
+MCP-*shaped* but it is Ava's own protocol, **not MCP** - a server that speaks
 real MCP (FastMCP, the official SDKs, `npx` servers) uses the `mcp:` block
 instead (see *MCP servers* below). Reserved bridge actions `__tools` and
 `__call` serve this.
 
-### The tool facade — `ava-tools/1`
+### The tool facade - `ava-tools/1`
 
 The contract *your app* implements to be discovered. Two routes; the Hub's
 Detect finds them ahead of OpenAPI scraping. The shipped samples
@@ -386,7 +452,7 @@ Rules of the road:
   remembered), `destructive`/`physical` ask every time and can never be
   always-allowed. Omitted -> `write` (safe). Full table under *Access tiers*
   below. Tiers are self-reported: they can only make a tool *quieter*, never
-  extend its reach — the egress policy, the operator's gate, and the audit
+  extend its reach - the egress policy, the operator's gate, and the audit
   ledger are Ava's, not the app's. And "quieter" is only honoured for a
   connector whose base is **loopback/private**: for a remote server Ava ignores
   the self-report and falls back to `write` unless the manifest opts in with
@@ -401,13 +467,13 @@ Rules of the road:
   it**. This is the one place the trust boundary is genuinely yours: Ava's
   consent tiers gate what *Ava's agent* may invoke, and enforce nothing on your
   app's own port. An unauthenticated `/call` on an app that already listens on
-  your LAN hands every registered tool — `destructive` included — to anyone who
+  your LAN hands every registered tool - `destructive` included - to anyone who
   can send one `curl`. `/.well-known/ava.json` stays open so Detect works
   before the credential is in place.
-- `facade` is informational at version 1 — it exists so a future `ava-tools/2`
+- `facade` is informational at version 1 - it exists so a future `ava-tools/2`
   can negotiate.
 
-**Don't write it by hand — scaffold it.** In *your app's* repo:
+**Don't write it by hand - scaffold it.** In *your app's* repo:
 
 ```bash
 ava app new myapp --framework fastapi   # or flask | express | stdlib
@@ -416,14 +482,14 @@ ava app new myapp --framework fastapi   # or flask | express | stdlib
 ```
 
 writes `ava/surface.py` (a vendored, self-contained facade with a `tool()`
-registry and the error contract built in — the file is yours, edit freely),
+registry and the error contract built in - the file is yours, edit freely),
 `ava/connector.yaml`, and `ava/README-AVA.md` with the wire-up for your
 framework. Wire it in (one line), add your tools, then connect the app in
-Ava's Hub — Detect finds the facade. `ava connector new` remains the Ava-side
+Ava's Hub - Detect finds the facade. `ava connector new` remains the Ava-side
 scaffold; `ava app new` is the app-side one.
 
 **Self-describe (optional): `GET /.well-known/ava.json`.** Detect tries this
-first. It lets your app *tell* Ava what it is — a friendly name, where its
+first. It lets your app *tell* Ava what it is - a friendly name, where its
 health check lives, whether it has an embeddable UI, and where the facade
 routes are (so they don't have to sit at the root). All fields except `facade`
 are optional; anything present prefills the Hub's connect form.
@@ -441,7 +507,7 @@ are optional; anything present prefills the Hub's connect form.
 
 | Field | Meaning |
 |---|---|
-| `facade` | `"ava-tools/1"` — the only required field |
+| `facade` | `"ava-tools/1"` - the only required field |
 | `label` | friendly name, prefills the connect form |
 | `tools` | path to the facade listing (default `/tools`) |
 | `call` | path tools are invoked at (default `/call`) |
@@ -449,7 +515,7 @@ are optional; anything present prefills the Hub's connect form.
 | `ui` | `true` if the app serves an embeddable web UI (sidebar tile) |
 
 (Comments are shown as a table because the document your app serves must be
-strict JSON — `//` comments would make Detect's parse fail.)
+strict JSON - `//` comments would make Detect's parse fail.)
 
 ### MCP servers (`mcp:`): wrap any Model Context Protocol server
 
@@ -485,43 +551,63 @@ auto-generated egress policy allow-lists, and nothing else. A malicious or
 compromised MCP server never gains a direct line into the sandbox, and the
 sandbox never gains a direct line out.
 
-**Container isolation for stdio servers (`sandbox: docker`).** A `command:`
-server (for example `npx …`) is code you install; by default it runs as you on
-the host, the same trust model as every MCP desktop client. Set `sandbox: docker`
-and Ava runs it inside a throwaway container instead: `--read-only`, a tmpfs
-for scratch, CPU/memory/pid caps, `no-new-privileges`, and **no host filesystem
-mounts**, so an untrusted server cannot touch your files. Set `network: none`
-to also cut its network. The Setup → Connect an app GUI offers this as a
-one-click toggle, defaulted on when Docker is available.
+!!! warning "A `command:` MCP server runs as you, on your host, unless you contain it"
+
+    A `command:` server (for example `npx -y some-server`) is code you install.
+    By default the bridge spawns it as your own user, with your files - the same
+    trust model as every MCP desktop client, and the same broad power.
+
+    Set **`sandbox: docker`** and Ava runs it inside a throwaway container
+    instead: `--read-only`, a tmpfs for scratch, CPU/memory/pid caps,
+    `no-new-privileges`, and **no host filesystem mounts**, so an untrusted
+    server cannot touch your files. Add **`network: none`** to also cut it off
+    the network.
+
+    ```yaml
+    mcp:
+      command: ["npx", "-y", "@modelcontextprotocol/server-github"]
+      sandbox: docker      # contain it
+      network: none        # and cut its network
+    ```
+
+    Setup → Connect an app offers this as a one-click toggle, defaulted **on**
+    when Docker is available.
 
 **Per-action approval (`confirm`).** Gate a sensitive tool behind your explicit
 OK: put `confirm: true` on a static action, `confirm: true` at the connector
 level to gate every action, or `confirm: [action_id, …]` at the connector level to
-gate just those. An author `confirm:` outranks the tier — it always asks and can
+gate just those. An author `confirm:` outranks the tier - it always asks and can
 never be granted away. When the agent calls a gated action the call
 **pauses**, an approval prompt appears with the arguments, and the action runs
 only if you approve (or is refused on deny or timeout). Every request and
 decision is written to the audit ledger.
 
-**Access tiers (JIT consent).** Every action carries a tier — explicit
-`access:` on a static action, else inferred from its HTTP shape:
+!!! warning "The approvals ladder: what Ava will do without asking you"
 
-| Tier | At call time |
-|---|---|
-| `read` | runs silently |
-| `sensitive` | no side effects, but **discloses** something (a chat corpus, a mailbox, a location history). Asks on first use; "Always allow" grants durably. Never inferred: it must be declared. |
-| `write` | asks on first use; "Always allow" grants durably |
-| `destructive` | asks every time — never grantable |
-| `physical` | **moves something in the real world** (relay, lock, valve). Asks every time — never grantable. Never inferred: it must be declared. |
+    Every action carries a **tier**, and the tier decides whether Ava pauses and
+    asks before running it. This is the consent gate for everything an app's
+    tools can do. Set it explicitly with `access:` on a static action; otherwise
+    it is inferred from the HTTP shape.
+
+    | Tier | At call time |
+    |---|---|
+    | `read` | runs silently |
+    | `sensitive` | no side effects, but **discloses** something (a chat corpus, a mailbox, a location history). Asks on first use; "Always allow" grants durably. Never inferred: it must be declared. |
+    | `write` | asks on first use; "Always allow" grants durably |
+    | `destructive` | asks every time - **never** grantable |
+    | `physical` | **moves something in the real world** (relay, lock, valve). Asks every time - **never** grantable. Never inferred: it must be declared. |
+
+    `destructive` and `physical` cannot be turned into "Always allow" by anyone,
+    including you. That is the point of them.
 
 Those five are the whole set (`ava_bridge/connectors.py` `_TIERS`); a value that
 isn't one of them is an error row on Setup → Connectors, and the action falls
 back to being inferred from its HTTP method. Inference only ever yields `read`
-(GET/HEAD), `destructive` (DELETE, or a *delete* in the id/path) or `write` —
+(GET/HEAD), `destructive` (DELETE, or a *delete* in the id/path) or `write` -
 `sensitive` and `physical` exist precisely because no HTTP shape implies them.
 
 Dynamic tools (MCP / discovered) have no static declaration to infer from, so
-the manifest classifies them by name pattern — first match wins:
+the manifest classifies them by name pattern - first match wins:
 
 ```yaml
 dynamic_access:
@@ -531,7 +617,7 @@ dynamic_access:
 ```
 
 Classification order is: the manifest's `dynamic_access` patterns (the operator's
-word — always wins) → the tier the app self-reported on its last `/tools`, **but
+word - always wins) → the tier the app self-reported on its last `/tools`, **but
 only for a loopback/private base** or with `trust_declared_tiers: true` (plain
 MCP servers report none anyway, so those land on `write`) → otherwise `write`, or
 `physical` on a `role: device` connector. A misspelled tier in `dynamic_access`
@@ -542,16 +628,18 @@ tools Ava has never discovered, so once a tool has been seen the self-reported
 `write` wins and "Always allow" becomes offerable. See the
 [Home Assistant connector](CONNECT_HOME_ASSISTANT.md), which does exactly that.
 
-> **Migrating a facade to MCP? Keep the tiers.** An `ava-tools/1` facade reports
-> `access` per tool; plain MCP has no such field, so a hand-rolled port
-> silently demotes every `read` to `write` and the owner starts getting
-> prompted for things that used to run silently. Either carry `access` through
-> on each `tools/list` entry (what `sdk/host/ava_mcp` does — see below), or
-> restate the tiers here as `dynamic_access` patterns.
+!!! note "Migrating a facade to MCP? Keep the tiers"
+
+    An `ava-tools/1` facade reports `access` per tool; plain MCP has no such
+    field, so a hand-rolled port silently demotes every `read` to `write` and
+    the owner starts getting prompted for things that used to run silently.
+    Either carry `access` through on each `tools/list` entry (what
+    `sdk/host/ava_mcp` does - see below), or restate the tiers here as
+    `dynamic_access` patterns.
 
 ### Turn your own app into a real MCP server (`sdk/host/ava_mcp`)
 
-The facade above is the quickest way in, but it is *Ava's* protocol — an app
+The facade above is the quickest way in, but it is *Ava's* protocol - an app
 that speaks only the facade is wired into Ava and nothing else. The SDK ships a
 stdlib-only adapter that fronts it with genuine MCP, so the same tools answer
 Ava and any MCP client that supports protocol revision 2025-03-26:
@@ -586,14 +674,14 @@ Full reference: [`sdk/host/ava_mcp/README.md`](../sdk/host/ava_mcp/README.md).
 the sandbox. The generic proxy routes for your actions (and `__tools`/`__call`)
 are allow-listed automatically.
 
-### Agent skills (`SKILL.md`) — auto-surfaced in the Agent tab
+### Agent skills (`SKILL.md`) - auto-surfaced in the Agent tab
 
 A **skill** is a folder with a `SKILL.md` that coaches the model on *when and
 how* to use its tools (progressive disclosure). Skills live in
 `agent/skills/<id>/` (shipped) or `<overlay>/skills/<id>/` (private); every one
 is deployed into the sandbox by `agent/install.sh` (`nemoclaw skill install`).
 
-The filesystem is the single source of truth — **drop a folder and it appears**
+The filesystem is the single source of truth - **drop a folder and it appears**
 in **Setup → Agent → Skills** with no registration. `ava_bridge/skills.py` globs
 both locations and reads each SKILL.md's YAML frontmatter:
 
@@ -615,8 +703,8 @@ app: mycrm                     # optional — the connector id this skill drives
 
 Only `name` + `description` are required; everything else is **derived
 automatically** (title humanized from the name, summary cut from the
-description, tools inferred). The card also shows a **deploy state** —
-`live` / `edited · re-provision` / `not deployed · re-provision` — computed by
+description, tools inferred). The card also shows a **deploy state** -
+`live` / `edited · re-provision` / `not deployed · re-provision` - computed by
 comparing the repo SKILL.md against the `$AVA_HOME/data/skills_deployed.json`
 manifest that `install.sh` writes, so a just-added skill honestly reads
 "re-provision" until you run `ava agent provision`. On a fresh fork that manifest
@@ -626,7 +714,7 @@ deployed, and every card reads **`provision to load`**. A convention guard
 frontmatter.
 
 **Categories are owner-owned, never shipped.** Skills carry no category by
-default — the product imposes no taxonomy, so every fork defines its own. Group
+default - the product imposes no taxonomy, so every fork defines its own. Group
 skills in the Agent → Skills panel via `ava.yaml` (per-instance, gitignored):
 
 ```yaml
@@ -667,7 +755,7 @@ From that one manifest, with nothing hand-maintained in Ava's core:
   machine token `role_key` (`brain` / `render` / `video` / `image` / `""`) that
   the frontend words, because the backend returns facts and owner-facing copy
   lives in the SPA. `role_key: brain` is decided solely by
-  `models.effective_brain()` — never by a model's name. Your hint still fills
+  `models.effective_brain()` - never by a model's name. Your hint still fills
   the row's free-text `role` field, which is where connector-declared copy
   belongs (the documented registry exception), for any model nothing built-in
   claims.
@@ -688,15 +776,15 @@ no further wiring:
 
 - a checkbox on **Setup → System → Optional features** (and the setup-save
   whitelist accepts its toggle),
-- regular machine-readable error codes — `<key>_off` (switch off) and
-  `<key>_down` (switch on, backing service unreachable) — which the chat UI
+- regular machine-readable error codes - `<key>_off` (switch off) and
+  `<key>_down` (switch on, backing service unreachable) - which the chat UI
   turns into a guided **fix-it link** (hover explains where it leads; click
   deep-links to the right page). The frontend resolves fixes from the code
   *pattern* (`frontend/src/lib/fixes.ts`), so no frontend change is needed,
 - a self-contained plain-text message ("Enable it under Setup → System →
   Optional features…"), so agent tools that simply relay `error` already tell
   the user what to do. Return coded errors from `/internal/*` routes as HTTP
-  200 bodies (`{"error": ..., "error_code": ...}`) — the sandbox tool helper
+  200 bodies (`{"error": ..., "error_code": ...}`) - the sandbox tool helper
   uses `curl --fail` and would swallow the body on a non-2xx status.
 
 ---

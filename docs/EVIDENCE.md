@@ -4,7 +4,7 @@ Two commands ship with Ava that check its own claims rather than restate them.
 Neither was documented anywhere before this page, so both were effectively
 invisible.
 
-## `ava attest` — an evidence bundle a stranger can verify
+## `ava attest` - an evidence bundle a stranger can verify
 
 Most trust claims in self-hosted software are properties of a repo's culture: the
 docs say a thing, and you either believe the author or read the source. `ava
@@ -15,7 +15,7 @@ Ava at all.
 **The bundle is unsigned, and that is deliberate.** Signing your own bundle on
 your own box proves that the machine making the claim also signed it, which buys
 nothing but a key to lose. What it offers instead is *reproducibility*: every
-digest recomputes offline. The verifier says `signature: unsigned` — never
+digest recomputes offline. The verifier says `signature: unsigned` - never
 `invalid`, because those are different claims.
 
 ```bash
@@ -25,7 +25,7 @@ ava attest --out ./evidence         # write it (the only thing that writes)
 ava attest --redact-biometrics      # omit the voiceprint digest before sharing
 ```
 
-`--out` takes a **directory, not a file** — the bundle is nine files (four
+`--out` takes a **directory, not a file** - the bundle is nine files (four
 artifacts, a manifest, its digest, provenance, and the verifier itself with its
 instructions). It has no default: nothing is written unless you name somewhere.
 
@@ -52,7 +52,7 @@ in the schema, rather than left for a reader to notice.
 ### Sharing a bundle
 
 By default the bundle includes a digest of your voiceprint, because that digest is
-what makes deletion *provable* to you — see [BIOMETRICS.md](BIOMETRICS.md). A hash
+what makes deletion *provable* to you - see [BIOMETRICS.md](BIOMETRICS.md). A hash
 of a biometric template is a stable pseudonym, so if you are handing the bundle to
 anybody else, pass `--redact-biometrics`.
 
@@ -69,16 +69,16 @@ it. A copy travels **inside** every bundle, so whoever you hand it to needs
 nothing from this repo.
 
 `--self-test` is worth the extra word. It flips a byte of an in-memory copy and
-requires the verifier to notice — because a verifier that always prints `ok` is
+requires the verifier to notice - because a verifier that always prints `ok` is
 indistinguishable from one that works. Run against a bundle that is already
 damaged it refuses outright rather than reporting success for detecting damage
 that was already there.
 
-## `ava eval` — score the intent router on your own traffic
+## `ava eval` - score the intent router on your own traffic
 
 Ava decides server-side whether a message is a chat turn or an image render
 (`ava_bridge/turn_router.py`). Whether that router is any good is a question about
-*your* phrasing, not a benchmark — so the eval set is yours, built from your own
+*your* phrasing, not a benchmark - so the eval set is yours, built from your own
 history, and **never ships with the product** (`data/evals/` is gitignored, and
 `tests/test_no_eval_data.py` fails the build if a dataset is ever committed).
 
@@ -90,7 +90,7 @@ ava eval intent run-fingerprint   # score, and record the router fingerprint
 
 `mine` walks your messages and asks you to label the ambiguous ones. `run` scores
 the labelled set and prints the router's fingerprint and mode alongside the
-result, so a score is always attached to the router version that produced it —
+result, so a score is always attached to the router version that produced it -
 a number without that pairing tells you nothing after the next change.
 
 Use `--chats <path>` to mine a different instance's `chats.json`.

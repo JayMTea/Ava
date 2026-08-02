@@ -90,8 +90,7 @@ export function TimeSeries({
   );
 }
 
-/* ---------- RangeSelector (Day / Week / … / 5Y) ---------- */
-// Drop-in segmented control for any timeseries. Reuses the .db-seg styles.
+/* ---------- BarList (horizontal, labelled) ---------- */
 export function BarList({
   data, height = 220, unit = '',
 }: {

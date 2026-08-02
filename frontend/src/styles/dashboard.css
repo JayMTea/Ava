@@ -64,7 +64,12 @@
 }
 .db-panel-title { margin: 0; font-size: var(--fs-md); font-weight: var(--fw-medium); color: var(--txt); }
 .db-panel-sub { color: var(--muted); font-size: var(--fs-xs); margin-top: 2px; }
-.db-panel-right { color: var(--muted); font-size: var(--fs-xs); }
+/* A flex row so a header slot can hold a reading AND a control (the hardware
+   card carries "### W" beside its range picker) without each call site
+   re-inventing the same inline style. `.db-panel-head` is flex-start, so this
+   needs its own centring. */
+.db-panel-right { color: var(--muted); font-size: var(--fs-xs);
+  display: flex; align-items: center; gap: var(--sp-2); }
 .db-panel-right-note { color: var(--muted); font-size: var(--fs-xs); }
 .db-panel-body { padding: var(--sp-4); }
 
@@ -200,9 +205,27 @@
   display: inline-flex; align-items: center; justify-content: center; border-radius: var(--r-pill);
   background: var(--warn); color: #241a05; }
 
-/* ---- range selector (Day … 5Y) — compact segmented control in panel headers ---- */
-.db-range { flex-wrap: wrap; padding: 2px; }
-.db-range .db-seg-btn { padding: 4px 10px; font-size: var(--fs-xs); }
+/* ---- compact dropdown for a panel header (the Day … 5 years range picker) ----
+   Was a .db-seg group, but six chips beside a title in a half-width panel could
+   only fit by wrapping to a second row. No `appearance: none`: the native arrow
+   and native popup are what make this keyboard- and touch-correct, and
+   tokens.css sets `color-scheme` per theme so the browser paints the option
+   list on-theme. Same reasoning as .hub-select — this is that control at the
+   panel-header type scale, sized to its content rather than a 100%-wide form
+   field. (.db-seg above stays: Live | Control is a two-option view switch.) */
+.db-select {
+  padding: 3px 6px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--inputline);
+  background: var(--input);
+  color: var(--txt);
+  font-size: var(--fs-xs);
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color var(--dur-fast);
+}
+.db-select:hover { border-color: var(--muted); }
+.db-select:focus-visible { outline: none; border-color: var(--accent); }
 
 /* ---- inline text link button ---- */
 .db-linkbtn { background: none; border: none; cursor: pointer; color: var(--accent);

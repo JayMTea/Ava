@@ -32,8 +32,8 @@ export function fixForCode(code?: string | null): FixAction | undefined {
   if (code === 'model_unknown') {
     return {
       label: 'Pick a model in Setup',
-      hash: 'hub/agent',
-      tip: 'Opens Setup → Agent — the engine is running but has no such model loaded; choose one it actually serves.',
+      hash: 'hub/agent/brain',
+      tip: 'Opens Setup → Agent → Brain — the engine is running but has no such model loaded; choose one it actually serves.',
     };
   }
   m = /^(.+)_down$/.exec(code);

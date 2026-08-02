@@ -1,12 +1,19 @@
 # Device connectors: wire your own sensing devices to Ava
 
-> Bring your **own** app for your **own** hardware (Arduino, Nicla, Portenta,
-> ESP32, a smart-home hub, any sensor) and connect it to Ava by dropping in a
-> folder. **No edits to Ava's code, and no device protocols baked into Ava.**
+Bring your **own** app for your **own** hardware (Arduino, Nicla, Portenta,
+ESP32, a smart-home hub, any sensor) and connect it to Ava by dropping in a
+folder. No edits to Ava's code, and no device protocols baked into Ava.
+
+At the end you can ask Ava *"what's the greenhouse temperature?"* and *"did
+anything happen with my devices?"*, and Ava can raise an alert on your dashboard
+when your device decides something happened.
+
+## The idea: Ava speaks to your app, not to your hardware
 
 Ava deliberately does **not** speak serial, BLE, MQTT, Zigbee, Matter, or any
-board-level protocol. Your app does. Ava connects to your app generically, in two
-directions:
+board-level protocol. Your app does. That is what keeps this general: any device,
+any transport, no Ava release needed. Ava connects to your app generically, in
+two directions:
 
 | Direction | Who starts it | What it's for | Mechanism |
 |---|---|---|---|
@@ -18,7 +25,18 @@ A **device connector** is just a normal [connector](CONNECTOR_SDK.md) whose
 block (pull). Everything else in the Connector SDK (health probe, left-rail UI,
 egress policy) still applies.
 
-Here is the pull path from the browser — connecting a device's tool server —
+!!! note "Already running Home Assistant? That's the worked example"
+
+    Home Assistant is a device connector you do not have to write. Its own MCP
+    Server integration plugs straight into the SDK's `mcp:` block, with
+    actuation gated behind the never-grantable `physical` tier. Everything on
+    this page - the two directions, the consent tiers, the egress policy - is
+    what that connector is made of.
+
+    Follow [Connect your Home Assistant](CONNECT_HOME_ASSISTANT.md) if that is
+    your case. Stay here if you are wiring your own hardware or your own app.
+
+Here is the pull path from the browser - connecting a device's tool server -
 narrated (sound on). The push half (token, `POST …/events`) is covered below:
 
 <video controls playsinline preload="metadata"
@@ -95,14 +113,24 @@ cd agent && ./install.sh                    # deploy into the sandbox
 ```
 
 The generator already derives the two `/internal/connector/<id>/__tools|__call` rules
-from `actions.discover`, so the `egress.routes` above are optional — listing them
+from `actions.discover`, so the `egress.routes` above are optional - listing them
 just repeats what is generated.
 
-**First call asks.** A `role: device` connector's tools are gated by JIT consent:
-the first call parks an approval prompt in the dashboard and the call *blocks*
-until you approve it (or 403s with `not run — awaiting-approval timeout` after
-120s). Expect that when you test the pull path from a script instead of from the
-UI.
+!!! warning "Ava asks before it moves anything in the real world"
+
+    A `role: device` connector's tools are gated by just-in-time consent. The
+    first call parks an approval prompt in the dashboard and the call *blocks*
+    until you approve it (or 403s with `not run — awaiting-approval timeout`
+    after 120s).
+
+    `role: device` also makes an unmatched dynamic tool default to the
+    **`physical`** tier, which asks **every** time and can never be granted away
+    with "Always allow". Declare a `dynamic_access` `"*": physical` catch-all to
+    keep it that way for tools Ava has already discovered - see
+    [CONNECTOR_SDK.md §5](CONNECTOR_SDK.md).
+
+    Expect the block when you test the pull path from a script instead of from
+    the UI.
 
 ---
 
@@ -133,33 +161,34 @@ Returns `{ "ok": true, "seq": N }`. The other answers you can get:
 | 413 `event too large` | body over 64 KiB |
 | 429 `rate limited` | per-connector token bucket: ~600 events/min, bursts to 60 (`AVA_DEVICES_RATE_PER_MIN`, `AVA_DEVICES_BURST`) |
 | 400 `invalid json` / a field error | unusable payload |
-| 421 `untrusted host` | Ava doesn't answer to the `Host:` your device sent — see below |
+| 421 `untrusted host` | Ava doesn't answer to the `Host:` your device sent - see below |
 
-Batch or downsample on your side if you sample faster than that — a 429'd event
+Batch or downsample on your side if you sample faster than that - a 429'd event
 is dropped, not queued.
 
-### Pushing from another machine (a board on your LAN)
+???+ note "Pushing from another machine (a board on your LAN) - read this before you debug a 421"
 
-Ava only answers to `Host:` names it recognises: loopback, `server.host`, the
-host in `server.public_url`, and anything in `server.trusted_hosts`. A device that
-posts to Ava's LAN address sends `Host: 192.168.1.50`, which a default install
-does **not** recognise — every push comes back `421 untrusted host` with a
-DNS-rebinding explanation. Name the address your devices use, in `ava.yaml`:
+    Ava only answers to `Host:` names it recognises: loopback, `server.host`,
+    the host in `server.public_url`, and anything in `server.trusted_hosts`. A
+    device that posts to Ava's LAN address sends `Host: 192.168.1.50`, which a
+    default install does **not** recognise - every push comes back
+    `421 untrusted host` with a DNS-rebinding explanation. Name the address your
+    devices use, in `ava.yaml`:
 
-```yaml
-server:
-  public_url: "http://192.168.1.50:8096"   # or:
-  trusted_hosts: ["192.168.1.50", "ava.your-tailnet.ts.net"]
-```
+    ```yaml
+    server:
+      public_url: "http://192.168.1.50:8096"   # or:
+      trusted_hosts: ["192.168.1.50", "ava.your-tailnet.ts.net"]
+    ```
 
-Either one is enough; restart Ava afterwards. (Loopback-only devices — a host
-adapter or app on the same machine — need none of this.)
+    Either one is enough; restart Ava afterwards. (Loopback-only devices - a
+    host adapter or app on the same machine - need none of this.)
 
 What Ava does with an accepted event:
 
 - **Stores** it in `$AVA_HOME/logs/devices/<id>.jsonl` (the logs root honours
-  `paths.logs` / `AVA_LOGS_DIR`). Bounded and self-managing — 8 MiB per file,
-  3 rotations kept, no external database — so it survives restarts and Ava can
+  `paths.logs` / `AVA_LOGS_DIR`). Bounded and self-managing - 8 MiB per file,
+  3 rotations kept, no external database - so it survives restarts and Ava can
   answer *"did anything happen?"*.
 - **Surfaces it live** on the dashboard: every event rides the ops SSE stream as
   a `device.event` frame and lands at the top of the **Device events** panel on
@@ -176,7 +205,7 @@ secret (`HMAC(root, "ava-ingest:<id>")`). Print it with `ava device token <id>`,
 or copy it from **Setup → Connectors → ⋯ → Push token**.
 
 `ava device token` prints a human-readable block (the token plus a ready-made
-`curl`), so it is *not* pipe-safe — `$(ava device token <id>)` captures the whole
+`curl`), so it is *not* pipe-safe - `$(ava device token <id>)` captures the whole
 block. To put just the token in an env var:
 
 ```bash
@@ -187,12 +216,16 @@ It is deliberately **not** Ava's internal tool token: an app that can push event
 **cannot** reach Ava's `/internal/*` tool surface. Rotating the connector id
 rotates the token. Keep it secret; treat it like a password.
 
-> **Who decides to notify.** The *decision* to notify is your app's; your device
-> logic owns when to fire. Ava is the *delivery surface*: it receives the event
-> and shows it to the user. (Opt-in **voice**: tick *Speak alerts* in the
-> Operations page's **Device events** panel and Ava reads notify/warn/critical
-> events aloud in that browser via the Web Speech API — no server voice
-> process. Per-browser, and off by default.)
+!!! note "Who decides to notify"
+
+    The *decision* to notify is your app's; your device logic owns when to fire.
+    Ava is the *delivery surface*: it receives the event and shows it to the
+    user.
+
+    Opt-in **voice**: tick *Speak alerts* in the Operations page's **Device
+    events** panel and Ava reads notify/warn/critical events aloud in that
+    browser via the Web Speech API - no server voice process. Per-browser, and
+    off by default.
 
 ---
 
@@ -243,16 +276,22 @@ event also raises a dashboard alert.
 - No automation or rules engine. The "if this then that" lives in your app,
   which is also what decides when to push a `notify` event.
 
-Smart-home gear fits the same contract — and for Home Assistant you don't even
-need to write the bridge: HA's own MCP Server integration plugs straight into
-the connector SDK's `mcp:` block, with actuation gated behind the never-grantable
-`physical` tier. See [Connect your Home Assistant](CONNECT_HOME_ASSISTANT.md).
+Smart-home gear fits the same contract, and the automation stays where it
+already lives.
 
 ---
 
-## Reference
+## Where to next
 
-- Connector SDK (the base): [CONNECTOR_SDK.md](CONNECTOR_SDK.md)
-- Code: `ava_bridge/devices.py` (store), the ingest route + `device.event` in
-  `phone_bridge.py`, `ava_bridge/internal.ingest_token` (token),
-  `agent/mcp_server_connectors/devices/device_events.mjs` (agent tool).
+- **Skip writing the bridge**, if the hardware is already in Home Assistant:
+  [Connect your Home Assistant](CONNECT_HOME_ASSISTANT.md) is this page's worked
+  example, using HA's own MCP Server integration.
+- **Every other manifest field** (health probe, left-rail UI, credentials,
+  approval tiers): [Connector SDK](CONNECTOR_SDK.md).
+
+??? note "Code that implements this page"
+
+    - `ava_bridge/devices.py` - the event store and the rate limiter.
+    - The ingest route and the `device.event` SSE frame - `phone_bridge.py`.
+    - `ava_bridge/internal.ingest_token` - the per-connector bearer.
+    - `agent/mcp_server_connectors/devices/device_events.mjs` - the agent tool.

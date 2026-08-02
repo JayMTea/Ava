@@ -2,7 +2,8 @@ import { useCallback, useState } from 'react';
 import { Icon } from '../../lib/icons';
 import { EmptyState, Panel, ago, fmtClock, fmtInt } from '../dashboard/layout';
 import { useLiveResource } from '../../hooks/useLive';
-import { MemoryPanel } from '../hub/MemoryPanel';
+import { useHashTab } from '../../hooks/useHashTab';
+import { HistoryTab } from './HistoryTab';
 import { eventMeta } from '../hub/events';
 import { useResource } from '../hub/hooks';
 import type { ActionMsg } from '../hub/hooks';
@@ -17,31 +18,45 @@ import { ResourceError } from '../hub/ui/ResourceState';
 import type { ChatRow, DataStore, LogEvent, LogName, StoresResponse } from './dataApi';
 
 // Data — the transparency page: everything Ava keeps on disk, one row per store,
-// with the memory browser as the flagship tab. Built from the SAME pieces as the
-// Setup (Hub) page — Tile / Badge / Legend / the row grammar / one tone system —
-// so the two read as one product (see hub/ui + hub/events). The backend returns
-// facts; the owner-facing copy lives here.
+// with the audit ledger (History) as the flagship tab. Built from the SAME
+// pieces as the Setup (Hub) page — Tile / Badge / Legend / the row grammar / one
+// tone system — so the two read as one product (see hub/ui + hub/events). The
+// backend returns facts; the owner-facing copy lives here.
+//
+// Memory is deliberately NOT a tab here. It used to be, mounting the very same
+// MemoryPanel that Setup mounted — one component, two homes, and no way to tell
+// which one you were looking at. It has one home now, under Setup → Agent →
+// Memory; this page keeps the store-level facts and operations for it (size,
+// count, export, empty) and links out for the browsing.
 
-type TabId = 'overview' | 'memory' | 'chats' | 'logs' | 'maintenance';
+type TabId = 'overview' | 'chats' | 'history' | 'logs' | 'maintenance';
 
 const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: 'overview', label: 'Overview', icon: 'grid' },
-  { id: 'memory', label: 'Memory', icon: 'db' },
   { id: 'chats', label: 'Chats', icon: 'chats' },
+  { id: 'history', label: 'History', icon: 'file' },
   { id: 'logs', label: 'Logs', icon: 'activity' },
   { id: 'maintenance', label: 'Maintenance', icon: 'sliders' },
 ];
+const TAB_IDS = TABS.map((t) => t.id);
 
-// Which tab a store row's "Browse" opens.
+// Which tab a store row's "Browse" opens. Memory is absent on purpose — it has
+// one home now, under Setup → Agent → Memory, and BROWSE_AWAY sends it there.
 const BROWSE_TAB: Record<string, TabId> = {
-  memory: 'memory', chats: 'chats', audit: 'logs', performance: 'logs', devices: 'logs',
+  chats: 'chats', audit: 'history', performance: 'logs', devices: 'logs',
   alloc: 'logs',
 };
 
+// Stores whose browser lives on another page. The button says so rather than
+// reading "Browse" and silently ejecting you off the Data page mid-audit.
+const BROWSE_AWAY: Record<string, { hash: string; label: string }> = {
+  memory: { hash: 'hub/agent/memory', label: 'Browse in Setup' },
+};
+
 const STORE_META: Record<string, { icon: string; desc: string }> = {
-  memory: { icon: 'db', desc: 'Distilled facts Ava has learned about you, plus indexed document chunks. Recalled into chats; every recall and edit lands in the audit ledger.' },
+  memory: { icon: 'db', desc: 'Distilled facts Ava has learned about you, plus indexed document chunks. Recalled into chats; every recall and edit lands in the audit ledger. Read and correct them under Setup → Agent → Memory.' },
   chats: { icon: 'chats', desc: 'Every conversation — messages, attachments, and which model answered. Open and delete chats from the sidebar.' },
-  audit: { icon: 'file', desc: 'Ava’s flight recorder: turns, memory recalls and edits, connector grants. Append-only; browsable under Setup → History.' },
+  audit: { icon: 'file', desc: 'Ava’s flight recorder: turns, memory recalls and edits, connector grants. Append-only; browsable on the History tab.' },
   performance: { icon: 'chart', desc: 'Generation throughput, latency, and energy per turn, with hourly and daily rollups behind the Vitals charts.' },
   alloc: { icon: 'sliders', desc: 'Every allocation decision: what was asked for, what the pool held, and what (if anything) was released to make room. This is the log you read before letting the allocator act.' },
   hw_history: { icon: 'gauge', desc: 'GPU, memory, and CPU samples at minute and hour resolution — the long-range series behind the Vitals gauges.' },
@@ -66,6 +81,7 @@ function fmtBytes(n: number): string {
 
 // ── Overview ────────────────────────────────────────────────────────────────
 function StoreRow({ s, onBrowse, onEmpty }: { s: DataStore; onBrowse?: () => void; onEmpty?: () => void }) {
+  const away = BROWSE_AWAY[s.id];
   const meta = STORE_META[s.id] || { icon: 'grid', desc: '' };
   const tone = FORMAT_TONE[s.format] || 'muted';
   return (
@@ -95,7 +111,9 @@ function StoreRow({ s, onBrowse, onEmpty }: { s: DataStore; onBrowse?: () => voi
         </div>
       </div>
       <div className="row-actions">
-        {onBrowse && <button type="button" className="hub-btn ghost sm" onClick={onBrowse}>Browse<Icon name="arrowRight" /></button>}
+        {away
+          ? <a className="hub-btn ghost sm" href={`#${away.hash}`}>{away.label}<Icon name="arrowRight" /></a>
+          : onBrowse && <button type="button" className="hub-btn ghost sm" onClick={onBrowse}>Browse<Icon name="arrowRight" /></button>}
         {s.id === 'memory' && (
           <a className="hub-btn ghost sm" href="/api/hub/memory/export" download><Icon name="file" />Export</a>
         )}
@@ -170,19 +188,13 @@ function ChatsTab() {
 }
 
 // ── Logs ──────────────────────────────────────────────────────────────────────
+// The audit ledger is NOT here. It has its own tab (History), which renders the
+// same events humanised — kind-aware detail lines and relative times — instead
+// of the raw key=value dump this view is for. Two renderings of one ledger, on
+// one page, is what the Setup → History / Data → Logs split already was.
 const LOG_SOURCES: { id: LogName; label: string }[] = [
-  { id: 'audit', label: 'Audit' },
   { id: 'performance', label: 'Performance' },
   { id: 'devices', label: 'Devices' },
-];
-
-const AUDIT_KINDS: { id: string; label: string }[] = [
-  { id: '', label: 'All' },
-  { id: 'turn', label: 'Turns' },
-  { id: 'memory_recall', label: 'Recalls' },
-  { id: 'memory_edit', label: 'Memory edits' },
-  { id: 'grant', label: 'Grants' },
-  { id: 'chat_delete', label: 'Chat deletes' },
 ];
 
 // One line of detail per event: every field except the ones already shown as
@@ -197,12 +209,8 @@ function evtDetail(e: LogEvent): string {
 }
 
 function LogsTab() {
-  const [source, setSource] = useState<LogName>('audit');
-  const [kind, setKind] = useState('');
-  const fetchTail = useCallback(
-    () => dataApi.logTail(source, 100, source === 'audit' ? kind : ''),
-    [source, kind],
-  );
+  const [source, setSource] = useState<LogName>('performance');
+  const fetchTail = useCallback(() => dataApi.logTail(source, 100, ''), [source]);
   const tail = useLiveResource(fetchTail, 15000);
   const events = tail.data?.events;
 
@@ -211,20 +219,13 @@ function LogsTab() {
       title="Log tails"
       subtitle="Newest first, read straight from the append-only files under logs/"
       right={
-        <div className="hub-tabs" style={{ borderBottom: 0, marginBottom: 0 }}>
+        <div className="hub-subtabs">
           {LOG_SOURCES.map((s) => (
-            <button type="button" key={s.id} className={'hub-tab' + (source === s.id ? ' active' : '')} onClick={() => setSource(s.id)}>{s.label}</button>
+            <button type="button" key={s.id} className={'hub-subtab' + (source === s.id ? ' active' : '')} onClick={() => setSource(s.id)}>{s.label}</button>
           ))}
         </div>
       }
     >
-      {source === 'audit' && (
-        <div className="hub-tabs" style={{ borderBottom: 0, marginBottom: 10 }}>
-          {AUDIT_KINDS.map((k) => (
-            <button type="button" key={k.id} className={'hub-tab' + (kind === k.id ? ' active' : '')} onClick={() => setKind(k.id)}>{k.label}</button>
-          ))}
-        </div>
-      )}
       {events == null ? <EmptyState text={tail.error ? 'Couldn’t read that log.' : 'Loading…'} />
         : events.length === 0 ? <EmptyState text="Nothing recorded here yet." />
         : events.map((e, i) => {
@@ -377,7 +378,10 @@ function MaintenanceTab({ stores }: { stores: StoresResponse | null }) {
 
 // ── Shell ─────────────────────────────────────────────────────────────────────
 export function DataView() {
-  const [tab, setTab] = useState<TabId>('overview');
+  // The tab was plain useState, so a refresh dropped you back on Overview and
+  // nothing could link INTO a tab — which is what made "Setup → History moved
+  // here" impossible to redirect properly.
+  const [tab, setTab] = useHashTab('data', TAB_IDS, 'overview');
   const fetchStores = useCallback(() => dataApi.stores(), []);
   const inv = useLiveResource(fetchStores, 30000);
   // Tolerate a malformed payload (e.g. a proxy error page): render the empty
@@ -452,8 +456,8 @@ export function DataView() {
           )
         )}
 
-        {tab === 'memory' && <MemoryPanel />}
         {tab === 'chats' && <ChatsTab />}
+        {tab === 'history' && <HistoryTab />}
         {tab === 'logs' && <LogsTab />}
         {tab === 'maintenance' && <MaintenanceTab stores={d} />}
       </div>

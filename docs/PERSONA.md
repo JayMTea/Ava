@@ -1,13 +1,17 @@
-# Persona — your assistant's voice is yours
+# Persona - your assistant's voice is yours
 
-Ava ships with **no personality**. That is deliberate, and it is the one thing in
-this document worth reading twice: if you fork or install Ava, you do not inherit
-the maintainer's taste in how an assistant should talk.
+A **persona** decides how your assistant talks: how long its answers run, how
+warm or blunt it is, whether it hedges, whether it uses markdown. You write it as
+a sentence, and every reply follows it from then on.
+
+Ava ships with **no personality**, deliberately. If you fork or install Ava, you
+do not inherit the maintainer's taste in how an assistant should talk - you get
+the model's own voice until you shape it.
 
 ## What actually ships
 
 The prompt Ava starts from (`agent/persona.txt.tmpl`) contains only
-**operational** directives — the things that make it *work*:
+**operational** directives - the things that make it *work*:
 
 - Call `get_weather` for anything about weather, rather than answering from
   training data.
@@ -15,7 +19,7 @@ The prompt Ava starts from (`agent/persona.txt.tmpl`) contains only
   rendered without actually calling it.
 - Reach its own tools as native tool calls, not by writing code.
 - Ignore the sandbox's "outbound network is deny-by-default" notice when it comes
-  to its own built-in tools — otherwise the model concludes it has no web access
+  to its own built-in tools - otherwise the model concludes it has no web access
   and says so, which it has done before.
 - Its name, who it serves, and what hardware it runs on, all from your config.
 
@@ -26,7 +30,7 @@ so it moved out.
 
 ## Setting your own
 
-**Setup → Persona**, or directly in `ava.yaml`:
+**Setup → Agent → Persona**, or directly in `ava.yaml`:
 
 ```yaml
 persona:
@@ -50,35 +54,40 @@ will tell you that saving there won't take effect.
 `style` is prompt text, so phrase it the way you would phrase a brief: *"dry,
 understated, never gushes"* works; *"be nicer"* does not give the model much to
 act on. The Setup panel offers four starting points (Concise, Warm, Professional,
-Blunt) — picking one **drops its text into an editable box**. What gets saved is
+Blunt) - picking one **drops its text into an editable box**. What gets saved is
 the text, not the preset name, so a later change to those presets upstream can
 never reach back and alter how your assistant talks.
 
-### Why `format` defaults to `chat`
+!!! note "Why `format` defaults to `chat`"
 
-Not taste — a renderer fact. Ava's own chat surface displays assistant replies as
-plain text (`frontend/src/components/chat/Message.tsx` renders a bare `{text}` in
-a `white-space: pre-wrap` bubble). Markdown headings and tables would appear
-literally, as `##` and pipe characters. If you drive Ava through the API, or from
-a client that renders markdown, set `format: markdown` and the constraint lifts.
+    Not taste - a renderer fact. Ava's own chat surface displays assistant
+    replies as plain text (`frontend/src/components/chat/Message.tsx` renders a
+    bare `{text}` in a `white-space: pre-wrap` bubble). Markdown headings and
+    tables would appear literally, as `##` and pipe characters. If you drive Ava
+    through the API, or from a client that renders markdown, set
+    `format: markdown` and the constraint lifts.
 
 ## It takes effect on the next provision
 
-The system prompt is built **once**, when the agent runtime is provisioned
-(`agent/install.sh` runs `agent/render_persona.py` and hands the result to the
-runtime). Saving a new persona does not change a conversation already in flight,
-and reloading the page will not do it either. Re-provision from
-**Setup → Agent** afterwards.
+The system prompt is built **once**, when the agent runtime is **provisioned**
+(rebuilt and loaded into its sandbox: `agent/install.sh` runs
+`agent/render_persona.py` and hands the result to the runtime). Saving a new
+persona does not change a conversation already in flight, and reloading the page
+will not do it either. Re-provision from **Setup → Agent** afterwards.
 
-## For forkers
+??? note "For forkers: what keeps the shipped template neutral"
 
-- Nothing in `ava.yaml` is tracked (`.gitignore` covers `ava.yaml*`), so your
-  persona never lands in a commit or a pull request.
-- The template is in the approval tier of the self-editing policy
-  (`ava_bridge/access_policy.py`), so Ava cannot quietly rewrite its own
-  operational mandates — a change there waits for you regardless of your
-  `code.approval` setting.
-- `tests/test_persona_neutral.py` fails if the shipped template ever regains a
-  stylistic opinion, and separately if it loses an operational one. If you are
-  adding character, add it as a preset or as your own `persona.style` — not to
-  the template every fork inherits.
+    - Nothing in `ava.yaml` is tracked (`.gitignore` covers `ava.yaml*`), so
+      your persona never lands in a commit or a pull request.
+    - The template is in the approval tier of the self-editing policy
+      (`ava_bridge/access_policy.py`), so Ava cannot quietly rewrite its own
+      operational mandates - a change there waits for you regardless of your
+      `code.approval` setting.
+    - `tests/test_persona_neutral.py` fails if the shipped template ever regains
+      a stylistic opinion, and separately if it loses an operational one. If you
+      are adding character, add it as a preset or as your own `persona.style` -
+      not to the template every fork inherits.
+
+---
+
+**Next:** make it look the part too - [Branding](BRANDING.md).

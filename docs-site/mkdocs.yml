@@ -45,6 +45,11 @@ theme:
         name: Light mode
   features:
     # No navigation.sections -> top-level sections render as collapsible dropdowns.
+    # navigation.tabs puts those top-level sections in the header as well, which
+    # is the only site navigation the landing page has: home.md sets
+    # `hide: navigation`, so without tabs a visitor on the homepage saw one
+    # button and a footnote link as the entire route into 30 pages.
+    - navigation.tabs
     - navigation.top
     - navigation.tracking
     - content.code.copy
@@ -113,40 +118,51 @@ validation:
     absolute_links: warn
     unrecognized_links: warn
 
+# Ordered by reader intent, not by how the project is built. The old order put
+# Capabilities (7 pages, ~17,800 words) between "Why Ava?" and "Get started", so
+# a visitor who had just decided to install scrolled past every deep-dive page to
+# find out how. The sequence now matches the questions a reader actually asks in
+# order: is this for me -> how do I run it -> how do I use it -> can I trust it
+# -> how do I extend it.
+#
+# docs/RELEASING.md is still staged by sync.py (CONTRIBUTING.md and SECURITY.md
+# both link it, and those links must resolve on the site) but is deliberately NOT
+# listed here: it is a one-person release runbook, not a page a reader navigates
+# to. validation.nav.omitted_files is `ignore` above, so this is not a warning.
 nav:
   - Why Ava?: overview.md
-  - Capabilities:
-      - Overview: docs/capabilities/index.md
-      - Chat, voice & creation: docs/capabilities/chat.md
-      - Vitals: docs/capabilities/vitals.md
-      - Operations: docs/capabilities/operations.md
-      - Data, memory & privacy: docs/capabilities/data.md
-      - Apps, devices & MCP: docs/capabilities/connectors.md
-      - "The agent: tools, skills & self-improvement": docs/capabilities/agent.md
   - Get started:
       - 1. Install on your hardware: deploy/README.md
       - 2. Pick a model: docs/CHOOSE_A_MODEL.md
       - 3. Set up the agent: docs/AGENT_RUNTIME.md
       - 4. Connect your apps: docs/CONNECT_YOUR_APPS.md
-  - Connector SDK:
+      - On your phone: docs/MOBILE.md
+  - Using Ava:
+      - What Ava does: docs/capabilities/index.md
+      - Chat, voice & creation: docs/capabilities/chat.md
+      - Vitals: docs/capabilities/vitals.md
+      - Operations: docs/capabilities/operations.md
+      - Your data & memory: docs/capabilities/data.md
+      - Apps, devices & MCP: docs/capabilities/connectors.md
+      - "The agent: tools, skills & self-improvement": docs/capabilities/agent.md
+      - Give it a voice of its own: docs/PERSONA.md
+      - Make it look like yours: docs/BRANDING.md
+  - Privacy & proof:
+      - Security: SECURITY.md
+      - Proving it (attest + eval): docs/EVIDENCE.md
+      - Voiceprint & biometrics: docs/BIOMETRICS.md
+      - Hardware support: docs/HWINFO_VALIDATION.md
+  - Build & extend:
       - App connectors: docs/CONNECTOR_SDK.md
       - Device connectors: docs/DEVICE_CONNECTORS.md
       - Home Assistant: docs/CONNECT_HOME_ASSISTANT.md
-  - Architecture:
-      - Overview: agent/docs/README.md
+      - Architecture: agent/docs/README.md
       - Decision records: agent/docs/adr/index.md
-  - Reference:
-      - Security: SECURITY.md
-      - Hardware support: docs/HWINFO_VALIDATION.md
-      - Running two models: docs/ALLOCATION.md
       - Memory & recall: docs/MEMORY.md
-      - Persona (your assistant's voice): docs/PERSONA.md
-      - Branding (make it yours): docs/BRANDING.md
-      - Proving it (attest + eval): docs/EVIDENCE.md
-      - Voiceprint & biometrics: docs/BIOMETRICS.md
-      - On your phone (PWA): docs/MOBILE.md
+      - Running two models: docs/ALLOCATION.md
+      - Install reference: docs/INSTALL_REFERENCE.md
+      - Agent runtime reference: docs/AGENT_RUNTIME_REFERENCE.md
   - Project:
       - Contributing: CONTRIBUTING.md
       - Trademark: TRADEMARK.md
-      - Releasing: docs/RELEASING.md
       - Changelog: CHANGELOG.md

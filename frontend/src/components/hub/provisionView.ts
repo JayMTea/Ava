@@ -69,14 +69,35 @@ export function summarize(state: ProvisionState): string {
 }
 
 /** Which Hub tab owns each domain. A tab badge counts only what that tab owns,
- *  so one persona edit does not light up two tabs and read as two changes. */
+ *  so one edit does not light up two tabs and read as two changes.
+ *
+ *  Persona moved INSIDE Agent, so it rolls up here rather than lighting a tab
+ *  that no longer exists. The page-level count and the sub-tab breakdown must
+ *  agree — a "3" on Agent that resolves to 1 + 1 once you open it is a number
+ *  that lies. agentSubPending() is that breakdown, and the test asserts the sum. */
 export function tabPending(state: ProvisionState | null): Record<string, number> {
   if (!state || !state.enabled) return {};
   const s = state.scopes;
   const out: Record<string, number> = {
-    persona: s?.persona?.pending ?? 0,
-    agent: s?.skills?.pending ?? 0,
+    agent: (s?.persona?.pending ?? 0) + (s?.skills?.pending ?? 0),
     connectors: (s?.policies?.pending ?? 0) + (s?.servers?.pending ?? 0),
+  };
+  for (const k of Object.keys(out)) if (!out[k]) delete out[k];
+  return out;
+}
+
+/** The same counts, split across Setup → Agent's own sub-tabs.
+ *
+ *  Policies and servers are absent on purpose — they belong to Connectors, not
+ *  to a section of Agent. Runtime carries no badge either: the drift board on
+ *  that sub-tab already lists every pending scope, so a badge beside it would
+ *  count the same change twice. */
+export function agentSubPending(state: ProvisionState | null): Record<string, number> {
+  if (!state || !state.enabled) return {};
+  const s = state.scopes;
+  const out: Record<string, number> = {
+    persona: s?.persona?.pending ?? 0,
+    skills: s?.skills?.pending ?? 0,
   };
   for (const k of Object.keys(out)) if (!out[k]) delete out[k];
   return out;

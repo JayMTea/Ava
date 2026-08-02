@@ -94,6 +94,70 @@ def test_the_installer_reports_the_verification_tier() -> None:
         "simulated to verified, and they are the only person who can take it.")
 
 
+def test_the_container_runtime_is_probed_before_the_profile_is_chosen() -> None:
+    """The toolkit answer DECIDES a branch, so it cannot be asked after it.
+
+    `docker info | grep nvidia` used to run below the sizing block and only when
+    the profile was already `gpu`. A box that had just been dumped to `cpu` for
+    having a small card was therefore never asked whether its Docker could reach
+    the GPU at all — and on the machine that prompted this change, it could. The
+    question is now what picks between `cuda` and `cpu`, so it must be answered
+    first, for any box with an NVIDIA card.
+    """
+    require_git()
+    lines = _lines()
+
+    def _first(needle: str) -> int:
+        for n, ln in enumerate(lines):
+            if needle in ln and not ln.strip().startswith("#"):
+                return n
+        return -1
+
+    probe = _first("docker info --format")
+    branch = _first("_need_quantized_mib=")
+    assert probe >= 0, (
+        f"{_INSTALL} no longer probes for the NVIDIA container runtime. Without "
+        "it the installer picks a GPU profile whose service the daemon then "
+        "refuses to start, which reads like an Ava bug rather than a missing "
+        "toolkit.")
+    assert branch >= 0, (
+        f"{_INSTALL} lost its quantized-model VRAM floor, so a card too small "
+        "for vLLM has nowhere to go but the cpu profile again.")
+    assert probe < branch, (
+        f"{_INSTALL}:{probe + 1} probes the container runtime AFTER the VRAM "
+        f"branch at line {branch + 1} that consumes the answer. The branch then "
+        "reads a stale or unset value and can send a working GPU to the cpu "
+        "profile — the exact defect the move fixed.")
+
+
+def test_the_vram_gate_sizes_the_engine_it_actually_lands_on() -> None:
+    """vLLM's FP16 floor must not decide an Ollama install.
+
+    18000 / 12000 MiB are derived in-file from 14.2 GiB of FP16 weights plus a
+    32k KV cache — correct for vLLM, and roughly four times what the engine the
+    fallback lands on actually needs. Applying them to Ollama is how a 6 GB card
+    that runs a Q4 3B entirely on-device was declared "too little to serve a
+    useful model" and handed CPU-only inference.
+    """
+    require_git()
+    src = (ROOT / _INSTALL).read_text(encoding="utf-8")
+    for floor in ("_need_default_mib=18000", "_need_small_mib=12000"):
+        assert floor in src, (
+            f"{_INSTALL} changed {floor.split('=')[0]}. vLLM's thresholds are "
+            "right for vLLM — if they moved, move the arithmetic comment above "
+            "them too.")
+    assert "_need_quantized_mib=" in src, (
+        f"{_INSTALL} has no separate floor for the quantized path, so one "
+        "FP16-shaped number decides both engines again.")
+    quantized = int(src.split("_need_quantized_mib=")[1].split()[0])
+    assert quantized < 12000, (
+        f"the quantized floor is {quantized} MiB, at or above vLLM's — then it "
+        "selects nothing and the middle branch is dead code.")
+    assert 'AVA_PROFILE="cuda"' in src, (
+        f"{_INSTALL} never selects the cuda profile, so a card between the two "
+        "floors still falls through to cpu.")
+
+
 def test_every_profile_the_table_can_emit_is_installable() -> None:
     """A `profile` in the matrix must be a shipped compose profile, or bare-metal.
 

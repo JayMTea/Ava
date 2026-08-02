@@ -34,12 +34,27 @@ BRANCH = os.environ.get("AVA_DOCS_BRANCH", "master")
 # authored at docs-site/home.md (see HOME_PAGE below); the README becomes the
 # "Why Ava?" overview page.
 CURATED: dict[str, str] = {
-    "README.md": "overview.md",
+    # The site's "Why Ava?" page and the GitHub README are NOT the same document.
+    # README.md serves someone standing in the repo (badges, licence, citation,
+    # a quickstart they can paste); the site page serves someone deciding whether
+    # Ava is for them, and answered that at word 988 while the reader was still
+    # scrolling. docs/WHY_AVA.md is the site's copy: same claims, reader order.
+    "docs/WHY_AVA.md": "overview.md",
     "CONTRIBUTING.md": "CONTRIBUTING.md",
     "TRADEMARK.md": "TRADEMARK.md",
     "SECURITY.md": "SECURITY.md",
     "CHANGELOG.md": "CHANGELOG.md",
     "deploy/README.md": "deploy/README.md",
+    # The install page's reference half. deploy/README.md ran 3,476 words, of
+    # which a first-time installer needs about 400: the rest is manual profile
+    # alternatives, Windows shell diagnostics, the env-var table and cosign
+    # verification. Splitting them lets the happy path stay a happy path
+    # without deleting a line of what an operator eventually needs.
+    "docs/INSTALL_REFERENCE.md": "docs/INSTALL_REFERENCE.md",
+    # Same split, one page down the funnel: "Set up the agent" is a two-click
+    # GUI step, and the runtime-authoring material (writing an AgentRuntime,
+    # pinning versions, networking) belongs beside it, not inside it.
+    "docs/AGENT_RUNTIME_REFERENCE.md": "docs/AGENT_RUNTIME_REFERENCE.md",
     # Capabilities section (nav order: overview first, then one page per area).
     "docs/capabilities/index.md": "docs/capabilities/index.md",
     "docs/capabilities/chat.md": "docs/capabilities/chat.md",
@@ -86,6 +101,24 @@ ASSETS: dict[str, str] = {
     "docs/assets/ava-wordmark.svg": "docs/assets/ava-wordmark.svg",
     "docs/assets/architecture.svg": "docs/assets/architecture.svg",
     "docs/assets/agent-remote-runtime.svg": "docs/assets/agent-remote-runtime.svg",
+    # "What leaves your machine" — the owner-facing privacy picture, on the
+    # Why Ava? page, docs/capabilities/data.md and SECURITY.md. The privacy
+    # claim was argued in 454 words of prose on three pages and drawn nowhere.
+    "docs/assets/egress.svg": "docs/assets/egress.svg",
+    # The Operations dashboard. Captured in the same demo run whose chat.png and
+    # vitals-dashboard.png outputs already ship; this one was never staged, so
+    # docs/capabilities/operations.md described a live dashboard across 2,305
+    # words with no picture of it.
+    "docs/assets/operations.png": "docs/assets/operations.png",
+    # Detail CROPS, from demo/manifests/docs-crops.yaml. The docs column caps
+    # media at 44rem, so a 1920px full-page capture lands at ~704px and small UI
+    # becomes unreadable: each of these is the one element a page was arguing
+    # about in prose while showing it at 0.37x, or not at all.
+    "docs/assets/vitals-kpi-strip.png": "docs/assets/vitals-kpi-strip.png",
+    "docs/assets/chat-tools-used.png": "docs/assets/chat-tools-used.png",
+    "docs/assets/data-secrets.png": "docs/assets/data-secrets.png",
+    "docs/assets/data-overview.png": "docs/assets/data-overview.png",
+    "docs/assets/approvals-banner.png": "docs/assets/approvals-banner.png",
     "docs/assets/vitals-dashboard.png": "docs/assets/vitals-dashboard.png",
     # The chat surface. docs/capabilities/chat.md ran 258 lines with no picture
     # of the thing it describes; this is that page's one screenshot.
@@ -152,6 +185,18 @@ _DIR_TO_INDEX = {os.path.dirname(s): d for s, d in CURATED.items()
 # `[![alt](img)](target)`), so allow a single level of bracket nesting.
 _LINK = re.compile(r"(!?\[(?:[^\[\]]|\[[^\]]*\])*\]\()([^)]+)(\))")
 
+# ...but that leaves the NESTED image's own src sitting inside group(1), which
+# _LINK copies through verbatim. For a badge that is right (the src is an
+# off-site URL and _rewrite_target hands those back unchanged) and for a page
+# staged at its authored depth it is invisible (the rewrite is a no-op). It is
+# wrong for a local image on a page that MOVES: docs/WHY_AVA.md is staged to
+# overview.md at the site root, so `[![alt](assets/egress.svg)](assets/egress.svg)`
+# had its link rewritten to docs/assets/egress.svg and its <img> left pointing at
+# assets/egress.svg, which does not exist at the root. `mkdocs build --strict`
+# caught it, but only because the target was missing; a stale-but-existing path
+# would have shipped a silently wrong image. Rewrite the inner src too.
+_NESTED_IMG = re.compile(r"(!\[[^\[\]]*\]\()([^)]+)(\))")
+
 
 def _staged_dst(resolved_noslash: str) -> str | None:
     if resolved_noslash in _SRC_TO_DST:
@@ -213,11 +258,20 @@ def _strip_offsite_badges(text: str) -> str:
 def _rewrite_links(text: str, src: str, src_dst: str) -> str:
     text = _strip_offsite_badges(text)
 
+    def img_repl(im: re.Match) -> str:
+        # A nested image inside a link label. Unlinkable (off-site badge, or a
+        # source path with no public URL) keeps its src: an <img> has no label to
+        # fall back to, so dropping the target would leave a broken image where a
+        # working one stood.
+        inner = _rewrite_target(im.group(2), src, src_dst)
+        return im.group(1) + (inner if inner is not None else im.group(2)) + im.group(3)
+
     def repl(m: re.Match) -> str:
+        label = _NESTED_IMG.sub(img_repl, m.group(1))
         target = _rewrite_target(m.group(2), src, src_dst)
         if target is None:                 # unlinkable source path: keep the label
-            return m.group(1).removeprefix("!")[1:-2]
-        return m.group(1) + target + m.group(3)
+            return label.removeprefix("!")[1:-2]
+        return label + target + m.group(3)
     text = _LINK.sub(repl, text)
     # GitHub renders markdown inside plain HTML blocks; MkDocs needs the
     # md_in_html opt-in attribute or the div's contents show as raw text.

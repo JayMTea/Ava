@@ -3,9 +3,13 @@ import type { HubConnector } from './hubApi';
 // Cross-panel primitives that would otherwise force a circular import through
 // HubView. Kept tiny and dependency-light on purpose.
 
+// Setup's top-level tabs. Persona, Voice and Memory left this union when they
+// became sections of Agent (see hubRoute.ts `AGENT_SUBTABS`); Budgets merged
+// into Hardware and History moved to the Data page. Their old addresses are
+// kept alive by the redirect tables in hubRoute.ts, not by entries here — a
+// redirect keyed on a live tab would never fire.
 export type TabId =
-  | 'overview' | 'hardware' | 'agent' | 'connectors'
-  | 'voice' | 'persona' | 'branding' | 'memory' | 'budgets' | 'history' | 'system';
+  | 'overview' | 'hardware' | 'agent' | 'connectors' | 'branding' | 'system';
 
 // Kinds that are internal plumbing (bridge, inference router) or models (vLLM
 // Omni, the GPU service) — they run behind the scenes / live in the Models tab, not on

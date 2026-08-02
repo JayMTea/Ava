@@ -110,7 +110,10 @@ export const TOURS: Record<string, TourStep[]> = {
 
   data: [
     {
-      target: '.hub-tabs',
+      // The page's own tab bar, not a filter strip inside a panel. Spotlight
+      // takes the FIRST match, so a bare `.hub-tabs` used to work by DOM-order
+      // luck; the child combinator says which one is meant.
+      target: '.hub-inner > .hub-tabs',
       title: 'Everything Ava has kept',
       body: 'What it remembers, your conversations, and the logs behind these '
         + 'dashboards.',
