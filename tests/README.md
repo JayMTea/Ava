@@ -14,9 +14,12 @@ import time and must own its process, so it is never collected here.
 python tests/test_perf_store.py            # most files also run standalone
 ```
 
-Style: stdlib `unittest` classes, pytest as the runner. No `conftest.py`, no
-shared fixtures — every file is self-contained. Dev deps: `requirements-dev.txt`
-(pytest, ruff). Lint: `ruff check .` (config in `ruff.toml`).
+Style: stdlib `unittest` classes, pytest as the runner. No shared fixtures —
+every file is self-contained. The one `conftest.py` does exactly one thing
+(redirect `AVA_HOME` to a throwaway directory before anything imports
+`settings`, which freezes it); its docstring says why. Dev deps:
+`requirements-dev.txt` (pytest, ruff). Lint: `ruff check .` (config in
+`ruff.toml`).
 
 ## What each file covers
 
@@ -41,7 +44,7 @@ shared fixtures — every file is self-contained. Dev deps: `requirements-dev.tx
 | `test_diagram_sync.py` | Rendered `.svg` `d2sum:` stamp matches its `.d2` source (SSOT drift guard) |
 | `test_fastapi_compat.py` | Canary for the fastapi/starlette prefixed-router 404 regression |
 | `test_grants.py` | Consent access tiers, grants store, tier-aware gate |
-| `test_hardware_models.py` | Hardware monitor model inventory: engine worker processes merge into one row; model identity read from cmdline/config/API, never assumed from runtime kind |
+| `test_hardware_models.py` | Hardware monitor model inventory: engine worker processes merge into one row; model identity read from cmdline/config/API, never assumed from runtime kind; and exactly one row is the brain — on a box with no GPU tooling, at any hostname spelling, up or offline — with residency observed (`/api/ps`) instead of read off the pulled-tag list |
 | `test_hub_uniformity.py` | Static guard on the Setup (Hub) **frontend** (`frontend/src/components/hub/`): shared `Badge`/`StatRow` aren't re-hand-rolled, no resurrected per-panel classes (icon tiles, action clusters, tone rules), one `.tone-*`/`--tone` system — no build/browser needed |
 | `test_hwinfo.py` | Hardware-abstraction decisions across Apple / CPU-only / no-psutil |
 | `test_mac_setup.py` | Non-CUDA onboarding: a high-RAM Mac must not get the vLLM default |

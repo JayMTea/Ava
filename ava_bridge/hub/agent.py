@@ -183,18 +183,32 @@ def agent_inference():
     The `code` field is the point: it feeds frontend/src/lib/fixes.ts, which
     resolves a Setup destination from the code PATTERN. So this needs no mapping
     table of its own and stays correct when new codes appear.
+
+    WHICH model this diagnoses comes from models.effective_brain(), not from
+    this route. It used to take the first backend that had a model set, which is
+    only the brain by coincidence: with `inference.roles.chat` pointing at the
+    second backend, this reported the health of a model no turn would ever
+    reach — a green badge for an engine nobody talks to, or a red one naming a
+    model that is not the problem. The monitor and Setup now diagnose the same
+    model they name.
     """
     from .. import models as _models
     from .. import router_app as _router
 
+    # Parsed here rather than inferred from the resolver, because the resolver
+    # deliberately swallows a broken config (a monitor must degrade, never
+    # raise) and so cannot tell "no model" from "unreadable yaml" — and telling
+    # those apart is this route's entire job.
     try:
-        backends = _router.load_backends()
+        _router.load_backends()
     except Exception as e:  # noqa: BLE001 — a broken config must still answer
         return {"ok": False, "code": "config_unparseable",
                 "detail": f"Could not read the inference config: {e}"}
 
-    servable = [b for b in backends if str(b.get("model") or "").strip()]
-    if not servable:
+    brain = _models.effective_brain()
+    model = str(brain.get("model_id") or "").strip()
+    engine = str(brain.get("engine") or "").strip()
+    if not model:
         # Distinguishing this from "engine down" matters: nothing is broken to
         # restart, a value is simply missing, and Operations is the wrong place
         # to send someone.
@@ -202,11 +216,21 @@ def agent_inference():
                 "detail": "No model is configured, so there is nothing to answer "
                           "with. Choose one in Setup -> Agent."}
 
-    b = servable[0]
-    model = str(b.get("model")).strip()
-    engine = str(b.get("engine") or "").strip()
-    base = str(b.get("url") or "")
-    reachable, served = _models.probe_serving(base, engine, timeout=2.0)
+    if brain.get("source") == "agent":
+        # The agent runtime serves turns inside its sandbox and owns the model
+        # endpoint; we hold no base URL to probe. Probing the empty one would
+        # report `inference_down` — a red banner over an install that is
+        # answering — so the honest read is the one the resolver already made:
+        # runtime.active() returned the sandbox, which means it is live.
+        return {"ok": True, "code": "", "model": model, "engine": engine,
+                "detail": ""}
+
+    base = str(brain.get("base_url") or "")
+    # The key travels with the probe. Without it a token-protected local engine
+    # answers 401 and a perfectly healthy brain is reported down — the same bug
+    # hardware._loaded_models() already carries a comment about.
+    key = str(brain.get("api_key") or "")
+    reachable, served = _models.probe_serving(base, engine, key, timeout=2.0)
     if not reachable:
         return {"ok": False, "code": "inference_down", "model": model,
                 "engine": engine,

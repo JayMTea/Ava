@@ -662,7 +662,15 @@ From that one manifest, with nothing hand-maintained in Ava's core:
   them as deterministic cards; app-relative URLs resolve via `/apps/<id>`)
 - **Ops job attribution** ← `jobs` (your app's active jobs appear next to the
   GPU graph so spikes are self-explanatory)
-- **Loaded-model roles** ← `model_hints` (label what a checkpoint is for)
+- **Loaded-model role labels** ← `model_hints` (label what a checkpoint is for).
+  Ava's *own* roles no longer travel as this text: the hardware monitor emits a
+  machine token `role_key` (`brain` / `render` / `video` / `image` / `""`) that
+  the frontend words, because the backend returns facts and owner-facing copy
+  lives in the SPA. `role_key: brain` is decided solely by
+  `models.effective_brain()` — never by a model's name. Your hint still fills
+  the row's free-text `role` field, which is where connector-declared copy
+  belongs (the documented registry exception), for any model nothing built-in
+  claims.
 
 The `chat_pickup` / `jobs` / `model_hints` field shapes are documented inline in
 [`connectors/_template/connector.yaml`](../connectors/_template/connector.yaml).

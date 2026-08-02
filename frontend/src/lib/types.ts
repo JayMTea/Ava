@@ -60,6 +60,14 @@ export interface ImageJob {
   error_code?: string;  // machine-readable ("image_off", "gpusvc_down") — drives the fix-it link
 }
 
+export type ModelState =
+  | 'resident'   // holding weights in memory right now
+  | 'idle'       // engine up, has the model, not in memory (it loads on demand)
+  | 'absent'     // engine up, does NOT have this model — never downloaded
+  | 'offline'    // engine could not be reached
+  | 'remote'     // runs somewhere else, so not in this box's memory
+  | 'unknown';   // residency genuinely unobservable
+
 export interface HardwareStats {
   gpu: {
     name: string | null;
@@ -95,10 +103,23 @@ export interface HardwareStats {
     pid: number | null;
     status: string;
     source: string;
+    // What this row IS, as a machine token — the backend never sends copy for
+    // it (see CLAUDE.md), so the wording below is ours and matches the "brain"
+    // badge Setup → Agent uses. Exactly one row is ever the brain.
+    role_key?: 'brain' | 'render' | 'video' | 'image' | '';
+    // OBSERVED liveness, closed vocabulary (ava_bridge/hardware.py _STATES).
+    // "unknown" means we could not look, never "not loaded".
+    state?: ModelState;
+    // False = it runs somewhere else, so this host's memory is not where to
+    // look for it. Only the brain is shown when it is not local.
+    local?: boolean;
+    // How much of the model sits in VRAM (Ollama reports the split).
+    vram_mb?: number | null;
+    served?: string[];
     role?: string;
     cmd?: string;
     component_count?: number;
-    in_memory?: boolean;
+    in_memory?: boolean | null;
     components?: Array<{
       name: string;
       kind: string;

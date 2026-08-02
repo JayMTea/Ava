@@ -110,13 +110,18 @@ _LOCAL_ENGINES = {"vllm", "ollama", "llamacpp", "llama.cpp", "llamafile", "gguf"
 _LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "0.0.0.0", "host.docker.internal"}
 
 
-def _is_local(backend: dict) -> bool:
+def is_local(backend: dict) -> bool:
     """True if this backend runs on this machine (so its memory footprint counts).
 
     A cloud/remote endpoint (OpenAI, OpenRouter, a LAN box) doesn't consume this
-    host's memory, so it must never be memory-gated. Decided by engine type, an
-    explicit `fit.local`, a Bearer key (cloud APIs need one; local vLLM doesn't),
-    or a loopback base_url.
+    host's memory, so it must never be memory-gated. Decided by an explicit
+    `fit.local`, then engine type, then a loopback base_url.
+
+    Public because it is the deployment's ONE local-vs-cloud decision. Three
+    other modules had grown their own hostname set, and hardware.py's — four
+    loopback literals — dropped `http://ollama:11434/v1`, the URL every Docker
+    install is given, so the monitor could not see the brain it was serving.
+    A compose service name is not a cloud endpoint; the engine kind says so.
     """
     fit = backend.get("fit") or {}
     if "local" in fit:
@@ -124,10 +129,17 @@ def _is_local(backend: dict) -> bool:
     eng = str(backend.get("engine", "")).strip().lower()
     if eng in _LOCAL_ENGINES:
         return True
-    if backend.get("api_key"):        # a Bearer token => a cloud API
-        return False
+    # A loopback base_url is direct evidence and outranks the key heuristic.
+    # A Bearer token usually means a cloud API, but llama-server and vLLM both
+    # take `--api-key`, and the shipped "Cloud (OpenAI-compatible)" preset is
+    # the only add-a-model form with a key field — so a token-protected engine
+    # on 127.0.0.1 arrives here looking exactly like OpenAI while holding this
+    # box's RAM. Tested first, it stays local; tested second, the monitor calls
+    # it "runs elsewhere" and the locality filter drops the row entirely.
     host = (urlparse(backend.get("url", "")).hostname or "").lower()
-    return host in _LOCAL_HOSTS
+    if host in _LOCAL_HOSTS:
+        return True
+    return False        # no local signal left; a Bearer key means a cloud API
 
 
 @dataclass
@@ -165,7 +177,7 @@ def profile_for(backend: dict) -> FitProfile:
         workloads=frozenset(str(w).strip().lower() for w in workloads if w),
         tier=tier,
         min_free_gb=_as_float(fit.get("min_free_gb")) or 4.0,
-        local=_is_local(backend),
+        local=is_local(backend),
     )
 
 

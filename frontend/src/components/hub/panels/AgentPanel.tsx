@@ -9,6 +9,8 @@ import { hub } from '../hubApi';
 import { ResourceError } from '../ui/ResourceState';
 import type { Backend, BackendTestResult, BenchResult, PullStatus, Skill, SkillList } from '../hubApi';
 import { Badge } from '../ui/Badge';
+import { stateCopy, stateTone } from '../../../lib/modelState';
+import type { StatefulRow } from '../../../lib/modelState';
 import { DriftBadge } from '../ui/DriftBadge';
 import { StatRow } from '../ui/StatRow';
 import { DriftBoard, ProvisionRun } from './ProvisionRun';
@@ -17,6 +19,20 @@ import { startProvision, useProvisionState } from '../../../hooks/useProvisionSt
 // Agent — runtime status + provisioning, the multi-model brain manager, the
 // model store, benchmarks, and the skills list. ENGINE_PRESETS is the "add a
 // model" form's endpoint presets.
+
+// Whether the brain is actually up, in the SAME words the floating hardware
+// monitor uses (lib/modelState). This panel described a model as the brain
+// while the monitor reported none, because neither read the other's source.
+function BrainState({ row }: { row: (StatefulRow & { memory_gb?: number | null }) | null }) {
+  if (!row) return null;
+  return (
+    <small style={{ color: 'var(--muted)', display: 'block', marginTop: 3 }}>
+      <Badge tone={stateTone(row)}>{stateCopy(row).label}</Badge>{' '}
+      {stateCopy(row).hint}
+      {row.memory_gb != null && ` · ${row.memory_gb.toFixed(1)} GB in memory`}
+    </small>
+  );
+}
 // Engine presets for the "add a model" form: label + default OpenAI-compatible
 // base URL + whether it's a local engine (local engines need no API key). Ava
 // talks to any of these the same way — an OpenAI-compatible /v1 endpoint.
@@ -62,7 +78,20 @@ function BrainManager({ onRestart }: { onRestart: () => void }) {
   // default (`implicit`) — with the agent off, THAT is the operative brain.
   const routeRes = useResource(() => api.getModel());
   const { data: route } = routeRes;
-  // One surface for this section's four resources — see Overview.
+  // The SAME reading the floating hardware monitor shows, from the same
+  // endpoint and the same vocabulary (lib/modelState). This panel could say
+  // "brain" while the monitor said no model existed, because the two never
+  // consulted each other; now they render one fact.
+  //
+  // Deliberately NOT in `brainErr` below: this is liveness ON TOP of the
+  // configuration this section exists to edit. If /api/hardware hiccups the
+  // state chip simply does not render, which is right — turning a telemetry
+  // blip into a red error over a correctly configured brain would report a
+  // problem the user does not have, and the floating monitor already owns
+  // that failure.
+  const hwRes = useResource(() => api.hardware());
+  const brainRow = (hwRes.data?.models || []).find((m) => m.role_key === 'brain') || null;
+  // One surface for this section's configuration resources — see Overview.
   const brainErr = [listRes, beRes, agentRes, routeRes].find((r) => r.error);
 
   const preset = ENGINE_PRESETS.find((p) => p.value === engine) ?? ENGINE_PRESETS[0];
@@ -164,6 +193,7 @@ function BrainManager({ onRestart }: { onRestart: () => void }) {
                 — the agent thinks with this; change it via <b>nemoclaw onboard</b>.
                 Models linked below serve the tool-less fallback and other roles.
               </small>
+              <BrainState row={brainRow} />
             </div>
           </div>
         </div>
@@ -181,6 +211,7 @@ function BrainManager({ onRestart }: { onRestart: () => void }) {
                 {routerDefault.model} — nothing is configured, so the router serves this
                 default. Add a model below to choose your own.
               </small>
+              <BrainState row={brainRow} />
             </div>
           </div>
         </div>
@@ -201,6 +232,9 @@ function BrainManager({ onRestart }: { onRestart: () => void }) {
                       {b.is_brain && (agentBrain
                         ? <Badge tone="muted">fallback brain</Badge>
                         : <Badge tone="accent">brain</Badge>)}
+                      {b.is_brain && brainRow && (
+                        <Badge tone={stateTone(brainRow)}>{stateCopy(brainRow).label}</Badge>
+                      )}
                     </b>
                     <small style={{ color: 'var(--muted)', wordBreak: 'break-all' }}>
                       {b.engine} · {b.model || 'no model set'} · {b.base_url}

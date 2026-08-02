@@ -18,7 +18,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from ava_bridge import hub_api, models, router_app
+from ava_bridge import hub_api, models, router_app, runtime
 
 
 def _backend(model="llama3.2", engine="ollama"):
@@ -28,7 +28,17 @@ def _backend(model="llama3.2", engine="ollama"):
 
 
 @pytest.fixture
-def client():
+def client(monkeypatch):
+    """The route with the agent runtime pinned OFF.
+
+    The route now names its model via models.effective_brain(), whose FIRST
+    branch is the agent sandbox. Left real, every case below would diagnose
+    whichever sandbox the developer's own box happens to have onboarded, and
+    diagnose the mocked config on CI — the same test asserting two different
+    things depending on the machine. The sandbox branch gets its own case at
+    the bottom instead.
+    """
+    monkeypatch.setattr(runtime, "active", runtime.direct)
     app = FastAPI()
     app.include_router(hub_api.router)
     return TestClient(app)
@@ -85,10 +95,52 @@ def test_the_bare_ollama_tag_is_not_reported_missing(client) -> None:
 
 def test_a_broken_config_answers_instead_of_raising(client) -> None:
     """The health check is the least important thing on the page; it must never
-    be what takes the shell down."""
+    be what takes the shell down.
+
+    load_backends() is still called for exactly this: models.effective_brain()
+    deliberately swallows a broken config (a monitor degrades, it does not
+    raise), so it can only report "no model" — and "unreadable yaml" sends the
+    owner somewhere else entirely.
+    """
     def boom():
         raise ValueError("bad yaml")
     with mock.patch.object(router_app, "load_backends", boom):
         r = client.get("/api/hub/agent/inference")
     assert r.status_code == 200
     assert r.json()["code"] == "config_unparseable"
+
+
+def test_the_model_diagnosed_is_the_brain_not_the_first_one_listed(client) -> None:
+    """The route reported on `the first backend that has a model set`, which is
+    the brain only by coincidence. With roles.chat pointing at the second one,
+    it graded an engine no turn ever reaches — a green badge for a model nobody
+    talks to, or a red one naming a model that is not the problem."""
+    listed = [_backend(model="unused-fast-model"),
+              dict(_backend(model="the-brain"), id="brain")]
+    with mock.patch.object(router_app, "load_backends", lambda: listed), \
+         mock.patch.object(models.settings, "get",
+                           lambda k, d=None: {"roles": {"chat": "brain"}}
+                           if k == "inference" else d), \
+         mock.patch.object(models, "probe_serving", lambda *a, **k: (True, ["the-brain"])):
+        r = client.get("/api/hub/agent/inference").json()
+    assert r["ok"] is True
+    assert r["model"] == "the-brain", (
+        "Setup is grading a different model than the one that answers turns")
+
+
+def test_a_live_agent_sandbox_is_reported_ok_and_not_probed(client) -> None:
+    """The agent runtime answers turns inside its sandbox and owns the model
+    endpoint, so the resolver hands us no base URL. Probing the empty one would
+    read `inference_down` and paint a red banner over an install that is
+    replying perfectly well."""
+    probed = []
+    agent_brain = {"source": "agent", "backend_id": "", "engine": "ollama",
+                   "model_id": "nvidia/Reasoner-30B", "label": "Reasoner-30B",
+                   "base_url": "", "api_key": "", "local": True, "implicit": False}
+    with mock.patch.object(models, "effective_brain", lambda: dict(agent_brain)), \
+         mock.patch.object(models, "probe_serving",
+                           lambda *a, **k: (probed.append(a), (False, []))[1]):
+        r = client.get("/api/hub/agent/inference").json()
+    assert r["ok"] is True and not r["code"]
+    assert r["model"] == "nvidia/Reasoner-30B"
+    assert not probed, "there is no endpoint here to probe; the sandbox holds it"

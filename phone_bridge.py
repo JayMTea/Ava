@@ -243,27 +243,32 @@ except Exception:  # noqa: BLE001 — no overlay (fork) or a broken overlay: cor
 
 def _resolved_model() -> str:
     """The brain this instance is actually using — the agent sandbox model when
-    that runtime is active, else the configured chat backend, else the legacy
-    env default. /api/health feeds the client token counter, so this must track
-    reality rather than the standalone AVA_MODEL constant (which advertised
-    Omni regardless of what was configured)."""
+    that runtime is active, else the configured chat backend, else whatever the
+    router would actually serve. /api/health feeds the client token counter, so
+    this must track reality rather than the standalone AVA_MODEL constant (which
+    advertised Omni regardless of what was configured).
+
+    That walk is now models.effective_brain()'s, not this function's. This one
+    hand-rolled its own — sandbox, then `inference.backends`, then AVA_MODEL —
+    and the middle step read ONLY ava.yaml. A Docker install has no inference
+    block at all (install.sh writes AVA_BACKEND_MODEL to deploy/.env and compose
+    passes it in; router_app builds that env backend precisely because ava.yaml
+    declares none), so this fell through to the Omni constant and /api/health
+    reported a model the box was not running — while the hardware monitor, which
+    asks effective_brain(), named the right one on the same screen. The resolver
+    reads the env backend because it asks the router what it would serve.
+
+    AVA_MODEL stays as the floor for the case the resolver reports as `none`
+    (no backend anywhere): a PUBLIC health probe must still answer with a
+    string. Lazily imported, and every failure swallowed, for the same reason as
+    before — health must never fail on a probe.
+    """
     try:
-        from ava_bridge import runtime as _runtime
-        rt = _runtime.active()
-        if rt.name == "nemoclaw":
-            m = (rt.sandbox_info(wait=False) or {}).get("model")
-            if m:
-                return m
+        from ava_bridge import models as _models
+        m = str(_models.effective_brain().get("model_id") or "").strip()
+        if m:
+            return m
     except Exception:  # noqa: BLE001 — health must never fail on a probe
-        pass
-    try:
-        backs = settings.get("inference.backends") or {}
-        if isinstance(backs, dict) and backs:
-            primary = settings.get("inference.primary")
-            b = backs.get(primary) or next(iter(backs.values()))
-            if isinstance(b, dict) and b.get("model"):
-                return str(b["model"])
-    except Exception:  # noqa: BLE001
         pass
     return va.AVA_MODEL
 

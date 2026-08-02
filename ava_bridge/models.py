@@ -312,6 +312,189 @@ def _fetch_served(base_url: str, engine: str, key: str,
     return sorted(dict.fromkeys(out))
 
 
+def resident_url(base_url: str, engine: str = "") -> str:
+    """Where to ask a running engine what it is holding IN MEMORY, or "".
+
+    Same /v1-stripping shape as models_url, and for the same reason: Ollama's
+    OpenAI-compatible base ends in /v1 but its native endpoints hang off the
+    root. "" means this engine declares no residency endpoint — the caller must
+    then say "unknown", never "not loaded".
+    """
+    from .engines import get as _engine_get
+
+    base = (base_url or "").strip().rstrip("/")
+    if not base:
+        return ""
+    spec = _engine_get(engine) if engine else None
+    path = getattr(spec, "resident_path", None) if spec else None
+    if not path:
+        return ""
+    if path.startswith("/api/") and base.endswith("/v1"):
+        base = base[:-3].rstrip("/")
+    return base + path
+
+
+def probe_resident(base_url: str, engine: str = "", key: str = "",
+                   timeout: float = 2.0) -> list[dict] | None:
+    """What this engine currently holds in memory — the honest residency read.
+
+    Three-valued on purpose, mirroring `probe_serving`'s reachable/ids split:
+
+      None  we cannot know (engine declares no residency endpoint, or the call
+            failed). The caller must report unknown residency.
+      []    the engine answered and is holding nothing. This is the ordinary
+            state of an idle Ollama: models pulled, none resident.
+      [...] `{"id", "size_bytes", "vram_bytes"}` per resident model.
+
+    Collapsing None into [] is the bug this exists to prevent: it would report
+    every engine that cannot be asked as empty.
+    """
+    url = resident_url(base_url, engine)
+    if not url:
+        return None
+    try:
+        import requests
+        headers = {"Authorization": f"Bearer {key}"} if key else {}
+        r = requests.get(url, timeout=timeout, headers=headers)
+        if not r.ok:
+            return None
+        body = r.json()
+    except Exception:  # noqa: BLE001 — unreachable, slow, or not JSON
+        return None
+    if not isinstance(body, dict):
+        # A shape we do not understand is "we could not find out", not "it is
+        # holding nothing" — returning [] here would report an engine we failed
+        # to read as idle, which is the same lie in a different coat.
+        return None
+    # Ollama /api/ps: {"models":[{"name","size","size_vram",...}]}. Kept
+    # tolerant of the OpenAI `data[].id` envelope so an engine that adopts a
+    # residency endpoint in that shape needs no code here.
+    items = body.get("models")
+    if items is None:
+        items = body.get("data")
+    if items is None or not isinstance(items, list):
+        return None          # answered, but not with a model list we can read
+    out: list[dict] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        mid = str(item.get("name") or item.get("model")
+                  or item.get("id") or "").strip()
+        if not mid:
+            continue
+        out.append({"id": mid,
+                    "size_bytes": _as_int(item.get("size")),
+                    "vram_bytes": _as_int(item.get("size_vram"))})
+    return out
+
+
+def _as_int(v) -> int | None:
+    try:
+        return int(v) if v is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def effective_brain() -> dict:
+    """The one model that answers a chat turn right now.
+
+    THE single answer to "what is Ava thinking with", so that the hardware
+    monitor, Setup → Agent, the chat header and /api/health stop each deriving
+    it from a different corner of the config and disagreeing. Every field is
+    read from configuration — this says nothing about whether the thing is up,
+    which is a separate, observed question (see hardware._loaded_models).
+
+    Resolution order is the order a turn actually takes:
+      1. the agent runtime's sandbox model, when that runtime is live — it
+         bypasses the router entirely, so whatever the router would have
+         chosen is not what answers;
+      2. the configured brain: `inference.roles.chat`, else `inference.primary`;
+      3. whatever the router would serve first — a configured backend, or the
+         env/built-in fallback, which is then flagged `implicit`.
+
+    `source` names which branch won, so a UI can say "agent sandbox" or
+    "built-in default" without re-deriving any of it.
+    """
+    out = {"source": "none", "backend_id": "", "model_id": "", "label": "",
+           "engine": "", "base_url": "", "api_key": "", "local": False,
+           "implicit": False}
+
+    try:  # the agent runtime answers turns itself when it is available
+        # `runtime.active()`, because that IS the "when it is available" test:
+        # it hands back the NemoClaw singleton only once available() has
+        # confirmed the CLI and the sandbox, and the Direct floor otherwise.
+        # This read `from .runtime import nemoclaw`, which binds the package's
+        # FACTORY FUNCTION, not the runtime — so `.status()` raised
+        # AttributeError straight into the except below and branch 1 never
+        # fired once. Every caller silently fell through to the config.
+        #
+        # sandbox_info(wait=False), not status(): this resolver is reached from
+        # the public /api/health, which must never block on a `nemoclaw list`
+        # shell-out (see NemoClawRuntime.sandbox_info) — and status() would add
+        # a doctor probe whose answer nothing here reads.
+        # WHICH RUNTIME answers decides this branch; the model id only fills in
+        # its name. Gating the branch on the id instead made the answer depend
+        # on whether that 120s cache happened to be warm: the first caller after
+        # a restart got the router's backend and the next one got the sandbox,
+        # so /api/health and the hardware monitor named different models on one
+        # screen — the exact disagreement this resolver exists to end. `active()`
+        # is config plus availability, with no cache to be cold.
+        from . import runtime
+        rt = runtime.active()
+        if rt.name != "direct":
+            info = (getattr(rt, "sandbox_info", None)
+                    and rt.sandbox_info(wait=False)) or {}
+            mid = str(info.get("model") or "").strip()
+            return {**out, "source": "agent", "backend_id": "",
+                    # An empty id is honest and self-correcting: the label says
+                    # what is answering, and the name appears a moment later
+                    # when the background refresh lands. Reporting a backend
+                    # that is NOT serving the turn would not self-correct.
+                    # Label stays EMPTY until the name is known, so the caller's
+                    # own fallback copy shows ("Agent sandbox"), not a runtime
+                    # id the owner never chose and would not recognise.
+                    "model_id": mid, "label": mid.rsplit("/", 1)[-1],
+                    "engine": str(info.get("provider") or "").strip() or rt.name,
+                    # The sandbox process is on this box, but IT holds the model
+                    # endpoint and we do not — so residency is unobservable
+                    # rather than absent, which is what `local` buys the caller.
+                    "local": rt.name != "remote"}
+    except Exception:  # noqa: BLE001 — the runtime is optional
+        pass
+
+    try:
+        from . import router_app
+        backends = router_app.load_backends()
+    except Exception:  # noqa: BLE001 — never let config break the resolver
+        backends = []
+    if not backends:
+        return out
+
+    want = ""
+    try:
+        inf = settings.get("inference") or {}
+        if isinstance(inf, dict):
+            roles = inf.get("roles") or {}
+            want = str((roles.get("chat") if isinstance(roles, dict) else "")
+                       or inf.get("primary") or "").strip()
+    except Exception:  # noqa: BLE001
+        want = ""
+
+    b = next((x for x in backends if x.get("id") == want), backends[0])
+    implicit = bool(b.get("implicit"))
+    from .model_fit import is_local
+    return {**out,
+            "source": "implicit" if implicit else "configured",
+            "backend_id": str(b.get("id") or ""),
+            "model_id": str(b.get("model") or ""),
+            "label": str(b.get("label") or b.get("model") or ""),
+            "engine": str(b.get("engine") or ""),
+            "base_url": str(b.get("url") or ""),
+            "api_key": str(b.get("api_key") or ""),
+            "local": is_local(b),
+            "implicit": implicit}
+
+
 def match_served(model: str, served: list[str]) -> str:
     """The id the engine will accept for `model`, or "" if it holds no such thing.
 
@@ -339,4 +522,5 @@ __all__ = [
     "gpusvc_present", "gguf_present", "platform_label", "detected_tier",
     "engine_servable_here", "resolve_auto", "roles_status",
     "models_url", "served_models", "match_served", "probe_serving",
+    "resident_url", "probe_resident", "effective_brain",
 ]

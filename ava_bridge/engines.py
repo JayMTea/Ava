@@ -57,6 +57,18 @@ class Engine:
     # /models, so aliasing the two would ask it the wrong question. Ollama is the
     # only engine whose list is not the OpenAI shape, hence its override below.
     models_path: str = "/models"
+    # Whether `models_path` answers "what is in memory" or only "what is on
+    # disk". Engines that load one model at boot and hold it (vLLM, llama.cpp,
+    # MLX) make the two the same question, so listing a model IS observing it
+    # resident. Ollama does not: it lists every pulled tag and evicts a model
+    # after ~5 min idle, so a listed model may be entirely on disk. Reading a
+    # list as residency is what let the monitor claim three resident brains on
+    # a box holding none.
+    serves_resident: bool = True
+    # Where this engine reports the models it is holding IN MEMORY right now,
+    # when that is a different question from models_path. None = it cannot be
+    # asked, and residency stays honestly unknown rather than assumed.
+    resident_path: str | None = None
     launcher: str | None = None
     flags_table: bool = False
     pull: str | None = None
@@ -88,6 +100,11 @@ ENGINES: tuple[Engine, ...] = (
         key="ollama", label="Ollama", tier=FIRST_CLASS,
         health_path="/api/tags",
         models_path="/api/tags",
+        # /api/tags is the pulled-to-disk inventory; /api/ps is the resident
+        # set, with per-model size and the VRAM/RAM split. Verified against a
+        # live Ollama: three pulled tags, /api/ps empty until a turn arrives.
+        serves_resident=False,
+        resident_path="/api/ps",
         usage=True,
         usage_reason="verified: Ollama omits usage UNLESS include_usage is sent",
         usage_verified=True,
@@ -139,6 +156,11 @@ ENGINES: tuple[Engine, ...] = (
         key="lmstudio", label="LM Studio", tier=GENERIC,
         aliases=("lm-studio",),
         health_path="/models",
+        # Its /v1/models lists everything downloaded, loaded or not, and the
+        # native endpoint that distinguishes them is unverifiable here (closed
+        # desktop GUI, not scriptable in CI). So: listed is not resident, and
+        # with no resident_path residency stays unknown rather than guessed.
+        serves_resident=False,
         usage=False,
         usage_reason="NOT VERIFIED — closed-source desktop GUI, not scriptable "
                      "in CI.",

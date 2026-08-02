@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
 import { api } from '../lib/api';
 import { ProgressBar } from '../lib/ProgressBar';
+import { stateCopy, stateOf } from '../lib/modelState';
+import type { StatefulRow } from '../lib/modelState';
 import type { HardwareStats } from '../lib/types';
 
 // Floating, draggable hardware monitor. Tap to expand a live quick-view of the
@@ -50,26 +52,22 @@ function ChipGlyph({ size = 16 }: { size?: number }) {
   );
 }
 
-const statusLabel = (s?: string) => {
-  if (!s) return 'Unknown';
-  if (s === 'loaded') return 'Loaded';
-  if (s === 'offline') return 'Offline (not in memory)';
-  if (s === 'empty') return 'Empty';
-  return s.charAt(0).toUpperCase() + s.slice(1);
-};
+// Liveness wording comes from lib/modelState — the one place it is defined, so
+// this panel and Setup → Agent cannot drift into describing the same reading in
+// two different languages (which is exactly how this panel ended up saying "No
+// model process detected yet" about a model Setup was showing as the brain).
+type Row = StatefulRow & { gpu_util?: number | null; role_key?: string };
 
-const activityState = (m: { status?: string; gpu_util?: number | null }) => {
-  if (m.status !== 'loaded') return 'offline';
+// The dot follows the STATE, and only shades it by GPU busyness when that is
+// actually known. Keying it off gpu_util first painted a grey "idle" dot beside
+// a green "In memory" — two contradictory readings of one row, and grey on
+// every CPU-only box, where per-process GPU util is never available.
+const activityDotStyle = (m: Row): CSSProperties => {
+  const copy = stateCopy(m);
   const u = m.gpu_util;
-  if (u == null) return 'idle';
-  if (u >= 30) return 'active';
-  if (u > 0) return 'low';
-  return 'idle';
-};
-
-const activityDotStyle = (m: { status?: string; gpu_util?: number | null }): CSSProperties => {
-  const s = activityState(m);
-  const color = s === 'active' ? '#34d27a' : s === 'low' ? '#e6b85c' : s === 'idle' ? '#8b98ad' : '#596172';
+  const color = stateOf(m) === 'resident' && u != null && u >= 30 ? '#34d27a'
+    : stateOf(m) === 'resident' && u != null && u > 0 ? '#e6b85c'
+      : copy.tone;
   return {
     width: 7,
     height: 7,
@@ -181,7 +179,10 @@ export function HardwareBubble() {
   const cpu = stats?.cpu;
   const models = stats?.models || [];
   const jobs = stats?.jobs || [];
-  const selectedModel = models.find((m) => m.id === selectedModelId) || models[0] || null;
+  // The backend already sorts the brain first; being explicit here means the
+  // panel opens on what Ava thinks with even if that ever changes.
+  const brain = models.find((m) => m.role_key === 'brain') || null;
+  const selectedModel = models.find((m) => m.id === selectedModelId) || brain || models[0] || null;
 
   useEffect(() => {
     if (!models.length) {
@@ -251,10 +252,57 @@ export function HardwareBubble() {
             <span style={{ color: 'var(--muted)' }}>GPU temp</span>
             <span style={{ fontWeight: 700, color: tempColor(gpu?.temp) }}>{temp(gpu?.temp)}</span>
           </div>
+          {/* Ava's brain, always — it is named by configuration, so it is
+              knowable even when nothing is running. This block used to be
+              absent entirely on a machine with no GPU, which told a user whose
+              model was serving fine that no model existed. */}
           <div style={{ marginTop: 10, borderTop: '1px solid var(--line)', paddingTop: 9 }}>
-            <div style={{ color: 'var(--muted)', marginBottom: 6 }}>Loaded models in memory</div>
+            <div style={{ color: 'var(--muted)', marginBottom: 6 }}>Ava's brain</div>
+            {brain ? (
+              <button
+                type="button"
+                onClick={() => setSelectedModelId(brain.id)}
+                style={{
+                  display: 'block', width: '100%', textAlign: 'left', font: 'inherit',
+                  background: 'transparent', border: 0, padding: 0, cursor: 'pointer',
+                }}
+              >
+                <div style={{ fontSize: 12.5, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={activityDotStyle(brain)} />
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {brain.model}
+                  </span>
+                </div>
+                <div style={{ fontSize: 11, color: stateCopy(brain).tone, marginTop: 2 }}>
+                  {stateCopy(brain).label}
+                  {brain.memory_gb != null && ` · ${brain.memory_gb.toFixed(1)} GB`}
+                  {brain.vram_mb != null && brain.vram_mb > 0 && ` (${(brain.vram_mb / 1024).toFixed(1)} GB on GPU)`}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, lineHeight: 1.35 }}>
+                  {stateCopy(brain).hint}
+                  {/* "It does not have this model" is only half an answer —
+                      say what it DOES have, which is usually the whole
+                      diagnosis (a tag typo, or a pull that never ran). */}
+                  {stateOf(brain) === 'absent' && brain.served && brain.served.length > 0 && (
+                    <> It has: {brain.served.slice(0, 3).join(', ')}
+                      {brain.served.length > 3 && ` +${brain.served.length - 3} more`}.</>
+                  )}
+                </div>
+              </button>
+            ) : (
+              <div style={{ color: 'var(--muted)', fontSize: 11, lineHeight: 1.35 }}>
+                No model linked yet — pick one in Setup → Agent.
+              </div>
+            )}
+          </div>
+          <div style={{ marginTop: 10, borderTop: '1px solid var(--line)', paddingTop: 9 }}>
+            {/* Not "on this machine": a cloud or sandbox brain is listed here
+                too, and its own state says it runs elsewhere. */}
+            <div style={{ color: 'var(--muted)', marginBottom: 6 }}>Models Ava can see</div>
             {models.length === 0 ? (
-              <div style={{ color: 'var(--muted)', fontSize: 11 }}>No model process detected yet.</div>
+              <div style={{ color: 'var(--muted)', fontSize: 11, lineHeight: 1.35 }}>
+                No inference engine is running here yet.
+              </div>
             ) : (
               <>
                 <select
@@ -265,7 +313,7 @@ export function HardwareBubble() {
                 >
                   {models.map((m) => (
                     <option key={m.id} value={m.id}>
-                      {m.model}
+                      {m.model}{m.role_key === 'brain' ? ' · brain' : ''} — {stateCopy(m).label}
                     </option>
                   ))}
                 </select>
@@ -273,12 +321,25 @@ export function HardwareBubble() {
                   <div style={{ fontSize: 11.5, lineHeight: 1.35 }}>
                     <div>
                       <b>Model:</b> <span style={activityDotStyle(selectedModel)} />{selectedModel.model}
+                      {selectedModel.role_key === 'brain' && (
+                        <span style={{
+                          marginLeft: 6, padding: '0 5px', borderRadius: 4, fontSize: 10,
+                          fontWeight: 700, background: 'var(--accent)', color: '#fff',
+                        }}>brain</span>
+                      )}
                     </div>
-                    {selectedModel.role && <div><b>Role:</b> {selectedModel.role}</div>}
+                    {/* One state, one line. "GPU activity: offline" used to sit
+                        directly above "Status: Empty" — two readings of the same
+                        fact, in two vocabularies, neither actionable. */}
+                    <div><b>State:</b> {stateCopy(selectedModel).label}</div>
+                    {selectedModel.role_key !== 'brain' && selectedModel.role && (
+                      <div><b>Role:</b> {selectedModel.role}</div>
+                    )}
                     <div><b>Runtime:</b> {selectedModel.name}</div>
                     <div><b>Memory:</b> {selectedModel.memory_gb != null ? `${selectedModel.memory_gb.toFixed(2)} GB` : '—'}</div>
-                    <div><b>GPU activity:</b> {selectedModel.gpu_util != null ? `${Math.round(selectedModel.gpu_util)}%` : (selectedModel.status === 'loaded' ? 'idle/unknown' : 'offline')}</div>
-                    <div><b>Status:</b> {statusLabel(selectedModel.status)}</div>
+                    {selectedModel.gpu_util != null && (
+                      <div><b>GPU activity:</b> {Math.round(selectedModel.gpu_util)}%</div>
+                    )}
                     <div><b>Source:</b> {selectedModel.source}{selectedModel.pid != null ? ` · PID ${selectedModel.pid}` : ''}</div>
                     <div style={{ marginTop: 7 }}>
                       <div style={{ fontWeight: 700, marginBottom: 4 }}>Model components</div>

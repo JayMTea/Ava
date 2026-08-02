@@ -164,10 +164,40 @@ def _inference() -> dict:
     inf = settings.get("inference") or {}
     return inf if isinstance(inf, dict) else {}
 
-def _brain_id(inf: dict) -> str | None:
-    """Which backend is the conversational brain: roles.chat, else primary."""
+def _brain_id() -> str | None:
+    """Which backend is the conversational brain — asked of the ONE resolver.
+
+    Still `roles.chat, else primary` in the ordinary case, because that is what
+    models.effective_brain() resolves first. What changed is the answer when
+    neither is set: this read the two keys straight off `inference` and returned
+    None, so Setup reported "nothing is configured" on an install where the
+    router was serving its env/built-in default and chat plainly worked — while
+    the hardware monitor, which asks effective_brain(), named the real model.
+    One question, two derivations, two answers.
+
+    The contract is unchanged — a backend id, or None.
+
+    The agent-sandbox case needs the fall-through below. A sandbox model is not
+    a router backend, so the resolver reports it with an EMPTY backend_id — but
+    the configured backends are still real, still serve the tool-less fallback,
+    and Setup still has to mark which of them that is (AgentPanel renders it as
+    "fallback brain"). Returning None there left the default install — where the
+    agent runtime IS live — with no row flagged at all, so the badge became
+    unreachable and the list lost its selected row. "Which backend would serve"
+    stays answerable even while something else is answering.
+
+    An implicit id (the env backend, or the shipped default) can name something
+    that is not in this response's `backends` list — that list holds only what
+    ava.yaml declares, and an implicit brain exists precisely because it
+    declares none.
+    """
+    bid = model_store.effective_brain().get("backend_id") or ""
+    if bid:
+        return bid
+    inf = _inference()
     roles = inf.get("roles") or {}
-    return roles.get("chat") or inf.get("primary")
+    chat = roles.get("chat") if isinstance(roles, dict) else None
+    return chat or inf.get("primary") or None
 
 @router.get("/models/backends")
 def backends_list():
@@ -175,7 +205,7 @@ def backends_list():
     inf = _inference()
     backends = inf.get("backends") or {}
     primary = inf.get("primary")
-    brain = _brain_id(inf)
+    brain = _brain_id()
     out = []
     for bid, b in backends.items():
         if not isinstance(b, dict):

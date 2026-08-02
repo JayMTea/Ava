@@ -18,7 +18,6 @@ import re
 import os
 from collections import deque
 from pathlib import Path
-from urllib.parse import urlparse
 
 import requests
 
@@ -75,9 +74,18 @@ def _short_runtime_name(name: str | None, model: str | None = None) -> str:
         return "vLLM"
     if "ollama" in nl:
         return "Ollama"
+    if "llama-server" in nl or "llamacpp" in nl or "llama.cpp" in nl:
+        return "llama.cpp"
+    if "mlx" in nl:
+        return "MLX"
+    if "lmstudio" in nl or "lm-studio" in nl or "lm studio" in nl:
+        return "LM Studio"
     if "python" in nl:
         return "Python runtime"
-    return n or "runtime"
+    # The fallback is a concatenated cmdline when it comes from process
+    # telemetry, and the UI prints it as one "Runtime:" line — so cap it
+    # rather than spilling kilobytes of flags across the panel.
+    return (n[:60].strip() or "runtime")
 
 
 def _is_model_file(path: str) -> bool:
@@ -293,19 +301,28 @@ def _attach_components(rows: list[dict]) -> list[dict]:
                 },
             ]
 
-        if (not comps) and model and (source == "api" or item.get("backend")):
+        # Residency is tri-state everywhere in this module: observed resident,
+        # observed NOT resident, or unobservable. A row whose state we could
+        # not read must not answer "no" — that is the same lie as reporting a
+        # model Ava cannot see as missing.
+        state = str(item.get("state") or
+                    ("resident" if item.get("status") == "loaded" else "unknown"))
+        resident = (True if state == "resident"
+                    else None if state in ("unknown", "remote") else False)
+
+        if (not comps) and model and (source in ("api", "agent") or item.get("backend")):
             comps = [{
                 "name": _simple_component_name("served-model",
                                                str(item.get("model_id") or model)),
                 "kind": "served-model",
                 "kind_label": _component_kind_label("served-model"),
                 "path": None,
-                "in_memory": item.get("status") == "loaded",
+                "in_memory": resident,
             }]
 
         item["components"] = comps
         item["component_count"] = sum(1 for c in comps if c.get("in_memory"))
-        item["in_memory"] = (item.get("status") == "loaded")
+        item["in_memory"] = resident
         gu = item.get("gpu_util")
         item["gpu_active"] = bool(gu is not None and gu > 0)
         out.append(item)
@@ -593,28 +610,49 @@ def _docker_model_containers() -> list[dict]:
 
 
 def _configured_backends() -> list[dict]:
-    """Local inference backends Ava is configured to use.
+    """Every inference backend Ava is configured to use, tagged local or not.
 
     Read from the router's registry (ava.yaml `inference.backends` → env →
     built-in default), so this module never hardcodes a model identity — a
     fork that reconfigures its backends reconfigures this monitor with them.
-    Cloud endpoints are excluded: the monitor reports THIS box's memory.
+
+    This used to keep only four loopback hostname literals, which was the wrong
+    test for the right idea. The monitor does report THIS box, but a Docker
+    install's brain lives at `http://ollama:11434/v1` — a compose service name
+    on the same host — and was discarded as if it were a cloud endpoint. The
+    monitor then had nothing left to probe and told a user whose brain was
+    running fine "No model process detected yet". Locality is now decided once,
+    by engine kind and key (model_fit.is_local), and carried on the row as a
+    fact instead of silently dropping it.
     """
     try:  # lazy import: keeps this module importable standalone
         from . import router_app
         backends = router_app.load_backends()
     except Exception:  # noqa: BLE001 — telemetry must not depend on the router
         return []
-    local = []
+    from .model_fit import is_local
+    out = []
     for b in backends:
-        host = urlparse(str(b.get("url") or "")).hostname or ""
-        if host in {"127.0.0.1", "localhost", "::1", "0.0.0.0"}:
-            local.append(b)
-    return local
+        b = dict(b)
+        try:
+            b["local"] = is_local(b)
+        except Exception:  # noqa: BLE001
+            b["local"] = True
+        out.append(b)
+    return out
 
 
 def _match_backend_row(rows: list[dict], served_ids: list[str]) -> dict | None:
-    """The process/container row already representing one of these model ids."""
+    """The process/container row already representing one of these model ids.
+
+    A row that already carries a backend is skipped. Two backends declared
+    against one engine (the documented brain + fast layout, both on the same
+    Ollama) are served the SAME model list, so the second one's ids matched the
+    row the first had just claimed and took it over — leaving one row whose id
+    came from one backend and whose label came from the other, and no row at all
+    for the brain to be tagged on. That is the original "Ava's brain shows
+    empty" symptom, reached by a second route.
+    """
     cands = set()
     for s in served_ids:
         s = (s or "").strip().lower()
@@ -624,6 +662,8 @@ def _match_backend_row(rows: list[dict], served_ids: list[str]) -> dict | None:
     if not cands:
         return None
     for r in rows:
+        if r.get("backend"):
+            continue
         names = _extract_model_names(r.get("cmd") or "")
         if r.get("model_id"):
             names.append(str(r["model_id"]))
@@ -634,23 +674,113 @@ def _match_backend_row(rows: list[dict], served_ids: list[str]) -> dict | None:
     return None
 
 
+# What a row's `state` can be. A closed vocabulary, because the UI renders one
+# sentence per value and "some other string" has no sentence.
+#   resident  observed to be holding weights in memory right now
+#   idle      the engine is up and has this model, but it is not in memory
+#             (Ollama evicts after ~5 min; the next turn loads it again)
+#   absent    the engine is up and does NOT have this model — configured but
+#             never pulled, the single most common broken first install
+#   offline   the engine could not be reached at all
+#   remote    it runs somewhere else (cloud, another box), so this host's
+#             memory is not where to look for it
+#   unknown   we genuinely cannot observe residency (an engine that will not
+#             say, a sandbox we cannot see into). Never a synonym for "no".
+_STATES = ("resident", "idle", "absent", "offline", "remote", "unknown")
+
+
+def _backend_state(b: dict, reachable: bool, served: list[str],
+                   resident: list[dict] | None) -> tuple[str, str, dict | None]:
+    """(state, confirmed_model_id, resident_entry) for one configured backend.
+
+    Residency is OBSERVED here, never inferred from the existence of config.
+    The distinction is the whole point: `/api/tags` lists what Ollama has on
+    disk, so reading it as "loaded" reported three resident brains on a box
+    holding none. An engine that loads one model at boot and holds it
+    (`serves_resident`) is the one case where being served IS being resident.
+
+    The middle value is "" unless the engine CONFIRMED it holds this model —
+    callers use it to decide whether the configured display label may be
+    trusted, so a hopeful "the config says so" must never be returned here.
+    """
+    from . import models as _models
+    from .engines import get as _engine_get
+
+    want = str(b.get("model") or "").strip()
+    # Locality first: an engine that is not on this box is "somewhere else"
+    # whether or not it answers, and we do not probe it at all (see the caller).
+    # Testing reachability first made "remote" unreachable for anything down.
+    if not b.get("local", True):
+        return "remote", "", None
+    if not reachable:
+        return "offline", "", None
+
+    spec = _engine_get(str(b.get("engine") or ""))
+
+    # Which id this engine will actually accept for the configured model.
+    matched = _models.match_served(want, served) if want else ""
+    if not matched and not want and len(served) == 1:
+        matched = served[0]
+    if want and not matched:
+        # It answered and it does not have this model. An EMPTY inventory says
+        # that just as loudly as a non-empty one for an engine whose list is a
+        # disk inventory (Ollama, LM Studio) — a fresh install that pulled
+        # nothing is the commonest broken first run there is, and requiring a
+        # non-empty list to say "absent" reported it as "Ready, not loaded: the
+        # engine has it", which is the one thing it does not. An engine that
+        # loads at boot and lists nothing is still starting, not empty, so it
+        # falls through to the honest "unknown" below.
+        if served or not getattr(spec, "serves_resident", True):
+            return "absent", "", None
+    if resident is None:
+        if getattr(spec, "serves_resident", True) and (matched or served):
+            return "resident", matched, None
+        return "unknown", matched, None
+
+    ids = [str(r.get("id") or "") for r in resident]
+    hit = _models.match_served(matched, ids) if matched else ""
+    if hit:
+        entry = next((r for r in resident if str(r.get("id")) == hit), None)
+        # The resident id is the exact string the engine reports holding
+        # (`llama3.2:latest` for a configured `llama3.2`) — the honest one.
+        return "resident", hit, entry
+    return "idle", matched, None
+
+
 def _loaded_models() -> list[dict]:
     procs = _gpu_model_processes()
     rows = procs if procs else _docker_model_containers()
 
-    # Cross-check each configured local backend's /v1/models: the row serving
-    # it gets tagged (and takes the config's display label), engines invisible
-    # to process telemetry still get a row, and a configured-but-unreachable
-    # engine is surfaced as offline. Identity comes from config or the live
-    # API — never from guessing what a GPU process "probably" is.
+    # Cross-check each configured backend: the row serving it gets tagged (and
+    # takes the config's display label), engines invisible to process telemetry
+    # still get a row, and a configured-but-unreachable engine is surfaced as
+    # offline. Identity comes from config or the live API — never from guessing
+    # what a GPU process "probably" is.
+    from . import models as _models
+    brain = _models.effective_brain()
+    brain_backend = str(brain.get("backend_id") or "")
+
     for b in _configured_backends():
         # One parser for "what is this engine serving", shared with the setup
         # wizard. This hardcoded `/models` and the OpenAI `data[].id` shape, so
         # an Ollama backend answered through its /v1 compatibility layer by luck
         # and a llama.cpp one was asked at whichever path happened to be right.
-        from . import models as _models
-        reachable, served = _models.probe_serving(
-            str(b.get("url", "")), str(b.get("engine", "")), timeout=1.5)
+        # The key goes with it: without it a token-protected local engine
+        # answers 401 and a perfectly healthy brain was reported offline.
+        # A backend that is not on this box is never probed. /api/hardware is
+        # polled every 2s by every open client, so probing a cloud provider here
+        # would send the owner's API key off the box on a timer to learn
+        # something the row does not use: what is in THIS machine's memory.
+        local = bool(b.get("local", True))
+        key = str(b.get("api_key") or "")
+        reachable, served, resident = False, [], None
+        if local:
+            reachable, served = _models.probe_serving(
+                str(b.get("url", "")), str(b.get("engine", "")), key, timeout=1.5)
+            if reachable:
+                resident = _models.probe_resident(
+                    str(b.get("url", "")), str(b.get("engine", "")), key, timeout=1.5)
+        state, confirmed, entry = _backend_state(b, reachable, served, resident)
 
         label = str(b.get("label") or "").strip()
         row = _match_backend_row(rows, served or [str(b.get("model") or "")])
@@ -660,7 +790,7 @@ def _loaded_models() -> list[dict]:
             # unnamed row of the same engine kind rather than duplicating it.
             engine = str(b.get("engine") or "").lower()
             row = next((x for x in rows
-                        if not x.get("model_id")
+                        if not x.get("model_id") and not x.get("backend")
                         and engine and engine in str(x.get("name", "")).lower()), None)
             if row is not None:
                 row["model_id"] = served[0]
@@ -668,34 +798,102 @@ def _loaded_models() -> list[dict]:
 
         if row is not None:
             row["backend"] = b.get("id")
-            if label:
+            row["local"] = local
+            # A GPU compute process holding memory IS the weights — the
+            # strongest residency evidence there is, so it outranks what the
+            # engine says about itself. A docker row is not: it means the
+            # container is up, which for an Ollama container says nothing about
+            # whether a model is loaded. Letting container liveness assert "In
+            # memory" over an observed-empty /api/ps is exactly the disk-listing
+            # lie this change exists to end.
+            row["state"] = ("resident"
+                            if row.get("source") == "nvidia-smi"
+                            and row.get("status") == "loaded"
+                            else state)
+            # The config's display label belongs to the config's model. When the
+            # engine turns out to be serving something else — an ava.yaml that
+            # drifted from what was actually launched — showing the label would
+            # print a model name that is not in memory anywhere on this box. The
+            # observed identity wins; being tied to this backend is still true.
+            if label and (confirmed or not str(b.get("model") or "").strip()):
                 row["model"] = label
             continue
 
-        if served:
-            for mid in served:
-                rows.append({
-                    "id": f"{b.get('id')}:{mid}",
-                    "name": _short_runtime_name(str(b.get("engine") or ""), model=mid),
-                    "model": label if label and len(served) == 1 else _short_model_name(mid),
-                    "model_id": mid,
-                    "memory_mb": None, "memory_gb": None, "gpu_util": None, "pid": None,
-                    "status": "loaded", "source": "api", "cmd": "",
-                    "backend": b.get("id"),
-                })
-        else:
-            rows.append({
-                "id": f"{b.get('id')}:offline",
-                "name": _short_runtime_name(str(b.get("engine") or "")),
-                "model": label or _short_model_name(str(b.get("model") or ""),
-                                                    runtime=str(b.get("engine") or "")),
-                "model_id": b.get("model") or None,
-                "memory_mb": None, "memory_gb": None, "gpu_util": None, "pid": None,
-                "status": "empty" if reachable else "offline", "source": "api", "cmd": "",
-                "backend": b.get("id"),
-            })
+        # One row per backend — never one per model the engine happens to have
+        # on disk. Ollama lists every pulled tag, so fanning those out invented
+        # a brain per tag, each claiming to be in memory.
+        mid = confirmed or str(b.get("model") or "")
+        size_mb = None
+        if entry and entry.get("size_bytes"):
+            size_mb = round(entry["size_bytes"] / (1024 * 1024), 1)
+        rows.append({
+            "id": f"{b.get('id')}:{mid or state}",
+            "name": _short_runtime_name(str(b.get("engine") or ""), model=mid),
+            "model": label or _short_model_name(mid, runtime=str(b.get("engine") or "")),
+            "model_id": mid or None,
+            "memory_mb": size_mb,
+            "memory_gb": round(size_mb / 1024, 2) if size_mb is not None else None,
+            "gpu_util": None, "pid": None,
+            "status": "loaded" if state == "resident" else (
+                "offline" if state == "offline" else "empty"),
+            "state": state,
+            "source": "api", "cmd": "",
+            "backend": b.get("id"),
+            "local": bool(b.get("local", True)),
+            # Ollama reports how much of the model sits in VRAM vs system RAM;
+            # on a CPU-only box that split is the answer to "is my GPU doing
+            # anything for this model", which no other reading gives us.
+            "vram_mb": (round(entry["vram_bytes"] / (1024 * 1024), 1)
+                        if entry and entry.get("vram_bytes") else None),
+            "served": served,
+        })
 
-    rows.sort(key=lambda x: x.get("memory_mb") or 0, reverse=True)
+    # The brain is named by config, so it is knowable with zero telemetry —
+    # which is exactly the case that used to render an empty panel. The agent
+    # runtime answers turns inside its own sandbox, so it has no backend row of
+    # its own and gets one here; otherwise the brain is whichever backend row
+    # the resolver picked.
+    if brain.get("source") == "agent":
+        # Emitted even before the sandbox's model name is known: the row's job
+        # is to say what answers turns, and "the agent runtime, name pending" is
+        # a truer answer than a router backend that will not see the turn.
+        rows.append({
+            "id": "agent:sandbox",
+            "name": "Agent sandbox",
+            "model": str(brain.get("label") or brain.get("model_id")
+                         or "Agent sandbox"),
+            "model_id": brain.get("model_id") or None,
+            "memory_mb": None, "memory_gb": None, "gpu_util": None, "pid": None,
+            "status": "empty",
+            # The sandbox holds the endpoint; we cannot see inside it, so
+            # residency is unknown rather than absent.
+            "state": "unknown" if brain.get("local") else "remote",
+            "source": "agent", "cmd": "",
+            "backend": "", "local": bool(brain.get("local")),
+            "vram_mb": None, "served": [],
+        })
+        rows[-1]["role_key"] = "brain"
+    elif brain_backend:
+        for r in rows:
+            if r.get("backend") == brain_backend:
+                r["role_key"] = "brain"
+                break
+
+    # A row for a backend that is not on this box only earns its place in a
+    # panel about this box's memory when it IS the brain — the user must be
+    # able to see what Ava thinks with, wherever it runs.
+    rows = [r for r in rows
+            if r.get("local", True) or r.get("role_key") == "brain"]
+
+    for r in rows:
+        r.setdefault("state", "resident" if r.get("status") == "loaded" else "unknown")
+        r.setdefault("local", True)
+        if not r.get("role_key"):
+            r["role_key"] = _role_key(r.get("model_id") or r.get("model"))
+
+    # The brain first — it is what the panel is for. Everything else by weight.
+    rows.sort(key=lambda x: (x.get("role_key") != "brain",
+                             -(x.get("memory_mb") or 0)))
     return _attach_components(rows)
 
 
@@ -747,20 +945,46 @@ def _disk(path: str = "/") -> dict:
             "used_pct": round(100 * u.used / u.total) if u.total else None}
 
 
-def _model_role(model, backend_id: str | None = None) -> str:
-    """What a loaded model is FOR, so a GPU spike on it is self-explanatory.
+def _role_key(model) -> str:
+    """What a row is FOR, as a stable machine token the UI renders copy for.
 
-    A row tagged with a configured inference backend IS Ava's brain — that
-    comes from config, not from pattern-matching the model's name.
+    Deliberately NOT a sentence: the backend returns facts and the frontend owns
+    owner-facing wording (CLAUDE.md). Emitting "Ava's brain (chat inference)"
+    here is why the monitor and Setup → Agent described the same model in two
+    unrelated vocabularies.
+
+    "brain" is NOT decided here. It is not a property of a model's name — it is
+    whichever backend the router will actually send a turn to, which only
+    `models.effective_brain()` knows. Any truthy backend tag used to win, so a
+    second configured backend, and even an unreachable one, both read as the
+    brain.
+    """
+    m = (model or "").lower()
+    if "gpusvc" in m:
+        return "render"
+    if "hunyuan" in m or "wan2" in m or "/wan" in m:
+        return "video"
+    if "gpumodel" in m or "flux" in m:
+        return "image"
+    return ""
+
+
+def _model_role(model, backend_id: str | None = None) -> str:
+    """Connector-declared role text for a row, or "".
+
+    Kept because connector roles are registry-declared copy that must stay
+    self-contained for agent tools (the documented exception to "copy lives in
+    the frontend"). Ava's own roles now travel as `role_key`.
     """
     if backend_id:
         return "Ava's brain (chat inference)"
     m = (model or "").lower()
-    if "gpusvc" in m:
+    key = _role_key(m)
+    if key == "render":
         return "Image & video rendering"
-    if "hunyuan" in m or "wan" in m:
+    if key == "video":
         return "Video rendering"
-    if "gpumodel" in m or "flux" in m:
+    if key == "image":
         return "Image rendering"
     # Connector-declared hints (model_hints: in a connector.yaml).
     try:
@@ -825,7 +1049,10 @@ def stats() -> dict:
     """One live snapshot of the device's hardware."""
     models = _loaded_models()
     for m in models:
-        m["role"] = _model_role(m.get("model_id") or m.get("model"), m.get("backend"))
+        # Only the row the router will actually send a turn to is the brain —
+        # `backend` merely means "we tied this row to some configured backend".
+        m["role"] = _model_role(m.get("model_id") or m.get("model"),
+                                "brain" if m.get("role_key") == "brain" else None)
     return {"gpu": _gpu(), "mem": _mem(), "disk": _disk(),
             "cpu": {"util": _cpu()}, "models": models,
             "jobs": _active_jobs(),

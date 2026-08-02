@@ -159,9 +159,15 @@ down.
 The floating **hardware bubble** is rendered outside the view switch, so it
 is present on every view — Chats, Vitals, Operations, Data, Setup and every
 connected-app tab. It is draggable and remembers where you put it. Tap it to
-expand GPU util, running jobs, unified memory, disk, CPU, GPU temperature and
-the models currently resident in memory. It polls every 2 s while open and
-every 5 s while collapsed.
+expand GPU util, running jobs, unified memory, disk, CPU, GPU temperature —
+and the models. **Ava's brain is always listed first, badged, and shown even
+when nothing is running**, because which model answers a turn is named by your
+configuration, not discovered from the GPU. Every row then states what was
+actually *observed* about it: in memory, ready but not loaded (an idle Ollama
+evicts after a few minutes and reloads on the next message), not downloaded
+yet, engine offline, runs elsewhere, or — honestly — not observable. "Not
+observable" never means "not loaded". It polls every 2 s while open and every
+5 s while collapsed.
 
 It reads `GET /api/hardware` — **the exact same live snapshot** the four
 gauges and the watts readout on the Vitals hardware panel use. One source,
