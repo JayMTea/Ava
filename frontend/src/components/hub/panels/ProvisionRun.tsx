@@ -146,7 +146,7 @@ export function DriftBoard({ state }: { state: ProvisionState | null }) {
         })}
       </div>
       {!state.sandbox.live && state.sandbox.reason && (
-        <div className="hub-note">
+        <div className="hub-note with-icon">
           <Icon name="info" />
           <span>{state.sandbox.reason} — so anything inside it shows as{' '}
             <i>{DRIFT_LABEL.unknown}</i> rather than as a change you need to make.</span>

@@ -158,7 +158,7 @@ export function PersonaPanel() {
                 here, next to the button that caused it, instead of a navigation
                 instruction in a message the next action wipes. */}
             {personaStale && (
-              <div className="hub-note">
+              <div className="hub-note with-icon">
                 <Icon name="info" />
                 <span>
                   Saved, but Ava is still using the previous version.{' '}

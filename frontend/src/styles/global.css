@@ -10,6 +10,20 @@
      in a full-width span. `display:block` keeps it clean in the rare non-flex host. */
   .ico { display: contents; }
   .ico > svg { display: block; }
+  /* …and a DEFAULT SIZE, because `display:contents` has a sharp edge: the bare
+     <svg> lands in the host's box, and these SVGs carry a viewBox with no
+     width/height — an aspect ratio and no intrinsic size. `width:auto` then
+     resolves against the HOST, not the glyph, so an unsized host renders the icon
+     at some arbitrary size with no warning: measured 370px in a .hub-note, 360px
+     in a .hub-check, and 0×0 (invisible) as a flex item in .hub-restart and
+     .hub-step-mark. Every host that looked right did so only because someone had
+     added a `<host> svg { width }` rule — twenty of them in hub.css — so each new
+     icon host was born broken and had to be caught by eye.
+     `em` rather than px so the glyph tracks its host's type size (1.15em = 15px in
+     the --fs-sm surfaces most of these sit in). Every existing per-host rule still
+     wins: they are equal specificity (0,1,1) in stylesheets imported AFTER this
+     one (main.tsx), so source order decides in their favour. */
+  .ico > svg { width: 1.15em; height: 1.15em; flex: none; }
   body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
          background:var(--bg); color:var(--txt); height:100dvh; display:flex; flex-direction:column; }
   
