@@ -7,6 +7,52 @@ import { BarList, Donut, StatCard, TimeSeries } from './charts';
 import { RANGE_MAP, type RangeKey } from './ranges';
 import { METRICS } from './metrics';
 
+/** One row of the budget panel: today's figure over its cap, with a live track.
+ *
+ *  BOTH SIDES ARE LEGITIMATELY ABSENT, and neither is an error.
+ *
+ *  `cap` is null until one is set in Setup → Budgets, which is the default state
+ *  of every fresh install — the row then reads "no cap set" over an empty track
+ *  rather than disappearing, so the figure is still visible.
+ *
+ *  `used` is null when the figure is genuinely unavailable (energy on a box with
+ *  no power sensor, no declared wattage and no nominal in platforms.conf). It
+ *  shows an em dash, never 0, which would read as "you used no electricity" —
+ *  and never a bare division: `null / cap` is NaN, which once rendered as a FULL
+ *  bar, while `.toFixed()` on null threw and took the whole Vitals page down.
+ *
+ *  Tone lives on the meter, so an uncapped row carries none: its value falls back
+ *  to normal text and its (zero-width) fill to no colour. Same rules as Setup →
+ *  Budgets' BudgetMeter, which this deliberately mirrors. */
+function BudgetRow({ label, used, cap, fmtUsed, fmtCap }: {
+  label: string; used: number | null; cap: number | null;
+  fmtUsed: (n: number) => string; fmtCap: (n: number) => string;
+}) {
+  const metered = used != null && cap != null && cap > 0;
+  const pct = metered ? Math.min(100, Math.round((used / cap) * 100)) : 0;
+  const tone = metered
+    ? (pct >= 100 ? 'var(--err)' : pct >= 80 ? 'var(--warn)' : 'var(--ok)')
+    : null;
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-sm)', marginBottom: 5 }}>
+        <span style={{ color: 'var(--muted)' }}>{label}</span>
+        <span>
+          <b style={{ color: tone ?? (used == null ? 'var(--muted)' : 'var(--txt)') }}>
+            {used == null ? '—' : fmtUsed(used)}
+          </b>{' '}
+          <span style={{ color: 'var(--muted)' }}>
+            {cap == null ? '· no cap set' : `/ ${fmtCap(cap)}`}
+          </span>
+        </span>
+      </div>
+      <div style={{ height: 8, borderRadius: 999, background: 'var(--panel2)', overflow: 'hidden' }}>
+        <div style={{ width: `${pct}%`, height: '100%', background: tone ?? 'transparent' }} />
+      </div>
+    </div>
+  );
+}
+
 export function VitalsView() {
   const summary = useLiveResource(useCallback(() => dash.perfSummary(), []), 10000);
   const [tokRange, setTokRange] = useState<RangeKey>('day');
@@ -107,49 +153,25 @@ export function VitalsView() {
           tone={failovers ? 'warn' : 'ok'} hint="primary → fallback" help={METRICS.routeErrors} />
       </div>
 
-      {/* Budget meter — only when a budget is configured (Setup → Budgets) */}
-      {budget.data && (budget.data.budgets.daily_usd || budget.data.budgets.daily_kwh) && (
+      {/* Budget meter — ALWAYS renders once /api/budget has answered, for the
+          same reason Setup → Budgets' BudgetMeter does (hub/panels/BudgetsPanel.tsx:20):
+          a cap is unset on a fresh install, so hiding the panel until one existed
+          withheld today's spend and energy from precisely the people who had not
+          yet decided what to cap. It also left the first-run walkthrough's
+          "Spend and energy" step (tour/steps.ts) pointing at an element that was
+          never in the DOM, so that step silently degraded to a centered card with
+          nothing highlighted. */}
+      {budget.data && (
         <Panel tour="vitals-budget" title="Today's budget" subtitle="Spend & energy against your caps — set on the Setup → Budgets page">
           <div style={{ display: 'grid', gap: 14, gridTemplateColumns: '1fr 1fr' }}>
-            {budget.data.budgets.daily_usd != null && (() => {
-              const used = budget.data.daily_spend_usd, cap = budget.data.budgets.daily_usd!;
-              const pct = Math.min(100, Math.round((used / cap) * 100));
-              const col = pct >= 100 ? 'var(--err)' : pct >= 80 ? 'var(--warn)' : 'var(--ok)';
-              return (
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-sm)', marginBottom: 5 }}>
-                    <span style={{ color: 'var(--muted)' }}>Cloud spend</span>
-                    <span><b style={{ color: col }}>${used.toFixed(2)}</b> <span style={{ color: 'var(--muted)' }}>/ ${cap}</span></span>
-                  </div>
-                  <div style={{ height: 8, borderRadius: 999, background: 'var(--panel2)', overflow: 'hidden' }}>
-                    <div style={{ width: `${pct}%`, height: '100%', background: col }} />
-                  </div>
-                </div>
-              );
-            })()}
-            {budget.data.budgets.daily_kwh != null && (() => {
-              // `daily_energy_kwh` is null when this box has no defensible
-              // wattage at all — nothing sampled, nothing declared, no nominal
-              // in platforms.conf. `null / cap` is NaN, so the track rendered as
-              // a FULL bar, and `.toFixed()` on null threw and took the whole
-              // Vitals page down with it. An unavailable figure shows an em dash
-              // over an empty track, matching Setup → Budgets' BudgetMeter.
-              const used = budget.data.daily_energy_kwh, cap = budget.data.budgets.daily_kwh!;
-              const pct = used == null ? 0 : Math.min(100, Math.round((used / cap) * 100));
-              const col = used == null ? 'var(--muted)'
-                : pct >= 100 ? 'var(--err)' : pct >= 80 ? 'var(--warn)' : 'var(--ok)';
-              return (
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-sm)', marginBottom: 5 }}>
-                    <span style={{ color: 'var(--muted)' }}>GPU energy{used == null ? ' (not measured)' : budget.data.power_measured ? '' : ' (est.)'}</span>
-                    <span><b style={{ color: col }}>{used == null ? '—' : used.toFixed(2)}</b> <span style={{ color: 'var(--muted)' }}>/ {cap} kWh</span></span>
-                  </div>
-                  <div style={{ height: 8, borderRadius: 999, background: 'var(--panel2)', overflow: 'hidden' }}>
-                    <div style={{ width: `${pct}%`, height: '100%', background: col }} />
-                  </div>
-                </div>
-              );
-            })()}
+            <BudgetRow label="Cloud spend"
+              used={budget.data.daily_spend_usd} cap={budget.data.budgets.daily_usd}
+              fmtUsed={(n) => `$${n.toFixed(2)}`} fmtCap={(n) => `$${n}`} />
+            <BudgetRow
+              label={`GPU energy${budget.data.daily_energy_kwh == null ? ' (not measured)'
+                : budget.data.power_measured ? '' : ' (est.)'}`}
+              used={budget.data.daily_energy_kwh} cap={budget.data.budgets.daily_kwh}
+              fmtUsed={(n) => n.toFixed(2)} fmtCap={(n) => `${n} kWh`} />
           </div>
         </Panel>
       )}
