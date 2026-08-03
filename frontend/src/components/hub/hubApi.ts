@@ -38,6 +38,14 @@ export interface HardwareInfo {
   capped: boolean;
   cap_kind: 'cgroup' | 'wsl2-vm' | null;
 }
+/** Where an engine sits relative to Ava — not merely whether it answered.
+ *
+ * `host` is the load-bearing one: that engine runs on the machine itself,
+ * OUTSIDE Ava's container, so it draws on memory and a GPU that
+ * `/api/setup/hardware` cannot measure and must not size a recommendation from.
+ */
+export type EngineLocality = 'container' | 'compose' | 'host' | 'remote' | 'unknown';
+
 /** GET /api/setup/backends — every candidate endpoint, probed right now.
  *
  * This used to declare `{vllm, ollama, router}`, which the route has never
@@ -50,13 +58,30 @@ export interface BackendCandidate {
   id: string;
   base_url: string;
   engine: string;      // vllm | ollama | openai | …
-  note: string;        // "configured" | "from AVA_BACKEND_URL" | "compose service" | "local"
+  /** The engine's proper name from the registry — "vLLM", "LM Studio",
+   *  "llama.cpp". Title-casing `engine` here would render "Vllm". */
+  engine_label: string;
+  note: string;        // "configured" | "from AVA_BACKEND_URL" | "compose service" | "local" | "on the host machine"
   up: boolean;
+  locality: EngineLocality;
+  /** Guessed at by Ava (a port sweep) rather than named by the owner. */
+  blind: boolean;
 }
 export interface BackendProbe {
   backends: BackendCandidate[];
   any_up: boolean;
   router: boolean;
+  /** Ava is inside a container, so its own loopback is not the user's machine. */
+  in_container: boolean;
+  /** The name this container can reach its host by, "" if there is none. Its
+   *  presence is what makes "you may have bound the engine to loopback" a
+   *  possible explanation rather than a guess. */
+  host_gateway: string;
+  /** Why the host could not be reached, asked only when nothing answered.
+   *  `refused` = reachable, nothing listening on an address a container can use
+   *  (the bind-address case). `dropped` = packets filtered, which no bind
+   *  address fixes — Windows Defender on the WSL adapter looks like this. */
+  host_reach: '' | 'refused' | 'dropped';
 }
 export interface SetupConnector {
   id: string;

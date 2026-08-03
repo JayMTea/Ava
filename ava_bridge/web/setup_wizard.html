@@ -208,8 +208,18 @@ function showChooser(){
 function useBrain(){S.mode='installed';go(2);}
 async function j(u,o){const r=await fetch(u,o);return r.json();}
 (async()=>{
-  const h=await j('/api/setup/hardware');
+  // Both facts before step 1 renders, because one qualifies the other: a tier
+  // sized from THIS container is meaningless when the engine turns out to be on
+  // the machine outside it. They used to be fetched in sequence with the card
+  // drawn in between, which is why the card could confidently recommend "small"
+  // on a laptop whose native Ollama had the full 32 GB and the real GPU.
+  const [h,b]=await Promise.all([j('/api/setup/hardware'),j('/api/setup/backends')]);
   S.tier=h.tier;
+  const live=(b.backends||[]).filter(x=>x.up);
+  // The engine the app would actually use, and whether it is somewhere the
+  // bridge can measure. `locality` is the backend's word, not a guess made here.
+  const chosen=live[0]||null;
+  const elsewhere=!!chosen&&chosen.locality==='host'&&b.in_container;
   // Step 1 answers ONE question — "will this run here?" — and answers it as a
   // capability rather than as a diagnosis.
   //
@@ -259,20 +269,53 @@ async function j(u,o){const r=await fetch(u,o);return r.json();}
   if (why.length)
     why.push('None of this needs fixing to carry on. <b>Setup &rarr; Hardware</b> has the full reading'
       + (h.capped ? ' and how to give __BRAND__ more memory.' : '.'));
-  document.getElementById('hw').innerHTML =
-    `<div class="hw-head">${head}</div><div class="hw-sub">${sub}</div>`
-    + (why.length
-        ? `<details class="why"><summary>${h.fit_gb ? `Why ${h.fit_gb} GB?` : 'Why no local pool?'}</summary>`
-          + why.map(p => `<p>${p}</p>`).join('') + `</details>`
-        : '');
-  const b=await j('/api/setup/backends');
-  const live=(b.backends||[]).filter(x=>x.up);
+  // An engine on the HOST outranks all of the above, because it makes the
+  // measurement irrelevant rather than merely incomplete. The bridge is in a
+  // container;
+  // that engine is on the machine itself, with the machine's memory and the
+  // machine's graphics card — neither of which is what `fit_gb` counted. The
+  // only honest move is to stop recommending a size and say what is actually
+  // running. Withholding a tier beats publishing one derived from the wrong box:
+  // "small" on a laptop whose native Ollama has 32 GB and an RTX card is not a
+  // conservative answer, it is a wrong one.
+  // The registry's own name for it — title-casing the key gives "Vllm".
+  const engineLabel = chosen ? (chosen.engine_label||chosen.engine) : '';
+  document.getElementById('hw').innerHTML = elsewhere
+    ? `<div class="hw-head"><b>${engineLabel}</b> is running on this machine.</div>`
+      + `<div class="hw-sub">__BRAND__ will think using it — you pick the model next.</div>`
+      + `<details class="why"><summary>Why no size estimate?</summary>`
+      + `<p>__BRAND__ runs inside a container; that engine does not. It has the machine's own memory and graphics card, which __BRAND__ cannot measure from in here — so rather than size a recommendation from the wrong box, it is showing you what is actually running. The next screen lists the models that engine already holds.</p>`
+      + `</details>`
+    : `<div class="hw-head">${head}</div><div class="hw-sub">${sub}</div>`
+      + (why.length
+          ? `<details class="why"><summary>${h.fit_gb ? `Why ${h.fit_gb} GB?` : 'Why no local pool?'}</summary>`
+            + why.map(p => `<p>${p}</p>`).join('') + `</details>`
+          : '');
   const opts=document.getElementById('backendOpts');
   const mk=(id,title,sub)=>`<div class="opt" data-m="${id}"><b>${title}</b><small>${sub}</small></div>`;
+  // "Nothing answering" is a claim the bridge cannot actually make from inside a
+  // container: an engine on the host that binds 127.0.0.1 — which is what
+  // Ollama's Windows installer does — is running and unreachable, and looks
+  // identical from in here to one that was never installed. Naming the likelier
+  // cause is the difference between a dead end and a two-minute fix. Only shown
+  // where it can apply: `host_gateway` is the runtime's own name for the machine
+  // outside, so its absence means there is no host to have missed.
+  //
+  // Two causes, two different fixes, and telling them apart is the whole value:
+  // `refused` means the machine is reachable and the engine is bound to loopback
+  // (set OLLAMA_HOST); `dropped` means a firewall is eating the packets, which no
+  // bind address will fix. Verified against a real container with a live engine
+  // on the host - which timed out, and would have been given the wrong advice.
+  const nothingYet = !(b.in_container && b.host_gateway)
+    ? 'nothing answering yet — start your engine, or install Ollama (ollama.com)'
+    : b.host_reach === 'dropped'
+    ? 'nothing answering yet — and something is blocking __BRAND__ from reaching this machine at all. On Windows that is usually Defender Firewall: allow inbound connections on the WSL vEthernet adapter, or add a rule for your engine\'s port.'
+    : 'nothing answering yet — if you installed Ollama on the machine itself, it listens on 127.0.0.1 only by default, so __BRAND__ cannot reach it from its container. Set OLLAMA_HOST=0.0.0.0 and restart it.';
   opts.innerHTML =
     mk('local','Local engine', live.length
-        ? `${live[0].engine} answering at ${live[0].base_url}`
-        : 'nothing answering yet — start your engine, or install Ollama (ollama.com)')
+        ? `${chosen.engine_label||chosen.engine} answering at ${chosen.base_url}`
+          + (elsewhere ? ' <b>(on this machine, outside __BRAND__)</b>' : '')
+        : nothingYet)
     + mk('cloud','Cloud API key','use any OpenAI-compatible provider');
   opts.querySelectorAll('.opt').forEach(o=>o.onclick=()=>{
     opts.querySelectorAll('.opt').forEach(x=>x.classList.remove('sel'));o.classList.add('sel');
@@ -280,9 +323,9 @@ async function j(u,o){const r=await fetch(u,o);return r.json();}
     document.getElementById('localFields').style.display=S.mode==='local'?'block':'none';
     document.getElementById('cloudFields').style.display=S.mode==='cloud'?'block':'none';
     // Prefill from whatever is actually answering, whichever engine that is.
-    if(S.mode==='local'&&live.length){
-      document.getElementById('engine').value=live[0].engine;
-      document.getElementById('baseUrl').value=live[0].base_url;
+    if(S.mode==='local'&&chosen){
+      document.getElementById('engine').value=chosen.engine;
+      document.getElementById('baseUrl').value=chosen.base_url;
     }
   });
   // Preselect local when an engine answers, OR when this box has the memory to

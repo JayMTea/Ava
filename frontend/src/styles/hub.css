@@ -147,6 +147,9 @@
 }
 .hub-kv dt { color: var(--muted); }
 .hub-kv dd { margin: 0; color: var(--txt); }
+/* A second line under a value — the address behind "thinking with ollama", where
+   the label answers the question and the address is the evidence for it. */
+.hub-kv-sub { color: var(--muted); font-size: var(--fs-xs); word-break: break-all; }
 
 .hub-row {
   display: flex;
@@ -511,6 +514,12 @@
 }
 .hw-hero-body { min-width: 0; }
 .hw-hero-tier { color: var(--txt); font-size: var(--fs-lg); font-weight: var(--fw-medium); text-transform: capitalize; }
+/* The capitalize above exists to tidy ONE word — the backend's lowercase tier
+   name ("small" → "Small"). When the hero carries a sentence instead, because
+   the engine is on the host and there is no tier to publish, that same rule
+   title-cases it into "Ollama · On This Machine". Opt out where the string is
+   already written the way it should read. */
+.hw-hero-tier.as-written { text-transform: none; }
 .hw-hero-hint { color: var(--muted); font-size: var(--fs-xs); margin-top: 2px; }
 
 /* ---- app appearance picker (rail icon + accent, per connected app) ---- */

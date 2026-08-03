@@ -56,6 +56,27 @@ cd Ava\deploy && install.cmd
     **Git Bash** - Windows key, type `Git Bash`, Enter - and run the plain command
     above at the `$` prompt.
 
+!!! note "On Windows, Ava runs in a Linux container. That is normal."
+    Docker Desktop runs Linux containers inside **WSL2**, a lightweight Linux VM
+    that Windows provides. So the stack on your laptop is Windows → WSL2 → a
+    container → Ava. Nothing about that is a misconfiguration, but it has two
+    consequences worth knowing before you meet them in Setup:
+
+    - **Memory.** Windows gives the WSL2 VM roughly half the machine's RAM by
+      default, so a 32 GB laptop reports about 15.4 GB. That is a ceiling on what
+      Ava can use, not memory Windows loses. Raise it by putting `memory=24GB`
+      under a `[wsl2]` header in `%USERPROFILE%\.wslconfig`, then running
+      `wsl --shutdown` and starting Docker Desktop again.
+    - **Your graphics card.** A container is not handed a GPU unless one is
+      reserved for it, and the compose file reserves one only for the inference
+      service. So Setup sizes its recommendation from memory rather than from
+      your card. The card still does the work; Ava's own process just cannot read
+      it. See "Surfacing the GPU in the bridge container" in the
+      [install reference](../docs/INSTALL_REFERENCE.md) to change that.
+
+    Setup → Hardware says which of these apply to your machine and carries both
+    fixes, so there is nothing to work out in advance.
+
 !!! note "On a Mac (Apple Silicon)? Skip Docker."
     Docker Desktop on macOS cannot pass the Apple GPU through, so inference in a
     container runs CPU-only. Use the bare-metal path below instead (collapsed under
@@ -209,10 +230,18 @@ gate entirely.
 - **All state lives in one folder** (`AVA_HOME`, default `deploy/ava-data/`):
   config, chats, media, logs, models. To back Ava up, copy that folder.
 
-- **Setup → Hardware reports no GPU under Docker**, even on an NVIDIA box:
-  compose grants the GPU to the *inference* service only. The panel says so
-  rather than implying a driver fault, and sizes your model tier from system
-  memory instead. The override is one file - see the
+- **Setup → Hardware reads "no graphics card readable from here"** on a machine
+  that plainly has one: compose grants the GPU to the *inference* service only.
+  The panel says so rather than implying a driver fault, and sizes your model
+  tier from system memory instead. Your card still does the work. The override is
+  one file - see the [install reference](../docs/INSTALL_REFERENCE.md).
+
+- **Your engine can live on the machine, not in the compose stack.** When Ava
+  runs in a container it also probes the host (`host.docker.internal`), so a
+  natively-installed Ollama or LM Studio is a supported setup - and on Windows
+  or a Mac usually the faster one, since it gets the real GPU and the full
+  memory. It has to listen on more than `127.0.0.1` first; Setup says so when it
+  cannot reach one. Details in the
   [install reference](../docs/INSTALL_REFERENCE.md).
 
 - **Web search does not work out of the box in Docker.** No profile starts

@@ -52,6 +52,14 @@ class Engine:
     usage: bool
     usage_reason: str
     usage_verified: bool = False
+    # Whether health_path hangs off the server ROOT or off the OpenAI `/v1` base.
+    # `/models` is the OpenAI surface and lives under the base; a native path
+    # (Ollama's `/api/tags`, llama.cpp's `/health`) does not, and probing
+    # `…/v1/api/tags` reported a healthy Ollama as down. That was fixed once, by
+    # hand, for Ollama alone inside setup_wizard._health_url — which is why the
+    # rule lives here now: llama.cpp declared `/health` and was still probed at
+    # `/v1/models`, so the registry described a check nobody ran.
+    health_at_root: bool = False
     # Where this engine lists what it is actually serving. Separate from
     # health_path on purpose: llama.cpp answers health at /health but models at
     # /models, so aliasing the two would ask it the wrong question. Ollama is the
@@ -76,6 +84,14 @@ class Engine:
     aliases: tuple[str, ...] = field(default_factory=tuple)
     # A local engine consumes THIS box's memory, so model-fit must gate on it.
     local: bool = True
+    # The port this engine listens on when nobody has said otherwise. Load-bearing
+    # for the same reason health_path is: the setup probe has to GUESS where an
+    # engine might be before anything is configured, and a port it does not know
+    # is an engine it cannot find. This lived as a hardcoded ladder inside
+    # setup_wizard._engine_of while the candidate list hardcoded its own copy,
+    # so `llamacpp` was recognisable-from-a-URL and undiscoverable-in-fact.
+    # None = no default worth guessing (a cloud provider has no port of ours).
+    default_port: int | None = None
     note: str = ""
 
     @property
@@ -93,12 +109,14 @@ ENGINES: tuple[Engine, ...] = (
         flags_table=True,
         pull="ava models pull (HuggingFace cache)",
         platforms=("linux-nvidia", "windows-nvidia", "linux-amd"),
+        default_port=8002,
         note="Needs CUDA. ROCm is opt-in via inference.allow_vllm_rocm — see "
              "models.engine_servable_here.",
     ),
     Engine(
         key="ollama", label="Ollama", tier=FIRST_CLASS,
         health_path="/api/tags",
+        health_at_root=True,
         models_path="/api/tags",
         # /api/tags is the pulled-to-disk inventory; /api/ps is the resident
         # set, with per-model size and the VRAM/RAM split. Verified against a
@@ -110,12 +128,14 @@ ENGINES: tuple[Engine, ...] = (
         usage_verified=True,
         launcher="the `ollama` / `ollama-cuda` / `ollama-rocm` compose services",
         pull="ava models pull --auto (ollama pull)",
+        default_port=11434,
         note="The portable GPU path: handles CUDA, ROCm and Metal itself.",
     ),
     Engine(
         key="llamacpp", label="llama.cpp", tier=FIRST_CLASS,
         aliases=("llama.cpp", "gguf", "llamafile"),
         health_path="/health",
+        health_at_root=True,
         usage=False,
         usage_reason="NOT VERIFIED — no llama-server on the maintainer's box, so "
                      "whether it accepts stream_options is untested. Excluded "
@@ -124,6 +144,7 @@ ENGINES: tuple[Engine, ...] = (
         usage_verified=False,
         launcher="bring your own llama-server (no Ava launcher yet)",
         pull="ava models pull (GGUF store)",
+        default_port=8080,
         note="Serves anywhere. First-class because it is the only local engine "
              "whose whole path is verifiable on a free CI runner with no GPU.",
     ),
@@ -148,6 +169,7 @@ ENGINES: tuple[Engine, ...] = (
         launcher="mlx_lm.server --model <id> --port 8080 (documented, unverified)",
         pull="huggingface cache (mlx-community/*)",
         platforms=("darwin-apple",),
+        default_port=8080,
         note="Wired up and honestly NOT first-class: promoting it needs a macOS "
              "CI job, which needs the repo to be public. Ollama-on-Metal is the "
              "supported Mac path meanwhile.",
@@ -166,6 +188,7 @@ ENGINES: tuple[Engine, ...] = (
                      "in CI.",
         usage_verified=False,
         launcher=None, pull=None,
+        default_port=1234,
         note="Deliberately generic. It is a desktop app: it cannot be installed "
              "headless, scripted from an installer, or given a reproducible "
              "launcher, and its endpoint is already covered by the `openai` "
@@ -194,6 +217,37 @@ def usage_engines() -> set[str]:
 
 def local_engines() -> set[str]:
     return {k for e in ENGINES if e.local for k in e.keys}
+
+
+def default_ports() -> dict[int, str]:
+    """`{port: engine key}` for the engines worth guessing at.
+
+    Ports are NOT unique — llama.cpp and MLX both default to 8080 — so a shared
+    port resolves to the FIRST-CLASS claimant. That is not a tie-break for its
+    own sake: `models.engine_servable_here` refuses MLX anywhere but Apple
+    Silicon, and calling an 8080 `llama-server` "mlx" health-checks the wrong
+    path, so the ambiguous port must land on the engine that can actually serve.
+    """
+    out: dict[int, str] = {}
+    for e in ENGINES:
+        if e.default_port is None:
+            continue
+        held = out.get(e.default_port)
+        if held is None or (_BY_KEY[held].tier != FIRST_CLASS and e.tier == FIRST_CLASS):
+            out[e.default_port] = e.key
+    return out
+
+
+def probeable_local() -> tuple[Engine, ...]:
+    """Local engines with a port worth trying blind, first-class first.
+
+    This is the list the setup probe sweeps when nothing is configured yet. It
+    is ordered rather than a set because the first engine to answer wins the
+    wizard's preselection, and a first-class engine answering should beat a
+    generic one on the same machine.
+    """
+    return tuple(sorted((e for e in ENGINES if e.local and e.default_port),
+                        key=lambda e: (e.tier != FIRST_CLASS, e.key)))
 
 
 def first_class() -> tuple[Engine, ...]:

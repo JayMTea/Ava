@@ -346,6 +346,57 @@ def cmd_doctor(_args) -> int:
             note += f"  ! needs ~{weight} GB > {avail:.0f} GB available"
         _row(icon, name, note)
 
+    # What Ava can FIND, as opposed to what ava.yaml declares — and crucially,
+    # WHERE. This is the only check that can answer "does host.docker.internal
+    # resolve and answer on this machine", and it has to run on the machine in
+    # question: the discovery path is gated on being in a container and on the
+    # runtime publishing a host gateway, so neither a unit test nor a run on the
+    # maintainer's Linux box can settle it for someone else's laptop.
+    print("\nEngine discovery (where Ava can find one)")
+    try:
+        from ava_bridge import setup_wizard as _sw
+        gw = _sw.host_gateway()
+        in_ctr = _sw._in_container()
+        if not in_ctr:
+            _row(OK, "container", "not in a container — this box's loopback IS "
+                                  "the machine, so there is no host to reach")
+        elif gw:
+            # Resolving is not reaching. Saying "an engine on the machine is
+            # reachable from in here" contradicted the very next row on a box
+            # that filters container->host traffic, which is the case this
+            # section exists to diagnose.
+            _row(OK, "host gateway", f"{gw} resolves — Ava knows how to address "
+                                     "the machine it runs on")
+        else:
+            _row(WARN, "host gateway",
+                 "none of host.docker.internal / host.containers.internal "
+                 "resolves — an engine running on the machine outside this "
+                 "container cannot be found. On Linux, compose needs "
+                 "`extra_hosts: [\"host.docker.internal:host-gateway\"]`.")
+        found = _sw.api_backends()
+        for b in found["backends"]:
+            if not b["up"]:
+                continue
+            inference_ok = True
+            _row(OK, b["engine_label"], f"{b['base_url']}  ({b['locality']})")
+        if not any(b["up"] for b in found["backends"]):
+            reach = found.get("host_reach") or ""
+            if reach == "dropped":
+                _row(BAD, "discovered", "nothing answered, and the machine "
+                     "itself is unreachable from in here — packets are being "
+                     "dropped, not refused. Something is filtering between this "
+                     "container and the host; on Windows, Defender Firewall on "
+                     "the WSL vEthernet adapter. A bind address will not fix it.")
+            elif reach == "refused":
+                _row(WARN, "discovered", "nothing answered. The machine IS "
+                     "reachable, so an engine running on it is bound to "
+                     "127.0.0.1 only — it must listen wider to be reached from a "
+                     "container (Ollama: OLLAMA_HOST=0.0.0.0, then restart it).")
+            else:
+                _row(WARN, "discovered", "nothing answered on any known port")
+    except Exception as e:  # noqa: BLE001 — discovery must never break doctor
+        _row(WARN, "engine discovery", f"probe failed: {e}")
+
     # The route chat ACTUALLY uses (fixes the old doctor/reality mismatch where
     # backends probed green on :8002 while chat errored against :8010).
     print("\nInference route (what chat actually uses)")

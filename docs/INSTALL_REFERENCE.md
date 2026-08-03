@@ -209,7 +209,42 @@ all** on a host without the NVIDIA container runtime - which is every `cpu` and
 
 ---
 
-## 6. Bare metal: engine wiring and tool calling
+## 6. Pointing Ava at an engine on the host machine
+
+Ava looks for an engine in three places, in this order: the compose network
+(`vllm:8002`, `ollama:11434`), its own loopback, and - when it is running in a
+container - **the machine that container runs on**, via the runtime's host
+gateway (`host.docker.internal` under Docker Desktop, `host.containers.internal`
+under Podman). A natively-installed Ollama or LM Studio is therefore a supported
+way to run Ava, not a workaround.
+
+On Windows and macOS it is often the better arrangement. A native engine gets the
+real GPU and the machine's full memory; the WSL2 VM Ava runs in has neither.
+
+**One thing to set.** Most engines listen on `127.0.0.1` only, which no container
+can reach:
+
+| Engine | What to set |
+|---|---|
+| Ollama | `OLLAMA_HOST=0.0.0.0`, then restart it. On Windows use the environment-variables UI; on a Mac, `launchctl setenv OLLAMA_HOST 0.0.0.0`. |
+| LM Studio | Turn on **Serve on local network** in the server tab. |
+| llama.cpp | `llama-server --host 0.0.0.0` |
+
+Without it the engine is running and unreachable, which from inside the container
+looks exactly like never having installed one - so Setup names that cause rather
+than reporting nothing found.
+
+!!! note "Ava stops recommending a model size when the engine is out there"
+    **Setup → Hardware** can only measure its own container. That is not the pool
+    a host engine draws on, so a tier derived from it would describe the wrong
+    machine - "small" on a laptop whose native Ollama has the full 32 GB and a
+    real GPU. Ava reports what it can see, says where the engine is, and declines
+    to size a recommendation. Pick from what that engine already holds under
+    **Agent → Brain**.
+
+---
+
+## 7. Bare metal: engine wiring and tool calling
 
 The bare-metal install steps are on the
 [Quickstart](../deploy/README.md), collapsed under "Install bare metal instead".
@@ -251,7 +286,7 @@ header. Loopback (the default) needs no token for `/v1/*`.
 
 ---
 
-## 7. Apple Silicon (Mac mini / Studio)
+## 8. Apple Silicon (Mac mini / Studio)
 
 A Mac is **unified-memory** hardware: CPU and GPU share one RAM pool and there is
 no `nvidia-smi`. **Ava does not serve vLLM on a Mac** - upstream macOS support is
@@ -289,7 +324,7 @@ Notes:
 
 ---
 
-## 8. Configuration: `ava.yaml` and secrets
+## 9. Configuration: `ava.yaml` and secrets
 
 Everything is driven by **`$AVA_HOME/ava.yaml`** (copied from
 [`config.example.yaml`](../config.example.yaml) by `ava setup`) plus environment
@@ -312,7 +347,7 @@ Secrets live outside `ava.yaml` and outside the repo: the admin password in
 
 ---
 
-## 9. Installing from a fork
+## 10. Installing from a fork
 
 Installing **from a fork**, without cloning it first? Point `AVA_REPO` at your
 fork and pipe its own copy of the installer (it is the same script the

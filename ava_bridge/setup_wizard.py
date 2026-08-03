@@ -133,10 +133,27 @@ def api_hardware():
     return out
 
 
-def _probe(url: str, timeout: float = 1.5) -> bool:
+def _probe(url: str, timeout: float = 1.5, strict: bool = False) -> bool:
+    """Is something serving here?
+
+    `strict` is for BLIND candidates — the ports Ava guesses at rather than ones
+    the owner named. The lenient rule (`< 500`) is right for a configured
+    backend, where a 401 means "there, and asking for a key" rather than "gone".
+    It is wrong for a port sweep: a 404 from an unrelated dev server on :8080
+    also passes it, and would be reported to the user as llama.cpp answering.
+    Since the sweep now covers every port in the registry on both this container
+    and its host, that stopped being hypothetical.
+    """
     try:
         import requests
-        return requests.get(url, timeout=timeout).status_code < 500
+        r = requests.get(url, timeout=timeout)
+        if not strict:
+            return r.status_code < 500
+        if not (200 <= r.status_code < 300):
+            return False
+        # Every engine's health surface answers JSON. llama.cpp's /health is the
+        # narrowest of them and still returns `{"status": "ok"}`.
+        return "json" in r.headers.get("content-type", "").lower()
     except Exception:  # noqa: BLE001
         return False
 
@@ -150,6 +167,9 @@ from . import engines as _engines  # noqa: E402 — local import, cycle-free
 _HEALTH_PATH = _engines.health_paths()
 
 
+_DEFAULT_PORTS = _engines.default_ports()
+
+
 def _engine_of(base_url: str, declared: str = "") -> str:
     """Guess the engine family from a base URL.
 
@@ -158,34 +178,34 @@ def _engine_of(base_url: str, declared: str = "") -> str:
     the wrong path AND `engine_servable_here` refuses it on darwin-apple. Ports
     are the only signal available here, so ambiguous ones resolve to the engine
     that is actually servable rather than to the NVIDIA one.
+
+    The port ladder used to be written out here, a second time, while
+    `_candidates()` hardcoded its own copy of the same numbers. Both now read
+    `engines.default_ports()`, so an engine added to the registry becomes
+    recognisable AND discoverable in one edit instead of neither.
     """
     if declared:
         return declared
+    from urllib.parse import urlparse
     u = (base_url or "").lower()
-    if ":11434" in u or "ollama" in u:
-        return "ollama"
-    if ":1234" in u or "lmstudio" in u or "lm-studio" in u:
-        return "lmstudio"
-    if ":8002" in u or "vllm" in u:
-        return "vllm"
-    if "mlx" in u:
-        return "mlx"
-    if "llamacpp" in u or "llama.cpp" in u or "llama-server" in u:
-        return "llamacpp"
-    if ":8080" in u:
-        # Shared default between llama.cpp and MLX. Both expose /models via their
-        # OpenAI-compatible surface, so the health probe is identical either way;
-        # llamacpp is the portable choice and additionally has /health.
-        return "llamacpp"
+    # Name in the URL beats port: a compose service is `http://ollama:11434/v1`,
+    # but someone may equally run llama.cpp on Ollama's own port.
+    for key in ("ollama", "lmstudio", "lm-studio", "vllm", "mlx",
+                "llamacpp", "llama.cpp", "llama-server"):
+        if key in u:
+            found = _engines.get(key)
+            return found.key if found else key
+    try:
+        parsed = urlparse(u)
+        port, host = parsed.port, (parsed.hostname or "")
+    except Exception:  # noqa: BLE001 — unparsable: fall back to the old default
+        port, host = None, ""
+    if port and port in _DEFAULT_PORTS:
+        return _DEFAULT_PORTS[port]
     # A remote host is a cloud provider, not an unlabelled local vLLM. Falling
     # through to "vllm" meant `https://api.openai.com/v1` was called vLLM, and
     # `engine_servable_here("vllm")` then refuses on Apple Silicon and CPU-only —
     # so adding a perfectly good CLOUD backend was rejected for needing a GPU.
-    try:
-        from urllib.parse import urlparse
-        host = (urlparse(base_url).hostname or "").lower()
-    except Exception:  # noqa: BLE001 — unparsable: fall back to the old default
-        host = ""
     if host and host not in _LOCAL_HOSTNAMES and not host.startswith("192.168.") \
             and not host.startswith("10.") and "." in host:
         return "openai"
@@ -196,15 +216,135 @@ def _engine_of(base_url: str, declared: str = "") -> str:
 # remote. Compose service names have no dot, which is why the check above also
 # requires one — `http://vllm:8002/v1` must stay vLLM.
 _LOCAL_HOSTNAMES = {"127.0.0.1", "localhost", "::1", "0.0.0.0",
-                    "host.docker.internal", "host.openshell.internal"}
+                    "host.docker.internal", "host.openshell.internal",
+                    "host.containers.internal"}
+
+# The names a container runtime gives the MACHINE it is running on. Docker
+# Desktop publishes the first on Windows and macOS; Podman publishes the second;
+# a Linux compose file opts in with `host-gateway`.
+#
+# Why this matters more than it looks: Ava's own wizard tells a user with no
+# engine to "install Ollama (ollama.com)", and on Windows that installs a NATIVE
+# Ollama — which gets the real GPU and the machine's full memory, neither of
+# which the bridge container has. Ava then failed to find it, because the only
+# loopback it knew was its own. The most likely path a Windows tester takes
+# ended at "nothing answering yet" on a machine where something was answering.
+_HOST_GATEWAYS = ("host.docker.internal", "host.containers.internal",
+                  "host.openshell.internal")
+
+
+def host_gateway() -> str | None:
+    """The name this container can reach its host by, or None.
+
+    Resolution-gated on purpose: an unresolvable name costs a DNS timeout PER
+    PROBE, and the setup screen blocks on this. Asking the resolver once is
+    cheap and fails fast, so a bare-metal install pays nothing for a code path
+    that cannot apply to it.
+    """
+    import socket
+    for name in _HOST_GATEWAYS:
+        try:
+            socket.getaddrinfo(name, None)
+            return name
+        except OSError:
+            continue
+    return None
+
+
+def host_reachability(gw: str, timeout: float = 1.0) -> str:
+    """WHY a container cannot reach an engine on its host. "" if it can.
+
+    Two very different causes look identical in the UI, and the fix for one is
+    useless against the other:
+
+      refused  the machine answered with a reset - it is reachable, and nothing
+               is listening on an address this container can use. That is the
+               bind-address case: Ollama's installer binds 127.0.0.1 only.
+      dropped  packets went nowhere. Something is filtering between the container
+               and the machine. On Windows that is usually Defender Firewall
+               blocking the WSL vEthernet adapter, and no amount of OLLAMA_HOST
+               will help.
+
+    Found by running the real thing: a container on the maintainer's box, with a
+    live engine on the host and a resolvable gateway, still timed out - and the
+    advice this endpoint would have given ("set OLLAMA_HOST=0.0.0.0") was the
+    wrong advice for the failure that actually occurred.
+
+    A raw connect rather than an HTTP request, because the distinction lives at
+    the TCP layer: `requests` flattens both into ConnectionError subclasses whose
+    text differs by wording alone.
+    """
+    import socket
+    from concurrent.futures import ThreadPoolExecutor
+
+    def _try(port: int) -> str:
+        s = socket.socket()
+        s.settimeout(timeout)
+        try:
+            s.connect((gw, port))
+            return "open"                  # something is listening and reachable
+        except (socket.timeout, TimeoutError):
+            return "dropped"
+        except ConnectionRefusedError:
+            return "refused"               # reachable, nothing on this port
+        except OSError:
+            return "dropped"               # no route / host unreachable
+        finally:
+            s.close()
+
+    # Concurrent, and one attempt per distinct PORT rather than per engine —
+    # llama.cpp and MLX share 8080, so the naive loop dialled it twice. Measured
+    # against a genuinely filtered host: sequential took 6.5 s, which is far too
+    # long to hold the first screen of an install. The whole point of this probe
+    # is that the timeout IS the signal, so it cannot be shortened away.
+    ports = sorted({e.default_port for e in _engines.probeable_local()})
+    with ThreadPoolExecutor(max_workers=len(ports)) as pool:
+        seen = set(pool.map(_try, ports))
+    if "open" in seen:
+        return ""
+    return "dropped" if "dropped" in seen else "refused"
+
+
+def _locality(base_url: str) -> str:
+    """WHERE an engine is, relative to Ava — not merely whether it answered.
+
+    The distinction the fit layer needs: a `host` engine runs on the machine
+    itself, outside this container, so the pool Ava measured is NOT the pool
+    that engine draws on and no tier may be recommended from it.
+    """
+    from urllib.parse import urlparse
+    host = (urlparse(base_url or "").hostname or "").lower()
+    if not host:
+        return "unknown"
+    if host in _HOST_GATEWAYS:
+        return "host"
+    if host in {"127.0.0.1", "localhost", "::1", "0.0.0.0"}:
+        # Inside a container this is the CONTAINER's loopback, which is a
+        # different machine from the user's; on bare metal it is the box itself.
+        from .auth import in_container
+        return "container" if in_container() else "host"
+    if "." not in host:
+        return "compose"          # a service name on the compose network
+    return "remote"
 
 
 def _health_url(base_url: str, engine: str) -> str:
+    """Where to ask THIS engine whether it is there.
+
+    Reads the registry rather than hardcoding a ladder. `_HEALTH_PATH` was
+    already being built from `engines.health_paths()` and then never consulted,
+    so llama.cpp declared `/health` and was probed at `/v1/models` anyway — the
+    precise "probeable in theory, unprobeable in fact" drift the registry exists
+    to prevent, sitting one line under the comment saying so.
+    """
     base = (base_url or "").rstrip("/")
-    if engine == "ollama":
-        # Ollama's OpenAI-compatible base ends in /v1, but its health is not there.
-        return base[:-3].rstrip("/") + "/api/tags" if base.endswith("/v1") else base + "/api/tags"
-    return base + "/models"
+    e = _engines.get(engine)
+    path = _HEALTH_PATH.get(engine) or (e.health_path if e else "/models")
+    # A native path hangs off the server root; the OpenAI `/models` hangs off the
+    # `/v1` base. Probing Ollama at `…/v1/api/tags` reported a healthy engine down.
+    if e is not None and e.health_at_root and base.endswith("/v1"):
+        base = base[:-3].rstrip("/")
+    return base + path
 
 
 def _candidates() -> list[dict]:
@@ -220,13 +360,26 @@ def _candidates() -> list[dict]:
     out: list[dict] = []
 
     def add(cid: str, base: str, engine: str = "", note: str = "",
-            model: str = ""):
+            model: str = "", blind: bool = True):
         base = (base or "").strip().rstrip("/")
         if not base or base in seen:
             return
         seen.add(base)
+        key = _engine_of(base, engine)
+        # The engine's PROPER name, carried with the fact. A frontend title-casing
+        # the key renders "Vllm" and "Lmstudio", and a second name table per
+        # frontend is exactly the drift the registry exists to prevent. This is
+        # the sanctioned exception in CLAUDE.md: registry labels travel with the
+        # data because they have to be self-contained.
+        found = _engines.get(key)
         out.append({"id": cid, "base_url": base,
-                    "engine": _engine_of(base, engine), "note": note,
+                    "engine": key,
+                    "engine_label": found.label if found else key,
+                    "note": note,
+                    "locality": _locality(base),
+                    # Guessed at by Ava, or named by the owner? Only the former
+                    # gets the strict probe — see _probe.
+                    "blind": blind,
                     # The MODEL each source names. This was read and thrown away:
                     # both sources below already carry one, and dropping it is why
                     # the wizard demanded the user retype a value it was holding.
@@ -236,17 +389,27 @@ def _candidates() -> list[dict]:
     for bid, spec in (settings.get("inference.backends", {}) or {}).items():
         if isinstance(spec, dict):
             add(bid, spec.get("base_url", ""), spec.get("engine", ""),
-                "configured", spec.get("model", ""))
+                "configured", spec.get("model", ""), blind=False)
     # 2. What the environment points at (compose sets this per profile).
     add("env", os.environ.get("AVA_BACKEND_URL", ""),
         os.environ.get("AVA_BACKEND_ENGINE", ""), "from AVA_BACKEND_URL",
-        os.environ.get("AVA_BACKEND_MODEL", ""))
+        os.environ.get("AVA_BACKEND_MODEL", ""), blind=False)
     # 3. The compose service names, for a container that has neither.
     add("vllm-service", "http://vllm:8002/v1", "vllm", "compose service")
     add("ollama-service", "http://ollama:11434/v1", "ollama", "compose service")
-    # 4. Bare metal.
-    add("vllm-local", "http://127.0.0.1:8002/v1", "vllm", "local")
-    add("ollama-local", "http://127.0.0.1:11434/v1", "ollama", "local")
+    # 4. Bare metal — this box's own loopback, which inside a container is the
+    #    CONTAINER's loopback and finds only what compose started.
+    for e in _engines.probeable_local():
+        add(f"{e.key}-local", f"http://127.0.0.1:{e.default_port}/v1", e.key, "local")
+    # 5. The machine this container runs ON. Last, because a compose engine that
+    #    Ava started is a better answer than one it merely found — but present,
+    #    because on Windows and macOS a natively-installed engine is the common
+    #    case and was previously invisible. Costs one DNS lookup on bare metal.
+    gw = host_gateway()
+    if gw:
+        for e in _engines.probeable_local():
+            add(f"{e.key}-host", f"http://{gw}:{e.default_port}/v1", e.key,
+                "on the host machine")
     return out
 
 
@@ -393,15 +556,49 @@ def api_brain():
 @router.get("/api/setup/backends")
 def api_backends():
     """Which local engines are answering right now, so the wizard can preselect
-    the truth rather than a guess."""
-    found = []
-    for c in _candidates():
-        found.append({**c, "up": _probe(_health_url(c["base_url"], c["engine"]))})
+    the truth rather than a guess.
+
+    Probed CONCURRENTLY. Sequentially this was two loopback candidates and cheap;
+    sweeping the registry's ports on both this container and its host is ten, and
+    at a 1.5 s timeout each a firewall that drops rather than refuses would have
+    held the first setup screen for fifteen seconds. Order is restored afterwards
+    so "most authoritative first" still holds — the wizard preselects
+    `backends[0]`, and that must stay a decision rather than a race.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    cands = _candidates()
+    with ThreadPoolExecutor(max_workers=min(12, len(cands) + 1)) as pool:
+        ups = list(pool.map(
+            lambda c: _probe(_health_url(c["base_url"], c["engine"]),
+                             strict=c.get("blind", True)), cands))
+    found = [{**c, "up": up} for c, up in zip(cands, ups)]
+    gw = host_gateway()
     return {
         "backends": found,
         "any_up": any(b["up"] for b in found),
         "router": _probe(f"http://127.0.0.1:{config.ROUTER_PORT}/healthz"),
+        # Facts the "nothing answering yet" case needs, because from in here
+        # "not installed" and "installed but bound to loopback" look identical.
+        # An engine on the host machine is only reachable if it listens on more
+        # than 127.0.0.1, and Ollama's Windows installer does not by default —
+        # so the honest message names that cause instead of implying absence.
+        "in_container": _in_container(),
+        "host_gateway": gw or "",
+        # Only asked when it is the question: nothing answered, and there IS a
+        # host out there that might have. Costs one connect per engine port in
+        # the failure case and nothing at all the rest of the time.
+        "host_reach": (host_reachability(gw)
+                       if gw and _in_container()
+                       and not any(b["up"] for b in found) else ""),
     }
+
+
+def _in_container() -> bool:
+    try:
+        from .auth import in_container
+        return in_container()
+    except Exception:  # noqa: BLE001 — telemetry must never break the probe
+        return False
 
 
 @router.get("/api/setup/features")
