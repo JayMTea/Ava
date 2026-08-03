@@ -149,8 +149,11 @@ class WizardHardwareNoteTests(unittest.TestCase):
         self.assertEqual(out["platform"], "darwin-apple")
         self.assertEqual(out["tier"], "large")
         self.assertIn("30B", out["hint"])         # a large-tier model is offered
-        self.assertIn("Apple Silicon", out["note"])
-        self.assertIn("vLLM", out["note"])         # tells the user why not vLLM
+        # The route reports the SITUATION; the sentence about unified memory and
+        # why not vLLM is the frontend's, and differs between the first-run
+        # wizard and Setup → Hardware on purpose (CLAUDE.md: backend returns
+        # facts, owner-facing copy lives in the frontend).
+        self.assertEqual(out["note_code"], "apple-silicon")
 
 
 if __name__ == "__main__":

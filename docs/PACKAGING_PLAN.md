@@ -379,7 +379,7 @@ ava/
       rail/views render from the registry (native / iframe / none embed tiers).
       A third-party app appears by dropping a folder — no frontend edits.
 - [x] `ava connector new` template + example third-party connector
-      ([examples/hello-app](../examples/hello-app/)).
+      ([examples/device-app](../examples/device-app/)).
 
 **Phase 3 — Inference & hardware abstraction**
 - [x] Provider layer (vLLM/Ollama/llama.cpp/cloud): `ava_bridge/router_app.py`
@@ -436,7 +436,7 @@ So we stop adding debt while still building for you:
 - **v0.5 (2026-07-06)** — major productization build-out landed (see CHANGELOG
   `[2026-07-06]`): **Connector/App SDK** — `ui:` manifest block + `/api/apps` +
   data-driven left rail (native/iframe/none embed tiers), same-origin app proxies,
-  dynamic tool discovery, `examples/hello-app`, `docs/CONNECTOR_SDK.md`; **Phase 2
+  dynamic tool discovery, `examples/device-app`, `docs/CONNECTOR_SDK.md`; **Phase 2
   connector items now done** (§11). **Pluggable agent runtime** — `AgentRuntime`
   interface (`ava_bridge/runtime/`) with NemoClaw default + Direct fallback,
   `agent.required` gate, `ava agent provision/status`, `docs/AGENT_RUNTIME.md`

@@ -45,7 +45,7 @@ The six tools Ava discovers are the ones its server actually advertises, and the
 figures it reports at the end come out of its own database. Ava's surrounding
 numbers are sample data. Any app you already run connects the same way - to
 follow along with one you can start in a terminal right now, use
-[`examples/hello-app/`](../examples/hello-app/).)*
+[`examples/device-app/`](../examples/device-app/).)*
 
 ### Step 1: Open Setup, then Connectors
 

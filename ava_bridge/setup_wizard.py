@@ -63,8 +63,16 @@ def wizard_page():
 @router.get("/api/setup/hardware")
 def api_hardware():
     from . import hwinfo, model_fit
+    # `note_code` names the SITUATION; the wording lives in whichever surface is
+    # rendering it (CLAUDE.md: backend returns facts, owner-facing copy lives in
+    # the frontend). This used to ship the sentence itself, which meant the
+    # wizard and Setup → Hardware had to show the same paragraph even though one
+    # is a first-run screen with no room and the other is the page someone opens
+    # precisely because they want the detail. Codes:
+    #   apple-silicon    — unified memory; vLLM cannot serve here
+    #   container-no-gpu — a container that was not granted a GPU
     out = {"fit_gb": None, "free_gb": None, "source": None, "tier": "cloud",
-           "hint": "", "gpu": None, "platform": None, "note": "",
+           "hint": "", "gpu": None, "platform": None, "note_code": "",
            # WHICH pool the number above is. Without these the page could only
            # print a size next to an accelerator's name and hope they matched —
            # which on a 6 GB laptop card inside Docker rendered the card's name
@@ -95,9 +103,7 @@ def api_hardware():
     # unprivileged API (blank meters are expected), and vLLM can't serve here —
     # use Ollama / MLX / LM Studio. Surface this so a Mac first-run isn't puzzling.
     if out["platform"] == "darwin-apple":
-        out["note"] = ("Apple Silicon: use Ollama, MLX, or LM Studio (vLLM needs "
-                       "an NVIDIA GPU). GPU memory shows; util/temp/power read "
-                       "blank — that's expected on a Mac.")
+        out["note_code"] = "apple-silicon"
     try:
         from . import hardware
         g = hardware._gpu()
@@ -117,17 +123,11 @@ def api_hardware():
     # which is truthy — and this explanation was therefore suppressed on exactly
     # the machines that needed it. deploy/README.md promises "the panel says so
     # rather than implying a driver fault"; this is what keeps that true.
-    if not out["accel_measurable"] and not out["note"]:
+    if not out["accel_measurable"] and not out["note_code"]:
         try:
             from .auth import in_container
             if in_container():
-                out["note"] = (
-                    "Running in a container, which is not granted GPU access by "
-                    "default — only the inference service is. Your host GPU may "
-                    "be fine; Ava just cannot read it from in here, so the tier "
-                    "above is sized from system memory. To surface it, give the "
-                    "`ava` service an NVIDIA `utility` device reservation — see "
-                    "\"GPU telemetry in the bridge container\" in deploy/README.md.")
+                out["note_code"] = "container-no-gpu"
         except Exception:  # noqa: BLE001
             pass
     return out

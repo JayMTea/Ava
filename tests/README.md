@@ -80,7 +80,6 @@ every file is self-contained. The one `conftest.py` does exactly one thing
 | `test_deploy_compose_contract.py` | A profile must start the service its own backend URL points at. |
 | `test_deploy_refs_tracked.py` | Every deploy script a tracked file points at must itself be tracked. |
 | `test_dockerfile_bind.py` | The bridge container must bind 0.0.0.0 inside its own network namespace. |
-| `test_example_app.py` | examples/hello-app is the SDK's front door, so it has to actually work. |
 | `test_feature_convention.py` | Convention guard: ALL features.* reads go through ava_bridge/features.py. |
 | `test_features.py` | The optional-feature registry contract (ava_bridge/features.py). |
 | `test_intent_eval.py` | Eval-tooling MECHANICS (Phase 3). Hermetic: regex routing mode (no model), a throwaway AVA_EVALS_DIR, cases built inline — NEVER shipped data.… |

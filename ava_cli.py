@@ -497,7 +497,7 @@ def cmd_setup(args) -> int:
 
     # connectors/ is where every example tells a forker to copy a manifest, and
     # setup did not create it — so the FIRST thing anyone tries after chat works
-    # ("cp -r examples/hello-app $AVA_HOME/connectors/hello") died with "No such
+    # ("cp -r examples/device-app $AVA_HOME/connectors/device-demo") died with "No such
     # file or directory". Six example READMEs and three docs all carried that same
     # broken line. Creating it here is the fix; the mkdir -p those docs now show is
     # belt-and-braces for an AVA_HOME that predates this.

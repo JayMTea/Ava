@@ -1075,7 +1075,7 @@ def apps() -> List[dict]:
         embed = str(ui.get("embed") or "none").lower()
         out.append({
             "id": m["id"],
-            "label": ui.get("label") or m.get("label") or m["id"],
+            "label": _display_label(m),
             # None (not "grid") when undeclared: the frontend's appIcon() then
             # picks a STABLE per-app glyph by hashing the id, so apps that don't
             # declare ui.icon still differ from each other — mirrors how
@@ -1093,12 +1093,27 @@ def apps() -> List[dict]:
     return out
 
 
+def _display_label(m: dict) -> str:
+    """`ui.label`, else the manifest label, else the id — in one place.
+
+    Both `apps()` (nav) and `app()` (proxy) need the owner-facing name, and a
+    second copy of this chain is how one of them ends up showing a bare id.
+    """
+    ui = m.get("ui") if isinstance(m.get("ui"), dict) else {}
+    return ui.get("label") or m.get("label") or m["id"]
+
+
 def app(cid: str) -> dict | None:
     """A connector's `ui:` block, url-expanded — for the same-origin iframe proxy."""
-    ui = ({x["id"]: x for x in load()}.get(cid) or {}).get("ui")
+    m = {x["id"]: x for x in load()}.get(cid) or {}
+    ui = m.get("ui")
     if not isinstance(ui, dict):
         return None
-    return {"id": cid, "embed": str(ui.get("embed") or "none").lower(),
+    # `label` is here so a proxy error can NAME the app. Without it the error
+    # path fell back to the bare id — "home-assistant isn't running" where every
+    # other surface says "Home Assistant".
+    return {"id": cid, "label": _display_label(m),
+            "embed": str(ui.get("embed") or "none").lower(),
             "url": _expand(ui.get("url")), "api": ui.get("api")}
 
 
@@ -1182,6 +1197,107 @@ def _mcp_spec(m: dict) -> dict | None:
             "network": str(mcp.get("network") or "bridge")}
 
 
+# --- Why a connector request failed -----------------------------------------
+# "Unreachable" is four different conditions wearing one word, and the owner's
+# next move differs for each. Connection REFUSED is the one worth separating:
+# the address is right, the machine answered, and nothing is listening — the app
+# is not running. That is a `start it` problem, not a `something is broken`
+# problem, and every other failure here is genuinely the latter.
+#
+# Before this, all four call sites rendered `{e}` and the owner got
+#   HTTPConnectionPool(host='127.0.0.1', port=8479): Max retries exceeded with
+#   url: /?theme=dark&embedded=1&v=1 (Caused by NewConnectionError(...))
+# which names the library, the retry policy and the query string — everything
+# except the sentence "<the app> isn't running".
+#
+# The codes follow the feature-registry convention (docs/CONNECTOR_SDK.md §6):
+# `<cid>_down` already resolves to the Operations fix-it link via the `_down`
+# PATTERN in frontend/src/lib/fixes.ts, so a connector gets that link with zero
+# frontend changes — which is exactly where a stopped app should send you, since
+# its `service.probe` health row lives there.
+def _request_wrappers() -> tuple:
+    """requests' own exceptions subclass IOError (== OSError), so a naive
+    isinstance check matches the OUTER wrapper and never reaches the errno
+    underneath. Skip them while walking. Imported lazily — `requests` is a
+    lazy import everywhere else in this module."""
+    try:
+        import requests.exceptions as rex
+        return (rex.RequestException,)
+    except Exception:  # noqa: BLE001
+        return ()
+
+
+def _errno_cause(e: BaseException) -> BaseException | None:
+    """The innermost real OSError in an exception chain, or None.
+
+    requests wraps the actual errno three deep — ConnectionError ->
+    MaxRetryError -> NewConnectionError -> ConnectionRefusedError — and only
+    that last one carries the fact we want. We walk `__cause__`/`__context__`
+    rather than string-matching "Connection refused", which is locale- and
+    platform-shaped; ConnectionRefusedError is a builtin and means the same
+    thing on every platform.
+    """
+    wrappers = _request_wrappers()
+    seen, cur, depth = set(), e, 0
+    while cur is not None and depth < 10:
+        if id(cur) in seen:  # defensive: chains can be cyclic
+            break
+        seen.add(id(cur))
+        if isinstance(cur, OSError) and not isinstance(cur, wrappers):
+            return cur
+        cur = cur.__cause__ or cur.__context__
+        depth += 1
+    return None
+
+
+def unreachable(cid: str, e: Exception, *, url: str = "", what: str = "app") -> dict:
+    """Classify a failed connector request -> {"error", "error_code", "detail"}.
+
+    `error` is a finished sentence for the owner (and for the agent, which
+    reads these verbatim — the self-contained-message exception in CLAUDE.md).
+    `detail` keeps the raw exception so nothing is lost for debugging.
+    """
+    import socket
+
+    label = (app(cid) or {}).get("label") or cid
+    where = _netloc(url)
+    root = _errno_cause(e)
+    name = type(e).__name__
+
+    # Refused: the host answered, nothing is bound to the port. Not running.
+    if isinstance(root, ConnectionRefusedError):
+        at = f" on {where}" if where else ""
+        return {"error": f"{label} isn't running — nothing is listening{at}. "
+                         f"Start the app, then reload.",
+                "error_code": f"{cid}_down", "detail": str(e)}
+    # Timeout checked BEFORE the generic reachability branch: a ReadTimeout is a
+    # requests.ConnectionError subclass in some versions, and "connected but
+    # silent" is a different owner action from "wrong address".
+    if "Timeout" in name:
+        return {"error": f"{label} accepted the connection but didn't answer in time — "
+                         f"it's running, but not responding.",
+                "error_code": f"{cid}_timeout", "detail": str(e)}
+    # No route, DNS miss, connection torn down mid-flight: the address itself is
+    # suspect, so send the owner to the manifest rather than to "start the app".
+    if isinstance(root, (socket.gaierror, ConnectionAbortedError, ConnectionResetError)) \
+            or name == "ConnectionError":
+        return {"error": f"{label} can't be reached at {where or 'its configured address'} — "
+                         f"check the address in its connector manifest.",
+                "error_code": f"{cid}_unreachable", "detail": str(e)}
+    return {"error": f"{label} {what} request failed: {e}",
+            "error_code": f"{cid}_error", "detail": str(e)}
+
+
+def _netloc(url: str) -> str:
+    from urllib.parse import urlparse
+    if not url:
+        return ""
+    try:
+        return urlparse(url).netloc or ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 # --- Dynamic tool discovery -------------------------------------------------
 # For apps that expose an MCP-style list+call API (e.g. a FastMCP facade). Ava's
 # bridge lists the app's tools and forwards calls, so a whole dynamic tool set is
@@ -1255,7 +1371,7 @@ def discover_tools(cid: str, query: str = "", limit: int = 0) -> dict:
                              f"(got keys: {sorted(body)[:5] if isinstance(body, dict) else type(body).__name__})"}
         return _filter_tools(_remember(body), query, limit)
     except Exception as e:  # noqa: BLE001
-        return {"error": f"{cid} discovery unreachable: {e}"}
+        return unreachable(cid, e, url=base, what="discovery")
 
 
 def call_discovered(cid: str, name: str, args: dict | None) -> tuple:
@@ -1287,7 +1403,7 @@ def call_discovered(cid: str, name: str, args: dict | None) -> tuple:
             data = {"text": r.text[:4000]}
         return data, r.status_code
     except Exception as e:  # noqa: BLE001
-        return {"error": f"{cid} call unreachable: {e}"}, 502
+        return unreachable(cid, e, url=base, what="call"), 502
 
 
 # --- Devices (inbound "app → Ava" channel) ---------------------------------

@@ -416,6 +416,48 @@ def internal_architecture(request: Request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     return architecture.summary_payload()
 
+@router.get("/internal/architecture/model")
+def internal_architecture_model(request: Request):
+    """The product's structure — the assembly tree, not this deployment.
+
+    Read-only on purpose. `update_architecture` exists for the manifest because a
+    manifest is machine-authored; the model's spine is hand-authored intent, and a
+    write path that validates-then-reverts would throw away someone's `why`. Ava
+    edits it the way a person does: as source, through review.
+
+    Answers with the same coded-error-as-200 convention the rest of /internal
+    uses, because the sandbox helper runs `curl --fail` and swallows non-2xx
+    bodies — a 4xx here would reach Ava as silence.
+    """
+    if not authorized(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        from . import model as model_mod
+        nodes, _ = model_mod.load(include_overlay=True)
+        node_id = str(request.query_params.get("node", "")).strip()
+        if node_id:
+            found = model_mod.describe(node_id)
+            if found is None:
+                return {"error": f"no such node: {node_id}",
+                        "error_code": "model_unknown_node"}
+            return {"node": found}
+        return {
+            "summary": model_mod.summary(),
+            "levels": {lvl: model_mod.LEVEL_STANDARDS[lvl] for lvl in model_mod.LEVELS},
+            "tree": [
+                {"id": n.id, "level": n.level, "parent": n.parent,
+                 "title": n.title, "purpose": n.purpose}
+                for n in sorted(nodes.values(), key=lambda n: (n.order, n.id))
+            ],
+            "flows": {fid: {"title": f.title,
+                            "steps": [s.node for s in f.steps]}
+                      for fid, f in model_mod.flows().items()},
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"could not read the architecture model: {exc}",
+                "error_code": "model_unreadable"}
+
+
 @router.post("/internal/architecture/describe")
 async def internal_arch_describe(request: Request):
     if not authorized(request):

@@ -21,7 +21,6 @@ Ava through her `architecture` MCP tools.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import re
@@ -33,6 +32,14 @@ import yaml
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))          # repo root
+
+# The d2 renderer is shared with ava_bridge/model/, so it lives in the package.
+# Imported at module scope (unlike policy_inventory below, which is optional and
+# guarded) because rendering is not optional: without it this file cannot do its
+# job at all, and a lazy import would turn a missing checkout into a confusing
+# failure deep inside render() instead of an ImportError naming the module.
+sys.path.insert(0, ROOT)
+from ava_bridge import d2 as _d2  # noqa: E402
 OVERLAY = os.path.join(ROOT, "overlay", "agent")       # optional private overlay (gitignored)
 MANIFEST = os.path.join(HERE, "architecture.yaml")
 DIAGRAMS = os.path.join(HERE, "diagrams")
@@ -437,106 +444,29 @@ def build_security_d2(m: dict) -> str:
     return "\n".join(out) + "\n"
 
 
-def _d2_bin() -> str:
-    return shutil.which("d2") or os.path.expanduser("~/.local/bin/d2")
-
-
-def _fit_to_sheet(svg_path: str, st: dict) -> None:
-    """Place the rendered diagram on a fixed-size sheet (e.g. 11x17 ANSI-B).
-
-    D2 sizes the SVG to its content, so diagrams come out at different sizes.
-    For uniform docs/presentations we wrap the diagram in an outer SVG of fixed
-    sheet dimensions and scale it to fit (centered, white margins) via a nested
-    <svg> with preserveAspectRatio. Vector-clean and reproducible; controlled by
-    the `diagram_style.d2.sheet` manifest token (omit it to keep content-sized).
-    """
-    sheet = st.get("sheet")
-    if not sheet:
-        return
-    pw, ph = int(sheet["px_w"]), int(sheet["px_h"])
-    win, hin = sheet["w_in"], sheet["h_in"]
-    margin = int(sheet.get("margin", 0))
-    bg = st.get("background", "#ffffff")
-    with open(svg_path, encoding="utf-8") as f:
-        svg = f.read()
-    mo = re.search(r"<svg\b[^>]*>", svg, re.S)
-    if not mo:
-        return
-    open_tag = mo.group(0)
-    vb = re.search(r'viewBox="([^"]+)"', open_tag)
-    if vb:
-        view_box = vb.group(1)
-    else:
-        w = re.search(r'width="([\d.]+)', open_tag)
-        h = re.search(r'height="([\d.]+)', open_tag)
-        if not (w and h):
-            return
-        view_box = f"0 0 {w.group(1)} {h.group(1)}"
-    # Re-size the diagram's own <svg> to fill the sheet's inner box and centre it.
-    inner = re.sub(r'\s(?:width|height|preserveAspectRatio)="[^"]*"', "", open_tag)
-    if 'viewBox="' not in inner:
-        inner = inner[:-1] + f' viewBox="{view_box}"'
-    iw, ih = pw - 2 * margin, ph - 2 * margin
-    inner = (inner[:-1] +
-             f' x="{margin}" y="{margin}" width="{iw}" height="{ih}"'
-             f' preserveAspectRatio="xMidYMid meet">')
-    nested = inner + svg[mo.end():]
-    prefix = svg[:mo.start()]
-    wrapper = (
-        f'<svg xmlns="http://www.w3.org/2000/svg" '
-        f'xmlns:xlink="http://www.w3.org/1999/xlink" '
-        f'width="{win}in" height="{hin}in" viewBox="0 0 {pw} {ph}">'
-        f'<rect x="0" y="0" width="{pw}" height="{ph}" fill="{bg}"/>'
-        f'{nested}</svg>\n'
-    )
-    with open(svg_path, "w", encoding="utf-8") as f:
-        f.write(prefix + wrapper)
-
-
-def _d2sum(d2_path: str) -> str:
-    with open(d2_path, "rb") as f:
-        return hashlib.sha256(f.read()).hexdigest()
-
-
-def _svg_d2sum(svg_path: str) -> str | None:
-    """The d2sum stamped into the SVG at render time (None if unstamped)."""
-    try:
-        with open(svg_path, encoding="utf-8") as f:
-            m = re.search(r"d2sum:([0-9a-f]{64})", f.read())
-        return m.group(1) if m else None
-    except OSError:
-        return None
+# The d2 renderer lives in ava_bridge/d2.py — one implementation, because the
+# architecture MODEL (ava_bridge/model/) renders sheets the same way and a second
+# copy of the d2sum stamp would be a second thing that can disagree about whether
+# a diagram is fresh. These aliases keep every call site in this file unchanged.
+_d2_bin = _d2.binary
+_d2sum = _d2.d2sum
+_svg_d2sum = _d2.svg_d2sum
+_stamp_d2sum = _d2.stamp
+_fit_to_sheet = _d2.fit_to_sheet
 
 
 def render_d2(d2_path: str, svg_path: str, m: dict | None = None) -> None:
-    d2 = _d2_bin()
-    if not os.path.exists(d2):
-        raise RuntimeError("d2 not found (install: https://d2lang.com/install.sh)")
-    st = _style(m) if m else _FALLBACK_D2
-    subprocess.run(
-        [d2, "--theme", str(st["theme"]), "--layout", str(st["layout"]),
-         "--pad", str(st["pad"]), d2_path, svg_path],
-        check=True, capture_output=True, text=True,
-    )
-    _fit_to_sheet(svg_path, st)
-    _stamp_d2sum(d2_path, svg_path)
-
-
-def _stamp_d2sum(d2_path: str, svg_path: str) -> None:
-    # Stamp the source hash so any consumer (check_drift, CI tests) can prove
-    # this SVG was rendered from the current .d2 without needing d2 installed.
-    with open(svg_path, "a", encoding="utf-8") as f:
-        f.write(f"<!-- d2sum:{_d2sum(d2_path)} -->\n")
+    """Render using the manifest's diagram_style tokens."""
+    _d2.render(d2_path, svg_path, _style(m) if m else _FALLBACK_D2)
 
 
 def render_static(d2_path: str, svg_path: str, layout: str) -> None:
-    """Plain d2 render for a hand-authored diagram (no manifest sheet-fit)."""
-    d2 = _d2_bin()
-    if not os.path.exists(d2):
-        raise RuntimeError("d2 not found (install: https://d2lang.com/install.sh)")
-    subprocess.run([d2, "--theme", "0", "--layout", layout, "--pad", "24",
-                    d2_path, svg_path], check=True, capture_output=True, text=True)
-    _stamp_d2sum(d2_path, svg_path)
+    """Plain d2 render for a hand-authored diagram (no manifest sheet-fit).
+
+    Sheet-fit is skipped because DEFAULT_STYLE carries `sheet: None`, which is
+    what the previous hand-rolled subprocess call did by simply never calling it.
+    """
+    _d2.render(d2_path, svg_path, {**_d2.DEFAULT_STYLE, "layout": layout})
 
 
 def render(m: dict) -> list[str]:
@@ -645,36 +575,22 @@ def listening_binds() -> set[tuple[str, int]]:
         return {("?", int(m.group(1))) for m in re.finditer(r":(\d+)\s", out)}
 
 
-def actual_tools() -> dict[str, str]:
+def actual_tools(include_overlay: bool = True) -> dict[str, str]:
     """Map MCP tool `name` -> relative module path, by scanning every MCP server.
 
     Discovers `mcp_server_*` category dirs under both the core `agent/` tree and
     an optional gitignored `overlay/agent/` tree (private first-party apps), so
     the manifest stays 1:1 with whatever this deployment actually runs.
+
+    The scan itself lives in `ava_bridge/mcp_tools.py` because the architecture
+    model needs the same one — a second regex over the same files would be a
+    second thing that can disagree about which tools exist. `include_overlay` is
+    for that caller: anything written to a TRACKED file must not see private
+    tools. Drift checking here keeps the default, because this deployment's
+    manifest should reflect this deployment.
     """
-    found = {}
-    bases = []
-    for root in (os.path.join(ROOT, "agent"), OVERLAY):
-        if not os.path.isdir(root):
-            continue
-        for name in sorted(os.listdir(root)):
-            if name.startswith("mcp_server_") and os.path.isdir(os.path.join(root, name)):
-                bases.append(os.path.join(root, name))
-    for base in bases:
-        for dirpath, _dirs, files in os.walk(base):
-            for fn in files:
-                if not fn.endswith(".mjs") or fn.startswith("_"):
-                    continue
-                full = os.path.join(dirpath, fn)
-                try:
-                    with open(full, encoding="utf-8") as f:
-                        text = f.read()
-                except OSError:
-                    continue
-                mo = re.search(r"^\s*name:\s*'([^']+)'", text, re.MULTILINE)
-                if mo:
-                    found[mo.group(1)] = os.path.relpath(full, base)
-    return found
+    from ava_bridge import mcp_tools
+    return mcp_tools.name_to_module(include_overlay)
 
 
 def actual_policies() -> set[str]:

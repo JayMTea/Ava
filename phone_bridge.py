@@ -430,6 +430,71 @@ def _proxy_response(r: "requests.Response") -> Response:
                     media_type=r.headers.get("content-type"), headers=fwd)
 
 
+# A failed proxy hop has TWO audiences and they need different media types.
+# The iframe's own navigation renders whatever body we return AS the frame
+# document — so a JSON 502 is displayed to the owner as literal JSON, which is
+# how `{"error":"<id> app unreachable: HTTPConnectionPool(...)"}` ended up on
+# screen as the app's UI. That is also why AppFrame's error state never fired:
+# the frame DID load (a document arrived), so `onLoad` reported ready.
+#
+# The frontend cannot fix this from outside. With `apps.origin` configured the
+# frame is deliberately cross-origin, so React can neither read its body nor
+# distinguish "app UI" from "proxy error". The page has to come from here.
+# That makes this the documented exception to backend-returns-facts: owner-facing
+# copy lives in the frontend EXCEPT where the browser renders our bytes directly.
+#
+# Subresource requests (fetch/XHR from inside the app, sec-fetch-dest: empty)
+# keep getting JSON — a script parsing our HTML would be a worse failure.
+def _wants_document(request: Request) -> bool:
+    dest = (request.headers.get("sec-fetch-dest") or "").lower()
+    if dest:
+        return dest in ("iframe", "document", "frame", "embed", "object")
+    # No Sec-Fetch-Dest (older browsers, curl): fall back to Accept.
+    return "text/html" in (request.headers.get("accept") or "")
+
+
+def _unreachable_page(info: dict, label: str, theme: str) -> str:
+    import html as _html
+    dark = theme != "light"
+    bg, fg, dim = ("#16181d", "#e8eaed", "#9aa0a6") if dark else ("#fbfbfc", "#1f2124", "#5f6368")
+    card, edge = ("#1e2127", "#2c3038") if dark else ("#ffffff", "#e3e5e9")
+    # `detail` is collapsed, not dropped: the owner asked what is wrong, not for
+    # a stack trace, but the trace is what makes a NON-obvious failure fixable.
+    detail = _html.escape(info.get("detail") or "")
+    return f"""<!doctype html>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{_html.escape(label)} unavailable</title>
+<style>
+ html,body{{margin:0;height:100%;background:{bg};color:{fg};
+   font:14px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}}
+ .wrap{{height:100%;display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box}}
+ .card{{max-width:30rem;background:{card};border:1px solid {edge};border-radius:12px;padding:22px 24px}}
+ h1{{margin:0 0 8px;font-size:15px;font-weight:600}}
+ p{{margin:0;color:{dim}}}
+ details{{margin-top:16px}}
+ summary{{color:{dim};font-size:12px;cursor:pointer}}
+ pre{{margin:8px 0 0;padding:10px;background:{bg};border:1px solid {edge};border-radius:8px;
+   font-size:11px;color:{dim};white-space:pre-wrap;word-break:break-all;overflow-x:auto}}
+</style>
+<div class="wrap"><div class="card">
+ <h1>{_html.escape(label)} is unavailable</h1>
+ <p>{_html.escape(info.get("error") or "")}</p>
+ {f'<details><summary>Technical detail</summary><pre>{detail}</pre></details>' if detail else ''}
+</div></div>"""
+
+
+def _unreachable_response(cid: str, e: Exception, request: Request,
+                          url: str = "", what: str = "app") -> Response:
+    info = connectors.unreachable(cid, e, url=url, what=what)
+    if not _wants_document(request):
+        return JSONResponse(info, status_code=502)
+    label = (connectors.app(cid) or {}).get("label") or cid
+    theme = (request.query_params.get("theme") or "dark").lower()
+    return Response(content=_unreachable_page(info, label, theme), status_code=502,
+                    media_type="text/html; charset=utf-8",
+                    headers={"cache-control": "no-store"})
+
+
 @app.api_route("/apps/{cid}/api/{path:path}",
                methods=["GET", "POST", "DELETE", "PATCH", "PUT"])
 async def app_api_proxy(cid: str, path: str, request: Request):
@@ -478,7 +543,7 @@ async def app_api_proxy(cid: str, path: str, request: Request):
     try:
         r = await run_in_threadpool(_do)
     except Exception as e:  # noqa: BLE001
-        return JSONResponse({"error": f"{cid} api unreachable: {e}"}, status_code=502)
+        return _unreachable_response(cid, e, request, url=url, what="api")
     return _proxy_response(r)
 
 
@@ -530,7 +595,7 @@ async def app_ui_proxy(cid: str, path: str, request: Request):
     try:
         r = await run_in_threadpool(_do)
     except Exception as e:  # noqa: BLE001
-        return JSONResponse({"error": f"{cid} app unreachable: {e}"}, status_code=502)
+        return _unreachable_response(cid, e, request, url=url, what="app")
     return _proxy_response(r)
 
 

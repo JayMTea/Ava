@@ -11,7 +11,7 @@ import { METRICS } from './metrics';
  *
  *  BOTH SIDES ARE LEGITIMATELY ABSENT, and neither is an error.
  *
- *  `cap` is null until one is set in Setup → Budgets, which is the default state
+ *  `cap` is null until one is set in Setup → Hardware, which is the default state
  *  of every fresh install — the row then reads "no cap set" over an empty track
  *  rather than disappearing, so the figure is still visible.
  *
@@ -154,7 +154,7 @@ export function VitalsView() {
       </div>
 
       {/* Budget meter — ALWAYS renders once /api/budget has answered, for the
-          same reason Setup → Budgets' BudgetMeter does (hub/panels/BudgetsPanel.tsx:20):
+          same reason the budgets panel's BudgetMeter does (hub/panels/BudgetsPanel.tsx:20):
           a cap is unset on a fresh install, so hiding the panel until one existed
           withheld today's spend and energy from precisely the people who had not
           yet decided what to cap. It also left the first-run walkthrough's
@@ -162,7 +162,7 @@ export function VitalsView() {
           never in the DOM, so that step silently degraded to a centered card with
           nothing highlighted. */}
       {budget.data && (
-        <Panel tour="vitals-budget" title="Today's budget" subtitle="Spend & energy against your caps — set on the Setup → Budgets page">
+        <Panel tour="vitals-budget" title="Today's budget" subtitle="Spend & energy against your caps — set on the Setup → Hardware page">
           <div style={{ display: 'grid', gap: 14, gridTemplateColumns: '1fr 1fr' }}>
             <BudgetRow label="Cloud spend"
               used={budget.data.daily_spend_usd} cap={budget.data.budgets.daily_usd}

@@ -419,8 +419,8 @@ instead (see *MCP servers* below). Reserved bridge actions `__tools` and
 ### The tool facade - `ava-tools/1`
 
 The contract *your app* implements to be discovered. Two routes; the Hub's
-Detect finds them ahead of OpenAPI scraping. The shipped samples
-(`examples/hello-app`, `examples/device-app`) are conforming implementations.
+Detect finds them ahead of OpenAPI scraping. The shipped sample
+(`examples/device-app`) is a conforming implementation.
 
 ```
 GET /tools
@@ -791,31 +791,31 @@ no further wiring:
 
 ## 7. Worked example: connect the sample app
 
-[`examples/hello-app/`](../examples/hello-app/) is a complete, runnable
-third-party connector (iframe UI, discovered tools, and a health probe) in about
-150 lines. It is the acceptance test for "fork Ava, add your app, zero source
-edits":
+[`examples/device-app/`](../examples/device-app/) is a complete, runnable
+third-party connector (discovered tools, a health probe, and a push channel) in
+about 150 lines. It is the acceptance test for "fork Ava, add your app, zero
+source edits":
 
 ```bash
-# 1. Start the app's own web server (its UI + /health + /tools + /call)
-python3 examples/hello-app/server.py        # serves http://127.0.0.1:8477
+# 1. Start the app's own web server (its /health + /tools + /call)
+python3 examples/device-app/server.py       # serves http://127.0.0.1:8479
 
 # 2. Register it with Ava by dropping the folder into your data root
 mkdir -p "${AVA_HOME:-$PWD}/connectors"          # ava setup does not create this
-cp -r examples/hello-app "$AVA_HOME/connectors/hello"
+cp -r examples/device-app "$AVA_HOME/connectors/device-demo"
 
 # 3. Generate its agent tools + egress policy and load them into the sandbox.
 #    The first two write into the repo and need nothing installed. install.sh
 #    DEPLOYS into a NemoClaw sandbox, so it needs the agent runtime provisioned
 #    first (`ava agent provision --install`); without it it stops with
 #    "nemoclaw CLI not found" / "sandbox not found" and changes nothing.
-ava connector tools    hello --write
-ava connector policies hello --write
+ava connector tools    device-demo --write
+ava connector policies device-demo --write
 (cd agent && ./install.sh)
 
 # 4. Restart Ava (or `ava up`) and open the web app
-#    -> "Hello App" appears in the left rail, embedded same-origin
-#    -> ask Ava: "ping the hello app"  (its tools were discovered live)
+#    -> "Device Demo" appears under Devices
+#    -> ask Ava: "what is the demo temperature?"  (its tools were discovered live)
 ```
 
 (Or skip step 3 entirely: **Deploy** on the app's row in Setup → Connectors runs
@@ -823,13 +823,14 @@ all of it.)
 
 | File | Role |
 |---|---|
-| `connector.yaml` | The manifest. `ui.embed: iframe` + `url` gives the rail tile and the embedded UI. `service.probe` gives the dashboard health row. `actions.discover` bridges the app's tool set. `egress` renders into the agent's network policy. |
-| `server.py` | The app: a stdlib-only HTTP server exposing `/` (UI), `/health`, `/tools`, `/call`. Replace it with your real app. |
+| `connector.yaml` | The manifest. `role: device` groups it under Devices. `service.probe` gives the dashboard health row. `actions.discover` bridges the app's tool set. `ingest` opens the push channel. `egress` renders into the agent's network policy. |
+| `server.py` | The app: a stdlib-only HTTP server exposing `/health`, `/tools`, `/call`, plus a `push_event` helper. Replace it with your real app. |
 
-The contract the app implements: `GET /health` returns `{"ok": true}`; `GET /`
-serves the UI (read `?theme=light|dark` to match Ava); tools are either
-discovered (`GET /tools` + `POST /call` per the **`ava-tools/1` facade spec in
-§5**, as here) or declared under `actions.static` in the manifest.
+The contract the app implements: `GET /health` returns `{"ok": true}`; tools are
+either discovered (`GET /tools` + `POST /call` per the **`ava-tools/1` facade
+spec in §5**, as here) or declared under `actions.static` in the manifest. To
+also embed your app's own web page as a tile in the left rail, add a `ui:` block
+with `embed: iframe` and its `url` - see §2.
 
 ## 8. First-party vs third-party tiers
 

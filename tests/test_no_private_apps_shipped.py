@@ -91,10 +91,11 @@ def _tracked_dirs(parent: str) -> set[str]:
 def _shipped_ids() -> set[str]:
     """Ids a forker is TOLD to install, so their runtime installs are expected.
 
-    `examples/hello-app`'s README says to copy it to `$AVA_HOME/connectors/hello`,
-    which on this box is `connectors/hello` — an untracked directory that is not a
-    private app. Matching on the declared id rather than the folder name is what
-    makes that distinction, since the two deliberately differ.
+    `examples/device-app`'s README says to copy it to
+    `$AVA_HOME/connectors/device-demo`, which on this box is
+    `connectors/device-demo` - an untracked directory that is not a private app.
+    Matching on the declared id rather than the folder name is what makes that
+    distinction, since the two deliberately differ.
     """
     ids = set()
     for name in _tracked_dirs("examples"):
@@ -171,8 +172,8 @@ def test_no_tracked_doc_or_example_names_a_private_app() -> None:
     assert not offenders, (
         "tracked files name an app that does not ship, so a reader gets a broken "
         "link and the name is published:\n  - " + "\n  - ".join(sorted(offenders)) +
-        "\nRewrite the passage around a shipped example (examples/hello-app, "
-        "examples/device-app, examples/home-assistant) so it still teaches what it "
+        "\nRewrite the passage around a shipped example (examples/device-app, "
+        "examples/home-assistant) so it still teaches what it "
         "taught. If the word is an unrelated collision, add it to _NAME_COLLISIONS "
         "in this file with a comment.")
 

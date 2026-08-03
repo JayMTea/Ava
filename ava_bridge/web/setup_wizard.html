@@ -40,6 +40,18 @@
  .fine{font-size:12px;color:var(--muted);text-align:center;margin:12px 0 0}
  .info code{display:block;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
    font-size:12.5px;color:var(--txt);word-break:break-all;user-select:all}
+ /* Step 1: a capability headline, the one line it was derived from, and the
+    machine detail folded away behind a disclosure. See the render block at the
+    foot of this file for what that replaced and why. */
+ .info .hw-head{color:var(--txt);font-size:15px}
+ .info .hw-sub{font-size:12.5px;margin-top:3px}
+ .info details.why{margin-top:11px}
+ .info details.why>summary{cursor:pointer;color:var(--accent);font-size:12.5px;
+   list-style:none;display:inline-flex;align-items:center;gap:6px}
+ .info details.why>summary::-webkit-details-marker{display:none}
+ .info details.why>summary::before{content:'\25B8';font-size:10px;transition:transform .15s}
+ .info details.why[open]>summary::before{transform:rotate(90deg)}
+ .info details.why p{font-size:12.5px;line-height:1.55;margin:9px 0 0}
 </style></head><body>
  <div class="card">
   <h1>Set up __BRAND__</h1>
@@ -198,26 +210,61 @@ async function j(u,o){const r=await fetch(u,o);return r.json();}
 (async()=>{
   const h=await j('/api/setup/hardware');
   S.tier=h.tier;
+  // Step 1 answers ONE question — "will this run here?" — and answers it as a
+  // capability rather than as a diagnosis.
+  //
+  // It used to lead with the raw pool ("Processor · 15.4 GB of system memory
+  // (system-psutil)") and then stack two paragraphs of WSL2 and container
+  // internals beneath it, finishing at a pointer into deploy/README.md. Every
+  // sentence was true and each had been added to answer a real question, and
+  // the pile still read like a fault report on the first screen of an install:
+  // the first outside tester to see it asked whether the app had installed
+  // wrong. Nothing here is hidden — the same facts are one click away, and
+  // Setup → Hardware holds the long form with the actual commands. The probe
+  // name ("system-psutil") is gone from this screen for the same reason: it is
+  // a diagnostic, it means nothing to someone installing, and it still shows on
+  // that panel where someone is looking for it.
+  const cloudy = !h.fit_gb || h.tier === 'cloud';
+  const head = cloudy
+    ? 'A hosted model is the best fit for this machine.'
+    : `This machine can run <b>${h.tier}</b> models.`;
   // Say WHICH pool the number is. This used to print the accelerator's name
   // beside whatever `fit_gb` happened to be, with nothing checking they were
   // the same thing — so a 6 GB laptop card inside Docker read
   // "GPU · 15.4 GB usable", which is the card's name next to the host's RAM.
-  const poolLabel = {
-    vram:    () => `<b>${h.gpu||'Graphics card'}</b> · ${h.fit_gb} GB of video memory`,
-    unified: () => `<b>${h.gpu||'Shared memory'}</b> · ${h.fit_gb} GB shared with the processor`,
-    system:  () => `<b>Processor</b> · ${h.fit_gb} GB of system memory`,
-  }[h.pool_kind] || (() => `<b>Local compute</b> · ${h.fit_gb} GB usable`);
-  // A pool that is a slice of a bigger machine is still the right number for
-  // anything running in here — it just is not the machine's, and saying so is
-  // the difference between "my laptop has 32 GB, why does this say 15?" and an
-  // answer.
-  const capNote = !h.capped ? '' : (h.cap_kind === 'wsl2-vm'
-    ? `<br><small>This is the memory of the Linux VM __BRAND__ runs in, not the machine's. Windows gives WSL2 half the host's RAM by default — raise it in %USERPROFILE%\\.wslconfig and run <code>wsl --shutdown</code>.</small>`
-    : `<br><small>This container is limited to ${h.fit_gb} GB; the machine it runs on may have more.</small>`);
-  document.getElementById('hw').innerHTML = (h.fit_gb
-    ? poolLabel() + ` (${h.source||'detected'})<br>Recommended tier: <b>${h.tier}</b> — ${h.hint}` + capNote
-    : `No local GPU pool detected — a cloud key is the easy path.<br><small>${h.hint||''}</small>`)
-    + (h.note ? `<br><small>${h.note}</small>` : '');
+  const basis = !h.fit_gb ? '' : ({
+    vram:    () => `sized from ${h.fit_gb} GB of video memory on ${h.gpu||'the graphics card'}`,
+    unified: () => `sized from ${h.fit_gb} GB shared between ${h.gpu||'the graphics chip'} and the processor`,
+    system:  () => `sized from ${h.fit_gb} GB of available system memory`,
+  }[h.pool_kind] || (() => `sized from ${h.fit_gb} GB of usable memory`))();
+  const sub = cloudy
+    ? (h.fit_gb ? `Not enough local memory to run one here — ${basis}.`
+                : 'No local memory pool detected — an API key from any provider works.')
+    : `${h.hint} · ${basis}.`;
+  // One explanation, not a stack: each fact contributes a clause and they share
+  // a closer, because in every one of these cases the answer to "is my install
+  // broken?" is the same, and it is no. A pool that is a slice of a bigger
+  // machine is still the right number for anything running inside it — saying
+  // so is the difference between "my laptop has 32 GB, why does this say 15?"
+  // and an answer.
+  const why = [];
+  if (h.cap_kind === 'wsl2-vm')
+    why.push(`__BRAND__ runs inside a Linux container — that is how it installs on Windows, and Docker Desktop set that up for you. Windows gives the container about half the machine's memory by default, so ${h.fit_gb} GB is what __BRAND__ can reach, rather than what the machine has.`);
+  else if (h.capped)
+    why.push(`__BRAND__ runs inside a container limited to ${h.fit_gb} GB. The machine underneath may well have more.`);
+  if (h.note_code === 'container-no-gpu')
+    why.push(`A container is not handed a graphics card unless one is asked for, so __BRAND__ cannot read yours from in here and sized this from memory instead. That limits what this screen can see, not what your models can use — the engine that runs them is configured separately.`);
+  if (h.note_code === 'apple-silicon')
+    why.push(`On Apple Silicon the processor and the graphics share a single pool of memory, which is the figure above. __BRAND__ thinks using Ollama, MLX or LM Studio here — vLLM needs an NVIDIA card.`);
+  if (why.length)
+    why.push('None of this needs fixing to carry on. <b>Setup &rarr; Hardware</b> has the full reading'
+      + (h.capped ? ' and how to give __BRAND__ more memory.' : '.'));
+  document.getElementById('hw').innerHTML =
+    `<div class="hw-head">${head}</div><div class="hw-sub">${sub}</div>`
+    + (why.length
+        ? `<details class="why"><summary>${h.fit_gb ? `Why ${h.fit_gb} GB?` : 'Why no local pool?'}</summary>`
+          + why.map(p => `<p>${p}</p>`).join('') + `</details>`
+        : '');
   const b=await j('/api/setup/backends');
   const live=(b.backends||[]).filter(x=>x.up);
   const opts=document.getElementById('backendOpts');

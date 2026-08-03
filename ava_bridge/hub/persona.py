@@ -1,4 +1,4 @@
-"""Setup -> Persona panel: how Ava talks, and who decides.
+"""Setup -> Agent -> Persona panel: how Ava talks, and who decides.
 
 A fork of this repo must inherit NO personality from whoever wrote it. The prompt
 template (agent/persona.txt.tmpl) therefore carries only operational directives —

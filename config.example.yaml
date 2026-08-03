@@ -54,7 +54,7 @@ persona:                   # assistant character (agent/persona.txt.tmpl is rend
   # The template ships ONLY operational directives (tool-calling mandates, the
   # never-fake-a-render rule, the network-notice correction). How the assistant
   # TALKS is yours, and blank by default — a fork inherits nobody's personality.
-  # Set it here or in Setup -> Persona. Takes effect on the next agent provision.
+  # Set it here or in Setup -> Agent -> Persona. Takes effect on the next agent provision.
   style: ""               # [AVA_PERSONA_STYLE]   your assistant's voice, in your words
                           #   blank = the model's own voice, unshaped
                           #   e.g. "dry, understated, never gushes" (max 4000 chars)

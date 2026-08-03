@@ -91,13 +91,12 @@ bearer token server-side (`ui.api`) so the browser never sees it.
 
     | Example | Copy it in with | What it demonstrates |
     |---|---|---|
-    | `hello-app` | `cp -r examples/hello-app "$AVA_HOME/connectors/hello"` | The whole loop end to end: health row, left-rail iframe tab, and a live-discovered tool set. |
-    | `device-app` | `cp -r examples/device-app "$AVA_HOME/connectors/device-demo"` | `role: device` plus **push** ingest. The app hands Ava sensor events when *it* decides. |
+    | `device-app` | `cp -r examples/device-app "$AVA_HOME/connectors/device-demo"` | The whole loop end to end - health row, a live-discovered tool set - plus `role: device` and **push** ingest, so the app hands Ava sensor events when *it* decides. |
     | `home-assistant` | `cp -r examples/home-assistant "$AVA_HOME/connectors/home-assistant"` | A real MCP integration over the legacy HTTP+SSE transport, with every actuating tool pinned to the `physical` tier - the one Ava will never infer for you. |
 
-    Two of them are worth reading as opposite ends of the model.
+    The two are worth reading as opposite ends of the model.
 
-    `hello-app` and `device-app` **bridge a tool set live**: `actions.discover`
+    `device-app` **bridges a tool set live**: `actions.discover`
     points at the app's own `/tools` and `/call`, so Ava fetches the schemas at
     load time and every tool the app grows appears with zero per-tool wiring.
     The alternative is declaring `actions:` statically, one entry per endpoint

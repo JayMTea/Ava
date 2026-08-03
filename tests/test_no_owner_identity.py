@@ -173,8 +173,8 @@ def _private_patterns() -> list[tuple[re.Pattern, str]]:
         try:
             out.append((re.compile(line, re.I),
                         "a private sibling app or one of its identifiers (matched "
-                        f"{_PRIVATE_NAMES_FILE.name!r}) — use examples/hello-app, "
-                        "examples/device-app or examples/home-assistant instead"))
+                        f"{_PRIVATE_NAMES_FILE.name!r}) - use examples/device-app or "
+                        "examples/home-assistant instead"))
         except re.error as e:
             raise AssertionError(f"{_PRIVATE_NAMES_FILE}: bad pattern {line!r}: {e}")
     return out

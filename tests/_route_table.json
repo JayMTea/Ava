@@ -1058,6 +1058,13 @@
   "APIRoute"
  ],
  [
+  "/internal/architecture/model",
+  [
+   "GET"
+  ],
+  "APIRoute"
+ ],
+ [
   "/internal/architecture/sync",
   [
    "POST"

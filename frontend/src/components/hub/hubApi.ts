@@ -6,9 +6,17 @@ import { req } from '../../lib/api';
 // ---- Models / inference -----------------------------------------------------
 /** GET /api/setup/hardware — see setup_wizard.api_hardware.
  *
- * `platform` and `note` were returned by the route from the start and declared
+ * `platform` and the note were returned by the route from the start and declared
  * here by nothing, so the Apple-Silicon explanation the backend has always sent
- * could never render. Same drift as BackendProbe below.
+ * could never render. Same drift as BackendProbe below, and the pool fields
+ * below arrived the same way: the route has reported WHICH pool it is gating on
+ * since the fit-honesty fix, while this interface still described a bare size —
+ * so HardwarePanel could only print "No local GPU detected" on machines whose
+ * card is simply invisible from inside a container.
+ *
+ * `note_code` names a situation, not a sentence: the wording is this layer's to
+ * choose, and the wizard's one-line version and this panel's full version are
+ * deliberately different (CLAUDE.md — backend returns facts).
  */
 export interface HardwareInfo {
   fit_gb: number | null;
@@ -17,7 +25,18 @@ export interface HardwareInfo {
   hint: string;
   gpu: string | null;
   platform: string | null;
-  note: string;
+  note_code: '' | 'apple-silicon' | 'container-no-gpu';
+  /** vram = a dedicated accelerator pool; unified = one pool shared by CPU and
+   *  GPU (Apple, GB10); system = plain RAM with no accelerator behind it. */
+  pool_kind: 'vram' | 'unified' | 'system' | 'unknown';
+  accelerated: boolean;
+  /** False when no reader could run at all — the container case, distinct from
+   *  "this machine genuinely has no accelerator". */
+  accel_measurable: boolean;
+  /** This pool is a slice of a bigger machine (a container limit, or the WSL2
+   *  VM's default half of the host's RAM). */
+  capped: boolean;
+  cap_kind: 'cgroup' | 'wsl2-vm' | null;
 }
 /** GET /api/setup/backends — every candidate endpoint, probed right now.
  *

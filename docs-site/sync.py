@@ -177,7 +177,7 @@ ASSETS: dict[str, str] = {
 # Where every curated repo path lands in the staging tree, so links can be
 # recomputed as correct relative paths.
 _SRC_TO_DST: dict[str, str] = {**CURATED, **ASSETS}
-# Bare-directory links (e.g. `examples/hello-app/`) resolve to that dir's README page.
+# Bare-directory links (e.g. `examples/device-app/`) resolve to that dir's README page.
 _DIR_TO_INDEX = {os.path.dirname(s): d for s, d in CURATED.items()
                  if os.path.basename(s) == "README.md" and os.path.dirname(s)}
 

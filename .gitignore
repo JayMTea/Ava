@@ -106,6 +106,14 @@ agent/docs/diagrams/policy.svg
 agent/docs/diagrams/system.svg
 agent/docs/diagrams/network.svg
 
+# Architecture MODEL sheets rendered WITH the private overlay merged in
+# (`model.py render --private`). The spine-only renders in docs/assets/model/ are
+# tracked and fork-neutral; these carry the owner's private connectors and their
+# generated per-app tools, so the whole directory is excluded rather than
+# individual files — a new sheet appears here whenever the model grows an area,
+# and a rule that has to be updated to stay correct is a rule that will not be.
+agent/docs/diagrams/model/
+
 gpusvc/extra_model_paths.yaml
 
 # Personal-app overlay (backend MCP servers/skills/policies + facade)
@@ -169,3 +177,36 @@ agent/docs/architecture.yaml.bak
 # settings.ensure_dirs(); a forker's own engine adapters live here and are
 # theirs, not ours. See docs/ALLOCATION.md.
 alloc_drivers/
+
+# ── Architecture model: OWNER-PRIVATE ───────────────────────────────────────
+# github.com/JayMTea/Ava is PUBLIC, so anything tracked here is published. The
+# owner's decision is that the assembly tree and everything rendered from it are
+# for them alone, so the model CONTENT and every VIEW of it stay out of git:
+#
+#   agent/docs/model/        the spine + the derived snapshot
+#   docs/assets/model/       all 17 sheets, the A0 poster, the explorer
+#   docs/ARCHITECTURE_MODEL.md   the write-up
+#   agent/docs/adr/0006-*    the decision record
+#
+# Consequence, stated so it is not rediscovered later: the "tracked SSOT, checked
+# on a fresh clone" property from ADR-0006 does NOT hold while these are ignored.
+# The guards still run here, on this machine, where the model exists.
+/agent/docs/model/
+/docs/assets/model/
+/docs/ARCHITECTURE_MODEL.md
+/agent/docs/adr/0006-hierarchical-architecture-model.md
+#
+# The TOOLING that builds it is ignored too. It is app-agnostic and a fork would
+# arguably benefit, but its tests import the model and would fail on a checkout
+# that has none — and "publish the tool, not the picture" is a decision to make
+# deliberately rather than by leaving files lying around in a public repo.
+/ava_bridge/model/
+/agent/docs/model.py
+/agent/docs/explorer/
+/tests/test_model_schema.py
+/tests/test_model_overlay.py
+/tests/test_model_derived_stable.py
+/tests/test_model_sheets.py
+/agent/mcp_server_system/architecture/get_model.mjs
+# The hook installer invokes model.py, so it goes with it.
+/tools/install-hooks.sh

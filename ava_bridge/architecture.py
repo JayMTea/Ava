@@ -70,10 +70,13 @@ def summary_payload() -> dict:
     """
     manifest = raw_manifest()
     if not manifest:
-        return {"error": "This install has no architecture manifest yet. Generate "
-                         "one with `python agent/docs/arch.py init`, or write "
-                         "agent/docs/architecture.yaml by hand — it is "
-                         "deployment-local and deliberately not in git.",
+        # NOT "run arch.py init" — that subcommand does not exist, and an error
+        # message that sends someone to a dead end is worse than one that admits
+        # the manifest is hand-written.
+        return {"error": "This install has no architecture manifest yet. It is "
+                         "deployment-local and deliberately not in git, so write "
+                         "agent/docs/architecture.yaml by hand — see "
+                         "agent/docs/README.md for its shape.",
                 "error_code": "architecture_unconfigured"}
     return {"summary": _json(["summary"]), "manifest_yaml": manifest}
 

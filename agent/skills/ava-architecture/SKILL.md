@@ -6,6 +6,7 @@ description: "How Ava reads and updates her OWN system architecture — the sing
 
 # Ava's Living Architecture (read + update her own diagrams)
 
+
 Ava's whole system is described by ONE machine-readable manifest,
 `agent/docs/architecture.yaml` (the SSOT). The architecture diagrams
 (`system.svg`, `network.svg`, `security.svg`) and the README docs are GENERATED

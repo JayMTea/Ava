@@ -694,6 +694,23 @@
    beside the middle one. */
 .hub-note.with-icon { display: flex; align-items: flex-start; gap: 9px; }
 .hub-note.with-icon > svg { margin-top: 1px; }
+/* Notes that carry a path, a command or a config stanza — Hardware's "how to
+   give the WSL2 VM more memory" is the first, and any note with a fix in it
+   wants the same treatment. On the shared class rather than a panel-local one:
+   the next note with a command in it should not have to invent this again. */
+.hub-note code { font-family: var(--font-mono); font-size: 0.9em; color: var(--txt); }
+.hub-note pre {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  color: var(--txt);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 8px 10px;
+  margin: 8px 0;
+  overflow-x: auto;
+  user-select: all;
+}
 .hub-msg { font-size: var(--fs-sm); margin-top: 10px; min-height: 18px; }
 .hub-msg.ok { color: var(--ok); }
 .hub-msg.err { color: var(--err); }

@@ -91,8 +91,8 @@ egress:
 
 ## Pull: Ava reads and commands your devices
 
-Your app exposes the same small MCP-style contract as
-[`examples/hello-app/`](../examples/hello-app/):
+Your app exposes a small MCP-style contract, which
+[`examples/device-app/`](../examples/device-app/) implements in full:
 
 ```
 GET  /tools                    -> {"tools": [ {name, description, inputSchema}, ... ]}

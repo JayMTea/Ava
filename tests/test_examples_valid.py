@@ -1,11 +1,12 @@
 """Every example connector must be one a forker can copy and have work.
 
-`tests/test_example_app.py` exercises examples/hello-app deeply — it boots the
-server and speaks the protocol — but it is hardcoded to that one folder
-(`MANIFEST = ROOT / "examples" / "hello-app" / ...`). So every example added since
-has shipped with no validation at all, which is the wrong way round: the examples
-are the first code a forker copies, and a broken one is worse than a missing one
-because it looks authoritative.
+There used to be a companion, `tests/test_example_app.py`, which exercised one
+example deeply - it booted the server and spoke the protocol - but it was
+hardcoded to that single folder, so every example added after it shipped with no
+validation at all. That is the wrong way round: the examples are the first code a
+forker copies, and a broken one is worse than a missing one because it looks
+authoritative. When that example was retired the deep test went with it, and this
+file is what remains: the half that covers whatever is actually in `examples/`.
 
 These are cheap, static checks over whatever is in `examples/`, so a new example is
 covered the moment it lands rather than when someone remembers to widen a test.
