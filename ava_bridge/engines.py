@@ -73,6 +73,13 @@ class Engine:
     # list as residency is what let the monitor claim three resident brains on
     # a box holding none.
     serves_resident: bool = True
+    # Where this engine reports a model's ARCHITECTURE — layer count, KV head
+    # count, embedding width — which is what a KV-cache size can be computed
+    # from. None = it cannot be asked, so a footprint for this engine stays
+    # honestly partial rather than being invented from a parameter count.
+    # Only Ollama exposes one today; saying so here is cheaper than a caller
+    # discovering it by getting nothing back.
+    arch_path: str | None = None
     # Where this engine reports the models it is holding IN MEMORY right now,
     # when that is a different question from models_path. None = it cannot be
     # asked, and residency stays honestly unknown rather than assumed.
@@ -122,6 +129,7 @@ ENGINES: tuple[Engine, ...] = (
         # set, with per-model size and the VRAM/RAM split. Verified against a
         # live Ollama: three pulled tags, /api/ps empty until a turn arrives.
         serves_resident=False,
+        arch_path="/api/show",
         resident_path="/api/ps",
         usage=True,
         usage_reason="verified: Ollama omits usage UNLESS include_usage is sent",

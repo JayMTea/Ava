@@ -4,11 +4,46 @@ import { EmptyState, Panel } from '../../dashboard/layout';
 import { useResource } from '../hooks';
 import { hub } from '../hubApi';
 import { ResourceError } from '../ui/ResourceState';
-import type { BenchResult, PullStatus } from '../hubApi';
+import type { BenchResult, ModelFit, PullStatus } from '../hubApi';
 import { Badge } from '../ui/Badge';
 
 // The model store (download models sized to your hardware) and the head-to-head
 // benchmark nested inside it. Rendered by BrainPanel, under the brain manager.
+
+
+// Whether a model will actually run well here, said in a single clause on a row
+// that already exists — no new panel, no tab, no dashboard.
+//
+// Silence is the default state. `should_fit` renders NOTHING: a row with no
+// warning already means "no reason to worry", and a green "fits!" beside every
+// model is both noise and a promise Ava cannot keep. Only the two states an
+// owner would want to act on ever speak.
+//
+// The asymmetry is the contract (see model_fit.verdict): "won't fit" is
+// arithmetic and is stated plainly; anything softer is hedged. `will_spill` is
+// the case this whole path exists for — the model runs, partly on the CPU, many
+// times slower, and today nothing says so.
+function FitNote({ fit }: { fit: ModelFit | null }) {
+  if (!fit) return null;
+  const measured = fit.source === 'observed';
+  if (fit.verdict === 'wont_fit') {
+    return (
+      <div className="hub-row-sub tone-err" style={{ color: 'var(--tone)' }}>
+        Too large for this machine — needs about {fit.need_gb} GB, you have {fit.pool_gb} GB.
+      </div>
+    );
+  }
+  if (fit.verdict === 'will_spill') {
+    return (
+      <div className="hub-row-sub tone-warn" style={{ color: 'var(--tone)' }}>
+        {measured && fit.spilled
+          ? 'Ran partly on the processor last time — it works, but many times slower.'
+          : `Likely to run partly on the processor — about ${fit.need_gb} GB against ${fit.pool_gb} GB.`}
+      </div>
+    );
+  }
+  return null;      // should_fit and unknown say nothing at all
+}
 
 export function ModelStorePanel() {
   const storeRes = useResource(() => hub.models());
@@ -64,6 +99,7 @@ export function ModelStorePanel() {
               <div className="hub-row-main">
                 <div className="hub-row-title">{m.role} <span style={{ color: 'var(--muted)', fontWeight: 400 }}>· {m.id}</span></div>
                 <div className="hub-row-sub">{m.engine}{m.tier ? ` · tier ${m.tier}` : ''}</div>
+                <FitNote fit={m.fit} />
               </div>
               <div className="hub-row-actions">
                 {m.present ? <Badge tone="ok">downloaded</Badge> : (

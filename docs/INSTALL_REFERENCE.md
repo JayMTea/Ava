@@ -350,8 +350,26 @@ no `nvidia-smi`. **Ava does not serve vLLM on a Mac** - upstream macOS support i
 experimental, build-from-source and CPU-only unless you add the community
 `vllm-metal` plugin. Run bare metal with a native engine (Ollama, llama.cpp, MLX,
 LM Studio) so inference uses the Metal GPU. The hardware layer detects
-Apple Silicon automatically and gates model routing on the shared RAM pool (a
-512 GB Studio runs a 70B comfortably; a 24 GB mini should stay ~8B).
+Apple Silicon automatically and gates model routing on the shared RAM pool.
+
+**macOS does not give the GPU all of that pool, and Ava plans against what it
+does give.** Metal reports a `recommendedMaxWorkingSetSize` - roughly two thirds
+of unified memory up to 36 GB, three quarters above it - and Ollama, llama.cpp
+and MLX all treat it as a hard ceiling. So a 24 GB mini has about 16 GB to work
+with, not 24, and a 128 GB Studio about 96. Ava reports the ceiling rather than
+the total, because a model sized to the total does not fail cleanly on a Mac: it
+**spills onto the CPU and runs many times slower**, silently.
+
+To raise it on macOS Sonoma or later:
+
+```bash
+sudo sysctl iogpu.wired_limit_mb=122880    # ~120 GB on a 128 GB machine
+```
+
+Leave 8-16 GB for macOS - pushing this too far causes memory pressure, a frozen
+UI, or a kernel panic. It does not persist across reboots; put it in a
+root-level `launchd` daemon if you want it to stick. Ava reads your value
+whenever it is set, so Setup and Ollama agree rather than argue.
 
 ```bash
 python3 -m venv .venv && . .venv/bin/activate

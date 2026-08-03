@@ -46,11 +46,46 @@ def models_list():
     manifest = model_store.manifest()
     dirs = model_store.dirs()
     tier, avail = model_store.detected_tier()
+    # Where a live engine is, so a model's cost can be asked about rather than
+    # inferred from its name. Resolved once for the whole list: `verdict` is
+    # cheap per model after this (the resident set and the tag inventory are
+    # each one request, TTL-cached below it), but the engine lookup is not.
+    base_url = engine_key = ""
+    try:
+        from .. import setup_wizard as _sw
+        live = [b for b in _sw.api_backends()["backends"] if b["up"]]
+        if live:
+            base_url, engine_key = live[0]["base_url"], live[0]["engine"]
+    except Exception:  # noqa: BLE001 — a model list must not need a live engine
+        pass
+
+    # Close the loop while we are already here. Ollama evicts a model after ~5
+    # minutes idle, so the measurement is only available in a narrow window —
+    # and an owner browsing models half an hour later would otherwise get a
+    # DERIVED figure for a model this machine has already run and measured.
+    # Writing it down is what makes the box more accurate the more it is used.
+    if base_url:
+        try:
+            from .. import footprint_store
+            footprint_store.observe_and_remember(base_url, engine_key)
+        except Exception:  # noqa: BLE001 — remembering is never a requirement
+            pass
+
     roles = []
     for role, spec in manifest.items():
-        roles.append({"role": role, "id": spec.get("id"),
-                      "engine": spec.get("engine"), "tier": spec.get("tier"),
-                      "present": model_store.present(spec, dirs)})
+        row = {"role": role, "id": spec.get("id"),
+               "engine": spec.get("engine"), "tier": spec.get("tier"),
+               "present": model_store.present(spec, dirs)}
+        # Will THIS model run well here — as opposed to "what tier is this box",
+        # which is the coarser question `detected_tier` answers above and which
+        # cannot distinguish a 7B at Q4 from the same 7B at FP16.
+        try:
+            from .. import model_fit
+            row["fit"] = model_fit.verdict(str(spec.get("id") or ""),
+                                           base_url, engine_key)
+        except Exception:  # noqa: BLE001 — a footprint must never break a list
+            row["fit"] = None
+        roles.append(row)
     return {"roles": roles, "detected_tier": tier,
             "available_gb": round(avail, 0) if avail else None,
             "store": dirs["root"]}

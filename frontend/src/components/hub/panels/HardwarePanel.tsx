@@ -149,10 +149,14 @@ export function HardwarePanel() {
               Windows, Ava installs as a Linux container and Docker Desktop runs it
               on WSL2. Windows gives that VM about half the machine's memory by
               default, so this is what Ava can reach rather than what you have
-              fitted. To raise it, put this in <code>%USERPROFILE%\.wslconfig</code>:
+              fitted. The easiest way to raise it is the <b>WSL Settings</b> app —
+              press Start, type <i>WSL Settings</i>, and change the memory limit
+              there. If you would rather edit the file, put this in
+              {' '}<code>%USERPROFILE%\.wslconfig</code>:
               <pre>{'[wsl2]\nmemory=24GB'}</pre>
-              then run <code>wsl --shutdown</code> and start Docker Desktop again.
-              Ava works either way — more memory simply moves it up a tier.
+              Either way, run <code>wsl --shutdown</code> afterwards and start
+              Docker Desktop again. Ava works as-is — more memory simply moves it
+              up a tier.
             </div>
           )}
           {hw.cap_kind === 'cgroup' && (
@@ -181,10 +185,17 @@ export function HardwarePanel() {
           {hw.note_code === 'apple-silicon' && (
             <div className="hub-note" style={{ marginTop: 14 }}>
               <b>Apple Silicon shares one pool of memory</b> between the processor
-              and the graphics, which is the figure above. Ava thinks using Ollama,
-              MLX or LM Studio here — vLLM needs an NVIDIA card. GPU memory reads
-              normally; utilisation, temperature and power come back blank, because
-              macOS exposes no unprivileged API for them.
+              and the graphics — but macOS only lets the GPU have part of it, so the
+              figure above is that share rather than your full RAM (about two thirds
+              up to 36 GB, three quarters above it). Ollama and MLX treat that as a
+              hard ceiling: a model sized past it spills onto the CPU and runs many
+              times slower rather than failing outright, which is why Ava plans
+              against the ceiling instead of the total. You can raise it with
+              <code>sudo sysctl iogpu.wired_limit_mb=N</code> on macOS Sonoma or
+              later — leave 8–16 GB for macOS — and Ava will read your value.
+              Ava thinks using Ollama, MLX or LM Studio here; vLLM needs an NVIDIA
+              card. GPU memory reads normally; utilisation, temperature and power
+              come back blank, because macOS exposes no unprivileged API for them.
             </div>
           )}
 

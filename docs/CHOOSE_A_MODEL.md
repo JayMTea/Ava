@@ -43,6 +43,36 @@ sized by its total VRAM.
 
 ![The Hardware tab: a Workstation Tier hero card reading "Unified memory comfortably fits large local models", with Compute and Usable memory below it, and a note that the tier sets which models Ava recommends](assets/choose-model-1-hardware.png)
 
+### …and it checks each model against that, not just the tier
+
+A tier is a size class for the *machine*. It cannot tell a 7B at Q4 (about 5 GB)
+from the same 7B at FP16 (three times that before any KV cache), so the model
+store checks each model individually and says something only when there is
+something to say:
+
+| What you see | What it means |
+|---|---|
+| *nothing* | no reason to worry. Ava does not print a reassurance next to every model. |
+| **Too large for this machine** | the weights alone exceed your memory. Arithmetic, not a guess. |
+| **Likely to run partly on the processor** | it will load, and part of it will sit in ordinary RAM. It works, and it is many times slower. |
+| **Ran partly on the processor last time** | the same thing, except Ava watched it happen rather than predicting it. |
+
+That third row is the one worth knowing about, because it is the failure you
+would otherwise never be told about. A model too big for your GPU does not
+crash - it quietly runs part of itself on the CPU at a fraction of the speed, and
+the only symptom is that Ava feels slow.
+
+Where the number comes from, best first: **measured** (Ava asked the engine what
+the model actually took while it was loaded, and remembers it), **declared** (you
+wrote `fit.weight_gb` in `ava.yaml`), or **worked out** (size on disk plus a KV
+cache computed from the model's own architecture). If none of those resolve, Ava
+says nothing rather than guessing.
+
+Ava is deliberately blunt about "too large" and hedged about everything else.
+"Will not fit" is arithmetic; "will fit" never is - a background render or a
+long conversation can still tip it - and a confident promise that then thrashes
+is worse than no promise at all.
+
 ## Link a model
 
 Models live under **Setup → Agent**, in the **Ava's brain** panel.

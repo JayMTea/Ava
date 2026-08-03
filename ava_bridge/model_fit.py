@@ -323,3 +323,74 @@ def recommend_tier(avail_gb: float) -> tuple:
     if avail_gb >= 6:
         return "tiny", "~3-7B quantized (Q4) models via Ollama"
     return "cloud", "too little local memory — use a hosted API (cloud profile)"
+
+
+# --- Will THIS model run here? ------------------------------------------------
+# `recommend_tier` above answers a different question: "what class of model
+# should I even look at", asked before any model exists. It stays, because at
+# first run there is nothing to weigh. This answers the question that comes
+# next, and it is the one where the failure lives.
+WONT_FIT, WILL_SPILL, SHOULD_FIT, UNKNOWN_FIT = (
+    "wont_fit", "will_spill", "should_fit", "unknown")
+
+
+def verdict(model: str, base_url: str = "", engine: str = "",
+            context: int | None = None) -> dict:
+    """Whether `model` will run well on this box, and how sure that is.
+
+    **Asymmetric by design, and this is the whole contract.** Weights alone
+    exceeding the pool is arithmetic, so `wont_fit` is stated plainly. Everything
+    else is a projection — fragmentation, a concurrent render, WSL2's default
+    swap — so `should_fit` is hedged and never promised. A confident "fits!"
+    that then thrashes is worse than the coarse tier this supplements, because
+    it converts the owner's caution into trust.
+
+    `will_spill` is the one that earns this function's existence. A model that
+    overflows the accelerator does not crash — it runs partly on the CPU, 5-30x
+    slower, silently, and the owner concludes Ava is slow rather than that the
+    model is too big. Ollama reports the split directly once a model has run, so
+    on the second look this is observed rather than predicted.
+
+    Returns facts only; the wording belongs to whichever surface renders it
+    (CLAUDE.md). Never raises — a footprint must not be able to break a list.
+    """
+    from . import hwinfo, model_footprint
+    out = {"model": model, "verdict": UNKNOWN_FIT, "source": model_footprint.UNKNOWN,
+           "detail": "", "need_gb": None, "pool_gb": None, "pool_kind": "unknown",
+           "measured": False, "spilled": None, "headroom_gb": None}
+    try:
+        fp = model_footprint.resolve(
+            model, base_url, engine,
+            context or model_footprint.default_context())
+        out.update(source=fp.source, detail=fp.detail, measured=fp.measured,
+                   spilled=fp.spilled, need_gb=fp.total_gb)
+        pool = hwinfo.fit_pool()
+        out["pool_gb"] = round(pool.total_gb, 1) if pool.total_gb else None
+        out["pool_kind"] = pool.kind
+    except Exception as e:  # noqa: BLE001
+        out["detail"] = f"could not size this model ({e})"
+        return out
+
+    pool_gb, weight, need = out["pool_gb"], fp.weight_gb, fp.total_gb
+    if pool_gb is None or weight is None:
+        # No pool, or no footprint. Either way this is "we do not know", which
+        # is a legitimate answer and must not be dressed up as either other one.
+        return out
+    out["headroom_gb"] = round(pool_gb - (need or weight), 2)
+
+    # 1. Provable. The weights alone do not fit; nothing about context, quant or
+    #    engine choice changes that.
+    if weight > pool_gb:
+        out["verdict"] = WONT_FIT
+        return out
+    # 2. Observed spill beats any projection of one.
+    if fp.spilled:
+        out["verdict"] = WILL_SPILL
+        return out
+    # 3. Projected spill: the weights fit but the working set does not, which is
+    #    exactly the state that runs and is slow rather than failing.
+    if need is not None and need > pool_gb:
+        out["verdict"] = WILL_SPILL
+        return out
+    out["verdict"] = SHOULD_FIT
+    return out

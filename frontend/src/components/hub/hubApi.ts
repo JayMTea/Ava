@@ -318,6 +318,28 @@ export interface ModelRole {
   engine: string;
   tier?: string;
   present: boolean;
+  /** null when the footprint could not be resolved at all. */
+  fit: ModelFit | null;
+}
+/** Will THIS model run well here — as opposed to `detected_tier`, which grades
+ *  the BOX and cannot tell a 7B at Q4 from the same 7B at FP16.
+ *
+ *  Asymmetric on purpose: `wont_fit` is arithmetic (weights alone exceed the
+ *  pool) and may be stated plainly; `should_fit` is a projection and must stay
+ *  hedged. `will_spill` is the one that earns its keep — the model runs, partly
+ *  on the CPU, many times slower, and nothing tells the owner today. */
+export interface ModelFit {
+  verdict: 'wont_fit' | 'will_spill' | 'should_fit' | 'unknown';
+  /** observed = the engine reported it; derived/declared = worked out. */
+  source: 'observed' | 'declared' | 'derived' | 'unknown';
+  detail: string;
+  need_gb: number | null;
+  pool_gb: number | null;
+  pool_kind: string;
+  measured: boolean;
+  /** Observed only: it actually spilled to CPU last time it ran. */
+  spilled: boolean | null;
+  headroom_gb: number | null;
 }
 export interface ModelStore {
   roles: ModelRole[];

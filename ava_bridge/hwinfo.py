@@ -584,6 +584,73 @@ def _apply_cgroup_cap(m: MemInfo) -> MemInfo:
     return MemInfo(free_gb=free, total_gb=lim, source=f"{m.source}+cgroup")
 
 
+# Apple's tiered Metal ceiling. Not a guess: `recommendedMaxWorkingSetSize` is
+# ~66% of unified memory at 36 GB or less and ~75% above it, and Ollama and
+# llama.cpp treat it as a HARD ceiling — a model sized past it spills to CPU or
+# refuses. Sources in docs/INSTALL_REFERENCE.md §"Apple Silicon".
+_METAL_SPLIT_GB = 36.0
+_METAL_RATIO_SMALL, _METAL_RATIO_LARGE = 0.66, 0.75
+
+
+def _metal_ceiling_gb(total_gb: float) -> tuple[float, str]:
+    """The most the GPU may actually allocate on Apple Silicon, and why.
+
+    UNVERIFIED ON HARDWARE, and recorded as such for the same reason
+    `engines.mlx.usage_verified` is False: Apple Silicon cannot be exercised on
+    this box or in CI. The ratios are Apple's documented behaviour rather than a
+    measurement taken here, so the returned reason names which rule applied and
+    the pool's source string carries `+metal` — an owner who sees a number they
+    can disprove can see exactly where it came from.
+
+    `iogpu.wired_limit_mb` is preferred whenever it is set, because that IS a
+    measurement: it is the ceiling the owner themselves raised (macOS Sonoma+),
+    and honouring it is the difference between Ava agreeing with Ollama and Ava
+    arguing with it.
+    """
+    raw = _sysctl("iogpu.wired_limit_mb")
+    if raw:
+        try:
+            mb = float(raw)
+            # 0 means "no override — use the automatic limit", not "no memory".
+            if mb > 0:
+                return mb / 1024.0, "iogpu.wired_limit_mb"
+        except ValueError:
+            pass
+    ratio = _METAL_RATIO_LARGE if total_gb > _METAL_SPLIT_GB else _METAL_RATIO_SMALL
+    return total_gb * ratio, f"metal-{int(ratio * 100)}pct"
+
+
+def _sysctl(name: str) -> str | None:
+    """Read one sysctl on macOS. None if unreadable — never raises."""
+    try:
+        if not _which("sysctl"):
+            return None
+        out = subprocess.run(["sysctl", "-n", name], capture_output=True,
+                             text=True, timeout=2)
+        return out.stdout.strip() if out.returncode == 0 else None
+    except Exception:  # noqa: BLE001 — a probe must never break a memory read
+        return None
+
+
+def _apply_metal_ceiling(m: MemInfo) -> MemInfo:
+    """Clamp a unified-memory reading to what the GPU may actually take.
+
+    A Mac reports its full RAM and Ava reported that as usable, so a 24 GB Mac
+    was told it had 24 GB when Metal caps the GPU near 16. Same shape as the
+    container bug: a real ceiling that a real allocation hits, which nothing in
+    the fit path knew about — and on a Mac the symptom is not a clean refusal
+    but a spill to CPU, which is 5-30x slower and silent.
+    """
+    if not m.total_gb or not (m.source or "").startswith("system"):
+        return m
+    ceiling, why = _metal_ceiling_gb(m.total_gb)
+    if ceiling >= m.total_gb:
+        return m                                  # an owner raised it past RAM
+    free = min(m.free_gb, ceiling) if m.free_gb is not None else None
+    return MemInfo(free_gb=free, total_gb=round(ceiling, 2),
+                   source=f"{m.source}+{why}")
+
+
 def _pool_cap(total_gb: float | None) -> tuple[bool, str | None]:
     """(capped, why) — is this pool a slice of a larger machine?
 
@@ -758,6 +825,14 @@ def fit_memory() -> MemInfo:
     # the dashboard's whole-box reading is a different question from "what may
     # this container use", and only the latter may gate a model recommendation.
     info = _apply_cgroup_cap(info)
+    # …and the platform's own ceiling. Apple Silicon reports all its RAM while
+    # Metal will only hand the GPU ~2/3 to 3/4 of it, so the unclamped figure is
+    # the same kind of lie the container reading was: a real number about the
+    # wrong thing. Applied here rather than in `fit_pool()` because, unlike the
+    # operator-stated pool, this is MEASURED — an allocation genuinely fails or
+    # spills at this boundary, so the governor must see it too.
+    if platform_id() == "darwin-apple":
+        info = _apply_metal_ceiling(info)
     _fit_cache.update(ts=now, info=info)
     return info
 

@@ -64,9 +64,10 @@ cd Ava\deploy && install.cmd
 
     - **Memory.** Windows gives the WSL2 VM roughly half the machine's RAM by
       default, so a 32 GB laptop reports about 15.4 GB. That is a ceiling on what
-      Ava can use, not memory Windows loses. Raise it by putting `memory=24GB`
-      under a `[wsl2]` header in `%USERPROFILE%\.wslconfig`, then running
-      `wsl --shutdown` and starting Docker Desktop again.
+      Ava can use, not memory Windows loses. Raise it in the **WSL Settings** app
+      (Start -> type "WSL Settings"), or by putting `memory=24GB` under a
+      `[wsl2]` header in `%USERPROFILE%\.wslconfig`. Either way, run
+      `wsl --shutdown` afterwards and start Docker Desktop again.
     - **Your graphics card.** A container is not handed a GPU unless one is
       reserved for it, and the compose file reserves one only for the inference
       service. So Setup sizes its recommendation from memory rather than from

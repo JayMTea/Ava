@@ -52,12 +52,21 @@ class FitMemorySourceTests(unittest.TestCase):
         # a known gap (see the note in hwinfo.fit_memory), so pin the platform
         # here rather than let this test quietly depend on it.
         with mock.patch.object(hwinfo, "platform_id", return_value="darwin-apple"), \
+             mock.patch.object(hwinfo, "_sysctl", return_value=None), \
              mock.patch.object(hwinfo, "vram_mem", return_value=hwinfo.MemInfo()), \
              mock.patch.object(hwinfo, "system_mem",
                                return_value=hwinfo.MemInfo(12.0, 24.0, "system-psutil")):
             m = hwinfo.fit_memory()
-        self.assertEqual(m.source, "system-psutil")
+        # Prefix, not equality: the source now carries WHICH ceiling was applied
+        # on top of the reading, and every consumer keys on this prefix
+        # (platforms.py reads startswith("system") to detect unified memory).
+        self.assertTrue(m.source.startswith("system-psutil"), m.source)
         self.assertTrue(m.readable)
+        # …and the Mac's real ceiling is applied. Metal hands the GPU ~66% of
+        # unified memory at 24 GB, and Ollama treats that as hard, so reporting
+        # the full 24 would recommend a model that spills to CPU at 5-30x slower.
+        self.assertAlmostEqual(m.total_gb, 24.0 * 0.66, places=2)
+        self.assertIn("metal", m.source)
 
     def test_no_readable_source_returns_unknown(self):
         # Non-Linux without psutil and no GPU -> nothing readable -> don't gate.
