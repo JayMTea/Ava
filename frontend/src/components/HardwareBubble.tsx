@@ -273,11 +273,17 @@ export function HardwareBubble() {
                 progress={mem?.used_pct ?? 0}
                 sub={`${gb(mem?.free_gb)} free`}
               />
+              {/* The caveat is the frontend's to word (CLAUDE.md): the backend
+                  says `capped`, this says what that means for the person
+                  deciding whether a model will fit. Without it the panel read
+                  "928.5 GB free" on a laptop whose drive had 156 GB. */}
               <Metric
                 label={`Disk · ${gb(disk?.used_gb)} / ${gb(disk?.total_gb)}`}
                 value={pct(disk?.used_pct)}
                 progress={disk?.used_pct ?? 0}
-                sub={`${gb(disk?.free_gb)} free`}
+                sub={disk?.capped
+                  ? `${gb(disk?.free_gb)} free on Ava's volume — it is a virtual disk, so the drive behind it may have less`
+                  : `${gb(disk?.free_gb)} free`}
               />
               <Metric label="CPU util" value={pct(cpu?.util)} progress={cpu?.util ?? 0} />
               <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>

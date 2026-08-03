@@ -88,6 +88,13 @@ export interface HardwareStats {
     used_gb: number | null;
     free_gb: number | null;
     used_pct: number | null;
+    /** Which volume this describes — AVA_HOME's, where models actually land. */
+    path?: string;
+    /** True when the reading is a slice of a machine Ava cannot see: a WSL2
+     *  vhdx advertises a ~1 TB ceiling and its own emptiness regardless of how
+     *  full the drive behind it is. Same vocabulary as the memory pool. */
+    capped?: boolean;
+    cap_kind?: string | null;
   };
   cpu: { util: number | null };
   models?: Array<{

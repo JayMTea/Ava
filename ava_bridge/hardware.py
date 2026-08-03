@@ -933,16 +933,98 @@ def _cpu(interval: float = 0.2):
         return None
 
 
-def _disk(path: str = "/") -> dict:
-    """Root filesystem (the SSD) capacity: total / used / free."""
+# Filesystem types that are a window onto storage OUTSIDE this machine: a
+# Windows path bind-mounted into WSL2 or Docker Desktop (drvfs, 9p, virtiofs), or
+# a network share. statvfs on these reports the real volume, so the numbers they
+# give need no caveat — which is the whole reason the caveat below is keyed on
+# the filesystem type rather than on "am I in a container".
+_HOST_BACKED_FS = frozenset({"9p", "virtiofs", "drvfs", "cifs", "smb3",
+                             "nfs", "nfs4"})
+
+
+def _fstype_of(path: str) -> str:
+    """Filesystem type of the mount covering `path`, "" if not knowable.
+
+    Longest matching mount point wins: `/` and `/data` are both prefixes of
+    `/data/models`, and only the deeper one describes what it is stored on.
+    """
+    try:
+        target = os.path.realpath(path)
+        best, best_type = "", ""
+        with open("/proc/self/mountinfo") as f:
+            for line in f:
+                # "<fields…> - <fstype> <source> <opts>". The separator is the
+                # only reliable split: the optional-fields count before it varies.
+                head, _, tail = line.partition(" - ")
+                fields, rest = head.split(), tail.split()
+                if len(fields) < 5 or not rest:
+                    continue
+                # Mount points with spaces arrive octal-escaped; \040 is the only
+                # one that occurs in practice and decoding it costs nothing.
+                point = fields[4].replace("\\040", " ")
+                if (target == point or target.startswith(point.rstrip("/") + "/")) \
+                        and len(point) >= len(best):
+                    best, best_type = point, rest[0]
+        return best_type
+    except (OSError, ValueError):
+        return ""
+
+
+def _disk_cap(fstype: str) -> tuple[bool, str | None]:
+    """(capped, why) — is this filesystem a slice of a machine we cannot see?
+
+    Deliberately the same shape and the same vocabulary as hwinfo._pool_cap,
+    because it is the same lie told about a different resource: a number that is
+    correct for everything running inside, and is not the machine's.
+
+    WSL2 is the case that reaches users. Its ext4 lives on a SPARSE .vhdx whose
+    nominal maximum defaults to ~1 TB, so `df` reports that ceiling and its own
+    emptiness no matter how full the Windows volume behind it is. Measured on a
+    Windows laptop: Ava said 928.5 GB free while C: had 156 GB.
+
+    A Windows path mounted back in (drvfs and friends) is exempt — statvfs there
+    reads the real volume. And as with the memory pool, the host's true figure is
+    NOT readable from in here, so flagging the reading without inventing a number
+    is the honest half we can deliver.
+    """
+    if fstype in _HOST_BACKED_FS:
+        return False, None
+    if "microsoft" in (hwinfo._read_sysfs("/proc/sys/kernel/osrelease") or "").lower():
+        return True, "wsl2-vm"
+    return False, None
+
+
+def _disk(path: str | None = None) -> dict:
+    """Capacity of the filesystem Ava actually writes to: total / used / free.
+
+    This measured `/` — the CONTAINER's root filesystem — which on Docker
+    Desktop is an overlay on the sparse vhdx described in `_disk_cap`. It
+    published the virtual disk's nominal capacity and its own emptiness as
+    though they were the machine's, overstating free space by 772 GB on the
+    laptop that surfaced it. The one job this number has is answering "can I
+    pull this model", so an overstatement greenlights a pull that cannot finish.
+
+    AVA_HOME is both the honest mount and the useful one: models, weights and
+    every byte of state land under it, so it is the filesystem a pull fills.
+    """
+    if path is None:
+        try:
+            from . import settings
+            path = str(settings.AVA_HOME)
+        except Exception:  # noqa: BLE001 — unimportable settings must not blank the panel
+            path = "/"
     try:
         u = shutil.disk_usage(path)
     except Exception:  # noqa: BLE001
-        return {"total_gb": None, "used_gb": None, "free_gb": None, "used_pct": None}
+        return {"total_gb": None, "used_gb": None, "free_gb": None,
+                "used_pct": None, "path": path, "capped": False, "cap_kind": None}
+    capped, cap_kind = _disk_cap(_fstype_of(path))
     g = 1024 ** 3
     return {"total_gb": round(u.total / g, 1), "used_gb": round(u.used / g, 1),
             "free_gb": round(u.free / g, 1),
-            "used_pct": round(100 * u.used / u.total) if u.total else None}
+            "used_pct": round(100 * u.used / u.total) if u.total else None,
+            # Which volume this describes, and whether it is the machine's.
+            "path": path, "capped": capped, "cap_kind": cap_kind}
 
 
 def _role_key(model) -> str:
