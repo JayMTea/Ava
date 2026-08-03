@@ -210,3 +210,17 @@ alloc_drivers/
 /agent/mcp_server_system/architecture/get_model.mjs
 # The hook installer invokes model.py, so it goes with it.
 /tools/install-hooks.sh
+#
+# ── Internal planning docs ───────────────────────────────────────────────────
+# Roadmaps, phase checklists, design sketches and productization strategy are
+# written for whoever maintains Ava, not for the people installing it. docs/
+# PACKAGING_PLAN.md, docs/ARDUINO_SDK_PLAN.md and docs/WARM_AGENT_MODE.md were
+# public on GitHub from the root commit until 2026-08-03 — the docs SITE never
+# staged them (docs-site/sync.py is an allow-list), which is precisely why it
+# went unnoticed: curated site, uncurated repo.
+#
+# These globs stop the ones with an obvious name; tests/test_no_internal_plans.py
+# catches the rest by SHAPE, since the next plan doc will be called something
+# else. Keep planning docs outside the tree entirely.
+/docs/*_PLAN.md
+/docs/private/

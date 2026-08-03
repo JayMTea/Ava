@@ -2,7 +2,7 @@
 
 State lives HERE rather than in the browser, and that is the whole design
 decision. Ava is single-user by construction — one admin password per install,
-no user table (docs/PACKAGING_PLAN.md:15) — so "per user" and "per install" are
+no user table (see `ava_bridge/auth.py`) — so "per user" and "per install" are
 the same thing, and ava.yaml is a legitimate place for it. But Ava is also an
 installable PWA that the owner opens from a phone as well as a desktop, and
 localStorage is per-browser-profile: a client-side flag would replay the whole

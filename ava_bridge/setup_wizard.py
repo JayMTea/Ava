@@ -1,4 +1,4 @@
-"""First-run web wizard — extends the existing /setup surface (PACKAGING_PLAN §7).
+"""First-run web wizard — extends the existing /setup surface.
 
 Server-rendered so it works before the SPA bundle exists / when it's stale, and
 so onboarding never couples to the frontend build. Step 1 (the password screen

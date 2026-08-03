@@ -18,7 +18,7 @@ portable: nothing in the code needs to know it lives at /home/<you>/projects/Ava
 resolving every path exactly as before. New/packaged installs just set
 `AVA_HOME=/data` (or `~/.ava`) and everything relocates cleanly.
 
-See docs/PACKAGING_PLAN.md.
+See docs/INSTALL_REFERENCE.md.
 """
 from __future__ import annotations
 

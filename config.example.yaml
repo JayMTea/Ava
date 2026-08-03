@@ -335,7 +335,7 @@ learning:
   interval_hours: 24       # [AVA_LEARNING_INTERVAL_H] how often a cycle runs
                            #   (also runnable on demand from the Learning page)
 
-# ── Connectors: the apps Ava monitors & drives (see docs/PACKAGING_PLAN.md §5.3)
+# ── Connectors: the apps Ava monitors & drives (see docs/CONNECTOR_SDK.md) ───
 connectors:
   - gpu-service                # image/video (the GPU service)
   # - my-app               # your own connector (see docs/CONNECTOR_SDK.md)

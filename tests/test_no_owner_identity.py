@@ -211,8 +211,12 @@ _ALLOW = {
     # A guard that deletes the record of the bug it prevents is a bad trade.
     "connectors/local-llm/connector.yaml",
     "deploy/docker-compose.yml",
-    # Design history, dated and superseded in place. Same rule as CHANGELOG.md.
-    "docs/PACKAGING_PLAN.md",
+    # docs/PACKAGING_PLAN.md used to be exempted here as "design history, dated
+    # and superseded in place". It was also the one tracked doc written in the
+    # owner's second person — "your Tailscale", "your daily use", "your own
+    # apps" — so the file most likely to carry personal detail was the file this
+    # guard did not read. It is no longer tracked (see
+    # tests/test_no_internal_plans.py); planning docs live outside the repo.
 }
 
 

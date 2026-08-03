@@ -13,7 +13,7 @@ Manifests are discovered from (later overrides earlier):
   2. user       $AVA_HOME/connectors/<id>/connector.yaml  (user-added)
 
 Manifest paths may use ${AVA_HOME} ${AVA_LOGS} ${AVA_DATA} ${ROOT} plus any
-exported process env var (e.g. an app's own ${MYAPP_ROOT}). See docs/PACKAGING_PLAN.md §5.3.
+exported process env var (e.g. an app's own ${MYAPP_ROOT}). See docs/CONNECTOR_SDK.md.
 """
 import os
 import time

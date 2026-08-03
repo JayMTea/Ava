@@ -170,7 +170,7 @@ def test_editable_install_only():
         "is supported. A non-editable wheel would leave ava_bridge.settings."
         "CODE_ROOT pointing into site-packages, where config.example.yaml, "
         "frontend/dist, agent/install.sh and connectors/_template do not exist. "
-        "Making those work needs package-data plumbing — see docs/PACKAGING_PLAN.md."
+        "Making those work needs package-data plumbing, which is a separate project."
     )
 
 

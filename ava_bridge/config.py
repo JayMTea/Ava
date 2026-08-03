@@ -17,7 +17,7 @@ WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
 
 # Data root: all runtime state (data/logs/media) lives here. Override with
 # AVA_HOME for portable/packaged installs; defaults to the repo root so the
-# original single-user layout is unchanged. See docs/PACKAGING_PLAN.md.
+# original single-user layout is unchanged. See docs/INSTALL_REFERENCE.md.
 #
 # Read from `settings` rather than re-derived here. This module used to compute
 # its own `AVA_HOME or ROOT` root and join onto it, which meant it silently

@@ -2,8 +2,10 @@
 
 Ava is a private, self-hosted AI assistant (FastAPI bridge `phone_bridge.py` +
 `ava_bridge/`, React SPA in `frontend/`, agent runtime + tools in `agent/`).
-Every feature must stay fork-and-self-host packageable — see
-docs/PACKAGING_PLAN.md.
+Every feature must stay fork-and-self-host packageable: no owner-specific path,
+port, address or app name in code — paths resolve under `AVA_HOME`, everything
+else comes from `ava.yaml` or a connector manifest. `tests/test_path_roots.py`
+and `tests/test_no_owner_identity.py` enforce it.
 
 ## Capabilities: the feature registry (enforced by tests)
 
@@ -66,11 +68,9 @@ Any user-facing optional capability lives in `ava_bridge/features.py`:
   to reintroduce it. Retired addresses live in `MOVED_TABS` / `MERGED_TABS` /
   `RELOCATED_TABS` and are rewritten with `history.replaceState` — assigning
   `location.hash` would push a history entry and make Back redirect forever.
-- **A surface has exactly one home.** `MemoryPanel` was mounted on both Setup
-  and Data, and Setup → History rendered the same audit ledger as Data → Logs →
-  Audit, each footer naming the other as the real one. When two places would
-  show the same thing, one owns it and the other links to it — and the link
-  says where it goes, so it never reads as a local tab.
+- **A surface has exactly one home.** When two places would show the same thing,
+  one owns it and the other links to it — and the link says where it goes, so it
+  never reads as a local tab.
 - **Two apply verbs, never conflated.** *Restart Ava* = an `ava.yaml` value the
   bridge reads at boot → `RestartBanner`, driven by `restart_required` on a
   `hub.*` mutation. *Apply to the agent* = persona / skills / policies / tool
@@ -79,12 +79,9 @@ Any user-facing optional capability lives in `ava_bridge/features.py`:
   `ava_bridge/provision.py`. A mutation calls `onRestart()` **only if the
   response actually set `restart_required`**; it calls
   `markProvisionDirty(scope)` when it changed something the sandbox holds.
-  Never both, never the wrong one. (PersonaPanel did both, and the restart it
-  demanded was never needed. Five call sites still call `onRestart()`
-  unconditionally while the backend tells them whether it is required —
-  `AgentPanel` ×3, `VoicePanel` ×2 — which is the same bug awaiting the same
-  fix.) The owner-facing verb is **Apply**; "provision" stays in the API path,
-  the CLI and the type names.
+  Never both, never the wrong one — a panel that demands a restart it does not
+  need trains the owner to ignore the banner. The owner-facing verb is
+  **Apply**; "provision" stays in the API path, the CLI and the type names.
 - Drift is a **server fact**, never client state: it must survive a reload, a
   second tab, an edit made on disk, and a provision run from the CLI.
   `unknown` means "we could not look inside the sandbox", not "it is missing",

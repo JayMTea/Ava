@@ -18,7 +18,7 @@
 # (copied by `ava setup`), frontend/dist (served by the bridge), agent/install.sh
 # and connectors/_template all resolve exactly as they do today. A non-editable
 # wheel would need package-data plumbing for every one of those and is a separate
-# project — docs/PACKAGING_PLAN.md still holds for that.
+# project.
 #
 # Ruff keeps its own ruff.toml, which takes precedence over any [tool.ruff] here.
 

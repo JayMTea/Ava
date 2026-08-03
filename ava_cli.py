@@ -7,7 +7,7 @@
     ava version
 
 Designed to be friendly on a fresh machine: `ava setup && ava up` gets a new user
-from zero to a running Ava with no source edits. See docs/PACKAGING_PLAN.md.
+from zero to a running Ava with no source edits. See deploy/README.md.
 """
 from __future__ import annotations
 
