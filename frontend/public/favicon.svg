@@ -1,31 +1,42 @@
-<!-- Ava's browser tab icon. The neural-network A from
-     frontend/public/assets/icons/ava-network-icon-blue.svg, as drawn: its own
-     palette, its own stroke weights, transparent, cross-links intact. Only the
-     framing differs, the source viewBox carries ~20% dead margin that a 16px
-     tab cannot afford.
+<!-- Ava's browser tab icon: the SAME mark as the PWA tile, not a second
+     drawing of it. Geometry, palette and framing are measured off
+     assets/icons/pwa-512.png — white neural-network A with lighter
+     cross-links on the #007ACC rounded tile — so the tab, the home screen
+     and the installed app icon are one logo at three sizes.
 
-     Served by ava_bridge/pages.py:favicon_svg(), which 404s when a brand icon
-     is set so a branded install falls back to the .ico. Kept out of the
-     service-worker precache in vite.config.ts for the same reason.
+     It used to be the transparent, muted-blue version of the mark
+     (assets/icons/ava-network-icon-blue.svg, as drawn). That read as a
+     different logo next to the tile everywhere else, which is the bug this
+     file exists to not have. The tile is also what gives the mark contrast
+     on a dark tab strip, where the muted blue disappeared.
+
+     The mark's stroke weights are the source's, scaled: heavier than the
+     sign-in card's mark (brand.py:_SHIPPED_MARK) precisely because they have
+     to survive a 16px tab inside a coloured tile.
+
+     Served by ava_bridge/pages.py:favicon_svg() — always Ava's, there is no
+     branded branch. Kept out of the service-worker precache in
+     vite.config.ts.
 
      No <script>, no external refs: Ava sets no CSP, so a first-party SVG must
      stay inert by construction. This one is authored here, never uploaded;
      docs/BRANDING.md refuses SVG for owner-supplied images. -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Ava">
-  <g transform="translate(86.05,30.72) scale(3.95228) translate(-27,-18)">
-    <g stroke="#A9BFD2" stroke-width="3.5" fill="none">
+  <rect width="512" height="512" rx="102" fill="#007ACC"/>
+  <g transform="translate(47.8,33.5) scale(2.97)">
+    <g stroke="#9FD0EE" stroke-width="3.5" fill="none">
       <line x1="37" y1="122" x2="90.4" y2="90"/>
       <line x1="103" y1="122" x2="49.6" y2="90"/>
     </g>
-    <g stroke="#5B84A8" stroke-width="6.5" fill="none" stroke-linecap="round">
+    <g stroke="#FFFFFF" stroke-width="6.5" fill="none" stroke-linecap="round">
       <line x1="70" y1="30" x2="37" y2="122"/>
       <line x1="70" y1="30" x2="103" y2="122"/>
       <line x1="49.6" y1="90" x2="90.4" y2="90"/>
     </g>
-    <circle cx="70" cy="30" r="12" fill="#5B84A8"/>
-    <circle cx="49.6" cy="90" r="8.5" fill="#5B84A8"/>
-    <circle cx="90.4" cy="90" r="8.5" fill="#5B84A8"/>
-    <circle cx="37" cy="122" r="10" fill="#5B84A8"/>
-    <circle cx="103" cy="122" r="10" fill="#5B84A8"/>
+    <circle cx="70" cy="30" r="12" fill="#FFFFFF"/>
+    <circle cx="49.6" cy="90" r="8.5" fill="#FFFFFF"/>
+    <circle cx="90.4" cy="90" r="8.5" fill="#FFFFFF"/>
+    <circle cx="37" cy="122" r="10" fill="#FFFFFF"/>
+    <circle cx="103" cy="122" r="10" fill="#FFFFFF"/>
   </g>
 </svg>
