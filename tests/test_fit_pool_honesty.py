@@ -134,6 +134,53 @@ class PoolCap(unittest.TestCase):
              mock.patch.object(hwinfo, "_read_sysfs", lambda p: None):
             self.assertEqual(hwinfo._pool_cap(64.0), (True, "cgroup"))
 
+    def test_a_container_limit_CLAMPS_the_pool_not_just_flags_it(self):
+        """THE SECOND BUG, found by running it rather than reasoning about it.
+
+        `/proc/meminfo` is not namespaced and psutil reads it, so `system_mem()`
+        inside a container reports the HOST's RAM. The cgroup limit was wired to
+        `_pool_cap`, which sets a flag — and nothing corrected the number. Four
+        real containers on a 121 GB box, at -m 6g/14g/48g, every one of them
+        advertising the `large` tier beside `capped: true`.
+        """
+        m = hwinfo.MemInfo(free_gb=80.0, total_gb=121.7, source="system-psutil")
+        with mock.patch.object(hwinfo, "_cgroup_limit_gb", lambda: 6.0), \
+             mock.patch.object(hwinfo, "_cgroup_usage_gb", lambda: 1.5):
+            out = hwinfo._apply_cgroup_cap(m)
+        self.assertEqual(out.total_gb, 6.0, "the pool still claimed the host's RAM")
+        self.assertAlmostEqual(out.free_gb, 4.5, places=3)
+        self.assertTrue(out.source.startswith("system"),
+                        "platforms.py keys on this prefix to detect unified memory")
+        self.assertIn("cgroup", out.source, "the clamp must be visible in provenance")
+
+    def test_an_unmeasurable_usage_still_clamps_the_total(self):
+        m = hwinfo.MemInfo(free_gb=80.0, total_gb=121.7, source="system-psutil")
+        with mock.patch.object(hwinfo, "_cgroup_limit_gb", lambda: 6.0), \
+             mock.patch.object(hwinfo, "_cgroup_usage_gb", lambda: None):
+            out = hwinfo._apply_cgroup_cap(m)
+        self.assertEqual(out.total_gb, 6.0)
+        self.assertEqual(out.free_gb, 6.0, "free is bounded by the ceiling")
+
+    def test_a_vram_pool_is_never_clamped_by_a_RAM_limit(self):
+        """A cgroup memory limit caps RAM. A discrete card's pool is not RAM, and
+        clamping it would under-report a 24 GB card in an 8 GB container."""
+        m = hwinfo.MemInfo(free_gb=23.0, total_gb=24.0, source="vram-nvml")
+        with mock.patch.object(hwinfo, "_cgroup_limit_gb", lambda: 8.0):
+            self.assertEqual(hwinfo._apply_cgroup_cap(m).total_gb, 24.0)
+
+    def test_a_limit_above_the_pool_changes_nothing(self):
+        """`-m 200g` on a 121 GB box is not a cap."""
+        m = hwinfo.MemInfo(free_gb=80.0, total_gb=121.7, source="system-psutil")
+        with mock.patch.object(hwinfo, "_cgroup_limit_gb", lambda: 200.0):
+            self.assertEqual(hwinfo._apply_cgroup_cap(m).source, "system-psutil")
+
+    def test_wsl2_needs_no_clamp(self):
+        """A real VM's /proc/meminfo already reports the VM's share — which is
+        why the laptop read 15.4 GB correctly while the container path did not."""
+        m = hwinfo.MemInfo(free_gb=10.3, total_gb=15.4, source="system-psutil")
+        with mock.patch.object(hwinfo, "_cgroup_limit_gb", lambda: None):
+            self.assertEqual(hwinfo._apply_cgroup_cap(m), m)
+
     def test_an_unlimited_cgroup_is_not_a_cap(self):
         """`memory.max` is literally "max" when unlimited, and v1 uses a ~2^63
         sentinel. Reading either as a number reports every ordinary Linux box as

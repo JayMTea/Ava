@@ -126,6 +126,63 @@ deliberate act:
 | `AVA_VLLM_MAX_LEN` | resolved | Context ceiling, **clamped to what the model actually supports** - vLLM raises rather than clamping, so asking for more than the checkpoint allows means it never boots. |
 | `AVA_VLLM_MODEL_FLAGS` | resolved | `--tool-call-parser`, `--reasoning-parser` and any model-specific boot flags, as one string. |
 
+### Capping how much memory Ava may use
+
+The knobs above size the *engine*. To bound what the whole install may take, set
+a ceiling on the container itself and Ava sizes its recommendation from that
+rather than from the machine:
+
+```yaml
+# deploy/docker-compose.override.yml
+services:
+  ava:
+    mem_limit: 14g        # or `deploy.resources.limits.memory` under swarm
+  vllm:
+    mem_limit: 24g
+```
+
+Ava reads the cgroup ceiling (v2 then v1), reports it as the usable pool, and
+**Setup → Hardware** says the number is the container's share rather than the
+machine's. Verified on a 121 GB host: `-m 6g` recommends `tiny`, `-m 14g`
+recommends `small`, `-m 48g` recommends `large`.
+
+Two caveats worth knowing before you reach for it:
+
+- A ceiling is not a reservation. It caps the container; it does not set memory
+  aside, and a model that does not fit is OOM-killed rather than refused.
+- It bounds **RAM**, not VRAM. A discrete card's pool is untouched by
+  `mem_limit`, which is why Ava does not clamp a VRAM reading with one. Use
+  `AVA_VLLM_GPU_UTIL` for the card.
+
+On Windows the outer ceiling is WSL2's, not Docker's - see "On Windows, Ava runs
+in a Linux container" on the [Quickstart](../deploy/README.md). To govern which
+*models* may hold memory, and what yields to what, that is the `alloc` block in
+`ava.yaml` rather than a container limit.
+
+### Telling Ava about memory it cannot measure
+
+The opposite problem. Ava measures its own pool and **withholds** a tier when it
+cannot see the machine the models actually run on - an engine on the host while
+Ava is in a container being the case that forced it (§6). That is the right
+default, and an owner who knows their machine needs a way to say so:
+
+| Where | Value |
+|---|---|
+| **Setup → Hardware** | "Memory Ava plans for" - set it, change it, or clear it back to measured, any time. No restart. |
+| `ava.yaml` | `hardware.fit_memory_gb: 32` |
+| Environment | `AVA_FIT_MEM_GB=32` (wins over `ava.yaml`, so Setup shows it read-only and points you at where it is set) |
+
+Blank restores the measured reading. Values outside 1-4096 GB are refused rather
+than clamped, because a silently corrected number is one you cannot see is wrong.
+
+**It is advice, not actuation.** The value reaches the tier recommendation and
+stops there. It deliberately never reaches `alloc`, which keeps deciding on
+memory it has actually measured - so a wrong number here costs you a poor model
+suggestion, never a released model. Setup also warns when you state *more* than
+the box measures: understating is cautious, but overstating raises the tier past
+what the machine can hold, and a model that does not fit is OOM-killed on load
+rather than refused.
+
 You no longer pick a parser by hand. `deploy/model-flags.conf` maps a model to
 its parsers and real context length, and `deploy/resolve-model-flags.sh` is the
 only thing that reads it - `install.sh`, `local-serve.sh` and compose all go

@@ -491,6 +491,12 @@ class PoolInfo:
     free_gb: float | None = None
     total_gb: float | None = None
     source: str | None = None
+    # The operator STATED this pool rather than Ava measuring it, and
+    # `measured_gb` is what the box actually reported. Both travel together so a
+    # surface can show the override, show what it replaced, and never pretend a
+    # typed number was a reading.
+    stated: bool = False
+    measured_gb: float | None = None
     # vram = a dedicated accelerator pool; unified = one pool shared by CPU and
     # GPU (Apple, GB10); system = plain RAM with no accelerator behind it.
     kind: str = "unknown"
@@ -527,6 +533,57 @@ def _cgroup_limit_gb() -> float | None:
     return None
 
 
+def _cgroup_usage_gb() -> float | None:
+    """How much of its ceiling this process is already using, cgroup v2 then v1."""
+    g = 1024 ** 3
+    for path in ("/sys/fs/cgroup/memory.current",
+                 "/sys/fs/cgroup/memory/memory.usage_in_bytes"):
+        raw = _read_sysfs(path)
+        if not raw:
+            continue
+        try:
+            return int(raw) / g
+        except ValueError:
+            continue
+    return None
+
+
+def _apply_cgroup_cap(m: MemInfo) -> MemInfo:
+    """Clamp a SYSTEM-memory reading to the ceiling this process runs under.
+
+    `/proc/meminfo` is not namespaced and psutil reads it, so inside a container
+    `system_mem()` reports the HOST's RAM. `_cgroup_limit_gb()` has always been
+    able to read the real ceiling — it was wired to `_pool_cap`, which sets a
+    *flag*, and nothing ever corrected the *number*. So a container run with
+    `-m 6g` on a 121 GB host reported 121 GB of fit memory and recommended
+    30B-class models: `capped: true` sat in the payload beside a figure that was
+    off by 20x. Measured on this box, not reasoned about — four real containers
+    at four limits, every one of them advertising the `large` tier.
+
+    That is the exact failure the fit-honesty work exists to prevent, arriving by
+    the one route it had not been checked on, and it makes Setup → Hardware's
+    "N GB is this container's limit" read as the host's total.
+
+    NOT applied to a VRAM reading: a cgroup memory limit caps RAM, and a discrete
+    card's pool is not RAM. WSL2 needs no clamp either — it is a real VM whose
+    /proc/meminfo already reports the VM's share, which is why that path was
+    correct while this one was not.
+    """
+    lim = _cgroup_limit_gb()
+    if lim is None or not m.total_gb or lim >= m.total_gb:
+        return m
+    if not (m.source or "").startswith("system"):
+        return m
+    used = _cgroup_usage_gb()
+    if used is not None:
+        free = max(0.0, lim - used)
+    else:
+        free = min(m.free_gb, lim) if m.free_gb is not None else None
+    # Provenance is kept, and the clamp is named. Callers that key on the prefix
+    # (`platforms.py` reads source.startswith("system")) keep working.
+    return MemInfo(free_gb=free, total_gb=lim, source=f"{m.source}+cgroup")
+
+
 def _pool_cap(total_gb: float | None) -> tuple[bool, str | None]:
     """(capped, why) — is this pool a slice of a larger machine?
 
@@ -543,6 +600,45 @@ def _pool_cap(total_gb: float | None) -> tuple[bool, str | None]:
         # capped without inventing a number is the honest half we can deliver.
         return True, "wsl2-vm"
     return False, None
+
+
+_STATED_ENV = "AVA_FIT_MEM_GB"
+# Below this a "pool" cannot hold anything Ava serves; above it, the number is a
+# typo rather than a machine. Both ends are refused rather than clamped: a
+# silently corrected value is one the operator cannot see is wrong.
+_STATED_MIN_GB, _STATED_MAX_GB = 1.0, 4096.0
+
+
+def stated_fit_gb() -> float | None:
+    """An operator-STATED memory pool, or None to use what Ava measures.
+
+    There are boxes Ava cannot measure and is right not to guess at. The one
+    that prompted this: an engine running on the host while Ava runs in a
+    container. That engine draws on the machine's memory and the machine's GPU;
+    Ava can see the engine answering but has no way to size the box it lives on,
+    so it withholds a tier rather than sizing one from its own container. An
+    owner who knows the answer had no way to say it.
+
+    Precedence matches every other knob here — env, then ava.yaml — so a
+    container can be corrected without editing config, and
+    `AVA_GPU_MEMORY_MODEL` above is the same shape for the same reason.
+
+    **This is advice, never actuation.** See `fit_pool`.
+    """
+    raw = os.environ.get(_STATED_ENV)
+    if raw is None:
+        try:
+            from . import settings
+            raw = settings.get("hardware.fit_memory_gb")
+        except Exception:  # noqa: BLE001 — config must never break a probe
+            raw = None
+    if raw in (None, ""):
+        return None
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return v if _STATED_MIN_GB <= v <= _STATED_MAX_GB else None
 
 
 def fit_pool() -> PoolInfo:
@@ -573,13 +669,41 @@ def fit_pool() -> PoolInfo:
         kind, accel = "system", False
 
     capped, cap_kind = _pool_cap(sysm.total_gb if kind != "vram" else None)
+    # An operator-stated pool replaces the SIZE and nothing else. The kind, the
+    # accelerator, and whether this container is capped are all still measured —
+    # stating "32 GB" says how much, not what, and certainly not that the cgroup
+    # ceiling went away. `measured_gb` is kept so a surface can show both and a
+    # caller can notice the two disagree.
+    #
+    # THE BOUNDARY, and the reason this lives here rather than in
+    # `fit_memory()`: that function is what `alloc/capacity.py` calls the "one
+    # free-memory oracle", and the allocation governor can RELEASE a running
+    # model on its word. A number someone typed must never reach that. State
+    # 200 GB into the oracle and Ava plans against memory that does not exist,
+    # over-commits, and the kernel takes real work instead of Ava refusing.
+    # `fit_pool()` has exactly one consumer — the setup/hardware route, which
+    # recommends — so an override here can be wrong at the cost of a bad
+    # suggestion, which is the only cost it is allowed to have.
+    stated = stated_fit_gb()
+    if stated is not None:
+        return PoolInfo(free_gb=None, total_gb=stated, source="stated",
+                        stated=True, measured_gb=m.total_gb,
+                        kind=kind, accelerated=accel, accel_name=name,
+                        accel_status=status, capped=capped, cap_kind=cap_kind)
     return PoolInfo(free_gb=m.free_gb, total_gb=m.total_gb, source=m.source,
+                    measured_gb=m.total_gb,
                     kind=kind, accelerated=accel, accel_name=name,
                     accel_status=status, capped=capped, cap_kind=cap_kind)
 
 
 def fit_memory() -> MemInfo:
     """The free memory the model-fit layer should gate on, hardware-adaptive.
+
+    MEASURED ONLY. `alloc/capacity.py` calls this the one free-memory oracle and
+    the governor can release a running model on its word, so the operator-stated
+    override deliberately does NOT apply here — it lives in `fit_pool()`, which
+    only ever recommends. See the note there.
+
 
     Discrete GPU -> free VRAM. Unified memory (Spark/Apple) or CPU-only -> free
     system RAM. Nothing readable (some non-Linux w/o psutil) -> empty MemInfo,
@@ -628,6 +752,12 @@ def fit_memory() -> MemInfo:
     # box, which is why it is written down rather than guessed at.
     # tests/test_platform_native.py::test_unified_memory_nvidia_falls_through_to_
     # the_system_pool pins the current, correct-for-GB10 behaviour.
+    #
+    # Last, and only here: the ceiling this process actually runs under. It is
+    # applied to the FIT number rather than inside `system_mem()` on purpose —
+    # the dashboard's whole-box reading is a different question from "what may
+    # this container use", and only the latter may gate a model recommendation.
+    info = _apply_cgroup_cap(info)
     _fit_cache.update(ts=now, info=info)
     return info
 

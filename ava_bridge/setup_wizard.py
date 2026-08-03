@@ -78,7 +78,13 @@ def api_hardware():
            # which on a 6 GB laptop card inside Docker rendered the card's name
            # beside the host's 15.4 GB of RAM.
            "pool_kind": "unknown", "accelerated": False,
-           "accel_measurable": False, "capped": False, "cap_kind": None}
+           "accel_measurable": False, "capped": False, "cap_kind": None,
+           # The operator-stated pool: whether one is in force, what the box
+           # actually measured, where the value came from (so the UI can say
+           # "an environment variable set this, not this form"), and whether
+           # the two disagree in the direction that OOM-kills.
+           "stated": False, "measured_gb": None, "stated_source": "",
+           "overstated": False}
     try:
         out["platform"] = hwinfo.platform_id()
     except Exception:  # noqa: BLE001
@@ -92,6 +98,21 @@ def api_hardware():
         out["accelerated"] = pool.accelerated
         out["accel_measurable"] = pool.accel_status == "measured"
         out["capped"], out["cap_kind"] = pool.capped, pool.cap_kind
+        out["stated"] = pool.stated
+        out["measured_gb"] = round(pool.measured_gb, 1) if pool.measured_gb else None
+        if pool.stated:
+            # WHERE it came from decides whether the Setup form can change it.
+            # An env var beats ava.yaml by design, so a form that silently wrote
+            # a value the process would keep ignoring is worse than no form.
+            out["stated_source"] = ("env" if os.environ.get("AVA_FIT_MEM_GB")
+                                    else "config")
+            # Stating MORE than the box can actually give is the one way this
+            # override hurts: the tier goes up, the model does not fit, and the
+            # kernel kills it on first load. Understating is merely cautious, so
+            # only the dangerous direction is flagged.
+            out["overstated"] = bool(
+                pool.measured_gb and pool.total_gb
+                and pool.total_gb > pool.measured_gb * 1.05)
         if pool.total_gb:
             tier, hint = model_fit.recommend_tier(pool.total_gb)
             out["tier"], out["hint"] = tier, hint

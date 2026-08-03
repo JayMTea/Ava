@@ -451,6 +451,22 @@ perf:
 arch:
   paused: false
 
+# ── Hardware: what Ava may assume about this box ─────────────────────────────
+#
+# Ava measures its own memory pool and refuses to guess at what it cannot see.
+# One box it genuinely cannot size: an engine running on the HOST while Ava runs
+# in a container — that engine has the machine's memory and the machine's GPU,
+# and Ava can watch it answer without being able to measure it. There it
+# withholds a model-tier recommendation rather than sizing one from the wrong
+# machine, and this is how an owner who knows the answer states it.
+#
+# ADVICE ONLY. It sets the recommended tier. It deliberately never reaches the
+# allocation governor (`alloc` below), which keeps deciding on memory it has
+# measured — a wrong number here costs a poor suggestion, never a released model.
+# Change it any time in Setup → Hardware; blank restores the measured reading.
+hardware:
+  fit_memory_gb:           # [AVA_FIT_MEM_GB] blank = use what Ava measures
+
 alloc:
   enabled: true              # [AVA_ALLOC] off = observe nothing, govern nothing
   pool:

@@ -511,6 +511,20 @@
   "APIRoute"
  ],
  [
+  "/api/hub/hardware/pool",
+  [
+   "GET"
+  ],
+  "APIRoute"
+ ],
+ [
+  "/api/hub/hardware/pool",
+  [
+   "POST"
+  ],
+  "APIRoute"
+ ],
+ [
   "/api/hub/memory",
   [
    "GET"

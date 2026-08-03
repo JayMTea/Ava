@@ -195,6 +195,23 @@ def cmd_doctor(_args) -> int:
         else:
             _row(OK, "fit memory", f"{avail:.0f} GB ({mem.source or 'detected'})")
             tier, hint = _recommend_tier(avail)
+        # An operator-stated pool changes the RECOMMENDATION and not the reading
+        # above, so doctor prints both. Showing only the stated number would hide
+        # the disagreement that matters; showing only the measured one would
+        # contradict what Setup displays.
+        try:
+            from ava_bridge import hwinfo as _hw
+            stated = _hw.stated_fit_gb()
+        except Exception:  # noqa: BLE001
+            stated = None
+        if stated is not None:
+            tier, hint = _recommend_tier(stated)
+            over = avail is not None and stated > avail * 1.05
+            _row(WARN if over else OK, "you set",
+                 f"{stated:g} GB — Ava plans for this instead of what it measures"
+                 + (f". That is MORE than the {avail:.0f} GB measured here: if your "
+                    "models run in this container they will be killed on load, not "
+                    "refused." if over else ""))
         _row(OK, "recommended", f"{tier} — {hint}")
     except Exception as e:  # noqa: BLE001
         _row(WARN, "model fit", f"probe failed: {e}")

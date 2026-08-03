@@ -37,6 +37,27 @@ export interface HardwareInfo {
    *  VM's default half of the host's RAM). */
   capped: boolean;
   cap_kind: 'cgroup' | 'wsl2-vm' | null;
+  /** The pool size was STATED by the owner, not measured. `measured_gb` is what
+   *  the box actually reported, kept so a surface can show both rather than
+   *  passing a typed number off as a reading. */
+  stated: boolean;
+  measured_gb: number | null;
+  /** "env" values cannot be edited from Setup — the process would keep ignoring
+   *  ava.yaml and the owner would be changing a number that does nothing. */
+  stated_source: '' | 'env' | 'config';
+  /** Stated meaningfully MORE than the box measured: the tier goes up, the model
+   *  does not fit, the kernel kills it on first load. */
+  overstated: boolean;
+}
+
+/** GET/POST /api/hub/hardware/pool — the stated pool, and whether it is ours to set. */
+export interface StatedPool {
+  stated_gb: number | null;
+  source: '' | 'env' | 'config';
+  env_var: string;
+  editable: boolean;
+  min_gb: number;
+  max_gb: number;
 }
 /** Where an engine sits relative to Ava — not merely whether it answered.
  *
@@ -611,6 +632,14 @@ export const hub = {
 
   // Models
   hardware: () => req<HardwareInfo>('/api/setup/hardware'),
+  statedPool: () => req<StatedPool>('/api/hub/hardware/pool'),
+  setStatedPool: (gb: number | null) =>
+    req<{ ok: boolean; error?: string; stated_gb?: number | null }>(
+      '/api/hub/hardware/pool', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ gb }),
+      }),
   backends: () => req<BackendProbe>('/api/setup/backends'),
   setupConnectors: () => req<{ connectors: SetupConnector[] }>('/api/setup/connectors'),
   save: (body: SavePayload) =>
