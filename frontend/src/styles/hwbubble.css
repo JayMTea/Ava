@@ -1,0 +1,96 @@
+/* The floating hardware monitor's popout (components/HardwareBubble.tsx).
+   The bubble itself stays inline-styled — it is one circle whose only variable
+   styling is its position. The PANEL is here because it now has structure the
+   component cannot express: two columns, a scroll region, and a breakpoint.
+
+   The breakpoint is a CONTAINER query, not a media query, and that is the whole
+   reason this file exists. The panel's width is not the viewport's — it is
+   whatever space is left beside a bubble the owner can drag anywhere, computed
+   in the component. A `@media (max-width: …)` rule reads the window and would
+   happily keep two columns in a 240px-wide panel parked mid-screen on a large
+   display, which is the exact case the width clamp creates. Querying the panel
+   means one rule decides the columns and it cannot disagree with the clamp.
+
+   Everything geometric — width, max-height, and the four anchor offsets — is
+   still set inline by the component, because all five are functions of where
+   the bubble was dropped. Appearance lives here; placement lives there. */
+
+.hwb-panel {
+  position: fixed;
+  z-index: 999;
+  /* The bound the panel never had. `max-height` is computed inline from the
+     space below (or above) the bubble, which is always tighter than the
+     viewport — `100dvh` would still overflow for a bubble parked mid-screen. */
+  overflow-y: auto;
+  /* Scrolling the panel must not chain into scrolling the chat behind it. */
+  overscroll-behavior: contain;
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: var(--sp-3) 13px;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, .4);
+  font-size: 12.5px;
+  container-type: inline-size;
+  container-name: hwb;
+}
+
+.hwb-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: 10px;
+  font-weight: 700;
+}
+
+/* The split is the one the panel already drew with its own dividers: the
+   machine on the left (GPU, memory, disk, CPU, temp), the models on the right
+   (Ava's brain, then everything Ava can see). Cutting anywhere else would put
+   half a subject in each column. */
+.hwb-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-3);
+  align-items: start;
+}
+
+/* Without this a long model name stretches its column instead of ellipsing. */
+.hwb-col { min-width: 0; }
+
+.hwb-col + .hwb-col {
+  border-left: 1px solid var(--line);
+  padding-left: var(--sp-3);
+}
+
+.hwb-sec {
+  margin-top: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 9px;
+}
+
+/* A section that starts a column has nothing above it to be divided from. */
+.hwb-col > .hwb-sec:first-child {
+  margin-top: 0;
+  border-top: 0;
+  padding-top: 0;
+}
+
+/* Collapsed: the columns stack, so the divider goes back to being horizontal —
+   the second column's first section is once again sitting under the first
+   column's last one, and needs the rule that separates them. */
+@container hwb (max-width: 430px) {
+  .hwb-cols {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  .hwb-col + .hwb-col {
+    border-left: 0;
+    padding-left: 0;
+  }
+
+  .hwb-col + .hwb-col > .hwb-sec:first-child {
+    margin-top: 10px;
+    border-top: 1px solid var(--line);
+    padding-top: 9px;
+  }
+}

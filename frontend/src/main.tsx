@@ -12,6 +12,7 @@ import './styles/dashboard.css';
 import './styles/hub.css';
 import './styles/data.css';
 import './styles/tour.css';
+import './styles/hwbubble.css';
 
 // Installable PWA: register the app-shell service worker (auto-updates on new
 // deploys). Browsers only run service workers in a secure context, so this is

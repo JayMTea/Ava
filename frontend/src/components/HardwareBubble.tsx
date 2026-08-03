@@ -9,9 +9,23 @@ import type { HardwareStats } from '../lib/types';
 // Floating, draggable hardware monitor. Tap to expand a live quick-view of the
 // DGX Spark (GPU %, unified memory used/free, CPU, temperature); drag the bubble
 // anywhere so it never blocks the UI. Position is remembered across sessions.
+//
+// The panel's LOOK lives in styles/hwbubble.css; what stays here is everything
+// that depends on where the bubble was dropped — the anchor offsets and the two
+// bounds below.
 
 const KEY = 'ava.hwbubble.pos';
 const SIZE = 52;
+// GAP is bubble→panel, EDGE is panel→viewport edge. The panel stops shrinking at
+// MIN_W because a 40px-wide panel is not a smaller panel, it is an unreadable
+// one. MAX_W is the width at which two columns each get the ~210px the single
+// column always had (2×210 + 26 padding + 12 gap + 12 column padding + 1
+// divider); past that the lines get too long to scan. Under 430px the container
+// query in styles/hwbubble.css stacks the columns again.
+const GAP = 8;
+const EDGE = 8;
+const MIN_W = 236;
+const MAX_W = 470;
 
 type Pos = { x: number; y: number };
 
@@ -95,6 +109,7 @@ function Metric({ label, value, progress, sub }: { label: string; value: string;
 
 export function HardwareBubble() {
   const [pos, setPos] = useState<Pos>(loadPos);
+  const [vp, setVp] = useState(() => ({ w: vw(), h: vh() }));
   const [open, setOpen] = useState(false);
   const [stats, setStats] = useState<HardwareStats | null>(null);
   const [selectedModelId, setSelectedModelId] = useState('');
@@ -104,8 +119,16 @@ export function HardwareBubble() {
     localStorage.setItem(KEY, JSON.stringify(pos));
   }, [pos]);
 
+  // The viewport is STATE because the panel's width and max-height are functions
+  // of it. This re-rendered on resize before only because clampPos returns a
+  // fresh object on every call, so setPos always changed identity — an accident
+  // that would have gone quiet the moment anyone made clampPos return `p`
+  // unchanged, leaving the panel sized for the window it was opened in.
   useEffect(() => {
-    const onResize = () => setPos((p) => clampPos(p));
+    const onResize = () => {
+      setVp({ w: vw(), h: vh() });
+      setPos((p) => clampPos(p));
+    };
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
@@ -157,20 +180,26 @@ export function HardwareBubble() {
     if (d && !d.moved) setOpen((o) => !o);
   }, []);
 
-  const rightHalf = pos.x + SIZE / 2 > vw() / 2;
-  const bottomHalf = pos.y + SIZE / 2 > vh() / 2;
+  // The panel opens away from whichever edge the bubble is nearest, so the space
+  // it gets is always the larger side — but it is still finite, and the two
+  // bounds below are what stop it running off-screen. It had NEITHER: no width
+  // clamp (harmless while it was a fixed 236px, not once it can reach two
+  // columns) and no height bound at all, which is why a tall panel was simply
+  // cut off by the bottom of the window.
+  const rightHalf = pos.x + SIZE / 2 > vp.w / 2;
+  const bottomHalf = pos.y + SIZE / 2 > vp.h / 2;
+  // Height is bounded by the space on the side it grows into, NOT by the
+  // viewport: a bubble parked mid-screen gets half a window, and `100dvh` would
+  // have let the panel overflow exactly there.
+  const availH = (bottomHalf ? pos.y + SIZE : vp.h - pos.y) - EDGE;
+  const availW = (rightHalf ? pos.x : vp.w - pos.x - SIZE) - GAP - EDGE;
   const panelStyle: CSSProperties = {
-    position: 'fixed',
-    width: 236,
-    zIndex: 999,
-    background: 'var(--panel2)',
-    border: '1px solid var(--line)',
-    borderRadius: 12,
-    padding: '12px 13px',
-    boxShadow: '0 10px 34px rgba(0,0,0,.4)',
-    fontSize: 12.5,
-    ...(rightHalf ? { right: vw() - pos.x + 8 } : { left: pos.x + SIZE + 8 }),
-    ...(bottomHalf ? { bottom: vh() - (pos.y + SIZE) } : { top: pos.y }),
+    // Read as: never wider than two readable columns, never wider than the
+    // window, and never narrower than MIN_W unless the window itself is.
+    width: Math.min(MAX_W, Math.max(MIN_W, availW), vp.w - 2 * EDGE),
+    maxHeight: availH,
+    ...(rightHalf ? { right: vp.w - pos.x + GAP } : { left: pos.x + SIZE + GAP }),
+    ...(bottomHalf ? { bottom: vp.h - (pos.y + SIZE) } : { top: pos.y }),
   };
 
   const gpu = stats?.gpu;
@@ -197,177 +226,187 @@ export function HardwareBubble() {
   return (
     <>
       {open && (
-        <div style={panelStyle}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10, fontWeight: 700 }}>
+        <div className="hwb-panel" style={panelStyle}>
+          <div className="hwb-head">
             <ChipGlyph />
             <span>{gpu?.name || 'Compute'}</span>
           </div>
-          <Metric label="GPU util" value={pct(gpu?.util)} progress={gpu?.util ?? 0} />
-          {/* What's driving the GPU right now — names the job behind a spike. */}
-          <div
-            style={{
-              marginTop: 6,
-              marginBottom: 4,
-              padding: '6px 8px',
-              border: '1px solid var(--line)',
-              borderRadius: 8,
-              background: jobs.length ? 'rgba(52,210,122,0.07)' : 'transparent',
-            }}
-          >
-            <div style={{ color: 'var(--muted)', fontSize: 11, marginBottom: jobs.length ? 4 : 0 }}>Running now</div>
-            {jobs.length === 0 ? (
-              <div style={{ color: 'var(--muted)', fontSize: 11 }}>Idle — no active render or job.</div>
-            ) : (
-              jobs.map((j, i) => (
-                <div key={i} style={{ fontSize: 11.5, lineHeight: 1.4, display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                  <span style={{ flex: '0 0 auto', width: 6, height: 6, borderRadius: '50%', background: '#34d27a', display: 'inline-block', transform: 'translateY(-1px)' }} />
-                  <span>
-                    <b>{j.name}</b>
-                    {(j.stage || j.progress != null) && (
-                      <span style={{ color: 'var(--muted)' }}>
-                        {' — '}
-                        {j.stage || 'running'}
-                        {j.progress != null ? ` (${Math.round(j.progress)}%)` : ''}
-                      </span>
-                    )}
-                  </span>
-                </div>
-              ))
-            )}
-          </div>
-          <Metric
-            label={`Memory · ${gb(mem?.used_gb)} / ${gb(mem?.total_gb)}`}
-            value={pct(mem?.used_pct)}
-            progress={mem?.used_pct ?? 0}
-            sub={`${gb(mem?.free_gb)} free`}
-          />
-          <Metric
-            label={`Disk · ${gb(disk?.used_gb)} / ${gb(disk?.total_gb)}`}
-            value={pct(disk?.used_pct)}
-            progress={disk?.used_pct ?? 0}
-            sub={`${gb(disk?.free_gb)} free`}
-          />
-          <Metric label="CPU util" value={pct(cpu?.util)} progress={cpu?.util ?? 0} />
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
-            <span style={{ color: 'var(--muted)' }}>GPU temp</span>
-            <span style={{ fontWeight: 700, color: tempColor(gpu?.temp) }}>{temp(gpu?.temp)}</span>
-          </div>
-          {/* Ava's brain, always — it is named by configuration, so it is
-              knowable even when nothing is running. This block used to be
-              absent entirely on a machine with no GPU, which told a user whose
-              model was serving fine that no model existed. */}
-          <div style={{ marginTop: 10, borderTop: '1px solid var(--line)', paddingTop: 9 }}>
-            <div style={{ color: 'var(--muted)', marginBottom: 6 }}>Ava's brain</div>
-            {brain ? (
-              <button
-                type="button"
-                onClick={() => setSelectedModelId(brain.id)}
+          <div className="hwb-cols">
+            {/* Left column: the machine. */}
+            <div className="hwb-col">
+              <Metric label="GPU util" value={pct(gpu?.util)} progress={gpu?.util ?? 0} />
+              {/* What's driving the GPU right now — names the job behind a spike. */}
+              <div
                 style={{
-                  display: 'block', width: '100%', textAlign: 'left', font: 'inherit',
-                  background: 'transparent', border: 0, padding: 0, cursor: 'pointer',
+                  marginTop: 6,
+                  marginBottom: 4,
+                  padding: '6px 8px',
+                  border: '1px solid var(--line)',
+                  borderRadius: 8,
+                  background: jobs.length ? 'rgba(52,210,122,0.07)' : 'transparent',
                 }}
               >
-                <div style={{ fontSize: 12.5, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span style={activityDotStyle(brain)} />
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {brain.model}
-                  </span>
-                </div>
-                <div style={{ fontSize: 11, color: stateCopy(brain).tone, marginTop: 2 }}>
-                  {stateCopy(brain).label}
-                  {brain.memory_gb != null && ` · ${brain.memory_gb.toFixed(1)} GB`}
-                  {brain.vram_mb != null && brain.vram_mb > 0 && ` (${(brain.vram_mb / 1024).toFixed(1)} GB on GPU)`}
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, lineHeight: 1.35 }}>
-                  {stateCopy(brain).hint}
-                  {/* "It does not have this model" is only half an answer —
-                      say what it DOES have, which is usually the whole
-                      diagnosis (a tag typo, or a pull that never ran). */}
-                  {stateOf(brain) === 'absent' && brain.served && brain.served.length > 0 && (
-                    <> It has: {brain.served.slice(0, 3).join(', ')}
-                      {brain.served.length > 3 && ` +${brain.served.length - 3} more`}.</>
-                  )}
-                </div>
-              </button>
-            ) : (
-              <div style={{ color: 'var(--muted)', fontSize: 11, lineHeight: 1.35 }}>
-                No model linked yet — pick one in Setup → Agent → Brain.
+                <div style={{ color: 'var(--muted)', fontSize: 11, marginBottom: jobs.length ? 4 : 0 }}>Running now</div>
+                {jobs.length === 0 ? (
+                  <div style={{ color: 'var(--muted)', fontSize: 11 }}>Idle — no active render or job.</div>
+                ) : (
+                  jobs.map((j, i) => (
+                    <div key={i} style={{ fontSize: 11.5, lineHeight: 1.4, display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                      <span style={{ flex: '0 0 auto', width: 6, height: 6, borderRadius: '50%', background: '#34d27a', display: 'inline-block', transform: 'translateY(-1px)' }} />
+                      <span>
+                        <b>{j.name}</b>
+                        {(j.stage || j.progress != null) && (
+                          <span style={{ color: 'var(--muted)' }}>
+                            {' — '}
+                            {j.stage || 'running'}
+                            {j.progress != null ? ` (${Math.round(j.progress)}%)` : ''}
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  ))
+                )}
               </div>
-            )}
-          </div>
-          <div style={{ marginTop: 10, borderTop: '1px solid var(--line)', paddingTop: 9 }}>
-            {/* Not "on this machine": a cloud or sandbox brain is listed here
-                too, and its own state says it runs elsewhere. */}
-            <div style={{ color: 'var(--muted)', marginBottom: 6 }}>Models Ava can see</div>
-            {models.length === 0 ? (
-              <div style={{ color: 'var(--muted)', fontSize: 11, lineHeight: 1.35 }}>
-                No inference engine is running here yet.
+              <Metric
+                label={`Memory · ${gb(mem?.used_gb)} / ${gb(mem?.total_gb)}`}
+                value={pct(mem?.used_pct)}
+                progress={mem?.used_pct ?? 0}
+                sub={`${gb(mem?.free_gb)} free`}
+              />
+              <Metric
+                label={`Disk · ${gb(disk?.used_gb)} / ${gb(disk?.total_gb)}`}
+                value={pct(disk?.used_pct)}
+                progress={disk?.used_pct ?? 0}
+                sub={`${gb(disk?.free_gb)} free`}
+              />
+              <Metric label="CPU util" value={pct(cpu?.util)} progress={cpu?.util ?? 0} />
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
+                <span style={{ color: 'var(--muted)' }}>GPU temp</span>
+                <span style={{ fontWeight: 700, color: tempColor(gpu?.temp) }}>{temp(gpu?.temp)}</span>
               </div>
-            ) : (
-              <>
-                <select
-                  className="st-in full"
-                  value={selectedModel?.id || ''}
-                  onChange={(e) => setSelectedModelId(e.target.value)}
-                  style={{ width: '100%', marginBottom: 7, fontSize: 12 }}
-                >
-                  {models.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.model}{m.role_key === 'brain' ? ' · brain' : ''} — {stateCopy(m).label}
-                    </option>
-                  ))}
-                </select>
-                {selectedModel && (
-                  <div style={{ fontSize: 11.5, lineHeight: 1.35 }}>
-                    <div>
-                      <b>Model:</b> <span style={activityDotStyle(selectedModel)} />{selectedModel.model}
-                      {selectedModel.role_key === 'brain' && (
-                        <span style={{
-                          marginLeft: 6, padding: '0 5px', borderRadius: 4, fontSize: 10,
-                          fontWeight: 700, background: 'var(--accent)', color: '#fff',
-                        }}>brain</span>
+            </div>
+            {/* Right column: the models. Cutting here rather than anywhere else
+                is what keeps a subject whole — the panel already drew its own
+                dividers in these two places. */}
+            <div className="hwb-col">
+              {/* Ava's brain, always — it is named by configuration, so it is
+                  knowable even when nothing is running. This block used to be
+                  absent entirely on a machine with no GPU, which told a user whose
+                  model was serving fine that no model existed. */}
+              <div className="hwb-sec">
+                <div style={{ color: 'var(--muted)', marginBottom: 6 }}>Ava's brain</div>
+                {brain ? (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedModelId(brain.id)}
+                    style={{
+                      display: 'block', width: '100%', textAlign: 'left', font: 'inherit',
+                      background: 'transparent', border: 0, padding: 0, cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ fontSize: 12.5, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={activityDotStyle(brain)} />
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {brain.model}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 11, color: stateCopy(brain).tone, marginTop: 2 }}>
+                      {stateCopy(brain).label}
+                      {brain.memory_gb != null && ` · ${brain.memory_gb.toFixed(1)} GB`}
+                      {brain.vram_mb != null && brain.vram_mb > 0 && ` (${(brain.vram_mb / 1024).toFixed(1)} GB on GPU)`}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, lineHeight: 1.35 }}>
+                      {stateCopy(brain).hint}
+                      {/* "It does not have this model" is only half an answer —
+                          say what it DOES have, which is usually the whole
+                          diagnosis (a tag typo, or a pull that never ran). */}
+                      {stateOf(brain) === 'absent' && brain.served && brain.served.length > 0 && (
+                        <> It has: {brain.served.slice(0, 3).join(', ')}
+                          {brain.served.length > 3 && ` +${brain.served.length - 3} more`}.</>
                       )}
                     </div>
-                    {/* One state, one line. "GPU activity: offline" used to sit
-                        directly above "Status: Empty" — two readings of the same
-                        fact, in two vocabularies, neither actionable. */}
-                    <div><b>State:</b> {stateCopy(selectedModel).label}</div>
-                    {selectedModel.role_key !== 'brain' && selectedModel.role && (
-                      <div><b>Role:</b> {selectedModel.role}</div>
-                    )}
-                    <div><b>Runtime:</b> {selectedModel.name}</div>
-                    <div><b>Memory:</b> {selectedModel.memory_gb != null ? `${selectedModel.memory_gb.toFixed(2)} GB` : '—'}</div>
-                    {selectedModel.gpu_util != null && (
-                      <div><b>GPU activity:</b> {Math.round(selectedModel.gpu_util)}%</div>
-                    )}
-                    <div><b>Source:</b> {selectedModel.source}{selectedModel.pid != null ? ` · PID ${selectedModel.pid}` : ''}</div>
-                    <div style={{ marginTop: 7 }}>
-                      <div style={{ fontWeight: 700, marginBottom: 4 }}>Model components</div>
-                      {selectedModel.components && selectedModel.components.length > 0 ? (
-                        <div style={{ maxHeight: 120, overflow: 'auto', border: '1px solid var(--line)', borderRadius: 8, padding: '5px 7px' }}>
-                          {selectedModel.components.map((c, i) => (
-                            <div key={i} style={{ fontSize: 11, marginBottom: 2 }}>
-                              {(c.kind_label as string) || c.kind}: {c.name}
-                              {c.in_memory === false
-                                ? ' (configured — not in memory)'
-                                : c.in_memory == null
-                                  ? ' (configured — residency unknown)'
-                                  : ' (in memory)'}
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div style={{ color: 'var(--muted)', fontSize: 11 }}>
-                          {String(selectedModel.name || '').toLowerCase().includes('gpusvc')
-                            ? 'No gpusvc component breakdown detected yet (it updates once model file mappings are visible).'
-                            : 'No component breakdown available for this runtime.'}
-                        </div>
-                      )}
-                    </div>
+                  </button>
+                ) : (
+                  <div style={{ color: 'var(--muted)', fontSize: 11, lineHeight: 1.35 }}>
+                    No model linked yet — pick one in Setup → Agent → Brain.
                   </div>
                 )}
-              </>
-            )}
+              </div>
+              <div className="hwb-sec">
+                {/* Not "on this machine": a cloud or sandbox brain is listed here
+                    too, and its own state says it runs elsewhere. */}
+                <div style={{ color: 'var(--muted)', marginBottom: 6 }}>Models Ava can see</div>
+                {models.length === 0 ? (
+                  <div style={{ color: 'var(--muted)', fontSize: 11, lineHeight: 1.35 }}>
+                    No inference engine is running here yet.
+                  </div>
+                ) : (
+                  <>
+                    <select
+                      className="st-in full"
+                      value={selectedModel?.id || ''}
+                      onChange={(e) => setSelectedModelId(e.target.value)}
+                      style={{ width: '100%', marginBottom: 7, fontSize: 12 }}
+                    >
+                      {models.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.model}{m.role_key === 'brain' ? ' · brain' : ''} — {stateCopy(m).label}
+                        </option>
+                      ))}
+                    </select>
+                    {selectedModel && (
+                      <div style={{ fontSize: 11.5, lineHeight: 1.35 }}>
+                        <div>
+                          <b>Model:</b> <span style={activityDotStyle(selectedModel)} />{selectedModel.model}
+                          {selectedModel.role_key === 'brain' && (
+                            <span style={{
+                              marginLeft: 6, padding: '0 5px', borderRadius: 4, fontSize: 10,
+                              fontWeight: 700, background: 'var(--accent)', color: '#fff',
+                            }}>brain</span>
+                          )}
+                        </div>
+                        {/* One state, one line. "GPU activity: offline" used to sit
+                            directly above "Status: Empty" — two readings of the same
+                            fact, in two vocabularies, neither actionable. */}
+                        <div><b>State:</b> {stateCopy(selectedModel).label}</div>
+                        {selectedModel.role_key !== 'brain' && selectedModel.role && (
+                          <div><b>Role:</b> {selectedModel.role}</div>
+                        )}
+                        <div><b>Runtime:</b> {selectedModel.name}</div>
+                        <div><b>Memory:</b> {selectedModel.memory_gb != null ? `${selectedModel.memory_gb.toFixed(2)} GB` : '—'}</div>
+                        {selectedModel.gpu_util != null && (
+                          <div><b>GPU activity:</b> {Math.round(selectedModel.gpu_util)}%</div>
+                        )}
+                        <div><b>Source:</b> {selectedModel.source}{selectedModel.pid != null ? ` · PID ${selectedModel.pid}` : ''}</div>
+                        <div style={{ marginTop: 7 }}>
+                          <div style={{ fontWeight: 700, marginBottom: 4 }}>Model components</div>
+                          {selectedModel.components && selectedModel.components.length > 0 ? (
+                            <div style={{ maxHeight: 120, overflow: 'auto', border: '1px solid var(--line)', borderRadius: 8, padding: '5px 7px' }}>
+                              {selectedModel.components.map((c, i) => (
+                                <div key={i} style={{ fontSize: 11, marginBottom: 2 }}>
+                                  {(c.kind_label as string) || c.kind}: {c.name}
+                                  {c.in_memory === false
+                                    ? ' (configured — not in memory)'
+                                    : c.in_memory == null
+                                      ? ' (configured — residency unknown)'
+                                      : ' (in memory)'}
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div style={{ color: 'var(--muted)', fontSize: 11 }}>
+                              {String(selectedModel.name || '').toLowerCase().includes('gpusvc')
+                                ? 'No gpusvc component breakdown detected yet (it updates once model file mappings are visible).'
+                                : 'No component breakdown available for this runtime.'}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}
