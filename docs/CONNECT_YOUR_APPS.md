@@ -179,12 +179,12 @@ The tier decides how Ava asks, and you cannot be talked past it:
 ??? note "Why a freshly connected MCP app lists every tool as `write`, including its reads"
 
     A caveat worth knowing: tiers for an MCP or facade app come from the
-    manifest's `dynamic_access` patterns, and the browser flow doesn't write any
-    - so a freshly connected MCP app lists **every** tool as `write`, including
-    its pure reads, and each one asks the first time. That is deliberate (Ava
-    will not guess that a tool named `today_summary` is safe), but if you want
-    reads to run silently, add a `dynamic_access:` block via the row's **Edit
-    manifest** - see [Connector SDK §5](CONNECTOR_SDK.md).
+    manifest's `dynamic_access` patterns, and the browser flow doesn't write
+    any - so a freshly connected MCP app lists **every** tool as `write`,
+    including its pure reads, and each one asks the first time. That is
+    deliberate (Ava will not guess that a tool named `today_summary` is safe),
+    but if you want reads to run silently, add a `dynamic_access:` block via the
+    row's **Edit manifest** - see [Connector SDK §5](CONNECTOR_SDK.md).
 
 If the sandbox isn't reachable from the browser, the page shows the one command
 that loads them (`cd agent && ./install.sh`); run it once and you're done.
