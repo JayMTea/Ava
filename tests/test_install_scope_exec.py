@@ -12,6 +12,7 @@ process. No test may ever invoke the real binary.
 """
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -159,6 +160,60 @@ class ScopedInstallTests(unittest.TestCase):
         self.assertIn("skipping", out,
                       "a scoped run is silent about what it did not do, which reads "
                       "as a full deploy in the log")
+
+    def _seed_manifest(self, *names: str) -> None:
+        """Write a deploy manifest as if a previous run had installed `names`."""
+        data = self.tmp / "home" / "data"
+        data.mkdir(parents=True, exist_ok=True)
+        (data / "skills_deployed.json").write_text(
+            json.dumps([{"name": n, "sha256": "0" * 64} for n in names]),
+            encoding="utf-8")
+
+    def test_a_skill_dropped_from_the_repo_is_removed_from_the_sandbox(self):
+        """`skill install` is additive and nemoclaw has no `skill list`, so
+        without an explicit prune a retired skill stays live in the sandbox for
+        the rest of the install's life — still loaded, still claiming a
+        capability the code no longer implements. The previous run's manifest is
+        the only record of what is in there, so it is what the prune diffs.
+        """
+        self._seed_manifest("ava-web", "ava-retired")
+        p, calls = self._run()
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self._count(calls, "skill remove ava-retired"), 1,
+                         "a skill deleted from the repo was left in the sandbox")
+        self.assertEqual(self._count(calls, "skill remove ava-web"), 0,
+                         "a skill the repo still ships was removed")
+
+    def test_the_prune_survives_a_manifest_that_is_missing_or_unreadable(self):
+        """A first install has no manifest, and a half-finished run can leave a
+        truncated one. Neither may abort the deploy: worst case nothing is pruned.
+        """
+        for content in (None, "", "not json{", "{}", "[3]"):
+            with self.subTest(manifest=content):
+                self.log.write_text("", encoding="utf-8")
+                data = self.tmp / "home" / "data"
+                data.mkdir(parents=True, exist_ok=True)
+                path = data / "skills_deployed.json"
+                path.unlink(missing_ok=True)
+                if content is not None:
+                    path.write_text(content, encoding="utf-8")
+                p, calls = self._run()
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                self.assertEqual(self._count(calls, "skill remove"), 0)
+                self.assertGreater(self._count(calls, "skill install"), 0,
+                                   "the prune stopped the install from running")
+
+    def test_the_run_records_what_it_deployed_so_the_next_one_can_prune(self):
+        self._seed_manifest("ava-retired")
+        p, _ = self._run()
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        written = json.loads(
+            (self.tmp / "home" / "data" / "skills_deployed.json").read_text(encoding="utf-8"))
+        names = {row["name"] for row in written}
+        self.assertNotIn("ava-retired", names,
+                         "the retired skill stayed in the manifest, so the next run "
+                         "would try to remove it again forever")
+        self.assertIn("ava-web", names)
 
 
 if __name__ == "__main__":

@@ -30,19 +30,12 @@ logs/*
 media/uploads/*
 !media/uploads/.gitkeep
 
-# Whatever the owner already has sitting under media/, kept off the index
-media/out/
-
 # Large model weights & the biometric voiceprint (re-downloadable / re-enrollable)
 models/
 
 # Vendored Piper/espeak binaries (large, platform-specific).
 # bin/ava (the portable CLI wrapper) IS tracked.
 bin/piper/
-
-# Leftover vendored runtime a fork may still have on disk. It carries absolute
-# owner paths, so the whole directory stays off the index rather than named files.
-gpusvc/
 
 # SearXNG local config holds a secret_key — keep the run script, not the secret
 searxng/settings.yml

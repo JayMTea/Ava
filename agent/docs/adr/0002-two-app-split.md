@@ -8,8 +8,8 @@
 
 ## Context
 
-Ava needs two very different surfaces: a day-to-day **user experience** (voice,
-chat, GPU workloads from a phone) and a powerful **admin/control** surface
+Ava needs two very different surfaces: a day-to-day **user experience** (voice
+and chat from a phone) and a powerful **admin/control** surface
 (OpenClaw dashboard with agent memory, identity, and configuration). Exposing both
 through one door would mean the most sensitive controls share an attack surface with
 casual daily use.
