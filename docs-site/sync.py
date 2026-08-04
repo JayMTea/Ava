@@ -99,19 +99,15 @@ ASSETS: dict[str, str] = {
     # `currentColor` so ONE file inks itself per scheme (extra.css masks it) —
     # the master's navy is invisible on the dark canvas. See the file's comment.
     "docs/assets/ava-wordmark.svg": "docs/assets/ava-wordmark.svg",
-    # The landing hero's stacked lockup (mark over wordmark), as a PAIR. Unlike
-    # the wordmark above it cannot be masked: the mark carries the brand
-    # gradient, and a mask throws colour away and keeps only the silhouette. So
-    # the scheme is served by swapping the file, not by inking one — `-ink` is
-    # the light scheme (near-black wordmark) and `-white` is the dark one, and
-    # both keep the mark blue. SVG rather than the 1200w PNG beside it in the
-    # export set: 2 KB, resolution-independent, and the letterforms stay sharp
-    # at any hero width. Exported into frontend/public/assets/others/, which is
-    # NOT where they can be served from — public/ is copied verbatim into the
-    # tracked dist and precached by workbox, so the whole variant set would
-    # ship to every app client to render one logo on a docs page.
-    "docs/assets/ava-stacked-gradient-ink.svg": "docs/assets/ava-stacked-gradient-ink.svg",
-    "docs/assets/ava-stacked-gradient-white.svg": "docs/assets/ava-stacked-gradient-white.svg",
+    # The landing hero renders the bare node mark, and it reuses the favicon
+    # staged below rather than adding a file: same drawing, one source, no
+    # fourth copy of the logo to keep in step. See .ava-hero__mark in
+    # stylesheets/extra.css. A stacked mark-over-wordmark lockup lived here
+    # briefly and is gone with the wordmark it carried; the export set it came
+    # from is in frontend/public/assets/others/, untracked on purpose, because
+    # public/ is copied verbatim into the tracked dist and precached by
+    # workbox — 24 logo variants would ship to every app client to draw one
+    # image on a docs page.
     # The site's tab icon, INHERITED from the app rather than redrawn — same rule
     # as the theme icons below. Without it Material serves its own default
     # favicon, so the docs advertised someone else's mark while the app carried

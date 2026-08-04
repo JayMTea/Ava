@@ -206,33 +206,38 @@
   text-align: center;
 }
 
-/* Stacked lockup standing in for the old "MEET AVA" text eyebrow (home.html):
-   the node mark over the wordmark, 242:274 in its own viewBox.
+/* The bare node mark standing in for the old "MEET AVA" text eyebrow
+   (home.html). The wordmark that used to sit under it is gone: the <h1> is
+   already two lines of type directly below, and the lockup spelled "AVA" at
+   the top of a page whose header spells it too.
 
-   TWO FILES, NOT ONE INKED FILE. Everything else branded on this site is a
-   single silhouette masked with currentColor, which is why one wordmark serves
-   both schemes. That trick cannot carry this one: the mark is a blue gradient
-   over a paler cross-brace, and a mask keeps the shape and discards every
-   colour in it. So the scheme picks the file. Both keep the mark blue against
-   the panel it sits on; only the wordmark flips, near-black (#101828, 14.8:1
-   on the light panel) to white (15.6:1 on the dark one). The pair ships from
-   the same export, so the two never drift apart.
+   ONE FILE, BOTH SCHEMES, AND NOT A COPY. This is the app's own favicon.svg,
+   which is the same drawing as pwa-192/512 - tools/sync_icons.py rewrites all
+   of them from brand/pwa-icon-transparent.svg and tests/test_icon_sync.py
+   fails if any drifts. Pointing the hero at that file rather than at a fourth
+   render of the mark means the landing page, the browser tab, the home screen
+   and the installed app cannot disagree about what Ava's logo is. It is
+   already staged (ASSETS in sync.py), so this costs no new asset.
 
-   The slate rule needs no `!important` and no extra specificity - it is one
-   attribute selector deeper than the base rule and simply wins. */
+   No scheme swap, and no currentColor mask either: the mark is a blue gradient
+   over paler cross-braces, so masking it would flatten it to a silhouette,
+   while the blue itself carries both panels - #0064E0 on the light cream and
+   #0091FF against the dark one. Only the wordmark ever needed inking, and the
+   wordmark is what we just removed. */
 .ava-hero__mark {
   /* Not optional. This is a <span>, and it used to get `display: block` from
      .ava-wordmark; inline boxes ignore width, height and aspect-ratio, so
      without this the element computes to zero and the hero silently loses its
      logo while the markup still looks correct. */
   display: block;
-  width: clamp(6rem, 14vw, 8.5rem);
-  aspect-ratio: 242 / 274;
-  margin: 0 auto 1.2rem;
-  background: url(../docs/assets/ava-stacked-gradient-ink.svg) center / contain no-repeat;
-}
-[data-md-color-scheme="slate"] .ava-hero__mark {
-  background-image: url(../docs/assets/ava-stacked-gradient-white.svg);
+  width: clamp(5.5rem, 12vw, 7.5rem);
+  /* The viewBox is square, but the drawing is not: it sits ~60% of the way
+     across and ~75% of the way down its own canvas, so the box carries built-in
+     air on all four sides. The bottom margin is tuned against the INK, not the
+     box, which is why it is smaller than the wordmark version's. */
+  aspect-ratio: 1 / 1;
+  margin: 0 auto 0.55rem;
+  background: url(../docs/assets/favicon.svg) center / contain no-repeat;
 }
 
 .ava-hero h1 {

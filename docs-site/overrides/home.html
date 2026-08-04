@@ -26,13 +26,13 @@
 
   <section class="ava-hero">
     <div class="md-grid">
-      {#- The lockup stands in for the old "Meet Ava" eyebrow: it says the same
-          thing in the brand's own letterforms, and the mark above it says it
-          before a word is read. NOT .ava-wordmark: that class masks its file
-          with currentColor, which is right for a single-colour wordmark and
-          wrong here, because masking the lockup would throw the mark's blue
-          gradient away and leave a flat silhouette. .ava-hero__mark swaps the
-          FILE per scheme instead - see stylesheets/extra.css. -#}
+      {#- The mark stands in for the old "Meet Ava" eyebrow, and says it before
+          a word is read. NOT .ava-wordmark: that class masks its file with
+          currentColor, which is right for a single-colour wordmark and wrong
+          here, because masking the mark would throw its blue gradient away and
+          leave a flat silhouette. It carries the accessible name, so the <h1>
+          below is free to be the headline rather than the brand - see
+          .ava-hero__mark in stylesheets/extra.css. -#}
       <span class="ava-hero__mark" role="img" aria-label="Ava"></span>
       <h1>Your AI. Your hardware.</h1>
       <p class="ava-hero__tagline">
