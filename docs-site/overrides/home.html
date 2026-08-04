@@ -10,7 +10,18 @@
 -#}
 {% extends "main.html" %}
 
+{#- base.html renders `hero` BEFORE `tabs`, so a landing page that fills the
+    hero block strands the navigation.tabs strip below it — and because
+    extra.css paints .md-tabs in the same accent as .md-header, it read as a
+    second header bar sitting between the feature cards and the typeset content.
+    Emit the tabs at the top of the hero and leave the theme's slot empty: the
+    DOM order under .md-container is then tabs-then-landing, exactly the
+    header -> tabs -> content stacking every other page has. Other pages are
+    untouched (their hero block is empty, so the theme's slot still fires). -#}
+{% block tabs %}{% endblock %}
+
 {% block hero %}
+{% if "navigation.tabs" in features %}{% include "partials/tabs.html" %}{% endif %}
 <div class="ava-landing">
 
   <section class="ava-hero">
