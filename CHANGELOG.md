@@ -252,11 +252,6 @@ pre-release milestones from when Ava ran on one box and nothing was tagged.
   both call out - so a text-clean tree shipped 15 of 17 PNGs and all 6 videos
   carrying one. All re-shot from sanitized fixtures against the current build,
   at byte-identical published dimensions.
-- The `ava-gpu` skill declared itself "fully uncensored" and was installed
-  unconditionally, bypassing the `persona.adult` gate the owner sets (default
-  off) which already governed the identical policy for conversation. Adult
-  content is now one gate covering conversation and images alike; the skill
-  defers to it instead of carrying its own always-on permission.
 - A non-ASCII character in any compared secret raised `TypeError` from
   `hmac.compare_digest` and returned HTTP 500. On `POST /login` that locked the
   owner out of the only page that could change the password; on the `/internal`

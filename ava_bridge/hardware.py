@@ -112,16 +112,11 @@ def _component_kind_label(kind: str) -> str:
     k = (kind or "model").lower()
     labels = {
         "checkpoints": "Base checkpoint",
-        "weight_models": "latent pipeline model",
         "unet": "UNet",
         "clip": "CLIP text",
         "clip_vision": "CLIP vision",
         "vae": "VAE",
         "loras": "LoRA",
-        "guidance net": "guidance net",
-        "upscale_models": "Upscaler",
-        "upscale": "Upscaler",
-        "video": "Video model",
         "served-model": "Served model",
         "model": "Model",
     }
@@ -181,16 +176,11 @@ def _read_mapped_model_components(pid: int) -> list[dict]:
 
     order = {
         "checkpoints": 1,
-        "weight_models": 2,
-        "unet": 3,
-        "clip": 4,
-        "clip_vision": 5,
-        "vae": 6,
-        "loras": 7,
-        "guidance net": 8,
-        "upscale_models": 9,
-        "video": 10,
-        "upscale": 11,
+        "unet": 2,
+        "clip": 3,
+        "clip_vision": 4,
+        "vae": 5,
+        "loras": 6,
         "model": 50,
     }
     out.sort(key=lambda x: (order.get(x.get("kind", "model"), 99), x.get("name", "")))

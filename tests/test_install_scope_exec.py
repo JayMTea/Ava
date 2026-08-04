@@ -176,10 +176,10 @@ class ScopedInstallTests(unittest.TestCase):
         capability the code no longer implements. The previous run's manifest is
         the only record of what is in there, so it is what the prune diffs.
         """
-        self._seed_manifest("ava-web", "ava-gpu")
+        self._seed_manifest("ava-web", "ava-retired")
         p, calls = self._run()
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
-        self.assertEqual(self._count(calls, "skill remove ava-gpu"), 1,
+        self.assertEqual(self._count(calls, "skill remove ava-retired"), 1,
                          "a skill deleted from the repo was left in the sandbox")
         self.assertEqual(self._count(calls, "skill remove ava-web"), 0,
                          "a skill the repo still ships was removed")
@@ -204,13 +204,13 @@ class ScopedInstallTests(unittest.TestCase):
                                    "the prune stopped the install from running")
 
     def test_the_run_records_what_it_deployed_so_the_next_one_can_prune(self):
-        self._seed_manifest("ava-gpu")
+        self._seed_manifest("ava-retired")
         p, _ = self._run()
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         written = json.loads(
             (self.tmp / "home" / "data" / "skills_deployed.json").read_text(encoding="utf-8"))
         names = {row["name"] for row in written}
-        self.assertNotIn("ava-gpu", names,
+        self.assertNotIn("ava-retired", names,
                          "the retired skill stayed in the manifest, so the next run "
                          "would try to remove it again forever")
         self.assertIn("ava-web", names)
