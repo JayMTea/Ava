@@ -21,7 +21,7 @@ three times that before any KV cache. Same tier, different answer.
 
 **The asymmetry that governs every caller.** "Will not fit" is arithmetic —
 weights alone exceeding the pool is a fact. "Will fit" is never more than a
-projection: allocator fragmentation, a concurrent the GPU service render, and WSL2's
+projection: allocator fragmentation, a second model holding a lease, and WSL2's
 default swap all sit between an estimate and reality. So a confident "fits!"
 that then thrashes is worse than the vague tier it replaced, because it converts
 the owner's caution into trust. Callers must be blunt in the first direction and
