@@ -166,9 +166,9 @@ def main():
         _exit(patches)
 
     # 3) Memory pressure sheds to the smaller model ---------------------------
-    section("3. Memory-pressure shedding (concurrent render eats the pool)")
+    section("3. Memory-pressure shedding (another workload eats the pool)")
     _reset()
-    patches = mac_env(free_gb=8.0)     # heavy the GPU service render: only 8 GB free
+    patches = mac_env(free_gb=8.0)     # something heavy is resident: only 8 GB free
     _enter(patches)
     try:
         chat = model_fit.select(MAC_BACKENDS, workload="chat", free_gb=8.0)

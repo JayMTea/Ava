@@ -1,8 +1,8 @@
 """ModelDriver — the seam between the allocator and one kind of thing that holds memory.
 
-A box running Ava plus any second model oversubscribes its memory: a language
-model server and an image pipeline each want tens of GiB of the same pool, so at
-most one can be resident. Freeing that memory means acting on something, and every
+A box running Ava plus any second model oversubscribes its memory: two model
+servers each want tens of GiB of the same pool, so at most one can be
+resident. Freeing that memory means acting on something, and every
 *kind* of something is actuated differently — a container is stopped, a service
 unit is stopped, an engine with an unload endpoint drops its weights while staying
 up, an in-process singleton is dereferenced. This interface isolates each of those

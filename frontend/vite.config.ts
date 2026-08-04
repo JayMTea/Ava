@@ -7,16 +7,16 @@ import { VitePWA } from 'vite-plugin-pwa';
 // the running bridge on :8096 so the same-origin cookie auth keeps working.
 const BRIDGE = process.env.AVA_BRIDGE || 'http://127.0.0.1:8096';
 const proxy = Object.fromEntries(
-  ['/api', '/apps', '/media', '/uploads', '/internal', '/login', '/logout'].map((p) => [
+  ['/api', '/apps', '/uploads', '/internal', '/login', '/logout'].map((p) => [
     p,
     { target: BRIDGE, changeOrigin: true },
   ]),
 );
 
 // PWA: installable app shell only. The service worker precaches the built
-// bundle and serves navigations offline; every live surface (/api, /media,
-// /uploads, connector /apps) stays network-only so nothing stale is ever
-// shown. Root-level artifacts (sw.js, manifest.webmanifest) are served by
+// bundle and serves navigations offline; every live surface (/api, /uploads,
+// connector /apps) stays network-only so nothing stale is ever shown.
+// Root-level artifacts (sw.js, manifest.webmanifest) are served by
 // explicit bridge routes — see phone_bridge.py.
 const pwa = VitePWA({
   registerType: 'autoUpdate',
@@ -59,7 +59,7 @@ const pwa = VitePWA({
     globIgnores: ['favicon.svg', 'assets/brand/**'],
     navigateFallback: '/index.html',
     navigateFallbackDenylist: [
-      /^\/api/, /^\/apps/, /^\/media/, /^\/uploads/, /^\/internal/,
+      /^\/api/, /^\/apps/, /^\/uploads/, /^\/internal/,
       /^\/login/, /^\/logout/, /^\/setup/, /^\/legacy/,
     ],
     // NOTE: the webmanifest is dropped from the precache by the companion

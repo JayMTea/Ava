@@ -17,7 +17,7 @@ glob placed above a specific one silently steals its models
 (`*nemotron*` above `*nemotron*omni*` would serve Omni with hermes and return no
 tool calls at all).
 
-Style matches tests/test_no_eval_data.py: a `git ls-files` scan, no bridge, no
+Style matches tests/test_diagram_sync.py: a `git ls-files` scan, no bridge, no
 AVA_HOME, no network. It shells deploy/resolve-model-flags.sh, which is stdlib
 bash and touches nothing.
 """

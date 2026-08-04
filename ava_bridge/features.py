@@ -34,12 +34,6 @@ REGISTRY: dict[str, dict] = {
     # one — so an entry with no `env` is a switch that is unpinnable by anything
     # but a config write into the instance. `AVA_WEB_SEARCH` joins the existing
     # `AVA_WEB_*` family in config.py, which tunes the same capability.
-    "image": {
-        "label": "Image / video generation",
-        "sub": "via the the GPU service connector",
-        "default": True,
-        "env": "AVA_IMAGE",
-    },
     "web_search": {
         "label": "Web search",
         "sub": "self-hosted SearXNG + guarded fetch",
@@ -121,7 +115,7 @@ def preflight(key: str, probe=None) -> tuple[str, str] | None:
       2. probe() truthy    -> ("<key>_down", the probe's actionable error)
 
     `probe` is an optional zero-arg callable returning None when the backing
-    service answers, else an error string (e.g. gpu_jobs.gpusvc_reachable).
+    service answers, else an actionable error string naming what to fix.
     """
     label = REGISTRY.get(key, {}).get("label") or key.replace("_", " ")
     if not enabled(key):

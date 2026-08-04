@@ -28,18 +28,9 @@ for developers building their own connector, and its full reference is the
 ## The no-code way: from the browser
 
 Everything happens in the app, on the **Setup → Connectors** page. Here it is end
-to end, narrated (sound on):
+to end.
 
-<video controls playsinline preload="metadata"
-       style="width:100%;border-radius:8px"
-       aria-label="Screen recording: connecting an app from the Setup hub, end to end">
-  <source src="../assets/connect-app-tour.mp4" type="video/mp4">
-  <track kind="captions" srclang="en" label="English"
-         src="../assets/connect-app-tour.vtt">
-  Your browser can't play video. <a href="../assets/connect-app-tour.mp4">Download the walkthrough</a>.
-</video>
-
-*(The app in the recording is a real one - a personal training log with its own
+*(The app in the walkthrough is a real one - a personal training log with its own
 codebase, its own SQLite file and an MCP server, which knows nothing about Ava.
 The six tools Ava discovers are the ones its server actually advertises, and the
 figures it reports at the end come out of its own database. Ava's surrounding
@@ -54,8 +45,6 @@ the flyout at the foot of the icon rail when it's collapsed) and pick the
 **Connectors** tab. You'll see every app already wired in, grouped into
 **Devices**, **Apps** and **Tools**, each row carrying its transport, action
 count, deploy state and credential state.
-
-![The Connectors tab: a Connect an app or device button above the list, which is split into Apps and Tools - each row shows its transport, action count and deployed state, with Permissions and Preview buttons](assets/connect-app-1-connectors.png)
 
 ### Step 2: Click "Connect an app or device", name it, paste its address
 
@@ -84,8 +73,6 @@ which of those it is.
     auto-detected - Detect only ever tries Streamable HTTP - so wire it by hand
     with `mcp: {url: …/sse}`, which selects the legacy transport from the `/sse`
     suffix. See the [Connector SDK](CONNECTOR_SDK.md).
-
-![The Connect an app form after Detect: the address http://127.0.0.1:8481 with the Detect button beside it, optional Access token, Health check URL and Environment variable name fields, and below them a green result panel reading "Found 6 tools via MCP (http)" listing today_summary, sleep_last_night, week_summary, recent_workouts, weight_trend and log_workout, with an unticked "Ask me before Ava uses these" box and a Connect app button](assets/connect-app-2-detected.png)
 
 !!! warning "If you pasted a start command, Detect will run it. Check the isolation switch first."
 
@@ -149,8 +136,6 @@ That's it. The app appears in the Connectors list - **enabled**, labelled with t
 transport Ava will speak to it (**MCP**, **tool facade** or **REST**), and marked
 **needs deploy** until its tools and egress policy are generated into the agent.
 
-![The Connectors list after connecting: the new app enabled, with its transport and deploy state](assets/connect-app-3-connected.png)
-
 !!! note "Why some rows show an action count and some don't"
 
     A REST app shows its action count. An MCP or facade app doesn't: its tools
@@ -211,15 +196,11 @@ Which field turns this on depends on what Detect found:
 You can add or change this later from the row's **Edit manifest** (a `ui:` block)
 or **Appearance** (icon and accent):
 
-![The connected app's own web page embedded in Ava: its stat cards for steps, resting heart rate, sleep, weight and this week's sessions, above a table of recent workouts](assets/connect-app-4-embedded.png)
-
 ### Step 6: Ask
 
 Now just ask. Ava picks the tool, calls it, and answers out of the app's own
 data. The call shows up in the chat's tool chips and on the Operations page like
 everything else Ava does:
-
-![A chat turn: the question "How did my training go this week?" answered with six sessions, 261 active minutes and 22.8 kilometres, noting the figures came from the connected app on this machine, with a Tools used chip beneath](assets/connect-app-5-asked.png)
 
 ---
 

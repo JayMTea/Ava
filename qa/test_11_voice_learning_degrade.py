@@ -67,8 +67,8 @@ class TestRouterAbsent(unittest.TestCase):
         self.assertLess(r.status_code, 500)
 
 
-class TestImageFeatureFlag(unittest.TestCase):
+class TestFeatureFlags(unittest.TestCase):
     def test_hub_system_reports_feature_flags(self):
         body = CLIENT.get("/api/hub/system").json()
-        for flag in ("voice", "web_search", "image"):
+        for flag in ("voice", "web_search"):
             self.assertIn(flag, body)

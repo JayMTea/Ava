@@ -6,7 +6,7 @@ BUT the agent persists every step to its session jsonl as it works — including
 {type:"thinking"} reasoning, intermediate {type:"text"} and {type:"toolCall"}
 events. We run the (blocking) turn in a worker thread and concurrently poll the
 tail of that session file, so the UI can show Ava's REAL reasoning + actions
-live, then attach the final reply / image when she finishes.
+live, then attach the final reply when she finishes.
 """
 import json
 import shlex
@@ -21,8 +21,6 @@ from .agent import (ask_openclaw, which_model, sbx_read, session_file,
                     chat_direct)
 from .artifacts import build_turn_artifact
 from .chat_store import chat_append, history_for
-from .gpu_jobs import (pickup_image_since, start_agent_image_watch, attach_chat,
-                         _latest_image_job_since)
 
 
 def _pickup_previews_since(t0: float, tools: list[str]) -> list[dict]:
@@ -184,10 +182,9 @@ def _prune_turns(max_age: float = 3600.0):
     with state.turns_lock:
         # Never evict a turn that is still running. Age alone was the whole test,
         # and this runs at the top of every start_turn — so a turn that legitimately
-        # outlives max_age (a long agent turn, OC_TIMEOUT is up to 600s, or a
-        # queued image render) could be deleted mid-flight by an unrelated new
-        # message. Its completion then hit a missing key and the client polled a
-        # turn id that had ceased to exist.
+        # outlives max_age (a long agent turn; OC_TIMEOUT is up to 600s) could be
+        # deleted mid-flight by an unrelated new message. Its completion then hit
+        # a missing key and the client polled a turn id that had ceased to exist.
         stale = [k for k, v in state.turns.items()
                  if now - v.get("created", now) > max_age
                  and v.get("status") != "running"]
@@ -325,22 +322,11 @@ def _run_turn(tid: str, agent_text: str, sid: str, chat_id: str):
     try:
         reply, tools = ask_openclaw(agent_text, session_id=sid)
     except Exception as e:  # noqa: BLE001
-        job = pickup_image_since(t0, wait=120)
-        if job and chat_id:
-            chat_append(chat_id, "assistant", "Here's the image you asked for.")
-            attach_chat(job["id"], chat_id)  # bridge persists the image itself
         m = which_model()
-        if job:
-            _set_turn(
-                    tid,
-                    status="done", reply="Here's the image you asked for.",
-                    job=job, model=m, ctx_tokens=(m or {}).get("prompt_tokens"),
-                    tools_used=tools, error=None)
-            return
-        # No image to salvage: never leave the user with a dangling question and
-        # an endless spinner. Give a plain, honest reply, persist it to the chat
-        # so reopening the conversation shows what happened, and flag it degraded
-        # so the UI can offer a one-tap retry.
+        # Never leave the user with a dangling question and an endless spinner.
+        # Give a plain, honest reply, persist it to the chat so reopening the
+        # conversation shows what happened, and flag it degraded so the UI can
+        # offer a one-tap retry.
         fallback = ("Sorry — I couldn't finish that just now (my tools timed "
                     "out or hit a snag). Please try again.")
         if chat_id:
@@ -348,11 +334,9 @@ def _run_turn(tid: str, agent_text: str, sid: str, chat_id: str):
         # Recover whatever tools DID run before the failure so the flight
         # recorder shows the real actions, not an empty list (audit fidelity).
         partial_tools = _tools_from_session(sid, after)
-        _set_turn(
-                tid,
-                status="done", reply=fallback, job=None, model=m,
-                ctx_tokens=(m or {}).get("prompt_tokens"),
-                tools_used=partial_tools, degraded=True, error=str(e))
+        _set_turn(tid, status="done", reply=fallback, model=m,
+                  ctx_tokens=(m or {}).get("prompt_tokens"),
+                  tools_used=partial_tools, degraded=True, error=str(e))
         audit.record("turn", chat_id=chat_id, status="degraded",
                      tools=partial_tools, error=str(e)[:300], model=(m or {}).get("id"))
         return
@@ -360,15 +344,6 @@ def _run_turn(tid: str, agent_text: str, sid: str, chat_id: str):
     # the trajectory so tool chips AND the artifact panel (weather, etc.) work.
     if not tools:
         tools = _tools_from_session(sid, after)
-    job = None
-    if any("run_gpu_job" in t for t in tools):
-        # run_gpu_job renders THROUGH the bridge now (real the GPU service progress),
-        # so grab that live job; fall back to a file-watch if it isn't found.
-        job = _latest_image_job_since(t0) or start_agent_image_watch(t0)
-        if job and chat_id:
-            # Bind the render to this chat: the bridge appends the image (or a
-            # coded failure) when the job ends, even if the client is gone.
-            attach_chat(job["id"], chat_id)
     previews = _pickup_previews_since(t0, tools)
     artifact = None
     try:
@@ -382,7 +357,7 @@ def _run_turn(tid: str, agent_text: str, sid: str, chat_id: str):
                      steps=final_steps)
     with state.turns_lock:
         prev_steps = state.turns.get(tid, {}).get("steps")
-    _set_turn(tid, status="done", reply=reply, job=job,
+    _set_turn(tid, status="done", reply=reply,
               previews=previews, artifact=artifact,
               model=m, ctx_tokens=(m or {}).get("prompt_tokens"),
               tools_used=tools,
@@ -408,7 +383,7 @@ def start_turn(agent_text: str, sid: str, chat_id: str) -> str:
     tid = uuid.uuid4().hex[:12]
     with state.turns_lock:
         state.turns[tid] = {"id": tid, "status": "running", "steps": [], "reply": None,
-                            "job": None, "previews": [], "artifact": None, "model": None,
+                            "previews": [], "artifact": None, "model": None,
                             "ctx_tokens": None, "tools_used": [], "degraded": False,
                             "error": None, "created": time.time()}
     threading.Thread(target=_run_turn_guarded,

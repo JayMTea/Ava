@@ -65,7 +65,7 @@ ava/                    <- the checkout, and AVA_HOME
 ├── ava.yaml            <- your settings
 ├── data/               <- memory.db, chats.db, session key, tokens, password
 ├── logs/               <- audit ledger, performance, hardware history, devices
-├── media/              <- gen/ (generated images), uploads/ (files you shared)
+├── media/              <- uploads/ (the files you shared in chat)
 └── secrets/            <- backend API keys, router token
 ```
 
@@ -85,11 +85,9 @@ you are copying.
     Point `AVA_HOME` somewhere else (an env var, or the compose volume, which
     mounts `./ava-data`) and every path above moves with it. Individual
     directories can also be redirected on their own with `paths.data`,
-    `paths.logs`, `paths.media`, `paths.uploads` and `paths.secrets`.
+    `paths.logs`, `paths.uploads` and `paths.secrets`.
 
 ## The inventory (Data → Overview)
-
-![Ava's Data overview: one row per store, each with a format badge, what it holds, its AVA_HOME-relative path in code, bytes on disk, an item count and when it was last written](../assets/data-overview.png)
 
 The secrets row is the one to look at, because it is where the promise is
 easiest to break. Ava lists the *names* it holds so you can audit them, and
@@ -113,7 +111,6 @@ secrets row carries `never leaves this machine`.
 | **Allocation decisions** | `logs/alloc.jsonl` | What was asked for, what the pool held, what was released (row appears once the file exists) |
 | **Hardware history** | `logs/hw_history/` | Minute- and hour-resolution GPU, memory and CPU samples |
 | **Device events** | `logs/devices/` | One rotated JSONL stream per connector; counted in *streams*, not lines |
-| **Generated media** | `media/out/` | Images and video Ava rendered |
 | **Uploads** | `media/uploads/` | Files you shared in chat; the originals stay here after their text is indexed |
 | **Secrets & keys** | `data/` and `secrets/` | Session signing key, internal tokens, login password, backend API keys |
 
@@ -149,8 +146,8 @@ secrets row carries `never leaves this machine`.
     JSON weight, last update), newest first, from `GET /api/data/chats`.
 
     - **JSON** is `GET /api/data/chats/{id}/export`, the conversation verbatim.
-    - **MD** is `?format=md`, a readable Markdown transcript with timestamps,
-      generated-image links and attachment names.
+    - **MD** is `?format=md`, a readable Markdown transcript with timestamps
+      and attachment names.
     - **Delete** is `DELETE /api/chats/{id}`, behind a confirm that tells you
       what it is about to do. It is permanent, and it is recorded in the audit
       ledger as a `chat_delete` event.
@@ -272,7 +269,7 @@ never auto-deleted**; they go when you delete them.
     |---|---|
     | Performance rollups (hourly and daily) | **Yes.** Both tiers are pruned to it by the in-process rollup scheduler, which also prunes raw segments once absorbed |
     | Hardware history | **Yes**, per tier, with the minute tier additionally hard-capped at **90 days** regardless of the setting, because minute resolution is what makes the file big |
-    | Generated media and uploads | **Eligibility only.** `prune_media()` applies the same cutoff and `GET /api/data/maintenance` reports the reclaimable total, but the sweep runs when `POST /api/data/maintenance/prune-media` is called (see the honest notes below) |
+    | Uploads | **Eligibility only.** `prune_media()` applies the same cutoff and `GET /api/data/maintenance` reports the reclaimable total, but the sweep runs when `POST /api/data/maintenance/prune-media` is called (see the honest notes below) |
     | **Audit ledger** | **No**, by design |
     | **`memory.db`** | **No**, by design |
     | **`chats.db`** | **No**, by design |
@@ -289,10 +286,9 @@ never auto-deleted**; they go when you delete them.
 - **There is no "Reclaim space" button.** The Maintenance tab renders exactly
   four panels: retention, database health, export, backup. The media-prune
   route exists server-side and is covered by tests, but nothing in the UI calls
-  it, and the Overview description of the generated-media store points at a
-  control that is not there. Prune media by calling
-  `POST /api/data/maintenance/prune-media`, by emptying the Generated media
-  store from Overview, or by deleting from `media/out/` yourself.
+  it. Prune uploads by calling `POST /api/data/maintenance/prune-media`, by
+  emptying the Uploads store from Overview, or by deleting from
+  `media/uploads/` yourself.
 - **Retention changes need a restart.** `perf_store` resolves the retention
   window at import; the panel tells you this instead of silently applying it on
   the next tick.

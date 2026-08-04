@@ -63,14 +63,6 @@ rules:
     cooldown: 300
     severity: critical
     message: "High generation error rate"
-  - id: job_stuck
-    metric: job_stuck_count
-    op: ">"
-    value: 0
-    for: 0
-    cooldown: 120
-    severity: warn
-    message: "A render job is stuck (no progress)"
   - id: service_down
     metric: service_down_count
     op: ">"

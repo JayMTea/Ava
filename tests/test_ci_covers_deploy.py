@@ -13,7 +13,7 @@ that the image bound loopback inside its namespace and left the published port
 refusing every connection. A test that cannot fail is worse than no test: it
 reports coverage it does not have. Hence the assertion below.
 
-Style matches tests/test_no_eval_data.py: a `git ls-files` scan, no bridge, no
+Style matches tests/test_diagram_sync.py: a `git ls-files` scan, no bridge, no
 AVA_HOME, no Docker daemon.
 """
 import pathlib

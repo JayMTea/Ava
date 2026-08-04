@@ -2,7 +2,7 @@
 # copy it to .env, and start:
 #
 #   cd deploy
-#   cp profiles/gpu.env .env      # or cpu / cuda / rocm / cloud / full / agent
+#   cp profiles/gpu.env .env      # or cpu / cuda / rocm / cloud / agent
 #   docker compose up -d
 #
 # Or let deploy/install.sh detect your hardware and write .env for you.
@@ -68,15 +68,12 @@ services:
       # saying why. `:?` turns that into an instruction at second zero.
       #
       # deploy/profiles/*.env carries the right trio for each profile.
-      AVA_BACKEND_URL: ${AVA_BACKEND_URL:?no backend configured — run deploy/install.sh, or `cd deploy && cp profiles/<cpu|cuda|gpu|rocm|cloud|full|agent>.env .env && docker compose up -d`. For the cloud profile, fill in the empty values in .env.}
+      AVA_BACKEND_URL: ${AVA_BACKEND_URL:?no backend configured — run deploy/install.sh, or `cd deploy && cp profiles/<cpu|cuda|gpu|rocm|cloud|agent>.env .env && docker compose up -d`. For the cloud profile, fill in the empty values in .env.}
       AVA_BACKEND_ENGINE: ${AVA_BACKEND_ENGINE:?set with AVA_BACKEND_URL — see deploy/profiles/}
       # The router sends this string verbatim as the OpenAI `model` field, so it
       # must be what the engine was STARTED with; a mismatch is a 404 per turn.
       AVA_BACKEND_MODEL: ${AVA_MODEL:?set with AVA_BACKEND_URL — see deploy/profiles/}
       AVA_INFERENCE_KEY: ${AVA_INFERENCE_KEY:-}
-      # the GPU service endpoint for the image pipeline + gpu-service connector (`full`
-      # profile only — in other profiles the connector row just shows down).
-      AVA_GPU_SERVICE: ${AVA_GPU_SERVICE:-http://gpu-service:8188}
       # The host's GPU, MEASURED by deploy/install.sh and DECLARED to the bridge.
       #
       # This service is never given a GPU (compose reserves devices for the
@@ -103,13 +100,13 @@ services:
   # Runs NemoClaw + the RemoteRuntime shim. It mounts the host Docker socket so
   # OpenShell can spawn the agent sandbox — that socket is ROOT-EQUIVALENT on the
   # host, so this is deliberately opt-in. Enable with:
-  #   cp profiles/agent.env .env && docker compose up -d   (or profiles/full.env)
+  #   cp profiles/agent.env .env && docker compose up -d
   # That file sets AVA_AGENT_ENABLED / AVA_AGENT_RUNTIME / AVA_ROUTER_HOST,
   # which only work as a set — enabling one alone leaves the bridge tool-less.
   # See deploy/README.md "Full agent in Docker" for the security caveat + the
   # sandbox<->bridge networking notes.
   agent:
-    profiles: ["agent", "full"]
+    profiles: ["agent"]
     build:
       context: ..
       dockerfile: deploy/agent.Dockerfile
@@ -198,15 +195,14 @@ services:
   # cpu profile, several times slower for the same answer.
   #
   # A SEPARATE service from `ollama`, not a `deploy.resources` block bolted onto
-  # it, for the reason the `gpu-service` comment below states: "Docker never grants
-  # GPU access implicitly — an image cannot opt itself in, because that is a
-  # daemon-level decision." The reservation therefore has to be DECLARED, and a
-  # service that declares it cannot start on a host with no NVIDIA runtime. That
-  # is the same trap `ollama-rocm` documents ("/dev/kfd does not exist on a
-  # non-AMD host, so a service declaring it fails to start everywhere else —
-  # including on the cpu profile"), and `ollama` is the one service the
-  # GPU-less majority depends on. Compose profiles keep the three mutually
-  # exclusive.
+  # it: Docker never grants GPU access implicitly — an image cannot opt itself
+  # in, because that is a daemon-level decision. The reservation therefore has to
+  # be DECLARED, and a service that declares it cannot start on a host with no
+  # NVIDIA runtime. That is the same trap `ollama-rocm` documents ("/dev/kfd does
+  # not exist on a non-AMD host, so a service declaring it fails to start
+  # everywhere else — including on the cpu profile"), and `ollama` is the one
+  # service the GPU-less majority depends on. Compose profiles keep the three
+  # mutually exclusive.
   #
   # Unlike ROCm this needs no special image: the CUDA runtime ships in the
   # default `ollama/ollama` tag, so `cpu` and `cuda` pull the same image and
@@ -242,12 +238,13 @@ services:
   #
   # Memory flags are NOT optional on a shared box. Without them vLLM takes ~90% of
   # the pool and captures CUDA graphs, which on unified-memory hardware (Grace-class,
-  # Apple) leaves nothing for the image engine the `full` profile starts alongside it —
-  # and an uncapped `restart` policy then retries the impossible start forever. That
-  # combination cost 7,997 restarts on the development box. Every value is
-  # env-overridable; see deploy/local-serve.sh for the measured reasoning.
+  # Apple) leaves nothing for the other tenants — voice, the agent sandbox, a second
+  # model the allocator manages — and an uncapped `restart` policy then retries the
+  # impossible start forever. That combination cost 7,997 restarts on the development
+  # box. Every value is env-overridable; see deploy/local-serve.sh for the measured
+  # reasoning.
   vllm:
-    profiles: ["gpu", "full"]
+    profiles: ["gpu"]
     image: vllm/vllm-openai:latest
     # Per-model flags come from ONE place: deploy/model-flags.conf, resolved by
     # deploy/resolve-model-flags.sh. This used to be a hardcoded
@@ -290,37 +287,6 @@ services:
     # The cap is the point — this said `on-failure` with no count while the comment
     # claimed otherwise, so an under-provisioned GPU restart-looped silently.
     restart: on-failure:3
-
-  # --- image / video generation (optional) ---
-  # Uses the upstream the GPU service image; mount your checkpoints under
-  # $AVA_HOME/models/gpusvc. Enable the `gpu-service` connector in ava.yaml to wire it.
-  # MEASURED 2026-07-29: this service had no `devices`, no `runtime` and no
-  # `deploy.resources.reservations`, and Docker never grants GPU access
-  # implicitly — an image cannot opt itself in, because that is a daemon-level
-  # decision. So GPU workloads under the `full` profile was **CPU-only on
-  # every platform**, while `profiles/full.env` throttled vLLM to
-  # AVA_VLLM_GPU_UTIL=0.55 to "leave room for the GPU model-class image work" that could
-  # never use it. Two defects reinforcing each other: renders were slow for a
-  # reason nobody could see, and the brain gave up 45% of the pool for nothing.
-  #
-  # The reservation below is the same block vllm carries. It is NVIDIA-specific
-  # (`driver: nvidia`), which is correct for now — there is no AMD equivalent of
-  # this profile yet, and `rocm` runs Ollama with no image engine.
-  gpu-service:
-    profiles: ["full"]
-    image: ${AVA_GPU_SERVICEUI_IMAGE:-ghcr.io/ai-dock/gpu-service:latest}
-    ports:
-      - "127.0.0.1:8189:8188"
-    volumes:
-      - ${AVA_HOME:-./ava-data}/models/gpusvc:/opt/the GPU service/models
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: ["gpu"]
-    restart: unless-stopped
 # The `cloud` profile starts only the ava service; set in .env:
 #   AVA_BACKEND_URL=https://api.openai.com/v1  (or your provider's /v1 base)
 #   AVA_BACKEND_ENGINE=openai  AVA_MODEL=<model id>  AVA_INFERENCE_KEY=<key>

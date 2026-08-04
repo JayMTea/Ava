@@ -22,7 +22,7 @@ class PolicyManager:
 
     # Policies that cannot be modified
     PROTECTED_POLICIES = [
-        'ava-knowledge',  # Core knowledge access + GPU workloads callback
+        'ava-knowledge',  # Core knowledge access
         'ava-weather',    # Core weather
     ]
 

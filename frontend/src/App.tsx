@@ -164,20 +164,15 @@ export default function App() {
   const [codeMode, setCodeMode] = useState(false);
   const [artWidth, setArtWidth] = useState('50%');
   const [refreshing, setRefreshing] = useState(false);
-  const [lightbox, setLightbox] = useState<{ url: string; onClose?: () => void } | null>(null);
+  const [lightbox, setLightbox] = useState<string | null>(null);
 
   const isMobile = () => typeof window !== 'undefined' && window.innerWidth <= 760;
 
   const shellRef = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
 
-  const openLightbox = useCallback((url: string, onClose?: () => void) => setLightbox({ url, onClose }), []);
-  const closeLightbox = useCallback(() => {
-    setLightbox((lb) => {
-      lb?.onClose?.();
-      return null;
-    });
-  }, []);
+  const openLightbox = useCallback((url: string) => setLightbox(url), []);
+  const closeLightbox = useCallback(() => setLightbox(null), []);
 
   // ---- divider drag resize (desktop) --------------------------------------
   const onMove = useCallback((clientX: number) => {
@@ -290,7 +285,6 @@ export default function App() {
                 <ChatView
                   items={chat.items}
                   currentChatId={chat.currentChatId}
-                  onCancelGen={chat.cancelGen}
                   onRetryUser={retryUser}
                   onRetryAva={retryAva}
                   onReplay={chat.replay}
@@ -368,7 +362,7 @@ export default function App() {
         onClick={() => setSidebarOpen(false)}
       />
 
-      {lightbox && <Lightbox url={lightbox.url} onClose={closeLightbox} />}
+      {lightbox && <Lightbox url={lightbox} onClose={closeLightbox} />}
 
       <HardwareBubble />
       <InferenceBanner />

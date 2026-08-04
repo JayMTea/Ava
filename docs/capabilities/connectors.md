@@ -7,8 +7,6 @@ policy that decides what the agent may reach. Nothing in Ava's core changes,
 which is the point. A fork that adds three of your own apps still has zero
 source edits.
 
-![A connected app running inside Ava's sidebar: its own web UI in the main pane, its tile in the left rail carrying the app's own accent colour](../assets/connect-app-4-embedded.png)
-
 A connected app gets its own place in the sidebar, its own health row, and its
 own tools that Ava can call in chat.
 
@@ -39,7 +37,7 @@ hand-maintained anywhere in Ava's core.
 
 - **A health row** on [Operations](operations.md) → Service health, from
   `service.probe`. Name the `features.*` flag that governs the service
-  (`service.feature: image`) and a dead probe reads *off* rather than *down*.
+  (`service.feature: voice`) and a dead probe reads *off* rather than *down*.
 - **A perf source** charted on [Vitals](vitals.md), from `perf.path`. If your
   app never writes a `performance.jsonl`, the bridge writes one for it: every
   proxied connector call is timed into `${AVA_LOGS}/apps/<id>/performance.jsonl`
@@ -64,7 +62,7 @@ bearer token server-side (`ui.api`) so the browser never sees it.
 
 ??? note "What ships built in, and why it is almost nothing"
 
-    Four connectors are built in and enabled on a fresh install. All four are
+    Three connectors are built in and enabled on a fresh install. All three are
     plumbing, which is to say Ava's own moving parts, reported so the dashboards
     can say "healthy" honestly.
 
@@ -73,13 +71,9 @@ bearer token server-side (`ui.api`) so the browser never sees it.
     | `bridge` | Health row for Ava's own web app, plus the `ava` perf source every Vitals chart reads. | none |
     | `local-llm` | Health probe for the OpenAI-compatible inference server. | none |
     | `router` | Health probe for the inference router (`/healthz`). | none |
-    | `gpu-service` | Health row for the image engine, gated on `features.image` so "off" never paints red. Its egress block allow-lists `POST /internal/run-gpu-job`. | none |
 
-    All four expose **no agent surface at all**. They are health and metrics
+    All three expose **no agent surface at all**. They are health and metrics
     rows, and a fresh install has **zero connector-generated agent tools**.
-    GPU workloads does reach the agent, but through a first-party tool
-    calling `/internal/run-gpu-job`, not a generated connector tool: the
-    `gpu-service` action declares no `path`, so nothing is generated for it.
 
     That emptiness is the design. The apps worth connecting are *yours*, so Ava
     ships the machinery and none of the opinions.
@@ -328,17 +322,6 @@ and both are additive on top of the normal pull path: a device's `mcp:` or
 at 12%") and handing Ava the event. The device logic and the decision to notify
 both stay in your app.
 
-<video controls playsinline preload="metadata"
-       style="width:100%;border-radius:8px"
-       aria-label="Screen recording: connecting a device and watching its first pushed reading arrive">
-  <source src="../../assets/connect-device-tour.mp4" type="video/mp4">
-  <track kind="captions" srclang="en" label="English"
-         src="../../assets/connect-device-tour.vtt">
-  Your browser can't play video. <a href="../../assets/connect-device-tour.mp4">Download the walkthrough</a>.
-</video>
-
-Connecting a device, and its first pushed reading arriving on Operations.
-
 Push is authenticated with a **per-connector bearer token**, derived from Ava's
 root internal token:
 
@@ -403,19 +386,9 @@ or the agent's own `device_events` tool.
 
 ## Connecting one from the browser
 
-No files and no terminal: **Setup → Connectors → Connect an app**.
-
-<video controls playsinline preload="metadata"
-       style="width:100%;border-radius:8px"
-       aria-label="Screen recording: connecting an app from the Setup hub, end to end">
-  <source src="../../assets/connect-app-tour.mp4" type="video/mp4">
-  <track kind="captions" srclang="en" label="English"
-         src="../../assets/connect-app-tour.vtt">
-  Your browser can't play video. <a href="../../assets/connect-app-tour.mp4">Download the walkthrough</a>.
-</video>
-
-Naming an app, pasting its address, detecting its tools, and deploying it. The
-guided version of this, with a screenshot per step, is
+No files and no terminal: **Setup → Connectors → Connect an app**. Name it,
+paste its address, let Ava detect its tools, and deploy it. The guided version,
+with a screenshot per step, is
 [Connect your apps](../CONNECT_YOUR_APPS.md).
 
 You paste either a web address like `http://127.0.0.1:9000` or a start command
@@ -423,8 +396,6 @@ like `npx -y @modelcontextprotocol/server-filesystem ~/notes`, and **Credentials
 never enter the manifest**: the manifest stores only the *name* of an
 environment variable, and a value you paste is saved once to Ava's server-side
 secret store and presented to the agent tools and the embedded UI from there.
-
-![The Connectors list after connecting: the new app at the top, enabled, with its action count and deploy state](../assets/connect-app-3-connected.png)
 
 Connectors group by identity, not protocol (**Devices**, **Apps**, **Tools**),
 because a device that speaks MCP is still a device.

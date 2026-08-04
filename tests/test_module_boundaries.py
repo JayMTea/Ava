@@ -55,7 +55,6 @@ _ALLOW: set[str] = {
     "ava_bridge/code_agent.py: from .coder import _tool_list_dir",
     "ava_bridge/code_agent.py: from .coder import _tool_read_file",
     "ava_bridge/code_agent.py: from .coder import _tool_search",
-    "ava_bridge/turns.py: from .gpu_jobs import _latest_image_job_since",
 }
 
 

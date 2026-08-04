@@ -7,14 +7,14 @@ import unittest
 import urllib.request
 
 from qa.bridge_proc import BridgeProc
-from qa.conftest import FAKE_gpusvc, FAKE_LLM
+from qa.conftest import FAKE_LLM
 
 PROC: BridgeProc | None = None
 
 
 def setUpModule():
     global PROC
-    PROC = BridgeProc(FAKE_LLM.url, FAKE_gpusvc.url).start(timeout=90)
+    PROC = BridgeProc(FAKE_LLM.url).start(timeout=90)
 
 
 def tearDownModule():
@@ -54,7 +54,7 @@ class TestLiveBoot(unittest.TestCase):
         self.assertEqual(r.status, 401)
 
     def test_two_instances_coexist(self):
-        second = BridgeProc(FAKE_LLM.url, FAKE_gpusvc.url).start(timeout=90)
+        second = BridgeProc(FAKE_LLM.url).start(timeout=90)
         try:
             self.assertNotEqual(second.port, PROC.port)
             self.assertEqual(_get("/api/health").status, 200)

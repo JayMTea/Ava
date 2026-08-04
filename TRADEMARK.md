@@ -76,7 +76,7 @@ confused about.
 
 - **Your own brand assets.** A logo you upload into your install is yours. It
   never leaves your machine, and nothing in this project claims anything about it.
-- **Third-party marks.** NVIDIA, the GPU service, vLLM, Ollama and every model vendor own
+- **Third-party marks.** NVIDIA, vLLM, Ollama and every model vendor own
   their own names; see [NOTICE](NOTICE).
 - **The code.** Every question about the software itself is answered by
   [LICENSE](LICENSE), not by this file.

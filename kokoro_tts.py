@@ -5,7 +5,7 @@ Runs in its OWN venv (.venv-tts) because it needs CUDA torch, which the main
 bridge venv deliberately does not carry. The bridge (ava_bridge/audio.py +
 phone_bridge.py) calls these endpoints over localhost and falls back to CPU
 (Piper for TTS, faster-whisper for STT) whenever this service is unreachable, so
-voice degrades in quality/speed but never breaks. Mirrors ava-gpu.service.
+voice degrades in quality/speed but never breaks.
 
 Measured on one unified-memory NVIDIA box (GB10): a sentence synthesizes in ~0.3s
 and a short clip transcribes in ~0.1s, against ~1.9s for Piper and ~3s for CPU

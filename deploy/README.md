@@ -83,20 +83,6 @@ cd Ava\deploy && install.cmd
     container runs CPU-only. Use the bare-metal path below instead (collapsed under
     "Install bare metal instead") - it reaches the Metal GPU.
 
-The same install end to end, narrated (sound on):
-
-<video controls playsinline preload="metadata"
-       style="width:100%;border-radius:8px"
-       aria-label="Screen recording: installing Ava from a terminal, through setup, doctor, and up, then opening the web app">
-  <source src="../docs/assets/install-tour.mp4" type="video/mp4">
-  <track kind="captions" srclang="en" label="English"
-         src="../docs/assets/install-tour.vtt">
-  Your browser can't play video. <a href="../docs/assets/install-tour.mp4">Download the walkthrough</a>.
-</video>
-
-*(The recording covers both routes: the Mac command-line install and the
-one-line Docker install.)*
-
 ## 2. The profile it picks for you
 
 A **profile** is which set of containers Ava starts. Detection handles this: the
@@ -111,9 +97,8 @@ why. You only pick one yourself if you want something other than what it found.
 | `rocm` | you have an AMD card or APU | ava, ollama-rocm | chat on a local model, AMD |
 | `cloud` | you would rather pay an API than run a model | ava | chat against an API key you supply |
 | `agent` | you want the tool-using agent (read the warning) | ava, agent, vllm | **+ the tool-using agent** that drives your connected apps |
-| `full` | you also want image and video generation | ava, agent, gpu-service, vllm | **+ image and video generation** |
 
-To pin one instead: `AVA_PROFILE=full ./install.sh`.
+To pin one instead: `AVA_PROFILE=agent ./install.sh`.
 
 ??? note "Why there are two NVIDIA profiles, and how to force the one you want"
 
@@ -148,14 +133,13 @@ To pin one instead: `AVA_PROFILE=full ./install.sh`.
     cd deploy && cp profiles/cuda.env .env && docker compose up -d
     ```
 
-!!! warning "`agent` and `full` grant root-equivalent access to your machine"
-    Both start an extra `agent` container that mounts the host Docker socket
+!!! warning "`agent` grants root-equivalent access to your machine"
+    It starts an extra `agent` container that mounts the host Docker socket
     (`/var/run/docker.sock`), which is **root-equivalent** on the host. That is how
     it spawns the sandbox - the isolated container that runs model-generated code.
     Ava makes it opt-in because it is your call to make rather than the
     installer's. The five auto-detected profiles (`cpu`, `cuda`, `gpu`, `rocm`,
-    `cloud`) never grant it. `full` additionally starts the GPU service, a second GPU
-    tenant competing for memory with the model you chat to.
+    `cloud`) never grant it.
 
 ## 3. Open the link the installer prints
 
@@ -206,11 +190,11 @@ gate entirely.
 
     That last point is also why the gate is not theatre on a stock install, even
     though `docker-compose.yml` publishes every port on `127.0.0.1` only: the compose
-    file declares no `networks:` key, so `ollama`, `vllm`, `gpu-service` and the agent
-    sandbox all sit on one flat bridge with an unauthenticated route to
-    `http://ava:8096/setup` that never touches the published port. On the `agent` and
-    `full` profiles one of those neighbours is a sandbox that runs model-generated
-    code, started by the same `docker compose up -d`, before any password exists.
+    file declares no `networks:` key, so `ollama`, `vllm` and the agent sandbox all
+    sit on one flat bridge with an unauthenticated route to
+    `http://ava:8096/setup` that never touches the published port. On the `agent`
+    profile one of those neighbours is a sandbox that runs model-generated code,
+    started by the same `docker compose up -d`, before any password exists.
 
     **Reading the token by hand.** `./bin/ava claim` is the supported route, but the
     file is there if you want it:
@@ -248,8 +232,8 @@ gate entirely.
 - **Web search does not work out of the box in Docker.** No profile starts
   SearXNG or Tor, so the switch reports the service as down rather than
   pretending. Wiring one up is in the
-  [install reference](../docs/INSTALL_REFERENCE.md), with voice, image
-  generation and the model-sizing knobs.
+  [install reference](../docs/INSTALL_REFERENCE.md), with voice and the
+  model-sizing knobs.
 
 !!! note "The default install has no tools, no memory and no connectors"
     The container runs the tool-less assistant by default: chat works, but there is
@@ -289,10 +273,9 @@ gate entirely.
     Verifying a fork's own build? Swap `jaymtea` / `JayMTea` for your owner in both
     places, keeping the same lowercase-registry, cased-identity split.
 
-    `ollama`/`vllm`/`gpu-service` are upstream images (override `gpu-service` with
-    `AVA_GPU_SERVICEUI_IMAGE`). The `ava/bridge` image is built locally by default, or set
-    `AVA_IMAGE` to the signed published image (above). Model weights download on
-    first run and carry their own licenses (surfaced at setup).
+    `ollama` and `vllm` are upstream images. The `ava/bridge` image is built locally
+    by default, or set `AVA_IMAGE` to the signed published image (above). Model
+    weights download on first run and carry their own licenses (surfaced at setup).
 
 ??? note "Install bare metal instead (Python, your own GPU stack, or a Mac)"
     If you would rather run it directly - for example, you already have Python and a
@@ -340,8 +323,6 @@ gate entirely.
 Open **Setup → Hardware**. Ava should show your machine - chip, usable memory,
 and a recommended model tier - detected automatically, with nothing for you to
 configure.
-
-[![The Hardware tab: a Workstation Tier hero card reading "Unified memory comfortably fits large local models", with Compute and Usable memory below it, and a note that the tier sets which models Ava recommends](../docs/assets/choose-model-1-hardware.png)](../docs/assets/choose-model-1-hardware.png)
 
 Under Docker the GPU row reads as unavailable and the tier is sized from system
 memory instead, as described above. That is expected, not a fault.

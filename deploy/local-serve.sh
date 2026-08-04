@@ -35,7 +35,7 @@
 # NOTE: with AVA_SERVE_RESTART=no, nothing brings the container back after a reboot
 # (the allocator restores only what it released itself). Pair it with a boot unit that
 # runs THIS script — Type=oneshot + RemainAfterExit, so systemd starts it and then stops
-# caring, and will not fight the allocator when it stops the container for a render.
+# caring, and will not fight the allocator when it stops the container to free the pool.
 # `ava-omni.service` on the development box is exactly that.
 set -uo pipefail
 
@@ -127,26 +127,26 @@ CTX="$AVA_RESOLVED_MAX_LEN"
 # --gpu-memory-utilization. 0.40 (~48.7 GiB of a 121.7 GiB unified pool) is this
 # box's measured value for the 30B Omni, lowered from 0.55 on 2026-07-25 after
 # 7997 restarts: at 0.55 vLLM took 66.9 GiB and left only ~34 GiB MemAvailable,
-# so a FLUX.2 render (66.5 GiB resident) could not co-fit and vLLM's startup
-# check failed on a loop. At 0.40 it still measures KV 9.7 GiB / 676k tokens /
+# so the box's other 66.5 GiB tenant could not co-fit and vLLM's startup check
+# failed on a loop. At 0.40 it still measures KV 9.7 GiB / 676k tokens /
 # 40.8x concurrency at the full 65k ctx — ample for a single user.
 #
 # Sizing KV is about CONCURRENCY, not context: vLLM needs only >=1 sequence's
 # worth of KV to accept --max-model-len. Do NOT trade CTX for headroom.
 #
 # READING THE NUMBERS when you retune this: use MemAvailable from /proc/meminfo,
-# NOT the GPU service's /system_stats vram_free. On a unified-memory host vram_free tracks
-# MemFree and so ignores ~30 GiB of reclaimable page cache (reading FLUX.2's 66 GiB
+# NOT an engine's own reported free VRAM. On a unified-memory host that number
+# tracks MemFree and so ignores ~30 GiB of reclaimable page cache (loading 66 GiB
 # of weights fills it), which makes it read 5-9 GiB when 34 GiB is genuinely
 # available. Both numbers move for unrelated reasons, and neither is comparable
-# across a render unless you drop caches first.
+# across another process's run unless you drop caches first.
 #
-# A model this size and a FLUX.2 render CANNOT co-fit at any utilization — that is
-# what a GPU timeshare coordinator is for: pause this container around the render,
-# ref-counted and debounced, so a burst of renders costs one reload.
-# 0.40 does leave room for the GPU model previews (6-25 GB) and kokoro TTS to co-fit.
+# A model this size and a second tenant that big CANNOT co-fit at any
+# utilization — that is what a GPU timeshare coordinator is for: pause this
+# container around the other model's work, ref-counted and debounced, so a burst
+# of it costs one reload. 0.40 does leave room for kokoro TTS to co-fit.
 #
-# If you serve a different model or have a dedicated GPU (no renders competing
+# If you serve a different model or have a dedicated GPU (nothing else competing
 # for the pool), raise this — 0.85-0.90 is the usual vLLM default territory.
 UTIL="${AVA_SERVE_GPU_UTIL:-${OMNI_GPU_UTIL:-0.40}}"
 

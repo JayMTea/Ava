@@ -6,11 +6,11 @@ of that claim it has actually verified on your hardware.
 ## What is Ava?
 
 Most AI tools are *one* of these: a chat UI, a local model runner, a voice
-assistant, an agent framework, or an image generator. **Ava is the layer that
-ties them together** into one assistant you actually own: chat, voice,
-generation, app automation, and self-editing, behind a single dashboard, running
-on your own hardware with the model of your choice (served locally by **vLLM /
-Ollama / llama.cpp**, or through a **cloud API key**).
+assistant, or an agent framework. **Ava is the layer that ties them together**
+into one assistant you actually own: chat, voice, app automation, and
+self-editing, behind a single dashboard, running on your own hardware with the
+model of your choice (served locally by **vLLM / Ollama / llama.cpp**, or
+through a **cloud API key**).
 
 ## Who it's for
 
@@ -21,7 +21,6 @@ single cloud vendor.
 ## What it does
 
 - **Talks and listens** on-device, gated to *your* voice.
-- **Renders images** through the GPU service, orchestrated by the agent.
 - **Drives your other apps**, not just charts them.
 - **Fronts any MCP tool server** behind a policed boundary.
 - **Searches the web** through a SearXNG *you* run.
@@ -66,8 +65,8 @@ Each of those is taken apart, with the endpoint or config key behind it, in
 | **No personality until you give it one.** | The shipped prompt covers only what Ava must *do*. How it talks is a blank field you fill in, so a fork sounds like *your* assistant. [Persona](PERSONA.md) |
 | **You own it.** | Self-hosted and single-tenant, on your GPU. Conversations, files and voiceprint stay on your box. Nothing reaches a third party unless you turn it on. |
 | **Your model, local by default.** | Ships a 7B model that fits a normal GPU, and swaps in one line: vLLM, Ollama, llama.cpp, LM Studio, MLX, or a cloud endpoint. [Pick a model](CHOOSE_A_MODEL.md) |
-| **It does more than talk.** | It renders images, calls tools, remembers, and reaches into your other apps. |
-| **It watches itself.** | Tokens per second, time to first token (TTFT), render times, cost and energy, jobs, alerts, service health. An assistant you can't observe is one you can't trust. |
+| **It does more than talk.** | It calls tools, remembers, and reaches into your other apps. |
+| **It watches itself.** | Tokens per second, time to first token (TTFT), cost and energy, jobs, alerts, service health. An assistant you can't observe is one you can't trust. |
 | **It edits its own source, governed.** | Changes land as git commits, every one a revert away. By default *every* change waits for you, and secrets and models are never writable. |
 | **It learns without leaking.** | Local-first cycles analyse Ava's own activity and park proposals for your sign-off. Nothing self-applies. [Memory](MEMORY.md) |
 | **Anyone can extend it.** | A small manifest adds your app, no core-code changes. Ava picks up its health and metrics and generates its agent tools and egress policy. [Connect your apps](CONNECT_YOUR_APPS.md) |
@@ -82,7 +81,6 @@ Each of those is taken apart, with the endpoint or config key behind it, in
     | `features.learning_cloud_fallback` | `false` | Learning prompts quote your chats verbatim, so sending one to Anthropic when the local model can't finish a cycle is its own decision, and it defaults to no. Registered in `ava_bridge/features.py`; env override `AVA_LEARNING_CLOUD_FALLBACK`. |
     | `features.web_search` | `false` | Web search off. Env override `AVA_WEB_SEARCH`. |
     | `features.voice` | `false` | Voice off, and it needs `requirements-voice.txt` installed. Env override `AVA_VOICE`. |
-    | `features.image` | `true` | Image and video generation on, via the the GPU service connector. |
     | `code.approval` | `all` | `all` means every self-edit waits for your approval. `policy` and `none` loosen that. `ava_bridge/access_policy.py` makes the files that write this key un-writable by the agent, so Ava cannot un-gate itself. |
     | `AVA_WEB_TOR` | `1` | Host-side fetch is fail-closed over Tor. Set `0` to opt out. |
     | `sandbox: docker` (connector manifest, `mcp:` block) | *unset* | Set it on a stdio MCP server and Ava runs it in a throwaway container: `--read-only`, a tmpfs for scratch, CPU/memory/pid caps, `no-new-privileges`, and **no host filesystem mounts**. Add `network: none` to cut its network too. The Setup GUI offers this as a one-click toggle, defaulted on when Docker is available. |

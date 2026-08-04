@@ -16,11 +16,7 @@ attachments_lock = threading.Lock()
 chats: dict[str, dict] = {}
 chats_lock = threading.RLock()
 
-# Async image/upscale jobs: id -> {id, kind, status, progress, url, ...}.
-jobs: dict[str, dict] = {}
-jobs_lock = threading.Lock()
-
-# Live chain-of-thought turns: id -> {id, status, steps[], reply, job, error}.
+# Live chain-of-thought turns: id -> {id, status, steps[], reply, error}.
 turns: dict[str, dict] = {}
 turns_lock = threading.Lock()
 

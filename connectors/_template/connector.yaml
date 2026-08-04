@@ -16,7 +16,7 @@ service:
   name: My App
   probe: "http://127.0.0.1:9000/health"   # optional HTTP health check
   # unit: myapp.service                     # optional systemd user unit
-  # feature: image                          # optional features.* flag governing this
+  # feature: voice                          # optional features.* flag governing this
   #                                         #   service: off -> neutral "off", not red "down"
 
 # --- Performance source (optional) ------------------------------------------
@@ -89,14 +89,14 @@ service:
 #   path: "/api/jobs"              # GET base_url + path; rows carry kind/stage/progress
 #   params: { active: 1 }
 #   list_key: jobs
-#   engine: the GPU service                # shown next to the job name
+#   engine: MyEngine               # shown next to the job name
 #   labels:                        # kind -> human label (unknown kinds Title-Case)
 #     render: "Content render"
 
 # --- Model attribution (optional) ---------------------------------------------
 # Label what a loaded model is FOR on the hardware dashboard.
 # model_hints:
-#   - { match: [mymodel], role: "Image rendering" }
+#   - { match: [mymodel], role: "Speech recognition" }
 
 # --- Agent egress (optional) ------------------------------------------------
 # What Ava's sandboxed agent tools may reach for this connector. Rendered into

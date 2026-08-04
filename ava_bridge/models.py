@@ -27,18 +27,10 @@ import subprocess
 from . import settings
 from .model_fit import recommend_tier
 
-gpusvc_SUBDIRS = ["checkpoints", "loras", "vae", "guidance net", "upscale_models",
-                 "embeddings", "clip", "clip_vision", "unet", "weight_models",
-                 "text_encoders"]
-
 DEFAULT_MODELS = {
     "chat": {"engine": "vllm",
              "id": "Qwen/Qwen2.5-7B-Instruct", "tier": "medium"},
     "fast": {"engine": "ollama", "id": "llama3.1:8b", "tier": "small"},
-    "image": {"engine": "gpu-service", "id": "gpu_model_base",
-              "dest": "checkpoints",
-              "url": "https://huggingface.co/example/gpu-model"
-                     "resolve/main/gpu_model_base"},
 }
 
 # Chat models for boxes that can't serve the vLLM default (Apple Silicon,
@@ -61,9 +53,9 @@ LOCAL_CHAT_ENGINES = {"ollama", "llamacpp", "gguf", "mlx", "mlx-lm",
 def manifest() -> dict:
     """Default roles overlaid with the user's `models:` block.
 
-    A partial override (e.g. declaring only `image`) must NOT delete the default
-    chat/fast roles — that silently killed `pull --auto`. Set a role to
-    null/false in ava.yaml to genuinely remove it.
+    A partial override (e.g. declaring only `fast`) must NOT delete the default
+    chat role — that silently killed `pull --auto`. Set a role to null/false in
+    ava.yaml to genuinely remove it.
     """
     m = settings.get("models", None)
     if not isinstance(m, dict) or not m:
@@ -76,16 +68,13 @@ def dirs() -> dict:
     base = settings.models_dir()
     return {"root": base, "hf": os.path.join(base, "hf"),
             "ollama": os.path.join(base, "ollama"),
-            "gpusvc": os.path.join(base, "gpusvc"),
             "gguf": os.path.join(base, "gguf")}
 
 
 def ensure_dirs() -> dict:
     d = dirs()
-    for k in ("hf", "ollama", "gpusvc", "gguf"):
+    for k in ("hf", "ollama", "gguf"):
         os.makedirs(d[k], exist_ok=True)
-    for sub in gpusvc_SUBDIRS:
-        os.makedirs(os.path.join(d["gpusvc"], sub), exist_ok=True)
     return d
 
 
@@ -113,11 +102,6 @@ def ollama_present(tag: str, ollama_dir: str) -> bool:
         return False
 
 
-def gpusvc_present(spec: dict, gpusvc_dir: str) -> bool:
-    dest = spec.get("dest") or "checkpoints"
-    return os.path.isfile(os.path.join(gpusvc_dir, dest, spec.get("id", "")))
-
-
 def gguf_present(spec: dict, gguf_dir: str) -> bool:
     return os.path.isfile(os.path.join(gguf_dir, spec.get("id", "")))
 
@@ -128,8 +112,6 @@ def present(spec: dict, model_dirs: dict) -> bool:
         return hf_present(spec["id"], model_dirs["hf"])
     if eng == "ollama":
         return ollama_present(spec["id"], model_dirs["ollama"])
-    if eng == "gpu-service":
-        return gpusvc_present(spec, model_dirs["gpusvc"])
     if eng in ("llamacpp", "gguf"):
         return gguf_present(spec, model_dirs["gguf"])
     return False
@@ -517,9 +499,9 @@ def match_served(model: str, served: list[str]) -> str:
 
 
 __all__ = [
-    "gpusvc_SUBDIRS", "DEFAULT_MODELS", "OLLAMA_CHAT", "LOCAL_CHAT_ENGINES",
+    "DEFAULT_MODELS", "OLLAMA_CHAT", "LOCAL_CHAT_ENGINES",
     "manifest", "dirs", "ensure_dirs", "present", "hf_present", "ollama_present",
-    "gpusvc_present", "gguf_present", "platform_label", "detected_tier",
+    "gguf_present", "platform_label", "detected_tier",
     "engine_servable_here", "resolve_auto", "roles_status",
     "models_url", "served_models", "match_served", "probe_serving",
     "resident_url", "probe_resident", "effective_brain",

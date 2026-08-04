@@ -5,11 +5,11 @@ OWN repo (same schema everywhere): the Ava bridge/router (this repo) and any
 connected app that writes one (image/video render times, backend tokens/sec).
 
 This module gives Ava read-only access to ALL of them at once so she can answer
-"how fast am I generating?" — tokens/sec by model, image steps/sec, render times,
-failovers — without shelling into other projects. It never writes perf records;
-its only write is the tiny source *ledger* below, which remembers every perf
-source ever seen so an app's history stays readable after its connector is
-removed (and resumes seamlessly when it's re-added).
+"how fast am I answering?" — tokens/sec by model, failovers, and whatever an app
+reports about its own work — without shelling into other projects. It never
+writes perf records; its only write is the tiny source *ledger* below, which
+remembers every perf source ever seen so an app's history stays readable after
+its connector is removed (and resumes seamlessly when it's re-added).
 """
 import json
 import os

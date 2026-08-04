@@ -8,7 +8,6 @@ Each module owns one concern so the bridge stays a face, not a monolith:
   auth        password gate, signed-cookie sessions, login throttle, middleware
   agent       Ava-the-agent: route a turn through the OpenClaw agent (MCP host)
   chat_store  per-chat conversation persistence (data/chats.json)
-  gpu_jobs  async image generate / upscale jobs (host the GPU service via gpu_service)
   turns       live chain-of-thought turns (poll the agent session jsonl)
   documents   uploaded-file text extraction (pdf / office / OCR) + message augment
   audio       browser-audio decode + Piper TTS

@@ -1,12 +1,13 @@
 """Every third-party module shipped code imports must be a declared dependency.
 
-`ava_bridge/gpu_jobs.py` imported PIL to build thumbnails while Pillow appeared
-in NO requirements file. It worked here because Pillow had been installed
-transitively; on a fresh `pip install -r requirements.txt` the import raised
-ImportError, `ensure_thumbnail`'s bare `except Exception` swallowed it, and every
-/thumb/<name> quietly served the FULL-size original. Nothing broke, so nothing
-was noticed — the gallery just shipped megabytes where it meant to ship
-kilobytes, for every forker, for as long as that went undeclared.
+`ava_bridge/brand.py` imported PIL to re-encode uploaded brand assets while
+Pillow appeared in NO requirements file — undeclared until 2026-07-28. It worked
+here because Pillow had been installed transitively; on a fresh
+`pip install -r requirements.txt` Setup -> Branding raised ImportError on the
+first logo upload. `ingest_asset` imports it unguarded on purpose — the
+re-encode IS the security step, since the bytes written are bytes Pillow
+produced, which is what strips EXIF and appended-payload polyglots — so an
+undeclared Pillow broke branding outright for every forker.
 
 An undeclared dependency is invisible precisely on the machine that has it. This
 is the same static-scan shape as tests/test_diagram_sync.py: read `git ls-files`,
@@ -30,7 +31,7 @@ _SKIP_TOP = {"tests", "qa", "overlay", "demo", "frontend", "tools", "docs",
 # Import name -> distribution name, where they differ.
 _ALIASES = {
     "PIL": "pillow", "yaml": "pyyaml", "dotenv": "python-dotenv",
-    "multipart": "python-multipart", "websocket": "websocket-client",
+    "multipart": "python-multipart",
     "pynvml": "nvidia-ml-py", "cv2": "opencv-python", "serial": "pyserial",
     "sounddevice": "sounddevice", "soundfile": "soundfile",
     "dateutil": "python-dateutil", "jwt": "pyjwt", "bs4": "beautifulsoup4",

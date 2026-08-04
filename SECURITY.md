@@ -166,17 +166,13 @@ generated locally by `agent/docs/arch.py` on installs with the SSOT manifest.
 
     Model Context Protocol: the open standard for describing a tool to an AI
     agent (its name, its arguments, what it returns). Ava's own capabilities -
-    weather, GPU workloads, reading your documents - are MCP tools, and each
+    weather, web search, reading your documents - are MCP tools, and each
     one carries its own egress policy.
 
 | Policy | Tools | Allowed egress (and nothing else) |
 |--------|-------|-----------------------------------|
 | `ava-weather` | `get_weather` | `api.open-meteo.com:443` + `geocoding-api.open-meteo.com:443` (**GET** only) |
-| `ava-knowledge` | document, image (`run_gpu_job`), media-content, web tools | `host.openshell.internal:8096`, enumerated `/internal/...` routes only, plus a scoped `X-Ava-Internal-Token` |
-
-GPU workloads rides that same policy: the sandbox never reaches the GPU service
-itself. `run_gpu_job` calls `POST /internal/run-gpu-job`, and the bridge
-owns the render host-side.
+| `ava-knowledge` | document, media-content, web tools | `host.openshell.internal:8096`, enumerated `/internal/...` routes only, plus a scoped `X-Ava-Internal-Token` |
 
 The property that matters: the `content` group holds the token for the MCP server
 that runs `web_fetch`, which is the surface prompt injection actually arrives on.
@@ -381,7 +377,7 @@ cosign verify ghcr.io/jaymtea/ava-bridge:X.Y.Z \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
-The `agent` and `full` profiles use a second signed image,
+The `agent` profile uses a second signed image,
 `ghcr.io/jaymtea/ava-agent-runtime:X.Y.Z` - verify it exactly the same way, then
 set it as the `agent` service's `image:` in `deploy/docker-compose.override.yml`
 (`deploy/docker-compose.yml` still ships the local build tag

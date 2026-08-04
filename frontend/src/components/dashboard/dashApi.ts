@@ -28,9 +28,6 @@ export interface PerfSummary {
   summary: {
     records: number;
     llm?: Record<string, LlmStat>;
-    image?: { count: number; render_seconds: Stat | null; steps_per_sec: Stat | null };
-    video?: { count: number; render_seconds: Stat | null; steps_per_sec: Stat | null };
-    upscale?: { count: number; seconds: Stat | null };
     actions?: { count: number; seconds: Stat | null; errors: number };
   };
 }
@@ -78,22 +75,16 @@ export interface HwSample {
   mem_used_gb: number | null;
   cpu: number | null;
 }
-export interface JobRow {
-  id: string; kind?: string; status?: string; progress?: number;
-  stage?: string; source?: string; url?: string; created?: number; updated?: number;
-  prompt?: string; error?: string;
-}
 export interface TurnRow {
   id: string; status?: string; created?: number; step_count: number;
   last_step?: { kind?: string; name?: string; text?: string } | null;
   tools_used: string[];
   model?: { label?: string; id?: string } | null;
-  ctx_tokens?: number | null; has_job?: boolean; error?: string | null;
+  ctx_tokens?: number | null; error?: string | null;
   reply_preview?: string | null;
 }
 export interface OpsSummary {
   ok: boolean;
-  jobs: { running: number; total: number; by_status: Record<string, number> };
   turns: { running: number; total: number; by_status: Record<string, number> };
   generations_24h: number;
   learning: {
@@ -143,8 +134,6 @@ export const dash = {
   }>('/api/hub/cost'),
   hwHistory: (since = '1d', bucket = '5m') =>
     get<{ ok: boolean; samples: HwSample[] }>('/api/hardware/history' + qs({ since, bucket })),
-  jobs: (status?: string, kind?: string, limit = 100) =>
-    get<{ ok: boolean; jobs: JobRow[] }>('/api/jobs' + qs({ status, kind, limit })),
   turns: (active = false, limit = 50) =>
     get<{ ok: boolean; turns: TurnRow[] }>('/api/turns' + qs({ active, limit })),
   opsSummary: () => get<OpsSummary>('/api/ops/summary'),

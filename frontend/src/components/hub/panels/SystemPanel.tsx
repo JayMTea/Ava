@@ -20,7 +20,7 @@ function retentionLabel(days: number): string {
 // Optional-feature capability key → a typed glyph, so each feature row carries
 // an identity like the connector/memory rows. Unknown keys fall back to sliders.
 const FEATURE_ICONS: Record<string, string> = {
-  image: 'image', web_search: 'search', voice: 'mic', memory: 'db', code: 'code',
+  web_search: 'search', voice: 'mic', memory: 'db', code: 'code',
 };
 const featureIcon = (key: string) => FEATURE_ICONS[key] || 'sliders';
 
@@ -140,8 +140,8 @@ export function SystemPanel({ onRestart }: { onRestart: () => void }) {
       </Panel>
 
       <div className="hub-section" />
-      {/* Not "all off by default": features.REGISTRY ships image, learning and
-          memory ON. Saying otherwise made a fresh install look misconfigured. */}
+      {/* Not "all off by default": features.REGISTRY ships learning and memory
+          ON. Saying otherwise made a fresh install look misconfigured. */}
       <Panel title="Optional features" subtitle="Ava's defaults — turn on what you need, turn off what you don't.">
         {sys ? (sys.features || []).map((f) => (
           // Rendered straight from the backend capability registry

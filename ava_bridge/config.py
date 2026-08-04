@@ -33,7 +33,6 @@ RATE = 16000
 # malformed/huge blob can't wedge the request. Override with AVA_AUDIO_DECODE_TIMEOUT.
 AUDIO_DECODE_TIMEOUT = int(os.environ.get("AVA_AUDIO_DECODE_TIMEOUT", "30"))
 
-MEDIA_DIR = settings.media_dir()
 UPLOAD_DIR = settings.upload_dir()
 CHATS_DIR = settings.data_dir()
 CHATS_FILE = os.path.join(CHATS_DIR, "chats.json")
@@ -309,9 +308,8 @@ LOGIN_WINDOW = 60
 # ---- Internal capability endpoints (sandbox MCP tools -> bridge) -------------
 # Ava's MCP tools run INSIDE the OpenClaw sandbox and can't see this host's
 # upload dir or extraction binaries, so document-reading is exposed as a
-# token-gated host service they call back into (same host-callback pattern the
-# image tool uses for the GPU service). agent/install.sh hands the tools this same token
-# at launch; only callers presenting it may hit /internal/*.
+# token-gated host service they call back into. agent/install.sh hands the tools
+# this same token at launch; only callers presenting it may hit /internal/*.
 def _internal_token() -> str:
     env = os.environ.get("AVA_INTERNAL_TOKEN")
     if env:

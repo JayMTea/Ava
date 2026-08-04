@@ -28,15 +28,13 @@
 // Corner "expand" buttons -> native fullscreen of their target element.
 //
 // This lived in javascripts/carousel.js. When the landing page dropped its
-// gallery for the single <video class="ava-reel"> embed, carousel.js was taken
-// out of mkdocs.yml's extra_javascript as "a 93-line no-op" — but it was not a
-// no-op: it also owned this handler. overrides/home.html still renders the
-// button, stylesheets/extra.css still styles it, and it still announces itself
-// as "Expand video", so for every visitor it was a live-looking control that
-// did nothing. It lives here now because chrome.js is the file that is always
-// loaded. If a gallery ever comes back and carousel.js is loaded again, do not
-// re-add wireExpand() THERE, or the listener binds twice and the second click
-// immediately exits fullscreen.
+// gallery, carousel.js was taken out of mkdocs.yml's extra_javascript as "a
+// 93-line no-op" — but it was not a no-op: it also owned this handler, so the
+// expand button kept rendering, kept its styling, and kept announcing itself
+// while doing nothing for every visitor. It lives here now because chrome.js is
+// the file that is always loaded. If a gallery ever comes back and carousel.js
+// is loaded again, do not re-add wireExpand() THERE, or the listener binds
+// twice and the second click immediately exits fullscreen.
 (function () {
   function wireExpand() {
     document.querySelectorAll('[data-expand-target]').forEach(function (btn) {

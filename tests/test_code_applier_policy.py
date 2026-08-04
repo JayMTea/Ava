@@ -24,7 +24,7 @@ class ClassifyTiers(unittest.TestCase):
                     "data/chats.json", "data/.internal_token",
                     "ava_bridge/.secret", "data/auth_password",
                     "models/voiceprint.npy", ".git/config",
-                    "logs/audit.jsonl", "media/out/x.png",
+                    "logs/audit.jsonl", "media/uploads/x.png",
                     "certs/server.pem", "certs/server.key"):
             with self.subTest(rel=rel):
                 self.assertEqual(access_policy.classify(rel), "denied", rel)

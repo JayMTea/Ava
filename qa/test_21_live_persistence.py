@@ -8,7 +8,7 @@ import unittest
 import urllib.parse
 
 from qa.bridge_proc import BridgeProc
-from qa.conftest import FAKE_gpusvc, FAKE_LLM
+from qa.conftest import FAKE_LLM
 from qa.env_recipe import QA_PASSWORD
 
 PROC: BridgeProc | None = None
@@ -36,7 +36,7 @@ def _form(data: dict) -> tuple[bytes, dict]:
 
 def setUpModule():
     global PROC, COOKIE
-    PROC = BridgeProc(FAKE_LLM.url, FAKE_gpusvc.url).start(timeout=90)
+    PROC = BridgeProc(FAKE_LLM.url).start(timeout=90)
     body, headers = _form({"password": QA_PASSWORD, "confirm": QA_PASSWORD})
     r = _request("POST", "/setup", body, headers)
     assert r.status == 303, f"setup: {r.status}"

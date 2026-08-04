@@ -2,18 +2,17 @@ import { useEffect, useRef, useState } from 'react';
 import type { ChatItem } from '../../lib/chatItems';
 import { AvaMessage, SysMessage, UserMessage } from './Message';
 import { ChainOfThought } from './ChainOfThought';
-import { GenProgress, ImageMessage, PreviewCard } from './Media';
+import { PreviewCard } from './Media';
 import { Icon } from '../../lib/icons';
 
 interface Props {
   items: ChatItem[];
   currentChatId: string | null;
-  onCancelGen: (jobId: string, itemId: string) => void;
   onRetryUser: (t: string, atts: import('../../lib/types').Attachment[], id: string) => void;
   onRetryAva: (t: string, atts: import('../../lib/types').Attachment[]) => void;
   onReplay: (audio: string) => void;
   onQuickSay: (t: string) => void;
-  onOpenLightbox: (url: string, onClose?: () => void) => void;
+  onOpenLightbox: (url: string) => void;
   onOpenArtifact: (a: import('../../lib/types').Artifact) => void;
 }
 
@@ -27,7 +26,6 @@ function greeting(): string {
 export function ChatView({
   items,
   currentChatId,
-  onCancelGen,
   onRetryUser,
   onRetryAva,
   onReplay,
@@ -47,7 +45,7 @@ export function ChatView({
     const el = logRef.current;
     if (!el) return;
     // Only auto-follow when the user is already near the bottom. If they
-    // scroll up during streaming/generation updates, do not snap them down.
+    // scroll up during streaming updates, do not snap them down.
     if (shouldFollowRef.current) {
       el.scrollTop = el.scrollHeight;
     }
@@ -83,7 +81,7 @@ export function ChatView({
   }
 
   const hasConversation = items.some(
-    (it) => it.kind === 'user' || it.kind === 'ava' || it.kind === 'image' || it.kind === 'cot',
+    (it) => it.kind === 'user' || it.kind === 'ava' || it.kind === 'cot',
   );
 
   return (
@@ -92,7 +90,7 @@ export function ChatView({
     // whole conversation is silent to assistive tech. "polite" rather than
     // "assertive" so it queues behind whatever the user is doing, and
     // aria-relevant="additions" so appended messages announce but re-renders of
-    // existing ones (progress ticks on a render job) do not.
+    // existing ones (a chain-of-thought step landing) do not.
     <div
       id="log"
       className="view active"
@@ -158,36 +156,9 @@ export function ChatView({
                     code={it.code}
                   />
                 );
-              case 'gen':
-                return (
-                  <GenProgress
-                    key={it.id}
-                    progress={it.progress}
-                    status={it.status}
-                    error={it.error}
-                    errorCode={it.errorCode}
-                    prompt={it.prompt}
-                    stage={it.stage}
-                    elapsedSec={it.elapsedSec}
-                    queueHint={it.queueHint}
-                    cancelable={it.cancelable}
-                    onCancel={() => onCancelGen(it.jobId, it.id)}
-                  />
-                );
-              case 'image':
-                return (
-                  <ImageMessage
-                    key={it.id}
-                    url={it.url}
-                    caption={it.caption}
-                    allowUpscale={it.allowUpscale}
-                    chatId={currentChatId}
-                    onOpen={onOpenLightbox}
-                  />
-                );
               case 'preview':
                 return (
-                  <PreviewCard key={it.id} preview={it.preview} onOpen={(u) => onOpenLightbox(u)} onQuickSay={onQuickSay} />
+                  <PreviewCard key={it.id} preview={it.preview} onOpen={onOpenLightbox} onQuickSay={onQuickSay} />
                 );
               default:
                 return null;

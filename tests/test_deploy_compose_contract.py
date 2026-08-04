@@ -16,7 +16,7 @@ The backend trio now has no defaults at all (`${VAR:?...}`), and lives in
 deploy/profiles/<profile>.env instead. That only works while every profile file
 actually sets every guarded variable, which is the other half of this guard.
 
-Style matches tests/test_no_eval_data.py: a `git ls-files` scan, no bridge, no
+Style matches tests/test_diagram_sync.py: a `git ls-files` scan, no bridge, no
 AVA_HOME, no Docker daemon — PyYAML is already a runtime dependency, so the
 compose file is parsed directly.
 """

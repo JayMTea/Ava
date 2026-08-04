@@ -17,8 +17,7 @@ HOME = tempfile.mkdtemp(prefix="ava-qa-cli-")
 
 def _run(*args: str, timeout: int = 120):
     env = dict(os.environ)
-    env.update(hermetic_env(HOME, "http://127.0.0.1:1/v1/chat/completions",
-                            "http://127.0.0.1:1"))
+    env.update(hermetic_env(HOME, "http://127.0.0.1:1/v1/chat/completions"))
     env["PYTHONPATH"] = shims_pythonpath() + os.pathsep + env.get("PYTHONPATH", "")
     return subprocess.run([sys.executable, CLI, *args], cwd=_REPO, env=env,
                           capture_output=True, text=True, timeout=timeout)
@@ -63,7 +62,7 @@ class TestCliConnectors(unittest.TestCase):
         self.assertIn("bridge", r.stdout)
         # Rendering tools/policies for a built-in must be deterministic and
         # exit clean (the deep determinism check lives in tests/).
-        r = _run("connector", "policies", "gpu-service")
+        r = _run("connector", "policies", "bridge")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
     def test_device_scaffold_and_token(self):

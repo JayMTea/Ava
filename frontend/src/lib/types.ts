@@ -45,21 +45,6 @@ export interface CotStep {
   name?: string;
 }
 
-export interface ImageJob {
-  id: string;
-  prompt?: string;
-  rewritten_prompt?: string;
-  url?: string;
-  status?: 'running' | 'done' | 'error';
-  progress?: number;
-  stage?: string;
-  created?: number;
-  updated?: number;
-  cancelled?: boolean;
-  error?: string;
-  error_code?: string;  // machine-readable ("image_off", "gpusvc_down") — drives the fix-it link
-}
-
 export type ModelState =
   | 'resident'   // holding weights in memory right now
   | 'idle'       // engine up, has the model, not in memory (it loads on demand)
@@ -113,7 +98,7 @@ export interface HardwareStats {
     // What this row IS, as a machine token — the backend never sends copy for
     // it (see CLAUDE.md), so the wording below is ours and matches the "brain"
     // badge Setup → Agent uses. Exactly one row is ever the brain.
-    role_key?: 'brain' | 'render' | 'video' | 'image' | '';
+    role_key?: 'brain' | '';
     // OBSERVED liveness, closed vocabulary (ava_bridge/hardware.py _STATES).
     // "unknown" means we could not look, never "not loaded".
     state?: ModelState;
@@ -136,12 +121,6 @@ export interface HardwareStats {
       // only); null/absent = residency unknown (process not observable).
       in_memory?: boolean | null;
     }>;
-  }>;
-  jobs?: Array<{
-    name: string;
-    stage?: string | null;
-    progress?: number | null;
-    engine?: string;
   }>;
   ts: number;
 }
@@ -192,7 +171,6 @@ export interface TurnStatus {
   steps?: CotStep[];
   tools_used?: string[];
   reply?: string | null;
-  job?: ImageJob | null;
   previews?: Preview[];
   artifact?: Artifact | null;
   model?: ModelInfo | null;
@@ -232,13 +210,10 @@ export interface ChatMessage {
   role: Role | 'assistant';
   content?: string;
   atts?: Attachment[];
-  image?: string;
   model?: ModelInfo | null;
   tools_used?: string[];
   steps?: CotStep[];
-  url?: string;
-  caption?: string;
-  error_code?: string; // machine-readable ("image_off", "gpusvc_down") — drives the fix-it link
+  error_code?: string; // machine-readable ("voice_off", "inference_down") — drives the fix-it link
 }
 
 export interface ChatDetail {
@@ -259,7 +234,6 @@ export interface TalkResponse {
   sim?: number | null;
   threshold?: number;
   audio?: string; // base64 WAV of Ava's spoken reply
-  job?: ImageJob;
   model?: ModelInfo | null;
 }
 

@@ -7,10 +7,10 @@
 ## Context
 
 Ava's agent runs inside an OpenClaw Docker sandbox and can call MCP tools that reach
-the network (weather APIs, the host's the GPU service, the host bridge, a connected app). If
-the sandbox had broad outbound access, a single compromised or prompt-injected tool
-could exfiltrate data or pivot to other services. LLM tool-use is an untrusted-input
-boundary by nature.
+the network (weather APIs, the host bridge, a connected app). If the sandbox had
+broad outbound access, a single compromised or prompt-injected tool could exfiltrate
+data or pivot to other services. LLM tool-use is an untrusted-input boundary by
+nature.
 
 ## Decision
 

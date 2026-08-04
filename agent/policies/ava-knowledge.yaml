@@ -28,7 +28,6 @@ network_policies:
         rules:
           - allow: { method: GET, path: "/internal/documents" }
           - allow: { method: POST, path: "/internal/extract" }
-          - allow: { method: POST, path: "/internal/run-gpu-job" }
           - allow: { method: GET, path: "/internal/model" }
           - allow: { method: POST, path: "/internal/web/search" }
           - allow: { method: POST, path: "/internal/web/fetch" }

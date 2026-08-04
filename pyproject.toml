@@ -79,7 +79,6 @@ py-modules = [
     "phone_bridge",
     "serve",
     "ava_router",
-    "gpu_service",
     "kokoro_tts",
     "perf_log",
     "speaker",

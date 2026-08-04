@@ -2,7 +2,7 @@
 live tiers — the exact process a user runs, including startup hooks, real
 sockets, SSE, and static file serving.
 
-Each instance gets a brand-new AVA_HOME and its own ports; the fake LLM/gpusvc
+Each instance gets a brand-new AVA_HOME and its own ports; the fake LLM/app
 servers from conftest are plain TCP so they serve subprocesses too.
 """
 import os
@@ -18,13 +18,12 @@ _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 class BridgeProc:
-    def __init__(self, llm_url: str, gpusvc_url: str, home: str | None = None,
+    def __init__(self, llm_url: str, home: str | None = None,
                  env_extra: dict | None = None):
         self.home = home or tempfile.mkdtemp(prefix="ava-qa-live-")
         self.port = free_port()
         self.router_port = free_port()
         self.llm_url = llm_url
-        self.gpusvc_url = gpusvc_url
         self.env_extra = dict(env_extra or {})
         self.proc: subprocess.Popen | None = None
 
@@ -34,7 +33,7 @@ class BridgeProc:
 
     def _env(self) -> dict:
         env = dict(os.environ)
-        env.update(hermetic_env(self.home, self.llm_url, self.gpusvc_url,
+        env.update(hermetic_env(self.home, self.llm_url,
                                 port=self.port, router_port=self.router_port))
         # Block the optional voice stack so boot is fast and deterministic.
         env["PYTHONPATH"] = shims_pythonpath() + os.pathsep + env.get("PYTHONPATH", "")

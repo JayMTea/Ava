@@ -16,7 +16,6 @@ import base64
 import json
 import os
 import threading
-import time
 
 import requests
 from fastapi import FastAPI, Form, UploadFile, File, Request
@@ -34,13 +33,11 @@ import voice_ava as va
 from ava_bridge import brand, config, settings, state
 from ava_bridge.version import version as _ava_version
 from ava_bridge.config import (
-    RATE, MEDIA_DIR, UPLOAD_DIR, PHONE_THRESHOLD,
+    RATE, UPLOAD_DIR, PHONE_THRESHOLD,
 )
 from ava_bridge.agent import (run_turn as _agent_run_turn, warm_openclaw,
-                              get_route, runtime_available,
-                              set_route, which_model)
+                              get_route, set_route, which_model)
 from ava_bridge.chat_store import history_for as _history_for
-from ava_bridge.gpu_jobs import (pickup_image_since, attach_chat)
 from ava_bridge.documents import augment, parse_ids
 from ava_bridge.audio import decode_to_pcm, tts_wav_bytes, gpu_transcribe
 from ava_bridge.chat_store import (
@@ -71,7 +68,6 @@ if _pages.SPA_PAGE is not None:
     app.mount("/assets",
               StaticFiles(directory=os.path.join(_pages.FRONTEND_DIST, "assets")),
               name="assets")
-app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 
@@ -202,9 +198,9 @@ app.include_router(_data_router)
 # the API routers.
 app.include_router(_pages.router)
 
-# Media + jobs (cookie-gated /api/upload, /api/generate, /api/upscale,
-# /api/job/*, /api/turn/*, /thumb/*). Registers after the /media and /uploads
-# StaticFiles mounts above, preserving the original declaration order.
+# Media + turns (cookie-gated /api/upload, /api/turn/*, /api/turns). Registers
+# after the /uploads StaticFiles mount above, preserving the original
+# declaration order.
 from ava_bridge.media_api import router as _media_router  # noqa: E402
 app.include_router(_media_router)
 
@@ -682,8 +678,8 @@ async def talk(audio: UploadFile = File(...), history: str = Form("[]"),
         # Threadpool, not the loop: decode_to_pcm shells out to ffmpeg with a 30s
         # ceiling (config.AUDIO_DECODE_TIMEOUT). Every heavy step in this route is
         # handed off the same way — a voice turn can legitimately run for minutes
-        # (agent turn 600s, image pickup 120s), and on the loop that froze SSE,
-        # the dashboard and the login gate for the whole turn.
+        # (the agent turn alone carries a 600s ceiling), and on the loop that
+        # froze SSE, the dashboard and the login gate for the whole turn.
         pcm = await run_in_threadpool(decode_to_pcm, raw)
     except Exception as e:  # noqa: BLE001
         return JSONResponse({"error": f"decode failed: {e}"}, status_code=400)
@@ -745,47 +741,26 @@ async def talk(audio: UploadFile = File(...), history: str = Form("[]"),
 
     sim_out = round(float(sim), 3) if sim is not None else None
 
-    # Route through Ava — she decides whether to call the run_gpu_job tool.
+    # Route through Ava — she decides which of her tools the turn needs.
     ids = parse_ids(attachments)
     agent_text = augment(text, ids)
     agent_text = memory_store.augment_with_recall(agent_text, text, chat_id)
     sid = chat_session(chat_id) if chat_id else None
     if chat_id:
         chat_append(chat_id, "user", text, atts_meta(ids))
-    t0 = time.time()
     tools: list[str] = []
     try:
         reply, tools = await run_in_threadpool(
             _agent_run_turn, agent_text, session_id=sid,
             history=_history_for(chat_id))
     except Exception as e:  # noqa: BLE001
-        # The turn may have timed out *after* the image tool rendered — salvage
-        # the finished picture so it still appears on the user's screen. Only
-        # the full agent runtime can have rendered one: on the tool-less direct
-        # floor this wait would just hang a failed chat for two minutes.
-        job = (await run_in_threadpool(pickup_image_since, t0, wait=120)
-               if runtime_available() else None)
-        if job:
-            reply = "Here's the image you asked for."
-            m = which_model()
-            if chat_id:
-                chat_append(chat_id, "assistant", reply, model=m, tools_used=tools)
-                attach_chat(job["id"], chat_id)  # bridge persists the image itself
-            wav = await run_in_threadpool(tts_wav_bytes, reply)
-            return {
-                "accepted": True, "text": text, "reply": reply, "sim": sim_out,
-                "audio": base64.b64encode(wav).decode(),
-                "model": m,
-                "tools_used": tools,
-                "job": job,
-            }
         return JSONResponse({"error": f"Ava unreachable: {e}"}, status_code=502)
 
     m = which_model()
     if chat_id:
         chat_append(chat_id, "assistant", reply, model=m, tools_used=tools)
     wav = await run_in_threadpool(tts_wav_bytes, reply)
-    resp = {
+    return {
         "accepted": True,
         "text": text,
         "reply": reply,
@@ -794,19 +769,12 @@ async def talk(audio: UploadFile = File(...), history: str = Form("[]"),
         "model": m,
         "tools_used": tools,
     }
-    if any("run_gpu_job" in t for t in tools):
-        job = await run_in_threadpool(pickup_image_since, t0, wait=120)
-        if job:
-            resp["job"] = job
-            if chat_id:
-                attach_chat(job["id"], chat_id)
-    return resp
 
 
 @app.post("/api/talk-text")
 async def talk_text(text: str = Form(...), history: str = Form("[]"),
                     attachments: str = Form("[]"), chat_id: str = Form("")):
-    """Typed chat (no voice gate, no TTS). Ava drives GPU workloads herself."""
+    """Typed chat (no voice gate, no TTS)."""
     text = text.strip()
     ids = parse_ids(attachments)
     if not text and not ids:
@@ -817,37 +785,19 @@ async def talk_text(text: str = Form(...), history: str = Form("[]"),
     sid = chat_session(chat_id) if chat_id else None
     if chat_id:
         chat_append(chat_id, "user", text, atts_meta(ids))
-    t0 = time.time()
     tools: list[str] = []
     try:
         # Same threadpool hand-off as /api/talk: the agent turn carries a 600s
-        # ceiling and the image pickup below blocks for up to 120s.
+        # ceiling and must not sit on the event loop.
         reply, tools = await run_in_threadpool(
             _agent_run_turn, agent_text, session_id=sid,
             history=_history_for(chat_id))
     except Exception as e:  # noqa: BLE001
-        # Salvage an image the tool may have rendered before the turn timed out
-        # (only possible on the full agent runtime — see /api/talk above).
-        job = (await run_in_threadpool(pickup_image_since, t0, wait=120)
-               if runtime_available() else None)
-        if job:
-            m = which_model()
-            if chat_id:
-                chat_append(chat_id, "assistant", "Here's the image you asked for.", model=m, tools_used=tools)
-                attach_chat(job["id"], chat_id)  # bridge persists the image itself
-            return {"reply": "Here's the image you asked for.", "job": job, "model": m, "tools_used": tools}
         return JSONResponse({"error": f"Ava unreachable: {e}"}, status_code=502)
     m = which_model()
     if chat_id:
         chat_append(chat_id, "assistant", reply, model=m, tools_used=tools)
-    resp = {"reply": reply, "model": m, "tools_used": tools}
-    if any("run_gpu_job" in t for t in tools):
-        job = await run_in_threadpool(pickup_image_since, t0, wait=120)
-        if job:
-            resp["job"] = job
-            if chat_id:
-                attach_chat(job["id"], chat_id)
-    return resp
+    return {"reply": reply, "model": m, "tools_used": tools}
 
 
 @app.get("/api/artifact/weather")

@@ -3,7 +3,7 @@ import type { Attachment, ModelInfo } from '../../lib/types';
 import { Icon } from '../../lib/icons';
 import { fixForCode } from '../../lib/fixes';
 import { AppDot, appAccent, appForTool } from '../../lib/appColor';
-import { FixLink } from './Media';
+import { FixLink } from '../../lib/FixLink';
 import { useBrandName } from '../../lib/brandContext';
 
 async function copyText(s: string): Promise<boolean> {

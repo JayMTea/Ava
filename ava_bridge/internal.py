@@ -3,9 +3,9 @@ of files the user uploaded to the bridge.
 
 The MCP server runs inside the OpenClaw sandbox and can't see the host's upload
 dir or extraction binaries, so document-reading is exposed HERE as a token-gated
-host service it calls back into (the same host-callback pattern the image tool
-uses for the GPU service). Text is extracted once at upload time and cached on the
-attachment record; this re-extracts from disk only if that cache is empty.
+host service it calls back into. Text is extracted once at upload time and
+cached on the attachment record; this re-extracts from disk only if that cache
+is empty.
 
 Only callers presenting the shared X-Ava-Internal-Token (handed to the tools by
 agent/install.sh) are served; everything else gets 401.
@@ -106,7 +106,6 @@ def authorized(request: Request, scope=None) -> bool:
 ROUTE_SCOPES: dict[str, str] = {
     "/internal/documents": "documents",
     "/internal/extract": "documents",
-    "/internal/run-gpu-job": "run_gpu_job",
     "/internal/model": "model",
     "/internal/web": "web",
     "/internal/connector": "connectors",
@@ -329,83 +328,6 @@ def internal_device_events(request: Request):
     except (TypeError, ValueError):
         limit = 50
     return {"events": devices.recent(cid, limit=limit)}
-
-@router.post("/internal/run-gpu-job")
-async def internal_run_gpu_job(request: Request):
-    """Render an image on Ava's behalf so the CHAT gets a live, real progress %.
-
-    Ava's `run_gpu_job` MCP tool calls this instead of hitting the GPU service directly.
-    The bridge then owns the the GPU service render (start_image_job -> gpu_service, tracked
-    over the the GPU service websocket), so /api/job/{id} reports a TRUE percentage the chat
-    bar polls — exactly like the manual Generate button. Token-gated
-    (reuses the ava-knowledge /internal egress; no new policy).
-    """
-    # Imported here, not at module scope: gpu_jobs pulls in the repo-root
-    # gpu_service, and ava_bridge.internal is imported at module scope by
-    # tests/test_internal_scopes.py and tests/test_security.py, plus lazily by
-    # auth.auth_gate on every /internal/* request. Keeping the image stack off
-    # that path costs one line here.
-    from .gpu_jobs import start_image_job
-    if not authorized(request):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-    try:
-        body = await request.json()
-    except Exception:  # noqa: BLE001
-        body = {}
-    prompt = str(body.get("prompt", "")).strip()
-    if not prompt:
-        return JSONResponse({"error": "prompt required"}, status_code=400)
-    try:
-        width = int(body.get("width") or 1024)
-        height = int(body.get("height") or 1024)
-    except (TypeError, ValueError):
-        width, height = 1024, 1024
-    kw = {"width": width, "height": height}
-    neg = str(body.get("negative", "")).strip()
-    if neg:
-        kw["negative"] = neg
-    # Fidelity knobs (all optional): cfg/guidance = how literally the render obeys
-    # the prompt, steps = detail, seed = reproducibility. Clamped to safe ranges.
-    try:
-        if body.get("cfg") is not None:
-            kw["cfg"] = min(max(float(body["cfg"]), 1.0), 20.0)
-    except (TypeError, ValueError):
-        pass
-    try:
-        if body.get("steps") is not None:
-            kw["steps"] = min(max(int(body["steps"]), 8), 60)
-    except (TypeError, ValueError):
-        pass
-    try:
-        if body.get("seed") is not None:
-            kw["seed"] = int(body["seed"]) & 0x7FFFFFFF
-    except (TypeError, ValueError):
-        pass
-    # Multi-person regional prompts: list of {text,x,y,w,h,weight} sub-prompts,
-    # each pinned to its own area so distinct people don't blend together.
-    regions = body.get("regions")
-    if isinstance(regions, list) and regions:
-        clean = []
-        for r in regions:
-            if isinstance(r, dict) and str(r.get("text", "")).strip():
-                clean.append(r)
-        if clean:
-            kw["regions"] = clean
-    # Optional checkpoint/model key from the router (e.g. juggernaut, ponyreal).
-    mdl = body.get("model")
-    if mdl and str(mdl).strip():
-        kw["model"] = str(mdl).strip()
-    job_id = start_image_job(prompt, source="agent", **kw)
-    with state.jobs_lock:
-        job = state.jobs.get(job_id) or {}
-    if job.get("status") == "error":
-        # Born errored (feature off / the GPU service down): tell Ava's tool the truth
-        # so she explains what happened and how to fix it, instead of promising
-        # an image that will never arrive.
-        return {"error": job.get("error") or "GPU workloads unavailable",
-                "error_code": job.get("error_code"),
-                "job": {"id": job_id, "kind": "image", "status": "error"}}
-    return {"job": {"id": job_id, "kind": "image", "status": "running"}}
 
 # ---- Architecture capability (Ava reads/updates her own SSOT diagrams+code) --
 # Same token gate. Lets Ava get the architecture manifest + drift report, render
@@ -831,12 +753,11 @@ async def internal_code_change(request: Request):
 async def internal_web_search(request: Request):
     if not authorized(request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
-    # features.web_search is the single switch for BOTH web routes — same
-    # convention as image renders: a deliberate OFF must actually stop the
-    # path, with a coded error the chat turns into a fix-it link. Coded errors
-    # ship as HTTP 200 like run-gpu-job's: the sandbox tool helper (curl
-    # --fail) swallows non-200 bodies, and the message must reach Ava so she
-    # can tell the user how to fix it.
+    # features.web_search is the single switch for BOTH web routes: a
+    # deliberate OFF must actually stop the path, with a coded error the chat
+    # turns into a fix-it link. Coded errors ship as HTTP 200 — the sandbox
+    # tool helper (curl --fail) swallows non-200 bodies, and the message must
+    # reach Ava so she can tell the user how to fix it.
     pf = features.preflight("web_search")
     if pf:
         return {"error": pf[1], "error_code": pf[0]}

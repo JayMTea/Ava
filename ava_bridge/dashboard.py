@@ -4,7 +4,7 @@ Read-first, cookie-gated `/api/*` data assembled from existing modules
 (`perf_mgmt`, `state`, `hardware`, `alerts`) + systemd, so the browser can render
 charts/tables/live-feeds without the sandbox internal token. Nothing here writes.
 
-Sections: perf (summary/series/recent/cost) · work (jobs/turns/code) ·
+Sections: perf (summary/series/recent/cost) · work (turns/code) ·
 ops (summary/schedule/services/tools/alerts) · SSE snapshot builder.
 """
 import os
@@ -351,21 +351,8 @@ def perf_cost(since="7d", group="model") -> dict:
 
 
 # --------------------------------------------------------------------------- #
-# Work — jobs / turns / code turns
+# Work — turns / code turns
 # --------------------------------------------------------------------------- #
-def jobs_list(status=None, kind=None, limit=100) -> dict:
-    from . import gpu_jobs
-    gpu_jobs.reap_stale_jobs()  # flip stalled runners to error; drop old terminals
-    with state.jobs_lock:
-        js = list(state.jobs.values())
-    if status:
-        js = [j for j in js if j.get("status") == status]
-    if kind:
-        js = [j for j in js if j.get("kind") == kind]
-    js.sort(key=lambda j: j.get("created", 0), reverse=True)
-    return {"ok": True, "jobs": js[:int(limit or 100)]}
-
-
 def turns_list(limit=50, active=False) -> dict:
     with state.turns_lock:
         ts = list(state.turns.values())
@@ -384,7 +371,6 @@ def turns_list(limit=50, active=False) -> dict:
             "tools_used": t.get("tools_used") or [],
             "model": t.get("model") or None,
             "ctx_tokens": t.get("ctx_tokens"),
-            "has_job": bool(t.get("job")),
             "error": t.get("error"),
             "reply_preview": (t.get("reply") or "")[:180] or None,
         })
@@ -428,8 +414,6 @@ def _learning_brief() -> dict:
 
 
 def ops_summary() -> dict:
-    with state.jobs_lock:
-        jobs = list(state.jobs.values())
     with state.turns_lock:
         turns = list(state.turns.values())
 
@@ -444,8 +428,6 @@ def ops_summary() -> dict:
     gen_24h = _cached("gen24_count", 15, lambda: len(_all_rows(None, None, "1d")))
     return {
         "ok": True,
-        "jobs": {"running": sum(1 for j in jobs if j.get("status") == "running"),
-                 "total": len(jobs), "by_status": by_status(jobs)},
         "turns": {"running": sum(1 for t in turns if t.get("status") == "running"),
                   "total": len(turns), "by_status": by_status(turns)},
         "generations_24h": gen_24h,
@@ -688,13 +670,6 @@ def build_alert_metrics() -> dict:
     errs = [1 if (isinstance(r.get("status"), int) and r["status"] >= 400) else 0
             for r in all_1h]
     m["error_rate_1h"] = round(sum(errs) / len(errs), 3) if errs else 0
-    now = time.time()
-    stuck = 0
-    with state.jobs_lock:
-        for j in state.jobs.values():
-            if j.get("status") == "running" and now - (j.get("updated") or j.get("created", now)) > 480:
-                stuck += 1
-    m["job_stuck_count"] = stuck
     m["service_down_count"] = ops_services().get("down", 0)
 
     # --- model allocation (dormant until models are declared in alloc.models) ---
@@ -782,9 +757,4 @@ def live_snapshot() -> dict:
                                "step_count": len(t.get("steps") or []),
                                "tools": len(t.get("tools_used") or [])}
                  for t in state.turns.values()}
-    with state.jobs_lock:
-        jobs = {j.get("id"): {"status": j.get("status"),
-                              "progress": j.get("progress"),
-                              "stage": j.get("stage")}
-                for j in state.jobs.values()}
-    return {"turns": turns, "jobs": jobs, "hw": hardware.latest_sample()}
+    return {"turns": turns, "hw": hardware.latest_sample()}

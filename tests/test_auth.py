@@ -113,8 +113,8 @@ class GateTests(unittest.TestCase):
         self.assertEqual(r.status_code, 401)
         self.assertEqual(r.json()["error"], "auth required")
 
-    def test_apps_and_media_unauthed_401(self):
-        for path in ("/apps/x/", "/media/y.png", "/uploads/z"):
+    def test_apps_and_uploads_unauthed_401(self):
+        for path in ("/apps/x/", "/uploads/z"):
             r = self.client.get(path, follow_redirects=False)
             self.assertEqual(r.status_code, 401, path)
 

@@ -12,15 +12,11 @@ under a lock, a bounded deque of output lines, `Popen` line iteration, and 409 o
 a concurrent start. It is a module rather than route-local state because three
 callers need it — the hub routes, `ava_cli.py`, and the agent-runtime shim.
 
-**Why not `state.jobs` + the existing /api/stream/ops SSE**, which would have been
-free: three things in that channel assume every job is a media render.
-`hardware.py` labels every running entry "Chat image render" with
-`engine: "the GPU service"` in the GPU panel; `gpu_jobs.reap_stale_jobs` flips anything
-running past 900s to `error_code: "image_down"` ("is the GPU service still running?") and
-hands it to the *media* finalizer; and `dashboard.build_alert_metrics` counts
-anything past 480s into `job_stuck_count`, which raises an alert — while
-install.sh is allowed 600s. Riding that channel buys a fake GPU row and a
-spurious alert at eight minutes.
+**Why a private slot and not the /api/stream/ops SSE**, which would have been
+free: that channel carries turn, hardware, device and alert deltas, all of which
+a browser subscribes to for the Operations page. A provisioning run is neither —
+it belongs to whoever started it, it is single-slot by construction, and its
+output lines are shell chatter that no dashboard should diff at 1 Hz.
 """
 from __future__ import annotations
 

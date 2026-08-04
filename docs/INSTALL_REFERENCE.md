@@ -30,7 +30,6 @@ cp profiles/cuda.env  .env   # small NVIDIA GPU -> Ollama with CUDA (quantized)
 cp profiles/gpu.env   .env   # NVIDIA GPU, 12 GB or more -> vLLM
 cp profiles/rocm.env  .env   # AMD GPU or APU -> Ollama with ROCm
 cp profiles/cloud.env .env   # bring an API key, no local model (edit .env first)
-cp profiles/full.env  .env   # everything, incl. image/video (the GPU service)
 cp profiles/agent.env .env   # + full tool-using agent (opt-in)
 
 docker compose up -d
@@ -41,7 +40,7 @@ the landing page points people at:
 
 ```bash
 cd deploy
-AVA_PROFILE=full ./install.sh      # cpu | cuda | gpu | rocm | cloud | full | agent
+AVA_PROFILE=agent ./install.sh     # cpu | cuda | gpu | rocm | cloud | agent
 ```
 
 Given one, `install.sh` skips detection and uses it; given none, it detects and
@@ -56,16 +55,14 @@ prints what it chose and why. What each starts (`docker compose config
 | `rocm` | ava, ollama-rocm | chat on a local model, AMD |
 | `cloud` | ava | chat against an API key you supply |
 | `agent` | ava, agent, vllm | **+ the tool-using agent** that drives your connected apps |
-| `full` | ava, agent, gpu-service, vllm | **+ image and video generation** |
 
-So `full` is the superset - everything `agent` runs, plus the GPU service.
+So `agent` is the superset - everything `gpu` runs, plus the agent.
 
-!!! warning "`agent` and `full` grant root-equivalent access to your machine"
+!!! warning "`agent` grants root-equivalent access to your machine"
     The agent container mounts the host Docker socket (`/var/run/docker.sock`),
     which is **root-equivalent** on the host. That is how it spawns the sandbox
-    that runs model-generated code. Both profiles are opt-in for that reason: it
-    is your call to make rather than the installer's. the GPU service is additionally a
-    second GPU tenant, competing for memory with the model you chat to.
+    that runs model-generated code. The profile is opt-in for that reason: it
+    is your call to make rather than the installer's.
 
 Voice is not a profile at all - it needs a build flag (`AVA_VOICE_DEPS=1`) *and*
 the switch in Setup → System. See [Optional capabilities](#4-optional-capabilities) below.
@@ -93,7 +90,6 @@ the switch in Setup → System. See [Optional capabilities](#4-optional-capabili
     | `rocm.env` | Ollama with ROCm, on an AMD GPU or APU | Needs the amdgpu kernel driver loaded (so `/dev/kfd` and `/dev/dri` exist) and your user in the `render` and `video` groups. `install.sh` checks both and falls back to `cpu` rather than starting a service that cannot see the device. **Not verified on real AMD hardware** - the `linux-amd-*` rows in `deploy/platforms.conf` read `ci-simulated`. |
     | `cloud.env` | Someone else's API | **You must fill in three values** - the file ships them empty on purpose, so compose stops with an instruction instead of guessing. |
     | `agent.env` | vLLM + the tool-using agent | Sets `COMPOSE_PROFILES=agent,gpu`, because `agent` alone starts no inference engine. Also sets the three variables the agent runtime needs. |
-    | `full.env` | vLLM + the GPU service + the agent | Everything. Shares one GPU pool, so it lowers the vLLM memory share to `0.55`. |
 
 ---
 
@@ -122,7 +118,7 @@ deliberate act:
 | Variable | Default | Notes |
 |---|---|---|
 | `AVA_MODEL` | `Qwen/Qwen2.5-7B-Instruct` | Any model vLLM can serve. Set it, then re-run `./install.sh` (or `./resolve-model-flags.sh --env <model> >> .env`) so its parsers follow. |
-| `AVA_VLLM_GPU_UTIL` | `0.90` | Fraction of GPU memory vLLM may take. `profiles/full.env` lowers it to `0.55`, where the GPU service shares the pool. |
+| `AVA_VLLM_GPU_UTIL` | `0.90` | Fraction of GPU memory vLLM may take. Lower it if you keep a second model resident on the same card. |
 | `AVA_VLLM_MAX_LEN` | resolved | Context ceiling, **clamped to what the model actually supports** - vLLM raises rather than clamping, so asking for more than the checkpoint allows means it never boots. |
 | `AVA_VLLM_MODEL_FLAGS` | resolved | `--tool-call-parser`, `--reasoning-parser` and any model-specific boot flags, as one string. |
 
@@ -219,11 +215,6 @@ setting `AVA_VOICE_DEPS=1` in `deploy/.env` before `docker compose up -d
 --build`, then turn the capability on in **Setup → System → Optional features**
 (`features.voice` is off by default). Both steps are needed: the switch alone has
 nothing to run, and the deps alone leave the switch off.
-
-### GPU workloads
-
-Needs the GPU service, which only the `full` profile starts. On any other profile the
-switch reports `image_down` rather than pretending.
 
 ### Web search
 
@@ -410,7 +401,7 @@ overrides. **No source edits, ever.** Highlights:
 | `server.port` | web app port (default 8096); env `AVA_PORT` |
 | `inference.backends` | your model engines (vLLM / Ollama / llama.cpp / cloud) |
 | `agent.sandbox` | the agent runtime sandbox name |
-| `features.*` | `image`, `web_search`, `voice` (Setup → System → Optional features), plus `learning` and `memory`, which have their own panels |
+| `features.*` | `web_search`, `voice` (Setup → System → Optional features), plus `learning` and `memory`, which have their own panels |
 | `connectors` | the apps Ava monitors and drives |
 
 Secrets live outside `ava.yaml` and outside the repo: the admin password in

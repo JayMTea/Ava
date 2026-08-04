@@ -18,18 +18,9 @@ hardware you just installed on.
 
 ---
 
-Here it is end to end, narrated (sound on):
+Here it is end to end.
 
-<video controls playsinline preload="metadata"
-       style="width:100%;border-radius:8px"
-       aria-label="Screen recording: picking Ava's brain, from detected hardware through linking and testing a model">
-  <source src="../assets/choose-model-tour.mp4" type="video/mp4">
-  <track kind="captions" srclang="en" label="English"
-         src="../assets/choose-model-tour.vtt">
-  Your browser can't play video. <a href="../assets/choose-model-tour.mp4">Download the walkthrough</a>.
-</video>
-
-*(The recording uses sample data on a Mac host; your instance will show your own
+*(The screenshots use sample data on a Mac host; your instance will show your own
 hardware and models.)*
 
 ## Ava already knows what fits
@@ -40,8 +31,6 @@ machine can hold. It is detected live each time you open the panel, with nothing
 to configure during [install](../deploy/README.md), so you never guess: a big
 Studio handles a 70B model, a base Mac mini stays around 8B, and an NVIDIA box is
 sized by its total VRAM.
-
-![The Hardware tab: a Workstation Tier hero card reading "Unified memory comfortably fits large local models", with Compute and Usable memory below it, and a note that the tier sets which models Ava recommends](assets/choose-model-1-hardware.png)
 
 ### …and it checks each model against that, not just the tier
 
@@ -69,9 +58,9 @@ cache computed from the model's own architecture). If none of those resolve, Ava
 says nothing rather than guessing.
 
 Ava is deliberately blunt about "too large" and hedged about everything else.
-"Will not fit" is arithmetic; "will fit" never is - a background render or a
-long conversation can still tip it - and a confident promise that then thrashes
-is worse than no promise at all.
+"Will not fit" is arithmetic; "will fit" never is - a second model sharing the
+box or a long conversation can still tip it - and a confident promise that then
+thrashes is worse than no promise at all.
 
 ## Link a model
 
@@ -140,14 +129,10 @@ and tune it yourself.
 
 Ava sends a real turn and shows the reply and latency before you commit.
 
-![The Add a model form on the Agent tab, with the engine picked, the model named, and the live result of Test connection shown beneath it](assets/choose-model-2-test.png)
-
 ### Step 3: Click "Save model"
 
 It is marked with the **brain** badge, and you can link several and switch which
 one Ava thinks with at any time.
-
-![The saved model listed under Ava's brain, carrying the brain badge alongside its engine and endpoint](assets/choose-model-3-brain.png)
 
 Saving writes the backend to `ava.yaml`, and Ava raises a restart banner. Restart
 to apply the change (`cd deploy && docker compose restart ava` under Docker, or
@@ -171,8 +156,6 @@ to apply the change (`cd deploy && docker compose restart ava` under Docker, or
 
 The **Model store** below downloads models sized to your detected tier, so a
 24 GB machine is never handed a 70B model.
-
-![The Model store panel: brain, embed, and speech entries each marked downloaded, with a Pull recommended button and the detected tier and memory in the subtitle](assets/choose-model-4-store.png)
 
 The same thing from a terminal:
 

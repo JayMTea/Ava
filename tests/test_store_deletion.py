@@ -35,9 +35,7 @@ def home(tmp_path, monkeypatch):
     (logs / "devices").mkdir(parents=True)
     (logs / "rollups").mkdir(parents=True)
     monkeypatch.setattr(settings, "logs_dir", lambda: str(logs))
-    monkeypatch.setattr(settings, "media_dir", lambda: str(tmp_path / "media"))
     monkeypatch.setattr(settings, "upload_dir", lambda: str(tmp_path / "uploads"))
-    (tmp_path / "media").mkdir()
     (tmp_path / "uploads").mkdir()
     monkeypatch.delenv("AVA_PERF_LOG_DIR", raising=False)
 
@@ -51,7 +49,6 @@ def home(tmp_path, monkeypatch):
         ("rollups/perf_daily.jsonl", '{"ts":1}\n'),
     ):
         (logs / rel).write_text(body, encoding="utf-8")
-    (tmp_path / "media" / "a.png").write_bytes(b"x" * 10)
     (tmp_path / "uploads" / "b.txt").write_bytes(b"y" * 5)
     monkeypatch.setattr(audit, "_path", lambda: str(logs / "audit.jsonl"))
     return tmp_path, logs
@@ -145,8 +142,8 @@ def test_a_deletion_is_audited_with_the_store_NAMED(home) -> None:
 
 
 def test_the_receipt_reports_what_went(home) -> None:
-    r = data_api.delete_store("media_gen")
-    assert r["files"] == 1 and r["bytes"] == 10, r
+    r = data_api.delete_store("uploads")
+    assert r["files"] == 1 and r["bytes"] == 5, r
     assert r["path"], "the receipt should name the directory it emptied"
 
 

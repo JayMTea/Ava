@@ -13,14 +13,12 @@ export const METRICS: Record<string, string> = {
     'Average generation speed in tokens per second, across all models. Higher means Ava writes replies faster.',
   ttft:
     'Time to first token — how long after you send a message before Ava starts replying, in seconds. Lower feels snappier.',
-  renders:
-    'Number of image and video generations completed in this window.',
   routeErrors:
     'How many times the model router had to fall back to a backup model because the primary failed. Zero is ideal.',
 
   // ---- Vitals · Hardware gauges ----
   gpuUtil:
-    'How busy the GPU’s compute cores are right now, 0–100%. High during generation, near zero when idle.',
+    'How busy the GPU’s compute cores are right now, 0–100%. High while Ava is answering, near zero when idle.',
   gpuTemp:
     'GPU core temperature in °C. Sustained high temperatures can make the card throttle and slow down.',
   memory:
@@ -51,10 +49,8 @@ export const METRICS: Record<string, string> = {
   // ---- Operations · KPI strip ----
   activeTurns:
     'Chat turns Ava is processing right now — a turn is one request/response exchange.',
-  activeRenders:
-    'Image or video generation jobs currently running.',
-  generations24h:
-    'Total image + video generations completed in the last 24 hours.',
+  recorded24h:
+    'Everything logged to performance history in the last 24 hours — Ava\'s own completions plus every connected app\'s work.',
   servicesUp:
     'Backend services (model engine, connectors, schedulers) that are up, out of the total Ava monitors.',
   pendingApprovals:

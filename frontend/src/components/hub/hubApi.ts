@@ -618,7 +618,6 @@ export interface SystemInfo {
   voice: boolean;
   voiceprint: boolean;
   web_search: boolean;
-  image: boolean;
   // The capability registry (ava_bridge/features.py) — the Optional features
   // panel renders straight from this, so new capabilities appear automatically.
   features: FeatureEntry[];

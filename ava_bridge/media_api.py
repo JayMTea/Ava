@@ -1,11 +1,9 @@
-"""Media and job routes — uploads, renders, upscales, and job/turn polling.
+"""Media and turn routes — uploads and turn polling.
 
-Cookie-gated. Covers the whole lifecycle of a piece of generated or uploaded
-media: /api/upload takes a file in, /api/generate and /api/upscale start work,
-/api/job/{id} and /api/turn/{tid} report progress, /api/jobs and /api/turns list
-them, and /thumb/{name} serves the cheap inline preview.
+Cookie-gated. Covers the whole lifecycle of an uploaded file: /api/upload takes
+it in, and /api/turn/{tid} and /api/turns report on the chat turns it rides.
 
-Two things here are load-bearing rather than incidental:
+One thing here is load-bearing rather than incidental:
 
 _store_upload is a NAMED SYNC HELPER handed to run_in_threadpool, not inline
 work. /api/upload is an `async def` route, and it once ran `soffice --headless`
@@ -13,26 +11,18 @@ work. /api/upload is an `async def` route, and it once ran `soffice --headless`
 froze the whole server, every SSE stream and the login gate with it. It never
 needed load to bite; it bit on the second concurrent request.
 tests/test_no_blocking_routes.py enforces the pattern repo-wide.
-
-/thumb/{name} imports ensure_thumbnail inside the handler because thumbnailing
-is best-effort: without Pillow it returns None and the route serves the full
-image instead. That degradation is deliberate; what is not deliberate is doing
-it silently, which is why gpu_jobs warns once when Pillow is missing.
 """
 import os
 import uuid
 from typing import List
 
-from fastapi import APIRouter, File, Form, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import APIRouter, File, UploadFile
+from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from . import dashboard, memory_store, state
-from .chat_store import chat_append
-from .config import (IMAGE_EXTS, MAX_DOC_CHARS, MAX_UPLOAD_BYTES, MEDIA_DIR,
-                     UPLOAD_DIR)
+from .config import IMAGE_EXTS, MAX_DOC_CHARS, MAX_UPLOAD_BYTES, UPLOAD_DIR
 from .documents import extract_text, safe_name
-from .gpu_jobs import cancel_job, start_image_job, start_upscale_job
 
 router = APIRouter()
 
@@ -73,87 +63,9 @@ def _store_upload(raw: bytes, aid: str, safe: str, ext: str) -> dict:
         memory_store.index_document(aid, safe, text)
     return rec
 
-@router.get("/thumb/{name}")
-def media_thumb(name: str, w: int = 1024):
-    """Small WebP thumbnail of a generated image for fast inline chat display —
-    the full 4K PNG is 16 MB+, the bubble shows it at ~500px. Lazy + disk-cached
-    (immutable: a filename's bytes never change); falls back to the full image
-    if thumbnailing isn't possible. See gpu_jobs.ensure_thumbnail."""
-    from ava_bridge.gpu_jobs import ensure_thumbnail
-    thumb = ensure_thumbnail(name, w)
-    if thumb:
-        return FileResponse(thumb, media_type="image/webp",
-                            headers={"Cache-Control": "public, max-age=31536000, immutable"})
-    full = os.path.join(MEDIA_DIR, os.path.basename(name))
-    if os.path.isfile(full):
-        return FileResponse(full)
-    return JSONResponse({"error": "not found"}, status_code=404)
-
-@router.get("/api/jobs")
-async def api_jobs(status: str | None = None, kind: str | None = None,
-                   limit: int = 100):
-    return await run_in_threadpool(dashboard.jobs_list, status, kind, limit)
-
 @router.get("/api/turns")
 async def api_turns(limit: int = 50, active: bool = False):
     return await run_in_threadpool(dashboard.turns_list, limit, active)
-
-@router.post("/api/generate")
-async def generate(prompt: str = Form(...), width: int = Form(1024),
-                   height: int = Form(1024), steps: int = Form(28),
-                   chat_id: str = Form(""), chat_text: str = Form("")):
-    """Directly start an image render from a text prompt (no voice).
-
-    GOVERNANCE NOTE: this is the one sanctioned direct path that bypasses the
-    OpenClaw agent. All conversational turns (/api/talk, /api/talk-text) route
-    through Ava-the-agent (ask_openclaw) so persona, memory and tool-policies
-    apply, and agent-initiated images go via her `run_gpu_job` MCP tool. This
-    endpoint is a deliberate UX fast-path for an EXPLICIT user "generate" action
-    (a button, not a sentence): there is no reasoning to govern, and it stays on
-    the same local host the GPU service behind the same egress boundary. Keep this the
-    exception — do not add conversational logic here; send that through the agent.
-    """
-    prompt = prompt.strip()
-    if not prompt:
-        return JSONResponse({"error": "empty prompt"}, status_code=400)
-    if chat_id:
-        chat_append(chat_id, "user", (chat_text or prompt).strip())
-    # chat_id rides the job: the bridge persists the outcome (image or coded
-    # error) when the render ends — the client only paints progress.
-    job_id = start_image_job(prompt, chat_id=chat_id or None,
-                             width=width, height=height, steps=steps)
-    return {"job": {"id": job_id, "kind": "image", "prompt": prompt}}
-
-@router.post("/api/upscale")
-async def upscale(filename: str = Form(...), chat_id: str = Form(""),
-                  caption: str = Form("")):
-    """Optionally upscale a generated image ~4x (the refiner) to ~4K."""
-    name = os.path.basename(filename.strip())
-    if not name or not name.lower().endswith(".png"):
-        return JSONResponse({"error": "bad filename"}, status_code=400)
-    src = os.path.join(MEDIA_DIR, name)
-    if not os.path.isfile(src):
-        return JSONResponse({"error": "image not found"}, status_code=404)
-    job_id = start_upscale_job(src, chat_id=chat_id.strip() or None,
-                               caption=caption.strip() or None)
-    return {"job": {"id": job_id, "kind": "upscale"}}
-
-@router.get("/api/job/{job_id}")
-def job_status(job_id: str):
-    with state.jobs_lock:
-        job = state.jobs.get(job_id)
-    if not job:
-        return JSONResponse({"error": "unknown job"}, status_code=404)
-    return job
-
-@router.post("/api/job/{job_id}/cancel")
-def job_cancel(job_id: str):
-    ok = cancel_job(job_id)
-    if not ok:
-        return JSONResponse({"error": "unknown job"}, status_code=404)
-    with state.jobs_lock:
-        job = state.jobs.get(job_id)
-    return {"ok": True, "job": job}
 
 @router.get("/api/turn/{tid}")
 def turn_status(tid: str):

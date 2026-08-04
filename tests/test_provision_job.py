@@ -260,9 +260,9 @@ class VerifyVetoTests(unittest.TestCase):
 class SseSurfaceTests(unittest.TestCase):
     def test_there_is_still_exactly_one_sse_endpoint(self):
         """/api/stream/ops stays the single streaming surface. The provision job
-        is polled instead — deliberately, because registering it in `state.jobs`
-        to reuse that channel would have it rendered as a the GPU service image render and
-        alerted as a stuck job at eight minutes."""
+        is polled instead — deliberately, because that channel carries the turn,
+        hardware, device and alert deltas a browser subscribes to for Operations,
+        and a run that belongs to whoever started it is none of those."""
         import pathlib
         import subprocess
         root = pathlib.Path(__file__).resolve().parents[1]

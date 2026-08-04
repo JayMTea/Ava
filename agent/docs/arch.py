@@ -185,7 +185,7 @@ def _lbl(s: str) -> str:
 # Local Lucide icon set (agent/docs/diagrams/icons/) — referenced by filename
 # stem. Kept local so the pipeline renders offline; resolved relative to the .d2.
 _CAP_ICON = {
-    "daily": "cloud-sun", "creative": "image", "knowledge": "book-open",
+    "daily": "cloud-sun", "knowledge": "book-open",
     "architecture": "network", "persona": "users",
 }
 
@@ -645,7 +645,7 @@ def check_drift(m: dict) -> dict:
         if not declared_bind:
             continue
         # `bind:` may name several addresses, the way a real --listen flag does
-        # (`127.0.0.1,<tailnet-addr>:8189`). Treating it as one string made the
+        # (`127.0.0.1,<tailnet-addr>:8096`). Treating it as one string made the
         # comparison always fail once a service legitimately bound two addresses.
         host_part = declared_bind.rsplit(":", 1)[0] if ":" in declared_bind else declared_bind
         want_hosts = {h.strip().strip("[]") for h in host_part.split(",") if h.strip()}

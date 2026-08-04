@@ -1,16 +1,16 @@
 ---
 template: home.html
 title: "Ava: a private AI assistant that runs on your own computer"
-description: A private AI assistant you host yourself. Chat, voice, GPU workloads, and app automation on hardware you own.
+description: A private AI assistant you host yourself. Chat, voice, and app automation on hardware you own.
 hide:
   - navigation
   - toc
 ---
 
 <!-- Landing page source. Staged to index.md by sync.py (links are
-     repo-relative, rewritten exactly like README links). The hero, tour reel,
-     and feature grid live in overrides/home.html; this file is only the
-     typeset content below them. House style: no emoji, no em dashes.
+     repo-relative, rewritten exactly like README links). The hero and feature
+     grid live in overrides/home.html; this file is only the typeset content
+     below them. House style: no emoji, no em dashes.
      Every claim here is code-backed: profiles come from deploy/profiles/*.env
      and deploy/install.sh, the claim token from deploy/README.md.
 
@@ -62,22 +62,21 @@ connect your apps, enroll your voice, set budgets.
     themselves. The [Quickstart](deploy/README.md) covers the alternatives.
 
 Chat on a local model is the default. Everything else is a profile:
-`AVA_PROFILE=full ./install.sh`.
+`AVA_PROFILE=agent ./install.sh`.
 
 | Profile | What you get | Pick this if |
 |---|---|---|
 | `cpu`, `cuda`, `gpu`, `rocm` | Chat on a local model | Nothing to decide, the installer detects which fits |
 | `cloud` | Chat against an API key you supply | You would rather not run a model here |
 | `agent` | The above, plus the agent that drives your apps | You want Ava to act, not only answer |
-| `full` | Everything `agent` runs, plus image and video | You want pictures too |
 
-!!! warning "`agent` and `full` grant a root-equivalent Docker socket"
+!!! warning "`agent` grants a root-equivalent Docker socket"
 
-    Both mount the host's Docker socket into the agent container. That socket is
+    It mounts the host's Docker socket into the agent container. That socket is
     **root-equivalent on the host**: anything holding it can do anything root
     can. It is how the agent spawns its sandbox, the walled-off container it
     runs tools inside. Granting it stays your call, not the installer's, which
-    is why neither profile is auto-detected. `gpu` runs everything except the
+    is why the profile is not auto-detected. `gpu` runs everything except the
     tool-using agent without it.
 
 Voice is not a profile: it needs a build flag (`AVA_VOICE_DEPS=1`) and a switch

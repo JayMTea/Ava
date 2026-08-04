@@ -74,7 +74,7 @@ def reset_active_root(token) -> None:
 # so search never opens those files at all, and the policy is what refuses a
 # direct request for one by name.
 _SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", "models", "bin",
-              "media", "logs", "gpusvc", "data", "enroll", "secrets", "run"}
+              "media", "logs", "data", "enroll", "secrets", "run"}
 
 SYSTEM_PROMPT = (
     f"You are {config.AVA_NAME}, editing your OWN source code in the repository "

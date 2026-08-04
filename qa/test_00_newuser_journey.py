@@ -93,7 +93,7 @@ class TestNewUserJourney(unittest.TestCase):
         r = c.post("/api/setup/save", json={
             "inference": {"mode": "local", "engine": "vllm",
                           "base_url": "http://127.0.0.1:9999/v1", "model": "qa-model"},
-            "features": {"voice": False, "web_search": False, "image": True},
+            "features": {"voice": False, "web_search": True},
             "connectors": [],
         })
         self.assertEqual(r.status_code, 200)

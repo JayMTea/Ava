@@ -37,47 +37,6 @@
   .me .atts img { width:120px; height:120px; object-fit:cover; border-radius:10px; display:block; }
   .me .filepill { display:flex; align-items:center; gap:6px; background:rgba(255,255,255,.18);
                   border-radius:10px; padding:6px 10px; font-size:13px; }
-  .media { align-self:flex-start; max-width:88%; position:relative; }
-  .media img, .media video { width:100%; border-radius:14px; display:block; }
-  .media .dim { position:absolute; top:8px; right:8px; font-size:11px;
-    color:#e6e9f0; background:rgba(15,18,28,.66); border:1px solid rgba(255,255,255,.14);
-    padding:2px 7px; border-radius:8px; pointer-events:none; letter-spacing:.2px; }
-  .media .cap { font-size:12px; color:var(--muted); margin-top:4px; }
-  .media .modelinfo { font-size:11px; color:var(--muted); margin-top:5px; line-height:1.5;
-    display:flex; flex-wrap:wrap; gap:4px 6px; }
-  .media .modelinfo .mtag { background:var(--panel2); border:1px solid var(--line);
-    border-radius:7px; padding:2px 7px; white-space:nowrap; }
-  .media .modelinfo .mtag b { color:var(--accent); font-weight:700; margin-right:4px;
-    font-size:10px; text-transform:uppercase; letter-spacing:.3px; }
-  .media .imgtools { margin-top:6px; }
-  .media .imgbox { position:relative; }
-  .media img { cursor:zoom-in; transition:filter .45s ease; }
-  .media .imgbox.blurred img { filter:blur(20px); }
-  /* Privacy auto-blur overlay — generated images blur after a delay; tap to view. */
-  .media .privacy { position:absolute; inset:0; display:none; flex-direction:column;
-    align-items:center; justify-content:center; gap:6px; border-radius:14px; cursor:pointer;
-    color:#eef1f7; background:rgba(15,18,28,.22); font-size:12px; letter-spacing:.3px;
-    text-shadow:0 1px 3px rgba(0,0,0,.65); }
-  .media .imgbox.blurred .privacy { display:flex; }
-  .media .privacy svg { width:26px; height:26px; }
-  /* Fullscreen image viewer — tap a generated image to expand, tap anywhere to close. */
-  #lightbox { position:fixed; inset:0; z-index:50; background:rgba(0,0,0,.93);
-              display:none; align-items:center; justify-content:center;
-              padding:16px; padding-top:calc(16px + env(safe-area-inset-top));
-              padding-bottom:calc(16px + env(safe-area-inset-bottom)); cursor:zoom-out; }
-  #lightbox.open { display:flex; }
-  #lightbox img { max-width:100%; max-height:100%; object-fit:contain; border-radius:10px;
-    touch-action:none; user-select:none; -webkit-user-select:none; will-change:transform; }
-  .lb-close { position:absolute; top:calc(10px + env(safe-area-inset-top)); right:12px;
-    width:40px; height:40px; border-radius:50%; border:none; cursor:pointer; z-index:1;
-    background:rgba(20,24,34,.72); color:#fff; display:flex; align-items:center; justify-content:center; }
-  .lb-close svg { width:22px; height:22px; }
-  .upbtn { display:inline-flex; align-items:center; gap:6px; font-size:12px;
-    color:#aab2c2; background:var(--panel2); border:1px solid #2a3142;
-    border-radius:10px; padding:5px 10px; cursor:pointer; }
-  .upbtn:hover:not(:disabled){ color:#e6e9f0; border-color:#3a435a; }
-  .upbtn:disabled { opacity:.7; cursor:default; }
-  .upbtn svg { width:14px; height:14px; flex:0 0 auto; }
   /* Which-model pill under an Ava reply. */
   .modelpill { display:inline-flex; align-items:center; gap:6px; margin-top:7px;
     font-size:11px; line-height:1; color:#8b93a6; background:rgba(255,255,255,.03);
@@ -97,8 +56,7 @@
   .msgact:disabled { opacity:.6; cursor:default; }
   .msgact svg { width:15px; height:15px; flex:0 0 auto; }
   .msgact.copied { color:#3fb27f; }
-  /* Deterministic persona-preview quick actions (Lock this face / Iterate / More). */
-  .media .imgactions { margin-top:6px; display:flex; flex-wrap:wrap; gap:6px; }
+  /* Inline action buttons (code-mode apply / discard). */
   .actbtn { display:inline-flex; align-items:center; gap:6px; font-size:12px;
     color:#aab2c2; background:var(--panel2); border:1px solid #2a3142;
     border-radius:10px; padding:5px 10px; cursor:pointer; }
@@ -108,15 +66,6 @@
   .actbtn.primary { color:#dfe9ff; background:#23304d; border-color:#33457a; }
   .actbtn.primary:hover:not(:disabled){ border-color:#4a63a8; }
   .actbtn.done { color:#7fe0a6; border-color:#2c5a3f; background:#16261d; }
-  .gen { align-self:flex-start; background:var(--panel2); border-radius:14px; padding:12px 14px;
-         min-width:200px; max-width:88%; }
-  .gen .lab { font-size:13px; color:#aab2c2; margin-bottom:8px; }
-  .bar { height:6px; border-radius:4px; background:#2a3142; overflow:hidden; }
-  .bar > span { display:block; height:100%; width:0%; background:var(--accent); transition:width .3s; }
-  /* Indeterminate bar for the Ava-driven turn (no server-side progress to report). */
-  .bar.indet > span { width:38%; transition:none; animation:indet 1.15s ease-in-out infinite; }
-  @keyframes indet { 0% { margin-left:-38%; } 100% { margin-left:100%; } }
-
   /* Live chain-of-thought panel (Ava's real reasoning + tool steps, collapsible). */
   .cot { align-self:flex-start; background:var(--panel2); border:1px solid var(--line);
          border-radius:14px; max-width:88%; overflow:hidden; }
@@ -255,8 +204,6 @@
   .chip .ic svg { width:19px; height:19px; }
   .chip .x svg { width:16px; height:16px; pointer-events:none; }
   .chatitem .del svg { width:17px; height:17px; pointer-events:none; }
-  .gen .lab { display:flex; align-items:center; gap:6px; }
-  .gen .lab svg { width:15px; height:15px; flex:0 0 auto; }
   .sys .sysicon { display:inline-flex; vertical-align:-3px; margin-right:5px; }
   .sys .sysicon svg { width:15px; height:15px; }
 
@@ -302,20 +249,6 @@
   .subbtn { border:none; background:transparent; color:var(--muted); font-size:13px; font-weight:600;
             padding:6px 16px; border-radius:8px; cursor:pointer; }
   .subbtn.active { background:var(--accent); color:#fff; }
-  .meta-modal { position:fixed; inset:0; z-index:200; display:flex; align-items:center; justify-content:center; }
-  .meta-modal[hidden] { display:none; }
-  .meta-scrim { position:absolute; inset:0; background:rgba(0,0,0,.72); backdrop-filter:blur(2px); }
-  .meta-card { position:relative; z-index:1; background:var(--panel); border:1px solid var(--line);
-               border-radius:16px; width:92%; max-width:520px; max-height:88vh; overflow:auto; padding:14px; }
-  .meta-card img { width:100%; border-radius:10px; display:block; margin-bottom:12px; }
-  .meta-close { position:absolute; top:12px; right:14px; width:32px; height:32px; border:none; cursor:pointer;
-                border-radius:50%; background:rgba(0,0,0,.55); color:#fff; font-size:20px; line-height:1; z-index:2; }
-  .meta-row { display:flex; gap:10px; padding:7px 0; border-bottom:1px solid var(--line); font-size:13px; }
-  .meta-row:last-child { border-bottom:none; }
-  .meta-row .k { color:var(--muted); min-width:78px; flex-shrink:0; font-weight:600; }
-  .meta-row .v { color:var(--text); word-break:break-word; white-space:pre-wrap; }
-  .meta-acts { display:flex; gap:8px; margin-top:12px; }
-  .meta-acts .st-btn { flex:1; text-align:center; text-decoration:none; padding:9px; }
   .st-lbl { display:block; font-size:12px; color:var(--muted); margin:10px 0 4px; }
   .st-chk { font-size:12px; color:var(--muted); display:inline-flex; align-items:center; gap:5px; }
   .st-attrs { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:8px; margin:2px 0; }
@@ -555,14 +488,6 @@
     <div class="art-foot"><span id="artSub"></span></div>
   </aside>
   </div>
-  <div id="metaModal" class="meta-modal" hidden>
-    <div class="meta-scrim" id="metaScrim"></div>
-    <div class="meta-card">
-      <button class="meta-close" id="metaClose" aria-label="Close">&times;</button>
-      <img id="metaImg" alt="generated image">
-      <div id="metaBody"></div>
-    </div>
-  </div>
   <div id="avaToasts"></div>
 <script>
   // Bottom toast notifications. type: 'info' | 'ok' | 'err'. Sticky toasts
@@ -632,7 +557,6 @@ let currentChatId = null;
 let mediaRecorder = null, chunks = [], stream = null, recording = false, busy = false;
 
 // ---- inline line-icons (Lucide-style, inherit currentColor) ----------------
-const BLUR_DELAY_MS = 30000;   // generated chat images auto-blur after this for privacy
 const ICONS = {
   attach:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>',
   mic:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>',
@@ -645,8 +569,6 @@ const ICONS = {
   image:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.09-3.09a2 2 0 0 0-2.82 0L6 21"/></svg>',
   alert:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>',
   lock:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>',
-  expand:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg>',
-  eyeOff:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/></svg>',
   bot:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>',
   check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
   copy:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>',
@@ -951,152 +873,6 @@ function addMessageActions(bubble, text, atts){
   log.scrollTop = log.scrollHeight;
 }
 
-// Fullscreen image viewer (lightbox) with pinch-zoom / pan / double-tap zoom.
-// The page viewport disables native zoom, so the gestures are handled here.
-function openLightbox(url, onClose){
-  let lb = document.getElementById('lightbox');
-  if (!lb){
-    lb = document.createElement('div'); lb.id = 'lightbox';
-    lb.innerHTML = '<img alt=""><button class="lb-close" type="button" aria-label="Close"></button>';
-    document.body.appendChild(lb);
-    const img = lb.querySelector('img');
-    const closeBtn = lb.querySelector('.lb-close');
-    closeBtn.innerHTML = ICONS.close;
-    const MIN = 1, MAX = 5;
-    let scale = 1, tx = 0, ty = 0, start = null, lastTap = 0, pendingClose = null;
-    const apply = () => { img.style.transform = 'translate('+tx+'px,'+ty+'px) scale('+scale+')'; };
-    const clampPan = () => { if (scale <= 1){ tx = 0; ty = 0; } };
-    const reset = () => { scale = 1; tx = 0; ty = 0; apply(); };
-    const close = () => { lb.classList.remove('open');
-      const cb = lb._onClose; lb._onClose = null; if (cb) cb(); };
-    const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
-    const mid  = (t) => ({ x:(t[0].clientX + t[1].clientX)/2, y:(t[0].clientY + t[1].clientY)/2 });
-    lb._reset = () => { reset(); lastTap = 0; if (pendingClose){ clearTimeout(pendingClose); pendingClose = null; } };
-
-    img.addEventListener('touchstart', (e) => {
-      if (e.touches.length === 2){ e.preventDefault();
-        start = { kind:'pinch', d:dist(e.touches), s:scale, m:mid(e.touches), tx, ty }; }
-      else if (e.touches.length === 1){
-        start = { kind:'pan', x:e.touches[0].clientX, y:e.touches[0].clientY, tx, ty, moved:false }; }
-    }, { passive:false });
-
-    img.addEventListener('touchmove', (e) => {
-      if (!start) return;
-      if (start.kind === 'pinch' && e.touches.length === 2){ e.preventDefault();
-        scale = Math.min(MAX, Math.max(MIN, start.s * dist(e.touches) / start.d));
-        const m = mid(e.touches);
-        tx = start.tx + (m.x - start.m.x); ty = start.ty + (m.y - start.m.y);
-        clampPan(); apply();
-      } else if (start.kind === 'pan' && e.touches.length === 1){
-        const dx = e.touches[0].clientX - start.x, dy = e.touches[0].clientY - start.y;
-        if (Math.abs(dx) > 5 || Math.abs(dy) > 5) start.moved = true;
-        if (scale > 1){ e.preventDefault(); tx = start.tx + dx; ty = start.ty + dy; apply(); }
-      }
-    }, { passive:false });
-
-    img.addEventListener('touchend', () => {
-      const wasTap = start && start.kind === 'pan' && !start.moved;
-      start = null;
-      if (!wasTap){ clampPan(); apply(); return; }
-      const now = Date.now();
-      if (now - lastTap < 300){                         // double-tap toggles zoom
-        if (pendingClose){ clearTimeout(pendingClose); pendingClose = null; }
-        if (scale > 1) reset(); else { scale = 2.5; apply(); }
-        lastTap = 0; return;
-      }
-      lastTap = now;
-      if (scale > 1) return;                            // zoomed: tap does nothing (use X / double-tap)
-      pendingClose = setTimeout(() => { pendingClose = null; if (scale <= 1) close(); }, 300);
-    });
-
-    lb.addEventListener('click', (e) => { if (e.target === lb) close(); });
-    closeBtn.addEventListener('click', close);
-    lb.addEventListener('wheel', (e) => { e.preventDefault();
-      scale = Math.min(MAX, Math.max(MIN, scale - e.deltaY * 0.0025)); clampPan(); apply();
-    }, { passive:false });
-  }
-  const v = document.getElementById('lightbox');
-  v._onClose = onClose || null;
-  v.querySelector('img').src = url.split('?')[0] + '?t=' + Date.now();
-  if (v._reset) v._reset();
-  v.classList.add('open');
-}
-
-function addImage(url, caption, allowUpscale, chatId, models){
-  const wrap = document.createElement('div');
-  wrap.className = 'media';
-  const box = document.createElement('div');
-  box.className = 'imgbox';
-  const img = document.createElement('img');
-  img.src = url + '?t=' + Date.now();
-  img.loading = 'lazy';
-  const armBlur = () => {
-    box.classList.remove('blurred');
-    clearTimeout(box._blurT);
-    box._blurT = setTimeout(() => box.classList.add('blurred'), BLUR_DELAY_MS);
-  };
-  const openIt = () => openLightbox(url, armBlur);
-  img.addEventListener('click', openIt);
-  const dim = document.createElement('div'); dim.className='dim'; dim.style.display='none';
-  img.addEventListener('load', () => {
-    if (img.naturalWidth){ dim.textContent = img.naturalWidth + '\u00d7' + img.naturalHeight; dim.style.display=''; }
-  });
-  const priv = document.createElement('div'); priv.className='privacy';
-  priv.innerHTML = ICONS.eyeOff + '<span>Tap to view</span>';
-  priv.addEventListener('click', openIt);
-  box.appendChild(img); box.appendChild(dim); box.appendChild(priv);
-  wrap.appendChild(box);
-  if (caption){ const c = document.createElement('div'); c.className='cap'; c.textContent=caption; wrap.appendChild(c); }
-  if (models && models.length){
-    const mi = document.createElement('div'); mi.className='modelinfo';
-    models.forEach(m => {
-      if (!m || !m.name) return;
-      const t = document.createElement('span'); t.className='mtag';
-      if (m.role){ const b=document.createElement('b'); b.textContent=m.role; t.appendChild(b); }
-      t.appendChild(document.createTextNode(m.name));
-      mi.appendChild(t);
-    });
-    if (mi.children.length) wrap.appendChild(mi);
-  }
-  if (allowUpscale !== false){
-    const tools = document.createElement('div'); tools.className='imgtools';
-    const up = document.createElement('button'); up.className='upbtn'; up.type='button';
-    up.innerHTML = ICONS.expand + '<span>Upscale to 4K</span>';
-    up.onclick = () => upscaleImage(url, up, caption, chatId);
-    tools.appendChild(up); wrap.appendChild(tools);
-  }
-  log.appendChild(wrap); log.scrollTop = log.scrollHeight;
-  armBlur();
-}
-
-function upscaleImage(url, btn, caption, chatId){
-  const name = url.split('?')[0].split('/').pop();
-  const orig = btn.innerHTML;
-  btn.disabled = true;
-  btn.innerHTML = ICONS.expand + '<span>upscaling to 4K\u2026</span>';
-  const fd = new FormData(); fd.append('filename', name);
-  fetch('/api/upscale', {method:'POST', body:fd}).then(r=>r.json()).then(j=>{
-    if (!j.job){ btn.disabled=false; btn.innerHTML=ICONS.alert+'<span>upscale failed</span>'; return; }
-    const tick = async () => {
-      try{
-        const r = await fetch('/api/job/' + j.job.id);
-        const s = await r.json();
-        if (s.status === 'running'){ setTimeout(tick, 900); }
-        else if (s.status === 'done'){
-          btn.remove();
-          const cap4k = (caption?caption+' \u00b7 ':'')+'4K';
-          addImage(s.url, cap4k, false, chatId);
-          if (chatId){ const f2=new FormData(); f2.append('url', s.url); f2.append('caption', cap4k);
-            fetch('/api/chats/'+chatId+'/image', {method:'POST', body:f2}).then(()=>loadChats()).catch(()=>{}); }
-        }
-        else { btn.disabled=false; btn.innerHTML=ICONS.alert+'<span>upscale failed</span>'; }
-      }catch(e){ setTimeout(tick, 1500); }
-    };
-    tick();
-  }).catch(()=>{ btn.disabled=false; btn.innerHTML=orig; });
-}
-
-
 // Live "chain of thought": the agent CLI isn't streamable and the model only
 // supports thinking=off, but it writes genuine {thinking}/{text}/{toolCall} steps
 // to its session log as it works — the backend tails that and exposes it via
@@ -1173,7 +949,6 @@ async function runAvaTurn(t, atts, cid, meBubble){
       if (s.status === 'done'){
         cot.done(Math.round((Date.now()-t0)/1000));
         if (s.reply){ const ab = add('ava', s.reply); addAvaActions(ab, s.model, s.reply, t, atts, cid); if (s.artifact){ addArtifactChip(ab, s.artifact); } history.push({role:'assistant', content:s.reply}); history = history.slice(-12); }
-        if (s.job){ pollJob(s.job, cid); }
         if (s.artifact){ openArtifact(s.artifact); }
         return;
       }
@@ -1181,32 +956,6 @@ async function runAvaTurn(t, atts, cid, meBubble){
       if (!s.status && s.error){ cot.fail(s.error); markRetry(meBubble, t, atts); return; }
     }
   }catch(e){ cot.fail('network error'); markRetry(meBubble, t, atts); }
-}
-
-function pollJob(job, chatId){
-  const box = document.createElement('div');
-  box.className = 'gen';
-  box.innerHTML = '<div class="lab">'+ICONS.image+' generating image\u2026</div><div class="bar"><span></span></div>';
-  log.appendChild(box); log.scrollTop = log.scrollHeight;
-  const fill = box.querySelector('.bar > span');
-  const lab = box.querySelector('.lab');
-  const tick = async () => {
-    try{
-      const r = await fetch('/api/job/' + job.id);
-      const j = await r.json();
-      if (j.status === 'running'){ fill.style.width = (j.progress||0) + '%';
-        lab.innerHTML = ICONS.image+' <span class="ststage"></span> <span class="stpct"></span>';
-        lab.querySelector('.ststage').textContent = j.stage || 'generating image\u2026';
-        lab.querySelector('.stpct').textContent = '\u00b7 ' + (j.progress||0) + '%';
-        setTimeout(tick, 700); }
-      else if (j.status === 'done'){ box.remove(); addImage(j.url, job.prompt, true, chatId, j.models);
-        if (chatId){ const fd=new FormData(); fd.append('url', j.url); fd.append('caption', job.prompt||'');
-          fd.append('models', JSON.stringify(j.models||[]));
-          fetch('/api/chats/'+chatId+'/image', {method:'POST', body:fd}).then(()=>loadChats()).catch(()=>{}); } }
-      else { lab.innerHTML = ICONS.alert+' generation failed: ' + (j.error||'unknown'); fill.style.background='#e0364d'; }
-    }catch(e){ setTimeout(tick, 1500); }
-  };
-  tick();
 }
 
 // ---- attachments ----------------------------------------------------------
@@ -1285,7 +1034,6 @@ function renderMessages(msgs){
       lastUserText = m.content || '';
       addMe(m.content||'', m.atts||[]); 
     }
-    else if (m.image){ addImage(m.image, m.content||'', true, currentChatId, m.img_models); }
     else {
       const bubble = add('ava', m.content||'');
       // Add copy/retry actions to historical Ava messages
@@ -1410,7 +1158,6 @@ async function onStop(){
       history = history.slice(-12);
       if (j.sim!=null) hint.textContent = 'voice match: ' + j.sim;
       if (j.audio){ playWav(j.audio); }
-      if (j.job){ pollJob(j.job, cid); }
     }
   }catch(e){ addSys('network error: '+e.message,'alert'); }
   busy = false; btn.classList.remove('busy');
@@ -1440,24 +1187,11 @@ async function sendText(){
   loadChats();
 }
 
-// Routing shared by first-send and retry. Plain image requests (no attachments)
-// take the fast direct /api/generate path; everything else goes through Ava with
+// Routing shared by first-send and retry: every message goes through Ava with
 // her live chain-of-thought. On failure the user's bubble becomes tap-to-retry.
 async function submit(t, atts, cid, meBubble){
-  const isGen = !atts.length && /\b(generate|make|create|draw|paint|render|design|show me|give me)\b[^.]*\b(image|picture|photo|painting|drawing|art|portrait|wallpaper|illustration|render)\b/i.test(t);
   try{
-    if (isGen){
-      const m = t.match(/\b(?:of|showing|depicting|with)\b\s+(.*)/i);
-      const prompt = (m ? m[1] : t).trim();
-      const fd = new FormData(); fd.append('prompt', prompt);
-      fd.append('chat_id', cid); fd.append('chat_text', t);
-      const r = await fetch('/api/generate', { method:'POST', body: fd });
-      const j = await r.json();
-      if (j.job){ add('ava','Creating that now\u2026'); pollJob(j.job, cid); }
-      else { addSys((j.error||'could not start'),'alert'); markRetry(meBubble, t, atts); }
-    } else {
-      await runAvaTurn(t, atts, cid, meBubble);
-    }
+    await runAvaTurn(t, atts, cid, meBubble);
   }catch(e){ addSys('network error: '+e.message,'alert'); markRetry(meBubble, t, atts); }
 }
 
@@ -1920,9 +1654,6 @@ async function loadLearningState(ctx){
     content.innerHTML = '<div class="learn-empty">Error loading learning state: '+e.message+'</div>';
   }
 }
-
-$$('metaClose').addEventListener('click', hideMeta);
-$$('metaScrim').addEventListener('click', hideMeta);
 
 initChats();
 setCodebarVisible(true);  // Show codebar on initial page load (chat page)

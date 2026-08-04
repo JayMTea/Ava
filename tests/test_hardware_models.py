@@ -27,17 +27,17 @@ from ava_bridge import models as _models
 from ava_bridge import router_app
 
 # A vLLM-style engine: launcher (declares --model) + bare-cmdline worker,
-# plus an unrelated the GPU service process. Deliberately NOT an NVIDIA/Ava model —
+# plus an unrelated speech process. Deliberately NOT an NVIDIA/Ava model —
 # the inventory must label it from the cmdline, not from a built-in name.
 SMI_COMPUTE_APPS = (
     "100, python3, 170\n"
     "101, VLLM::EngineCore, 64000\n"
-    "200, /opt/gpusvc/.venv/bin/python, 512\n"
+    "200, /opt/whisper/.venv/bin/python, 512\n"
 )
 CMDLINES = {
     100: "/usr/bin/python3 /usr/local/bin/vllm serve --model acme/Cool-LLM-7B-FP8 --port 9999",
     101: "VLLM::EngineCore",
-    200: "/opt/gpusvc/.venv/bin/python /opt/the GPU service/main.py",
+    200: "/opt/whisper/.venv/bin/python /opt/whisper/server.py",
 }
 PPIDS = {101: 100, 100: 50, 200: 60}  # 101's parent is the launcher; 50/60 = shells
 
@@ -77,7 +77,7 @@ class GpuProcessGrouping(unittest.TestCase):
     def test_unrelated_process_stays_its_own_row(self):
         rows = hardware._gpu_model_processes()
         self.assertEqual(len(rows), 2)
-        self.assertEqual([r for r in rows if r["name"] == "the GPU service"][0]["pid"], 200)
+        self.assertEqual([r for r in rows if r["name"] == "Python runtime"][0]["pid"], 200)
 
 
 # `_loaded_models` no longer parses /models itself — it asks
@@ -213,10 +213,10 @@ IN_MEMORY_FOR = {"resident": True, "idle": False, "absent": False,
 BRAIN_SHAPE = ("id", "backend", "model", "model_id", "state", "status",
                "role_key", "local", "in_memory")
 
-gpusvc_PROC = {"id": "pid:200", "name": "the GPU service", "model": "the GPU service",
-              "model_id": None, "memory_mb": 512.0, "memory_gb": 0.5,
-              "gpu_util": 0.0, "pid": 200, "status": "loaded",
-              "source": "nvidia-smi", "cmd": CMDLINES[200]}
+SPEECH_PROC = {"id": "pid:200", "name": "Python runtime", "model": "Model",
+               "model_id": None, "memory_mb": 512.0, "memory_gb": 0.5,
+               "gpu_util": 0.0, "pid": 200, "status": "loaded",
+               "source": "nvidia-smi", "cmd": CMDLINES[200]}
 
 
 def _backend(bid="brain", url="http://127.0.0.1:11434/v1", engine="ollama",
@@ -331,7 +331,7 @@ class BrainVisibility(unittest.TestCase):
                 self.assertEqual(row["state"], state)
                 self.assertIs(row["in_memory"], IN_MEMORY_FOR[state])
                 # The panel exists to answer "what is Ava thinking with", so the
-                # brain sorts first — never below a fatter render process.
+                # brain sorts first — never below a fatter GPU process.
                 self.assertEqual(rows[0]["role_key"], "brain")
 
     # I2 — the laptop. No GPU tooling, no docker, no process rows at all.
@@ -498,16 +498,15 @@ class BrainVisibility(unittest.TestCase):
         self.assertEqual(row["status"], "offline")
 
     # I6 — everything else on the box is NOT the brain.
-    def test_a_render_process_row_is_never_the_brain(self):
+    def test_another_gpu_process_row_is_never_the_brain(self):
         with mock.patch.object(hardware, "_read_mapped_model_components", lambda pid: []), \
-             mock.patch.object(hardware, "_read_open_model_components", lambda pid: []), \
-             mock.patch.object(hardware, "_proc_maps_readable", lambda pid: False):
+             mock.patch.object(hardware, "_read_open_model_components", lambda pid: []):
             rows = self._rows([_backend()], _brain(), _serving(OLLAMA_TAGS),
-                              _resident([]), procs=[gpusvc_PROC])
+                              _resident([]), procs=[SPEECH_PROC])
         self.assertEqual(len(rows), 2)
-        self._only_brain(rows, " with a the GPU service process also running")
-        gpusvc = [r for r in rows if r["name"] == "the GPU service"][0]
-        self.assertEqual(gpusvc["role_key"], "render")
+        self._only_brain(rows, " with a second GPU process also running")
+        other = [r for r in rows if r["id"] == "pid:200"][0]
+        self.assertNotEqual(other["role_key"], "brain")
 
     def test_a_second_configured_backend_is_never_the_brain(self):
         """`backend` only means "we tied this row to some configured backend".
@@ -608,14 +607,15 @@ class BrainVisibility(unittest.TestCase):
         self.assertEqual(row["state"], "idle", "authenticated, so NOT offline")
 
 
-class gpusvcComponentFallback(unittest.TestCase):
-    """The configured-gpusvc-stack fallback must never claim residency it didn't
-    observe: readable-but-empty maps = "not in memory"; unreadable = unknown."""
+class MappedComponents(unittest.TestCase):
+    """A row's components are the weight files the process was OBSERVED holding
+    — a scan that found nothing must not be dressed up as an inventory."""
 
     def setUp(self):
-        self.row = {"id": "pid:200", "name": "the GPU service", "model": "the GPU service", "model_id": None,
-                    "memory_mb": 170.0, "memory_gb": 0.17, "gpu_util": None, "pid": 200,
-                    "status": "loaded", "source": "nvidia-smi", "cmd": ""}
+        self.row = {"id": "pid:200", "name": "Python runtime", "model": "Model",
+                    "model_id": None, "memory_mb": 170.0, "memory_gb": 0.17,
+                    "gpu_util": None, "pid": 200, "status": "loaded",
+                    "source": "nvidia-smi", "cmd": ""}
         for p in (
             mock.patch.object(hardware, "_read_mapped_model_components", lambda pid: []),
             mock.patch.object(hardware, "_read_open_model_components", lambda pid: []),
@@ -623,22 +623,14 @@ class gpusvcComponentFallback(unittest.TestCase):
             p.start()
             self.addCleanup(p.stop)
 
-    def test_observed_empty_scan_means_not_in_memory(self):
-        with mock.patch.object(hardware, "_proc_maps_readable", lambda pid: True):
-            item = hardware._attach_components([dict(self.row)])[0]
-        self.assertTrue(item["components"])
-        self.assertTrue(all(c["in_memory"] is False for c in item["components"]))
+    def test_an_empty_scan_invents_nothing(self):
+        item = hardware._attach_components([dict(self.row)])[0]
+        self.assertEqual(item["components"], [])
         self.assertEqual(item["component_count"], 0)
 
-    def test_unobservable_process_means_unknown_not_loaded_claim(self):
-        with mock.patch.object(hardware, "_proc_maps_readable", lambda pid: False):
-            item = hardware._attach_components([dict(self.row)])[0]
-        self.assertTrue(all(c["in_memory"] is None for c in item["components"]))
-        self.assertEqual(item["component_count"], 0)
-
-    def test_actually_mapped_files_still_report_resident(self):
-        mapped = [{"name": "gpu_model_base", "kind": "checkpoints",
-                   "kind_label": "Base checkpoint", "path": "/m/gpu_model_base",
+    def test_actually_mapped_files_report_resident(self):
+        mapped = [{"name": "acme-cool-llm-7b", "kind": "model",
+                   "kind_label": "Model", "path": "/m/acme-cool-llm-7b.safetensors",
                    "in_memory": True}]
         with mock.patch.object(hardware, "_read_mapped_model_components", lambda pid: mapped):
             item = hardware._attach_components([dict(self.row)])[0]
@@ -650,14 +642,14 @@ class HonestNaming(unittest.TestCase):
     def test_placeholders_stay_generic_per_runtime(self):
         self.assertEqual(hardware._short_model_name(None, runtime="vllm serve"), "vLLM model")
         self.assertEqual(hardware._short_model_name("VLLM::EngineCore"), "vLLM model")
-        self.assertEqual(hardware._short_model_name("python3", runtime="/x/the GPU service/main.py"),
-                         "the GPU service")
+        self.assertEqual(hardware._short_model_name("python3", runtime="/x/whisper/server.py"),
+                         "Model")
         self.assertEqual(hardware._short_model_name(None), "Model")
 
     def test_real_ids_keep_their_own_name(self):
         self.assertEqual(hardware._short_model_name("acme/Cool-LLM-7B-FP8"), "Cool-LLM-7B-FP8")
-        self.assertEqual(hardware._short_model_name("gpu_model_base"),
-                         "gpu_model_base")
+        self.assertEqual(hardware._short_model_name("acme-cool-llm-7b.safetensors"),
+                         "acme-cool-llm-7b")
 
     def test_brain_role_comes_from_backend_tag_not_name_guess(self):
         self.assertIn("brain", hardware._model_role("anything", backend_id="brain"))
@@ -674,10 +666,6 @@ class HonestNaming(unittest.TestCase):
         for name in ("Some-Nemotron-30B-Omni", "brain-model-v2", "llama3.1:70b",
                      "acme/Cool-LLM-7B-FP8", "Ava-Brain", None):
             self.assertNotEqual(hardware._role_key(name), "brain", name)
-        # The keys it MAY read from a name are the ones that are about what the
-        # weights are for, not about which turn they answer.
-        self.assertEqual(hardware._role_key("the GPU service"), "render")
-        self.assertEqual(hardware._role_key("flux1-dev"), "image")
 
 
 if __name__ == "__main__":

@@ -16,8 +16,8 @@ router. It answers two questions:
     fit-limiting resource is *free VRAM* — read from `nvidia-smi memory.free`.
   - **Unified memory** (the dev target — DGX Spark GB10 / Grace-Blackwell): CPU
     and GPU share ~121 GiB and `nvidia-smi` reports VRAM as N/A, so we fall back
-    to `MemAvailable` from /proc/meminfo (the one real pool a concurrent the GPU service
-    render eats into).
+    to `MemAvailable` from /proc/meminfo (the one real pool a second concurrent
+    model eats into).
   - **No GPU / non-Linux / cloud-only**: neither source resolves, so `free_mem_gb`
     returns None and callers treat memory as "unknown, don't gate" — routing
     degrades to plain primary-first, never worse than before this layer.
@@ -206,7 +206,7 @@ def fits_now(profile: FitProfile, free_gb: float | None,
 
     `assume_loaded=True` (the router's case: engines are pre-started) checks only
     that there's `min_free_gb` of working headroom left — enough to serve without
-    tipping the box into OOM under a concurrent render. `assume_loaded=False` (a
+    tipping the box into OOM under concurrent load. `assume_loaded=False` (a
     would-be loader / dashboard "can I start this?") also requires `weight_gb` of
     free room to bring the engine up.
 

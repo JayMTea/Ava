@@ -94,11 +94,6 @@ export function VitalsView() {
   }));
 
   const modelShare = llmLabels.map((l) => ({ name: l, value: llm[l].count }));
-  const genBars = [
-    { name: 'Image render s', value: s?.image?.render_seconds?.avg ?? 0 },
-    { name: 'Video render s', value: s?.video?.render_seconds?.avg ?? 0 },
-    { name: 'Upscale s', value: s?.upscale?.seconds?.avg ?? 0 },
-  ].filter((b) => b.value > 0);
   const costBy = Object.entries(cost.data?.by || {}).map(([name, v]) => ({ name, value: v.energy_kwh }));
   // Connected apps: external apps only (same rule as the Connectors page —
   // core/inference/media are infrastructure, not apps), live from the registry:
@@ -147,8 +142,6 @@ export function VitalsView() {
           tone={tokAvg == null ? 'default' : tokAvg < 15 ? 'warn' : 'ok'}
           hint={`${fmtInt(tokN)} completions`} />
         <StatCard label="TTFT" value={fmtNum(ttftAvg == null ? null : ttftAvg / 1000, 2)} unit="s" hint="time to first token" help={METRICS.ttft} />
-        <StatCard label="Renders" value={fmtInt((s?.image?.count || 0) + (s?.video?.count || 0))}
-          hint={`${fmtInt(s?.upscale?.count || 0)} upscales`} help={METRICS.renders} />
         <StatCard label="Route Errors" value={fmtInt(failovers)}
           tone={failovers ? 'warn' : 'ok'} hint="primary → fallback" help={METRICS.routeErrors} />
       </div>
@@ -198,17 +191,10 @@ export function VitalsView() {
         </Panel>
       </div>
 
-      {/* Row: generation performance + reliability */}
-      <div className="db-grid db-grid-2">
-        <Panel title="Generation performance" subtitle="avg seconds per render pass">
-          {genBars.length ? <BarList data={genBars} unit="s" /> :
-            <EmptyState text="No image/video renders recorded yet." />}
-        </Panel>
-        <Panel title="Energy by app (7d)" subtitle="estimated kWh">
-          {costBy.some((c) => c.value > 0) ? <BarList data={costBy} unit=" kWh" /> :
-            <EmptyState text="No energy data yet." />}
-        </Panel>
-      </div>
+      <Panel title="Energy by app (7d)" subtitle="estimated kWh">
+        {costBy.some((c) => c.value > 0) ? <BarList data={costBy} unit=" kWh" /> :
+          <EmptyState text="No energy data yet." />}
+      </Panel>
 
       {/* Connected apps — auto-populates from the connector registry */}
       <Panel tour="vitals-apps" title="Connected apps"

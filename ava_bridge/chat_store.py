@@ -13,7 +13,7 @@ corpus had to be small enough to keep resident.
 
 The schema stores role, content and ts as columns and EVERY other message field
 in `extra` as JSON. That is deliberate: message shape has grown over time
-(atts, image, model, img_models, tools_used, steps, error_code) and will grow
+(atts, model, tools_used, steps, error_code) and will grow
 again. A column per feature makes each addition a migration; `extra` makes the
 store lossless for fields it has never heard of, which is the property that
 matters when the thing being preserved is someone's history.
@@ -129,9 +129,8 @@ def chat_new(title: str = "New chat") -> dict:
 
 
 def chat_append(cid: str, role: str, content: str,
-                 atts: list | None = None, image: str | None = None,
+                 atts: list | None = None,
                  model: dict | None = None,
-                 img_models: list | None = None,
                  tools_used: list[str] | None = None,
                  steps: list | None = None,
                  error_code: str | None = None,
@@ -149,14 +148,11 @@ def chat_append(cid: str, role: str, content: str,
     extra: dict = {}
     if atts:
         extra["atts"] = atts
-    if image:
-        extra["image"] = image
     if error_code:
-        # machine-readable ("image_off", "gpusvc_down") — the chat UI derives
-        # the guided-fix link from the code pattern (frontend/src/lib/fixes.ts)
+        # machine-readable ("web_search_off", "web_search_down") — the chat UI
+        # derives the guided-fix link from the code pattern
+        # (frontend/src/lib/fixes.ts)
         extra["error_code"] = error_code
-    if img_models:
-        extra["img_models"] = img_models
     if model:
         extra["model"] = model
     if tools_used:
@@ -288,21 +284,6 @@ def _all_chats() -> dict:
                 for r in con.execute("SELECT * FROM chats ORDER BY updated DESC")}
 
 
-def recent_image_urls(cid: str, limit: int = 8) -> list[str] | None:
-    """Image URLs from a conversation's last `limit` messages; None if unknown.
-
-    None vs [] is load-bearing: the caller answers 404 for the first and
-    "nothing to dedup against" for the second.
-    """
-    with _db() as con:
-        if con.execute("SELECT 1 FROM chats WHERE id=?", (cid,)).fetchone() is None:
-            return None
-        rows = con.execute(
-            "SELECT role, content, ts, extra FROM messages WHERE chat_id=? "
-            "ORDER BY ts DESC, id DESC LIMIT ?", (cid, limit)).fetchall()
-    return [u for u in (_msg(r).get("image") for r in rows) if u]
-
-
 def reset() -> None:
     """Drop every conversation. Used by tests to start from a known corpus."""
     with _LOCK, _db() as con:
@@ -365,32 +346,6 @@ def history_for(cid: str, limit: int = 20) -> list[dict]:
             "SELECT role, content, ts, extra FROM messages WHERE chat_id=? "
             "ORDER BY ts DESC, id DESC LIMIT ?", (cid, limit)).fetchall()
     return [_msg(r) for r in reversed(rows)]
-
-
-def last_render_context(cid: str) -> tuple[str | None, str | None]:
-    """(route, prompt) of the most recent image render in this chat, if any."""
-    if not cid:
-        return (None, None)
-    with _db() as con:
-        rows = con.execute(
-            "SELECT role, content, ts, extra FROM messages WHERE chat_id=? "
-            "ORDER BY ts DESC, id DESC LIMIT 40", (cid,)).fetchall()
-    for r in rows:
-        m = _msg(r)
-        if m.get("image"):
-            return ("image", m.get("content") or None)
-    return (None, None)
-
-
-def recent_user_text(cid: str, limit: int = 240) -> str:
-    """The most recent user message's text, truncated — intent-gate context."""
-    if not cid:
-        return ""
-    with _db() as con:
-        row = con.execute(
-            "SELECT content FROM messages WHERE chat_id=? AND role='user' "
-            "ORDER BY ts DESC, id DESC LIMIT 1", (cid,)).fetchone()
-    return ((row["content"] or "")[:limit]) if row else ""
 
 
 def recent_messages(since_ts: float, limit: int = 200) -> list[dict]:

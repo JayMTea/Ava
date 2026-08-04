@@ -31,7 +31,6 @@ PAIRS = {
     "tools.json": "/api/ops/tools",
     "alerts.json": "/api/ops/alerts",
     "connectors.json": "/api/ops/connectors",
-    "jobs.json": "/api/jobs",
     "turns.json": "/api/turns",
     "chats.json": "/api/chats",
     "hub-system.json": "/api/hub/system",
@@ -59,7 +58,7 @@ PAIRS = {
 # Subtrees whose keys are DATA (app names, status values, category buckets),
 # not schema — a fixture may demo keys a fresh instance doesn't have yet.
 DYNAMIC_KEYS = {
-    "ops-summary.json": ("$.jobs.by_status", "$.turns.by_status"),
+    "ops-summary.json": ("$.turns.by_status",),
     "perf-cost.json": ("$.by",),
     "perf-summary.json": ("$.sources_present", "$.summary"),
     # audit rows are heterogeneous per `kind` (turn/approval/chat_delete...):

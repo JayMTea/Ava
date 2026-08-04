@@ -23,14 +23,15 @@ data/*
 logs/*
 !logs/.gitkeep
 
-# Log files anywhere (e.g. gpusvc/gpusvc.log)
+# Log files anywhere
 *.log
 
-# Generated images + uploads (dirs kept via .gitkeep)
-media/out/*
-!media/out/.gitkeep
+# Media written on the box, never repo content (dir kept via .gitkeep)
 media/uploads/*
 !media/uploads/.gitkeep
+
+# Whatever the owner already has sitting under media/, kept off the index
+media/out/
 
 # Large model weights & the biometric voiceprint (re-downloadable / re-enrollable)
 models/
@@ -39,8 +40,9 @@ models/
 # bin/ava (the portable CLI wrapper) IS tracked.
 bin/piper/
 
-# the GPU service runtime user dir (keep gpusvc/extra_model_paths.yaml at the root)
-gpusvc/user/
+# Leftover vendored runtime a fork may still have on disk. It carries absolute
+# owner paths, so the whole directory stays off the index rather than named files.
+gpusvc/
 
 # SearXNG local config holds a secret_key — keep the run script, not the secret
 searxng/settings.yml
@@ -113,8 +115,6 @@ agent/docs/diagrams/network.svg
 # individual files — a new sheet appears here whenever the model grows an area,
 # and a rule that has to be updated to stay correct is a rule that will not be.
 agent/docs/diagrams/model/
-
-gpusvc/extra_model_paths.yaml
 
 # Personal-app overlay (backend MCP servers/skills/policies + facade)
 /overlay/

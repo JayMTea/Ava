@@ -105,67 +105,21 @@ ASSETS: dict[str, str] = {
     # Why Ava? page, docs/capabilities/data.md and SECURITY.md. The privacy
     # claim was argued in 454 words of prose on three pages and drawn nowhere.
     "docs/assets/egress.svg": "docs/assets/egress.svg",
-    # The Operations dashboard. Captured in the same demo run whose chat.png and
-    # vitals-dashboard.png outputs already ship; this one was never staged, so
-    # docs/capabilities/operations.md described a live dashboard across 2,305
-    # words with no picture of it.
-    "docs/assets/operations.png": "docs/assets/operations.png",
     # Detail CROPS, from demo/manifests/docs-crops.yaml. The docs column caps
     # media at 44rem, so a 1920px full-page capture lands at ~704px and small UI
     # becomes unreadable: each of these is the one element a page was arguing
     # about in prose while showing it at 0.37x, or not at all.
-    "docs/assets/vitals-kpi-strip.png": "docs/assets/vitals-kpi-strip.png",
     "docs/assets/chat-tools-used.png": "docs/assets/chat-tools-used.png",
     "docs/assets/data-secrets.png": "docs/assets/data-secrets.png",
-    "docs/assets/data-overview.png": "docs/assets/data-overview.png",
     "docs/assets/approvals-banner.png": "docs/assets/approvals-banner.png",
-    "docs/assets/vitals-dashboard.png": "docs/assets/vitals-dashboard.png",
-    # The chat surface. docs/capabilities/chat.md ran 258 lines with no picture
-    # of the thing it describes; this is that page's one screenshot.
-    "docs/assets/chat.png": "docs/assets/chat.png",
-    # Narrated walkthrough video + its poster for the landing page.
-    "docs/assets/reel-poster.png": "docs/assets/reel-poster.png",
-    # Connect-your-apps walkthrough (docs/CONNECT_YOUR_APPS.md).
-    "docs/assets/connect-app-tour.mp4": "docs/assets/connect-app-tour.mp4",
-    # The caption sidecar the <track> element points at. ASSETS is an explicit
-    # allow-list, so an unlisted .vtt does not fail the build — it 404s at the
-    # viewer, and a caption track that 404s looks exactly like a video with no
-    # captions, which is the failure nobody reports.
-    "docs/assets/connect-app-tour.vtt": "docs/assets/connect-app-tour.vtt",
-    "docs/assets/ava-tour.vtt": "docs/assets/ava-tour.vtt",
-    "docs/assets/choose-model-tour.vtt": "docs/assets/choose-model-tour.vtt",
-    "docs/assets/connect-device-tour.vtt": "docs/assets/connect-device-tour.vtt",
-    "docs/assets/agent-setup-tour.vtt": "docs/assets/agent-setup-tour.vtt",
-    "docs/assets/install-tour.vtt": "docs/assets/install-tour.vtt",
-    "docs/assets/connect-app-1-connectors.png": "docs/assets/connect-app-1-connectors.png",
-    "docs/assets/connect-app-2-detected.png": "docs/assets/connect-app-2-detected.png",
-    "docs/assets/connect-app-3-connected.png": "docs/assets/connect-app-3-connected.png",
-    # The walkthrough gained two beats — the app embedded in the rail, and a question
-    # answered from its own data. ASSETS is an explicit allow-list, so a new image
-    # referenced from a page is a 404 on the site until it is named here.
-    "docs/assets/connect-app-4-embedded.png": "docs/assets/connect-app-4-embedded.png",
-    "docs/assets/connect-app-5-asked.png": "docs/assets/connect-app-5-asked.png",
-    "docs/assets/connect-device-tour.mp4": "docs/assets/connect-device-tour.mp4",
-    "docs/assets/choose-model-tour.mp4": "docs/assets/choose-model-tour.mp4",
-    "docs/assets/install-tour.mp4": "docs/assets/install-tour.mp4",
-    "docs/assets/choose-model-1-hardware.png": "docs/assets/choose-model-1-hardware.png",
-    "docs/assets/choose-model-2-test.png": "docs/assets/choose-model-2-test.png",
-    "docs/assets/choose-model-3-brain.png": "docs/assets/choose-model-3-brain.png",
-    "docs/assets/choose-model-4-store.png": "docs/assets/choose-model-4-store.png",
-    "docs/assets/agent-setup-1-status.png": "docs/assets/agent-setup-1-status.png",
-    "docs/assets/agent-setup-2-provision.png": "docs/assets/agent-setup-2-provision.png",
+    # ASSETS is an explicit allow-list, so a new image referenced from a page is
+    # a 404 on the site until it is named here.
     "docs/assets/install-1-terminal.png": "docs/assets/install-1-terminal.png",
     # docs/assets/hardware-detected.png is deliberately NOT staged: it is a crop
-    # of the old row-layout "Your hardware" panel, no page references it, and the
-    # current hero layout is already shown by choose-model-1-hardware.png.
-    "docs/assets/agent-setup-tour.mp4": "docs/assets/agent-setup-tour.mp4",
+    # of the old row-layout "Your hardware" panel and no page references it.
     "docs/assets/pwa-install-ios.png": "docs/assets/pwa-install-ios.png",
     "docs/assets/pwa-install-android.png": "docs/assets/pwa-install-android.png",
-    "docs/assets/ava-tour.mp4": "docs/assets/ava-tour.mp4",
     "agent/docs/diagrams/security.svg": "agent/docs/diagrams/security.svg",
-    # og:image / twitter:image for every page (docs-site/overrides/main.html).
-    # 1200x630, captured from the real app by demo/manifests/og-card.yaml.
-    "docs/assets/og-card.png": "docs/assets/og-card.png",
     # Staged as assets, not pages: both are fixed-width plain text that markdown
     # would reflow into mush. Copying them verbatim keeps the licence readable
     # AND makes README's `[Apache-2.0](LICENSE)` / `[NOTICE](NOTICE)` links
