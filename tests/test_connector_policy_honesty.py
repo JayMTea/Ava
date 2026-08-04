@@ -23,6 +23,7 @@ Compare the hand-written `agent/policies/ava-weather.yaml`: port 443, no
 """
 import os
 import unittest
+from pathlib import Path
 from unittest import mock
 
 import yaml
@@ -274,10 +275,32 @@ class NoDuplicateRulesTests(unittest.TestCase):
                 for ep in (np.get("endpoints") or [])
                 for r in (ep.get("rules") or [])]
 
+    def _shipped_manifests(self):
+        """Every manifest a fork receives, from BOTH places they ship from.
+
+        `connectors/` holds the infrastructure connectors, none of which declare
+        egress — they are the bridge, the router and the local model, and they
+        talk to the box rather than out of it. The connectors that DO declare
+        egress are the examples, which ship under `examples/` and are copied into
+        `$AVA_HOME/connectors/` by hand, so `connectors.load()` never sees them
+        on a clean checkout. Reading only the loader is what let this check pass
+        locally, where the copies exist, and find nothing at all in CI.
+        """
+        out = list(connectors.load())
+        seen = {m["id"] for m in out}
+        root = Path(__file__).resolve().parents[1] / "examples"
+        for path in sorted(root.glob("*/connector.yaml")):
+            m = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+            if m.get("id") and m["id"] not in seen:
+                out.append(m)
+                seen.add(m["id"])
+        return out
+
     def test_no_shipped_connector_renders_a_rule_twice(self):
         checked = 0
-        for m in connectors.load():
-            rules = self._rules(m["id"])
+        for m in self._shipped_manifests():
+            with _with(m):
+                rules = self._rules(m["id"])
             if not rules:
                 continue
             checked += 1
@@ -286,8 +309,8 @@ class NoDuplicateRulesTests(unittest.TestCase):
                 f"{sorted({r for r in rules if rules.count(r) > 1})}. Drop it "
                 "from egress.routes — a discovery/MCP connector's __tools and "
                 "__call routes are derived automatically."))
-        self.assertTrue(checked, "no connector rendered any rule — did the "
-                                 "registry or the renderer move?")
+        self.assertTrue(checked, "no shipped manifest rendered any rule — did the "
+                                 "registry, the examples tree or the renderer move?")
 
     def test_hand_declaring_a_derived_route_is_absorbed(self):
         """The manifests are clean now; this is what keeps a user's copy clean.
