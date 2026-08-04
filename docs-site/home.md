@@ -8,9 +8,9 @@ hide:
 ---
 
 <!-- Landing page source. Staged to index.md by sync.py (links are
-     repo-relative, rewritten exactly like README links). The hero and feature
-     grid live in overrides/home.html; this file is only the typeset content
-     below them. House style: no emoji, no em dashes.
+     repo-relative, rewritten exactly like README links). The hero, tour reel,
+     and feature grid live in overrides/home.html; this file is only the
+     typeset content below them. House style: no emoji, no em dashes.
      Every claim here is code-backed: profiles come from deploy/profiles/*.env
      and deploy/install.sh, the claim token from deploy/README.md.
 

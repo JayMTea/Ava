@@ -128,6 +128,22 @@ ASSETS: dict[str, str] = {
     # of the old row-layout "Your hardware" panel and no page references it.
     "docs/assets/pwa-install-ios.png": "docs/assets/pwa-install-ios.png",
     "docs/assets/pwa-install-android.png": "docs/assets/pwa-install-android.png",
+    # The landing hero's narrated walkthrough, its poster, and its captions.
+    # Rendered by demo/src/tour-hero.ts from demo/vo-hero/SCRIPT.md.
+    #
+    # A MISSING ASSET HERE IS SILENT. main() only appends to `missing` and
+    # prints a warning; mkdocs --strict checks markdown links, not the `src` of
+    # a <video> in a Jinja template. That is how the whole tour vanished once
+    # already: a2148e7 stripped the binaries from history to shrink the repo and
+    # re-added only the svg/png ones, so the landing page shipped a player whose
+    # source AND poster both 404'd, and every build stayed green. If you strip
+    # these again, delete the embed in overrides/home.html in the same commit.
+    "docs/assets/reel-poster.png": "docs/assets/reel-poster.png",
+    "docs/assets/ava-tour.mp4": "docs/assets/ava-tour.mp4",
+    # The .vtt is listed for the same reason as the mp4, and matters more: an
+    # unlisted caption track does not fail anything, it just 404s and leaves a
+    # video that looks like it has no captions at all.
+    "docs/assets/ava-tour.vtt": "docs/assets/ava-tour.vtt",
     "agent/docs/diagrams/security.svg": "agent/docs/diagrams/security.svg",
     # Staged as assets, not pages: both are fixed-width plain text that markdown
     # would reflow into mush. Copying them verbatim keeps the licence readable
