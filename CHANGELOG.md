@@ -48,45 +48,6 @@ pre-release milestones from when Ava ran on one box and nothing was tagged.
   Operations' Live | Control stays a segmented control: two options, a view
   switch, not a filter.
 
-### Removed
-
-- **GPU workloads is gone; uploads are not.** The the GPU service connector, its
-  client, the media-job runner, the `run_gpu_job` tool, the `ava-gpu`
-  skill and the `features.image` switch are all deleted, with eight routes
-  (`POST /api/generate`, `POST /api/upscale`, `GET /api/job/{id}`,
-  `POST /api/job/{id}/cancel`, `GET /api/jobs`, `POST /internal/run-gpu-job`,
-  `GET /thumb/{name}`, `POST /api/chats/{cid}/image`) and the `/media` mount.
-  The **input** path was never the same thing and stays whole: `POST
-  /api/upload`, the `/uploads` mount, `media/uploads/`, the extension
-  allow-list, OCR on an attached image, and that image rendered in the chat.
-  `/thumb` reads like the upload path and is not — it resolved inside
-  `media/out`, so it went with the rest. Vitals loses the **Renders** tile and
-  the **Generation performance** panel; Operations loses **Active renders**,
-  **Generations 24 h** and the **Job queue**; Data loses the **Generated
-  media** store. The allocator stays as it was: it arbitrates any two models
-  that want one memory pool, which was always the general case.
-- **The intent gate went with it.** Server-side routing existed to decide
-  chat turn versus image render, and with one pipeline left there is nothing
-  to decide — `POST /api/chat-stream` always starts an agent turn now.
-  `turn_router.py`, `eval_router.py`, the `routing:` config block and the
-  `ava eval intent` commands are deleted, and `ava doctor` no longer prints a
-  router fingerprint or an eval-set score.
-- **The `full` deploy profile is retired.** Without the `gpu-service:` service it
-  started exactly what `agent` starts, and its one remaining difference,
-  `AVA_VLLM_GPU_UTIL=0.55`, existed only to leave a second GPU tenant headroom.
-  `AVA_PROFILE=agent` is the superset now, and the four copies of the profile
-  table agree on it.
-- **The screenshots and tour videos that showed GPU workloads are deleted,
-  not re-captured.** They carried the render KPIs, the Job queue, the
-  `Images (the GPU service)` connector row or the Generated-media store, and the six
-  narrated tours came out of the same session. Eight PNGs, six MP4s and their
-  caption tracks are gone, including `og-card.png` — so the site's `og:image`
-  and `twitter:image` tags are gone too, rather than pointing at a file that is
-  not there. The pages they illustrated stand on their prose until there is
-  something honest to photograph. The surviving step-by-step captures still
-  carry an `Images` tile in the sidebar rail; that goes with the next capture
-  run, which is the only thing that can fix a pixel.
-
 ### Fixed
 
 - **Setup's Persona tab could take down the whole Setup view.** `PersonaPanel`
@@ -567,9 +528,9 @@ that does not exist, and nothing imported by name that is not declared.
 - **Advisory by default** (`alloc.lease.enforce: false`): the full decision is
   computed and appended to `logs/alloc.jsonl`, and **no driver is touched**. The log
   is the evidence for enabling enforcement later.
-- **The funnel** - `gpu_service.gpu_lease()` holds the lease across the whole GPU
-  phase at the one `POST /prompt` every render must cross, so a pipeline added later
-  inherits coordination by construction. Enforced two ways: a static guard fails any
+- **The funnel** - the lease is held across the whole GPU phase at the one submit
+  every job must cross, so a pipeline added later inherits coordination by
+  construction. Enforced two ways: a static guard fails any
   submit outside the transport (verified to catch a bypass), and a lease-less submit
   records `alloc.unfunneled` at runtime in case someone evades the scan. `alloc.roles`
   maps a subsystem to a declared model; unset means no lease is taken at all.
@@ -741,9 +702,9 @@ that does not exist, and nothing imported by name that is not declared.
   only `--model`/`--port`, so a forker following compose got vLLM's ~90% default
   utilisation, CUDA graph capture, and an uncapped `restart: unless-stopped` - the exact
   combination that cost 7,997 restarts on the development box, and with the `full`
-  profile it left nothing for the image engine started alongside it. Now
-  `--gpu-memory-utilization` (default `0.90`; `profiles/full.env` lowers it to `0.55`,
-  where the GPU service shares the pool), `--enforce-eager` and `--max-model-len`, all
+  profile it left nothing for anything started alongside it. Now
+  `--gpu-memory-utilization` (default `0.90`, lowered where a second tenant shares
+  the pool), `--enforce-eager` and `--max-model-len`, all
   env-overridable, and a capped `restart: on-failure:3` so a doomed start cannot loop.
 - Router unit description no longer names two retired models.
 
@@ -882,7 +843,6 @@ that does not exist, and nothing imported by name that is not declared.
 
 ### Changed
 - Docs reconciled with the code: "self-improvement" → governed **self-editing**;
-  "image **and** video" → GPU workloads (video via connector apps);
   connector egress + tools documented as shipped (not "on the roadmap").
 - Example/personal connectors removed from the tree; a fresh install lists only
   the infra connectors, so forkers connect their own app from a clean slate.
@@ -914,7 +874,7 @@ that does not exist, and nothing imported by name that is not declared.
 
 ### Changed - De-personalization
 - First-party personal apps fully decoupled from tracked core (moved behind the
-  connector manifest + overlay); default the GPU model checkpoint is now `gpu_model_base`;
+  connector manifest + overlay);
   owner-specific component/architecture docs moved to the gitignored `docs/dev/`;
   `CONTRIBUTING.md` rewritten for fork contributors; a voice-dep import guard so
   a fresh install boots without `requirements-voice.txt`.
@@ -970,8 +930,8 @@ minutes." Four coherent work streams:
   (`agent/policies/generated/<app>.yaml`). The drift-check now
   recognizes generated connector policies.
 - **De-personalized** for forks: `.env.example` sanitized (no personal paths),
-  `config.PROJECTS` is dynamic (only apps whose checkout exists), report email +
-  the GPU service model paths are config-driven, and dashboard/perf fallbacks are core-only.
+  `config.PROJECTS` is dynamic (only apps whose checkout exists), report email is
+  config-driven, and dashboard/perf fallbacks are core-only.
 
 ### Fixed - Omni agent switchover
 - **Ava's agent now runs on open-model 30B** (Super-120B fully retired). The sandbox
@@ -990,8 +950,7 @@ minutes." Four coherent work streams:
 - **All model weights consolidated into a single machine-wide hub** (see
   `paths.models` / `AVA_MODELS_DIR`), catalogued by a registry file. Duplicated
   weights removed (verified byte-identical before deletion).
-  - vLLM loads via `HF_HOME` inside the hub; the GPU service reads via
-    `gpusvc/extra_model_paths.yaml` `base_path`.
+  - vLLM loads via `HF_HOME` inside the hub.
   - Voice models (Piper, faster-whisper, ECAPA) live under the hub; only the
     biometric `voiceprint.npy` stays app-local.
   - The Ollama store is consolidated under the hub's caches.
@@ -1017,12 +976,11 @@ minutes." Four coherent work streams:
 ### Security
 - App password gate on `:8445` (HMAC-signed session cookie, per-IP login throttle).
 
-## [2026-06-26] - Voice, phone bridge, and GPU workloads
+## [2026-06-26] - Voice and phone bridge
 
 ### Added
 - Voice loop (`voice_ava.py`): Whisper STT → local vLLM → Piper TTS, with an
   ECAPA-TDNN speaker gate (your-voice-only).
 - Phone voice/chat bridge (`phone_bridge.py`) served over Tailscale at `:8445`.
-- GPU workloads via an Ava-owned the GPU service (`:8189`, the GPU model) callable by voice/text.
 - Native MCP `get_weather` tool (Open-Meteo) under the narrow `ava-weather` policy.
 - Routed chat through the OpenClaw agent (`main`) instead of raw vLLM.
