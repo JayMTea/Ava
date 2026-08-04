@@ -15,6 +15,17 @@ name: Docs
 # Keep the `paths:` filter. It is what stops an unrelated Python change from
 # redeploying the site, and `concurrency: pages` below is what stops two pushes
 # from racing each other to the same environment.
+#
+# BOOTSTRAPPING A FRESH REPO. A `paths:` filter needs a push whose diff touches
+# one of those paths, and the push that CREATES a repository does not qualify:
+# GitHub registers a workflow when an event first matches it, so on a brand-new
+# remote this file is never parsed, never appears in `gh workflow list`, and
+# `gh workflow run docs.yml` answers 404 — while Pages, set to
+# build_type=workflow, has nothing to deploy and serves 404 as well. An empty
+# commit does NOT break the deadlock; it touches no path, so the filter still
+# does not match. MEASURED 2026-08-04 on a recreated repo: six minutes of
+# waiting changed nothing, and the fix was a commit that edits a file the filter
+# lists — this one will do, which is why it is in the list.
 on:
   push:
     branches: [master, main]
