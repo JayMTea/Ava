@@ -99,6 +99,15 @@ ASSETS: dict[str, str] = {
     # `currentColor` so ONE file inks itself per scheme (extra.css masks it) —
     # the master's navy is invisible on the dark canvas. See the file's comment.
     "docs/assets/ava-wordmark.svg": "docs/assets/ava-wordmark.svg",
+    # The site's tab icon, INHERITED from the app rather than redrawn — same rule
+    # as the theme icons below. Without it Material serves its own default
+    # favicon, so the docs advertised someone else's mark while the app carried
+    # Ava's. It is the app's own file, so `python tools/sync_icons.py` keeps this
+    # in step with the PWA icons and tests/test_icon_sync.py fails if it drifts.
+    # No mask needed here (unlike the wordmark): a browser tab is neutral chrome,
+    # not the accent-painted header, and the mark was checked at 16px on both a
+    # dark and a light strip.
+    "frontend/public/favicon.svg": "docs/assets/favicon.svg",
     "docs/assets/architecture.svg": "docs/assets/architecture.svg",
     "docs/assets/agent-remote-runtime.svg": "docs/assets/agent-remote-runtime.svg",
     # "What leaves your machine" — the owner-facing privacy picture, on the

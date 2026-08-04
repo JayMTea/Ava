@@ -26,6 +26,12 @@ theme:
   # entirely; stylesheets/extra.css declares the same families as a local-first
   # stack, so anyone who has Inter/JetBrains Mono installed still sees them.
   font: false
+  # Ava's own mark, staged from frontend/public/ by sync.py. Unset, Material
+  # ships its own favicon, so every docs tab advertised the theme's mark instead
+  # of the product's. The header logo is NOT set here on purpose: extra.css masks
+  # the wordmark onto .md-logo in `currentColor`, which is what keeps it legible
+  # against a header that is accent-painted in light and --panel in dark.
+  favicon: docs/assets/favicon.svg
   icon:
     repo: fontawesome/brands/github
   palette:
