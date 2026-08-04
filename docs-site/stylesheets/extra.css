@@ -161,6 +161,53 @@
   display: none;
 }
 
+/* Tabs on the header row.
+   ------------------------------------------------------------------
+   Material ships the tab strip as its own full-width bar under the header, and
+   because extra.css paints it in the same accent, the two read as one bar two
+   rows tall with the nav marooned on the second. This lifts the strip onto the
+   header's own row, beside the logo and across from the GitHub pill.
+
+   It works because of navigation.tabs.sticky (mkdocs.yml, where the reasoning
+   lives): with that flag the strip is rendered INSIDE <header class="md-header">
+   rather than into .md-container, so lifting it is a margin, not a fight with
+   the stacking order. Without the flag this rule is a no-op at best and hides
+   the nav behind the header's own background at worst.
+
+   THE ROW HAS THE SPACE, measured rather than assumed. .md-header__title sits
+   between the logo and the right-hand cluster as a flex spacer 697px wide with
+   nothing in it (its site-name topic is hidden further up this file). Real
+   occupants are only the logo, the pill, the search box and the palette toggle:
+   463 of 1220px at 1280 wide, 509 of 1342 at 1920. The tabs need 568 and 624.
+   That leaves ~190px of slack at the narrowest desktop the strip renders at --
+   Material moves the nav into the drawer below 76.25em, which is why this is
+   scoped to it -- and it is the number that shrinks if a seventh top-level
+   section is ever added.
+
+   -2.4rem is the header's height, not a nudge: 48px against this site's 20px
+   root and 53px against the 22px root Material switches to at 1600, both 2.4rem,
+   which is why one value lands the tabs dead-centre at every width.
+
+   The strip stays full-width and would swallow clicks aimed at the search box
+   sitting over it, so it passes them through and only the links take them
+   back. */
+@media screen and (min-width: 76.25em) {
+  .md-tabs {
+    margin-top: -2.4rem;
+    background: transparent;
+    z-index: 5;
+    pointer-events: none;
+  }
+  .md-tabs__link {
+    pointer-events: auto;
+  }
+  /* Clears the logo. The strip and .md-header__inner are both .md-grid, so they
+     share a left edge and the tabs would start underneath the mark. */
+  .md-tabs .md-grid {
+    padding-left: 2.9rem;
+  }
+}
+
 /* Header: hide the repo source widget; the theme toggle takes its far-right
    slot (flex order), and chrome.js injects a "View on GitHub" pill before the
    search box. */

@@ -10,18 +10,15 @@
 -#}
 {% extends "main.html" %}
 
-{#- base.html renders `hero` BEFORE `tabs`, so a landing page that fills the
-    hero block strands the navigation.tabs strip below it — and because
-    extra.css paints .md-tabs in the same accent as .md-header, it read as a
-    second header bar sitting between the feature cards and the typeset content.
-    Emit the tabs at the top of the hero and leave the theme's slot empty: the
-    DOM order under .md-container is then tabs-then-landing, exactly the
-    header -> tabs -> content stacking every other page has. Other pages are
-    untouched (their hero block is empty, so the theme's slot still fires). -#}
-{% block tabs %}{% endblock %}
-
+{#- This page used to re-emit the tabs itself and blank the theme's slot,
+    because base.html renders `hero` BEFORE `tabs`: a landing page that fills
+    the hero block stranded the strip below it, reading as a second header bar
+    between the feature cards and the typeset content. navigation.tabs.sticky
+    retired that. The strip is rendered inside partials/header.html now, so it
+    is above the hero on every page by construction, and base.html skips its own
+    tabs block entirely when the flag is set. Re-adding the include here would
+    put a SECOND <nav class="md-tabs"> on this page and nowhere else. -#}
 {% block hero %}
-{% if "navigation.tabs" in features %}{% include "partials/tabs.html" %}{% endif %}
 <div class="ava-landing">
 
   <section class="ava-hero">

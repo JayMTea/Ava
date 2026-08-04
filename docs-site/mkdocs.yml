@@ -56,6 +56,19 @@ theme:
     # `hide: navigation`, so without tabs a visitor on the homepage saw one
     # button and a footnote link as the entire route into 30 pages.
     - navigation.tabs
+    # .sticky is load-bearing for the LAYOUT, not just for scroll behaviour.
+    # With it, base.html stops emitting the tabs into .md-container and
+    # partials/header.html renders them INSIDE <header class="md-header">
+    # instead, which is what lets extra.css lift them onto the header's own row
+    # (see "Tabs on the header row") rather than leaving a second accent bar
+    # under it. Turning this off puts the strip back on its own line and makes
+    # that CSS lift a no-op at best.
+    #
+    # It also stops Material hiding the tabs on scroll. Without the flag its JS
+    # sets [hidden] on .md-tabs once you scroll down, which is right for a strip
+    # that scrolls away and wrong for chrome that is now part of a sticky
+    # header — the tabs would fade out and leave a half-empty bar behind.
+    - navigation.tabs.sticky
     - navigation.top
     - navigation.tracking
     - content.code.copy
