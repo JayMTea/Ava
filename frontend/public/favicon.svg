@@ -4,10 +4,12 @@
      and pwa-512.png are rendered from — so the tab, the home screen and the
      installed app icon are one logo at three sizes.
 
-     Regenerate BOTH favicons whenever that master changes. They are separate
-     files from the PWA icons and nothing rebuilds them automatically, so
-     updating pwa-192/512 alone silently leaves the tab on the previous logo —
-     which has now happened twice.
+     GENERATED — do not hand-edit the drawing below. `python tools/sync_icons.py`
+     rewrites it from the master and regenerates favicon.ico from pwa-512.png;
+     everything above this line is preserved, which is why the reasoning lives
+     here rather than in the tool. tests/test_icon_sync.py fails if they drift,
+     because updating pwa-192/512 alone silently left the tab on the previous
+     logo three times before that guard existed.
 
      It carried a #007ACC rounded tile until the PWA icons dropped theirs. The
      tile existed for contrast: on a dark tab strip the mark has no background
