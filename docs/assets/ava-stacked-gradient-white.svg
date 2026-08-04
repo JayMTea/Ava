@@ -1,0 +1,12 @@
+<svg viewBox="0 0 242 274" width="242" height="274" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="AVA logo"><title>AVA — stacked gradient-white</title><defs><linearGradient id="ig" gradientUnits="userSpaceOnUse" x1="0" y1="156.0" x2="0" y2="16.0"><stop offset="0" stop-color="#0064E0"/><stop offset="1" stop-color="#0091FF"/></linearGradient></defs><g transform="translate(48.89,8.79) scale(1.02941)"><g stroke="#7FC4FF" stroke-opacity="1.0" stroke-width="6.5" fill="none" stroke-linecap="round"><line x1="27" y1="129" x2="97.2" y2="90"/><line x1="113" y1="129" x2="42.8" y2="90"/></g><g stroke="url(#ig)" stroke-width="11.5" fill="none" stroke-linecap="round"><line x1="70" y1="23" x2="27" y2="129"/><line x1="70" y1="23" x2="113" y2="129"/></g><circle cx="70" cy="23" r="16" fill="url(#ig)"/><circle cx="42.8" cy="90" r="12" fill="url(#ig)"/><circle cx="97.2" cy="90" r="12" fill="url(#ig)"/><circle cx="27" cy="129" r="14" fill="url(#ig)"/><circle cx="113" cy="129" r="14" fill="url(#ig)"/></g><g transform="translate(1.805,154.969) scale(0.232704) translate(0,500) scale(0.1,-0.1)" fill="#FFFFFF"><path d="M2143 4428 l-10 -13 -753 -1560 -753 -1560 -5 -23 -4 -22 443 2 443
+3 110 250 111 250 8 13 8 12 437 -1 437 -2 188 -6 187 -6 124 -255 124 -255
+426 1 426 1 6 5 5 6 -800 1583 -800 1584 -174 3 -174 2 -10 -12z m389 -1636
+l179 -414 -5 -14 -5 -14 -268 1 -268 1 -91 7 -91 6 171 423 171 422 14 -2 15
+-3 178 -413z"/><path d="M2930 4433 l0 -6 372 -776 372 -776 595 -1157 596 -1158 280 0 281 0
+876 1932 877 1933 -242 6 -242 6 -233 2 -233 1 -78 -162 -77 -163 -610 -1312
+-609 -1311 -8 7 -7 7 44 130 45 129 55 149 56 149 0 25 0 24 -570 1146 -570
+1146 -17 18 -16 18 -469 0 -468 0 0 -7z"/><path d="M7711 4409 l-19 -31 -736 -1553 -736 -1553 0 -11 0 -11 436 2 436 3
+116 262 116 263 593 0 593 0 13 -23 14 -22 114 -242 114 -243 428 0 427 0 0 7
+0 6 -797 1589 -797 1588 -148 0 -148 0 -19 -31z m218 -1266 l21 -68 158 -355
+159 -355 -136 -6 -136 -7 -222 -1 -222 -1 -4 8 -4 7 133 325 134 325 41 98 41
+97 8 0 8 0 21 -67z"/></g></svg>

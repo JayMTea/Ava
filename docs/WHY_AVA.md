@@ -58,7 +58,7 @@ Each of those is taken apart, with the endpoint or config key behind it, in
 - **Not multi-tenant.** One install, one owner. There is no seat count, no
   billing tier, and no capability held back behind one.
 
-## Why Ava?
+## Every claim, and what backs it
 
 | Claim | What backs it |
 |---|---|

@@ -99,6 +99,19 @@ ASSETS: dict[str, str] = {
     # `currentColor` so ONE file inks itself per scheme (extra.css masks it) —
     # the master's navy is invisible on the dark canvas. See the file's comment.
     "docs/assets/ava-wordmark.svg": "docs/assets/ava-wordmark.svg",
+    # The landing hero's stacked lockup (mark over wordmark), as a PAIR. Unlike
+    # the wordmark above it cannot be masked: the mark carries the brand
+    # gradient, and a mask throws colour away and keeps only the silhouette. So
+    # the scheme is served by swapping the file, not by inking one — `-ink` is
+    # the light scheme (near-black wordmark) and `-white` is the dark one, and
+    # both keep the mark blue. SVG rather than the 1200w PNG beside it in the
+    # export set: 2 KB, resolution-independent, and the letterforms stay sharp
+    # at any hero width. Exported into frontend/public/assets/others/, which is
+    # NOT where they can be served from — public/ is copied verbatim into the
+    # tracked dist and precached by workbox, so the whole variant set would
+    # ship to every app client to render one logo on a docs page.
+    "docs/assets/ava-stacked-gradient-ink.svg": "docs/assets/ava-stacked-gradient-ink.svg",
+    "docs/assets/ava-stacked-gradient-white.svg": "docs/assets/ava-stacked-gradient-white.svg",
     # The site's tab icon, INHERITED from the app rather than redrawn — same rule
     # as the theme icons below. Without it Material serves its own default
     # favicon, so the docs advertised someone else's mark while the app carried
@@ -151,6 +164,29 @@ ASSETS: dict[str, str] = {
     # resolve on the site instead of being stripped to bare labels.
     "LICENSE": "LICENSE.txt",
     "NOTICE": "NOTICE.txt",
+}
+
+# Per-page MkDocs front matter, keyed by STAGED destination and prepended on the
+# way out. It lives here rather than in the source file because these keys are
+# instructions to one theme: a repo doc is read on GitHub too, where a `hide:`
+# block renders as a stray table above the first heading. Staging is the only
+# place that knows a page is being published, so it is where the theme's
+# vocabulary belongs.
+FRONT_MATTER: dict[str, str] = {
+    # `Why Ava?` is the one top-level nav entry that is a PAGE, not a section,
+    # so navigation.tabs gives it a tab and the sidebar then renders a tree of
+    # exactly one item: a link to the page you are already reading, directly
+    # under the tab that is already highlighted. With the H1 that made three
+    # identical labels in three chrome regions before the prose started.
+    #
+    # Hiding it costs this page nothing. The tabs are still the route out,
+    # which is the same bet home.md already makes with the same key, and no
+    # page on this site has a right-hand TOC to fall back on either way —
+    # extra.css kills .md-sidebar--secondary globally so the content reflows
+    # wider. So the page simply has no sidebar now, and the prose gets the
+    # column. Only add this key for a section of one; a page that shares a tab
+    # with siblings needs the tree to reach them.
+    "overview.md": "---\nhide:\n  - navigation\n---\n\n",
 }
 
 # Where every curated repo path lands in the staging tree, so links can be
@@ -301,7 +337,7 @@ def main() -> int:
         text = _rewrite_links(sp.read_text(encoding="utf-8"), src, dst)
         dp = OUT / dst
         dp.parent.mkdir(parents=True, exist_ok=True)
-        dp.write_text(text, encoding="utf-8")
+        dp.write_text(FRONT_MATTER.get(dst, "") + text, encoding="utf-8")
     home_src, home_dst = HOME_PAGE
     hp = HERE / home_src
     if hp.is_file():

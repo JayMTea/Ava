@@ -206,13 +206,33 @@
   text-align: center;
 }
 
-/* Wordmark standing in for the old "MEET AVA" text eyebrow (home.html). It
-   inherits the hero's text color through .ava-wordmark's currentColor fill:
-   15.9:1 on the light panel, 15.0:1 on the dark one. */
+/* Stacked lockup standing in for the old "MEET AVA" text eyebrow (home.html):
+   the node mark over the wordmark, 242:274 in its own viewBox.
+
+   TWO FILES, NOT ONE INKED FILE. Everything else branded on this site is a
+   single silhouette masked with currentColor, which is why one wordmark serves
+   both schemes. That trick cannot carry this one: the mark is a blue gradient
+   over a paler cross-brace, and a mask keeps the shape and discards every
+   colour in it. So the scheme picks the file. Both keep the mark blue against
+   the panel it sits on; only the wordmark flips, near-black (#101828, 14.8:1
+   on the light panel) to white (15.6:1 on the dark one). The pair ships from
+   the same export, so the two never drift apart.
+
+   The slate rule needs no `!important` and no extra specificity - it is one
+   attribute selector deeper than the base rule and simply wins. */
 .ava-hero__mark {
-  width: clamp(9rem, 20vw, 12.5rem);
-  aspect-ratio: 2449 / 1060;
-  margin: 0 auto 1.1rem;
+  /* Not optional. This is a <span>, and it used to get `display: block` from
+     .ava-wordmark; inline boxes ignore width, height and aspect-ratio, so
+     without this the element computes to zero and the hero silently loses its
+     logo while the markup still looks correct. */
+  display: block;
+  width: clamp(6rem, 14vw, 8.5rem);
+  aspect-ratio: 242 / 274;
+  margin: 0 auto 1.2rem;
+  background: url(../docs/assets/ava-stacked-gradient-ink.svg) center / contain no-repeat;
+}
+[data-md-color-scheme="slate"] .ava-hero__mark {
+  background-image: url(../docs/assets/ava-stacked-gradient-white.svg);
 }
 
 .ava-hero h1 {
