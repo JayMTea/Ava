@@ -413,7 +413,48 @@ fi
 _sha256() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}';
             else shasum -a 256 "$1" | awk '{print $1}'; fi; }
 skills_manifest=""
+# Written host-side to $AVA_HOME/data (the same dir the bridge reads).
+DATA_DIR="${AVA_DATA_DIR:-${AVA_HOME:-$HERE/..}/data}"
 if _want skills; then
+# Retire skills the repo dropped, BEFORE installing the ones it still has.
+# `skill install` is purely additive and nemoclaw has no `skill list`, so a skill
+# deleted from source stays in the sandbox forever — still loaded, still telling
+# the assistant she has a capability nothing implements any more. The previous
+# run's manifest is the only record of what was put in there, which is what makes
+# the difference computable at all: repo names now, minus manifest names then.
+_repo_skills=""
+for skroot in "$HERE/skills" "$OVERLAY/skills"; do
+  [ -d "$skroot" ] || continue
+  for sk in "$skroot"/*/; do
+    [ -f "${sk}SKILL.md" ] || continue
+    _repo_skills="${_repo_skills} $(basename "$sk")"
+  done
+done
+# `|| true`: a manifest written by an older version, hand-edited, or truncated by
+# a half-finished run must not abort the deploy — worst case nothing is pruned.
+_retired="$(AVA_KEEP="$_repo_skills" python3 - "$DATA_DIR/skills_deployed.json" <<'PY' || true
+import json, os, sys
+keep = set(os.environ.get("AVA_KEEP", "").split())
+try:
+    with open(sys.argv[1]) as fh:
+        prev = json.load(fh)
+except Exception:
+    prev = []
+for row in prev if isinstance(prev, list) else []:
+    name = (row or {}).get("name") if isinstance(row, dict) else None
+    if name and name not in keep:
+        print(name)
+PY
+)"
+for _gone in $_retired; do
+  echo "[ava] removing retired skill: $_gone…"
+  if _run_cli "$NEMOCLAW" "$SANDBOX" skill remove "$_gone"; then
+    _step skills "$_gone" ok removed
+  else
+    echo "[ava] WARNING: retired skill $_gone was NOT removed (see output above)" >&2
+    _step skills "$_gone" fail "skill remove failed"
+  fi
+done
 for skroot in "$HERE/skills" "$OVERLAY/skills"; do
   [ -d "$skroot" ] || continue
   for sk in "$skroot"/*/; do
@@ -433,9 +474,8 @@ for skroot in "$HERE/skills" "$OVERLAY/skills"; do
   done
 done
 # Record what was deployed INTO the sandbox so the Agent tab can show which
-# skills are live vs newly added in the repo (see ava_bridge/skills.py). Written
-# host-side to $AVA_HOME/data (the same dir the bridge reads).
-DATA_DIR="${AVA_DATA_DIR:-${AVA_HOME:-$HERE/..}/data}"
+# skills are live vs newly added in the repo (see ava_bridge/skills.py), and so
+# the next run can tell what to retire.
 if mkdir -p "$DATA_DIR" 2>/dev/null; then
   printf '[%s]\n' "$skills_manifest" > "$DATA_DIR/skills_deployed.json"
   echo "[ava] wrote skills deploy manifest -> $DATA_DIR/skills_deployed.json"
