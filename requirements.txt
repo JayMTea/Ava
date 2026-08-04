@@ -25,7 +25,7 @@
 #     same probe on 1.2.1, including which paths 404 (agent/voice/governance
 #     have no bare GET, on both versions).
 fastapi==0.136.3
-uvicorn[standard]==0.51.0
+uvicorn[standard]==0.52.0
 starlette==1.3.1
 requests==2.34.2
 # [socks] is load-bearing, not cosmetic: web search/fetch default to Tor
@@ -56,7 +56,7 @@ Pillow==12.3.0
 # present here, declared nowhere. Its absence is caught by a best-effort
 # `except`, so a fork silently fell back to crude tag-stripping — web_fetch kept
 # "working" while handing Ava markup soup instead of clean markdown.
-trafilatura==2.1.0
+trafilatura==2.2.0
 # The model downloader (`ava models pull`). Same story again: `_pull_hf` shells
 # out to the `hf` binary, which only exists if huggingface_hub[cli] is installed
 # — it was, transitively, on the maintainer's box. On a fresh clone the very
@@ -66,4 +66,4 @@ trafilatura==2.1.0
 # No `[cli]` extra: that was a 0.x thing. Since 1.0 the `hf` console script
 # ships in the base package, and asking for a nonexistent extra only earns a
 # pip warning.
-huggingface_hub==1.25.1
+huggingface_hub==1.26.0
