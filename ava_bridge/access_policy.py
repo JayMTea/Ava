@@ -41,7 +41,7 @@ _DENY = [
     "connector_grants.yaml",    # the connector consent ledger = self-approval
     "connector_tools_cache.json",   # declared tool tiers = the JIT-consent surface
     "branding/**",              # the owner's uploaded logo/icon art, not the agent's
-    "bin/**", "gpusvc/**", "media/**", "logs/**", "enroll/**",
+    "bin/**", "media/**", "logs/**", "enroll/**",
     "*.onnx", "*.npy", "*.ckpt", "*.ort", "*.pem", "*.key",
 ]
 
@@ -69,10 +69,10 @@ _APPROVAL = [
     "overlay/ava_bridge/**",       # personal_access.apply() rewrites _PROJECT_DENY
     "agent/policies/**",           # egress / network policies
     # The agent's own system prompt. The template carries the operational
-    # mandates that stop the model hallucinating weather, claiming it rendered an
-    # image it never rendered, and denying it has web access — i.e. the
-    # instructions that make its OTHER self-checks meaningful. Auto-editable, an
-    # agent could quietly relax the rules it is judged by and commit that itself.
+    # mandates that stop the model hallucinating weather and denying it has web
+    # access — i.e. the instructions that make its OTHER self-checks meaningful.
+    # Auto-editable, an agent could quietly relax the rules it is judged by and
+    # commit that itself.
     # render_persona.py is included for the same reason as settings.py above: a
     # gated file whose writer is auto-editable is not gated.
     "agent/persona.txt.tmpl", "agent/render_persona.py",

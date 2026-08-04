@@ -72,7 +72,7 @@ def secure_opener(path: str, flags: int) -> int:
 INTERNAL_SCOPE_GROUPS: dict[str, frozenset[str]] = {
     "admin": frozenset({"logs", "perf", "config", "policies", "code_change",
                         "model"}),
-    "content": frozenset({"documents", "run_gpu_job", "model", "web"}),
+    "content": frozenset({"documents", "model", "web"}),
     # Measured, not assumed: the only routes the moved tools call are
     # /internal/devices/events (device_events.mjs) and /internal/connector/<cid>/*
     # (the generated per-app tools). `model` was NOT added — nothing here asks for

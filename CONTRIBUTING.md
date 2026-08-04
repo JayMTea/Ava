@@ -57,11 +57,10 @@ python docs-site/preview.py          # -> http://127.0.0.1:8099/Ava/
 ```
 
 `preview.py` serves the built `docs-site/site/` - the exact artifact Pages
-publishes - at the `/Ava/` prefix from `site_url`, with HTTP Range support so
-the walkthrough videos can be scrubbed. `mkdocs serve -f docs-site/mkdocs.yml`
-is fine for prose (it live-reloads, and note it also mounts at `/Ava/`, not
-`/`), but it answers a `Range:` request with the whole file, so video seeking
-does not work there and a media check on it is not a real one.
+publishes - at the `/Ava/` prefix from `site_url`, and answers `Range:` requests
+the way Pages does. `mkdocs serve -f docs-site/mkdocs.yml` is fine for prose (it
+live-reloads, and note it also mounts at `/Ava/`, not `/`), but it builds in
+memory, so a check against it is not a check against the artifact.
 
 ## 2. Tests & lint
 
@@ -193,7 +192,7 @@ arbitrary.
 | **connector** | A manifest (`connectors/<id>/connector.yaml`) wiring an external app in: health, metrics, agent tools, generated egress policy. The extension model. |
 | **app** | A connector's user-facing identity - what appears under "Apps" in the sidebar. |
 | **action** | One callable operation a connector declares. Becomes an agent tool. |
-| **tool** | Anything the agent can call, whether from a connector action, an MCP server, or built in (`get_weather`, `run_gpu_job`). |
+| **tool** | Anything the agent can call, whether from a connector action, an MCP server, or built in (`get_weather`, `read_document`). |
 | **skill** | A `SKILL.md` telling the model *how and when* to use tools. Instructions, not capability - `agent/skills/`. |
 | **the dashboard** | Vitals + Operations. (Previously also called the "Command Center"; that name was retired for rhyming with the next row.) |
 | **Control Center** | The approval queue *inside* Operations → Control, where parked code changes and learning proposals wait for you. |

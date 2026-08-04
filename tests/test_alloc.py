@@ -10,7 +10,10 @@ hardware:
   * `resident=None` (unknown) is never softened to False, because memory we cannot
     see is memory the planner must not promise to free;
   * a service that is "active" with its port open but its model absent reports
-    NOT ready — the failure that ran for six days undetected on the dev box.
+    NOT ready — the failure that ran for six days undetected on the dev box;
+  * no GPU container is launched outside the allocator, because one started with
+    an unbounded restart policy retries a start the allocator has declined — the
+    **7,997 attempts** that motivated this whole layer.
 
 No GPU, no network, no subprocess: the pool is passed in as an argument and every
 external probe is patched at its module seam.
@@ -18,9 +21,13 @@ external probe is patched at its module seam.
 Run: .venv/bin/python -m pytest tests/test_alloc.py -q
 """
 import os
+import pathlib
+import re
 import tempfile
 import unittest
 from unittest import mock
+
+from gitfiles import tracked_paths as _tracked
 
 os.environ["AVA_HOME"] = tempfile.mkdtemp(prefix="ava-alloc-test-")
 
@@ -30,6 +37,21 @@ from ava_bridge.alloc.base import (DriverContext, ModelDriver,
                                    ReleaseMode, Residency)
 from ava_bridge.alloc.drivers import for_spec
 from ava_bridge.alloc.drivers._probe import probe_ready
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+
+# The modules allowed to launch a GPU container. Launchers register a model with the
+# allocator; they do not decide memory policy themselves.
+GPU_RUN_ALLOWED = {"ava_bridge/alloc/drivers/docker.py"}
+
+_GPU_RUN = re.compile(r"docker[\s\"',\]]+run\b[^\n]*--gpus")
+
+_FIX_GPU_RUN = (
+    "\n\nDeclare the model in ava.yaml `alloc.models` with `driver: docker` and let\n"
+    "the allocator own its lifecycle, instead of launching a GPU container inline.\n"
+    "A container started with an unbounded restart policy will retry a start the\n"
+    "allocator has declined, with no backoff — that is how a restart storm happens."
+)
 
 
 def _cfg(patch: dict):
@@ -382,6 +404,38 @@ class PortabilityTests(unittest.TestCase):
                 raise AssertionError("not called")
         problems = _Bad(self._ctx()).validate()
         self.assertTrue(any("acquire()" in p for p in problems))
+
+
+class LifecycleConventionTests(unittest.TestCase):
+    """A static scan, in the style of tests/test_feature_convention.py.
+
+    Memory coordination used to be expressed at each *caller* that needed it. That
+    works until someone adds a caller. The new one starts a container without the
+    hold, no test notices (every existing caller still holds it), and nothing
+    detects the gap at runtime — the engine simply starts losing its memory to an
+    uncoordinated process. Putting the launch behind one driver makes bypassing it
+    a build failure rather than a discovery.
+    """
+
+    def test_gpu_containers_are_not_launched_inline(self):
+        offenders = []
+        for path in _tracked("*.py"):
+            rel = path.relative_to(ROOT).as_posix()
+            if rel in GPU_RUN_ALLOWED or rel.startswith(("tests/", "qa/")):
+                continue
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            for n, line in enumerate(text.splitlines(), 1):
+                if line.lstrip().startswith("#"):
+                    continue  # a comment describing the rule is not a breach of it
+                if _GPU_RUN.search(line):
+                    offenders.append(f"{rel}:{n}: {line.strip()[:100]}")
+        self.assertFalse(
+            offenders,
+            "these launch a GPU container outside the allocator:\n  "
+            + "\n  ".join(offenders) + _FIX_GPU_RUN)
 
 
 if __name__ == "__main__":

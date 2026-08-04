@@ -14,7 +14,7 @@ numbers on offer are wrong in ways that look plausible:
     returns N/A rather than a number.
 
 Deciding on any of those produces confident, wrong answers — and a wrong "there is
-room" is how a box ends up OOM-killing a render, while a wrong "there is no room"
+room" is how a box ends up OOM-killing a model load, while a wrong "there is no room"
 is how it refuses work it could have done. `ava_bridge/hwinfo.py` is the one place
 that decides what "free" means per platform, so this test fails any other reader
 with instructions.

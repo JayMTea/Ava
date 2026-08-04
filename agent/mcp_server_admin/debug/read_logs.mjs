@@ -13,11 +13,11 @@ export default {
       },
       service: {
         type: "string",
-        description: "Service name for systemd (ava-bridge, ava-gpusvc, vllm, etc.)"
+        description: "Service name for systemd (ava-bridge, vllm, etc.)"
       },
       component: {
         type: "string",
-        enum: ["bridge", "gpusvc", "learning"],
+        enum: ["bridge", "learning"],
         description: "Application component for app logs"
       },
       lines: {

@@ -9,7 +9,6 @@ must never be mixed into `pytest tests/`.
 The suite gets:
   * a throwaway AVA_HOME (a genuine first-run home — no password, no config),
   * a fake OpenAI-compatible LLM serving DirectRuntime,
-  * a fake the GPU service serving media jobs,
   * a fake "user's app" to connect as a connector,
   * the real `phone_bridge:app` under FastAPI TestClient with real lifespan.
 """
@@ -25,13 +24,11 @@ from qa.env_recipe import free_port, hermetic_env  # noqa: E402
 
 QA_HOME = tempfile.mkdtemp(prefix="ava-qa-home-")
 _LLM_PORT = free_port()
-_gpusvc_PORT = free_port()
 _APP_PORT = free_port()
 
 os.environ.update(hermetic_env(
     QA_HOME,
     llm_url=f"http://127.0.0.1:{_LLM_PORT}/v1/chat/completions",
-    gpusvc_url=f"http://127.0.0.1:{_gpusvc_PORT}",
     # An unused port: with the default :8010, a production router on the SAME
     # machine would answer this suite's /api/model probes — isolation leak.
     router_port=free_port()))
@@ -43,11 +40,9 @@ os.environ.update(hermetic_env(
 sys.modules["faster_whisper"] = None
 
 from qa.fakes.fake_app import FakeApp        # noqa: E402
-from qa.fakes.fake_gpusvc import Fakegpusvc    # noqa: E402
 from qa.fakes.fake_llm import FakeLLM        # noqa: E402
 
 FAKE_LLM = FakeLLM(_LLM_PORT).start()
-FAKE_gpusvc = Fakegpusvc(_gpusvc_PORT).start()
 FAKE_APP = FakeApp(_APP_PORT).start()
 
 import pytest  # noqa: E402
@@ -83,13 +78,6 @@ def fake_llm():
     FAKE_LLM.reset()
     yield FAKE_LLM
     FAKE_LLM.reset()
-
-
-@pytest.fixture()
-def fake_gpusvc():
-    FAKE_gpusvc.reset()
-    yield FAKE_gpusvc
-    FAKE_gpusvc.reset()
 
 
 @pytest.fixture()

@@ -3,12 +3,6 @@ import { api, sleep } from '../lib/api';
 import type { Artifact, Attachment, HistoryEntry } from '../lib/types';
 import { ChatItem, uid } from '../lib/chatItems';
 
-// Routing lives SERVER-SIDE now (ava_bridge/turn_router.py): every typed
-// message posts to /api/chat-stream, which answers {turn_id} for an agent turn
-// or {job} for a render. The old client-side GEN_RE heuristic (and the
-// exception list it kept accreting) is retired — this file carries zero
-// routing knowledge.
-
 // Play a base64-encoded WAV (Ava's spoken reply) without a round-trip to disk.
 function playWav(b64: string) {
   try {
@@ -92,122 +86,6 @@ export function useChat() {
     return c.id;
   }, [loadChats]);
 
-  // ---- GPU workloads job polling ---------------------------------------
-  const pollJob = useCallback(
-    (job: { id: string; prompt?: string }, chatId: string | null) => {
-      const gid = uid();
-      push({
-        kind: 'gen',
-        id: gid,
-        jobId: job.id,
-        progress: 0,
-        status: 'running',
-        prompt: job.prompt,
-        stage: 'queued',
-        elapsedSec: 0,
-        queueHint: 'queued',
-        cancelable: true,
-      });
-      const t0 = Date.now();
-      // Wall-clock deadline + error budget so a stuck server-side job can't
-      // spin the gen bar forever (the server reaper flips stalled jobs to
-      // error, but the client must also self-terminate if unreachable).
-      const JOB_DEADLINE_MS = 20 * 60 * 1000;
-      let pollFails = 0;
-      const giveUp = (why: string) =>
-        patch(gid, (it) =>
-          it.kind === 'gen'
-            ? { ...it, status: 'error', error: why, cancelable: false, stage: 'error',
-                elapsedSec: (Date.now() - t0) / 1000 }
-            : it,
-        );
-      const tick = async () => {
-        if (Date.now() - t0 > JOB_DEADLINE_MS) {
-          giveUp('render timed out — check the the GPU service service on the Operations page');
-          return;
-        }
-        try {
-          const j = await api.job(job.id);
-          pollFails = 0;
-          if (j.status === 'running') {
-            const elapsedSec = (Date.now() - t0) / 1000;
-            const pct = j.progress || 0;
-            let queueHint = '';
-            let stage = j.stage || (pct <= 0 ? 'queued' : pct >= 75 ? 'upscaling' : 'rendering');
-            if (!j.stage && pct <= 0) {
-              queueHint = elapsedSec < 25 ? 'queued / loading model' : 'still queued';
-            }
-            patch(gid, (it) =>
-              it.kind === 'gen'
-                ? {
-                    ...it,
-                    progress: pct,
-                    elapsedSec,
-                    stage,
-                    queueHint,
-                    cancelable: true,
-                    prompt: j.rewritten_prompt || j.prompt || it.prompt,
-                  }
-                : it,
-            );
-            setTimeout(tick, 700);
-          } else if (j.status === 'done' && j.url) {
-            remove(gid);
-            push({ kind: 'image', id: uid(), url: j.url, caption: job.prompt, allowUpscale: true });
-            // The bridge already persisted the image to the chat when the job
-            // finished (gpu_jobs._finalize_job) — just refresh the list.
-            if (chatId) loadChats();
-          } else {
-            patch(gid, (it) =>
-              it.kind === 'gen'
-                ? {
-                    ...it,
-                    status: 'error',
-                    error: j.error || 'unknown',
-                    errorCode: j.error_code,
-                    cancelable: false,
-                    stage: j.stage || 'error',
-                    elapsedSec: (Date.now() - t0) / 1000,
-                  }
-                : it,
-            );
-          }
-        } catch {
-          pollFails += 1;
-          if (pollFails > 20) {
-            giveUp('lost contact with the server while rendering');
-            return;
-          }
-          setTimeout(tick, 1500);
-        }
-      };
-      tick();
-    },
-    [push, patch, remove, loadChats],
-  );
-
-  const cancelGen = useCallback(
-    async (jobId: string, itemId: string) => {
-      try {
-        await api.cancelJob(jobId);
-      } catch {
-        // Even if the request races/fails, reflect user intent in UI.
-      }
-      patch(itemId, (it) =>
-        it.kind === 'gen'
-          ? {
-              ...it,
-              status: 'error',
-              error: 'cancelled by user',
-              cancelable: false,
-              stage: 'cancelled',
-            }
-          : it,
-      );
-    },
-    [patch],
-  );
-
   // ---- one Ava turn: chain-of-thought + poll ------------------------------
   const runAvaTurn = useCallback(
     async (t: string, atts: Attachment[], cid: string, userItemId: string | null) => {
@@ -230,12 +108,6 @@ export function useChat() {
         fd.append('attachments', JSON.stringify(atts.map((a) => a.id)));
         fd.append('chat_id', cid);
         const start = await api.startTurn(fd);
-        if (start.job) {
-          // The server-side intent gate routed this to the image pipeline.
-          remove(cotId);
-          pollJob(start.job, cid);
-          return;
-        }
         if (!start.turn_id) {
           remove(cotId);
           push({ kind: 'sys', id: uid(), text: start.error || 'could not start', icon: 'alert', code: start.error_code });
@@ -299,7 +171,6 @@ export function useChat() {
               history.current.push({ role: 'assistant', content: s.reply });
               history.current = history.current.slice(-12);
             }
-            if (s.job) pollJob(s.job, cid);
             if (s.artifact) setArtifact(s.artifact);
             if (s.previews?.length) s.previews.forEach((p) => push({ kind: 'preview', id: uid(), preview: p }));
             return;
@@ -321,10 +192,10 @@ export function useChat() {
         failUser();
       }
     },
-    [push, patch, remove, pollJob],
+    [push, patch, remove],
   );
 
-  // ---- submit: one path — the server-side gate picks the pipeline ----------
+  // ---- submit --------------------------------------------------------------
   const submit = useCallback(
     async (t: string, atts: Attachment[], cid: string, userItemId: string | null) => {
       try {
@@ -463,7 +334,6 @@ export function useChat() {
           }
           if (j.sim != null) setHint('voice match: ' + j.sim);
           if (j.audio) playWav(j.audio);
-          if (j.job) pollJob(j.job, cid);
         }
       } catch (e) {
         const code = (e as { code?: string }).code;
@@ -473,7 +343,7 @@ export function useChat() {
       setStatus('hold the mic to talk');
       loadChats();
     },
-    [pending, push, ensureChat, pollJob, loadChats],
+    [pending, push, ensureChat, loadChats],
   );
 
   // ---- chat list / history ------------------------------------------------
@@ -496,11 +366,9 @@ export function useChat() {
           if (m.role === 'user') {
             lastUserText = m.content || '';
             next.push({ kind: 'user', id: uid(), text: m.content || '', atts: m.atts || [] });
-          } else if (m.image) {
-            next.push({ kind: 'image', id: uid(), url: m.image, caption: m.content || '', allowUpscale: true });
           } else if (m.error_code) {
-            // A render (or other job) that ended in a coded failure — replay it
-            // as the same fix-it system line the live UI would have shown.
+            // A turn that ended in a coded failure — replay it as the same
+            // fix-it system line the live UI would have shown.
             next.push({ kind: 'sys', id: uid(), text: m.content || 'failed', icon: 'alert', code: m.error_code });
           } else {
             // Durable chain-of-thought: replay the saved reasoning above the
@@ -724,7 +592,6 @@ export function useChat() {
 
   return {
     items,
-    cancelGen,
     chats,
     currentChatId,
     pending,

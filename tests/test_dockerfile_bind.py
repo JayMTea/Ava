@@ -18,7 +18,7 @@ nothing reads (NEMOCLAW_INSTALL_TAG was declared, never referenced, and the
 entrypoint therefore piped the upstream `main` branch into bash at every first
 start), and a `curl | bash` whose ref is not pinned anywhere.
 
-Style matches tests/test_no_eval_data.py: a `git ls-files` scan, no bridge, no
+Style matches tests/test_diagram_sync.py: a `git ls-files` scan, no bridge, no
 AVA_HOME, no Docker.
 """
 import pathlib

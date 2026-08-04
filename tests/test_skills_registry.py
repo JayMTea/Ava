@@ -78,12 +78,12 @@ def test_tool_extraction_ignores_argument_names(skills_env):
     skills, core, _, _ = skills_env
     # Description names the tool; the body call-table has single-word args that
     # must NOT be mistaken for tools (the real-world noise this guards against).
-    _write_skill(core, "ava-gpu",
-                 {"name": "ava-gpu",
-                  "description": '"How Ava renders via her run_gpu_job tool."'},
-                 body="Call it with `prompt`, `seed`, `steps`, `days` args.")
+    _write_skill(core, "ava-weather",
+                 {"name": "ava-weather",
+                  "description": '"How Ava answers via her get_weather tool."'},
+                 body="Call it with `location`, `units`, `hourly`, `days` args.")
     s = skills.catalog(force=True)[0]
-    assert s["tools"] == ["run_gpu_job"]
+    assert s["tools"] == ["get_weather"]
 
 
 def test_deploy_state_transitions(skills_env):
@@ -124,15 +124,15 @@ def test_ava_yaml_category_override_wins_over_frontmatter(skills_env, monkeypatc
     _write_skill(core, "ava-weather",
                  {"name": "ava-weather", "category": "Daily",  # author hint
                   "description": '"Weather."'})
-    _write_skill(core, "ava-gpu",
-                 {"name": "ava-gpu", "description": '"Image."'})  # no frontmatter cat
-    # Owner ava.yaml override: recategorize weather, categorize image.
+    _write_skill(core, "ava-notes",
+                 {"name": "ava-notes", "description": '"Notes."'})  # no frontmatter cat
+    # Owner ava.yaml override: recategorize weather, categorize notes.
     monkeypatch.setattr(skills.settings, "get", lambda dotted, default=None, **k: (
-        {"ava-weather": "Home", "ava-gpu": "Creative"} if dotted == "skills.categories"
+        {"ava-weather": "Home", "ava-notes": "Work"} if dotted == "skills.categories"
         else default))
     by = {s["id"]: s for s in skills.catalog(force=True)}
     assert by["ava-weather"]["category"] == "Home"      # override beat the "Daily" hint
-    assert by["ava-gpu"]["category"] == "Creative"    # override supplied a category
+    assert by["ava-notes"]["category"] == "Work"        # override supplied a category
 
 
 @pytest.fixture()
@@ -166,7 +166,7 @@ def test_rename_category_covers_hints_and_general(skills_env, settings_sandbox):
     skills, core, _, _ = skills_env
     _write_skill(core, "ava-weather",
                  {"name": "ava-weather", "category": "Daily", "description": '"W."'})
-    _write_skill(core, "ava-gpu", {"name": "ava-gpu", "description": '"I."'})
+    _write_skill(core, "ava-notes", {"name": "ava-notes", "description": '"N."'})
     skills.catalog(force=True)
     # Renaming a group that only exists via author frontmatter hints works: the
     # affected skills get owner overrides with the new label.
@@ -175,7 +175,7 @@ def test_rename_category_covers_hints_and_general(skills_env, settings_sandbox):
     assert by["ava-weather"] == "Home"
     # The implicit General bucket is renamable too — its skills adopt the name.
     assert skills.rename_category("General", "Misc") == 1
-    assert {s["id"]: s["category"] for s in skills.catalog()}["ava-gpu"] == "Misc"
+    assert {s["id"]: s["category"] for s in skills.catalog()}["ava-notes"] == "Misc"
     # No-ops: same name, empty names, unknown label.
     assert skills.rename_category("Home", "Home") == 0
     assert skills.rename_category("", "X") == 0

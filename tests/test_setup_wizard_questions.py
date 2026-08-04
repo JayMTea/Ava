@@ -1,13 +1,12 @@
 """Convention guard: first run only asks what a first-run user can answer.
 
-The wizard had a fourth step, "Enable connectors", offering four pre-ticked
-checkboxes. Three were kind:core — Ava's own HTTP bridge, the engine it thinks
-with, and a router embedded in that bridge — so the only answer other than
-"leave them alone" was self-harm, presented to someone who has been using the
-product for ninety seconds. The fourth, the GPU service, is gated behind the `full`
-compose profile, so on a cpu or gpu install it was pre-ticked for a service that
-was never deployed. And the answer was inert: connectors.load() filters on
-`enabled` in each MANIFEST and never reads the list that step wrote to ava.yaml.
+The wizard had a fourth step, "Enable connectors", offering pre-ticked
+checkboxes for kind:core connectors — Ava's own HTTP bridge, the engine it
+thinks with, and a router embedded in that bridge — so the only answer other
+than "leave them alone" was self-harm, presented to someone who has been using
+the product for ninety seconds. And the answer was inert: connectors.load()
+filters on `enabled` in each MANIFEST and never reads the list that step wrote
+to ava.yaml.
 
 A first-run question earns its place only if there is no sensible default, the
 user can actually answer it, and the answer changes something. That step failed
@@ -59,8 +58,8 @@ def test_every_navigation_target_exists() -> None:
 def test_save_omits_connectors_rather_than_sending_an_empty_list() -> None:
     """save() built its list from the checkbox nodes. With those gone the
     selector returns [], and the save path patches ava.yaml whenever the key is
-    PRESENT — so sending it would silently wipe the shipped
-    `connectors: [gpu-service]` default instead of leaving it alone."""
+    PRESENT — so sending it would silently wipe the shipped `connectors:`
+    default instead of leaving it alone."""
     html = _html()
     body = re.search(r"const body=\{([^}]*)\}", html)
     assert body, "could not find the save body in setup_wizard.html"

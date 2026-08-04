@@ -6,7 +6,7 @@ schedule, services, tools, connectors, alerts.
 /api/stream/ops is the Server-Sent Events feed the Operations page subscribes
 to, and it moves here WHOLE rather than being split from the routes it serves.
 It is a single long-lived async generator emitting several event types on one
-connection (turn.update, job.update, hardware.tick, device.event, alert.raise /
+connection (turn.update, hardware.tick, device.event, alert.raise /
 alert.clear, plus a keepalive), and every one of those is the streaming form of
 something the /api/ops/* reads return. Separating the poll endpoints from the
 push channel would put two halves of one contract in two files, where a new
@@ -49,12 +49,11 @@ async def api_ops_alerts():
 
 @router.get("/api/stream/ops")
 async def api_stream_ops(request: Request):
-    """Server-Sent Events: live turn/job/hardware/alert deltas for the Operations
+    """Server-Sent Events: live turn/hardware/alert deltas for the Operations
     tab. A 1 Hz producer snapshots state, diffs it, and emits only changes; alerts
     re-evaluate every ~5s; a heartbeat keeps the connection alive."""
     async def gen():
         last_turns: dict = {}
-        last_jobs: dict = {}
         last_alerts: set = set()
         last_beat = time.time()
         tick = 0
@@ -80,11 +79,6 @@ async def api_stream_ops(request: Request):
                 if last_turns.get(tid) != cur:
                     yield f"event: turn.update\ndata: {json.dumps({'id': tid, **cur})}\n\n"
             last_turns = snap["turns"]
-
-            for jid, cur in snap["jobs"].items():
-                if last_jobs.get(jid) != cur:
-                    yield f"event: job.update\ndata: {json.dumps({'id': jid, **cur})}\n\n"
-            last_jobs = snap["jobs"]
 
             if snap.get("hw"):
                 yield f"event: hardware.tick\ndata: {json.dumps(snap['hw'])}\n\n"

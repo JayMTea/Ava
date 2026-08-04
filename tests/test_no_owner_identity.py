@@ -8,10 +8,9 @@ unlicensed-copy watermark from a proprietary layout engine, the owner's name,
 and the topology of three private sibling apps. Nobody re-reads a
 46 KB SVG after a re-render, so nothing caught it. This test does.
 
-Same shape as tests/test_no_eval_data.py and tests/test_diagram_sync.py: a static
-scan over `git ls-files` that needs no bridge, no AVA_HOME, and no network — it
-only ever inspects files that are actually tracked, so a fork's own local renders
-are unaffected.
+Same shape as tests/test_diagram_sync.py: a static scan over `git ls-files` that
+needs no bridge, no AVA_HOME, and no network — it only ever inspects files that
+are actually tracked, so a fork's own local renders are unaffected.
 
 Scope note: this checks CONTENT of tracked files. It cannot see git history, so a
 secret already committed still needs `git filter-repo`. It is a ratchet against

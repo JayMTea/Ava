@@ -289,22 +289,12 @@ header .sub { display:none; }
 .toolsdrop ul { border-color:var(--line); background:rgba(0,0,0,.15); }
 .toolsdrop li { color:var(--txt); }
 
-/* Chain-of-thought + generation cards use the warm surface. */
-.cot, .gen { background:var(--panel2); border-color:var(--line); }
+/* Chain-of-thought cards use the warm surface. */
+.cot { background:var(--panel2); border-color:var(--line); }
 .cot-spin { border-color:var(--disabled-bg); border-top-color:var(--accent); }
 .cstep.tool { color:var(--accent); border-left-color:var(--accent); }
 .bar > span { background:var(--accent); }
-.gen-meta {
-  display:flex; align-items:center; gap:10px; margin:6px 0 8px;
-  color:var(--muted); font-size:12px;
-}
-.gen-cancel {
-  margin-left:auto; border:1px solid var(--line); border-radius:8px;
-  background:transparent; color:var(--txt); font-size:12px;
-  padding:3px 8px; cursor:pointer;
-}
-.gen-cancel:hover { background:var(--wash-8); }
-/* Fix-it link on a failed render — click navigates, hover shows an .info-pop
+/* Fix-it link on a coded failure — click navigates, hover shows an .info-pop
    popover saying where it leads. */
 .gen-fixrow { margin:2px 0 8px; }
 .gen-fix {
@@ -315,13 +305,6 @@ header .sub { display:none; }
 }
 .gen-fix:hover { background:var(--wash-8); text-decoration:none; }
 .bubble.sys .gen-fix { margin-left:8px; }
-.gen-prompt { margin:6px 0 8px; }
-.gen-prompt summary { cursor:pointer; color:var(--muted); font-size:12px; }
-.gen-prompt > div {
-  margin-top:6px; font-size:12.5px; line-height:1.45; color:var(--txt);
-  background:rgba(0,0,0,.18); border:1px solid var(--line);
-  border-radius:8px; padding:8px 10px;
-}
 
 .jump-latest {
   position:absolute; right:20px; bottom:16px; z-index:8;

@@ -139,7 +139,7 @@ def test_a_declared_tailnet_bind_is_a_NOTICE_not_a_pass(monkeypatch) -> None:
     """Declaring records the decision; it does not hide the exposure."""
     errors, notices = _run(
         [(CG_MID, 8189)],
-        declared={8189: "the GPU service canvas for phone/laptop. NO AUTH."},
+        declared={8189: "Sidecar UI on the tailnet for phone/laptop. NO AUTH."},
         monkeypatch=monkeypatch)
     assert not errors
     assert len(notices) == 1
@@ -278,7 +278,7 @@ def test_the_three_channels_are_never_conflated(monkeypatch) -> None:
         [(CG_MID, 8097),             # Ava, undeclared -> error
          (CG_MID, 8189),             # Ava, declared   -> notice
          ("0.0.0.0", 8123)],           # not Ava         -> advisory
-        declared={8189: "the GPU service for phone. NO AUTH."}, monkeypatch=monkeypatch)
+        declared={8189: "Sidecar UI for phone. NO AUTH."}, monkeypatch=monkeypatch)
     assert len(errors) == 1 and "8097" in errors[0]
     assert len(notices) == 1 and "8189" in notices[0]
     assert len(adv) == 1 and "8123" in adv[0]

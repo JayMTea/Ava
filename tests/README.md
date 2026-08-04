@@ -25,11 +25,10 @@ every file is self-contained. The one `conftest.py` does exactly one thing
 
 | File | Covers |
 |---|---|
-| `test_alloc.py` | Allocation: absent config governs nothing, unknown memory never gates, a driver whose tooling is missing degrades to observe-only, and port-open is never "ready" |
+| `test_alloc.py` | Allocation: absent config governs nothing, unknown memory never gates, a driver whose tooling is missing degrades to observe-only, port-open is never "ready", and no GPU container is launched outside the allocator |
 | `test_alloc_api.py` | Lease HTTP surface: every route token-guarded (it can stop models), a remote holder reaped when it stops renewing, a local holder never reaped on a deadline, and an allocator error still answers "proceed" |
 | `test_alloc_breaker.py` | Retry storm bounded (a permanently failing start costs ≤6 attempts, not thousands), a start that cannot fit is deferred not failed, one brief success never clears a crash-loop's record, and the action budget makes the allocator a no-op rather than a loop |
 | `test_alloc_gpumem.py` | Residency oracle: per-process accelerator accounting beats a cgroup figure (which under-reports an engine ~12x), a process tree is summed not just its root, and unreadable stays distinct from holds-nothing |
-| `test_alloc_funnel.py` | Convention guard: GPU work goes through `gpu_service.gpu_lease` (the one `POST /prompt`), so a pipeline added later inherits coordination instead of silently opting out; plus a check that the allowed module really holds the lease |
 | `test_alloc_isolation.py` | Convention guard: an allocation test must redirect the ledger/baseline path it writes to — setting `AVA_HOME` alone is a silent no-op once `settings` has been imported, and fixture names leaked into the real ledger |
 | `test_alloc_lease.py` | Planner decision table (priority, pinned, speculative levers, shortfall), `flock` ownership incl. a forked dead-holder reclaim with no timeout, and advisory mode touching no driver |
 | `test_alloc_measurement.py` | Convention guard: free-memory reads go through the `hwinfo` HAL (only `alloc/capacity.py` calls it) — the misleading sources are named and forbidden |
@@ -82,15 +81,12 @@ every file is self-contained. The one `conftest.py` does exactly one thing
 | `test_dockerfile_bind.py` | The bridge container must bind 0.0.0.0 inside its own network namespace. |
 | `test_feature_convention.py` | Convention guard: ALL features.* reads go through ava_bridge/features.py. |
 | `test_features.py` | The optional-feature registry contract (ava_bridge/features.py). |
-| `test_intent_eval.py` | Eval-tooling MECHANICS (Phase 3). Hermetic: regex routing mode (no model), a throwaway AVA_EVALS_DIR, cases built inline — NEVER shipped data.… |
 | `test_internal_scopes.py` | Every /internal route must be classified, and the docs must not overclaim. |
-| `test_media_preflight.py` | Image-render preflight: `features.image` is the single authoritative switch. |
-| `test_media_retention.py` | `data.retention_days` must reach generated media and uploads. |
+| `test_media_retention.py` | `data.retention_days` must reach uploaded media. |
 | `test_model_flags_ssot.py` | vLLM's per-model flags are resolved in exactly ONE place: deploy/model-flags.conf. |
 | `test_module_boundaries.py` | A name is private or it is shared — it cannot be both. |
 | `test_network_boundary.py` | Who is asking, over what, and may they claim an unowned Ava. |
 | `test_no_blocking_routes.py` | An `async def` route may not do blocking work on the event loop. |
-| `test_no_eval_data.py` | Standing decision (docs/dev/INTENT_ROUTING_AND_RELIABILITY_PLAN.md, Phase 3): the product ships eval TOOLING only — never an eval dataset. No seed… |
 | `test_no_owner_identity.py` | Nothing tracked may carry the owner's identity, a private sibling app, an absolute home path, or a proprietary-tool watermark. |
 | `test_no_private_apps_shipped.py` | A development-only app must not reach the repo, the docs, or the IMAGE — `.dockerignore` default-denies `connectors/` because `COPY . /app` copies the working tree. |
 | `test_password_change.py` | Changing the admin password from inside the product, and revoking sessions. |

@@ -1,20 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import type { Preview } from '../../lib/types';
 import { Icon } from '../../lib/icons';
-import { api } from '../../lib/api';
 import { AppDot, appAccent, appForUrl } from '../../lib/appColor';
-import { ProgressBar } from '../../lib/ProgressBar';
-import { fixForCode, type FixAction } from '../../lib/fixes';
-
-const BLUR_DELAY_MS = 30000;
 
 // Fullscreen viewer. Tap backdrop / X to close; pinch-to-zoom + drag-to-pan on
-// touch, wheel-to-zoom + double-tap on desktop. Optional `info` renders a
-// collapsible details overlay (e.g. the models + prompt used for the image).
-export function Lightbox({ url, onClose, info }: { url: string; onClose: () => void; info?: React.ReactNode }) {
+// touch, wheel-to-zoom + double-tap on desktop.
+export function Lightbox({ url, onClose }: { url: string; onClose: () => void }) {
   const [t, setT] = useState({ scale: 1, x: 0, y: 0 });
-  const [showInfo, setShowInfo] = useState(false);
   const g = useRef({
     mode: 'none' as 'none' | 'pan' | 'pinch',
     startDist: 0,
@@ -108,8 +100,8 @@ export function Lightbox({ url, onClose, info }: { url: string; onClose: () => v
     if (e.touches.length === 0) c.mode = 'none';
   };
 
-  // No cache-buster: generated images are immutable (a filename's bytes never
-  // change), so the browser can and should cache the full image.
+  // No cache-buster: a filename's bytes never change, so the browser can and
+  // should cache the full image.
   const src = url.split('?')[0];
   const zoomed = t.scale > 1;
   return (
@@ -145,205 +137,6 @@ export function Lightbox({ url, onClose, info }: { url: string; onClose: () => v
       <button ref={closeRef} className="lb-close" type="button" aria-label="Close" onClick={onClose}>
         <Icon name="close" />
       </button>
-      {info && (
-        <button
-          className={'lb-info-btn' + (showInfo ? ' on' : '')}
-          type="button"
-          aria-label="Image details"
-          onClick={(e) => {
-            e.stopPropagation();
-            setShowInfo((v) => !v);
-          }}
-        >
-          <Icon name="sparkles" />
-        </button>
-      )}
-      {info && showInfo && (
-        <div className="lb-info" onClick={(e) => e.stopPropagation()}>
-          {info}
-        </div>
-      )}
-    </div>
-  );
-}
-
-export function ImageMessage({
-  url,
-  caption,
-  allowUpscale = true,
-  chatId,
-  onOpen,
-}: {
-  url: string;
-  caption?: string;
-  allowUpscale?: boolean;
-  chatId?: string | null;
-  onOpen: (url: string, onClose: () => void) => void;
-}) {
-  const [blurred, setBlurred] = useState(false);
-  const [upscaling, setUpscaling] = useState(false);
-  const [displayUrl, setDisplayUrl] = useState(url);
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-
-  const arm = () => {
-    setBlurred(false);
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => setBlurred(true), BLUR_DELAY_MS);
-  };
-  useEffect(() => {
-    arm();
-    return () => clearTimeout(timer.current);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const open = () => onOpen(displayUrl, arm);
-  // Inline bubbles load a small cached WebP thumbnail (backend /thumb route),
-  // not the full 16 MB 4K PNG; the lightbox (open()) still opens the full image.
-  const thumbUrl = displayUrl.startsWith('/media/')
-    ? '/thumb/' + displayUrl.slice('/media/'.length)
-    : displayUrl;
-
-  const upscale = async () => {
-    setUpscaling(true);
-    try {
-      // /api/upscale is an async job: poll it until the 4K render lands. The
-      // bridge persists the result to the chat itself; we only update the view.
-      const start = await api.upscale(displayUrl.split('?')[0].split('/').pop() || '', chatId || undefined, caption || '');
-      const jobId = start.job?.id;
-      const deadline = Date.now() + 5 * 60 * 1000;
-      while (jobId && Date.now() < deadline) {
-        await new Promise((r) => setTimeout(r, 1000));
-        const j = await api.job(jobId);
-        if (j.status === 'done' && j.url) {
-          setDisplayUrl(j.url);
-          break;
-        }
-        if (j.status === 'error') break;
-      }
-    } catch {
-      /* ignore */
-    }
-    setUpscaling(false);
-  };
-
-  return (
-    <div className="media">
-      <div className={'imgbox' + (blurred ? ' blurred' : '')}>
-        <img
-          src={thumbUrl}
-          loading="lazy"
-          alt={caption || ''}
-          onClick={open}
-        />
-        <div className="privacy" onClick={open}>
-          <Icon name="eyeOff" />
-          <span>Tap to view</span>
-        </div>
-      </div>
-      {caption && <div className="cap">{caption}</div>}
-      {allowUpscale && (
-        <div className="imgtools">
-          <button className="upbtn" type="button" disabled={upscaling} onClick={upscale}>
-            <Icon name="expand" />
-            <span>{upscaling ? 'upscaling to 4K…' : 'Upscale to 4K'}</span>
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// The fix-it link: click navigates, hover/focus shows a popover saying where
-// it leads (reuses the dashboard's .info-pop, portalled to <body> so the chat
-// bubble can't clip it). Fixes are derived from the error code's PATTERN by
-// lib/fixes.ts, so any newly registered capability gets this automatically.
-export function FixLink({ fix }: { fix: FixAction }) {
-  const [open, setOpen] = useState(false);
-  const [pos, setPos] = useState({ x: 0, y: 0 });
-  const ref = useRef<HTMLAnchorElement>(null);
-  const show = () => {
-    const r = ref.current?.getBoundingClientRect();
-    if (r) setPos({ x: r.left + r.width / 2, y: r.top });
-    setOpen(true);
-  };
-  return (
-    <>
-      <a
-        ref={ref}
-        className="gen-fix"
-        href={`#${fix.hash}`}
-        onMouseEnter={show}
-        onMouseLeave={() => setOpen(false)}
-        onFocus={show}
-        onBlur={() => setOpen(false)}
-      >
-        {fix.label} →
-      </a>
-      {open && createPortal(
-        <div className="info-pop" role="tooltip" style={{ left: pos.x, top: pos.y }}>{fix.tip}</div>,
-        document.body,
-      )}
-    </>
-  );
-}
-
-export function GenProgress({
-  progress,
-  status,
-  error,
-  errorCode,
-  prompt,
-  stage,
-  elapsedSec,
-  queueHint,
-  cancelable,
-  onCancel,
-}: {
-  progress: number;
-  status: 'running' | 'done' | 'error';
-  error?: string;
-  errorCode?: string;
-  prompt?: string;
-  stage?: string;
-  elapsedSec?: number;
-  queueHint?: string;
-  cancelable?: boolean;
-  onCancel?: () => void;
-}) {
-  const pct = Math.max(0, Math.min(100, Math.round(progress || 0)));
-  const stageLabel = stage || (pct <= 0 ? 'queued' : pct >= 75 ? 'upscaling' : 'rendering');
-  const elapsed = elapsedSec != null ? `${Math.max(0, Math.round(elapsedSec))}s` : null;
-  const fix = status === 'error' ? fixForCode(errorCode) : undefined;
-  return (
-    <div className="gen">
-      <div className="lab">
-        <Icon name={status === 'error' ? 'alert' : 'image'} />
-        <span>
-          {status === 'error'
-            ? `generation failed: ${error || 'unknown'}`
-            : `generating image… ${pct}%`}
-        </span>
-      </div>
-      {fix && <div className="gen-fixrow"><FixLink fix={fix} /></div>}
-      {status === 'running' && (
-        <div className="gen-meta">
-          <span>{stageLabel}</span>
-          {queueHint && <span>{queueHint}</span>}
-          {elapsed && <span>elapsed {elapsed}</span>}
-          {cancelable && onCancel && (
-            <button type="button" className="gen-cancel" onClick={onCancel}>
-              Cancel
-            </button>
-          )}
-        </div>
-      )}
-      {prompt && (
-        <details className="gen-prompt">
-          <summary>Prompt details</summary>
-          <div>{prompt}</div>
-        </details>
-      )}
-      <ProgressBar progress={progress} error={status === 'error'} />
     </div>
   );
 }

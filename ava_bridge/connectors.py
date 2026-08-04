@@ -409,8 +409,8 @@ def job_sources() -> List[dict]:
           path: "/api/jobs"          # GET base_url + path
           params: { active: 1 }
           list_key: jobs             # rows carry kind/stage/progress
-          engine: the GPU service
-          labels: { generate: "Content render" }   # kind -> human label
+          engine: Whisper
+          labels: { transcribe: "Transcription" }   # kind -> human label
     """
     out: List[dict] = []
     for m in load():
@@ -435,7 +435,7 @@ def model_hints() -> List[dict]:
     """Loaded-model attribution hints merged from all connectors:
 
         model_hints:
-          - { match: [substr1, substr2], role: "Image rendering" }
+          - { match: [substr1, substr2], role: "Speech recognition" }
 
     The hardware monitor checks these when labelling what a loaded model is FOR.
     """

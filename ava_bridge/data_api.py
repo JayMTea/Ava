@@ -244,7 +244,6 @@ def delete_store(sid: str) -> dict:
             "alloc": settings.logs_dir(),
             "hw_history": os.path.join(settings.logs_dir(), "hw_history"),
             "devices": os.path.join(settings.logs_dir(), "devices"),
-            "media_gen": settings.media_dir(),
             "uploads": settings.upload_dir(),
         }
         root = roots.get(sid)
@@ -370,13 +369,9 @@ def stores():
     out.append(_store("devices", "Device events", dev_dir, "jsonl", size=size,
                       count=streams, last_write=mtime, managed=True))
 
-    # Media — generated output and chat uploads (binary blobs).
-    gen_dir = settings.media_dir()
-    size, files, mtime = _tree_stats(gen_dir)
+    # Media — chat uploads (binary blobs).
     # managed=True now that prune_media() applies data.retention_days here —
     # the flag tells the Data page this store has automatic retention.
-    out.append(_store("media_gen", "Generated media", gen_dir, "files",
-                      size=size, count=files, last_write=mtime, managed=True))
     up_dir = settings.upload_dir()
     size, files, mtime = _tree_stats(up_dir)
     out.append(_store("uploads", "Uploads", up_dir, "files", size=size,
@@ -479,8 +474,6 @@ def _chat_markdown(c: dict) -> str:
         lines.append("")
         if m.get("content"):
             lines.append(str(m["content"]))
-        if m.get("image"):
-            lines.append(f"![generated image]({m['image']})")
         for a in m.get("atts") or []:
             lines.append(f"- attachment: {a.get('filename', '?')}")
         lines.append("")
@@ -576,13 +569,13 @@ def _db_stats() -> dict:
 
 
 def prune_media(retention_days: int | None = None, *, dry_run: bool = False) -> dict:
-    """Delete generated media and uploads older than `data.retention_days`.
+    """Delete uploaded media older than `data.retention_days`.
 
     Media was the one store with no retention at all: `data.retention_days`
-    reached the telemetry stores but never the blobs, and generated images are by
-    far the largest thing Ava writes — the author's own media/out reached 7.9 GB
-    in a month. Everything else was bounded, so the setting *looked* like it
-    governed disk use while the biggest consumer grew forever.
+    reached the telemetry stores but never the blobs, and uploads are the
+    largest thing that lands on disk per conversation. Everything else was
+    bounded, so the setting *looked* like it governed disk use while an
+    unbounded consumer grew forever.
 
     Mirrors hardware._prune_jsonl's contract: 0 (or None) means keep forever.
     Returns the counts either way so the UI can show the win before committing.
@@ -592,22 +585,21 @@ def prune_media(retention_days: int | None = None, *, dry_run: bool = False) -> 
     if not days or days <= 0:
         return out
     cutoff = time.time() - days * 86400
-    for root in (settings.media_dir(), settings.upload_dir()):
-        for dirpath, _dirnames, filenames in os.walk(root):
-            for name in filenames:
-                p = os.path.join(dirpath, name)
-                try:
-                    st = os.stat(p)
-                    if st.st_mtime >= cutoff:
-                        continue
-                    out["removed"] += 1
-                    out["bytes"] += st.st_size
-                    if not dry_run:
-                        os.unlink(p)
-                except OSError:
-                    # A file that vanished or is unreadable is not a failure of
-                    # the sweep; skip it rather than aborting the whole prune.
+    for dirpath, _dirnames, filenames in os.walk(settings.upload_dir()):
+        for name in filenames:
+            p = os.path.join(dirpath, name)
+            try:
+                st = os.stat(p)
+                if st.st_mtime >= cutoff:
                     continue
+                out["removed"] += 1
+                out["bytes"] += st.st_size
+                if not dry_run:
+                    os.unlink(p)
+            except OSError:
+                # A file that vanished or is unreadable is not a failure of
+                # the sweep; skip it rather than aborting the whole prune.
+                continue
     return out
 
 
@@ -621,7 +613,7 @@ def maintenance():
 
 @router.post("/maintenance/prune-media")
 def maintenance_prune_media():
-    """Apply `data.retention_days` to generated media + uploads."""
+    """Apply `data.retention_days` to uploaded media."""
     res = prune_media()
     audit.record("data_maintenance", action="prune_media",
                  removed=res["removed"], bytes=res["bytes"], days=res["days"])

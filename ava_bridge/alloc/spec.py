@@ -5,8 +5,8 @@ Ava already describes models in two places, and neither can drive an allocator:
   * `models:` is a **download manifest** — role -> engine/id/tier/url. It says what
     to fetch, and nothing about memory.
   * `inference.backends.<id>.fit` is a **serving profile** — weight_gb, min_free_gb,
-    tier, workloads. It is keyed by language-model backend, so an image checkpoint
-    or a voice model has no place in it.
+    tier, workloads. It is keyed by language-model backend, so a voice model has
+    no place in it.
 
 Neither carries a driver, a priority, or a release cost. So allocation gets a third
 block, `alloc:` — kept deliberately thin by **inheriting instead of duplicating**:
@@ -125,12 +125,12 @@ def enabled() -> bool:
 def role_model(role: str) -> str | None:
     """The declared model id that serves a logical role, or None.
 
-    Ava's own subsystems know they are about to use "the image engine", not which
+    Ava's own subsystems know they are about to use "the transcriber", not which
     model id an operator called it. This maps one to the other:
 
         alloc:
           roles:
-            image: my-image-engine
+            transcribe: my-speech-engine
 
     Unset means **take no lease** — the subsystem behaves exactly as it did before
     this layer. That is what keeps the funnel opt-in: declaring a model does not
@@ -338,8 +338,8 @@ def _expand_all(obj):
     Reuses the connector manifest expander so one syntax works everywhere in Ava:
     a URL or unit name written once serves bare metal and a container, where the
     host and port differ. Without this a declaration like
-    `base: "${AVA_GPU_SERVICE:-http://127.0.0.1:8189}"` would reach the driver verbatim
-    and build a nonsense address.
+    `base: "${AVA_WHISPER:-http://127.0.0.1:9000}"` would reach the driver
+    verbatim and build a nonsense address.
 
     Falls back to the value unchanged when connectors are unavailable — a trimmed
     fork without them still gets literal values, which is the pre-expansion

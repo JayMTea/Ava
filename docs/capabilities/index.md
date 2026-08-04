@@ -6,18 +6,6 @@ thinking to whatever backend you point it at - vLLM, Ollama, llama.cpp, MLX,
 LM Studio, or a cloud endpoint. Nothing on this page is about model quality.
 It is about what the layer around the model does for you.
 
-## See it running
-
-<video controls playsinline preload="metadata"
-       poster="../assets/reel-poster.png"
-       style="width:100%;border-radius:8px"
-       aria-label="A walkthrough of Ava: a plain-language question answered from your calendar and the forecast, the connected apps, voice, and the Vitals dashboard">
-  <source src="../assets/ava-tour.mp4" type="video/mp4">
-  <track kind="captions" srclang="en" label="English"
-         src="../assets/ava-tour.vtt">
-  Your browser can't play video. <a href="../assets/ava-tour.mp4">Download the walkthrough</a>.
-</video>
-
 ## The five tabs that always ship
 
 Five built-in tabs (`BUILTIN_VIEWS` in `frontend/src/App.tsx`). They are on
@@ -25,8 +13,8 @@ every install, with no connector wired in and nothing to enable.
 
 | Tab | What it does |
 |---|---|
-| **[Chats](chat.md)** | Ask, attach a file, ask for a picture, or speak. One place, and the server decides what each message becomes. You see her reasoning as it happens and which tools she used. |
-| **[Vitals](vitals.md)** | How Ava is performing across every app: spend, speed, images made, errors. Computed from her own logs, not estimated. Energy is the one exception and is labelled as an estimate. |
+| **[Chats](chat.md)** | Ask, attach a file, or speak. One place, and the server owns the turn from there. You see her reasoning as it happens and which tools she used. |
+| **[Vitals](vitals.md)** | How Ava is performing across every app: spend, speed, errors. Computed from her own logs, not estimated. Energy is the one exception and is labelled as an estimate. |
 | **[Operations](operations.md)** | What is running right now, what is waiting on a decision from you, and where you approve or reject anything Ava proposes. |
 | **[Data](data.md)** | Every store on disk, named, sized and path-stamped, with browse, export and delete for each one. |
 | **[Setup](connectors.md)** | Browser-based configuration in six tabs: hardware and budgets, the agent (its brain, persona, skills, memory and voice), connectors, branding and governance. |
@@ -95,7 +83,7 @@ for the manifest reference.
     proxy, or an explicit `server.host` change - and
     [Security](../../SECURITY.md) covers what to set when you do.
 
-[![Ava's architecture: phone, browser and voice clients reach the FastAPI bridge over a private network; the bridge fronts a sandboxed agent runtime, a hardware-aware inference router over local models, a media engine, and drop-in connector apps](../assets/architecture.svg)](../assets/architecture.svg)
+[![Ava's architecture: phone, browser and voice clients reach the FastAPI bridge over a private network; the bridge fronts a sandboxed agent runtime, a hardware-aware inference router over local models, and drop-in connector apps](../assets/architecture.svg)](../assets/architecture.svg)
 
 ??? note "The three processes, their bind addresses, and why they are separate"
 
@@ -115,16 +103,15 @@ for the manifest reference.
     you do expose Ava - cookie flags, trusted proxies, the first-run claim
     token - is in [Security](../../SECURITY.md).
 
-## Three optional capabilities, and "off" means off
+## Two optional capabilities, and "off" means off
 
-Image and video generation, web search, and voice are switches, not
-assumptions. They live in one backend registry (`ava_bridge/features.py`) that
-renders the **Setup → System → Optional features** checkboxes directly, so
-what the panel shows is what the code gates on.
+Web search and voice are switches, not assumptions. They live in one backend
+registry (`ava_bridge/features.py`) that renders the **Setup → System →
+Optional features** checkboxes directly, so what the panel shows is what the
+code gates on.
 
 | Switch | Default | What it needs |
 |--------|---------|---------------|
-| `features.image` | on | The the GPU service connector reachable |
 | `features.web_search` | off | A self-hosted SearXNG, plus the guarded fetch path |
 | `features.voice` | off | `requirements-voice.txt` installed (and a voiceprint, to gate who Ava listens to) |
 
@@ -148,7 +135,7 @@ is a folder copy, and it means the **Data** view can show you the whole of it.
 |---|---|
 | `data/` | memory, chats, tokens |
 | `logs/` | the audit ledger, performance, hardware history, device events |
-| `media/` | generated images and your uploads |
+| `media/` | the files you upload |
 | `secrets/` | backend keys, the router token |
 
 On a default bare-metal install `AVA_HOME` is the code root itself, so a fresh
@@ -165,8 +152,9 @@ go deeper on the pieces that cut across all of them:
 
 - [Memory & recall](../MEMORY.md) - what long-term memory is (SQLite + FTS5,
   no embeddings), how recall reaches a turn, and how to correct or delete it.
-- [Running two models](../ALLOCATION.md) - what happens when an image pipeline
-  and a chat model want the same GPU memory, and how leases arbitrate it.
+- [Running two models](../ALLOCATION.md) - what happens when a second heavy
+  model and the one you chat to want the same GPU memory, and how leases
+  arbitrate it.
 - [Agent runtime](../AGENT_RUNTIME.md) - the sandbox, provisioning, the
   tool-less fallback, and the Docker remote-agent path.
 - [Connector SDK](../CONNECTOR_SDK.md) - the manifest that turns your app into

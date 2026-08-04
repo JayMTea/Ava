@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { dash } from './dashApi';
-import type { Alert, JobRow, TurnRow } from './dashApi';
+import type { Alert, TurnRow } from './dashApi';
 import { useEventStream, useLiveResource } from '../../hooks/useLive';
-import { ProgressBar } from '../../lib/ProgressBar';
 import { LearningView } from '../learning/LearningView';
 import { EmptyState, Panel, StatusPill, ago, fmtClock, fmtInt } from './layout';
 import { BarList, StatCard } from './charts';
@@ -27,7 +26,6 @@ function announceDeviceEvent(e: DevEvent) {
 export function OpsView() {
   const summary = useLiveResource(useCallback(() => dash.opsSummary(), []), 6000);
   const turnsRes = useLiveResource(useCallback(() => dash.turns(false, 40), []), 6000);
-  const jobsRes = useLiveResource(useCallback(() => dash.jobs(undefined, undefined, 60), []), 6000);
   const services = useLiveResource(useCallback(() => dash.services(), []), 12000);
   const schedule = useLiveResource(useCallback(() => dash.schedule(), []), 30000);
   const tools = useLiveResource(useCallback(() => dash.tools(12), []), 15000);
@@ -35,7 +33,6 @@ export function OpsView() {
   const conns = useLiveResource(useCallback(() => dash.connectors(), []), 30000);
 
   const [turnOv, setTurnOv] = useState<Overlay>({});
-  const [jobOv, setJobOv] = useState<Overlay>({});
   const [liveAlerts, setLiveAlerts] = useState<Alert[] | null>(null);
   const [deviceEvents, setDeviceEvents] = useState<DevEvent[]>([]);
   const [seg, setSeg] = useState<'live' | 'control'>('live');
@@ -53,10 +50,6 @@ export function OpsView() {
     'turn.update': (d: unknown) => {
       const t = d as { id: string; status?: string; step_count?: number; tools?: number };
       setTurnOv((o) => ({ ...o, [t.id]: { ...o[t.id], status: t.status, step_count: t.step_count, tools: t.tools } }));
-    },
-    'job.update': (d: unknown) => {
-      const j = d as { id: string; status?: string; progress?: number; stage?: string };
-      setJobOv((o) => ({ ...o, [j.id]: { ...o[j.id], status: j.status, progress: j.progress, stage: j.stage } }));
     },
     'alert.state': (d: unknown) => setLiveAlerts(d as Alert[]),
     'alert.raise': (d: unknown) => setLiveAlerts((a) => {
@@ -80,15 +73,7 @@ export function OpsView() {
     ...t, status: turnOv[t.id]?.status ?? t.status,
     step_count: turnOv[t.id]?.step_count ?? t.step_count,
   }));
-  const jobs: JobRow[] = (jobsRes.data?.jobs || []).map((j) => ({
-    ...j, status: jobOv[j.id]?.status ?? j.status,
-    progress: jobOv[j.id]?.progress ?? j.progress, stage: jobOv[j.id]?.stage ?? j.stage,
-  }));
-
-  const running = [
-    ...turns.filter((t) => t.status === 'running').map((t) => ({ kind: 'turn' as const, t })),
-    ...jobs.filter((j) => j.status === 'running').map((j) => ({ kind: 'job' as const, j })),
-  ];
+  const running = turns.filter((t) => t.status === 'running');
   const learn = summary.data?.learning;
   const pending = (learn?.code.pending || 0) + (learn?.chat.pending || 0);
   const toolBars = (tools.data?.tools || []).map((t) => ({ name: t.tool.replace(/^.*__/, ''), value: t.count }));
@@ -97,7 +82,7 @@ export function OpsView() {
     <div className="db-view">
       <div className="db-view-head">
         <h2>Operations</h2>
-        <span className="db-view-sub">Ava's live work, jobs &amp; control</span>
+        <span className="db-view-sub">Ava's live work &amp; control</span>
       </div>
 
       {criticals.length > 0 && (
@@ -120,8 +105,7 @@ export function OpsView() {
       <>
       <div className="db-kpis">
         <StatCard label="Active turns" value={fmtInt(summary.data?.turns.running)} tone={summary.data?.turns.running ? 'accent' : 'default'} help={METRICS.activeTurns} />
-        <StatCard label="Active renders" value={fmtInt(summary.data?.jobs.running)} tone={summary.data?.jobs.running ? 'accent' : 'default'} help={METRICS.activeRenders} />
-        <StatCard label="Generations 24h" value={fmtInt(summary.data?.generations_24h)} help={METRICS.generations24h} />
+        <StatCard label="Recorded 24h" value={fmtInt(summary.data?.generations_24h)} help={METRICS.recorded24h} />
         <StatCard label="Services up" value={services.data ? `${services.data.services.length - services.data.down}/${services.data.services.length}` : '—'}
           tone={services.data?.down ? 'err' : 'ok'} help={METRICS.servicesUp} />
         <StatCard label="Pending approvals" value={fmtInt(pending)} tone={pending ? 'warn' : 'default'} hint="learning proposals" help={METRICS.pendingApprovals} />
@@ -129,29 +113,20 @@ export function OpsView() {
       </div>
 
       {/* Live activity feed */}
-      <Panel tour="ops-live" title="Live activity" subtitle="in-flight turns & renders (streaming)"
+      <Panel tour="ops-live" title="Live activity" subtitle="in-flight turns (streaming)"
         right={<span className="db-live-dot" title="live"><i />live</span>}>
         {running.length === 0 ? <EmptyState text="Nothing running right now." /> : (
           <div className="db-feed">
-            {running.map((r) => r.kind === 'turn' ? (
-              <div key={r.t.id} className="db-feed-row">
+            {running.map((t) => (
+              <div key={t.id} className="db-feed-row">
                 <span className="db-feed-badge badge-turn">turn</span>
                 <div className="db-feed-main">
-                  <div className="db-feed-title">{r.t.reply_preview || r.t.last_step?.text || 'thinking…'}</div>
+                  <div className="db-feed-title">{t.reply_preview || t.last_step?.text || 'thinking…'}</div>
                   <div className="db-feed-meta">
-                    {r.t.last_step?.kind === 'tool' ? `→ ${r.t.last_step?.name}` : (r.t.last_step?.kind || 'reasoning')}
-                    {' · '}{r.t.step_count} steps{r.t.tools_used?.length ? ` · ${r.t.tools_used.length} tools` : ''}
+                    {t.last_step?.kind === 'tool' ? `→ ${t.last_step?.name}` : (t.last_step?.kind || 'reasoning')}
+                    {' · '}{t.step_count} steps{t.tools_used?.length ? ` · ${t.tools_used.length} tools` : ''}
                   </div>
                 </div>
-              </div>
-            ) : (
-              <div key={r.j.id} className="db-feed-row">
-                <span className="db-feed-badge badge-job">{r.j.kind || 'job'}</span>
-                <div className="db-feed-main">
-                  <div className="db-feed-title">{r.j.prompt?.slice(0, 80) || r.j.stage || 'rendering…'}</div>
-                  <div className="db-feed-progress"><ProgressBar progress={r.j.progress} /></div>
-                </div>
-                <span className="db-feed-pct">{r.j.progress ? `${Math.round(r.j.progress)}%` : ''}</span>
               </div>
             ))}
           </div>
@@ -174,7 +149,7 @@ export function OpsView() {
           <div className="db-feed">
             {deviceEvents.map((e) => (
               <div key={e.seq} className="db-feed-row">
-                <span className={'db-feed-badge' + (e.severity === 'critical' ? ' badge-job' : ' badge-turn')}>
+                <span className={'db-feed-badge' + (e.severity === 'critical' ? ' badge-crit' : ' badge-turn')}>
                   {e.severity || e.type || 'event'}
                 </span>
                 <div className="db-feed-main">
@@ -190,28 +165,6 @@ export function OpsView() {
           </div>
         </Panel>
       )}
-
-      {/* Job queue */}
-      <Panel title="Job queue" subtitle="recent renders & upscales">
-        {jobs.length === 0 ? <EmptyState text="No jobs yet." /> : (
-          <div className="db-table-wrap">
-            <table className="db-table">
-              <thead><tr><th>Kind</th><th>Status</th><th>Source</th><th>Progress</th><th>Started</th></tr></thead>
-              <tbody>
-                {jobs.slice(0, 20).map((j) => (
-                  <tr key={j.id}>
-                    <td>{j.kind || '—'}</td>
-                    <td><StatusPill status={j.status || 'unknown'} /></td>
-                    <td>{j.source || '—'}</td>
-                    <td style={{ minWidth: 120 }}>{j.status === 'running' ? <ProgressBar progress={j.progress} /> : (j.status === 'done' ? '100%' : '—')}</td>
-                    <td className="db-dim">{ago(j.created)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Panel>
 
       <div className="db-grid db-grid-2">
         {/* Workflows */}

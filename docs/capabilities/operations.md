@@ -6,8 +6,6 @@
 and **Control**, where learning proposals and staged code diffs are approved,
 rejected or thrown away.
 
-![The Operations page in Live view: a KPI strip reading Active turns 1, Active renders 1, Generations 24h 143, Services up 6/6, Pending approvals 3, Alerts 0; a Live activity panel showing one agent turn calling web.search and one image render at 62 percent; a Job queue table of recent renders; Background workflows with 2 pending code and 1 pending chat proposal; an empty Alerts panel reading All clear; Scheduled tasks from systemd timers; and a Service health grid of green Up rows](../assets/operations.png)
-
 The page updates itself. A single push channel carries changes as they happen,
 and a set of polled reads fills in the slower panels. If the push channel
 drops, the polled values keep the page current on their own.
@@ -65,15 +63,13 @@ and `revoke` events. "What did I approve, and when?" is answerable from
 
 ## Live
 
-**KPI strip** - Active turns, Active renders, Generations 24 h, Services up
-(*n/m*), Pending approvals, Alerts. A critical alert also raises a banner
-across the top of the page.
+**KPI strip** - Active turns, Services up (*n/m*), Pending approvals, Alerts.
+A critical alert also raises a banner across the top of the page.
 
 **Live activity** shows everything in flight. A turn row leads with the reply
 preview so far (falling back to the text of its last step, then `thinking…`),
 and under it the last step - `→ <tool name>` when the agent is in a tool call,
-otherwise the step kind - plus the step and tool counts. A render row shows
-the first 80 characters of the prompt with a live progress bar and percentage.
+otherwise the step kind - plus the step and tool counts.
 
 **Device events** appears only once a device has actually pushed something to
 this session, newest first, capped at the last 30. Each row carries a severity
@@ -84,9 +80,6 @@ API. No server-side voice subprocess is involved, and the setting is
 remembered in that browser only (`localStorage['ava.speakDeviceAlerts']`). How
 a device gets its push token and what a valid payload looks like is in
 [Device connectors](../DEVICE_CONNECTORS.md).
-
-**Job queue** is a table of recent renders and upscales - Kind, Status,
-Source, Progress, Started.
 
 **Scheduled tasks** is read from **systemd user timers**
 (`systemctl --user list-timers`), showing the task, its next run (absolute and
@@ -106,11 +99,11 @@ the agent has actually called, counted across the turns currently in memory.
 
 !!! note "What is live is not what is durable"
 
-    Turns and jobs are in-process state: a stalled render is flipped to
-    `error` after 15 minutes with an explanation, and terminal jobs are
-    dropped an hour after they finish so the table can't grow forever. The
-    permanent record is the append-only audit ledger - **Data → History**,
-    and see [Data, memory & privacy](data.md).
+    Turns are in-process state: a finished turn is dropped an hour later so
+    the feed can't grow forever, and one that is still running is never
+    evicted no matter how long it takes. The permanent record is the
+    append-only audit ledger - **Data → History**, and see
+    [Data, memory & privacy](data.md).
 
 ## Alerts
 
@@ -155,7 +148,6 @@ The engine computes a flat set of metrics each pass. Three examples:
     | `tokens_per_sec` | Mean throughput across LLM records in the last hour. |
     | `failover_rate_1h` | Share of those records that had to fail over to another backend. |
     | `error_rate_1h` | Share of all perf records in the last hour with an HTTP status ≥ 400. |
-    | `job_stuck_count` | Running jobs with no progress update for 8 minutes. |
     | `service_down_count` | Down count from the same probe the Service health panel uses. |
     | `alloc_degraded_count`, `alloc_unfit_count`, `alloc_unknown_hold_gb` | Allocator health: a declared model whose port answers but that never loaded weights, one that has been unable to start for a while, and memory held by processes Ava doesn't manage. See [Running two models](../ALLOCATION.md). |
     | `budget_daily_pct`, `budget_monthly_pct`, `budget_energy_pct` | Percent of your cloud-spend and GPU-energy caps used today / this month. |
@@ -231,7 +223,6 @@ API. Nothing on this page reaches outside your machine to stay current.
     |---|---|
     | `alert.state` | Once, on connect - primes the client with the currently active alert set so a fresh tab isn't blank until something breaks. |
     | `turn.update` | A chat turn's status, step count or tool count changed. |
-    | `job.update` | A render/upscale job's status, progress or stage changed. |
     | `hardware.tick` | Every tick a hardware sample exists. |
     | `device.event` | A connected device pushed an event. |
     | `alert.raise` / `alert.clear` | Alerts are re-evaluated every 5th tick (~5 s); only transitions are sent. |
@@ -247,8 +238,7 @@ API. Nothing on this page reaches outside your machine to stay current.
     !!! note "There are zero WebSocket endpoints in Ava"
 
         The live UI is this one SSE stream plus ordinary polling. Nothing
-        else. The only `websocket` reference in the codebase is the the GPU service
-        socket the bridge consumes *outbound* to get true render progress.
+        else, inbound or outbound.
 
 ??? note "The polled reads and their cadences"
 
@@ -258,7 +248,7 @@ API. Nothing on this page reaches outside your machine to stay current.
     | Endpoint | Feeds | Poll |
     |---|---|---|
     | `/api/ops/summary` | KPI strip + background-workflow rows | 6 s |
-    | `/api/turns`, `/api/jobs` | live activity, job queue | 6 s |
+    | `/api/turns` | live activity | 6 s |
     | `/api/ops/services` | service health | 12 s |
     | `/api/ops/tools` | tool-usage bars | 15 s |
     | `/api/ops/alerts` | alerts panel (and the alert metric values) | 20 s |

@@ -3,7 +3,7 @@
 Instead of hand-picking endpoints (and silently missing new ones), walk every
 registered route and assert its unauthenticated behavior class:
   * the public allowlist answers without auth,
-  * every /api|/apps|/media|/uploads route answers 401 JSON,
+  * every /api|/apps|/uploads route answers 401 JSON,
   * /internal/* rejects missing and wrong bearer tokens,
   * anything else redirects (303) to the login/setup flow.
 Plus cookie hygiene and scoped internal tokens.
@@ -16,9 +16,9 @@ import pytest
 from qa import helpers
 
 # Both imported, never re-listed. A local copy of API_PREFIXES drifted from the
-# app's own list and went stale on /thumb: the app correctly answered 401 for
-# /thumb/audit while this test demanded a 303 page redirect, so the suite failed
-# on correct behaviour.
+# app's own list and went stale on a prefix this file had never heard of: the app
+# correctly answered 401 JSON while this test demanded a 303 page redirect, so
+# the suite failed on correct behaviour.
 #
 # PUBLIC used to sit right above that comment as exactly the same hand-maintained
 # copy the comment argues against — and it bit the same way the first time the
@@ -35,7 +35,7 @@ def _sample_path(route) -> str:
     """A concrete URL for a (possibly templated) route path."""
     p = route.path
     for name, val in (("{cid}", "qa-x"), ("{aid}", "qa-x"), ("{mid}", "qa-x"),
-                      ("{tid}", "qa-x"), ("{job_id}", "qa-x"), ("{bid}", "qa-x"),
+                      ("{tid}", "qa-x"), ("{bid}", "qa-x"),
                       ("{name}", "audit"), ("{action}", "ping"),
                       ("{path:path}", "x"), ("{path}", "x")):
         p = p.replace(name, val)
@@ -93,7 +93,7 @@ class TestAuthSurface(unittest.TestCase):
 
     def test_static_mounts_gated(self):
         anon = ANON
-        for path in ("/media/x.png", "/uploads/x.png", "/apps/foo/"):
+        for path in ("/uploads/x.png", "/apps/foo/"):
             self.assertEqual(anon.get(path).status_code, 401, path)
         # /assets is intentionally public-ish? No — only the allowlist is public.
         # The SPA index redirects unauthenticated users:

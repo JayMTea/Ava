@@ -2,9 +2,8 @@
 
 A fork of this repo must inherit NO personality from whoever wrote it. The prompt
 template (agent/persona.txt.tmpl) therefore carries only operational directives —
-the tool-calling mandates, the never-fake-a-render rule, the deny-by-default
-network correction — and the whole of the assistant's voice comes from here,
-empty until the owner sets it.
+the tool-calling mandates, the deny-by-default network correction — and the
+whole of the assistant's voice comes from here, empty until the owner sets it.
 
 Kept out of features.REGISTRY on purpose: that registry is for optional
 capabilities with a service behind them that can be off or unreachable, and its

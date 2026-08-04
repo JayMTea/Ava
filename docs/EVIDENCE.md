@@ -1,7 +1,7 @@
-# Proving it: `ava attest` and `ava eval`
+# Proving it: `ava attest`
 
-Two commands ship with Ava that check its own claims rather than restate them.
-Neither was documented anywhere before this page, so both were effectively
+One command ships with Ava that checks its own claims rather than restating
+them. It was documented nowhere before this page, so it was effectively
 invisible.
 
 ## `ava attest` - an evidence bundle a stranger can verify
@@ -73,27 +73,3 @@ requires the verifier to notice - because a verifier that always prints `ok` is
 indistinguishable from one that works. Run against a bundle that is already
 damaged it refuses outright rather than reporting success for detecting damage
 that was already there.
-
-## `ava eval` - score the intent router on your own traffic
-
-Ava decides server-side whether a message is a chat turn or an image render
-(`ava_bridge/turn_router.py`). Whether that router is any good is a question about
-*your* phrasing, not a benchmark - so the eval set is yours, built from your own
-history, and **never ships with the product** (`data/evals/` is gitignored, and
-`tests/test_no_eval_data.py` fails the build if a dataset is ever committed).
-
-```bash
-ava eval intent mine        # label candidate cases from your chat history
-ava eval intent run         # score the labelled set
-ava eval intent run-fingerprint   # score, and record the router fingerprint
-```
-
-`mine` walks your messages and asks you to label the ambiguous ones. `run` scores
-the labelled set and prints the router's fingerprint and mode alongside the
-result, so a score is always attached to the router version that produced it -
-a number without that pairing tells you nothing after the next change.
-
-Use `--chats <path>` to mine a different instance's `chats.json`.
-
-Starting from nothing, `run` says the set is empty and points you at `mine`
-instead of reporting a meaningless 100%.

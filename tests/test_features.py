@@ -34,20 +34,20 @@ class PreflightContractTests(unittest.TestCase):
 
     def test_off_never_probes(self):
         probe = mock.Mock()
-        with _flag("image", False):
-            code, _ = features.preflight("image", probe=probe)
-        self.assertEqual(code, "image_off")
+        with _flag("web_search", False):
+            code, _ = features.preflight("web_search", probe=probe)
+        self.assertEqual(code, "web_search_off")
         probe.assert_not_called()
 
     def test_on_with_failing_probe_yields_key_down(self):
-        with _flag("image", True):
-            self.assertEqual(features.preflight("image", probe=lambda: "no answer"),
-                             ("image_down", "no answer"))
+        with _flag("web_search", True):
+            self.assertEqual(
+                features.preflight("web_search", probe=lambda: "no answer"),
+                ("web_search_down", "no answer"))
 
     def test_on_with_healthy_probe_passes(self):
-        with _flag("image", True):
-            self.assertIsNone(features.preflight("image", probe=lambda: None))
         with _flag("web_search", True):
+            self.assertIsNone(features.preflight("web_search", probe=lambda: None))
             self.assertIsNone(features.preflight("web_search"))  # probeless gate
 
     def test_unregistered_key_defaults_on(self):

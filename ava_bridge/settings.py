@@ -356,7 +356,7 @@ def ensure_dirs() -> None:
     # adapter (docs/ALLOCATION.md). It was never created and no doc said to
     # mkdir it, so the first step of "add support for your engine" was a
     # directory that did not exist.
-    for d in (data_dir(), logs_dir(), media_dir(), upload_dir(), secrets_dir(),
+    for d in (data_dir(), logs_dir(), upload_dir(), secrets_dir(),
               brand_dir(), home("alloc_drivers")):
         os.makedirs(d, exist_ok=True)
 
@@ -369,10 +369,6 @@ def logs_dir() -> str:
     return get("paths.logs", home("logs"), env="AVA_LOGS_DIR")
 
 
-def media_dir() -> str:
-    return get("paths.media", home("media", "gen"), env="AVA_MEDIA_DIR")
-
-
 def upload_dir() -> str:
     return get("paths.uploads", home("media", "uploads"), env="AVA_UPLOAD_DIR")
 
@@ -382,7 +378,7 @@ def secrets_dir() -> str:
 
 
 def models_dir() -> str:
-    """Root for downloaded model weights (hf/, ollama/, gpusvc/). Matches the
+    """Root for downloaded model weights (hf/, ollama/). Matches the
     Docker volume layout ($AVA_HOME/models/*) so bare-metal and container installs
     share one shape."""
     return get("paths.models", home("models"), env="AVA_MODELS_DIR")

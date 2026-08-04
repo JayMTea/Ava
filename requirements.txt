@@ -1,8 +1,7 @@
 # Ava core runtime — bridge (web app + API + dashboard) + inference router.
 # Pinned to the versions this project runs on. Install:  pip install -r requirements.txt
 # Optional extras: voice/STT -> requirements-voice.txt (Piper TTS is a vendored
-# binary under bin/piper/); dev/tests -> requirements-dev.txt; image/video runs
-# in a separate the GPU service service. See deploy/README.md.
+# binary under bin/piper/); dev/tests -> requirements-dev.txt.
 # NOTE: fastapi 0.138.x + starlette 1.3.x silently drop every route on a
 # prefixed APIRouter (breaks the whole /api/hub/* Hub API on include_router).
 # FASTAPI is what stays pinned for that reason; starlette 1.3.1 is fine WITH
@@ -38,7 +37,6 @@ requests==2.34.2
 httpx[socks]==0.28.1
 PyYAML==6.0.3
 python-multipart==0.0.32
-websocket-client==1.9.0
 numpy==2.5.1
 anthropic==0.120.2
 # Hardware abstraction layer (ava_bridge/hwinfo.py): psutil reads system/unified
@@ -47,12 +45,12 @@ anthropic==0.120.2
 # NVIDIA hosts (Apple Silicon, CPU-only), which fall back to psutil + shell.
 psutil==7.2.2
 nvidia-ml-py==13.610.43
-# Thumbnails (ava_bridge/gpu_jobs.py). Undeclared until 2026-07-28: it was
-# installed transitively on the maintainer's box, so `pip install -r
-# requirements.txt` on a fresh clone produced an ImportError that
-# ensure_thumbnail's bare `except` swallowed — every /thumb/<name> quietly
-# served the FULL-size image instead. The gallery still worked, which is why
-# nobody noticed; it just shipped megabytes where it meant to ship kilobytes.
+# Brand-asset ingest (ava_bridge/brand.py, ava_bridge/brand_pack.py). Undeclared
+# until 2026-07-28: it was installed transitively on the maintainer's box, so a
+# fresh clone never got it. `ingest_asset` imports it unguarded on purpose — the
+# RE-ENCODE is the security step there (the bytes written are bytes Pillow
+# produced, which is what strips EXIF and appended-payload polyglots), so
+# Setup -> Branding must fail loudly rather than quietly skip it.
 Pillow==12.3.0
 # Article extraction for web_fetch (ava_bridge/web.py). Same story as Pillow:
 # present here, declared nowhere. Its absence is caught by a best-effort

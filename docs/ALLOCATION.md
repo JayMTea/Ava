@@ -1,11 +1,11 @@
 # Running two models on one box
 
 **Is this page for you?** Only if you run a second heavy model beside Ava's
-brain - an image pipeline, a video model, a voice model on the GPU. Two models
-that each work perfectly will still fight, because they want the same memory and
-there is not enough for both. The result is not a clean error. It is a restart
-loop, a render killed halfway, or a machine that just gets slow and no single
-component looks responsible.
+brain - a larger model you keep for coding, a batch model, a voice model on the
+GPU. Two models that each work perfectly will still fight, because they want the
+same memory and there is not enough for both. The result is not a clean error.
+It is a restart loop, work killed halfway, or a machine that just gets slow and
+no single component looks responsible.
 
 This page shows you how to declare which models may hold memory, so Ava checks
 that something fits *before* it starts it. It is entirely optional. Declare
@@ -25,18 +25,18 @@ box:
 |---|---|
 | Total pool | 121.7 GB |
 | OS + everything else already running | ~33 GB |
-| The language model, resident | 48.7 GB |
-| One image render (FLUX.2 weights) | 66.5 GB |
+| The language model you chat to, resident | 48.7 GB |
+| A second model, weights held at the same time | 66.5 GB |
 
 Any two of those fit. All three never do - and no `--gpu-memory-utilization` setting
 changes that, because the sum simply exceeds the machine.
 
 What happens without coordination is worse than a clean failure:
 
-- The render starts, takes the memory, and the model server's next restart finds
-  none. Its startup check fails, its supervisor retries, and because nothing caps
-  retries it does that **7,997 times** while nobody notices.
-- Or the model server wins, and renders OOM-kill halfway through.
+- The second model loads, takes the memory, and the first server's next restart
+  finds none. Its startup check fails, its supervisor retries, and because nothing
+  caps retries it does that **7,997 times** while nobody notices.
+- Or the first server wins, and the second is OOM-killed part-way through loading.
 - Or both squeeze in, the kernel starts swapping, and everything gets slow in a way
   no single component looks responsible for.
 
@@ -59,8 +59,8 @@ blast radius is your config file, not a heuristic.
 
 **Ask for what you need, not for someone else's memory.** A caller says *"I am about
 to use this model"*. It never says *"stop that other thing"*. That inversion is why a
-pipeline added later inherits coordination instead of having to remember it - the
-failure that produced those 7,997 restarts was a new render path that simply did not
+model added later inherits coordination instead of having to remember it - the
+failure that produced those 7,997 restarts was a new load path that simply did not
 know it was supposed to pause anything.
 
 **Readiness means resident.** A model server binds its port long before its weights
@@ -114,8 +114,8 @@ touching anything. Let that run under your real workload, then read it. `ava all
 plan <model>` shows one decision in full:
 
 ```console
-$ ava alloc plan my-render
-Plan for my-render
+$ ava alloc plan my-sidecar
+Plan for my-sidecar
   admit     : True
   need/free : 70 / 8 GB -> projected 102 GB
   try (cheap) : my-engine [unload] — cheap and reversible (8s to release, 0s to restore)
@@ -288,7 +288,7 @@ stop fighting over one pool: exactly one component decides, and the other asks.
     These endpoints can stop and start models, so they require the router token.
 
     ```
-    POST   /lease            {"model": "my-render", "reason": "render",
+    POST   /lease            {"model": "my-sidecar", "reason": "batch job",
                               "ttl_s": 300, "wait": false}
              -> {"lease_id": "...", "state": "pending", "granted": true,
                  "ready": false, "poll_after_s": 1.5}

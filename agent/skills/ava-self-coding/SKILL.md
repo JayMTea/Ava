@@ -33,7 +33,7 @@ exact error text in `context`. This is self-recursive fixing.
 - `context` (optional): the exact error message / traceback, expected behavior,
   or constraints. Always include the real error text when self-fixing.
 - `files` (optional): repo-relative files to focus on, e.g.
-  `"ava_bridge/web/index.html"`, `"agent/mcp_server_content/creative/image.mjs"`.
+  `"ava_bridge/web/index.html"`, `"agent/mcp_server_content/web/web_search.mjs"`.
 
 ## What happens (the access policy)
 

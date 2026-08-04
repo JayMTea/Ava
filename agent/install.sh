@@ -6,7 +6,7 @@
 #   mcp_server_<srv>/ -> one MCP server per scope (admin, content, productivity,
 #                  system). Each has a _server.mjs that recursively auto-loads
 #                  every tool module from its category subfolders (daily/,
-#                  creative/, …); deployed to /sandbox/.openclaw/mcp_server_<srv>/.
+#                  knowledge/, …); deployed to /sandbox/.openclaw/mcp_server_<srv>/.
 #                  The trailing underscore is what the discovery glob below
 #                  matches — a bare `mcp_server/` is not a server and is skipped.
 #   policies/   -> least-privilege egress presets (one per source), all applied
@@ -24,8 +24,8 @@
 #   usage: ./install.sh [--only persona|policies|servers|skills|all[,...]] [--dry-run]
 #
 #   --only     deploy just part of the kit. Changing a persona costs one file
-#              write; a full run re-pushes five MCP servers, eight skills and
-#              eight policies, then nudges the gateway. Default: all.
+#              write; a full run re-pushes five MCP servers, six skills and
+#              seven policies, then nudges the gateway. Default: all.
 #   --dry-run  print the plan and exit 0. Touches nothing, needs no sandbox and
 #              no CLI — which is what makes the scope matrix testable in CI.
 set -euo pipefail

@@ -17,7 +17,7 @@ The class only misbehaves when AVA_HOME differs from the code root — which is
 exactly Docker, and never the author's bare-metal box. Nobody notices by running
 it; a static guard is the only thing that catches it.
 
-Style matches tests/test_no_eval_data.py: a `git ls-files` scan, no bridge, no
+Style matches tests/test_diagram_sync.py: a `git ls-files` scan, no bridge, no
 AVA_HOME, no network.
 """
 import pathlib
@@ -73,7 +73,7 @@ def test_only_settings_resolves_ava_home() -> None:
     assert not offenders, (
         "these modules resolve AVA_HOME themselves and so ignore ava.yaml's "
         "`paths.*` and the per-path env overrides — call ava_bridge.settings "
-        "(data_dir/logs_dir/media_dir/upload_dir/secrets_dir) instead, or add a "
+        "(data_dir/logs_dir/upload_dir/secrets_dir) instead, or add a "
         f"justified entry to _ENV_ALLOW in this file: {offenders}"
     )
 
@@ -85,11 +85,11 @@ def test_no_runtime_state_hangs_off_the_code_root() -> None:
             continue
         text = _read(rel)
         # A file that asks settings first may keep an indented fallback for
-        # standalone use (`try: settings.media_dir() / except ImportError: …`).
-        # gpu_service.py and speaker.py both do this deliberately. What stays
-        # banned is an UNCONDITIONAL module-level root, which is the actual bug —
-        # so the fallback allowance requires both the settings import and an
-        # indented line.
+        # standalone use (`try: settings.logs_dir() / except ImportError: …`).
+        # speaker.py does this deliberately. What stays banned is an
+        # UNCONDITIONAL module-level root, which is the actual bug — so the
+        # fallback allowance requires both the settings import and an indented
+        # line.
         guarded = "from ava_bridge import settings" in text
         for i, line in enumerate(text.splitlines(), 1):
             if not _STATE_ON_CODE_ROOT.search(line):
@@ -112,5 +112,4 @@ def test_config_paths_track_settings() -> None:
     from ava_bridge import config, settings
     assert config.CHATS_DIR == settings.data_dir()
     assert config.LOGS_DIR == settings.logs_dir()
-    assert config.MEDIA_DIR == settings.media_dir()
     assert config.UPLOAD_DIR == settings.upload_dir()

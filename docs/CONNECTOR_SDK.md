@@ -752,7 +752,7 @@ From that one manifest, with nothing hand-maintained in Ava's core:
   GPU graph so spikes are self-explanatory)
 - **Loaded-model role labels** ← `model_hints` (label what a checkpoint is for).
   Ava's *own* roles no longer travel as this text: the hardware monitor emits a
-  machine token `role_key` (`brain` / `render` / `video` / `image` / `""`) that
+  machine token `role_key` (`brain` / `""`) that
   the frontend words, because the backend returns facts and owner-facing copy
   lives in the SPA. `role_key: brain` is decided solely by
   `models.effective_brain()` - never by a model's name. Your hint still fills
@@ -766,7 +766,7 @@ The `chat_pickup` / `jobs` / `model_hints` field shapes are documented inline in
 ### Optional-feature switches and guided-fix error codes
 
 A service can name the `features.*` flag that governs it (`service.feature:
-image`). When the user turns that feature off, the dashboard paints the service
+voice`). When the user turns that feature off, the dashboard paints the service
 as **off** (a neutral state), never as a red "down".
 
 If your capability should be a user-facing switch, register it in

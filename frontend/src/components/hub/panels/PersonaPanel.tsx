@@ -60,7 +60,7 @@ export function PersonaPanel() {
 
       <Panel
         title="How Ava talks"
-        subtitle="Ava ships with no personality. The prompt it starts from covers only what it must do — call its tools, never claim it rendered an image it didn't. The voice is yours to write."
+        subtitle="Ava ships with no personality. The prompt it starts from covers only what it must do — call its tools and answer from what they return. The voice is yours to write."
       >
         {p ? (
           <>
@@ -185,7 +185,6 @@ export function PersonaPanel() {
           title="Always in the prompt"
           items={[
             { icon: 'activity', term: 'Use the tools', desc: 'Live questions get a real tool call — weather comes from get_weather, never from memory.' },
-            { icon: 'image', term: 'Never fake a render', desc: 'Ava may only say an image was created if it actually called run_gpu_job and got a confirmation.' },
             { icon: 'shield', term: 'Know its own reach', desc: <>The sandbox warns that outbound network is deny-by-default; Ava is told that this does <b>not</b> apply to its own tools, so it stops claiming it has no web access.</> },
             { icon: 'info', term: 'Takes effect when you apply', desc: <>Your voice is compiled into Ava’s prompt when your changes reach the agent. Saving stages it; the bar at the top of Setup applies it in one click.</> },
           ]}

@@ -48,6 +48,45 @@ pre-release milestones from when Ava ran on one box and nothing was tagged.
   Operations' Live | Control stays a segmented control: two options, a view
   switch, not a filter.
 
+### Removed
+
+- **GPU workloads is gone; uploads are not.** The the GPU service connector, its
+  client, the media-job runner, the `run_gpu_job` tool, the `ava-gpu`
+  skill and the `features.image` switch are all deleted, with eight routes
+  (`POST /api/generate`, `POST /api/upscale`, `GET /api/job/{id}`,
+  `POST /api/job/{id}/cancel`, `GET /api/jobs`, `POST /internal/run-gpu-job`,
+  `GET /thumb/{name}`, `POST /api/chats/{cid}/image`) and the `/media` mount.
+  The **input** path was never the same thing and stays whole: `POST
+  /api/upload`, the `/uploads` mount, `media/uploads/`, the extension
+  allow-list, OCR on an attached image, and that image rendered in the chat.
+  `/thumb` reads like the upload path and is not — it resolved inside
+  `media/out`, so it went with the rest. Vitals loses the **Renders** tile and
+  the **Generation performance** panel; Operations loses **Active renders**,
+  **Generations 24 h** and the **Job queue**; Data loses the **Generated
+  media** store. The allocator stays as it was: it arbitrates any two models
+  that want one memory pool, which was always the general case.
+- **The intent gate went with it.** Server-side routing existed to decide
+  chat turn versus image render, and with one pipeline left there is nothing
+  to decide — `POST /api/chat-stream` always starts an agent turn now.
+  `turn_router.py`, `eval_router.py`, the `routing:` config block and the
+  `ava eval intent` commands are deleted, and `ava doctor` no longer prints a
+  router fingerprint or an eval-set score.
+- **The `full` deploy profile is retired.** Without the `gpu-service:` service it
+  started exactly what `agent` starts, and its one remaining difference,
+  `AVA_VLLM_GPU_UTIL=0.55`, existed only to leave a second GPU tenant headroom.
+  `AVA_PROFILE=agent` is the superset now, and the four copies of the profile
+  table agree on it.
+- **The screenshots and tour videos that showed GPU workloads are deleted,
+  not re-captured.** They carried the render KPIs, the Job queue, the
+  `Images (the GPU service)` connector row or the Generated-media store, and the six
+  narrated tours came out of the same session. Eight PNGs, six MP4s and their
+  caption tracks are gone, including `og-card.png` — so the site's `og:image`
+  and `twitter:image` tags are gone too, rather than pointing at a file that is
+  not there. The pages they illustrated stand on their prose until there is
+  something honest to photograph. The surviving step-by-step captures still
+  carry an `Images` tile in the sidebar rail; that goes with the next capture
+  run, which is the only thing that can fix a pixel.
+
 ### Fixed
 
 - **Setup's Persona tab could take down the whole Setup view.** `PersonaPanel`

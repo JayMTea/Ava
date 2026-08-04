@@ -35,7 +35,7 @@ purpose**, because the trust model is reproducibility rather than authenticity:
 it ships a stdlib-only `verify.py` that recomputes every digest offline, and a
 `--self-test` that proves the verifier can actually fail.
 
-[![Ava's architecture: clients (phone, browser, voice) reach the FastAPI bridge over a private Tailscale network; the bridge fronts a sandboxed agent runtime, a hardware-aware inference router over local models, a media engine, and drop-in connector apps](docs/assets/architecture.svg)](docs/assets/architecture.svg)
+[![Ava's architecture: clients (phone, browser, voice) reach the FastAPI bridge over a private Tailscale network; the bridge fronts a sandboxed agent runtime, a hardware-aware inference router over local models, and drop-in connector apps](docs/assets/architecture.svg)](docs/assets/architecture.svg)
 
 </div>
 
@@ -94,7 +94,6 @@ your environment.) Full guide: [deploy/README.md](deploy/README.md).
 ## What it does
 
 - **Talk to it.** On-device voice, speech in and speech out, gated to *your* voice.
-- **Create with it.** GPU workloads orchestrated by the agent (the GPU service); video via connector apps.
 - **Wire it to your apps.** Drop-in connectors; Ava monitors *and* drives them.
 - **Put any MCP server behind a policed boundary.** Plug into the whole MCP ecosystem; tools are discovered live, and the agent reaches them only through two allow-listed bridge routes — never the server itself.
 - **Search the web without being the product.** Web search goes through a SearXNG *you* run — no third party, no API key — and host-side fetch is fail-closed over Tor by default (`AVA_WEB_TOR=0` opts out), with every redirect hop re-validated against an SSRF guard. The sandboxed agent never reaches the internet directly. Note: the shipped Docker profiles do not yet provision SearXNG or Tor, so this one is opt-in setup rather than on out of the box — see [deploy/README.md](deploy/README.md).
@@ -109,16 +108,16 @@ your environment.) Full guide: [deploy/README.md](deploy/README.md).
 ## What is Ava?
 
 Most AI tools are *one* of these: a chat UI, a local model runner, a voice
-assistant, an agent framework, or an image generator. **Ava is the layer that ties
-them together** into one assistant you actually own: chat, voice, generation, app
-automation, and self-editing, behind a single dashboard, running on your own
-hardware with the model of your choice (served locally by **vLLM / Ollama /
-llama.cpp**, or through a **cloud API key**).
+assistant, or an agent framework. **Ava is the layer that ties them together**
+into one assistant you actually own: chat, voice, app automation, and
+self-editing, behind a single dashboard, running on your own hardware with the
+model of your choice (served locally by **vLLM / Ollama / llama.cpp**, or
+through a **cloud API key**).
 
 ## Vitals, Operations, and Data
 
 Ava's dashboard is the front door: a **Vitals** tab (performance at a glance:
-tokens/sec, time-to-first-token, render times, cost and energy, hardware), an
+tokens/sec, time-to-first-token, cost and energy, hardware), an
 **Operations** tab (live jobs, background workflows, connectors, alerts, and the
 approval-gated Control Center), and a **Data** tab — the transparency page a
 cloud assistant can't give you: every store Ava keeps (memories, chats, the
@@ -127,14 +126,11 @@ inventoried, with search, export (per-chat or one everything-archive), audited
 deletes, and database maintenance. Your whole Ava is one folder (`AVA_HOME`);
 the Data tab shows you exactly what's in it.
 
-<!-- Regenerate this and the site's screenshots/tour with the local capture studio. -->
-![Ava's Vitals dashboard: spend, energy, throughput, time-to-first-token, renders and route errors across the top, then today's budget, inference throughput by model, model routing across four models, generation performance, energy by app, and the connected-apps list](docs/assets/vitals-dashboard.png)
-
 ## Why Ava?
 
 - **It has no personality until you give it one.** The prompt Ava ships with
-  covers only what it must *do* — call its tools, never claim it rendered an image
-  it didn't. How it talks is a blank field you fill in, so a fork sounds like
+  covers only what it must *do* — call its tools rather than answer around
+  them. How it talks is a blank field you fill in, so a fork sounds like
   *your* assistant rather than like whoever wrote this repo
   ([docs/PERSONA.md](docs/PERSONA.md)).
 - **You own it.** Self-hosted and single-tenant, on your GPU. Your conversations,
@@ -148,10 +144,10 @@ the Data tab shows you exactly what's in it.
   local model couldn't — those prompts include chat excerpts — but that fallback
   is **off by default** (`features.learning_cloud_fallback`), so cycles stay
   on-box unless you say otherwise ([docs/MEMORY.md](docs/MEMORY.md)).
-- **It does more than talk.** It renders images, calls tools, remembers,
-  and reaches into your other apps.
-- **It watches itself.** A real operations dashboard: tokens/sec, TTFT, render
-  times, **cost and energy**, running jobs, alerts, service health. An assistant
+- **It does more than talk.** It calls tools, remembers, and reaches into your
+  other apps.
+- **It watches itself.** A real operations dashboard: tokens/sec, TTFT,
+  **cost and energy**, running jobs, alerts, service health. An assistant
   you can't observe is one you can't trust.
 - **It edits its own source, governed.** Ava generates code changes via your Anthropic
   key and commits them to git (every change one revert away). `code.approval` picks the
@@ -174,15 +170,15 @@ the Data tab shows you exactly what's in it.
 ## Where it stands
 
 Most self-hosted stacks give you a chat UI and stop there. Ava puts voice,
-generation, governed agent tools, connectors, self-editing, and cost-and-energy
+governed agent tools, connectors, self-editing, and cost-and-energy
 observability behind one dashboard. It trails the cloud giants on raw model IQ
 and polish because it is the **control layer, not the brain**: its job is to put
 *their* models (or yours) to work, privately.
 
 **A note on NemoClaw:** it is less a competitor than a foundation. NemoClaw is
 Ava's **default agent runtime** (sandbox, tools, egress policies, memory), and
-Ava layers private on-device voice, GPU workloads, the connector SDK,
-the ops dashboard, and governed self-editing on top. Use NemoClaw alone if
+Ava layers private on-device voice, the connector SDK, the ops dashboard,
+and governed self-editing on top. Use NemoClaw alone if
 you want the sandboxed agent runtime to build on; use Ava if you want the
 full private assistant stack. See [docs/AGENT_RUNTIME.md](docs/AGENT_RUNTIME.md).
 
@@ -206,8 +202,7 @@ See the [Connector SDK](docs/CONNECTOR_SDK.md).
 A FastAPI **bridge** (web app, API, dashboard) fronts a **pluggable agent
 runtime** (tools, skills, memory: [NemoClaw](docs/AGENT_RUNTIME.md) by default,
 sandboxed with per-tool egress policies) and an OpenAI-compatible **inference
-router** that fronts whichever engine you point it at. GPU workloads runs on **the GPU service**;
-video pipelines arrive as connector apps, not core. Everything else, the apps
+router** that fronts whichever engine you point it at. Everything else, the apps
 Ava monitors and drives, is a **connector** you can drop in.
 
 - **Architecture**: [system overview](docs/assets/architecture.svg)

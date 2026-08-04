@@ -29,7 +29,7 @@ sandbox. That gives Ava:
 
 | What you get | What it means |
 |---|---|
-| **Tools and connectors** | Ava's tools run inside the sandbox and reach the outside world only through the bridge's token-gated `/internal/*` routes. Image rendering, web search/fetch and every connector call execute host-side, so the sandbox never touches the GPU service, the internet, or a connector's API directly. |
+| **Tools and connectors** | Ava's tools run inside the sandbox and reach the outside world only through the bridge's token-gated `/internal/*` routes. Web search/fetch and every connector call execute host-side, so the sandbox never touches the internet or a connector's API directly. |
 | **Isolation and egress policies** | An *egress policy* is a list of the network addresses one group of tools is allowed to reach, and nothing else ([agent/policies/](../agent/policies/)). The sandbox is where that list is enforced, along with the filesystem boundary. It is what makes the connector SDK's auto-generated policies mean something. |
 | **Persistent, per-conversation memory** | One session id equals continuous memory. |
 | **Skills and self-improvement** | The `ava-*` skills and the self-coding loop. |
@@ -43,29 +43,15 @@ specific GPU or box.
 ## Set it up
 
 In the app it is two clicks: open **Setup → Agent**, click
-**Provision / re-check**, and watch each step verify. Here it is end to end,
-narrated (sound on):
-
-<video controls playsinline preload="metadata"
-       style="width:100%;border-radius:8px"
-       aria-label="Screen recording: setting up Ava's agent runtime from Setup, Agent, through Provision and re-check">
-  <source src="../assets/agent-setup-tour.mp4" type="video/mp4">
-  <track kind="captions" srclang="en" label="English"
-         src="../assets/agent-setup-tour.vtt">
-  Your browser can't play video. <a href="../assets/agent-setup-tour.mp4">Download the walkthrough</a>.
-</video>
+**Provision / re-check**, and watch each step verify. Here it is end to end:
 
 ### Step 1: Open Setup → Agent
-
-![Setup, Agent tab: the Agent runtime card marked active, with rows for Runtime (nemoclaw, required), CLI, Sandbox and Tools, above a Provision / re-check button](assets/agent-setup-1-status.png)
 
 ### Step 2: Click "Provision / re-check"
 
 Provisioning deploys Ava's tools, skills and deny-by-default egress policies into
 the sandbox (`agent/install.sh`). Each step reports what it checked and what it
 found, and says plainly which one failed if any did.
-
-![The same card after Provision and re-check: a verified list reading NemoClaw CLI found on PATH, sandbox 'ava' exists and is reachable, 29 tools and 6 skills deployed, and deny-by-default egress policies installed](assets/agent-setup-2-provision.png)
 
 That's the whole setup. From a terminal, the same flow is:
 
@@ -122,7 +108,6 @@ destination. Force it explicitly with `agent.enabled: false` or
 | | NemoClaw (full) | Direct (floor) |
 |---|:--:|:--:|
 | Tools / connectors | Yes | No |
-| GPU workloads | Yes | Yes (host-side pipeline, not the agent) |
 | Sandboxed + egress-policed | Yes | No |
 | Persistent agent memory | Yes | replayed history |
 | Live chain-of-thought | Yes | No |
@@ -152,7 +137,7 @@ Enable it:
 
 ```bash
 cd deploy
-cp profiles/agent.env .env      # or profiles/full.env, which adds the GPU service
+cp profiles/agent.env .env
 docker compose up -d
 ```
 

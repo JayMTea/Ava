@@ -17,21 +17,6 @@ export type ChatItem =
       error?: string;
       code?: string;
     }
-  | {
-      kind: 'gen';
-      id: string;
-      jobId: string;
-      progress: number;
-      status: 'running' | 'done' | 'error';
-      error?: string;
-      errorCode?: string;
-      prompt?: string;
-      stage?: string;
-      elapsedSec?: number;
-      queueHint?: string;
-      cancelable?: boolean;
-    }
-  | { kind: 'image'; id: string; url: string; caption?: string; allowUpscale?: boolean }
   | { kind: 'preview'; id: string; preview: Preview }
   | { kind: 'sys'; id: string; text: string; icon?: string; code?: string };
 

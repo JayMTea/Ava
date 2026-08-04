@@ -172,7 +172,7 @@ jobs:
     # exercises the real ASGI app: auth posture on every route, API contracts,
     # degradation paths. It was documented in CLAUDE.md as how you verify a change
     # and then never run by CI, so nothing enforced it. It is hermetic — temp
-    # AVA_HOME, fake LLM/gpusvc servers on free ports, no GPU, no network.
+    # AVA_HOME, a fake LLM server on a free port, no GPU, no network.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -314,7 +314,7 @@ jobs:
           #
           # The condition is read off the engine the .env actually wired, not a list
           # of profile names restated here. AVA_BACKEND_ENGINE=vllm holds for exactly
-          # gpu/full/agent, which is exactly the set install.sh resolves flags for
+          # gpu/agent, which is exactly the set install.sh resolves flags for
           # (install.sh) and the set that starts the vllm service
           # (docker-compose.yml), so the three cannot drift apart silently. It is also
           # deliberately not `docker compose config --services`: whether that honours

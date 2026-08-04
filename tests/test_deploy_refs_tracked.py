@@ -11,7 +11,7 @@ Nothing catches this by running the repo: the file is present on the machine tha
 wrote the docs, so every local check passes. It is only visible from the index,
 which is what this scan reads.
 
-Style matches tests/test_no_eval_data.py: a `git ls-files` scan, no bridge, no
+Style matches tests/test_diagram_sync.py: a `git ls-files` scan, no bridge, no
 AVA_HOME, no network.
 """
 import pathlib

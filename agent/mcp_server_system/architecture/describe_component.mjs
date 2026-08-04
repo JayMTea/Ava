@@ -9,7 +9,7 @@ const BRIDGE = process.env.AVA_BRIDGE_URL || 'http://host.openshell.internal:809
 export default {
   name: 'describe_component',
   description: "Get the details of ONE part of Ava's architecture by name — a "
-    + "service (e.g. 'ava-bridge'), an MCP tool (e.g. 'run_gpu_job'), a "
+    + "service (e.g. 'ava-bridge'), an MCP tool (e.g. 'web_search'), a "
     + "capability category (e.g. 'persona'), a layer (e.g. 'control'), or an "
     + "egress policy (e.g. 'ava-weather'). Use get_architecture first to see the "
     + "available names. Returns that component's manifest record.",

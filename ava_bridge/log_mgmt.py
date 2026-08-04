@@ -20,7 +20,6 @@ class LogManager:
     VALID_SERVICES = [
         'ava-bridge',
         'ava-router',
-        'ava-gpusvc',
         'vllm',
         'ava-snapshot',
         'ava-learning-digest',
@@ -32,7 +31,6 @@ class LogManager:
 
     APP_LOG_PATHS = {
         'bridge': Path(config.LOGS_DIR) / 'bridge.log',
-        'gpusvc': Path(config.ROOT) / 'gpusvc' / 'logs',
         'learning': Path(config.LOGS_DIR) / 'learning.log',
     }
 
@@ -40,7 +38,7 @@ class LogManager:
     # model) can say "bridge" or "router" instead of the exact "ava-bridge" unit.
     SERVICE_ALIASES = {
         'bridge': 'ava-bridge', 'ava': 'ava-bridge',
-        'router': 'ava-router', 'gpusvc': 'ava-gpusvc',
+        'router': 'ava-router',
         'learning': 'ava-learning-digest',
     }
 
@@ -183,7 +181,7 @@ class LogManager:
         Read application log files directly.
 
         Args:
-            component: 'bridge', 'gpusvc', or 'learning'
+            component: 'bridge' or 'learning'
             lines: Number of lines to return (1-500)
             level: Filter by level string in log (DEBUG, ERROR, WARNING, etc.)
 

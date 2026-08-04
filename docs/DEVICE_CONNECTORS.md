@@ -36,17 +36,9 @@ egress policy) still applies.
     Follow [Connect your Home Assistant](CONNECT_HOME_ASSISTANT.md) if that is
     your case. Stay here if you are wiring your own hardware or your own app.
 
-Here is the pull path from the browser - connecting a device's tool server -
-narrated (sound on). The push half (token, `POST …/events`) is covered below:
-
-<video controls playsinline preload="metadata"
-       style="width:100%;border-radius:8px"
-       aria-label="Narrated screen recording: connecting a device's tool server to Ava from the browser">
-  <source src="../assets/connect-device-tour.mp4" type="video/mp4">
-  <track kind="captions" srclang="en" label="English"
-         src="../assets/connect-device-tour.vtt">
-  Your browser can't play video. <a href="../assets/connect-device-tour.mp4">Download the walkthrough</a>.
-</video>
+The pull path from the browser - connecting a device's tool server - is
+[Connect your apps](CONNECT_YOUR_APPS.md). The push half (token,
+`POST …/events`) is covered below.
 
 ---
 

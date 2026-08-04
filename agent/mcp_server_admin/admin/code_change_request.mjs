@@ -27,7 +27,7 @@ export default {
       files: {
         type: "array",
         items: { type: "string" },
-        description: "Optional repo-relative files to focus on (e.g. 'ava_bridge/web/index.html', 'agent/mcp_server_content/creative/image.mjs')."
+        description: "Optional repo-relative files to focus on (e.g. 'ava_bridge/web/index.html', 'agent/mcp_server_content/web/web_search.mjs')."
       }
     },
     required: ["request"],

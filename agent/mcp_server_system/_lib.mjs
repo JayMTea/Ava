@@ -68,7 +68,7 @@ export async function httpGetJson(url, { timeout = 12, direct = false, headers =
   catch (e) { throw new Error(`bad JSON from ${url}: ${e.message}`); }
 }
 
-// POST JSON. Defaults to a DIRECT route (host-local services like the GPU service).
+// POST JSON. Defaults to a DIRECT route (host-local services like the bridge).
 export async function httpPostJson(url, body, { timeout = 30, direct = true, headers = {} } = {}) {
   const args = ['-s', '--max-time', String(timeout), '--fail', '--show-error',
     '-H', 'Content-Type: application/json', '-d', JSON.stringify(body)];

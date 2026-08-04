@@ -41,7 +41,7 @@ function check(name: string, ok: boolean, extra = '') {
       body: JSON.stringify({
         inference: { mode: 'local', engine: 'vllm',
                      base_url: 'http://127.0.0.1:9999/v1', model: 'qa-model' },
-        features: { voice: false, web_search: false, image: true },
+        features: { voice: false, web_search: true },
         connectors: [],
       }),
     });

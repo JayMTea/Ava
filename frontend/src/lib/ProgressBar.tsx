@@ -1,9 +1,9 @@
-// Shared progress-bar primitive used everywhere renders report progress (chat
-// GPU workloads, connector-app renders/video). One component => consistent
-// look & behaviour across all tabs and any future modules.
+// Shared progress-bar primitive used everywhere work reports progress (hardware
+// meters, connector-app jobs). One component => consistent look & behaviour
+// across all tabs and any future modules.
 //
 // While `progress` is 0 it shows an indeterminate sweep (the ".prog-ind" class,
-// see global.css) so a bar that's waiting on model-load / a queued render never
+// see global.css) so a bar that's waiting on model-load / a queued task never
 // looks frozen. Once progress climbs it becomes a normal determinate fill.
 export function ProgressBar({
   progress,

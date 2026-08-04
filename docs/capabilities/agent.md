@@ -56,8 +56,6 @@ agent:
 `ava agent status` prints the resolution from a terminal; **Setup → Agent**
 shows it as status rows.
 
-![Setup → Agent: the runtime status card showing runtime, CLI, sandbox and tools rows with a Provision / re-check button](../assets/agent-setup-1-status.png)
-
 ??? note "How `remote` stays a mirror rather than a reimplementation"
 
     The agent container runs `ava_bridge/agent_runtime_server.py`, a shim that
@@ -114,9 +112,9 @@ appears, with no code change and no registration step.
 
 Two roots are scanned, both optional to extend:
 
-1. `agent/skills/<id>/SKILL.md`, the core kit. Eight skills ship:
-   `ava-architecture`, `ava-devices`, `ava-email-read`, `ava-gpu`,
-   `ava-knowledge`, `ava-self-coding`, `ava-weather`, `ava-web`.
+1. `agent/skills/<id>/SKILL.md`, the core kit. Seven skills ship:
+   `ava-architecture`, `ava-devices`, `ava-email-read`, `ava-knowledge`,
+   `ava-self-coding`, `ava-weather`, `ava-web`.
 2. `<overlay>/skills/<id>/SKILL.md`, a private overlay (`AVA_OVERLAY`, default
    `overlay/agent`), so a fork keeps its own skills out of the shared repo.
 
@@ -154,19 +152,6 @@ sandbox. **Setup → Agent → Runtime** verifies the CLI, verifies the
 sandbox, then runs `agent/install.sh`, each step rendered as a check or cross
 row with its reason. The same thing from a terminal is `ava agent provision`. It
 is idempotent; re-run it any time, and after `nemoclaw <name> rebuild`.
-
-<video controls playsinline preload="metadata"
-       style="width:100%;border-radius:8px"
-       aria-label="Screen recording: provisioning the agent runtime from Setup → Agent, step by step">
-  <source src="../../assets/agent-setup-tour.mp4" type="video/mp4">
-  <track kind="captions" srclang="en" label="English"
-         src="../../assets/agent-setup-tour.vtt">
-  Your browser can't play video. <a href="../../assets/agent-setup-tour.mp4">Download the walkthrough</a>.
-</video>
-
-Provisioning from Setup → Agent → Runtime, step by step.
-
-![Setup → Agent after clicking Provision / re-check: each provisioning step listed with a check mark and its detail line](../assets/agent-setup-2-provision.png)
 
 !!! note "The browser button never installs the CLI"
 
@@ -233,7 +218,7 @@ closed, and a test tells its author which entry to add.
 | Group | May reach |
 |---|---|
 | `admin` | `logs`, `perf`, `config`, `policies`, **`code_change`**, `model` |
-| `content` | `documents`, `run_gpu_job`, `model`, `web` |
+| `content` | `documents`, `model`, `web` |
 | `connectors` | `connectors` |
 | `productivity` | `learning`, `model` |
 | `system` | `architecture`, `model` |
@@ -354,7 +339,7 @@ until you merge the branch yourself.
     .env  .env.*  *.env            secrets/  secrets/**
     data/**                        models/**            (voiceprint, TTS weights)
     **/.secret  **/.internal_token  **/auth_password  **/setup_claim
-    .git/**   .venv/**   run/**    bin/**  logs/**  media/**  gpusvc/**  enroll/**
+    .git/**   .venv/**   run/**    bin/**  logs/**  media/**  enroll/**
     ava.yaml                       connector_grants.yaml
     *.pem  *.key  *.onnx  *.npy  *.ckpt  *.ort
     ```
@@ -400,7 +385,7 @@ code:
     The chat composer has a **Code mode** switch; it is not the path to
     self-editing and does not drive any of the above. Governed code changes are
     agent-driven and reviewed in the Control Center. See
-    [Chat, voice & creation](chat.md).
+    [Chat & voice](chat.md).
 
 ---
 
@@ -477,8 +462,8 @@ panel report what is deployed *into the sandbox*, diffed by sha256 against the
 repo. A skill you just edited reads *edited · re-provision* until you re-run
 provisioning. The UI will not claim a capability the agent does not have.
 
-**Everything above competes for the same memory.** The agent's model, an image
-pipeline and a voice sidecar all want the GPU. See
+**Everything above competes for the same memory.** The agent's model, a second
+model you keep resident and a voice sidecar all want the GPU. See
 [Running two models](../ALLOCATION.md) for how Ava arbitrates that, and
 [Data, memory & privacy](data.md) for what the audit ledger records about every
 decision on this page.

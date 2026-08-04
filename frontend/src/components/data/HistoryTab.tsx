@@ -61,7 +61,7 @@ const HISTORY_CATS: { id: string; label: string; kinds: string[] }[] = [
   { id: 'code', label: 'Self-edits', kinds: ['code_change'] },
   { id: 'memory', label: 'Memory', kinds: ['memory_recall', 'memory_distill', 'memory_edit'] },
   { id: 'perms', label: 'Permissions', kinds: ['grant', 'revoke', 'approval'] },
-  { id: 'system', label: 'System', kinds: ['route', 'job', 'egress', 'data_export', 'data_maintenance'] },
+  { id: 'system', label: 'System', kinds: ['egress', 'data_export', 'data_maintenance'] },
 ];
 
 export function HistoryTab() {
@@ -120,7 +120,7 @@ export function HistoryTab() {
           { icon: 'code', term: 'Self-edits', desc: 'Changes the agent made to its own code, the commit, and who approved it.' },
           { icon: 'db', term: 'Memory', desc: 'Recalls folded into a reply, plus facts distilled from chats or edited by you.' },
           { icon: 'lock', term: 'Permissions', desc: 'Connector grants, revokes, and one-off approvals.' },
-          { icon: 'activity', term: 'System', desc: 'Intent routing, media jobs, and data export / maintenance.' },
+          { icon: 'activity', term: 'System', desc: 'Tool calls and data export / maintenance.' },
         ]}
         foot={<div>Append-only — nothing here can be altered after the fact. The raw file, its size on disk and a whole-archive export are on the <b>Overview</b> and <b>Maintenance</b> tabs.</div>}
       />

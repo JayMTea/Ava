@@ -9,9 +9,6 @@ throughput over time:
     time-to-first-token, the exact sampling parameters (temperature/top_p/…), how
     the request was served (vLLM/Ollama/cloud), which local brain answered and
     whether a failover happened.
-  * Image renders    (category "image")   — written by gpu_service.py: checkpoint,
-    steps, cfg, sampler/scheduler, resolution, seed, refine_hi settings, steps/sec.
-  * Upscales         (category "upscale") — written by gpu_service.py: model + time.
 
 The log is append-only JSONL so it's trivial to analyse later (jq, pandas, or the
 built-in ``python perf_log.py`` summary). Writes are best-effort and never raise
@@ -204,17 +201,12 @@ def _stats(vals):
 def summarize(rows: list | None = None) -> dict:
     """Aggregate throughput by category / model for quick eyeballing."""
     rows = rows if rows is not None else _read()
-    llm, img, up = {}, [], []
+    llm = {}
     for r in rows:
-        cat = r.get("category")
-        if cat == "llm":
+        if r.get("category") == "llm":
             key = r.get("served_label") or r.get("served_model") or "?"
             llm.setdefault(key, []).append(r)
-        elif cat == "image":
-            img.append(r)
-        elif cat == "upscale":
-            up.append(r)
-    out = {"total_records": len(rows), "llm": {}, "image": {}, "upscale": {}}
+    out = {"total_records": len(rows), "llm": {}}
     for label, recs in llm.items():
         out["llm"][label] = {
             "count": len(recs),
@@ -222,17 +214,6 @@ def summarize(rows: list | None = None) -> dict:
             "ttft_ms": _stats([r.get("ttft_ms") for r in recs]),
             "completion_tokens": _stats([r.get("completion_tokens") for r in recs]),
             "failovers": sum(1 for r in recs if r.get("failover")),
-        }
-    if img:
-        out["image"] = {
-            "count": len(img),
-            "render_seconds": _stats([r.get("render_seconds") for r in img]),
-            "steps_per_sec": _stats([r.get("steps_per_sec") for r in img]),
-        }
-    if up:
-        out["upscale"] = {
-            "count": len(up),
-            "seconds": _stats([r.get("seconds") for r in up]),
         }
     return out
 

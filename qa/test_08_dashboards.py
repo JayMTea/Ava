@@ -118,5 +118,4 @@ class TestOpsSnapshot(unittest.TestCase):
         from ava_bridge import dashboard
         snap = dashboard.live_snapshot()
         self.assertIn("turns", snap)
-        self.assertIn("jobs", snap)
         self.assertIn("hw", snap)

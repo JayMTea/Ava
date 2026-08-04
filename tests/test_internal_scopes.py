@@ -16,7 +16,7 @@ only holds while every route is classified: an unclassified path is refused for
 derived tokens, which is safe but presents as a broken tool. This guard turns
 that into a build failure with instructions instead.
 
-Style matches tests/test_no_eval_data.py: a `git ls-files` scan, no bridge, no
+Style matches tests/test_diagram_sync.py: a `git ls-files` scan, no bridge, no
 network.
 """
 import os

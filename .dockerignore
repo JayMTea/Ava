@@ -51,7 +51,7 @@ frontend/dist
 /models
 /enroll
 bin/piper
-gpusvc/user
+gpusvc
 searxng
 **/*.log
 
@@ -75,6 +75,5 @@ connectors/*
 !connectors/README.md
 !connectors/_template
 !connectors/bridge
-!connectors/gpu-service
 !connectors/local-llm
 !connectors/router

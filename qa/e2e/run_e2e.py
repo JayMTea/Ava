@@ -1,6 +1,6 @@
 """Tier 3 orchestrator — frontend E2E against the REAL bridge (no mocked API).
 
-Boots the fake LLM/gpusvc/app servers and one real bridge subprocess on a fresh
+Boots the fake LLM/app servers and one real bridge subprocess on a fresh
 AVA_HOME, links demo/node_modules next to the specs (playwright + tsx live
 there), then runs each spec in order against the live instance. The first spec
 performs first-run setup, so ordering matters.
@@ -18,7 +18,6 @@ sys.path.insert(0, _REPO)
 from qa.bridge_proc import BridgeProc          # noqa: E402
 from qa.env_recipe import QA_PASSWORD, free_port  # noqa: E402
 from qa.fakes.fake_app import FakeApp          # noqa: E402
-from qa.fakes.fake_gpusvc import Fakegpusvc      # noqa: E402
 from qa.fakes.fake_llm import FakeLLM          # noqa: E402
 
 # Distinct from 0 and 1 on purpose. Returning 0 when nothing ran made qa/run.sh
@@ -65,9 +64,8 @@ def main() -> int:
         os.symlink(os.path.dirname(os.path.dirname(tsx)), link)
 
     llm = FakeLLM(free_port()).start()
-    gpusvc = Fakegpusvc(free_port()).start()
     app = FakeApp(free_port()).start()
-    bridge = BridgeProc(llm.url, gpusvc.url).start(timeout=90)
+    bridge = BridgeProc(llm.url).start(timeout=90)
     print(f"[e2e] bridge live at {bridge.base_url} (home {bridge.home})")
 
     env = dict(os.environ)

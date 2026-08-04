@@ -78,7 +78,7 @@ jobs:
           provenance: true
           sbom: true
 
-      # The `agent` and `full` profiles need this image, and until now no
+      # The `agent` profile needs this image, and until now no
       # automation had ever built it, let alone published one — so anyone opting
       # into the tool-using agent had to build it locally from a Dockerfile that
       # nothing verified. Same platforms, provenance and SBOM as the bridge.

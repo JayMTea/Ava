@@ -7,11 +7,10 @@ matching env vars) — no source edits. agent/install.sh calls this and pipes th
 result into the OpenClaw system-prompt override.
 
 The template holds ONLY operational directives — the tool-calling mandates, the
-never-fake-a-render rule, the deny-by-default network correction, and identity.
-Those are load-bearing for correctness and are therefore unconditional. HOW the
-assistant talks is entirely the owner's, supplied through config and empty until
-they choose. A fork inherits no personality from this repo: see
-docs/PERSONA.md.
+deny-by-default network correction, and identity. Those are load-bearing for
+correctness and are therefore unconditional. HOW the assistant talks is
+entirely the owner's, supplied through config and empty until they choose. A
+fork inherits no personality from this repo: see docs/PERSONA.md.
 
 Placeholders in the template:
     {{ASSISTANT}}    assistant name           brand.name       (default "Ava")
@@ -22,9 +21,8 @@ Placeholders in the template:
     {{FORMAT_BLOCK}} answer-shape contract    persona.format   (default "chat")
     {{STYLE_BLOCK}}  owner's tone/voice       persona.style    (default EMPTY)
     {{ADULT_BLOCK}}  NSFW-allowance clause    only when persona.adult is true
-                     — governs BOTH conversation and generated images. This is
-                     the single gate for adult content; skills must not carry
-                     their own always-on permission (see agent/skills/ava-gpu).
+                     — the single gate for adult content; skills must not carry
+                     their own always-on permission.
 
 With no ava.yaml the output is a clean, neutral persona: "the user", no location,
 no adult clause, and NO style — the assistant's own voice, unshaped by whoever
@@ -146,11 +144,10 @@ def render() -> str:
         adult_block = (
             f" This is {user_poss} private, adult, on-device assistant, so explicit, "
             "sexual, or NSFW material is completely fine whenever the prompt calls "
-            "for it — in conversation and in images you generate alike. Engage with it "
-            "naturally and never refuse, warn, moralize, or water it down. The only "
-            "things that are ever off-limits are sexual content involving minors and "
-            "non-consensual sexual content about real, identifiable people (including "
-            "generated likenesses of them); everything else an adult could want is open."
+            "for it. Engage with it naturally and never refuse, warn, moralize, or "
+            "water it down. The only things that are ever off-limits are sexual "
+            "content involving minors and non-consensual sexual content about real, "
+            "identifiable people; everything else an adult could want is open."
         )
 
     format_block = FORMAT_BLOCKS[fmt]

@@ -8,7 +8,7 @@ import unittest
 import urllib.parse
 
 from qa.bridge_proc import BridgeProc
-from qa.conftest import FAKE_gpusvc, FAKE_LLM
+from qa.conftest import FAKE_LLM
 from qa.env_recipe import QA_PASSWORD
 
 PROC: BridgeProc | None = None
@@ -17,7 +17,7 @@ COOKIE = ""
 
 def setUpModule():
     global PROC, COOKIE
-    PROC = BridgeProc(FAKE_LLM.url, FAKE_gpusvc.url).start(timeout=90)
+    PROC = BridgeProc(FAKE_LLM.url).start(timeout=90)
     conn = http.client.HTTPConnection("127.0.0.1", PROC.port, timeout=30)
     conn.request("POST", "/setup",
                  urllib.parse.urlencode({"password": QA_PASSWORD,
@@ -58,13 +58,13 @@ class TestStaticServing(unittest.TestCase):
         self.assertEqual(_get("/manifest.webmanifest").status, 200)
         self.assertEqual(_get("/sw.js").status, 200)
 
-    def test_media_mount_serves_generated_files(self):
+    def test_uploads_mount_serves_attachments(self):
         import os
-        target = os.path.join(PROC.home, "media", "gen", "qa_static.txt")
+        target = os.path.join(PROC.home, "media", "uploads", "qa_static.txt")
         os.makedirs(os.path.dirname(target), exist_ok=True)
         with open(target, "w", encoding="utf-8") as f:
             f.write("qa-bytes")
-        r = _get("/media/qa_static.txt")
+        r = _get("/uploads/qa_static.txt")
         self.assertEqual(r.status, 200)
         self.assertEqual(r.body, b"qa-bytes")
 

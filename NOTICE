@@ -35,9 +35,8 @@ their OWN licenses, which apply to those components. Notable examples:
     stub) and not redistributed in this repository; upstream is an alpha
     project.
   - Inference engines (e.g. vLLM, Ollama, llama.cpp) — their respective licenses.
-  - Models / checkpoints you download (LLMs, the GPU model, upscalers, video models) —
-    each has its own license and acceptable-use terms. Review before use.
-  - the GPU service and its custom nodes — their respective licenses.
+  - Models / checkpoints you download (LLMs) — each has its own license and
+    acceptable-use terms. Review before use.
   - Weather data: Open-Meteo (https://open-meteo.com), used by the built-in
     `get_weather` tool. The data is licensed CC BY 4.0 and the free API tier is
     non-commercial only; commercial deployments need an Open-Meteo
@@ -46,10 +45,8 @@ their OWN licenses, which apply to those components. Notable examples:
     app — see frontend/package.json — and their upstream licenses.
 
 Ava does not display model license terms during install. Before you pull a
-model, read its license: the default image checkpoint (the GPU model 1.0) is CreativeML
-Open RAIL++-M, whose use-based restrictions must be passed on to downstream
-recipients, and the Llama-family defaults are under Meta's Llama Community
-License. Provisioning the agent runtime runs NVIDIA's installer with
+model, read its license: the Llama-family defaults are under Meta's Llama
+Community License. Provisioning the agent runtime runs NVIDIA's installer with
 NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE=1, which accepts NemoClaw's third-party
 software terms on your behalf. It is the operator's responsibility to comply
 with the terms of any model or component they choose to install.

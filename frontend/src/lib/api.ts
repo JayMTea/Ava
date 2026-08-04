@@ -8,7 +8,6 @@ import type {
   ChatDetail,
   ChatSummary,
   HardwareStats,
-  ImageJob,
   LearningActionResult,
   LearningState,
   LearnContext,
@@ -86,10 +85,10 @@ export const api = {
     return fetch('/api/ghost/discard', { method: 'POST', body: fd, credentials: 'same-origin' }).catch(() => {});
   },
 
-  // Turns. /api/chat-stream is the ONE ingress for typed messages: the
-  // server-side intent gate answers {turn_id} (agent turn) or {job} (render).
+  // Turns. /api/chat-stream is the ONE ingress for typed messages; it answers
+  // {turn_id} and the caller polls /api/turn/<id> for the reply.
   startTurn: (fd: FormData) =>
-    req<{ turn_id?: string; job?: ImageJob; route?: string; error?: string; error_code?: string }>(
+    req<{ turn_id?: string; route?: string; error?: string; error_code?: string }>(
       '/api/chat-stream', { method: 'POST', body: fd }),
   turn: (id: string) => req<TurnStatus>(`/api/turn/${id}`),
   weatherArtifact: (location: string, days: number) =>
@@ -97,28 +96,6 @@ export const api = {
 
   // Voice (push-to-talk): audio blob -> transcription + Ava reply + spoken WAV
   talk: (fd: FormData) => req<TalkResponse>('/api/talk', { method: 'POST', body: fd }),
-
-  // Jobs / images
-  job: (id: string) => req<ImageJob>(`/api/job/${id}`),
-  cancelJob: (id: string) => req<{ ok?: boolean; job?: ImageJob; error?: string }>(`/api/job/${id}/cancel`, { method: 'POST' }),
-  // The bridge persists the upscaled image to the chat itself when the job
-  // completes; the caller polls api.job() only to update its own display.
-  upscale: (filename: string, chatId?: string, caption?: string) => {
-    const fd = new FormData();
-    fd.append('filename', filename);
-    if (chatId) fd.append('chat_id', chatId);
-    if (caption) fd.append('caption', caption);
-    return req<{ job?: ImageJob; error?: string }>('/api/upscale', { method: 'POST', body: fd });
-  },
-  // Tier-0 explicit affordance (a Generate BUTTON, not a sentence) — typed
-  // messages route through startTurn's server-side gate instead.
-  generate: (prompt: string, chatId: string, chatText: string) => {
-    const fd = new FormData();
-    fd.append('prompt', prompt);
-    fd.append('chat_id', chatId);
-    fd.append('chat_text', chatText);
-    return req<{ job?: ImageJob; error?: string }>('/api/generate', { method: 'POST', body: fd });
-  },
 
   // Uploads
   upload: (files: File[]) => {

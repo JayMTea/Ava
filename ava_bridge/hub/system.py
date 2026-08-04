@@ -38,7 +38,6 @@ def system():
         "voice": features.enabled("voice"),
         "voiceprint": voiceprint,
         "web_search": features.enabled("web_search"),
-        "image": features.enabled("image"),
         "features": features.snapshot(),
         # "" when ava.yaml is fine. When it is not, EVERY setting on this page
         # is silently showing its default and no save will be accepted, so the

@@ -92,8 +92,8 @@ export const TOURS: Record<string, TourStep[]> = {
     {
       target: '[data-tour="ops-live"]',
       title: 'What is happening now',
-      body: 'In-flight answers and renders, streaming as they run. Empty is the '
-        + 'normal state.',
+      body: 'In-flight answers, streaming as they run. Empty is the normal '
+        + 'state.',
     },
     {
       target: '[data-tour="ops-alerts"]',

@@ -8,8 +8,6 @@ That is the whole design: the dashboard is not a decoration painted over a
 guess, it is a rendering of an append-only log. Every number below traces to a
 line you can open yourself.
 
-![The Vitals dashboard: a six-tile KPI strip, a today's-budget meter, an inference-throughput chart with a Day/Week/Month range dropdown beside a model-routing donut, generation-performance and energy-by-app bar lists, and the connected-apps panel](../assets/vitals-dashboard.png)
-
 ## What is *not* collected
 
 This matters more than any number on the page:
@@ -19,8 +17,7 @@ This matters more than any number on the page:
 - **No per-user telemetry.** There are no users to attribute to; Ava is a
   single-owner system.
 - **No content telemetry.** No prompt text, no reply text, no message bodies
-  are ever written to the perf log. An image record stores the prompt's
-  *character count*, not the prompt.
+  are ever written to the perf log.
 - **Nothing leaves the machine.** There is no phone-home, no analytics
   endpoint, no vendor dashboard. The files are on your disk and only you read
   them.
@@ -30,9 +27,7 @@ whole of it.
 
 ## The KPI strip
 
-![The six KPI tiles at native size: Spend (7d) $0.00 from 7 sources; Energy (7d, est.) 6.970 kWh, sub-labelled "estimate, 214 W typical for this platform, not measured here"; Throughput 56.0 tok/s over 16,594 completions; TTFT 0.44 s; Renders 3,055; Route errors 0](../assets/vitals-kpi-strip.png)
-
-Six tiles. Each has a hover hint that explains in plain language what the
+Five tiles. Each has a hover hint that explains in plain language what the
 number means, and the glossary lives in one file
 (`frontend/src/components/dashboard/metrics.ts`) reused across Vitals and
 Operations, so the same metric never gets two explanations.
@@ -43,7 +38,6 @@ Operations, so the same metric never gets two explanations.
 | **Energy (7d)** | GPU kilowatt-hours. Labelled **"Energy (7d, est.)"** unless every watt-hour in the window was sampled - which for a 7-day window it essentially never is (see below). The hint distinguishes "part measured" from "no GPU power sensor". | same call; `energy_state` (`measured`/`partial`/`estimated`) decides the label |
 | **Throughput** | Average tokens/sec across models, weighted by completion count. Sub-line shows how many completions it averaged. | `GET /api/perf/summary` |
 | **TTFT** | Average time to first token: how long before Ava starts replying. | same summary |
-| **Renders** | Image + video generations completed, with upscales on the sub-line. | same summary |
 | **Route errors** | How many times the inference router fell back to a backup backend. Zero is the healthy state. | `failovers` count in the summary |
 
 The **Today's budget** meter appears above the charts only once you have set a
@@ -83,7 +77,7 @@ Set `AVA_PERF_LOG=0` to turn generation logging off entirely.
     | `ts` | epoch seconds |
     | `iso` | local wall clock |
     | `host` | the machine that generated it |
-    | `category` | `llm`, `image` or `upscale` |
+    | `category` | `llm` |
 
     An LLM completion served through the inference router adds the facts the
     router knows: the serving engine, the endpoint, which backend answered,
@@ -98,10 +92,6 @@ Set `AVA_PERF_LOG=0` to turn generation logging off entirely.
      "served_by":"b1","served_model":"test-model","status":200,
      "prompt_tokens":3,"completion_tokens":2,"ttft_ms":0.4,"gen_seconds":0.0}
     ```
-
-    Image renders record the checkpoint, steps, cfg, sampler/scheduler,
-    resolution, seed, refine_hi settings, render seconds and steps/sec. Upscales
-    record the model and the time it took.
 
     Writes are best-effort and **never raise into the generation path** - a
     full disk costs you a log line, not a reply. The two writer processes (the
@@ -290,7 +280,6 @@ there appears everywhere with its axis already correct.
 |---|---|
 | **Inference throughput** | Tokens/sec over time, one line per model. Its empty state is honest about *why* it is empty: "turns are recorded, but no token-rate samples in this range" is a different problem from "no inference recorded yet", and it says which. |
 | **Model routing** | A donut of each model's share of completions. On a default agent install every completion carries the same label - the sandbox model - so it reads as a single slice until you add a second backend. |
-| **Generation performance** | Average seconds per render pass, one bar each for image renders, video renders and upscales, hiding any that has no data. |
 | **Energy by app (7d)** | Estimated kWh grouped by app, from the same cost call as the KPI strip. |
 | **Connected apps** | A grid built live from the connector registry, external apps only. Each card shows 7-day call count, energy and action count - or, before an app has done anything, the honest **"connected · no metrics yet - history starts with its first call"** instead of a zero pretending to be a measurement. |
 | **Hardware** | Four gauges (GPU util, GPU temp, memory, CPU) and a live watts readout from the instantaneous snapshot, over a multi-series chart of the bucketed history. |

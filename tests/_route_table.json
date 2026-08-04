@@ -84,13 +84,6 @@
   "APIRoute"
  ],
  [
-  "/api/chats/{cid}/image",
-  [
-   "POST"
-  ],
-  "APIRoute"
- ],
- [
   "/api/code-turns",
   [
    "GET"
@@ -185,13 +178,6 @@
   "/api/devices",
   [
    "GET"
-  ],
-  "APIRoute"
- ],
- [
-  "/api/generate",
-  [
-   "POST"
   ],
   "APIRoute"
  ],
@@ -728,27 +714,6 @@
   "APIRoute"
  ],
  [
-  "/api/job/{job_id}",
-  [
-   "GET"
-  ],
-  "APIRoute"
- ],
- [
-  "/api/job/{job_id}/cancel",
-  [
-   "POST"
-  ],
-  "APIRoute"
- ],
- [
-  "/api/jobs",
-  [
-   "GET"
-  ],
-  "APIRoute"
- ],
- [
   "/api/learning/chat/apply",
   [
    "POST"
@@ -980,13 +945,6 @@
   "APIRoute"
  ],
  [
-  "/api/upscale",
-  [
-   "POST"
-  ],
-  "APIRoute"
- ],
- [
   "/apps/{cid}/api/{path:path}",
   [
    "DELETE",
@@ -1143,13 +1101,6 @@
   "APIRoute"
  ],
  [
-  "/internal/run-gpu-job",
-  [
-   "POST"
-  ],
-  "APIRoute"
- ],
- [
   "/internal/learning/chats",
   [
    "GET"
@@ -1269,11 +1220,6 @@
   "APIRoute"
  ],
  [
-  "/media",
-  [],
-  "Mount"
- ],
- [
   "/openapi.json",
   [
    "GET",
@@ -1312,13 +1258,6 @@
  ],
  [
   "/sw.js",
-  [
-   "GET"
-  ],
-  "APIRoute"
- ],
- [
-  "/thumb/{name}",
   [
    "GET"
   ],

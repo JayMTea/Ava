@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { CotStep } from '../../lib/types';
 import { Icon } from '../../lib/icons';
 import { fixForCode } from '../../lib/fixes';
-import { FixLink } from './Media';
+import { FixLink } from '../../lib/FixLink';
 
 interface Props {
   label: string;
@@ -11,9 +11,8 @@ interface Props {
   secs?: number;
   error?: string;
   /** Machine-readable failure code, if the backend knew one. Drives the same
-   *  fix-it link that system messages and render errors already get — this was
-   *  the last failure surface without one, and it is the one a first message
-   *  lands on. */
+   *  fix-it link that system messages already get — this was the last failure
+   *  surface without one, and it is the one a first message lands on. */
   code?: string;
 }
 

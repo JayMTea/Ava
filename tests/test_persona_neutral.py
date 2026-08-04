@@ -1,11 +1,11 @@
 """A fork must inherit no personality from this repo.
 
 Standing decision: `agent/persona.txt.tmpl` carries ONLY operational directives —
-the tool-calling mandates, the never-fake-a-render rule, the deny-by-default
-network correction, and identity. How the assistant *talks* is the owner's, comes
-from `persona.style` / `persona.format`, and is empty on a fresh install. Shipping
-a personality as if it were a default makes every fork sound like whoever wrote
-the template, which is the opposite of the product's whole claim.
+the tool-calling mandates, the deny-by-default network correction, and identity.
+How the assistant *talks* is the owner's, comes from `persona.style` /
+`persona.format`, and is empty on a fresh install. Shipping a personality as if
+it were a default makes every fork sound like whoever wrote the template, which
+is the opposite of the product's whole claim.
 
 Two halves, and both matter:
 
@@ -15,9 +15,7 @@ Two halves, and both matter:
 * POSITIVE — the operational mandates must still be there. Deleting one is
   silent and expensive: the repo has already shipped the refusal bug once
   (tests/test_tooling_note.py records "Ava once denied having web access because
-  the sandbox preamble says outbound network is deny-by-default"), and a missing
-  run_gpu_job mandate makes the model describe pictures instead of drawing
-  them.
+  the sandbox preamble says outbound network is deny-by-default").
 
 Before this module nothing in tests/ or qa/ rendered the persona at all, so an
 empty, garbled, or brace-littered prompt shipped green. `agent/install.sh` only
@@ -54,9 +52,6 @@ _STYLISTIC = (
 # fragments, matched case-insensitively, paired with why they exist.)
 _REQUIRED = (
     ("get_weather", "weather answers hallucinate without the tool-call mandate"),
-    ("run_gpu_job", "the model describes pictures instead of rendering them"),
-    ("never claim that an image was created",
-     "the model claims it rendered something it did not"),
     ("deny-by-default",
      "the sandbox preamble makes Ava deny having web access (see "
      "tests/test_tooling_note.py) — this is the correction"),

@@ -114,7 +114,7 @@ def declared_exposures() -> dict[int, str]:
 
         security:
           declared_exposures:
-            8189: "the GPU service canvas on the tailnet for phone/laptop. NO AUTH."
+            8189: "Sidecar UI on the tailnet for phone/laptop. NO AUTH."
 
     **Tracked mechanism, untracked declaration** — deliberately. The rule belongs
     in the repo so every fork enforces it; *which* ports this particular box

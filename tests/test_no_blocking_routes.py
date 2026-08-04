@@ -81,11 +81,10 @@ _BLOCKING = {
 # Bare names: project helpers whose blocking nature is not in doubt.
 #
 # The voice/turn seams were added after /api/talk was found running the whole
-# turn on the loop: ffmpeg (30s), a speaker embedding, CPU Whisper, the agent
-# turn (600s ceiling) and an image pickup that polls for 120s — seven blocking
-# calls, all DIRECTLY in the route body, and all invisible here because the list
-# only named the two document helpers. The guard reported green on the worst
-# offender in the codebase.
+# turn on the loop: ffmpeg (30s), a speaker embedding, CPU Whisper and the agent
+# turn (600s ceiling) — six blocking calls, all DIRECTLY in the route body, and
+# all invisible here because the list only named the two document helpers. The
+# guard reported green on the worst offender in the codebase.
 #
 # Deliberately NOT listed: settings.save_patch/save_config and the chat_store /
 # memory_store calls. Those are small fsync'd writes and indexed reads that every
@@ -99,7 +98,6 @@ _BLOCKING_BARE = {
     "gpu_transcribe": "HTTP request to the STT sidecar",
     "embed_pcm": "speaker-embedding model inference",
     "tts_wav_bytes": "speech synthesis",
-    "pickup_image_since": "polls the media store for up to 120s",
     "_agent_run_turn": "the agent turn — config.OC_TIMEOUT, up to 600s",
 }
 # `open` is separately handled: reading a small config on the loop is fine, but

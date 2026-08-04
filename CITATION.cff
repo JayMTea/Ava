@@ -12,7 +12,7 @@ cff-version: 1.2.0
 message: "If you use Ava, build on it, or write about it, please cite it as below."
 title: "Ava: a private, self-hosted AI assistant that runs on your own hardware"
 abstract: >-
-  Ava is a self-hosted personal AI assistant: chat, voice, images and agentic code
+  Ava is a self-hosted personal AI assistant: chat, voice and agentic code
   changes, running entirely on hardware you own. It bundles an inference engine, an
   agent runtime in a sandbox with deny-by-default egress policy, a connector SDK for
   wiring in your own applications, and an operations dashboard that reports what it

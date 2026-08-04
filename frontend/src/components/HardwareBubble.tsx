@@ -207,7 +207,6 @@ export function HardwareBubble() {
   const disk = stats?.disk;
   const cpu = stats?.cpu;
   const models = stats?.models || [];
-  const jobs = stats?.jobs || [];
   // The backend already sorts the brain first; being explicit here means the
   // panel opens on what Ava thinks with even if that ever changes.
   const brain = models.find((m) => m.role_key === 'brain') || null;
@@ -235,38 +234,6 @@ export function HardwareBubble() {
             {/* Left column: the machine. */}
             <div className="hwb-col">
               <Metric label="GPU util" value={pct(gpu?.util)} progress={gpu?.util ?? 0} />
-              {/* What's driving the GPU right now — names the job behind a spike. */}
-              <div
-                style={{
-                  marginTop: 6,
-                  marginBottom: 4,
-                  padding: '6px 8px',
-                  border: '1px solid var(--line)',
-                  borderRadius: 8,
-                  background: jobs.length ? 'rgba(52,210,122,0.07)' : 'transparent',
-                }}
-              >
-                <div style={{ color: 'var(--muted)', fontSize: 11, marginBottom: jobs.length ? 4 : 0 }}>Running now</div>
-                {jobs.length === 0 ? (
-                  <div style={{ color: 'var(--muted)', fontSize: 11 }}>Idle — no active render or job.</div>
-                ) : (
-                  jobs.map((j, i) => (
-                    <div key={i} style={{ fontSize: 11.5, lineHeight: 1.4, display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                      <span style={{ flex: '0 0 auto', width: 6, height: 6, borderRadius: '50%', background: '#34d27a', display: 'inline-block', transform: 'translateY(-1px)' }} />
-                      <span>
-                        <b>{j.name}</b>
-                        {(j.stage || j.progress != null) && (
-                          <span style={{ color: 'var(--muted)' }}>
-                            {' — '}
-                            {j.stage || 'running'}
-                            {j.progress != null ? ` (${Math.round(j.progress)}%)` : ''}
-                          </span>
-                        )}
-                      </span>
-                    </div>
-                  ))
-                )}
-              </div>
               <Metric
                 label={`Memory · ${gb(mem?.used_gb)} / ${gb(mem?.total_gb)}`}
                 value={pct(mem?.used_pct)}
@@ -401,9 +368,7 @@ export function HardwareBubble() {
                             </div>
                           ) : (
                             <div style={{ color: 'var(--muted)', fontSize: 11 }}>
-                              {String(selectedModel.name || '').toLowerCase().includes('gpusvc')
-                                ? 'No gpusvc component breakdown detected yet (it updates once model file mappings are visible).'
-                                : 'No component breakdown available for this runtime.'}
+                              No component breakdown available for this runtime.
                             </div>
                           )}
                         </div>

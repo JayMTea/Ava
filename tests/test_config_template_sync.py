@@ -19,7 +19,7 @@ So this checks the three things that are exactly checkable, and says so:
   * every `[AVA_*]` annotation names an env var some module actually reads,
   * the two settings whose defaults are security decisions have not drifted back.
 
-Style matches tests/test_no_eval_data.py: a `git ls-files` scan, no bridge, no
+Style matches tests/test_diagram_sync.py: a `git ls-files` scan, no bridge, no
 network.
 """
 import os

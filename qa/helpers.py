@@ -57,19 +57,6 @@ def wait_turn(client, tid: str, timeout: float = 30.0) -> dict:
     raise AssertionError(f"turn {tid} still running after {timeout}s")
 
 
-def wait_job(client, jid: str, timeout: float = 60.0) -> dict:
-    """Poll /api/job/{jid} until it reaches a terminal status."""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        r = client.get(f"/api/job/{jid}")
-        assert r.status_code == 200, r.text
-        j = r.json()
-        if j.get("status") not in ("queued", "running"):
-            return j
-        time.sleep(0.2)
-    raise AssertionError(f"job {jid} not terminal after {timeout}s")
-
-
 def refresh_connectors() -> None:
     """Force the live registry + perf sources to re-read right now (tests move
     faster than the 30s registry TTL)."""

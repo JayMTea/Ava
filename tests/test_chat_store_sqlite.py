@@ -5,11 +5,11 @@ someone's conversation history, and a lossy migration is not recoverable from th
 inside — it looks like success.
 
 So the central check is a ROUND TRIP against a corpus containing every message
-shape the real store has produced (attachments, images, model metadata,
-img_models, tools_used, trimmed reasoning steps, error codes) plus a field this
-code has never heard of. That last one is the point of the `extra` JSON column:
-message shape has grown repeatedly, and a store that only preserves the fields
-it knows about silently drops the next one.
+shape the real store has produced (attachments, model metadata, tools_used,
+trimmed reasoning steps, error codes) plus a field this code has never heard of.
+That last one is the point of the `extra` JSON column: message shape has grown
+repeatedly, and a store that only preserves the fields it knows about silently
+drops the next one.
 """
 import json
 import os
@@ -39,11 +39,9 @@ class RoundTripTests(unittest.TestCase):
         cid = self.cs.chat_new("t")["id"]
         rich = {
             "atts": [{"filename": "a.pdf", "kind": "doc", "url": "/u/a.pdf"}],
-            "image": "/media/out/x.png",
             "model": {"id": "m", "label": "M"},
-            "img_models": ["gpumodel"],
             "tools_used": ["web_fetch"],
-            "error_code": "image_off",
+            "error_code": "web_search_off",
         }
         self.cs.chat_append(cid, "assistant", "hello", ts=1000.0, **rich)
         got = self.cs.get(cid)["messages"][0]
@@ -122,8 +120,8 @@ class LegacyMigrationTests(unittest.TestCase):
                    {"role": "user", "content": "hi", "ts": 110.0},
                    {"role": "assistant", "content": "yo", "ts": 120.0,
                     "model": {"id": "m"}, "tools_used": ["web_fetch"]},
-                   {"role": "assistant", "content": "pic", "ts": 140.0,
-                    "image": "/media/out/a.png", "img_models": ["gpumodel"],
+                   {"role": "assistant", "content": "here it is", "ts": 140.0,
+                    "atts": [{"filename": "a.pdf", "kind": "doc"}],
                     "a_future_field": {"nested": [1, 2]}},
                ]},
         "c2": {"id": "c2", "title": "Second", "created": 200.0, "updated": 200.0,
@@ -136,7 +134,7 @@ class LegacyMigrationTests(unittest.TestCase):
         msgs = cs.get("c1")["messages"]
         self.assertEqual([m["ts"] for m in msgs], [110.0, 120.0, 140.0])
         self.assertEqual(msgs[1]["tools_used"], ["web_fetch"])
-        self.assertEqual(msgs[2]["img_models"], ["gpumodel"])
+        self.assertEqual(msgs[2]["atts"], [{"filename": "a.pdf", "kind": "doc"}])
         # The field this code has never heard of — what `extra` exists for.
         self.assertEqual(msgs[2]["a_future_field"], {"nested": [1, 2]})
         c2 = cs.get("c2")

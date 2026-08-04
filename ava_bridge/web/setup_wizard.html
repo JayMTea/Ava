@@ -125,16 +125,13 @@
 
   <!-- Step 3: features + finish.
        There was a fourth step here asking which connectors to enable, and it
-       was three questions a first-run user cannot answer plus one they should
-       not be asked. Bridge, Local LLM and Inference Router are all kind:core —
+       was three questions a first-run user cannot answer. Bridge, Local LLM
+       and Inference Router are all kind:core —
        this app's own HTTP bridge, the engine it thinks with, and a router inside
        that bridge. There is no correct answer but "leave them alone", so the
        checkboxes offered agency that did not exist and the only available move
-       was self-harm. the GPU service, the one real option, is gated behind the `full`
-       compose profile, so on a cpu or gpu install it was pre-ticked for a
-       service that was never deployed. And the answer went nowhere:
-       connectors.load() filters on `enabled` in each MANIFEST, never on the
-       list this wrote to ava.yaml.
+       was self-harm. And the answer went nowhere: connectors.load() filters on
+       `enabled` in each MANIFEST, never on the list this wrote to ava.yaml.
        Connectors are managed in Setup -> Connectors, which has the room to
        explain them and shows them when they actually exist. -->
   <div class="step" data-step="2">
@@ -357,7 +354,7 @@ async function save(skip){
   document.querySelectorAll('#featList input[data-feat]').forEach(i=>{features[i.dataset.feat]=i.checked;});
   // No `connectors` key. Omitted, not empty: the save path only patches
   // ava.yaml when the key is PRESENT, so sending [] here would have wiped the
-  // shipped `connectors: [gpu-service]` default the moment the checkbox list stopped
+  // shipped `connectors:` default the moment the checkbox list stopped
   // existing. Setup -> Connectors owns that list now.
   const body={inference:inf,features};
   if(skip) body.skip_inference=true;

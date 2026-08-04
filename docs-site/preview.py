@@ -7,11 +7,10 @@
 Why this exists rather than just `mkdocs serve`:
 
   * Range requests. `mkdocs serve` and `python -m http.server` both answer a
-    `Range:` header with a plain `200` and the whole file. Browsers need `206`
-    to seek inside a video, so on those servers the walkthrough embeds cannot
-    be scrubbed and a long clip can stall. GitHub Pages does support Range, so
-    reviewing the site on a server that does not is reviewing a site that
-    behaves differently from the published one.
+    `Range:` header with a plain `200` and the whole file, where a browser
+    asking to seek inside a large asset needs a `206`. GitHub Pages does
+    support Range, so reviewing the site on a server that does not is reviewing
+    a site that behaves differently from the published one.
 
   * The path prefix. `site_url` puts the site at `/Ava/`, not `/`. `mkdocs
     serve` honours that (its root just redirects), but a bare

@@ -15,8 +15,6 @@ The prompt Ava starts from (`agent/persona.txt.tmpl`) contains only
 
 - Call `get_weather` for anything about weather, rather than answering from
   training data.
-- Create images only by calling `run_gpu_job`, and never claim an image was
-  rendered without actually calling it.
 - Reach its own tools as native tool calls, not by writing code.
 - Ignore the sandbox's "outbound network is deny-by-default" notice when it comes
   to its own built-in tools - otherwise the model concludes it has no web access
@@ -43,7 +41,7 @@ persona:
 | --- | --- | --- |
 | `style` | *empty* | Free text, written straight into the prompt. Empty means the model's own voice, unshaped. Max 4000 characters. |
 | `format` | `chat` | `chat` = plain text, no markdown. `markdown` = headings, tables and code blocks allowed. |
-| `adult` | `false` | The single gate for explicit content, covering conversation **and** generated images. |
+| `adult` | `false` | The single gate for explicit content in conversation. |
 
 Environment overrides: `AVA_PERSONA_STYLE`, `AVA_PERSONA_FORMAT`,
 `AVA_PERSONA_ADULT`. These outrank `ava.yaml`, so if one is set the Setup panel

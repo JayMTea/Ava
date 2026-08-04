@@ -15,15 +15,15 @@ That gap has a cost. `model_fit.fits_now(profile, free_gb, assume_loaded=False)`
 is a complete cold-load admission predicate: implemented, unit-tested, and served
 on `GET /fit` as `cold_load_ok`. It has **zero consumers**. Nothing can act on it.
 
-Meanwhile the boxes that run Ava alongside a heavy image/video pipeline
-oversubscribe their memory. A model server and a latent pipeline pipeline each want tens
-of GiB of the same pool, so at most one can be resident. Operators have been
-solving this per-application, and the failure modes are severe and quiet:
+Meanwhile the boxes that run Ava alongside a second heavy model server
+oversubscribe their memory. Two engines each want tens of GiB of the same pool, so
+at most one can be resident. Operators have been solving this per-application, and
+the failure modes are severe and quiet:
 
 - An engine supervised by `--restart unless-stopped` with no backoff cap retries a
   start that cannot possibly succeed. Observed on the development box: **7,997
-  restarts**, because a new render pipeline did not inherit a coordination hold
-  that lived at call sites rather than at the boundary every path crosses.
+  restarts**, because a new model server did not inherit a coordination hold that
+  lived at call sites rather than at the boundary every path crosses.
 - A CUDA model that OOMs during warm-up, catches the exception, and lets its HTTP
   server bind anyway is **indistinguishable from healthy** to `systemctl
   is-active` and to a liveness probe. Observed: a voice sidecar silently degraded

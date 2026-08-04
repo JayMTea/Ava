@@ -1,12 +1,10 @@
-# Chat, voice & creation
+# Chat & voice
 
 The chat view is where almost everything Ava does starts. Typing a message,
-attaching a PDF, asking for a picture, tapping the mic - all of it enters
-through one surface, and **the server decides what happens next**. The browser
-carries no routing knowledge, so what a turn becomes is auditable, testable,
-and identical whether you asked from a laptop or a phone.
-
-![Ava's chat view: a plain-language question about Saturday's calendar and weather, Ava's answer, and under each reply the model that answered it and a "Tools used" chip listing the tools she actually called](../assets/chat.png)
+attaching a PDF, tapping the mic - all of it enters through one surface, and
+**the server owns what happens next**. The browser carries no routing
+knowledge, so a turn is auditable, testable, and identical whether you asked
+from a laptop or a phone.
 
 ## What you can actually do here
 
@@ -32,67 +30,13 @@ answer above it came from these calls, on this machine, and nothing else.
 Chats title themselves from your first message (truncated to 48 characters);
 the sidebar's search box filters the recents list by title.
 
-## How a message gets routed
+## How a message becomes a turn
 
-Everything you send - a question, a follow-up, a file, "draw me a fox in the
-snow" - posts to the single endpoint **`POST /api/chat-stream`**. A
-server-side gate reads it and picks the pipeline: an agent turn, or an image
-render. If the gate is unsure or breaks, the worst case is a message that was
-answered by the wrong pipeline and recorded as such, never silence.
-
-??? info "The four routing tiers, the fingerprint, and the `routing:` config"
-
-    Routing is tiered, and each tier exists because the one above it can fail:
-
-    | Tier | Who decides | What it does |
-    |------|-------------|--------------|
-    | **0** | The UI | Explicit affordances (an image button posts `/api/generate` directly). Declared intent needs no classifier. |
-    | **1** | The route handler | Deterministic short-circuits - attachments present, or empty text - go straight to the agent turn. |
-    | **2** | A small LLM call | One call classifies *and* extracts, under constrained decoding against a fixed JSON schema. |
-    | **3** | Regex | The demoted client-side heuristic, used on timeout, transport error, or malformed output. |
-
-    Tier 2 is the interesting one. The classifier is pinned to a JSON schema
-    (`{"route", "image_prompt"}`, `additionalProperties: false`) sent both as
-    OpenAI-style `response_format` *and* vLLM's `guided_json`, so an aligned
-    model physically cannot answer a classification request with refusal
-    prose. Thinking is off for the fast pass (2 s budget); the model escalates
-    *itself* by emitting the single `unsure` label, which triggers one
-    thinking-on retry with a hard token cap (8 s, 1024 tokens). Still unsure,
-    or anything raises - Tier 3 answers.
-
-    The labels are deliberately content-neutral, and the pipeline map is one
-    dict:
-
-    | Label | Pipeline |
-    |-------|----------|
-    | `chat` | agent turn |
-    | `prompt_help` | agent turn, with a hint that says *edit this prompt, don't run it* |
-    | `image_new` | image job |
-    | `image_refine` | image job, prompt merged with the previous render's |
-
-    Owner content policy is a separate hook that runs **after** routing, never
-    inside the classifier.
-
-    Every decision writes a `route` event to the audit ledger with its label,
-    tier, whether it escalated, latency, and mode - visible in
-    **Data → History**. And because routing behaviour is a function of the
-    prompt, the schema, the labels, the mode, the endpoint and the context
-    template, the gate is **fingerprinted**: a 16-character hash of all of it.
-    `ava doctor` prints the current fingerprint alongside your eval-set
-    accuracy and nudges a re-run when it changes.
-
-    ```yaml
-    routing:
-      mode: llm             # or "regex" to pin the deterministic fallback
-      timeout_s: 2.0        # fast pass
-      think_timeout_s: 8.0  # escalated pass
-      think_budget: 1024    # hard token cap on the escalated pass
-    ```
-
-The handler returns either `{"turn_id": …}` for an agent turn or
-`{"job": …}` for an image render. The client polls only to *paint* progress;
-the bridge persists the outcome either way, so a browser that dies mid-render
-costs you nothing.
+Everything you send - a question, a follow-up, a file - posts to the single
+endpoint **`POST /api/chat-stream`**, and every one of them becomes an agent
+turn. The handler returns `{"turn_id": …}` immediately; the client polls only
+to *paint* progress, and the bridge persists the outcome either way, so a
+browser that dies mid-turn costs you nothing.
 
 ## Live chain of thought
 
@@ -145,43 +89,6 @@ left to guess at a picture she cannot see.
 Extracted text is also chunked into the memory store at upload time, so a
 document you shared last month stays findable - see
 [Memory & recall](../MEMORY.md).
-
-## Images: generate and upscale
-
-Renders take 15-60 seconds, so they run as background jobs. The chat bubble
-shows the live percentage, the current stage (`queued` → `rendering` →
-`upscaling`), a queue hint, elapsed seconds, a **Cancel** button, and a
-collapsible **Prompt details** disclosure.
-
-Close the tab and the render still finishes. The **bridge owns each job's
-outcome**, not the browser: a job bound to a chat gets its terminal state
-persisted as a chat message - the image on success, a coded error on failure -
-and every real render lands in the audit ledger. If a render fails because
-GPU workloads is switched off or the GPU service is down, the job is born errored
-with the code `image_off` / `image_down`, and the chat renders a guided fix-it
-link instead of a spinner that never ends.
-
-Image bubbles offer **Upscale to 4K** (the refiner, itself a background job),
-a tap-to-open lightbox with pinch/wheel/double-tap zoom, and an automatic
-privacy blur after 30 seconds so a generated image isn't left on screen
-indefinitely.
-
-GPU workloads is one switch - `features.image` - which governs the render
-path and how the dashboard paints the GPU service, so "off" never gets reported as
-"down".
-
-??? note "Job endpoints, and why the thumbnail is a WebP"
-
-    `POST /api/generate` and `POST /api/upscale` return a job id immediately;
-    `GET /api/job/{id}` reports progress and `POST /api/job/{id}/cancel` stops
-    it.
-
-    Generated PNGs are full resolution (4K files run past 16 MB) but the chat
-    shows them around 500 px, so **`ensure_thumbnail` lazily writes a small
-    WebP** (~75 KB) on first request for `/thumb/{name}` and caches it on disk.
-    It is generated on demand, so it covers images that predate the feature.
-    Without Pillow installed the route serves the full image and says why,
-    once, on stderr.
 
 ## Side-panel artifacts
 
@@ -273,7 +180,7 @@ plainly that **the gate is open** and anyone can talk to Ava.
   to read, correct or delete it.
 - [On your phone (PWA)](../MOBILE.md) - installing Ava as a home-screen app.
   Voice capture works there; there are no push notifications.
-- [Operations](operations.md) - the live view of turns, render jobs and the
+- [Operations](operations.md) - the live view of turns, jobs and the
   approvals that pause a tool call.
-- [Data, memory & privacy](data.md) - where chats, uploads and generated media
-  actually live on disk, and how to export or delete them.
+- [Data, memory & privacy](data.md) - where chats and uploads actually live on
+  disk, and how to export or delete them.

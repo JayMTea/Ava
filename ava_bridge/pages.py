@@ -381,10 +381,10 @@ def brand_asset(slot: str, request: Request):
         return JSONResponse({"error": "not found"}, status_code=404)
     st = os.stat(path)
     # A strong validator from (mtime_ns, size) so a re-upload is visible at once
-    # while repeat loads are 304s. Deliberately NOT the `max-age=31536000,
-    # immutable` that media_api uses for /thumb: that is right for a
-    # content-addressed filename and wrong for a stable slot URL, where the
-    # bytes behind the same path change every time the owner uploads.
+    # while repeat loads are 304s. Deliberately NOT `max-age=31536000,
+    # immutable`: that is right for a content-addressed filename and wrong for a
+    # stable slot URL, where the bytes behind the same path change every time
+    # the owner uploads.
     etag = f'W/"{st.st_mtime_ns:x}-{st.st_size:x}"'
     if request.headers.get("if-none-match") == etag:
         return Response(status_code=304, headers={"ETag": etag,

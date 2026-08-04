@@ -52,8 +52,8 @@ owner:                     # who the assistant serves (drives the persona + tool
 
 persona:                   # assistant character (agent/persona.txt.tmpl is rendered from this)
   # The template ships ONLY operational directives (tool-calling mandates, the
-  # never-fake-a-render rule, the network-notice correction). How the assistant
-  # TALKS is yours, and blank by default — a fork inherits nobody's personality.
+  # network-notice correction). How the assistant TALKS is yours, and blank by
+  # default — a fork inherits nobody's personality.
   # Set it here or in Setup -> Agent -> Persona. Takes effect on the next agent provision.
   style: ""               # [AVA_PERSONA_STYLE]   your assistant's voice, in your words
                           #   blank = the model's own voice, unshaped
@@ -115,14 +115,14 @@ auth:
 paths:                     # all default under AVA_HOME; override only if needed
   data: null              # [AVA_DATA_DIR]
   logs: null              # [AVA_LOGS_DIR]
-  media: null             # [AVA_MEDIA_DIR]
-  models: null            # [AVA_MODELS_DIR]  weights root (hf/ ollama/ gpusvc/)
+  uploads: null           # [AVA_UPLOAD_DIR]  files you attach in chat
+  models: null            # [AVA_MODELS_DIR]  weights root (hf/ ollama/)
 
 # ── Model store: what `ava models pull` fetches into $AVA_HOME/models/ ───────
 # Logical role -> a concrete model + engine. `ava models pull --auto` picks the
 # chat/fast model whose `tier` matches the memory `ava doctor` detects, so a fork
 # on a small GPU downloads something that actually fits. `ava setup` creates the
-# hf/ ollama/ gpusvc/ folders (and a gpusvc/extra_model_paths.yaml) for you.
+# hf/ and ollama/ folders for you.
 #
 # THESE ARE DEFAULTS, NOT REQUIREMENTS. Ava is model-agnostic — put any model you
 # like here (any Hugging Face repo id for vllm, any Ollama tag for ollama) and
@@ -141,11 +141,6 @@ models:
     engine: ollama
     id: llama3.1:8b
     tier: small
-  image:                   # a the GPU service checkpoint (dropped under models/gpusvc/<dest>)
-    engine: gpu-service
-    id: gpu_model_base
-    dest: checkpoints
-    url: https://huggingface.co/example/gpu-model
 
 # ── Inference: Ava's single always-on brain. ────────────────────────────────
 # Ava keeps ONE model resident at all times — no scaling models up and down. Which
@@ -303,8 +298,6 @@ features:
                            #   Enroll or destroy it in Setup -> Agent -> Voice
                            #   (docs/BIOMETRICS.md).
   web_search: false        # [AVA_WEB_SEARCH] self-hosted SearXNG + guarded fetch
-  image: true              # [AVA_IMAGE] GPU workloads via the gpu-service
-                           #   connector
   branding: true           # [AVA_BRANDING] may THIS install change its own name,
                            #   colour and logo (Setup -> Branding). On by default;
                            #   re-branding what you self-host is the premise, not
@@ -336,10 +329,9 @@ learning:
                            #   (also runnable on demand from the Learning page)
 
 # ── Connectors: the apps Ava monitors & drives (see docs/CONNECTOR_SDK.md) ───
-connectors:
-  - gpu-service                # image/video (the GPU service)
-  # - my-app               # your own connector (see docs/CONNECTOR_SDK.md)
-  # - my-device            # your own device/sensor app (see docs/DEVICE_CONNECTORS.md)
+# connectors:
+#   - my-app               # your own connector (see docs/CONNECTOR_SDK.md)
+#   - my-device            # your own device/sensor app (see docs/DEVICE_CONNECTORS.md)
 
 # ── Isolate embedded app UIs on their own browser origin ─────────────────────
 # UNSET BY DEFAULT, AND THAT DEFAULT IS NOT SAFE FOR AN APP YOU DID NOT WRITE.
@@ -421,7 +413,7 @@ perf:
   # Live-file rotation size is writer-only (stdlib), set via env: [AVA_PERF_LOG_MAX_BYTES] (default 32MiB)
 
 # ── Model memory allocation: who may hold memory, and who yields to whom ─────
-# A box that runs Ava plus a second model (an image pipeline, a voice sidecar)
+# A box that runs Ava plus a second model (a voice sidecar, another app's brain)
 # oversubscribes its memory: each wants tens of GiB of the same pool, so at most
 # one can be resident. Ava checks fit BEFORE a model is brought up, and can free
 # room by releasing models YOU declare below.
@@ -509,12 +501,6 @@ alloc:
     budget_actions: 20       # state-changing actions allowed per window, ALL models
     budget_window_s: 600     #   and all processes; exceeding it makes the allocator
     quiesce_cooloff_s: 1800  #   a no-op ("QUIESCED") rather than a loop
-  # Which declared model serves each of Ava's own subsystems. Unset = Ava takes no
-  # lease for that subsystem and behaves exactly as before, so declaring a model
-  # does not silently start gating a code path until you map it here too.
-  # roles:
-  #   image: my-image-engine
-  #
   # ANOTHER APP ON THE SAME BOX can hold leases too, over the router's /lease
   # endpoint — it does not need to import Ava. That is how two applications stop
   # fighting over one pool: exactly one component decides, and the other asks.
@@ -522,8 +508,8 @@ alloc:
   # sends the router token. See docs: the client is ~150 stdlib-only lines the
   # other app vendors, on the same terms as any other cross-app file.
   #
-  #   POST http://127.0.0.1:8010/lease   {"model": "my-image-engine",
-  #                                       "reason": "render", "ttl_s": 300}
+  #   POST http://127.0.0.1:8010/lease   {"model": "my-sidecar",
+  #                                       "reason": "batch job", "ttl_s": 300}
   #     -> {"lease_id": "...", "granted": true, "released": ["my-llm"]}
   #   POST /lease/<id>/heartbeat          renew; a lease that stops being renewed
   #                                       is reclaimed, so a killed client cannot
@@ -542,14 +528,14 @@ alloc:
   #     # weight_gb/min_free_gb/tier inherited from inference.backends.my-llm.fit
   #
   #   # An engine that can drop its weights without stopping — the cheapest lever.
-  #   my-image-engine:
+  #   my-sidecar:
   #     driver: http-unload
   #     priority: interactive
   #     driver_config:
-  #       base: "${AVA_GPU_SERVICE:-http://127.0.0.1:8189}"
+  #       base: "${MY_SIDECAR_URL:-http://127.0.0.1:8003}"
   #       path: /free
   #       json: { unload_models: true, free_memory: true }
-  #       rss_unit: ava-gpu.service   # where to MEASURE it; the engine's own
+  #       rss_unit: my-sidecar.service  # where to MEASURE it; the engine's own
   #                                     #   memory counters are not trustworthy
   #     release: { unload_s: 8 }
   #     restore: { auto: false }        # it reloads weights on next use
@@ -557,7 +543,7 @@ alloc:
   #   # A checkpoint that lives INSIDE another declared model. `via:` means it is
   #   # sized and planned in its own right, but released with its host.
   #   my-checkpoint:
-  #     via: my-image-engine
+  #     via: my-sidecar
   #     weight_gb: 24
   #     priority: interactive
   #

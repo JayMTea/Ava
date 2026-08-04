@@ -50,8 +50,6 @@ def _short_model_name(model: str | None, runtime: str | None = None) -> str:
         or ml.endswith(("/python", "/python3"))
     )
     if is_placeholder:
-        if "gpusvc" in rl or "gpusvc" in ml:
-            return "the GPU service"
         if any(k in rl or k in ml for k in ("vllm", "enginecore")):
             return "vLLM model"
         return "Model"
@@ -63,13 +61,10 @@ def _short_model_name(model: str | None, runtime: str | None = None) -> str:
     return m
 
 
-def _short_runtime_name(name: str | None, model: str | None = None) -> str:
+def _short_runtime_name(name: str | None) -> str:
     n = (name or "").strip()
     nl = n.lower()
-    ml = (model or "").lower()
 
-    if "gpusvc" in nl or "gpusvc" in ml:
-        return "the GPU service"
     if "vllm" in nl or "enginecore" in nl:
         return "vLLM"
     if "ollama" in nl:
@@ -104,8 +99,6 @@ def _kind_from_path(path: str) -> str:
         if seg:
             return seg
     name = Path(path).name.lower()
-    if "real" in name or "refiner" in name:
-        return "upscale"
     if "hunyuan" in name or "video" in name:
         return "video"
     if "vae" in name:
@@ -119,7 +112,6 @@ def _component_kind_label(kind: str) -> str:
     k = (kind or "model").lower()
     labels = {
         "checkpoints": "Base checkpoint",
-        "gpumodel": "Base checkpoint",
         "weight_models": "latent pipeline model",
         "unet": "UNet",
         "clip": "CLIP text",
@@ -130,7 +122,6 @@ def _component_kind_label(kind: str) -> str:
         "upscale_models": "Upscaler",
         "upscale": "Upscaler",
         "video": "Video model",
-        "conditioner": "Face adapter",
         "served-model": "Served model",
         "model": "Model",
     }
@@ -140,10 +131,6 @@ def _component_kind_label(kind: str) -> str:
 def _simple_component_name(kind: str, name: str) -> str:
     n = (name or "").strip()
     low = n.lower()
-    if "refiner" in low:
-        return "the refiner x4"
-    if "conditioner" in low or "conditioner" in low:
-        return "conditioner Face"
     if "clip-vit" in low or "vit-h" in low:
         return "CLIP ViT-H"
     if low.endswith(".safetensors"):
@@ -153,17 +140,6 @@ def _simple_component_name(kind: str, name: str) -> str:
     elif low.endswith(".pth"):
         n = n[:-4]
     return n or "Model"
-
-
-def _proc_maps_readable(pid: int) -> bool:
-    """Whether we can actually observe this process's memory maps. Decides if an
-    empty component scan means "nothing loaded" (readable) or "unknown" (not)."""
-    try:
-        with open(f"/proc/{pid}/maps") as f:
-            f.readline()
-        return True
-    except Exception:  # noqa: BLE001
-        return False
 
 
 def _read_mapped_model_components(pid: int) -> list[dict]:
@@ -188,7 +164,7 @@ def _read_mapped_model_components(pid: int) -> list[dict]:
                     continue
                 # Focus on model roots to avoid unrelated binaries.
                 low = path.lower()
-                if "/gpu-service/models/" not in low and "/models/" not in low:
+                if "/models/" not in low:
                     continue
                 if path in seen:
                     continue
@@ -239,7 +215,7 @@ def _read_open_model_components(pid: int) -> list[dict]:
         if not _is_model_file(path):
             continue
         low = path.lower()
-        if "/gpu-service/models/" not in low and "/models/" not in low:
+        if "/models/" not in low:
             continue
         if path in seen:
             continue
@@ -265,41 +241,10 @@ def _attach_components(rows: list[dict]) -> list[dict]:
         source = str(item.get("source") or "").lower()
         model = str(item.get("model") or "")
 
-        if isinstance(pid, int) and pid > 0 and ("gpusvc" in runtime or "python runtime" in runtime):
+        if isinstance(pid, int) and pid > 0 and "python runtime" in runtime:
             comps = _read_mapped_model_components(pid)
             if not comps:
                 comps = _read_open_model_components(pid)
-
-        # Fallback: no model files observed in the process, so show the
-        # CONFIGURED gpusvc stack — labeled truthfully, never as resident. If we
-        # could read the memory maps, an empty scan means "really not loaded"
-        # (gpusvc frees weights when idle); if visibility is restricted
-        # (container boundary), residency is unknown (None), not asserted.
-        if (not comps) and "gpusvc" in runtime:
-            try:  # same resolution gpu_service uses (env -> ava.yaml -> the GPU model base)
-                import gpu_service
-                ckpt = gpu_service.DEFAULT_CKPT
-            except Exception:  # noqa: BLE001
-                ckpt = os.environ.get("AVA_GPU_MODEL", "gpu_model_base")
-            upscaler = os.environ.get("AVA_UPSCALE_MODEL", "refiner_x4plus.pth")
-            observable = isinstance(pid, int) and pid > 0 and _proc_maps_readable(pid)
-            resident = False if observable else None
-            comps = [
-                {
-                    "name": _simple_component_name("checkpoints", ckpt),
-                    "kind": "checkpoints",
-                    "kind_label": _component_kind_label("checkpoints"),
-                    "path": None,
-                    "in_memory": resident,
-                },
-                {
-                    "name": _simple_component_name("upscale_models", upscaler),
-                    "kind": "upscale_models",
-                    "kind_label": _component_kind_label("upscale_models"),
-                    "path": None,
-                    "in_memory": resident,
-                },
-            ]
 
         # Residency is tri-state everywhere in this module: observed resident,
         # observed NOT resident, or unobservable. A row whose state we could
@@ -530,7 +475,7 @@ def _gpu_model_processes() -> list[dict]:
         mem_mb = g["mem_mb"]
         rows.append({
             "id": f"pid:{owner}",
-            "name": _short_runtime_name(runtime_ctx, model=model),
+            "name": _short_runtime_name(runtime_ctx),
             "model": _short_model_name(model, runtime=runtime_ctx),
             "model_id": model,
             "memory_mb": mem_mb,
@@ -587,10 +532,10 @@ def _docker_model_containers() -> list[dict]:
             pid = None
         model = _extract_model(cmdline)
         lower = n.lower()
-        if not model and not any(k in lower for k in ("vllm", "gpusvc", "hunyuan", "ollama")):
+        if not model and not any(k in lower for k in ("vllm", "hunyuan", "ollama")):
             continue
         mem_mb = mem_by_name.get(n)
-        runtime_name = _short_runtime_name(n, model=model)
+        runtime_name = _short_runtime_name(n)
         short_model = _short_model_name(model, runtime=n)
         out.append({
             "id": f"ctr:{n}",
@@ -828,7 +773,7 @@ def _loaded_models() -> list[dict]:
             size_mb = round(entry["size_bytes"] / (1024 * 1024), 1)
         rows.append({
             "id": f"{b.get('id')}:{mid or state}",
-            "name": _short_runtime_name(str(b.get("engine") or ""), model=mid),
+            "name": _short_runtime_name(str(b.get("engine") or "")),
             "model": label or _short_model_name(mid, runtime=str(b.get("engine") or "")),
             "model_id": mid or None,
             "memory_mb": size_mb,
@@ -1041,13 +986,6 @@ def _role_key(model) -> str:
     second configured backend, and even an unreachable one, both read as the
     brain.
     """
-    m = (model or "").lower()
-    if "gpusvc" in m:
-        return "render"
-    if "hunyuan" in m or "wan2" in m or "/wan" in m:
-        return "video"
-    if "gpumodel" in m or "flux" in m:
-        return "image"
     return ""
 
 
@@ -1061,13 +999,6 @@ def _model_role(model, backend_id: str | None = None) -> str:
     if backend_id:
         return "Ava's brain (chat inference)"
     m = (model or "").lower()
-    key = _role_key(m)
-    if key == "render":
-        return "Image & video rendering"
-    if key == "video":
-        return "Video rendering"
-    if key == "image":
-        return "Image rendering"
     # Connector-declared hints (model_hints: in a connector.yaml).
     try:
         from . import connectors
@@ -1081,9 +1012,9 @@ def _model_role(model, backend_id: str | None = None) -> str:
 
 def _active_jobs() -> list[dict]:
     """Currently-running jobs across the box so a GPU spike can be attributed to a
-    named task (render / video / chat image) instead of a bare percentage.
+    named task instead of a bare percentage.
 
-    External jobs come from connectors that declare a `jobs:` block (see
+    Jobs come from connectors that declare a `jobs:` block (see
     connectors.job_sources) — the registry is cached (~30 s), so a fork with no
     such connectors makes zero HTTP calls here.
     """
@@ -1110,20 +1041,6 @@ def _active_jobs() -> list[dict]:
                     })
         except Exception:  # noqa: BLE001 — best-effort; the panel degrades gracefully
             pass
-    # Ava's own chat image renders (this process's media-job tracker).
-    try:
-        from . import state
-        with state.jobs_lock:
-            running = [dict(j) for j in state.jobs.values() if j.get("status") == "running"]
-        for j in running:
-            jobs.append({
-                "name": "Chat image render",
-                "stage": j.get("stage"),
-                "progress": j.get("progress"),
-                "engine": "the GPU service",
-            })
-    except Exception:  # noqa: BLE001
-        pass
     return jobs
 
 

@@ -419,7 +419,7 @@ _PUBLIC_PATHS = {"/login", "/logout", "/setup", "/api/health", "/favicon.ico",
 # to /login when unauthenticated. Overlay route modules may append their own
 # prefixes at register() time (same extension pattern as internal._TOKEN_GROUPS
 # and access_policy._PROJECT_DENY).
-API_PREFIXES = ["/api", "/apps", "/media", "/uploads", "/thumb"]
+API_PREFIXES = ["/api", "/apps", "/uploads"]
 
 
 def _is_ingest(path: str) -> bool:

@@ -23,7 +23,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 ALLOWED = {"ava_bridge/features.py"}
 
 # A read of a features.* key through the settings layer, e.g.:
-#   settings.get_bool("features.image", ...)
+#   settings.get_bool("features.memory", ...)
 #   settings.explicitly_false('features.voice', ...)
 #   settings.get("features.web_search")
 _DIRECT_READ = re.compile(
@@ -90,11 +90,10 @@ def test_every_feature_is_pinnable_from_outside_the_process() -> None:
     *inside* the instance. That makes the flag unpinnable by anything outside it
     — a control plane, a compose profile, a systemd unit, or a `docker run -e`.
 
-    This was not hypothetical: `image` and `web_search` shipped without one, so a
-    control plane's feature ceiling could express only some of the capability
-    switches and
-    silently ignore the other two. Two of the flags it could not pin were the ones
-    that reach the network and write files.
+    This was not hypothetical: `web_search` shipped without one, so a control
+    plane's feature ceiling could express only some of the capability switches
+    and silently ignore the rest — including the one flag that reaches the
+    network.
     """
     missing = sorted(k for k, spec in features.REGISTRY.items() if not spec.get("env"))
     assert not missing, (

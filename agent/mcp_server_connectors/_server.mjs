@@ -12,8 +12,8 @@
 //   So Ava (host) calls these tools; she does not host them. The Ava repo
 //   is neither host nor server — it is the source/config kit that declares
 //   these tools and is pushed into the sandbox by ../install.sh.
-//   Tools are adapters: e.g. a media tool reaches into a downstream app
-//   (like the GPU service), which is a downstream service, not a host.
+//   Tools are adapters: e.g. a devices tool reaches into a downstream app
+//   (a connected home hub), which is a downstream service, not a host.
 //
 // MODULAR BY DESIGN: this harness recursively auto-loads every tool module under
 // this directory, including category subfolders (persona/, daily/, health/, …).

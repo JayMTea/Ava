@@ -12,7 +12,7 @@
 #
 # Env knobs:
 #   AVA_DIR       where to install         (default: ~/ava, ignored inside a clone)
-#   AVA_PROFILE   cpu|cuda|gpu|rocm|cloud|full|agent (default: auto-detected)
+#   AVA_PROFILE   cpu|cuda|gpu|rocm|cloud|agent (default: auto-detected)
 #   AVA_MODEL     override the model the profile ships with
 #   AVA_REPO      git URL to clone from    (only when NOT run inside a clone)
 #   AVA_INSTALL_DRY_RUN=1   write .env and stop, touching no images (for CI)
@@ -23,7 +23,7 @@ set -euo pipefail
 
 AVA_DIR="${AVA_DIR:-$HOME/ava}"
 AVA_REPO="${AVA_REPO:-}"
-_PROFILES="cpu cuda gpu rocm cloud full agent"
+_PROFILES="cpu cuda gpu rocm cloud agent"
 
 # If we're already inside a clone (the common `git clone && cd deploy && ./install.sh`
 # path), install in place and skip cloning entirely.
@@ -516,7 +516,7 @@ _model="${AVA_MODEL:-$(grep -E '^AVA_MODEL=' "$_SRC" | head -1 | cut -d= -f2-)}"
   # The profile's own settings, minus any AVA_MODEL we are about to override.
   grep -v -E '^\s*#|^\s*$' "$_SRC" | grep -v -E '^AVA_MODEL=' || true
   [ -n "$_model" ] && printf 'AVA_MODEL=%s\n' "$_model"
-  if [ "${AVA_PROFILE}" = "gpu" ] || [ "${AVA_PROFILE}" = "full" ] || [ "${AVA_PROFILE}" = "agent" ]; then
+  if [ "${AVA_PROFILE}" = "gpu" ] || [ "${AVA_PROFILE}" = "agent" ]; then
     bash ./resolve-model-flags.sh --env "$_model" 2>/dev/null || true
   fi
   # The host GPU this script MEASURED, declared so the container can report it.
@@ -566,7 +566,7 @@ case "$AVA_PROFILE" in
   cpu)  _ollama_svc="ollama" ;;
   cuda) _ollama_svc="ollama-cuda" ;;
   rocm) _ollama_svc="ollama-rocm" ;;
-  *)    _ollama_svc="" ;;   # gpu/full serve through vLLM, which loads at boot
+  *)    _ollama_svc="" ;;   # gpu/agent serve through vLLM, which loads at boot
 esac
 if [ -n "$_ollama_svc" ]; then
   _ollama_model="$(grep -E '^AVA_MODEL=' "$_ENV" | tail -1 | cut -d= -f2-)"
@@ -597,7 +597,7 @@ done
 # tools, memory, connectors and self-editing with no caveat near the Quickstart.
 # Say it once, here, where the profile was just chosen.
 case "${AVA_PROFILE}" in
-  agent|full) : ;;
+  agent) : ;;
   *)
     say ""
     say "Note: the '${AVA_PROFILE}' profile runs Ava WITHOUT the agent runtime, so"

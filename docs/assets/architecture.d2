@@ -85,10 +85,6 @@ infer: "Inference router\nOpenAI-compatible · hardware-aware" {
   }
 }
 
-media: "Media engine\nimage (the GPU service)" {
-  class: node
-}
-
 conn: "Connectors  (drop-in apps)" {
   class: grp
   ex: "your app\nUI tile · agent tools\nhealth · perf · egress" {
@@ -116,9 +112,6 @@ bridge.api -> agent.adapter: "" {
   style.stroke: "#94a3b8"
 }
 bridge.api -> infer: "" {
-  style.stroke: "#94a3b8"
-}
-bridge.api -> media: "" {
   style.stroke: "#94a3b8"
 }
 bridge.api -> conn.ex: "" {
