@@ -37,7 +37,6 @@ SYNC = SITE / "sync.py"
 MKDOCS = SITE / "mkdocs.yml"
 TOKENS = ROOT / "frontend" / "src" / "styles" / "tokens.css"
 ICONS_TSX = ROOT / "frontend" / "src" / "lib" / "icons.tsx"
-FAVICON = ROOT / "frontend" / "public" / "favicon.svg"
 
 # The tile set is pinned here rather than inferred. This does not prove the
 # picture is honest; it makes the picture impossible to change without editing
@@ -262,81 +261,3 @@ def test_landing_ships_no_img_svg_and_no_untracked_script() -> None:
             f"{path} is listed in extra_javascript but is NOT tracked. sync.py "
             "copies the working tree, so it works in preview and 404s in production."
         )
-
-
-def test_site_blues_all_come_from_the_mark_and_clear_aa() -> None:
-    """Every blue the public site paints is a colour from the mark, and legible.
-
-    Three ways this rots, all silent. The mark gets re-drawn - sync_icons.py
-    rewrites favicon.svg and test_icon_sync.py keeps the icon copies in step,
-    but nothing tells this stylesheet - and the site keeps a blue the logo no
-    longer is. Someone "restores" the gradient's full range without knowing why
-    it was cut, and the nav labels drop under AA on every page. Or an ink is
-    nudged for looks and stops clearing 4.5:1 on the surface it actually sits
-    on, which is the card, not the canvas.
-
-    So this re-derives all of it from the SVG and re-measures every pair.
-    """
-    from ava_bridge import brand
-
-    svg = FAVICON.read_text(encoding="utf-8")
-    stops = re.findall(r'stop-color="(#[0-9A-Fa-f]{6})"', svg)
-    braces = re.findall(r'stroke="(#[0-9A-Fa-f]{6})"', svg)
-    assert len(stops) == 2, f"expected two gradient stops in {FAVICON.relative_to(ROOT)}, got {stops}"
-    dark, light = stops[0].upper(), stops[1].upper()
-
-    css = _CSS_COMMENT.sub("", EXTRA_CSS.read_text(encoding="utf-8"))
-
-    def token(name, scope=None):
-        block = css
-        if scope:
-            m = re.search(r"\[data-md-color-scheme=\"%s\"\]\s*\{(.*?)\}" % scope, css, re.S)
-            assert m, f"no {scope} scheme block declaring {name}"
-            block = m.group(1)
-        m = re.search(re.escape(name) + r":\s*(#[0-9A-Fa-f]{6})", block)
-        assert m, f"{name} is not declared as a literal colour"
-        return m.group(1).upper()
-
-    frm, to = token("--ava-brand-from"), token("--ava-brand-to")
-
-    assert frm == dark, (
-        f"--ava-brand-from is {frm} but the mark's dark stop is {dark}.\n"
-        f"{FAVICON.relative_to(ROOT)} is the SSOT for the gradient; re-cut the "
-        "site's blue to match, or explain the divergence here."
-    )
-
-    def rgb(h):
-        return tuple(int(h[i:i + 2], 16) for i in (1, 3, 5))
-    lo, hi, mid = rgb(dark), rgb(light), rgb(to)
-    ts = [(mid[i] - lo[i]) / (hi[i] - lo[i]) for i in range(3) if hi[i] != lo[i]]
-    assert ts and max(ts) - min(ts) < 0.06 and 0 < max(ts) <= 1, (
-        f"{to} is not a point on the mark's ramp {dark} -> {light}. Pick a stop "
-        "along that line so the fill stays the logo's own colour."
-    )
-
-    for stop in (frm, to):
-        ratio = brand.contrast("#ffffff", stop)
-        assert ratio >= 4.5, (
-            f"white on {stop} is {ratio:.2f}:1, under WCAG AA for normal text.\n"
-            "The nav tab labels and the primary button label sit on this. The "
-            f"mark's own light stop {light} measures "
-            f"{brand.contrast('#ffffff', light):.2f}:1, which is why the ramp is "
-            "truncated - do not restore the full range without solving the "
-            "label contrast another way."
-        )
-
-    # Link ink, per scheme, against the DARKEST surface it lands on. Cards are
-    # the tight case in dark and the canvas is the tight case in light.
-    for scope, surfaces in (("default", ("#faf9f5", "#ffffff")),
-                            ("slate", ("#262624", "#30302e"))):
-        ink = token("--ava-brand-ink", scope)
-        assert ink.lower() in {c.lower() for c in stops + braces}, (
-            f"--ava-brand-ink for {scope} is {ink}, which is not a colour in the "
-            f"mark. Use one of {sorted(set(stops + braces))} so the site's blue "
-            "and the logo cannot drift apart."
-        )
-        for surface in surfaces:
-            ratio = brand.contrast(ink, surface)
-            assert ratio >= 4.5, (
-                f"{scope}: link ink {ink} on {surface} is {ratio:.2f}:1, under AA."
-            )

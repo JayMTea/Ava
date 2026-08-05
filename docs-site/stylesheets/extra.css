@@ -21,52 +21,15 @@
    scheme, so this block never changes. Declared on the scheme attribute
    (= <body>) so each var() resolves against that scheme's token values —
    var() captured at :root would freeze the dark values. */
-/* THE SITE WEARS THE MARK'S BLUE, THE APP WEARS ITS UI ACCENT, and until now
-   this page wore both without meaning to. tokens.css calls its accent "VS Code
-   blue" and that is the right colour for dense app chrome; the mark is a
-   different, more saturated blue that only ever lived in the SVG. (No hex for
-   the app accent here on purpose - tests/test_brand_tokens.py allows it in
-   exactly one file, and it caught this comment when it spelled the value.) So
-   the header was brand blue while every button and link beside it was VS Code
-   blue - two blues a visitor reads as one being slightly wrong.
-
-   Everything the public site paints blue now comes from the four tokens below,
-   and every one of them is a colour that literally appears in the mark
-   (frontend/public/favicon.svg): the gradient's two stops, and the pale
-   cross-braces. Nothing is invented and nothing is sampled by eye.
-
-   The app is deliberately NOT changed. Its accent is a product decision about
-   UI chrome, this is a decision about a marketing surface, and one is not
-   evidence for the other. If they should converge, that is a tokens.css change
-   and a whole-product call.
-
-   MEASURED, because two of the obvious choices fail. Light ink is the mark's
-   dark stop at 5.11:1 on the page canvas. Dark ink is the mark's CROSS-BRACE
-   tone at 8.12:1, chosen because the gradient's light stop (#0091FF) measures
-   4.09:1 on the dark card - under AA, and cards are where the links live.
-   tests/test_landing_page.py re-measures all of this against the SVG. */
-[data-md-color-scheme="default"] {
-  --ava-brand-ink: #0064E0;
-  --ava-brand-ink-hover: #0055C4;
-}
-[data-md-color-scheme="slate"] {
-  --ava-brand-ink: #7FC4FF;
-  --ava-brand-ink-hover: #A9D8FF;
-}
 [data-md-color-scheme="default"],
 [data-md-color-scheme="slate"] {
-  /* The fill is the mark's ramp, truncated where white text stops clearing AA
-     - see the .md-header comment below for the walk that found 30%. */
-  --ava-brand-from: #0064E0;
-  --ava-brand-to: #0072E9;
-
-  --ava-accent: var(--ava-brand-ink);
-  --ava-accent-hover: var(--ava-brand-ink-hover);
-  --md-primary-fg-color: var(--ava-brand-from);
-  --md-primary-fg-color--light: var(--ava-brand-ink);
-  --md-primary-fg-color--dark: var(--ava-brand-from);
-  --md-accent-fg-color: var(--ava-brand-ink);
-  --md-typeset-a-color: var(--ava-brand-ink);
+  --ava-accent: var(--accent);
+  --ava-accent-hover: var(--accent-hover);
+  --md-primary-fg-color: var(--accent);
+  --md-primary-fg-color--light: var(--accent-tint);
+  --md-primary-fg-color--dark: var(--accent-hover);
+  --md-accent-fg-color: var(--accent);
+  --md-typeset-a-color: var(--accent-tint);
   --md-default-bg-color: var(--bg);
   --md-default-bg-color--light: var(--panel);
   --md-code-bg-color: var(--panel);
@@ -86,35 +49,11 @@
   letter-spacing: 0.2px;
 }
 
-/* The header carries the brand mark's own gradient in light, --panel in dark.
-   ------------------------------------------------------------------
-   These two literals are the ONE colour pair in this file that has no token
-   behind it, and that is not an oversight: the mark's gradient lives in
-   frontend/public/favicon.svg (the `avaBlue` stops) because the SVG is its
-   SSOT, and copying it into the app's tokens.css would create a second source
-   that can drift from the drawing. tests/test_landing_page.py ties these back
-   to that file instead, so a re-drawn mark fails a test rather than leaving
-   the header a shade the logo no longer is.
-
-   THE RAMP IS TRUNCATED ON PURPOSE, and this is the part to read before
-   "fixing" it back to the logo's full range. The mark runs #0064E0 -> #0091FF.
-   White on the dark stop is 5.39:1; white on the LIGHT stop is 3.23:1, which
-   fails WCAG AA for normal text - and the nav tab labels (.md-tabs__link,
-   0.7rem) sit directly on it. Walking the ramp, AA survives to about 30% of
-   the way up, #0072E9 at 4.58:1. So the header uses the mark's own hue line
-   and direction, stopped where the labels stay legible.
-
-   Dark is untouched: that header is --panel, not blue, so there is nothing to
-   gradient. */
+/* The header carries the accent in both schemes */
 .md-header {
-  background: linear-gradient(to top, var(--ava-brand-from), var(--ava-brand-to));
+  background-color: var(--ava-accent);
 }
 [data-md-color-scheme="slate"] .md-header {
-  /* background-IMAGE, not just the colour. The light rule above uses the
-     `background` shorthand to paint the mark's gradient, and an image paints
-     OVER a background-color - so overriding only the colour here left the dark
-     header blue. Measured, not assumed: it shipped blue in the first pass. */
-  background-image: none;
   background-color: var(--panel);
   border-bottom: 1px solid var(--line);
 }
@@ -460,12 +399,13 @@
   line-height: 1.5;
   color: var(--ava-land-muted);
 }
-/* --ava-brand-ink, not the fill: a button-fill blue as link text measures
-   under AA at body size, which is what --accent-tint used to solve here. The
-   brand ink flips per scheme for the same reason and is measured in the block
-   at the top of this file. */
+/* --accent-tint, not --accent: the raw accent is a BUTTON-FILL colour, and as
+   link text on the hero panel it measures 3.69:1 in dark mode — under AA for
+   body-size text. --accent-tint is the token that exists for exactly this (it
+   is what --md-typeset-a-color maps to for every other link on the site) and
+   it flips per scheme, so both modes clear AA. */
 .ava-hero__note a {
-  color: var(--ava-brand-ink);
+  color: var(--accent-tint);
   text-decoration: underline;
   text-underline-offset: 0.2em;
 }
@@ -485,11 +425,11 @@
   border-color: var(--ava-accent-hover);
 }
 .ava-btn--primary {
-  background: linear-gradient(to top, var(--ava-brand-from), var(--ava-brand-to));
+  background-color: var(--ava-accent);
   color: #fff;
 }
 .ava-btn--primary:hover {
-  background: linear-gradient(to top, var(--ava-brand-ink-hover), var(--ava-brand-from));
+  background-color: var(--ava-accent-hover);
   border-color: var(--ava-accent-hover);
   color: #fff;
 }
@@ -703,7 +643,7 @@
   margin-top: 0.5rem;
 }
 .ava-colophon a {
-  color: var(--ava-brand-ink);
+  color: var(--accent-tint);
   text-decoration: underline;
   text-underline-offset: 0.2em;
 }
