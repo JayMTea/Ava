@@ -17,26 +17,50 @@
 //     residency vocabulary exists to prevent.
 import type { AllocJob, AllocModel, AllocReport } from './hub/hubApi';
 
+// Where each field renders matters as much as what it says, because the row lives in
+// a ~209px column inside a floating panel with a finite height. The split:
+//
+//   VISIBLE   — `state` (as a coloured dot), the name, `heldShort`, and `blocked`.
+//               Between them they answer "what is this, is it holding anything, and
+//               can I do something about it" at a glance.
+//   ON HOVER  — `state` in words and `hint`. Reference material: true, worth having,
+//               and not worth 75-120px of column each time. `hint` is up to four
+//               joined sentences, which is what made a row cost 134px.
+//
+// Nothing is dropped and nothing is behind a click — the explanation is one hover
+// away, and the dot plus the size carry the reading on their own.
 export interface RowView {
   /** The button, or null when there is nothing honest to offer. */
   action: { verb: 'release' | 'restore'; label: string; busyLabel: string } | null;
-  /** Why there is no button. Empty when there is one. */
+  /** VISIBLE. Why there is no button — so it is never a mystery. */
   blocked: string;
-  /** Shown under the row. Always true, never reassuring. */
+  /** TOOLTIP. The full explanation, joined. Always true, never reassuring. */
   hint: string;
-  /** A confirm step is required before acting. */
+  /** A confirm step is required before acting. Rendered inline, never hidden. */
   confirm: string;
   tone: 'ok' | 'warn' | 'err' | 'accent' | 'muted';
-  /** Short status word for the chip. */
+  /** Status in words. Rendered as the dot's colour; the words go in the tooltip. */
   state: string;
 }
 
-/** How much this row is holding, as a string — or an admission that we cannot say. */
+/** How much this row is holding, in a sentence — for the tooltip and for wide space. */
 export function heldLabel(m: AllocModel): string {
   if (m.resident === false) return 'nothing';
   // An unmeasured size is a declared hint, not a reading. Rendering it as a figure
   // is how a panel starts quoting config back as telemetry.
   if (m.resident_gib == null || !m.measured) return 'an unknown amount';
+  return `${m.resident_gib.toFixed(1)} GB`;
+}
+
+/** The same reading, compact enough to sit beside a name in a narrow column.
+ *
+ * `?` rather than a number for an unmeasured size, and `—` rather than `0 GB` for
+ * one observed empty: both are the same refusal `heldLabel` makes at length, which
+ * is why the long form travels in the row's tooltip beside it.
+ */
+export function heldShort(m: AllocModel): string {
+  if (m.resident === false) return '—';
+  if (m.resident_gib == null || !m.measured) return '?';
   return `${m.resident_gib.toFixed(1)} GB`;
 }
 
@@ -53,7 +77,12 @@ export function rowView(m: AllocModel, breaker?: AllocReport['breaker']): RowVie
       action: back
         ? { verb: 'restore', label: 'Load it back', busyLabel: 'Loading it back…' }
         : null,
-      blocked: '',
+      // The one state that is NOT legible from the size beside it. "—" says the
+      // model is holding nothing; it does not say the owner is the reason, and
+      // that difference is the whole point of tracking who released it. A
+      // self-restoring row has no button, so without this it would show a dot and
+      // a dash and nothing else.
+      blocked: back ? '' : 'You freed this — reloads on next use',
       hint: back
         ? 'You freed this. Ava will not start it again on its own.'
         : 'You freed this. It reloads itself the next time something needs it.',

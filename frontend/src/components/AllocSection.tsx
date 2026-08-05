@@ -11,15 +11,24 @@
 // `.hub`, so this costs no CSS and forks no design system. `data/DataView.tsx` sets
 // the precedent for reaching into `hub/` from outside it, and states it as policy.
 //
+// Built from the allocation report, NOT joined against the model rows the panel
+// already shows. Three reasons: the `<select>` above cannot host per-row buttons; the
+// keep-the-selection-valid effect would yank the selection out from under a successful
+// action; and Ava's own voice models are not backends, so they never appear in
+// `stats.models` at all.
+//
+// It renders in the MACHINE column — what this box is holding is the same subject as
+// its memory bars, and putting it beside the brain and the model inspector left one
+// column at 176px and the other at 708px in a ~790px panel.
+//
 // Every judgement about what to offer and what to claim lives in `allocView.ts`,
 // which is pure and tested. This file renders it.
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { receipt, rowOrder, rowView, heldLabel } from './allocView';
+import { receipt, rowOrder, rowView, heldLabel, heldShort } from './allocView';
 import { hub } from './hub/hubApi';
 import type { AllocJob, AllocModel } from './hub/hubApi';
 import { useAction, useResource } from './hub/hooks';
-import { Badge } from './hub/ui/Badge';
 import { HubMessage } from './hub/ui/HubMessage';
 import { ResourceError } from './hub/ui/ResourceState';
 import { ProgressBar } from '../lib/ProgressBar';
@@ -65,20 +74,38 @@ function Row({ m, breaker, busy, running, onAct }: {
   onAct: (m: AllocModel, verb: 'release' | 'restore') => void;
 }) {
   const [confirming, setConfirming] = useState(false);
+  const me = useRef<HTMLDivElement | null>(null);
   const v = rowView(m, breaker);
   const isMe = running?.model === m.id && running?.status === 'running';
 
+  // Everything the row knows, for the hover. The state in words and the joined
+  // hints used to be two more body lines; between them they were most of the 134px
+  // a row cost, in a column 209px wide.
+  const tip = [v.state, `holding ${heldLabel(m)}`, m.driver, v.hint]
+    .filter(Boolean).join(' — ');
+
   return (
-    <div style={{ padding: '6px 0', borderTop: '1px solid var(--line)' }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
-        <b style={{ fontSize: 11.5 }}>{m.label || m.id}</b>
-        {m.is_brain && <Badge tone="accent">brain</Badge>}
-        <Badge tone={v.tone}>{v.state}</Badge>
+    <div ref={me} title={tip}
+         style={{ padding: '5px 0', borderTop: '1px solid var(--line)' }}>
+      {/* One line: what it is, and what it is holding. `minWidth: 0` + ellipsis on
+          the name is what keeps a long model id from widening the column — which
+          demo/verify-disk-caveat.ts asserts against on this exact column. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+        <span className={'stat-row-dot tone-' + v.tone} style={{ flex: '0 0 auto' }} />
+        <b style={{ fontSize: 11.5, minWidth: 0, overflow: 'hidden',
+                    textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {m.label || m.id}
+        </b>
+        {m.is_brain && (
+          <span style={{ flex: '0 0 auto', padding: '0 4px', borderRadius: 3,
+                         fontSize: 9, fontWeight: 700, background: 'var(--accent)',
+                         color: '#fff' }}>brain</span>
+        )}
+        <span style={{ marginLeft: 'auto', flex: '0 0 auto', color: 'var(--muted)',
+                       fontSize: 11, whiteSpace: 'nowrap' }}>
+          {heldShort(m)}
+        </span>
       </div>
-      <div style={muted}>
-        {m.driver} · holding {heldLabel(m)}
-      </div>
-      {v.hint && <div style={{ ...muted, marginTop: 2 }}>{v.hint}</div>}
 
       {isMe && running ? (
         <RunView job={running} />
@@ -102,17 +129,28 @@ function Row({ m, breaker, busy, running, onAct }: {
               onClick={() => setConfirming(false)}>Cancel</button>
           </div>
         ) : (
-          <button type="button" className="hub-btn ghost sm" style={{ marginTop: 6 }}
+          <button type="button" className="hub-btn ghost sm"
+            style={{ marginTop: 4, padding: '3px 8px', fontSize: 11 }}
             disabled={busy}
             // Disabled only while ANOTHER row is acting, and the title says why —
             // a button that goes dead with no reason reads as broken.
             title={busy ? 'Ava is already freeing something' : undefined}
-            onClick={() => (v.confirm ? setConfirming(true) : onAct(m, v.action!.verb))}>
+            onClick={() => {
+              if (!v.confirm) { onAct(m, v.action!.verb); return; }
+              setConfirming(true);
+              // The list scrolls (see the cap below), and the confirm is taller
+              // than a row — without this its Cancel can open below the fold,
+              // which is the exact clipping the earlier no-scroller note records.
+              window.requestAnimationFrame(() =>
+                me.current?.scrollIntoView({ block: 'nearest' }));
+            }}>
             {busy ? v.action.busyLabel : v.action.label}
           </button>
         )
       ) : v.blocked ? (
-        <div style={{ ...muted, marginTop: 2, fontStyle: 'italic' }}>{v.blocked}</div>
+        // Stays VISIBLE, unlike the hint: this is why there is no button, and a row
+        // that simply has no control with no reason given reads as broken.
+        <div style={{ ...muted, fontStyle: 'italic' }}>{v.blocked}</div>
       ) : null}
     </div>
   );
@@ -188,11 +226,13 @@ export function AllocSection() {
           it knows about — it never goes looking for processes to stop.
         </div>
       ) : (
-        // No inner scroller. `.hwb-panel` already scrolls and is capped at the
-        // space beside the bubble, and a second one here clipped the confirm's
-        // Cancel button below its own fold — a destructive step whose way out is
-        // off-screen is worse than a longer panel.
-        <div>
+        // Capped, WITH the confirm made reachable rather than left to chance. The
+        // first version of this had no scroller at all, because one had already
+        // clipped the confirm's Cancel below its own fold — but "no cap" means a box
+        // that declares ten models pushes the panel off screen, which is how this
+        // section came to be 389px in a 758px panel. The cap is back and the row
+        // scrolls itself into view when its confirm opens (see Row).
+        <div style={{ maxHeight: 220, overflowY: 'auto', overscrollBehavior: 'contain' }}>
           {rowOrder(res.data.models).map((m) => (
             <Row key={m.id} m={m} breaker={res.data!.breaker} busy={act.busy || !!running}
                  running={running} onAct={onAct} />
@@ -201,8 +241,13 @@ export function AllocSection() {
       )}
       <HubMessage message={act.message} style={{ marginTop: 6, fontSize: 11 }} />
       {res.data?.enabled && (
-        <div style={{ ...muted, marginTop: 6 }}>
-          Anything not listed here is counted, never touched — it is not Ava's to free.
+        // One line, with the full sentence on hover. The long form wrapped to four
+        // lines in this column — 45-60px to restate a promise the rows already keep.
+        <div style={{ ...muted, marginTop: 5 }}
+             title="Anything not listed here is counted so Ava does not promise memory
+                    something else is using, but it is never touched — it is not Ava's
+                    to free.">
+          Not listed = not Ava&rsquo;s to free.
         </div>
       )}
     </div>

@@ -2,7 +2,7 @@
 // component-render harness — same reason inferenceView.test.ts exists.
 import { describe, expect, it } from 'vitest';
 
-import { heldLabel, receipt, rowOrder, rowView } from './allocView';
+import { heldLabel, heldShort, receipt, rowOrder, rowView } from './allocView';
 import type { AllocJob, AllocModel } from './hub/hubApi';
 
 const model = (over: Partial<AllocModel> = {}): AllocModel => ({
@@ -108,6 +108,17 @@ describe('rowView — after the owner has freed something', () => {
     expect(v.hint).toContain('reloads itself');
   });
 
+  it('says who freed it in the VISIBLE slot, not only on hover', () => {
+    // With no button and nothing blocked, the row would be a dot and a dash. The
+    // size already says it holds nothing; only this says the owner is the reason.
+    const v = rowView(model({ released_by_owner: true, restore_kind: 'self',
+                              resident: false }));
+    expect(v.blocked).toContain('You freed this');
+    // A row that CAN be brought back says so with its button instead.
+    expect(rowView(model({ released_by_owner: true, restore_kind: 'start',
+                           self_restoring: false })).blocked).toBe('');
+  });
+
   it('reads as a deliberate choice, never as a fault', () => {
     const v = rowView(model({ released_by_owner: true, resident: false }));
     expect(v.state).toBe('You freed this');
@@ -126,6 +137,24 @@ describe('heldLabel — never quote config back as telemetry', () => {
 
   it('says "nothing" only when it observed nothing', () => {
     expect(heldLabel(model({ resident: false }))).toBe('nothing');
+  });
+});
+
+describe('heldShort — the same refusals, narrow enough for the column', () => {
+  it('makes the same three distinctions as the long form', () => {
+    // The compact form may not quietly become more confident than the sentence it
+    // stands in for: an unmeasured size is still not a number, and an empty one is
+    // still not "0 GB".
+    expect(heldShort(model({ resident_gib: 12.9, measured: true }))).toBe('12.9 GB');
+    expect(heldShort(model({ resident_gib: 12.9, measured: false }))).toBe('?');
+    expect(heldShort(model({ resident: null, resident_gib: null, measured: false })))
+      .toBe('?');
+    expect(heldShort(model({ resident: false }))).toBe('—');
+  });
+
+  it('never renders an unmeasured figure', () => {
+    expect(heldShort(model({ resident_gib: 35.0, measured: false })))
+      .not.toContain('35');
   });
 });
 

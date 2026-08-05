@@ -258,6 +258,13 @@ export function HardwareBubble() {
                 <span style={{ color: 'var(--muted)' }}>GPU temp</span>
                 <span style={{ fontWeight: 700, color: tempColor(gpu?.temp) }}>{temp(gpu?.temp)}</span>
               </div>
+              {/* Freeing memory belongs in the MACHINE column, and not only for
+                  balance: this column is what the machine is holding, which is
+                  exactly the question the section answers. It sat on the right,
+                  where the brain and the model inspector already lived — 176px of
+                  content on the left against 708px on the right, in a panel with
+                  ~790px to spend. It read as one long list because it was one. */}
+              <AllocSection />
             </div>
             {/* Right column: the models. Cutting here rather than anywhere else
                 is what keeps a subject whole — the panel already drew its own
@@ -378,12 +385,6 @@ export function HardwareBubble() {
                   </>
                 )}
               </div>
-              {/* Built from the allocation report, NOT joined against the rows
-                  above. Three reasons: the `<select>` cannot host per-row buttons;
-                  the keep-the-selection-valid effect would yank the selection out
-                  from under a successful action; and Ava's own voice models are not
-                  backends, so they never appear in `stats.models` at all. */}
-              <AllocSection />
             </div>
           </div>
         </div>
