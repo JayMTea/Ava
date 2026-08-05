@@ -1,9 +1,40 @@
-// The header home link needs no JS: the brand wordmark now occupies the logo
-// slot (stylesheets/extra.css masks docs/assets/ava-wordmark.svg onto
-// a.md-logo), and that anchor is already a real link to the site root with an
-// accessible name. The previous block here retrofitted the "Ava" text title
-// into a fake link because the logo button was hidden — that is no longer the
-// case, and a genuine <a> beats role="link" on a <span>.
+// Phone header: the mark and the site name as ONE home link.
+//
+// Desktop needs nothing here. a.md-logo is a real anchor to the site root with
+// an accessible name, extra.css masks the mark onto it, and the site-name topic
+// beside it is hidden — one link, one label. Below 76.234375em Material hides
+// that anchor and shows the topic instead, which left the phone header with a
+// mark that was a link and a name that was inert text next to it.
+//
+// So the anchor is built around the NAME rather than beside it, and the mark
+// rides in as its ::before (extra.css). Putting it inside the topic is the
+// whole point: Material fades that topic out and the page title in as you
+// scroll, so the pair leaves together and the header does not end up reading
+// "Ava" next to "Why Ava?". A wrapper element also keeps this reversible — the
+// topic's own span is moved, not rewritten, so nothing is lost if the block
+// never runs.
+//
+// A genuine <a> beats role="link" on a <span>, which is what an earlier version
+// of this file did.
+(function () {
+  function boot() {
+    var topic = document.querySelector('.md-header__title .md-header__topic:first-child');
+    var logo = document.querySelector('.md-header .md-header__button.md-logo');
+    if (!topic || !logo || topic.querySelector('.ava-home')) return;
+    var name = topic.querySelector('.md-ellipsis');
+    if (!name) return;
+    var a = document.createElement('a');
+    a.className = 'ava-home';
+    // Same destination and accessible name as the logo anchor, read off it
+    // rather than hardcoded, so a fork served from a subpath still lands home.
+    a.href = logo.getAttribute('href');
+    a.setAttribute('aria-label', logo.getAttribute('aria-label') || name.textContent.trim());
+    topic.insertBefore(a, name);
+    a.appendChild(name);
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
+})();
 
 // "View on GitHub" pill, left of the search box. The stock repo widget is
 // hidden via CSS; its anchor still supplies the URL (fork-safe).

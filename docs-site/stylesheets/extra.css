@@ -127,16 +127,36 @@
    spell anything, so it can stand next to the name the way it does in the
    drawer, and the phone header stops being the one surface with no mark on it.
 
-   ORDER, not DOM. Material emits the logo BEFORE the drawer toggle, which is
-   right on desktop where the toggle does not exist and the mark should lead.
-   Simply un-hiding it here would put the mark to the LEFT of the hamburger, so
-   the toggle moves instead: it is the only child given an explicit order, which
-   leaves the logo, the title and the search where their source order already
-   puts them and keeps .md-header__option's `order: 9` doing its own job below.
-   The logo's own 0.4rem right margin is the gap to the name. */
+   ONE LINK, NOT TWO NEIGHBOURS. Material's logo anchor stays hidden here, as
+   the theme intends, and the mark is drawn as the ::before of an anchor
+   javascripts/chrome.js wraps around the site name — so the mark and the word
+   are a single target that goes home, not a link sitting next to inert text.
+   Building it around the name rather than beside it also keeps Material's
+   behaviour: it fades this topic out and the page title in as you scroll, and
+   the mark now leaves with the name instead of stranding "Ava" beside
+   "Why Ava?".
+
+   The gap is the ::before's own margin, which is why it is a single number to
+   tune rather than a margin fighting a flex gap. */
 @media screen and (max-width: 76.234375em) {
-  .md-header__button.md-icon[for="__drawer"] {
-    order: -1;
+  .md-header__button.md-logo {
+    display: none;
+  }
+  .ava-home {
+    display: inline-flex;
+    align-items: center;
+    color: inherit;
+    text-decoration: none;
+  }
+  .ava-home::before {
+    content: "";
+    flex: none;
+    width: 1.5rem;
+    height: 1.5rem;
+    margin-right: 0.3rem;
+    background-color: currentColor;
+    -webkit-mask: url(../docs/assets/favicon.svg) center / contain no-repeat;
+    mask: url(../docs/assets/favicon.svg) center / contain no-repeat;
   }
 }
 
