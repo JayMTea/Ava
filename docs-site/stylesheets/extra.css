@@ -341,7 +341,6 @@
 /* Hero — full-bleed warm band under the header */
 .ava-hero {
   padding: 3.4rem 0 2.8rem;
-  background-color: var(--panel);
   border-bottom: 1px solid var(--ava-land-border);
   text-align: center;
 }
@@ -452,13 +451,18 @@
    hero ended and Material's typeset <article> began. That article is gone now
    (home.html empties {% block container %}), so every band below is the same
    kind of object and shares the one 61rem rail. */
+/* ONE CANVAS. The bands used to alternate --bg and --panel, which striped the
+   page into slabs and made the seam between the Jinja hero and the old typeset
+   column louder rather than quieter. Every band now sits on the page's own
+   --bg, the warm paper the rest of the site already uses, so the landing page
+   and every doc page are one continuous surface. Only the header (accent) and
+   Material's footer (--panel) break it, on purpose.
+
+   Structure comes from spacing and from the cards, which sit on --input and
+   carry a hairline border. Do not reintroduce a band fill to separate two
+   sections: add space, or give the section a card. */
 .ava-band {
   padding: 2.8rem 0;
-}
-.ava-band--panel {
-  background-color: var(--panel);
-  border-top: 1px solid var(--ava-land-border);
-  border-bottom: 1px solid var(--ava-land-border);
 }
 .ava-band__head {
   max-width: 44rem;
@@ -543,34 +547,18 @@
   font-size: 0.95em;
 }
 
-/* Verbatim output, the install command, and the caveat list
+/* The install command and the caveat list
    ------------------------------------------------------------------
-   OUTPUT WRAPS, INPUT DOES NOT. Nobody pastes installer output, so wrapping it
-   costs nothing and it can never overflow at any width. A command is the
-   opposite: one that visually wraps is one somebody mistypes, so it is sized
-   to fit instead. That is why the install shows two short lines rather than
-   the 67-character && one-liner - 67 characters cannot fit the 296px a 320px
-   viewport leaves, at any readable size. This is also the fix for the old
+   A COMMAND IS SIZED TO FIT, NEVER WRAPPED. One that visually wraps is one
+   somebody mistypes, which is why the install shows two short lines rather
+   than deploy/README.md's 67-character && one-liner: 67 characters cannot fit
+   the 296px a 320px viewport leaves, at any readable size. This is also the
+   fix for the old
    page's horizontal overflow: pymdownx.superfences wraps a fence in
    <div class="highlight">, so the <pre> was not a direct child of
    .md-content__inner and Material's small-screen bleed rule never applied. The
    block could neither bleed nor fit. There is no markdown fence on this page
    any more, so the whole class of bug is gone. */
-.ava-verbatim {
-  max-width: 40rem;
-  margin: 1.4rem auto 0;
-  padding: 0.8rem 0.9rem;
-  border: 1px solid var(--ava-land-border);
-  border-radius: var(--r-sm, 0.5rem);
-  background-color: var(--wash-5, rgba(128, 128, 128, 0.05));
-  font-family: var(--md-code-font-family);
-  font-size: 0.68rem;
-  line-height: 1.65;
-  text-align: left;
-  color: var(--txt);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
 
 .ava-cmd {
   max-width: 30rem;
@@ -637,44 +625,10 @@
    class with it. Worth merging one day; not worth coupling the hero's markup
    to a band that may be reordered. */
 
-/* Link tiles. The whole tile is the anchor, so the tap target is the box, and
-   the hover is the one this site already uses for a link in a box
-   (.ava-steps a:hover). The feature cards above stay hoverless: they are not
-   links, and a hover state on a non-interactive card is a lie. */
-.ava-cards--links li {
-  padding: 0;
-}
-.ava-cards--links a {
-  display: block;
-  padding: 1rem 1.1rem;
-  color: inherit;
-  text-decoration: none;
-}
-.ava-cards--links li:hover {
-  border-color: var(--ava-accent);
-}
-.ava-cards--links a:focus-visible {
-  outline: 2px solid var(--accent-tint);
-  outline-offset: 2px;
-}
-.ava-cards--links strong {
-  display: block;
-  margin-bottom: 0.3rem;
-  font-family: var(--ava-serif);
-  font-weight: 500;
-  font-size: 0.95rem;
-  color: var(--txt);
-}
-.ava-cards--links span {
-  font-size: 0.74rem;
-  line-height: 1.55;
-  color: var(--ava-land-muted);
-}
 
 /* Colophon. Sits on --panel so the page closes on the surface it opened on. */
 .ava-colophon {
   padding: 1.8rem 0;
-  background-color: var(--panel);
   border-top: 1px solid var(--ava-land-border);
   text-align: center;
 }

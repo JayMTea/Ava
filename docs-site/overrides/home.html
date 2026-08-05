@@ -171,7 +171,7 @@
   </section>
 
   {#- 3. What it does -#}
-  <section class="ava-band ava-band--panel">
+  <section class="ava-band">
     <div class="md-grid">
       <div class="ava-band__head">
         <h2>What it does</h2>
@@ -208,36 +208,9 @@
     </div>
   </section>
 
-  {#- 4. Claims you can check. This is the section no competitor can copy, so it
-      goes BEFORE the ask, not after. Twelve profiles and exactly one
-      verified-on-device is deploy/platforms.conf; the quoted lines are the real
-      strings from deploy/install.sh, without the shell colour chrome. -#}
-  <section class="ava-band">
-    <div class="md-grid">
-      <div class="ava-band__head">
-        <h2>Claims you can check</h2>
-        <p class="ava-band__lede">An assistant you cannot observe is one you
-        cannot trust. So Ava reports on itself, asks before it acts on your
-        behalf, and marks the claims it has not proved on your hardware.</p>
-      </div>
-      <p class="ava-conv__caption">Ava's hardware table names twelve platform
-      profiles. Exactly one is verified on real silicon today, so the installer
-      prints your platform's tier before it installs anything. Where a claim is
-      unverified, the code says NOT MEASURED rather than rounding up.</p>
-      {#- Real output, prefixes and all. install.sh's say() prints "==> " and
-          warn() prints "Warning: " (deploy/install.sh:68-69); only the ANSI
-          colour codes are dropped. docs/WHY_AVA.md carried these same three
-          lines under a "  ! " prefix that the installer has never emitted, and
-          that is corrected in the same commit as this - a page about not
-          rounding claims up cannot invent the shape of its own evidence. -#}
-      <div class="ava-verbatim">==&gt; Platform: Apple Silicon (Mac mini / Studio / laptop) [ci-simulated]
-Warning: This hardware class is tested by simulation, not on real hardware.
-Warning: The install should work; the numbers Ava reports are unconfirmed here.</div>
-    </div>
-  </section>
 
-  {#- 5. One command -#}
-  <section class="ava-band ava-band--panel">
+  {#- 4. One command -#}
+  <section class="ava-band">
     <div class="md-grid">
       <div class="ava-band__head">
         <h2>One command</h2>
@@ -271,31 +244,12 @@ Warning: The install should work; the numbers Ava reports are unconfirmed here.<
     </div>
   </section>
 
-  {#- 6. Where to go next. Three, not a sitemap: the header tabs already carry
-      all five sections on every page, so this band exists to catch the visitor
-      who is not ready to install, not to duplicate the navigation. -#}
-  <section class="ava-band">
-    <div class="md-grid">
-      <div class="ava-band__head">
-        <h2>Where to go next</h2>
-      </div>
-      <ul class="ava-cards ava-cards--links">
-        <li><a href="{{ 'overview/' | url }}"><strong>Why Ava?</strong>
-          <span>What it is, what it is not, and what backs each claim.</span></a></li>
-        <li><a href="{{ 'docs/capabilities/' | url }}"><strong>What Ava does</strong>
-          <span>Every capability, one page each.</span></a></li>
-        <li><a href="{{ 'deploy/' | url }}"><strong>Install it</strong>
-          <span>Docker or bare metal, and what each profile includes.</span></a></li>
-      </ul>
-    </div>
-  </section>
 
-  {#- 7. Colophon. The human stays on this page deliberately: the argument two
-      bands up is "twelve profiles, one verified, and the code says NOT
-      MEASURED", and that argument is credible BECAUSE it is one person with one
-      machine. Delete the person and the same sentence reads as honesty theatre.
-      The security-reporting line went: SECURITY.md is a header tab on every
-      page, and a landing page is not where a researcher looks. -#}
+  {#- 5. Colophon. The human stays on this page deliberately. This project's
+      credibility rests on it being one person with one machine who says NOT
+      MEASURED rather than rounding up, and an unsigned page cannot make that
+      argument. The security-reporting line went: SECURITY.md is a header tab on
+      every page, and a landing page is not where a researcher looks. -#}
   <section class="ava-colophon">
     <div class="md-grid">
       <p>Ava is built and maintained by Joshua Thompson.
