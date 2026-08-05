@@ -120,13 +120,23 @@
 .md-header__button.md-logo :is(img, svg) {
   display: none;
 }
-/* Material hides the header logo at this breakpoint and moves it into the
-   drawer; `display: block` above is a later, equal-specificity rule, so it
-   would otherwise win and leave the mark AND the "Ava" text crowding a phone
-   header next to the hamburger. Restore the hide explicitly. */
+/* Below this breakpoint Material hides the header logo, on the assumption that
+   the drawer is now carrying the branding. That was left alone while the logo
+   was the wordmark, because a phone header showing "AVA" beside the site-name
+   topic's "Ava" was the same word twice in a 420px strip. The mark does not
+   spell anything, so it can stand next to the name the way it does in the
+   drawer, and the phone header stops being the one surface with no mark on it.
+
+   ORDER, not DOM. Material emits the logo BEFORE the drawer toggle, which is
+   right on desktop where the toggle does not exist and the mark should lead.
+   Simply un-hiding it here would put the mark to the LEFT of the hamburger, so
+   the toggle moves instead: it is the only child given an explicit order, which
+   leaves the logo, the title and the search where their source order already
+   puts them and keeps .md-header__option's `order: 9` doing its own job below.
+   The logo's own 0.4rem right margin is the gap to the name. */
 @media screen and (max-width: 76.234375em) {
-  .md-header__button.md-logo {
-    display: none;
+  .md-header__button.md-icon[for="__drawer"] {
+    order: -1;
   }
 }
 
