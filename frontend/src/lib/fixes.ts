@@ -36,6 +36,11 @@ export function fixForCode(code?: string | null): FixAction | undefined {
       tip: 'Opens Setup → Agent → Brain — the engine is running but has no such model loaded; choose one it actually serves.',
     };
   }
+  // `model_released` deliberately has NO entry. The control that undoes it lives
+  // in the hardware monitor, which floats over every view and has no hash route,
+  // so every destination here would be a dead end — `#hub/hardware` shows the
+  // memory pool but not the button, and an empty hash navigates to the top. The
+  // instruction belongs in the banner's own text instead; see inferenceView.ts.
   m = /^(.+)_down$/.exec(code);
   if (m) {
     return {

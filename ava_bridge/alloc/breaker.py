@@ -63,7 +63,16 @@ BUDGET_WINDOW_S = 600.0
 QUIESCE_COOLOFF_S = 1800.0
 
 # Causes that are not the model's fault and must not consume its failure budget.
-CAUSE_NO_FAULT = {"insufficient_memory", "declined", "quiesced", "not_enforcing"}
+#
+# `pool_unmeasurable` is the one that is easy to get wrong. A release reports `ok`
+# only once the pool has MEASURABLY dropped — but on a box whose accelerator probe
+# failed, `hwinfo.fit_memory()` falls back to system RAM (a documented gap, see its
+# comment), so freeing a GPU model moves the number not at all. `wait_free` then
+# times out and a perfectly successful release arrives here as a failure. Counting
+# it meant two clicks half an hour apart gave up on a working model, curable only
+# from a terminal. The release did not fail; the box cannot see that it worked.
+CAUSE_NO_FAULT = {"insufficient_memory", "declined", "quiesced", "not_enforcing",
+                  "pool_unmeasurable"}
 
 
 def _cfg(key: str, default):
@@ -155,24 +164,39 @@ def state(model_id: str) -> dict:
     return (_read().get("models") or {}).get(model_id) or {}
 
 
-def allowed(model_id: str) -> tuple[bool, str]:
-    """May we attempt a state-changing action on this model right now?"""
-    q = quiesced()
-    if q[0]:
-        return False, q[1]
+def allowed(model_id: str, *, human: bool = False) -> tuple[bool, str]:
+    """May we attempt a state-changing action on this model right now?
+
+    `human=True` means a person named this model and asked for this action. Every
+    guard here exists to stop a LOOP — an unattended retry, a thrashing coordinator —
+    and a person clicking is bounded by the person. So the thrash guards yield:
+    `quiesced`, `given_up` and the backoff window are all skipped, because refusing a
+    deliberate request on the grounds that Ava was previously too eager leaves the
+    owner stranded behind `ava alloc reset` in a terminal they may not have open.
+
+    What does NOT yield: the caller still calls `record_attempt`, so a human action
+    spends budget and stays visible in the same accounting as everything else, and the
+    memory check in `_restore_locked` is untouched — that one is the actual cure for
+    the restart storm, and a person clicking "bring it back" on a full box would
+    reintroduce it exactly.
+    """
+    if not human:
+        q = quiesced()
+        if q[0]:
+            return False, q[1]
     st = state(model_id)
-    if st.get("given_up"):
+    if st.get("given_up") and not human:
         return False, (f"breaker open for {model_id}: gave up after "
                        f"{st.get('fails', 0)} attempts — last error: "
                        f"{st.get('reason') or 'unknown'}. Clear with "
                        f"`ava alloc reset {model_id}`.")
     nxt = float(st.get("next_attempt_at") or 0.0)
-    if nxt and ledger.now() < nxt:
+    if nxt and ledger.now() < nxt and not human:
         return False, (f"backing off {model_id} for "
                        f"{int(nxt - ledger.now())}s after "
                        f"{st.get('fails', 0)} failed attempt(s)")
     ok, why = budget_ok()
-    if not ok:
+    if not ok and not human:
         return False, why
     return True, "ok"
 

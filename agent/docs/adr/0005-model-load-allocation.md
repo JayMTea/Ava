@@ -108,8 +108,53 @@ container runtime gets correct-but-coarser behaviour, never a regression.
   throughput for latency. Mitigated by coalescing and an adaptive cooldown.
 
 ### Neutral / follow-ups
-- In-process lazy singletons are declared and accounted but not actuated; giving
-  them release levers is deliberately out of scope for v1.
+- ~~In-process lazy singletons are declared and accounted but not actuated;
+  giving them release levers is deliberately out of scope for v1.~~ **Done** -
+  see the Update below.
+
+## Update: owner-initiated release
+
+The Alternatives below weigh "advisory only" against full autonomy and pick a
+position between them. There is a third position they do not consider, and it
+turns out to be the one that reaches an owner first: **the person decides, by
+name, and Ava does the actuation.**
+
+`broker.owner_release` / `owner_restore` reuse `_release_one` / `_restore_locked`
+verbatim rather than adding a second actuator - the whole point of the decision
+above is that there is one release path, and a UI button that bypassed the
+breaker, the intent-first ledger write and the per-model lock would undo it. What
+they do NOT do is take a lease: a lease states a need and never names a victim,
+so expressing "free that one" as a lease would require inventing a requester,
+which is exactly the lie the lease API exists to prevent.
+
+Three things this forced, each fixing a defect that was already live:
+
+- **`_restore` gated on `enforcing()`**, which defaults false. A model released
+  while advisory could not be brought back by any route - not the timer, not the
+  watchdog, not the CLI. `enforce`/`evict` govern *autonomous* action; a person
+  clicking is not that.
+- **`release_failed` was charged to the breaker even when the box cannot see the
+  accelerator.** On a host whose GPU probe merely failed, `fit_memory()` falls
+  back to system RAM, so freeing VRAM moves nothing and a successful release
+  arrives as `ok=False`. Two clicks half an hour apart gave up on a working
+  model. Now classified `pool_unmeasurable`, which is no-fault.
+- **A deliberate release was indistinguishable from the six-day outage.** An
+  engine that drops its weights on request keeps serving its port and answers
+  readiness with "no model loaded" - byte for byte the silent-fallback shape.
+  Only provenance separates them, so `released_by_owner` rides in the same
+  ledger write as `released_by_us` and outranks every problem state in
+  `watch._state_of`.
+
+Two scope lines moved, both narrowly:
+
+- **In-process singletons now have a lever** (`drivers/inproc.py`), because the
+  voice models are Ava's own and an owner freeing memory should not have to
+  reason about which process holds what. It is honest about being ~0.4 GB of
+  host RAM that most pools cannot even measure - hygiene, not capacity.
+- **One kind of lever is inferred**: an engine's own documented unload endpoint,
+  for a backend already configured. "Declared, never discovered" is preserved
+  where it matters - Ava will never infer a container or unit name - and
+  `alloc.infer_levers: false` restores the strict reading.
 - `hwinfo.py` still requires three edit sites to add an accelerator, and its
   docstring references a provider class that does not exist. A
   `hwinfo_providers/` refactor would make that one file, and is tracked

@@ -497,6 +497,41 @@
   "APIRoute"
  ],
  [
+  "/api/hub/hardware/alloc",
+  [
+   "GET"
+  ],
+  "APIRoute"
+ ],
+ [
+  "/api/hub/hardware/alloc/job",
+  [
+   "GET"
+  ],
+  "APIRoute"
+ ],
+ [
+  "/api/hub/hardware/alloc/{model_id}/release",
+  [
+   "POST"
+  ],
+  "APIRoute"
+ ],
+ [
+  "/api/hub/hardware/alloc/{model_id}/reset",
+  [
+   "POST"
+  ],
+  "APIRoute"
+ ],
+ [
+  "/api/hub/hardware/alloc/{model_id}/restore",
+  [
+   "POST"
+  ],
+  "APIRoute"
+ ],
+ [
   "/api/hub/hardware/pool",
   [
    "GET"

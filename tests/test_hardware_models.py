@@ -670,3 +670,134 @@ class HonestNaming(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# --- one model, one row ------------------------------------------------------ #
+# The picker showed the same Ollama model twice, with two different memory
+# figures. Reproduced on a live box: Ollama launches its runner with
+# `--model …/blobs/sha256-1eee6953…`, so the row built from that command line
+# carries a CONTENT HASH where a model id should be. It could never match the
+# `dolphin3:8b` the same server's own API reports, so `_loaded_models` appended a
+# second row for a model it already had.
+#
+# Two independent defences, because one of them is a net rather than a fix:
+# identity parsing refuses to treat a digest as a name (so the existing
+# claim-the-unnamed-row path does its job), and `_dedupe` collapses any pair that
+# still names one model twice.
+OLLAMA_BACKEND = {"id": "local", "url": "http://127.0.0.1:11434/v1",
+                  "model": "dolphin3:8b", "label": "local", "engine": "ollama"}
+
+
+class BlobIsNotAName(unittest.TestCase):
+    def test_a_content_hash_is_not_a_model_id(self):
+        # The exact cmdline observed from a live Ollama 0.24.0.
+        cmd = ("/usr/local/bin/ollama runner --model "
+               "/home/u/.ollama/models/blobs/sha256-1eee6953530837b2b17d61a4e6f71a5a"
+               " --ctx-size 8192")
+        self.assertEqual(hardware._extract_model_names(cmd), [])
+        self.assertIsNone(hardware._extract_model(cmd))
+
+    def test_a_real_weights_path_still_names_the_model(self):
+        # Narrow on purpose: a GGUF filename identifies the model perfectly well,
+        # and discarding every path would lose llama.cpp entirely.
+        cmd = "/usr/bin/llama-server --model /models/Some-Model-7B-Q4_K_M.gguf"
+        self.assertEqual(hardware._extract_model_names(cmd),
+                         ["/models/Some-Model-7B-Q4_K_M.gguf"])
+
+    def test_the_digest_shapes_it_must_catch(self):
+        for v in ("sha256-1eee6953530837b2b17d61a4e6f71a5a",
+                  "sha256:1eee6953530837b2b17d61a4e6f71a5a",
+                  "1eee6953530837b2b17d61a4e6f71a5a",
+                  "/var/lib/ollama/blobs/sha256-abcdef0123456789abcdef"):
+            self.assertTrue(hardware._is_blob_name(v), v)
+        for v in ("dolphin3:8b", "acme/Cool-LLM-7B", "llama3.2", "Some-Model-7B.gguf"):
+            self.assertFalse(hardware._is_blob_name(v), v)
+
+
+class NoDuplicateModels(unittest.TestCase):
+    """The user-visible symptom: the same model listed twice in the picker."""
+
+    def setUp(self):
+        for p in (
+            mock.patch.object(hardware, "_docker_model_containers", lambda: []),
+            mock.patch.object(hardware, "_configured_backends",
+                              lambda: [dict(OLLAMA_BACKEND)]),
+            mock.patch.object(_models, "effective_brain",
+                              lambda: dict(_brain("local"))),
+            mock.patch.object(hardware, "_attach_components", lambda rows: rows),
+        ):
+            p.start()
+            self.addCleanup(p.stop)
+
+    def _runner_row(self, **over):
+        """What nvidia-smi + the runner's cmdline produce for a resident Ollama."""
+        return {"id": "pid:436956", "name": "Ollama", "model": "Model",
+                "model_id": None, "memory_mb": 21431.0, "memory_gb": 20.93,
+                "gpu_util": None, "pid": 436956, "status": "loaded",
+                "source": "nvidia-smi",
+                "cmd": "/usr/local/bin/ollama runner --model /b/sha256-1eee6953530837b2",
+                **over}
+
+    def test_the_runner_and_the_api_produce_one_row(self):
+        with mock.patch.object(hardware, "_gpu_model_processes",
+                               lambda: [self._runner_row()]), \
+             mock.patch.object(_models, "probe_serving", _serving(["dolphin3:8b"])), \
+             mock.patch.object(_models, "probe_resident", _resident([
+                 {"name": "dolphin3:8b", "size_bytes": 30689198656,
+                  "vram_bytes": 30689198656}])):
+            rows = hardware._loaded_models()
+        self.assertEqual(len(rows), 1, f"the model is listed twice: {rows}")
+        self.assertEqual(rows[0]["model_id"], "dolphin3:8b")
+        # The merged row keeps BOTH halves: the API knew the name, the process
+        # knew where the memory actually is.
+        self.assertEqual(rows[0]["pid"], 436956)
+        self.assertEqual(rows[0]["backend"], "local")
+
+    def test_the_picker_names_the_model_not_the_backend_id(self):
+        """`load_backends` defaults an absent label to the backend ID, and
+        honouring that printed "local" for a row whose model is "dolphin3:8b"."""
+        with mock.patch.object(hardware, "_gpu_model_processes",
+                               lambda: [self._runner_row()]), \
+             mock.patch.object(_models, "probe_serving", _serving(["dolphin3:8b"])), \
+             mock.patch.object(_models, "probe_resident", _resident([])):
+            rows = hardware._loaded_models()
+        self.assertEqual(rows[0]["model"], "dolphin3:8b")
+
+    def test_a_label_the_operator_actually_wrote_still_wins(self):
+        named = dict(OLLAMA_BACKEND, label="My fast brain")
+        with mock.patch.object(hardware, "_configured_backends", lambda: [named]), \
+             mock.patch.object(hardware, "_gpu_model_processes",
+                               lambda: [self._runner_row()]), \
+             mock.patch.object(_models, "probe_serving", _serving(["dolphin3:8b"])), \
+             mock.patch.object(_models, "probe_resident", _resident([])):
+            rows = hardware._loaded_models()
+        self.assertEqual(rows[0]["model"], "My fast brain")
+
+    def test_dedupe_collapses_a_pair_that_slipped_through(self):
+        # The net, driven directly: two rows, one model, named at different depths.
+        rows = hardware._dedupe([
+            {"id": "a", "model_id": "acme/Cool-LLM-7B", "pid": None,
+             "memory_mb": None, "source": "api", "state": "idle", "status": "empty"},
+            {"id": "b", "model_id": "Cool-LLM-7B", "pid": 101, "memory_mb": 64000.0,
+             "source": "nvidia-smi", "state": "resident", "status": "loaded"},
+        ])
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["pid"], 101)
+        self.assertEqual(rows[0]["memory_mb"], 64000.0)
+        # A GPU process holding weights outranks the API's word on residency.
+        self.assertEqual(rows[0]["state"], "resident")
+
+    def test_dedupe_never_merges_models_it_cannot_identify(self):
+        # Three unnamed workers are three processes, not one model observed thrice.
+        rows = hardware._dedupe([
+            {"id": "a", "model_id": None}, {"id": "b", "model_id": None},
+            {"id": "c", "model_id": "sha256-abcdef0123456789abcdef"},
+        ])
+        self.assertEqual(len(rows), 3)
+
+    def test_dedupe_keeps_genuinely_different_models(self):
+        rows = hardware._dedupe([
+            {"id": "a", "model_id": "acme/Cool-LLM-7B"},
+            {"id": "b", "model_id": "acme/Other-LLM-13B"},
+        ])
+        self.assertEqual(len(rows), 2)

@@ -1,4 +1,9 @@
-"""Setup -> Hardware: the operator-stated memory pool.
+"""Setup -> Hardware: the operator-stated memory pool, and freeing model memory.
+
+Two things live here because both are the same question — *what is this machine's
+memory doing* — asked in the two directions an owner can ask it. The stated pool says
+how much there is; the alloc routes below say what is holding it and let the owner
+take some back.
 
 Ava measures what it can and refuses to guess at what it cannot. Two boxes it
 genuinely cannot size:
@@ -23,10 +28,15 @@ per call, and this route drops the fit cache so the next read is the new value.
 Same guarantee hub/branding.py makes, for the same reason - a setting an owner
 is expected to tune is a setting that must not cost them a restart to tune.
 """
+import contextlib
+import threading
+import time
+from collections import deque
+
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
-from .. import hwinfo, settings
+from .. import audit, auth, hwinfo, settings
 
 router = APIRouter()
 
@@ -92,3 +102,171 @@ async def pool_set(request: Request):
     # the old one for another three seconds — which reads as the save not working.
     hwinfo.reset_cache()
     return {"ok": True, "stated_gb": gb, "restart_required": False}
+
+
+# --------------------------------------------------------------------------- #
+# Freeing a model's memory, because the owner said so.
+#
+# Every route here is a `def`, not `async def`, on purpose: `alloc.report()` can
+# shell out to `docker inspect` / `systemctl` once per declared model, and a
+# blocking call on the event loop stalls the whole bridge. Starlette runs a sync
+# handler on the threadpool, which is exactly what this wants.
+#
+# One job slot for the whole surface, not one per model — the same shape as the
+# model pull in hub/models.py. Two concurrent releases is precisely the race the
+# allocator's per-model flock exists to serialise, and the breaker's action budget
+# is global anyway, so a second slot would buy nothing and hide the queueing.
+# Server-side, so it survives the owner closing the panel or opening a second tab.
+# --------------------------------------------------------------------------- #
+_alloc_job: dict = {"status": "idle", "model": None, "verb": None,
+                    "log": deque(maxlen=100), "result": None,
+                    "started_at": None, "ended_at": None}
+_alloc_lock = threading.Lock()
+
+
+def _job_view() -> dict:
+    return {**{k: v for k, v in _alloc_job.items() if k != "log"},
+            "log": list(_alloc_job["log"])}
+
+
+@router.get("/hardware/alloc")
+def alloc_report():
+    """What is holding this machine's memory, and what Ava could free. Read-only."""
+    from .. import alloc
+    if not alloc.spec.enabled():
+        # Not a 404: the panel needs to say WHY there is nothing here, and an
+        # absent route cannot be distinguished from a broken one.
+        return {"enabled": False, "models": [], "declared_count": 0}
+    rep = alloc.report()
+    leases = rep.get("leases") or {}
+    return {
+        "enabled": True,
+        "actuating": rep.get("actuating"),
+        "gating": rep.get("gating"),
+        "platform": rep.get("platform"),
+        "pool": rep.get("pool"),
+        "models": rep.get("models"),
+        "declared_count": rep.get("declared_count"),
+        "driver_errors": rep.get("driver_errors"),
+        # The thrash guard's own state. Without it the panel cannot explain why a
+        # button did nothing, and an owner's only clue would be a log line.
+        "breaker": leases.get("breaker") or {},
+        "job": _job_view(),
+    }
+
+
+@router.get("/hardware/alloc/job")
+def alloc_job():
+    """The in-flight release/restore, if any. Polled only while one is running."""
+    return _job_view()
+
+
+def _run_alloc(verb: str, model_id: str, mode: str | None, actor: str) -> None:
+    """Worker: one owner-initiated actuation, off the request thread.
+
+    A `docker stop` plus waiting for the kernel to hand memory back takes minutes,
+    which no HTTP timeout survives — hence the job. `actor` is passed in rather than
+    read here because `audit`'s actor is a contextvar set by the auth middleware, and
+    a fresh thread starts with an empty context: read from inside, every owner action
+    would be recorded as "unknown".
+    """
+    from .. import alloc
+    from ..alloc import broker
+    try:
+        fn = alloc.owner_release if verb == "release" else alloc.owner_restore
+        kw = {"mode": mode} if verb == "release" else {}
+        res = fn(model_id, log=lambda m: _alloc_job["log"].append(str(m)), **kw)
+        _alloc_job["result"] = res
+        _alloc_job["status"] = "done" if res.get("ok") else "error"
+        audit.record(kind=f"alloc.owner_{verb}", model=model_id, actor=actor,
+                     ok=bool(res.get("ok")), code=res.get("code"),
+                     freed_gib=res.get("freed_gib"))
+    except Exception as e:  # noqa: BLE001 — a failed actuation is a result, not a 500
+        _alloc_job["log"].append(f"{verb} failed: {e}")
+        _alloc_job["result"] = {"ok": False, "code": "driver_error", "detail": str(e)}
+        _alloc_job["status"] = "error"
+    finally:
+        _alloc_job["ended_at"] = time.time()
+        # Register with the broker's actuation set so `wait_for_actuations()` covers
+        # this thread too — a release outliving a test fixture writes into the real
+        # ledger, which is the leak tests/test_alloc_isolation.py exists to stop.
+        with contextlib.suppress(Exception):
+            broker._actuating.discard(threading.current_thread())
+
+
+def _start(verb: str, model_id: str, request: Request, mode: str | None = None):
+    """Shared guard + launch for both verbs. Returns a response dict or JSONResponse."""
+    from .. import alloc
+    from ..alloc import broker
+
+    ok, why = auth.same_site_write(request)
+    if not ok:
+        # The first /api/hub route that can stop a running process. The session
+        # cookie is samesite=lax, which does NOT ride a cross-site POST — but this
+        # is cheap, and "it happened to be blocked by something else" is how the
+        # /setup hole got there in the first place.
+        return JSONResponse({"ok": False, "code": "cross_site", "error": why},
+                            status_code=403)
+    if not alloc.spec.enabled():
+        return JSONResponse({"ok": False, "code": "alloc_disabled"}, status_code=409)
+
+    # Refuse while Ava is mid-answer. Nothing in the serving path takes a lease yet
+    # (ADR-0005's follow-up), so this register is the only thing that knows, and
+    # unloading the brain under a streaming turn would break it silently.
+    if verb == "release" and _turn_in_flight():
+        return JSONResponse({"ok": False, "code": "turn_in_flight"}, status_code=409)
+
+    with _alloc_lock:
+        if _alloc_job["status"] == "running":
+            return JSONResponse({"ok": False, "code": "job_running",
+                                 "job": _job_view()}, status_code=409)
+        _alloc_job.update(status="running", model=model_id, verb=verb,
+                          result=None, started_at=time.time(), ended_at=None)
+        _alloc_job["log"].clear()
+        t = threading.Thread(target=_run_alloc, name=f"hub-alloc-{verb}",
+                             args=(verb, model_id, mode, audit.actor()), daemon=True)
+        with contextlib.suppress(Exception):
+            broker._actuating.add(t)
+        t.start()
+    return {"ok": True, "job": _job_view()}
+
+
+def _turn_in_flight() -> bool:
+    """Is Ava mid-answer right now?"""
+    try:
+        from .. import state
+        with state.turns_lock:
+            return any((v or {}).get("status") == "running"
+                       for v in state.turns.values())
+    except Exception:  # noqa: BLE001 — if we cannot tell, do not block the owner
+        return False
+
+
+@router.post("/hardware/alloc/{model_id}/release")
+def alloc_release(model_id: str, request: Request, mode: str = ""):
+    """Free one declared model's memory. POST only — see the CSRF note in `_start`."""
+    return _start("release", model_id, request, mode=mode or None)
+
+
+@router.post("/hardware/alloc/{model_id}/restore")
+def alloc_restore(model_id: str, request: Request):
+    """Bring back a model the owner freed. Only ever one Ava itself released."""
+    return _start("restore", model_id, request)
+
+
+@router.post("/hardware/alloc/{model_id}/reset")
+def alloc_reset(model_id: str, request: Request):
+    """Clear a model's failure record.
+
+    Exists so the owner is never stranded behind a terminal. Before this, the only
+    escape from a breaker that had given up was `ava alloc reset <id>` — which is a
+    poor answer for a control whose whole point is not needing one.
+    """
+    ok, why = auth.same_site_write(request)
+    if not ok:
+        return JSONResponse({"ok": False, "code": "cross_site", "error": why},
+                            status_code=403)
+    from ..alloc import breaker
+    breaker.reset(model_id or None)
+    audit.record(kind="alloc.breaker_reset", model=model_id, ok=True)
+    return {"ok": True}

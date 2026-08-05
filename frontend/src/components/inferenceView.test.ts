@@ -45,3 +45,28 @@ describe('bannerView', () => {
       .toBe('whatever_down');
   });
 });
+
+describe('bannerView — a model the owner freed', () => {
+  it('reads as a choice, not an emergency', () => {
+    // The owner did this deliberately. Interrupting a screen reader with an
+    // alert for a state someone chose is wrong.
+    const v = bannerView({
+      ok: false, code: 'model_released',
+      detail: "You freed this model's memory, so Ava has nothing to think with right now.",
+    });
+    expect(v.show).toBe(true);
+    expect(v.role).toBe('status');
+  });
+
+  it('says where the button is, because no fix link can point at it', () => {
+    // The control lives in the floating hardware monitor, which has no hash
+    // route — so fixes.ts deliberately has no entry and this carries it.
+    const v = bannerView({ ok: false, code: 'model_released', detail: 'You freed it.' });
+    expect(v.text).toContain('hardware monitor');
+  });
+
+  it('is not confused with an engine that crashed', () => {
+    expect(bannerView({ ok: false, code: 'inference_down', detail: 'x' }).text)
+      .not.toContain('hardware monitor');
+  });
+});

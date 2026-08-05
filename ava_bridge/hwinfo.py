@@ -329,6 +329,27 @@ def vram_probe() -> tuple[MemInfo, str]:
     return MemInfo(), (_PROBE_UNREADABLE if _drm_cards() else _PROBE_NONE)
 
 
+def accel_unreadable() -> bool:
+    """Is there an accelerator here whose memory no reader can reach?
+
+    Answers one question and only one: **would freeing accelerator memory show up
+    in `fit_memory()`?** It would not, when a card exists and every reader failed —
+    `fit_memory()` then falls back to system RAM (the KNOWN GAP documented there),
+    so a model released from that card moves the number not at all.
+
+    The other three statuses all mean the pool being watched IS the pool the model
+    holds, so movement is visible: MEASURED reads VRAM directly; NA is unified
+    memory, where there is only one pool; NONE has no accelerator, so everything
+    is in system RAM already. Only UNREADABLE is blind, and conflating it with
+    "nothing was freed" is what let a successful release be recorded as a failure.
+
+    Deliberately NOT `fit_pool()`, whose docstring names its single consumer and
+    the boundary it defends: `fit_pool()` applies the operator-stated override, and
+    a number someone typed must never reach a caller that can release a model.
+    """
+    return vram_probe()[1] == _PROBE_UNREADABLE
+
+
 def vram_mem() -> MemInfo:
     """Free/total dedicated GPU VRAM summed across GPUs, or an empty MemInfo.
 

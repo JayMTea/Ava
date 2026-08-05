@@ -143,8 +143,12 @@ models:
     tier: small
 
 # ── Inference: Ava's single always-on brain. ────────────────────────────────
-# Ava keeps ONE model resident at all times — no scaling models up and down. Which
-# model that is, is entirely yours to choose: any OpenAI-compatible endpoint works
+# The router serves ONE model per role and does not swap models per request. That
+# is a statement about routing, not about memory: you can free a model's memory
+# whenever you want it back, from the hardware panel or `ava alloc release`, and
+# nothing will reload it behind you — see the `alloc:` block below and
+# docs/ALLOCATION.md. Which model is the brain is entirely yours to choose: any
+# OpenAI-compatible endpoint works
 # (vLLM, Ollama, llama.cpp, LM Studio, MLX, or a cloud provider). The router
 # (ava_router.py) fronts it for perf logging + the `/fit` view; add a second
 # backend below only if you want an automatic cloud fallback.
@@ -461,6 +465,13 @@ hardware:
 
 alloc:
   enabled: true              # [AVA_ALLOC] off = observe nothing, govern nothing
+  # [AVA_ALLOC_INFER] May Ava fill in an engine's OWN "drop your weights" endpoint
+  # for a backend you configured? On, you get a working Free button out of the box
+  # for engines that publish one (Ollama today). Off, every lever must be declared
+  # under `alloc.models` by hand — the stricter reading of "declared, never
+  # discovered". Either way Ava NEVER infers `docker` or `systemd`: it will not
+  # guess at a container or unit name, so nothing can be stopped on a guess.
+  infer_levers: true
   pool:
     baseline: measure        # `measure` LEARNS this box's non-model memory floor.
                              #   A number from someone else's machine would be

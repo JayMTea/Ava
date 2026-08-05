@@ -167,6 +167,85 @@ itself. A model you shut down deliberately stays down.
 
 ---
 
+## Freeing memory yourself
+
+Everything above is about Ava deciding. This is about you deciding, and it is a
+different thing with different rules.
+
+Open the hardware monitor - the chip button that floats over every page - and look
+under **Memory Ava can free**. Each row says what it is holding and offers the one
+lever its engine actually has. Or from a terminal:
+
+```
+ava alloc status                 # what is holding memory
+ava alloc release <model-id>     # free it
+ava alloc restore <model-id>     # bring it back
+```
+
+Four things are worth knowing before you press it.
+
+**It works whether or not enforcement is on.** `alloc.lease.enforce` and
+`alloc.lease.evict` govern whether Ava may act *on its own judgement*. You pressing a
+button is not Ava's judgement, so neither switch is consulted. This is why the control
+does something on a fresh install, where both default to false.
+
+**Nothing will put it back behind you.** A model you free is recorded as *yours*, not
+as something Ava released - so the restore timer skips it, the watchdog skips it, and
+it raises no alert about being down. It stays exactly where you put it until you bring
+it back. That also means it is on you to bring it back.
+
+**It will not interrupt work.** A release is refused while a live lease holds the
+model, and while Ava is mid-answer. There is no force option, deliberately.
+
+**You will be told what actually happened, including when that is nothing.** The
+receipt reports a *measured* delta or admits it could not measure one. It will never
+say "freed 0 GB", because that states an outcome where there was none. On a box whose
+GPU no reader can reach - a container without the toolkit, WSL2 without the right
+driver - freeing VRAM does not move the free-memory reading at all, and Ava says so
+rather than counting a working release as a failure.
+
+### What has a lever, and what does not
+
+| Row | Lever | Comes back |
+|---|---|---|
+| Ava's own voice models | always | by itself, on the next voice turn |
+| An engine that publishes an unload endpoint | inferred, if `alloc.infer_levers` | by itself, on the next request |
+| A model you declared with `driver: docker` / `systemd` | yours | `Load it back` starts it again |
+| Anything else | none - reported, never touched | - |
+
+Ava fills in **one** kind of lever for you: an engine's own documented "drop your
+weights" endpoint, aimed at a backend you already configured. That is bounded on
+purpose - the address is one you wrote, the action is reversible, and a wrong guess is
+a 404 that reads as "nothing was done". Ava will **never** infer a container or unit
+name, because stopping the wrong process is not a mistake it can take back. Set
+`alloc.infer_levers: false` to require an explicit `driver:` for everything.
+
+If a row says **no release lever**, give it one:
+
+```yaml
+alloc:
+  models:
+    my-engine:
+      driver: docker                    # it runs in a container
+      driver_config: { container: my-engine }
+```
+
+```yaml
+alloc:
+  models:
+    my-engine:
+      driver: http-unload               # it answers a "drop your weights" request
+      driver_config:
+        base: "http://127.0.0.1:11434"  # the server ROOT, not the /v1 base
+        path: /api/generate
+        json: { model: llama3.2:3b, prompt: "", keep_alive: 0 }
+```
+
+The first stops a process, so Ava has to start it again. The second is reversible for
+free - the engine reloads on the next request.
+
+---
+
 ## On any hardware
 
 Every memory reading goes through Ava's hardware layer, which knows what "free" means

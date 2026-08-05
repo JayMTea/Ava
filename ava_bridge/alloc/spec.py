@@ -95,6 +95,11 @@ class ModelSpec:
     # provenance, for reports and UIs
     source: str = "alloc"                   # alloc | backends | connector
     implicit: bool = False                  # derived rather than hand-authored
+    # False when the release lever was inferred from an engine whose endpoint has
+    # not been exercised against a live instance. The lever is still offered — a
+    # release that no-ops is honest and visible — but a surface should say so
+    # rather than implying it is known to work. Mirrors `engines.usage_verified`.
+    unload_verified: bool = True
     notes: list[str] = field(default_factory=list)
 
     @property
@@ -120,6 +125,21 @@ def enabled() -> bool:
     """Is the allocation layer switched on? Default True, because with no declared
     models it is inert anyway — an operator who declares nothing sees no change."""
     return settings.get_bool("alloc.enabled", True, env="AVA_ALLOC")
+
+
+def infer_levers() -> bool:
+    """May Ava fill in an engine's own unload endpoint for a backend? Default True.
+
+    This is the one narrowing of "declared, never discovered", and it is deliberately
+    switchable because the ADR's principle is a good one. What it permits is bounded
+    hard: a REVERSIBLE unload, aimed at the engine the operator declared, at the URL
+    they declared, using that engine's own documented endpoint — see
+    `_inherit_unload`. It never infers `docker` or `systemd`, so nothing can be
+    STOPPED on a guess, and it never introduces an identifier the operator did not
+    write. Turn it off to require an explicit `alloc.models.<id>.driver` for
+    everything, which is the pre-existing behaviour exactly.
+    """
+    return settings.get_bool("alloc.infer_levers", True, env="AVA_ALLOC_INFER")
 
 
 def role_model(role: str) -> str | None:
@@ -177,6 +197,16 @@ def load_models() -> list[ModelSpec]:
 
     specs: dict[str, ModelSpec] = {}
 
+    # 0. Ava's OWN models — the voice stack it loads itself.
+    #
+    # Declaring these does not weaken "declared, never discovered", because the
+    # principle is about not touching things that are not Ava's. Ava loaded these; it
+    # knows where they are because it put them there. An operator who wants them gone
+    # from the registry writes `alloc.models.<id>.driver: observe`, which wins below
+    # like any other explicit declaration.
+    for s in _own_models():
+        specs[s.id] = s
+
     # 1. explicit declarations
     for mid, raw in declared.items():
         if not isinstance(raw, dict):
@@ -184,13 +214,14 @@ def load_models() -> list[ModelSpec]:
         specs[str(mid)] = _spec_from_alloc(str(mid), raw)
 
     # 2. inherit sizing from serving profiles the operator already wrote
-    for bid, prof in _backend_profiles().items():
+    for bid, (backend, prof) in _backend_profiles().items():
         spec = specs.get(bid)
         if spec is None:
             spec = ModelSpec(id=bid, source="backends", implicit=True,
                              priority=_default_priority())
             specs[bid] = spec
         _inherit_fit(spec, prof)
+        _inherit_unload(spec, backend)
 
     # 3. inherit unit/probe from connector manifests
     for svc in _connector_services():
@@ -255,6 +286,117 @@ def _inherit_fit(spec: ModelSpec, prof) -> None:
         spec.notes.append("remote backend — observed, never actuated")
 
 
+def _own_models() -> list[ModelSpec]:
+    """Ava's own voice models, declared so the owner can free them.
+
+    Two of them, in two processes, with genuinely different economics — and saying so
+    is the point, because a panel that lumped them together would overstate what the
+    in-process one gives back.
+
+    `ava-voice` is the bridge's own heap: faster-whisper int8 on CPU plus one or two
+    ~80 MB ECAPA speaker models. A few hundred MB of HOST RAM. On a box whose pool
+    reading is VRAM, freeing it moves the number not at all, and the driver reports
+    the amount as unknown rather than guessing. It is here for hygiene and for
+    biometric residency, not for capacity.
+
+    `ava-voice-gpu` is the sidecar, a separate PID holding Kokoro TTS plus a fp16
+    Whisper on the accelerator — the one that actually gives memory back. Its address
+    is env-only (there is no ava.yaml key for it), which `${VAR:-default}` handles.
+
+    Both reload themselves on next use, so neither needs a restore lever.
+    """
+    voice = ModelSpec(
+        id="ava-voice", label="Ava's voice (speech-to-text, speaker check)",
+        driver="inproc", priority="background",
+        # A hint, not a measurement: nothing can attribute a few hundred MB inside
+        # the PID that also serves the UI, the chat stores and the agent runtime.
+        weight_gb=0.4,
+        driver_config={"target": "voice"},
+        restore={"auto": False},
+        source="ava", implicit=True,
+        notes=["loaded by Ava itself — reloads on the next voice turn"],
+    )
+    gpu = ModelSpec(
+        id="ava-voice-gpu", label="Ava's voice sidecar (GPU)",
+        driver="http-unload", priority="background",
+        weight_gb=0.9,
+        driver_config=_expand_all({
+            "base": "${AVA_KOKORO_URL:-http://127.0.0.1:8129}",
+            "path": "/free", "json": {},
+        }),
+        readiness=_expand_all({
+            "url": "${AVA_KOKORO_URL:-http://127.0.0.1:8129}/health",
+            # NOT [ok, stt_ready]. Those go false the moment the owner frees it, and
+            # a readiness probe that fails because the owner did what they asked is
+            # how a deliberate release gets alerted on as the six-day outage. The
+            # sidecar answering at all is what this needs to know.
+            "require": [],
+        }),
+        restore={"auto": False},
+        source="ava", implicit=True,
+        notes=["reloads itself on the next spoken reply"],
+    )
+    return [voice, gpu]
+
+
+def _inherit_unload(spec: ModelSpec, b: dict) -> None:
+    """Fill an http-unload lever from what the engine registry says this engine offers.
+
+    The ONE thing Ava infers for itself, and the reasoning for the boundary is in
+    `engines.Engine.unload_path`: an engine's documented "drop your weights" endpoint,
+    at an address the operator already wrote down because chat is served through it,
+    has a blast radius of exactly that engine — and a wrong guess is a 4xx, which
+    `HttpUnloadDriver` reads as "nothing happened". A guessed container name can stop
+    something that was never Ava's. So this fills http-unload and nothing else; a
+    `docker` or `systemd` lever stays the operator's to declare.
+
+    Explicit config always wins: an operator who wrote `driver:` or any
+    `driver_config` gets exactly what they wrote, and this does not run.
+
+    Keyed on the backend's DECLARED engine, never sniffed from the URL. `omni` on
+    :8080 could be llama.cpp or MLX, and freeing the wrong engine's weights is a real
+    outcome to be wrong about.
+    """
+    if spec.driver or spec.driver_config or spec.via or spec.host:
+        return
+    if not infer_levers():
+        return
+    key = str(b.get("engine") or "").strip().lower()
+    if not key:
+        return
+    try:
+        from .. import engines
+    except Exception:  # noqa: BLE001 — registry unavailable; stay observe-only
+        return
+    eng = engines.get(key)
+    if eng is None or not eng.unload_path:
+        return
+    # `url`, not `base_url`. `load_backends()` NORMALISES the ava.yaml key
+    # `base_url` to `url` on the way out, so reading the config's spelling here
+    # silently returned None for every backend that has ever existed and the
+    # inference never fired once. `base_url` stays as a fallback for a caller that
+    # hands over a raw config block rather than a loaded backend.
+    base = str(b.get("url") or b.get("base_url") or "").strip()
+    if not base:
+        return
+    # The OpenAI `/v1` base is where chat is served; a native control path hangs off
+    # the server ROOT. Posting to `…/v1/api/generate` is a 404 — the same class of
+    # bug `health_at_root` exists to prevent, which is why it is handled and not
+    # left to whoever writes the config.
+    root = base.rstrip("/")
+    if root.endswith("/v1"):
+        root = root[:-3].rstrip("/")
+    body = {k: (str(b.get("model") or "") if v == "{model}" else v)
+            for k, v in (eng.unload_body or {}).items()}
+    spec.driver = "http-unload"
+    spec.driver_config = {"base": root, "path": eng.unload_path, "json": body}
+    spec.unload_verified = bool(eng.unload_verified)
+    spec.notes.append(
+        f"release lever inferred from the {eng.label} registry entry"
+        + ("" if eng.unload_verified
+           else " — NOT VERIFIED against a live instance, so it may do nothing"))
+
+
 def _inherit_service(spec: ModelSpec, svc: dict) -> None:
     """Fill unit/probe defaults from a connector manifest."""
     if svc.get("unit") and not spec.driver_config.get("unit"):
@@ -302,7 +444,11 @@ def _finalize(spec: ModelSpec) -> None:
 
 # --- ingest sources --------------------------------------------------------- #
 def _backend_profiles() -> dict:
-    """`{backend_id: FitProfile}` for local backends, or {} if unavailable.
+    """`{backend_id: (backend, FitProfile)}` for local backends, or {} if unavailable.
+
+    The backend dict travels alongside the profile because sizing is not the only
+    thing inheritable from it: `_inherit_unload` needs the declared engine, the base
+    URL and the model id, none of which survive into a `FitProfile`.
 
     Imported lazily and defensively: the allocator is useful without the router,
     and a fork may have neither backends nor a `fit:` block anywhere.
@@ -318,7 +464,7 @@ def _backend_profiles() -> dict:
             bid = b.get("id")
             if not bid:
                 continue
-            out[str(bid)] = model_fit.profile_for(b)
+            out[str(bid)] = (b, model_fit.profile_for(b))
     except Exception:  # noqa: BLE001 — never let config break the allocator
         return {}
     return out

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
+import { AllocSection } from './AllocSection';
 import { api } from '../lib/api';
 import { ProgressBar } from '../lib/ProgressBar';
 import { stateCopy, stateOf } from '../lib/modelState';
@@ -377,6 +378,12 @@ export function HardwareBubble() {
                   </>
                 )}
               </div>
+              {/* Built from the allocation report, NOT joined against the rows
+                  above. Three reasons: the `<select>` cannot host per-row buttons;
+                  the keep-the-selection-valid effect would yank the selection out
+                  from under a successful action; and Ava's own voice models are not
+                  backends, so they never appear in `stats.models` at all. */}
+              <AllocSection />
             </div>
           </div>
         </div>

@@ -18,11 +18,25 @@ It answers two questions, and this module is the whole public surface for both:
      the full decision is computed and recorded, and no driver is touched. See
      `broker.py`.
 
-**What is governable is declared, never discovered.** Only models under
-`alloc.models` in `ava.yaml` are ever candidates for actuation. Everything else
-holding memory is *observed* — counted, so the planner does not promise memory
-someone else has, and named, so an operator can see it — but never touched. Blast
-radius is bounded by config, not by heuristics.
+**What is governable is declared, never discovered.** Models under `alloc.models`
+in `ava.yaml` are candidates for actuation. Everything else holding memory is
+*observed* — counted, so the planner does not promise memory someone else has, and
+named, so an operator can see it — but never touched. Blast radius is bounded by
+config, not by heuristics.
+
+Two things are declared without the operator writing them, and both stay inside
+that boundary rather than widening it:
+
+  * **Ava's own voice models** (`ava-voice`, `ava-voice-gpu`). Ava loaded them and
+    knows where they are because it put them there. Governing your own process is
+    not discovery, and an owner should not have to write config to be allowed to
+    free memory Ava itself took.
+  * **An engine's own unload endpoint**, filled in for a backend the operator
+    already configured (`spec._inherit_unload`, `alloc.infer_levers`). This is the
+    one narrowing, taken so a Free button is not inert on a stock install. It is
+    bounded to a REVERSIBLE unload, at the address they wrote, against the engine
+    already serving their chat — and it never infers `docker` or `systemd`, so
+    nothing is ever stopped on a guess about a name.
 
 **Portability is a hard requirement, not a later concern:**
 
@@ -35,8 +49,10 @@ radius is bounded by config, not by heuristics.
     *unknown*, which means **never gate**. Behaviour is exactly what it was before
     this layer existed.
 
-**Absent `alloc:` block means an empty registry**: nothing is declared, so nothing
-is governed and nothing changes. An operator opts in one model at a time.
+**Absent `alloc:` block means nothing of the operator's is governed**: their models
+and services are untouched until they say otherwise, one at a time. What they get
+out of the box is the ability to free Ava's own voice models, and — for an engine
+that publishes one — the reversible unload lever that engine already offers.
 
 Reads `alloc:` from ava.yaml — see `spec.py` for the full block and
 `config.example.yaml` for a commented example.
@@ -52,13 +68,15 @@ from __future__ import annotations
 
 import time
 
-from . import capacity, spec
-from .base import DriverContext, Residency
-from .broker import admit_plan, enforcing, lease, restore_now
+from . import capacity, ledger, spec
+from .base import DriverContext, ModelDriver, Residency
+from .broker import (admit_plan, enforcing, lease, owner_release, owner_restore,
+                     restore_now)
 from . import drivers as _drivers
 from .drivers import for_spec
 
 __all__ = ["admit", "admit_plan", "lease", "restore_now", "enforcing",
+           "owner_release", "owner_restore",
            "report", "residency_of", "drivers_for", "spec", "capacity"]
 
 # `free_gib=None` has to mean "measured, and the answer is UNKNOWN" — that is the
@@ -118,6 +136,7 @@ def report() -> dict:
     this; nothing consumes it to make a choice.
     """
     specs = spec.load_models()
+    brain_id = _brain_id()
     rows, holders = [], []
     for s in specs:
         drv = _driver(s)
@@ -126,6 +145,10 @@ def report() -> dict:
         ok, reason = (True, "not gated")
         if s.local and s.need_gib is not None and free is not None:
             ok, reason = _fits(s, free)
+        # Reuse the residency just measured: `plan_release` would otherwise probe
+        # the driver a second time, which for docker means another inspect + stats.
+        rp = drv.plan_release(residency=res)
+        state = ledger.model_state(s.id)
         rows.append({
             "id": s.id, "label": s.label, "driver": drv.name,
             "source": s.source, "implicit": s.implicit,
@@ -141,6 +164,20 @@ def report() -> dict:
             "cold_load_ok": ok, "cold_load_reason": reason,
             "problems": drv.validate(),
             "notes": list(s.notes),
+            # --- what could be done to it, and by whom ------------------------ #
+            # Facts only: which levers exist, why not, who is using it, and who
+            # took it down. The words a surface puts on any of this are the
+            # frontend's (CLAUDE.md) — nothing here is a sentence for a person.
+            "modes": [o.mode.value for o in rp.options],
+            "release_blocked": rp.blocked,
+            "self_restoring": bool(drv.SELF_RESTORING),
+            "restore_kind": _restore_kind(drv),
+            "held_by": len(ledger.holders_of(s.id)),
+            "released_by_owner": bool(state.get("released_by_owner")),
+            "released_by_us": bool(state.get("released_by_us")),
+            "released_at": state.get("at"),
+            "released_gib": state.get("released_gib"),
+            "is_brain": s.id == brain_id,
         })
         if s.local:
             holders.append(capacity.Holder(
@@ -175,6 +212,41 @@ def report() -> dict:
 
 
 # --- internals --------------------------------------------------------------- #
+def _restore_kind(drv) -> str:
+    """How this model comes back, as a machine token.
+
+    Three genuinely different promises, and a surface must not offer the same button
+    for them:
+
+      `self`  — the driver declares SELF_RESTORING: nothing to start, the engine
+                reloads its own weights on the next request.
+      `start` — the driver overrides `acquire`, so there is a real container or unit
+                to bring up.
+      `none`  — it does not come back on its own and Ava cannot start it either.
+    """
+    if drv.observe_only:
+        return "none"
+    if drv.SELF_RESTORING:
+        return "self"
+    if type(drv).acquire is not ModelDriver.acquire:
+        return "start"
+    return "none"
+
+
+def _brain_id() -> str | None:
+    """Which declared model is the one answering chat, or None.
+
+    Deliberately delegated: `models.effective_brain()` is THE resolver, and a second
+    derivation here is how the monitor and Setup once disagreed about the same box.
+    Wrapped because this is a report — telemetry must never fail on a config read.
+    """
+    try:
+        from .. import models as _models
+        return _models.effective_brain().get("backend_id") or None
+    except Exception:  # noqa: BLE001 — a report must not die on a config problem
+        return None
+
+
 def _fits(s: "spec.ModelSpec", free: float) -> tuple[bool, str]:
     """Delegate the arithmetic to `model_fit` so there is one implementation.
 

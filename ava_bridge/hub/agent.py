@@ -170,6 +170,23 @@ def agent_provision_status(since: int = 0):
 
 
 
+def _released_by_owner(model_id: str | None) -> bool:
+    """Did the owner deliberately free this model's memory?
+
+    The one thing that separates "Ava is broken" from "you did that on purpose".
+    Without it, freeing the brain reports `inference_down`, which the banner
+    classifies as an engine still WARMING — so the owner is told their engine is
+    booting when in fact it is doing exactly what they asked.
+    """
+    if not model_id:
+        return False
+    try:
+        from ..alloc import ledger
+        return bool(ledger.model_state(str(model_id)).get("released_by_owner"))
+    except Exception:  # noqa: BLE001 — a health route must never fail on a read
+        return False
+
+
 @router.get("/agent/inference")
 def agent_inference():
     """Can Ava actually answer right now?
@@ -215,6 +232,17 @@ def agent_inference():
         return {"ok": False, "code": "model_unknown", "model": "", "engine": "",
                 "detail": "No model is configured, so there is nothing to answer "
                           "with. Choose one in Setup -> Agent."}
+
+    # BEFORE the sandbox short-circuit, because it applies either way and that
+    # branch answers `ok: True` with no probe at all — so a brain the owner freed
+    # while running the agent runtime would show a green banner over an Ava that
+    # cannot answer. Checked first, this is the one reading that is knowable
+    # without touching the network.
+    if _released_by_owner(brain.get("backend_id")):
+        return {"ok": False, "code": "model_released", "model": model,
+                "engine": engine,
+                "detail": "You freed this model's memory, so Ava has nothing to "
+                          "think with right now."}
 
     if brain.get("source") == "agent":
         # The agent runtime serves turns inside its sandbox and owns the model

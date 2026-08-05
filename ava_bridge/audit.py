@@ -136,6 +136,18 @@ def set_actor(actor: str):
     return _actor.set(actor if actor in ACTORS else "unknown")
 
 
+def actor() -> str:
+    """Who the current context is attributed to. "unknown" when nothing set it.
+
+    Exists for one specific hazard: a contextvar does NOT cross a `threading.Thread`
+    boundary — a worker starts with a fresh context, so a route that hands work to a
+    background thread and lets `record()` resolve the actor there attributes every
+    one of those events to "unknown". Read it in the handler, pass it to the worker,
+    and hand it back to `record(actor=...)`.
+    """
+    return _actor.get() or "unknown"
+
+
 def reset_actor(token) -> None:
     """Restore the actor context to what it was before the matching set_actor().
 

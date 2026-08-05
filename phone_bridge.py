@@ -93,21 +93,38 @@ async def _config_parse_error(request: Request, exc: settings.ConfigParseError):
 # Lazily-initialised heavy objects (loaded once on first request / startup).
 # Voice (STT + speaker gate) is an OPTIONAL extra — requirements-voice.txt.
 # Without it the bridge boots and serves normally, just voice-less.
-def _ensure_loaded():
-    if state.heavy["voice_unavailable"]:
-        return
-    try:
-        if state.heavy["whisper"] is None:
-            from faster_whisper import WhisperModel
-            state.heavy["whisper"] = WhisperModel(va.WHISPER_MODEL, device="cpu", compute_type="int8")
-        if state.heavy["voiceprint"] is None:
-            state.heavy["voiceprint"] = spk.load_voiceprint()
-        if state.heavy["verifier"] is None and state.heavy["voiceprint"] is not None and PHONE_THRESHOLD > 0:
-            state.heavy["verifier"] = spk.SpeakerVerifier()
-    except ImportError:
-        state.heavy["voice_unavailable"] = True
-        print("[ava-bridge] voice disabled — optional STT deps not installed "
-              "(pip install -r requirements-voice.txt to enable).", flush=True)
+def _ensure_loaded() -> tuple:
+    """Load what is missing and return `(whisper, verifier, voiceprint)`.
+
+    Loading and reading are one step, under one lock, for two reasons:
+
+      * **Exactly once.** Every load here was an unguarded check-then-set. Two
+        concurrent voice turns could both find `whisper is None` and both build a
+        WhisperModel; it was masked only because the startup call always won the
+        race first. The owner can now free these models at runtime, which unmasks it
+        exactly when memory is short.
+      * **No torn read.** Returning the objects the caller will use, rather than
+        letting it re-read `state.heavy` later, is what stops a release landing
+        mid-turn from turning a dereference into an unhandled 500.
+    """
+    with state.heavy_lock:
+        if state.heavy["voice_unavailable"]:
+            return (None, None, None)
+        try:
+            if state.heavy["whisper"] is None:
+                from faster_whisper import WhisperModel
+                state.heavy["whisper"] = WhisperModel(va.WHISPER_MODEL, device="cpu", compute_type="int8")
+            if state.heavy["voiceprint"] is None:
+                state.heavy["voiceprint"] = spk.load_voiceprint()
+            if state.heavy["verifier"] is None and state.heavy["voiceprint"] is not None and PHONE_THRESHOLD > 0:
+                state.heavy["verifier"] = spk.SpeakerVerifier()
+        except ImportError:
+            state.heavy["voice_unavailable"] = True
+            print("[ava-bridge] voice disabled — optional STT deps not installed "
+                  "(pip install -r requirements-voice.txt to enable).", flush=True)
+        # Reentrant: `heavy_lock` is an RLock, and one definition of "these three,
+        # read together" beats two that can drift.
+        return state.voice_snapshot()
 
 
 @app.on_event("startup")
@@ -665,7 +682,15 @@ async def talk(audio: UploadFile = File(...), history: str = Form("[]"),
             {"error": "voice is turned off in settings (features.voice)",
              "error_code": "voice_off"},
             status_code=503)
-    _ensure_loaded()
+    # Bind the three heavy objects ONCE, here, and use these locals for the rest of
+    # the turn. Reading state.heavy at each point of use instead left three unguarded
+    # dereferences spread across a window that spans an ffmpeg decode (up to 30s) and
+    # a sidecar round-trip — and the owner can now free these models from the hardware
+    # panel, on a background thread, at any moment inside it. Landing there gave an
+    # unhandled 500, not the lazy reload the design intends. Holding them also keeps
+    # them alive for the turn, so a release mid-turn frees nothing until it ends,
+    # which is honest and is what the allocator will measure.
+    whisper, verifier, voiceprint = _ensure_loaded()
     if state.heavy["voice_unavailable"]:
         return JSONResponse(
             {"error": "voice not installed — pip install -r requirements-voice.txt"},
@@ -714,9 +739,9 @@ async def talk(audio: UploadFile = File(...), history: str = Form("[]"),
 
     # Speaker gate — your voice only.
     sim = None
-    if state.heavy["verifier"] is not None:
-        emb = await run_in_threadpool(state.heavy["verifier"].embed_pcm, pcm)
-        sim = spk.cosine(state.heavy["voiceprint"], emb)
+    if verifier is not None and voiceprint is not None:
+        emb = await run_in_threadpool(verifier.embed_pcm, pcm)
+        sim = spk.cosine(voiceprint, emb)
         if sim < PHONE_THRESHOLD:
             return {"accepted": False, "sim": round(float(sim), 3),
                     "threshold": PHONE_THRESHOLD,
@@ -733,7 +758,11 @@ async def talk(audio: UploadFile = File(...), history: str = Form("[]"),
             print(f"[ava] GPU STT unavailable ({e}); falling back to CPU Whisper",
                   flush=True)
     if text is None:
-        text = await run_in_threadpool(va.transcribe, state.heavy["whisper"], pcm)
+        if whisper is None:
+            return JSONResponse(
+                {"error": "speech-to-text is not loaded right now",
+                 "error_code": "voice_released"}, status_code=503)
+        text = await run_in_threadpool(va.transcribe, whisper, pcm)
     if not text:
         return {"accepted": True, "text": "", "reply": "",
                 "sim": round(float(sim), 3) if sim is not None else None,

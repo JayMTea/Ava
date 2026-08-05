@@ -80,13 +80,26 @@ def _wants_start(row: dict) -> bool:
 
     Unknown residency (`None`) also does not qualify: if we cannot see whether it is
     running, we must not claim it is being held back.
+
+    Nor does a model the owner freed by hand. It is down because they said so, and
+    "has not been able to start for 60 min" about a state someone chose is the
+    watchdog nagging them for using the feature.
     """
     return (bool(row.get("local")) and not row.get("observe_only")
+            and not row.get("released_by_owner")
             and row.get("resident") is False)
 
 
 def _state_of(row: dict) -> str:
     """Collapse a report row into one word. Order matters: worst wins."""
+    if row.get("released_by_owner"):
+        # FIRST, ahead of every problem state, because this is not a problem — it is
+        # the state that was asked for. It has to outrank `degraded` in particular:
+        # an engine that drops its weights on request keeps serving its port and
+        # answers its own readiness probe with "no model loaded", which is byte for
+        # byte the six-day silent-fallback shape below. The difference is not
+        # observable at the probe; it is only knowable from who asked.
+        return "released"
     if row.get("resident") and row.get("ready") is False:
         return "degraded"
     if row.get("observe_only") or not row.get("local"):

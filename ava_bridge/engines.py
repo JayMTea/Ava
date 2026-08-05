@@ -77,6 +77,29 @@ class Engine:
     # when that is a different question from models_path. None = it cannot be
     # asked, and residency stays honestly unknown rather than assumed.
     resident_path: str | None = None
+    # How to ask this engine to DROP its weights while staying up — the cheapest
+    # release lever there is, and the only one Ava will ever infer for itself.
+    #
+    # Inferring this is safe in a way inferring a container name is not, and the
+    # difference is blast radius. The endpoint is a documented part of the engine's
+    # own API, and the address is one the operator already wrote down because Ava is
+    # serving chat through it — so the worst case is a 404 against the engine Ava was
+    # already talking to, which `HttpUnloadDriver` reads as "nothing happened". A
+    # guessed container name, by contrast, can stop something that was never Ava's.
+    # That is why `spec._finalize` will fill an http-unload lever from this and will
+    # NEVER infer docker or systemd.
+    #
+    # None = this engine has no such endpoint, and it stays observe-only until the
+    # operator declares a driver themselves.
+    unload_path: str | None = None
+    # Body to POST. `{model}` is substituted with the backend's configured model id.
+    unload_body: dict | None = None
+    # Same discipline as `usage_verified`: has this been exercised against a live
+    # instance of the engine, or only read out of its documentation? An unverified
+    # lever is still offered — a release that no-ops is honest and visible — but the
+    # UI says so rather than implying it is known to work.
+    unload_verified: bool = False
+    unload_reason: str = ""
     launcher: str | None = None
     flags_table: bool = False
     pull: str | None = None
@@ -123,6 +146,18 @@ ENGINES: tuple[Engine, ...] = (
         # live Ollama: three pulled tags, /api/ps empty until a turn arrives.
         serves_resident=False,
         resident_path="/api/ps",
+        # `keep_alive: 0` tells Ollama to evict the model as soon as the request
+        # completes — the documented spelling of the eviction it already does on a
+        # ~5 min idle timer, asked for now instead of waited for. `/api/generate`
+        # with an empty prompt loads nothing and returns immediately.
+        unload_path="/api/generate",
+        unload_body={"model": "{model}", "prompt": "", "keep_alive": 0},
+        unload_verified=True,
+        unload_reason="verified against Ollama 0.24.0 with dolphin3:8b resident: "
+                      "the POST returns 200 with done_reason=\"unload\", /api/ps "
+                      "goes empty, the runner's VRAM disappears from nvidia-smi, "
+                      "and Ava measured 21.7 GiB back. An empty prompt loads "
+                      "nothing and returns immediately.",
         usage=True,
         usage_reason="verified: Ollama omits usage UNLESS include_usage is sent",
         usage_verified=True,

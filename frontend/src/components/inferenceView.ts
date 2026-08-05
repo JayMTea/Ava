@@ -41,12 +41,23 @@ export function bannerView(health: InferenceHealth | null): BannerView {
   // The backend writes owner-facing copy here on purpose: it is the only side
   // that knows WHICH engine and WHICH model, and a frontend template would
   // either restate that badly or drop it.
-  const text = (health.detail || '').trim()
-    || 'Ava cannot answer right now.';
+  let text = (health.detail || '').trim() || 'Ava cannot answer right now.';
 
-  // A service that has not come up yet is the expected state on a gpu install,
-  // where vLLM can spend 10-30 minutes pulling weights before it answers. That
-  // is not a fault and must not read as one.
-  const warming = health.code === 'inference_down';
-  return { show: true, text, code: health.code, role: warming ? 'status' : 'alert' };
+  // The one code that gets its instruction from here rather than from
+  // `fixForCode`. Every other code names a Setup destination; this one's control
+  // lives in the hardware monitor, which floats over every view and has no hash
+  // route — so a fix LINK would have nowhere to point, and an empty one navigates
+  // to the top. Saying where the button is IS the fix.
+  if (health.code === 'model_released') {
+    text += ' Open the hardware monitor (the chip button) and load it back.';
+  }
+
+  // Two states that are not faults and must not read as one:
+  //   inference_down — the expected state on a gpu install, where vLLM can spend
+  //     10-30 minutes pulling weights before it answers;
+  //   model_released — the owner freed this model's memory themselves. A choice
+  //     is not an emergency, and interrupting a screen reader with an alert for a
+  //     state someone deliberately chose is wrong.
+  const expected = health.code === 'inference_down' || health.code === 'model_released';
+  return { show: true, text, code: health.code, role: expected ? 'status' : 'alert' };
 }

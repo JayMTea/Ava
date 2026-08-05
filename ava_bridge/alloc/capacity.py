@@ -118,6 +118,21 @@ def source() -> str | None:
     return hwinfo.fit_memory().source
 
 
+def accel_unreadable() -> bool:
+    """Would freeing accelerator memory be invisible to `free_gib()`?
+
+    True only when a card exists here and no reader can reach it — `free_gib()` is
+    then reporting system RAM, so a model released from that card moves it not at
+    all. Every other case (VRAM read directly, unified memory, no accelerator) is
+    watching the pool the model actually holds.
+
+    Lives here rather than at the call site because this module is the allocator's
+    only HAL caller by convention (`tests/test_alloc_measurement.py`), and this is a
+    HAL question: it is about what the box can see, not about what to do about it.
+    """
+    return hwinfo.accel_unreadable()
+
+
 def snapshot(holders: "list[Holder] | None" = None) -> Pool:
     """A full capacity reading, optionally with residency already gathered.
 

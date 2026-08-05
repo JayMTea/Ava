@@ -59,6 +59,94 @@ export interface StatedPool {
   min_gb: number;
   max_gb: number;
 }
+/** One declared model in the allocation report: what it holds, and what may be done.
+ *
+ * Every field is a FACT or a machine token — no sentence the backend wrote for a
+ * person (CLAUDE.md). The wording for all of it lives in the component that renders
+ * it, which is why `release_blocked` is a reason code rather than a message and
+ * `modes` is a list rather than a label.
+ *
+ * The three-valued fields are the ones to be careful with. `resident: null` means
+ * "we genuinely could not look", never "no" — the distinction `probe_resident` and
+ * `modelState.ts` both exist to keep. `measured: false` means `resident_gib` is a
+ * declared hint, not a reading, so it must never be rendered as a measurement.
+ */
+export interface AllocModel {
+  id: string;
+  label: string;
+  driver: string;
+  source: string;
+  implicit: boolean;
+  priority: string;
+  pinned: boolean;
+  local: boolean;
+  observe_only: boolean;
+  weight_gb: number | null;
+  resident: boolean | null;
+  resident_gib: number | null;
+  measured: boolean;
+  ready: boolean | null;
+  detail: string;
+  /** Which levers the driver offers, cheapest first. Empty = nothing to offer. */
+  modes: string[];
+  /** Why there is no lever, when there is none. */
+  release_blocked: string | null;
+  /** The engine reloads its own weights, so "bring it back" is not a start. */
+  self_restoring: boolean;
+  restore_kind: 'none' | 'self' | 'start';
+  /** Live leases using it. Ava does not take memory from work in progress. */
+  held_by: number;
+  released_by_owner: boolean;
+  released_by_us: boolean;
+  released_at: number | null;
+  released_gib: number | null;
+  is_brain: boolean;
+  problems: string[];
+  notes: string[];
+}
+
+/** GET /api/hub/hardware/alloc — what is holding memory, and what Ava can free. */
+export interface AllocReport {
+  /** False when `alloc.enabled` is off. Not a 404, so the panel can say why. */
+  enabled: boolean;
+  actuating?: boolean;
+  gating?: string;
+  pool?: {
+    free_gib: number | null; total_gib: number | null; source: string | null;
+    baseline_gib: number | null; declared_gib: number | null;
+    unknown_gib: number | null;
+  };
+  models: AllocModel[];
+  declared_count: number;
+  breaker?: { quiesced?: boolean; quiesce_reason?: string; models?: Record<string, {
+    given_up?: boolean; fails?: number; reason?: string }> };
+  job?: AllocJob;
+}
+
+/** The single in-flight release/restore. One slot for the whole surface. */
+export interface AllocJob {
+  status: 'idle' | 'running' | 'done' | 'error';
+  model: string | null;
+  verb: 'release' | 'restore' | null;
+  log: string[];
+  started_at: number | null;
+  ended_at: number | null;
+  result: {
+    ok: boolean;
+    code: string;
+    detail?: string;
+    mode?: string;
+    /** MEASURED, and only ever present on a release that worked. Absent means the
+     *  amount is unknown — which must read as "unknown", never as zero. */
+    freed_gib?: number | null;
+    free_before_gib?: number | null;
+    free_after_gib?: number | null;
+    measured?: boolean;
+    held_by?: number;
+    log?: string[];
+  } | null;
+}
+
 /** Where an engine sits relative to Ava — not merely whether it answered.
  *
  * `host` is the load-bearing one: that engine runs on the machine itself,
@@ -639,6 +727,22 @@ export const hub = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ gb }),
       }),
+
+  // Freeing model memory. Every mutation is POST, never GET: the session cookie is
+  // samesite=lax, which DOES ride a top-level GET navigation, so a GET that freed
+  // memory would be a one-click drive-by that takes Ava's brain down.
+  alloc: () => req<AllocReport>('/api/hub/hardware/alloc', { cache: 'no-store' }),
+  allocJob: () => req<AllocJob>('/api/hub/hardware/alloc/job', { cache: 'no-store' }),
+  allocRelease: (id: string, mode?: string) =>
+    req<{ ok: boolean; code?: string; job?: AllocJob }>(
+      `/api/hub/hardware/alloc/${encodeURIComponent(id)}/release`
+      + (mode ? `?mode=${encodeURIComponent(mode)}` : ''), { method: 'POST' }),
+  allocRestore: (id: string) =>
+    req<{ ok: boolean; code?: string; job?: AllocJob }>(
+      `/api/hub/hardware/alloc/${encodeURIComponent(id)}/restore`, { method: 'POST' }),
+  allocReset: (id: string) =>
+    req<{ ok: boolean }>(
+      `/api/hub/hardware/alloc/${encodeURIComponent(id)}/reset`, { method: 'POST' }),
   backends: () => req<BackendProbe>('/api/setup/backends'),
   setupConnectors: () => req<{ connectors: SetupConnector[] }>('/api/setup/connectors'),
   save: (body: SavePayload) =>

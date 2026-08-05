@@ -324,8 +324,37 @@ def _gpu_process_util() -> dict[int, float]:
     return out
 
 
+# A content-addressed blob: `sha256-<hex>`, `sha256:<hex>`, or a bare long hex
+# digest. Ollama launches its runner with `--model …/blobs/sha256-1eee6953…`,
+# which names a FILE, not a model.
+_BLOB_RE = re.compile(r"^(?:sha\d{3}[-:])?[0-9a-f]{16,}$", re.I)
+
+
+def _is_blob_name(value: str) -> bool:
+    """Is this a content hash rather than a model anyone could recognise?
+
+    The distinction is load-bearing, not cosmetic. Ollama's runner names its
+    weights by digest, so the row built from that command line could never match
+    the `dolphin3:8b` its own API reports — and `_loaded_models` duly appended a
+    SECOND row for a model it already had, with a different memory figure. One
+    model, listed twice, in two vocabularies.
+
+    Narrow on purpose: `--model /models/Llama-3.1-8B-Q4.gguf` is a path too, and
+    that basename identifies the model perfectly well. Only an opaque digest
+    carries no identity.
+    """
+    return bool(_BLOB_RE.match((value or "").rsplit("/", 1)[-1].strip()))
+
+
 def _extract_model_names(cmdline: str) -> list[str]:
-    """Every model id named on a command line (--model, --served-model-name, …)."""
+    """Every model id named on a command line (--model, --served-model-name, …).
+
+    A content-addressed blob is not one of them — see `_is_blob_name`. Dropping it
+    here rather than at the point of comparison is deliberate: it leaves the row
+    with `model_id=None`, which is the shape `_loaded_models` already knows how to
+    hand to the engine's own API, so the row ends up named by the thing that
+    actually knows the name.
+    """
     if not cmdline:
         return []
     pats = [
@@ -337,7 +366,7 @@ def _extract_model_names(cmdline: str) -> list[str]:
     for p in pats:
         for m in re.finditer(p, cmdline):
             v = m.group(1).strip('"\'')
-            if v and v not in out:
+            if v and v not in out and not _is_blob_name(v):
                 out.append(v)
     return out
 
@@ -750,7 +779,14 @@ def _loaded_models() -> list[dict]:
             # drifted from what was actually launched — showing the label would
             # print a model name that is not in memory anywhere on this box. The
             # observed identity wins; being tied to this backend is still true.
-            if label and (confirmed or not str(b.get("model") or "").strip()):
+            #
+            # `label != id` because `load_backends` defaults an absent label to the
+            # backend's ID, and that default is not a name anybody chose. Honouring
+            # it made the picker read "local" for a row whose model is
+            # "dolphin3:8b" — the config's filing name in place of the thing it
+            # names. A label the operator actually wrote still wins.
+            if (label and label != str(b.get("id") or "")
+                    and (confirmed or not str(b.get("model") or "").strip())):
                 row["model"] = label
             continue
 
@@ -829,7 +865,63 @@ def _loaded_models() -> list[dict]:
     # The brain first — it is what the panel is for. Everything else by weight.
     rows.sort(key=lambda x: (x.get("role_key") != "brain",
                              -(x.get("memory_mb") or 0)))
-    return _attach_components(rows)
+    return _attach_components(_dedupe(rows))
+
+
+def _model_key(row: dict) -> str:
+    """The identity two rows must share to BE the same model. "" = unidentifiable."""
+    mid = str(row.get("model_id") or "").strip().lower()
+    if not mid or _is_blob_name(mid):
+        # No identity: an unnamed worker, or a digest. Two of those are not
+        # evidence of one model — several genuinely separate processes look
+        # exactly like this — so they are never merged.
+        return ""
+    # `some-org/Some-Model-7B` and `Some-Model-7B` are one model named by two
+    # layers: a launcher's `--model` carries the org prefix, the engine's own API
+    # often does not.
+    return mid.rsplit("/", 1)[-1]
+
+
+def _dedupe(rows: list[dict]) -> list[dict]:
+    """One model, one row. The panel's flat invariant.
+
+    Rows arrive from two independent observers — GPU processes and the engines'
+    own APIs — and they are SUPPOSED to converge: `_match_backend_row` folds a
+    backend into the process row serving it. When that match misses, both survive,
+    and the picker lists the same model twice with two different memory figures and
+    no way to tell which is real.
+
+    This is the net under that. Deliberately keyed on model identity only, so it
+    can never collapse two genuinely distinct models, and it keeps the richer row:
+    a row tied to a backend knows what it is, and one from `nvidia-smi` has a PID
+    and a measured size. Merging keeps both halves rather than picking a winner.
+    """
+    out: list[dict] = []
+    seen: dict[str, dict] = {}
+    for r in rows:
+        key = _model_key(r)
+        if not key:
+            out.append(r)
+            continue
+        first = seen.get(key)
+        if first is None:
+            seen[key] = r
+            out.append(r)
+            continue
+        # Same model, twice. Keep the row already in place and lift anything the
+        # duplicate knew that it did not — a PID, a measurement, a backend tie.
+        for field in ("pid", "memory_mb", "memory_gb", "vram_mb", "gpu_util",
+                      "backend", "cmd", "role_key"):
+            if not first.get(field) and r.get(field):
+                first[field] = r[field]
+        # An observed GPU process outranks an API's word on residency: the memory
+        # is the weights. Only ever upgrades — never talks a row DOWN to idle.
+        if r.get("source") == "nvidia-smi" and r.get("status") == "loaded":
+            first["state"] = "resident"
+            first["status"] = "loaded"
+        if r.get("served") and not first.get("served"):
+            first["served"] = r["served"]
+    return out
 
 
 def _mem() -> dict:

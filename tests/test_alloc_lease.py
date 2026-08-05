@@ -464,7 +464,11 @@ class EnforcementGateTests(unittest.TestCase):
         """
         from ava_bridge.alloc import breaker, broker as B
         ledger.set_model_state("victim", released_by_us=True)
-        drv = mock.Mock(observe_only=False)
+        # SELF_RESTORING explicitly False: this test is about a driver that actually
+        # STARTS something, which is the only kind the fit check can refuse. A bare
+        # Mock answers every attribute truthily, which would silently take the
+        # self-restoring branch below and test nothing.
+        drv = mock.Mock(observe_only=False, SELF_RESTORING=False)
         with self._cfg_with(enforce=True, evict=True), \
              mock.patch.object(B, "_driver", return_value=drv), \
              mock.patch.object(B.capacity, "free_gib", return_value=5.0):
@@ -473,6 +477,26 @@ class EnforcementGateTests(unittest.TestCase):
         drv.acquire.assert_not_called()
         self.assertEqual(breaker.state("victim").get("fails", 0), 0)
         self.assertIn("free", breaker.state("victim")["deferred"])
+
+    def test_a_self_restoring_model_is_not_deferred_for_memory(self):
+        """There is no start to refuse, so refusing one strands the model.
+
+        A self-restoring driver's `acquire` is the no-op default — the engine reloads
+        its own weights on the next request. Applying the fit check to it means that
+        on a box short of memory the debt can never clear, so the model stays marked
+        released forever while the engine is quite happily serving it.
+        """
+        from ava_bridge.alloc import base, broker as B
+        ledger.set_model_state("victim", released_by_us=True)
+        drv = mock.Mock(observe_only=False, SELF_RESTORING=True)
+        drv.acquire.return_value = base.ActionResult(ok=True, acted=False, detail="self")
+        with self._cfg_with(enforce=True, evict=True), \
+             mock.patch.object(B, "_driver", return_value=drv), \
+             mock.patch.object(B.capacity, "free_gib", return_value=0.1):
+            ok = B._restore("victim", lambda _m: None)
+        self.assertTrue(ok)
+        drv.acquire.assert_called_once()
+        self.assertFalse(ledger.model_state("victim").get("released_by_us"))
 
     def test_restore_never_starts_what_we_did_not_stop(self):
         from ava_bridge.alloc import broker as B

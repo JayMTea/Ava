@@ -220,18 +220,23 @@ class ModelDriver(ABC):
         """
         return ActionResult(ok=True, detail="no start lever; reloads on next use")
 
-    def plan_release(self, need_gib: float | None = None) -> ReleasePlan:
+    def plan_release(self, need_gib: float | None = None,
+                     residency: "Residency | None" = None) -> ReleasePlan:
         """The levers available right now, cheapest-first.
 
         The default derives them from `RELEASE_MODES` and the current residency,
         which is right for almost every driver. Override only for a kind with a
         partial lever (dropping some adapters but not the base weights).
+
+        Pass `residency` when the caller has already measured it. `residency()` can
+        cost a `docker inspect` plus a `docker stats` per model, and a report that
+        wants both readings would otherwise pay for them twice per model, per load.
         """
         if self.observe_only:
             return ReleasePlan(self.ctx.model_id, blocked="observe-only")
         if not self.RELEASE_MODES:
             return ReleasePlan(self.ctx.model_id, blocked="driver has no release lever")
-        res = self.residency()
+        res = residency if residency is not None else self.residency()
         if res.resident is False:
             return ReleasePlan(self.ctx.model_id, blocked="not resident")
         opts = []

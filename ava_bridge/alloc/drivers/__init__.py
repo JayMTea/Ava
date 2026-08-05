@@ -22,6 +22,7 @@ import os
 from ..base import DriverContext, ModelDriver
 from .docker import DockerDriver
 from .http_unload import HttpUnloadDriver
+from .inproc import InProcDriver
 from .observe import ObserveDriver
 from .systemd import SystemdDriver
 
@@ -29,6 +30,7 @@ _REGISTRY: dict[str, type[ModelDriver]] = {
     "docker": DockerDriver, "container": DockerDriver,
     "systemd": SystemdDriver, "unit": SystemdDriver, "service": SystemdDriver,
     "http-unload": HttpUnloadDriver, "http_unload": HttpUnloadDriver,
+    "inproc": InProcDriver, "in-process": InProcDriver,
     "observe": ObserveDriver, "none": ObserveDriver, "": ObserveDriver,
 }
 

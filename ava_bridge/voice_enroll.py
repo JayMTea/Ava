@@ -51,6 +51,23 @@ def _get_verifier():
     return _verifier
 
 
+def release_verifier() -> bool:
+    """Drop this module's ECAPA model. True if one was held.
+
+    This is a SECOND ECAPA singleton, separate from `state.heavy["verifier"]`: that
+    one gates voice turns, this one serves enrolment and the "test my voice" button.
+    A box that has ever run enrolment holds both, ~80 MB each, and neither
+    `clear_voice_gate()` nor anything else touched this one — so a release that
+    stopped at `state.heavy` would leave half the memory behind and report the whole
+    of it as freed. `_get_verifier` rebuilds it on the next enrolment.
+    """
+    global _verifier
+    with _verifier_lock:
+        held = _verifier is not None
+        _verifier = None
+    return held
+
+
 def _decode(data: bytes):
     """Any audio bytes -> 16k mono float32 via ffmpeg."""
     import numpy as np

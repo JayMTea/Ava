@@ -74,8 +74,22 @@ class AbsentConfigTests(unittest.TestCase):
             p.start()
             self.addCleanup(p.stop)
 
-    def test_no_alloc_block_declares_nothing(self):
-        self.assertEqual(spec.load_models(), [])
+    def test_no_alloc_block_governs_nothing_of_the_operators(self):
+        """The promise is about THEIR processes, and it is unchanged.
+
+        Ava's own voice models are always declared — it loaded them, it knows where
+        they are because it put them there, and an owner who wants to free them
+        should not have to write config to be allowed to. Nothing of the operator's
+        is governed until they say so, which is the part that ever mattered.
+        """
+        own = {s.id for s in spec.load_models()}
+        self.assertEqual(own, {"ava-voice", "ava-voice-gpu"})
+        self.assertTrue(all(s.source == "ava" for s in spec.load_models()))
+
+    def test_an_operator_can_still_take_avas_own_models_out_of_the_registry(self):
+        # An explicit declaration wins over the built-in one, like any other.
+        with _cfg({"alloc": {"models": {"ava-voice": {"driver": "observe"}}}}):
+            self.assertEqual(spec.by_id()["ava-voice"].driver, "observe")
 
     def test_enabled_defaults_true_but_harmless(self):
         # On by default is safe precisely because nothing is declared: an operator
@@ -116,7 +130,8 @@ class SpecTests(unittest.TestCase):
             "c": {"driver_config": {"base": "http://x"}},
         }}}
         with _cfg(cfg):
-            got = {k: v.driver for k, v in spec.by_id().items()}
+            by_id = spec.by_id()
+        got = {k: v.driver for k, v in by_id.items() if not k.startswith("ava-")}
         self.assertEqual(got, {"a": "docker", "b": "systemd", "c": "http-unload"})
 
     def test_need_gib_is_weight_plus_headroom(self):
@@ -161,9 +176,18 @@ class InheritanceTests(unittest.TestCase):
         workloads = frozenset({"chat"})
         local = True
 
+    # An engine with no unload endpoint in the registry, so these tests stay about
+    # SIZING inheritance. Lever inference has its own class below.
+    #
+    # `url`, NOT `base_url` — this is the shape `load_backends()` actually emits,
+    # and LeverInferenceTests pins that. A fixture written in ava.yaml's spelling
+    # is what let a read of the wrong key pass its own tests.
+    _BACKEND = {"id": "b1", "engine": "llamacpp",
+                "url": "http://127.0.0.1:8080/v1", "model": "m"}
+
     def test_fit_block_fills_blanks(self):
         with mock.patch.object(spec, "_backend_profiles",
-                               lambda: {"b1": self._Prof()}), \
+                               lambda: {"b1": (self._BACKEND, self._Prof())}), \
              mock.patch.object(spec, "_connector_services", lambda: []), \
              _cfg({"alloc": {"models": {"b1": {"driver": "docker",
                                                "driver_config": {"container": "c"}}}}}):
@@ -174,20 +198,138 @@ class InheritanceTests(unittest.TestCase):
 
     def test_explicit_declaration_beats_inheritance(self):
         with mock.patch.object(spec, "_backend_profiles",
-                               lambda: {"b1": self._Prof()}), \
+                               lambda: {"b1": (self._BACKEND, self._Prof())}), \
              mock.patch.object(spec, "_connector_services", lambda: []), \
              _cfg({"alloc": {"models": {"b1": {"weight_gb": 99}}}}):
             self.assertEqual(spec.by_id()["b1"].weight_gb, 99)
 
     def test_backend_alone_is_declared_but_observe_only(self):
-        # Inheriting sizing must not imply permission to actuate.
+        # Inheriting sizing must not imply permission to actuate. An engine with no
+        # unload endpoint of its own stays exactly where it was: visible, untouchable.
         with mock.patch.object(spec, "_backend_profiles",
-                               lambda: {"b1": self._Prof()}), \
+                               lambda: {"b1": (self._BACKEND, self._Prof())}), \
              mock.patch.object(spec, "_connector_services", lambda: []), \
              _cfg({}):
             s = spec.by_id()["b1"]
         self.assertTrue(s.implicit)
         self.assertEqual(s.source, "backends")
+        self.assertEqual(s.driver, "observe")
+
+
+class LeverInferenceTests(unittest.TestCase):
+    """The one narrowing of "declared, never discovered", and its hard edges.
+
+    A backend is configured for SERVING, not for being unloaded, so inferring a lever
+    from one is a real departure — taken because an owner-facing Free button that is
+    inert on every stock install is not a feature. What keeps it defensible is that
+    the inference cannot reach anything the operator did not already write down: it
+    fills a REVERSIBLE unload, aimed at the declared engine, at the declared URL,
+    using that engine's own documented endpoint. Everything below pins one edge of
+    that. `alloc.infer_levers: false` restores the old behaviour exactly.
+    """
+
+    _PROF = InheritanceTests._Prof
+    _OLLAMA = {"id": "b1", "engine": "ollama",
+               "url": "http://127.0.0.1:11434/v1", "model": "llama3.2:3b"}
+
+    def test_the_fixtures_match_what_load_backends_actually_emits(self):
+        """The guard that would have caught the real bug.
+
+        `load_backends()` normalises ava.yaml's `base_url` to `url`. Every fixture
+        here was hand-written in the CONFIG spelling, so `_inherit_unload` read a
+        key that is always None in production and its tests passed anyway — the
+        inference never fired once on a real box. Pin the shape at the source.
+        """
+        from ava_bridge.router_app import load_backends
+        with _cfg({"inference": {"backends": {"b1": {
+                "base_url": "http://127.0.0.1:11434/v1", "model": "m",
+                "engine": "ollama"}}}}):
+            emitted = load_backends()
+        self.assertTrue(emitted, "load_backends returned nothing")
+        keys = set(emitted[0])
+        self.assertIn("url", keys)
+        self.assertNotIn("base_url", keys,
+                         "load_backends now emits base_url — _inherit_unload and "
+                         "these fixtures both assume it does not")
+        # And the fixtures below speak that shape.
+        for fx in (self._OLLAMA, InheritanceTests._BACKEND):
+            self.assertIn("url", fx)
+            self.assertNotIn("base_url", fx)
+
+    def _spec(self, backend, cfg=None):
+        with mock.patch.object(spec, "_backend_profiles",
+                               lambda: {"b1": (backend, self._PROF())}), \
+             mock.patch.object(spec, "_connector_services", lambda: []), \
+             _cfg(cfg or {}):
+            return spec.by_id()["b1"]
+
+    def test_an_engine_with_an_unload_endpoint_gets_a_reversible_lever(self):
+        s = self._spec(self._OLLAMA)
+        self.assertEqual(s.driver, "http-unload")
+        self.assertEqual(s.driver_config["json"]["model"], "llama3.2:3b")
+
+    def test_the_native_control_path_hangs_off_the_root_not_the_v1_base(self):
+        """`…/v1/api/generate` is a 404 — the bug `health_at_root` exists to stop."""
+        s = self._spec(self._OLLAMA)
+        self.assertEqual(s.driver_config["base"], "http://127.0.0.1:11434")
+
+    def test_it_never_infers_a_lever_that_stops_a_process(self):
+        """The whole safety argument. A guessed unload hits the engine Ava already
+        talks to; a guessed container name can stop something that was never Ava's."""
+        for backend in (self._OLLAMA, InheritanceTests._BACKEND):
+            s = self._spec(backend)
+            self.assertNotIn(s.driver, ("docker", "systemd"),
+                             f"inferred a stop lever for {backend['engine']}")
+
+    def test_a_verified_lever_says_nothing_alarming(self):
+        # Ollama's was exercised against a live instance (see engines.py), so it
+        # must NOT carry the warning — a caveat on everything is a caveat on
+        # nothing.
+        s = self._spec(self._OLLAMA)
+        self.assertTrue(s.unload_verified)
+        self.assertFalse(any("NOT VERIFIED" in n for n in s.notes))
+
+    def test_an_unverified_lever_is_offered_but_flagged(self):
+        """The mechanism, driven by a synthetic engine rather than a real one.
+
+        Pinned against a stand-in so it keeps testing the RULE after every shipped
+        engine has been verified — otherwise this quietly stops asserting anything
+        the day the last `unload_verified=False` is flipped.
+        """
+        from ava_bridge import engines
+        fake = engines.Engine(
+            key="madeup", label="Made Up", tier=engines.GENERIC,
+            health_path="/models", usage=False, usage_reason="n/a",
+            unload_path="/free", unload_body={"model": "{model}"},
+            unload_verified=False, unload_reason="never exercised")
+        with mock.patch.object(engines, "get",
+                               lambda k: fake if k == "madeup" else None):
+            s = self._spec({**self._OLLAMA, "engine": "madeup"})
+        self.assertEqual(s.driver, "http-unload")
+        self.assertFalse(s.unload_verified)
+        self.assertTrue(any("NOT VERIFIED" in n for n in s.notes),
+                        "an unexercised endpoint must say so, not imply it works")
+
+    def test_an_explicit_declaration_is_never_overwritten(self):
+        s = self._spec(self._OLLAMA, {"alloc": {"models": {"b1": {
+            "driver": "docker", "driver_config": {"container": "mine"}}}}})
+        self.assertEqual(s.driver, "docker")
+        self.assertEqual(s.driver_config, {"container": "mine"})
+
+    def test_a_remote_backend_is_never_given_a_lever(self):
+        s = self._spec({**self._OLLAMA, "id": "b1"},
+                       {"alloc": {"models": {"b1": {"host": "gpu-box"}}}})
+        self.assertNotEqual(s.driver, "http-unload")
+
+    def test_an_undeclared_engine_is_not_guessed_from_the_url(self):
+        """:8080 is llama.cpp or MLX depending on the box, and freeing the wrong
+        engine's weights is a real thing to be wrong about."""
+        s = self._spec({"id": "b1", "engine": "",
+                        "base_url": "http://127.0.0.1:11434/v1", "model": "m"})
+        self.assertEqual(s.driver, "observe")
+
+    def test_the_switch_restores_the_previous_behaviour_exactly(self):
+        s = self._spec(self._OLLAMA, {"alloc": {"infer_levers": False}})
         self.assertEqual(s.driver, "observe")
 
 

@@ -221,21 +221,179 @@ def restore_due(log=None) -> list[str]:
     return done
 
 
-def restore_now(wait: bool = True) -> list[str]:
+def restore_now(wait: bool = True, *, owner: bool = False) -> list[str]:
     """Bring back everything we released that nothing is using. Returns the ids.
 
     Exists because a short-lived caller exits before any deferred restore fires, and
     would otherwise leave a model down long after its work finished. Idempotent, and
     a no-op while advisory.
+
+    `owner=True` is for the two callers that ARE a person saying "bring it all back"
+    — `ava alloc restore` at a terminal, and the owner's own control. They may undo
+    an owner release, because the same hand made it. The router's `POST /lease/restore`
+    must not pass it: that is another app on the box, and it does not get to reverse
+    a decision the owner made about their own machine.
     """
     ids = []
     for rec in ledger.owed():
         mid = rec.get("model_id")
         if not mid:
             continue
-        if _restore(mid, lambda _m: None, wait=wait):
+        if _restore(mid, lambda _m: None, wait=wait, owner=owner):
             ids.append(mid)
     return ids
+
+
+# --- owner-initiated actuation ----------------------------------------------- #
+# A person naming a model is a different act from a lease, and the difference is not
+# cosmetic. A lease says "I am about to use X, make room" and deliberately never names
+# a victim; the planner picks one. An owner names the victim and there is no requester
+# at all. Expressing that as a lease would mean inventing a fake one — precisely the
+# lie the lease API exists to prevent — so it gets its own verb.
+#
+# What it does NOT get is its own actuation. Both functions below reuse `_model_lock`
+# + `_release_one` / `_restore_locked` unchanged, because re-implementing the sequence
+# would drop the breaker check, the intent-first ledger write, the cross-process lock
+# and the measured-freed contract: every guarantee this layer exists to provide.
+#
+# Neither consults `enforcing()` or `evicting()`. Those two switches govern whether Ava
+# may act on ITS OWN INITIATIVE. A person pressing a button is not Ava's initiative.
+
+def owner_release(model_id: str, *, mode: str | None = None, log=None) -> dict:
+    """Free one declared model's memory because the owner asked. Facts only.
+
+    Returns `{ok, code, ...}` where `code` is a machine token and never a sentence —
+    the words a person reads are the frontend's (CLAUDE.md). Refuses rather than
+    improvises: an undeclared model, one on another host, one the owner pinned, one a
+    live lease is using, or one whose driver has no lever all come back with the code
+    that says which.
+
+    `mode` is the `ReleaseMode` VALUE ("unload" / "stop"), not the enum, because every
+    caller is a route or a CLI argument holding a string. Omitted means the cheapest
+    lever the driver offers, which is the ordering `plan_release` already guarantees.
+    """
+    say, lines = _collector(log)
+    s = spec.by_id().get(model_id)
+    if s is None:
+        return _owner_verdict(False, "not_declared", lines)
+    if not s.local:
+        return _owner_verdict(False, "remote", lines, host=s.host)
+    if s.pinned:
+        return _owner_verdict(False, "pinned", lines)
+    drv = _driver(s)
+    if drv.observe_only:
+        return _owner_verdict(False, "observe_only", lines,
+                        detail="; ".join(s.notes) or drv.validate())
+    rp = drv.plan_release()
+    if rp.blocked:
+        return _owner_verdict(False, "blocked", lines, detail=rp.blocked)
+    if not rp.options:
+        return _owner_verdict(False, "blocked", lines, detail="no release lever")
+    holders = ledger.holders_of(model_id)
+    if holders:
+        # Rule 4 of the planner, applied to a person: never take memory from work in
+        # flight. There is no force flag, deliberately — an override in the UI is
+        # where the one correctness rule in this layer would get bypassed.
+        return _owner_verdict(False, "held_live", lines, held_by=len(holders))
+
+    opt = (next((o for o in rp.options if o.mode.value == mode), None) if mode
+           else rp.options[0])
+    if opt is None:
+        return _owner_verdict(False, "blocked", lines,
+                        detail=f"{mode!r} is not a lever this driver offers")
+    step = policy.Step(model_id=model_id, mode=opt.mode,
+                       expect_gib=opt.frees_gib, release_s=opt.release_s)
+
+    before = capacity.free_gib()
+    try:
+        with ledger.flock(_model_lock(model_id), wait_s=0.5):
+            ok = _release_one(step, drv, say, owner=True)
+    except ledger.LockBusy:
+        # NOT the "wait for the memory instead" branch `_execute` takes. That is right
+        # for a lease, which only wants room; it would report success here for an
+        # action this caller did not take.
+        return _owner_verdict(False, "busy", lines)
+
+    after = capacity.free_gib()
+    # A number ONLY for a release that worked. On a failure the delta is 0.0 by
+    # arithmetic, and "freed 0 GB" states an outcome where there was none — the same
+    # reason `freed_gib` is None when the box cannot measure. A surface should not be
+    # able to render a number here by accident.
+    freed = (round(after - before, 2)
+             if (ok and before is not None and after is not None) else None)
+    if freed is not None:
+        ledger.set_model_state(model_id, released_gib=max(0.0, freed))
+    _record_owner("owner_release", model_id, step, ok, freed, lines)
+    return _owner_verdict(ok, "ok" if ok else "release_declined", lines,
+                    mode=opt.mode.value, freed_gib=freed,
+                    free_before_gib=_r2(before), free_after_gib=_r2(after),
+                    measured=bool(ok and before is not None and after is not None))
+
+
+def owner_restore(model_id: str, *, log=None) -> dict:
+    """Bring back a model the owner freed. Only ever one they freed.
+
+    `_owe_restore` is the rule that keeps Ava from starting something someone else
+    stopped, or fighting another supervisor over the same process, and this does not
+    weaken it — it only lifts the `enforcing()` gate, because that switch is about
+    unattended action.
+    """
+    say, lines = _collector(log)
+    s = spec.by_id().get(model_id)
+    if s is None:
+        return _owner_verdict(False, "not_declared", lines)
+    if not _owe_restore(model_id):
+        return _owner_verdict(False, "not_owed", lines)
+    before = capacity.free_gib()
+    ok = _restore(model_id, say, owner=True)
+    after = capacity.free_gib()
+    _record_owner("owner_restore", model_id, None, ok, None, lines)
+    return _owner_verdict(ok, "ok" if ok else "restore_failed", lines,
+                    free_before_gib=_r2(before), free_after_gib=_r2(after))
+
+
+def _collector(log):
+    """A `say` that both forwards to the caller's log and keeps a transcript.
+
+    The transcript is what a UI shows when an action fails: the driver's own words,
+    in order, rather than one summary sentence that has already lost the detail.
+    """
+    lines: list[str] = []
+
+    def say(msg: str) -> None:
+        lines.append(str(msg))
+        if log is not None:
+            log(msg)
+    return say, lines
+
+
+def _owner_verdict(ok: bool, code: str, lines: list, **extra) -> dict:
+    out = {"ok": bool(ok), "code": code, "log": list(lines)}
+    out.update({k: v for k, v in extra.items() if v is not None})
+    return out
+
+
+def _r2(v):
+    return None if v is None else round(v, 2)
+
+
+def _record_owner(event: str, model_id: str, step, ok: bool, freed, lines) -> None:
+    """Put an owner action into the same two records everything else lands in.
+
+    `logs/alloc.jsonl` because it is the evidence an operator reads before enabling
+    enforcement, and a file that does not record why the box's memory moved describes
+    a different box. `audit` because six weeks later "did I do this?" is a real
+    question, and the actor makes an owner action distinguishable from Ava's own.
+    """
+    with contextlib.suppress(Exception):
+        pl = policy.Plan(model_id, admit=True, reason="owner requested",
+                         steps=(step,) if step is not None else ())
+        _record(event, model_id, "", pl,
+                released=[model_id] if ok else [],
+                note="; ".join(lines)[:500])
+    with contextlib.suppress(Exception):
+        audit.record(kind=f"alloc.{event}", model=model_id, ok=ok,
+                     freed_gib=freed, detail="; ".join(lines)[:500])
 
 
 def snapshot() -> dict:
@@ -493,7 +651,14 @@ def _release(lid, model_id, say):
     # Derived, not decremented: ask the ledger who is still holding this model.
     if ledger.holders_of(model_id):
         return
-    owed = [r.get("model_id") for r in ledger.owed() if r.get("model_id")]
+    # Every model we owe gets its cooldown stamped, EXCEPT one the owner freed by
+    # hand. This sweep is blanket by design — it does not restrict itself to what
+    # this lease released — so without the filter, any unrelated lease anywhere on
+    # the box (or a reaped remote one) would arm a restore on the owner's model and
+    # put it back ~90s later. `_restore` refuses it too; this stops the timer being
+    # armed for it at all, so the refusal never has to fire.
+    owed = [r.get("model_id") for r in ledger.owed()
+            if r.get("model_id") and not r.get("released_by_owner")]
     for mid in owed:
         ledger.set_model_state(mid, restore_after=ledger.now() + cooldown_s())
         say(f"idle — {mid} may be restored in {cooldown_s():.0f}s "
@@ -635,11 +800,17 @@ def _model_lock(model_id: str) -> str:
     return os.path.join("models", f"{model_id}.lock")
 
 
-def _release_one(step, drv, say, *, abort=None) -> bool:
-    """One release, under the model's lock. True if the memory came back."""
+def _release_one(step, drv, say, *, abort=None, owner: bool = False) -> bool:
+    """One release, under the model's lock. True if the memory came back.
+
+    `owner=True` means a person asked for this by name, which changes two things and
+    nothing else: the breaker is more permissive (see `breaker.allowed`), and the
+    ledger records WHO is responsible so that nothing autonomous quietly undoes it.
+    The actuation itself is identical — there is one release path, not two.
+    """
     # Every state-changing action passes the breaker and the global budget first,
     # so neither a broken model nor a thrashing allocator can spend without limit.
-    ok, why = breaker.allowed(step.model_id)
+    ok, why = breaker.allowed(step.model_id, human=owner)
     if not ok:
         say(f"skipping {step.model_id}: {why}")
         return False
@@ -662,19 +833,38 @@ def _release_one(step, drv, say, *, abort=None) -> bool:
 
     if res.acted:
         # It IS down, whether or not the pool came back — so we owe the restore.
+        #
+        # `released_by_owner` rides in the SAME write as `released_by_us`, so the two
+        # can never disagree, and it is written unconditionally so a later autonomous
+        # release clears a stale flag rather than inheriting it. Both are needed:
+        # `_owe_restore` is `released_by_us OR releasing` and is what makes a crash
+        # mid-release recoverable, while `released_by_owner` is provenance — it says a
+        # person chose this, which is what keeps `restore_due`, the cooldown sweep and
+        # the watchdog's alerts from treating a deliberate act as a fault.
         ledger.set_model_state(step.model_id, released_by_us=True, releasing=False,
+                               released_by_owner=owner,
                                mode=step.mode.value, at=ledger.now())
     else:
         ledger.set_model_state(step.model_id, releasing=False)   # nothing happened
 
     if not res.ok:
-        breaker.record_failure(step.model_id, res.detail, cause="release_failed")
+        # It acted but the pool did not move. On a box where a card exists and no
+        # reader can reach it, that is what a PERFECTLY SUCCESSFUL release looks like
+        # — `fit_memory()` is watching system RAM, so VRAM coming back is invisible.
+        # Charging the model for the box's blindness is what gave up on working
+        # models after two clicks half an hour apart.
+        cause = "release_failed"
+        if res.acted:
+            with contextlib.suppress(Exception):
+                if capacity.accel_unreadable():
+                    cause = "pool_unmeasurable"
+        breaker.record_failure(step.model_id, res.detail, cause=cause)
         return False
     breaker.record_success(step.model_id)
     return True
 
 
-def _restore(model_id: str, say, *, wait: bool = True) -> bool:
+def _restore(model_id: str, say, *, wait: bool = True, owner: bool = False) -> bool:
     """Bring one model back, if we are the reason it is down and it can fit.
 
     The memory check here is the actual cure for the restart storm. A supervisor that
@@ -683,12 +873,26 @@ def _restore(model_id: str, say, *, wait: bool = True) -> bool:
     attempt**, record it as deferred rather than failed, and try again when conditions
     change. A model waiting for room is not a broken model, and must never be given up
     on as though it were.
+
+    Two gates turn on WHO is asking, and getting them backwards strands models:
+
+    * `enforcing()` asks whether the allocator may act **on its own initiative**. It
+      defaults false, so on a stock install nothing autonomous ever restores. A person
+      clicking "bring it back" is not Ava's initiative, and gating them on the same
+      switch meant a released model could never come back by any route — not the
+      timer, not the watchdog, not `ava alloc restore`. Hence `owner`.
+    * `released_by_owner` is the mirror image: a person took this down deliberately,
+      so nothing autonomous may put it back up. `restore_due` and the watchdog find
+      the record `owed` and would otherwise undo the choice ~90s later.
     """
-    if not enforcing():
+    if not enforcing() and not owner:
         return False
     if not _owe_restore(model_id):
         # Never start what we did not stop: an operator's deliberate shutdown, or
         # another supervisor's business.
+        return False
+    if not owner and ledger.model_state(model_id).get("released_by_owner"):
+        say(f"not restoring {model_id}: the owner freed it deliberately")
         return False
     s = spec.by_id().get(model_id)
     if s is None:
@@ -707,13 +911,13 @@ def _restore(model_id: str, say, *, wait: bool = True) -> bool:
     # @contextmanager, so LockBusy is raised by __enter__, not by the call.
     try:
         with ledger.flock(_model_lock(model_id), wait_s=0.5):
-            return _restore_locked(model_id, s, drv, say)
+            return _restore_locked(model_id, s, drv, say, owner=owner)
     except ledger.LockBusy:
         say(f"not restoring {model_id}: another actor holds it")
         return False
 
 
-def _restore_locked(model_id: str, s, drv, say) -> bool:
+def _restore_locked(model_id: str, s, drv, say, *, owner: bool = False) -> bool:
     """The actuating half of `_restore`, with the model's lock held."""
     # Re-check INSIDE the lock. The check above is a TOCTOU: a peer may have
     # released and restored in the gap, and starting it twice is exactly the
@@ -721,29 +925,42 @@ def _restore_locked(model_id: str, s, drv, say) -> bool:
     if not _owe_restore(model_id):
         return False
 
-    ok, why = breaker.allowed(model_id)
+    ok, why = breaker.allowed(model_id, human=owner)
     if not ok:
         say(f"not restoring {model_id}: {why}")
         return False
 
-    free = capacity.free_gib()
-    need = s.need_gib
-    if free is not None and need is not None and free < need:
-        holders = [h.get("lease_id") for h in ledger.live_leases()]
-        detail = (f"{free:.0f}GiB free < {need:.0f}GiB needed"
-                  + (f"; {len(holders)} lease(s) hold the pool" if holders else ""))
-        breaker.record_failure(model_id, detail, cause="insufficient_memory")
-        say(f"deferring {model_id}: {detail}")
-        return False
+    # The memory check guards a START: do not attempt what provably cannot fit.
+    # A self-restoring driver starts nothing — its `acquire` is the no-op default and
+    # the engine reloads its own weights on the next request — so there is no attempt
+    # to refuse, and deferring one means the debt can never clear on a tight box. The
+    # model would stay marked released forever while the engine happily served it.
+    if not drv.SELF_RESTORING:
+        free = capacity.free_gib()
+        need = s.need_gib
+        if free is not None and need is not None and free < need:
+            holders = [h.get("lease_id") for h in ledger.live_leases()]
+            detail = (f"{free:.0f}GiB free < {need:.0f}GiB needed"
+                      + (f"; {len(holders)} lease(s) hold the pool" if holders else ""))
+            breaker.record_failure(model_id, detail, cause="insufficient_memory")
+            say(f"deferring {model_id}: {detail}")
+            return False
 
     breaker.record_attempt(model_id)
     abort = threading.Event()
     res = drv.acquire(abort=abort,
                       timeout=float((s.restore or {}).get("cold_s", 600) or 600))
     # `releasing` is cleared either way: whatever we owed, this attempt has
-    # now resolved it or failed loudly.
-    ledger.set_model_state(model_id, released_by_us=not res.ok, releasing=False,
-                           restored_at=ledger.now())
+    # now resolved it or failed loudly. `released_by_owner` is cleared ONLY on
+    # success — the model is back, so nobody is owed an explanation for why it is
+    # down. It must not be passed at all on failure: `set_model_state` merges with a
+    # plain `dict.update`, so a `None` would be written literally and clear the flag,
+    # letting the next autonomous sweep undo a choice that is still standing.
+    fields = {"released_by_us": not res.ok, "releasing": False,
+              "restored_at": ledger.now()}
+    if res.ok:
+        fields["released_by_owner"] = False
+    ledger.set_model_state(model_id, **fields)
     if res.ok:
         breaker.record_success(model_id)
     else:

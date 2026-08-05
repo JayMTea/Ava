@@ -1523,8 +1523,12 @@ def cmd_models(args) -> int:
 def cmd_alloc(args) -> int:
     """Inspect and steer model memory allocation.
 
-    `status` and `plan` are read-only. `restore` brings back what the allocator itself
-    released (and nothing else). `reset` clears a model's failure record after you have
+    `status` and `plan` are read-only. `release` frees one declared model's memory
+    because you said so — it works whether or not `alloc.lease.enforce` is on, because
+    that switch governs whether Ava may act on its own judgement, and this is yours.
+    Anything you release stays down until you bring it back: nothing autonomous will
+    undo your decision. `restore` brings back what was released — a model id for one,
+    or bare for everything owed. `reset` clears a model's failure record after you have
     fixed whatever was wrong; `resume` un-quiesces an allocator that hit its own thrash
     guard.
     """
@@ -1604,10 +1608,48 @@ def cmd_alloc(args) -> int:
         print(f"  reason    : {pl.reason}\n")
         return 0
 
+    if action == "release":
+        if not args.model:
+            print("usage: ava alloc release <model-id>")
+            return 2
+        r = alloc.owner_release(args.model, mode=args.mode)
+        for line in r.get("log") or []:
+            print(f"  {line}")
+        if not r["ok"]:
+            print(f"{BAD} {args.model} was not released ({r['code']})"
+                  + (f": {r['detail']}" if r.get("detail") else ""))
+            if r["code"] == "held_live":
+                print("  something is using it right now — Ava does not take memory "
+                      "from work in progress")
+            if r["code"] == "observe_only":
+                print("  no release lever is declared for it — see docs/ALLOCATION.md")
+            return 1
+        freed = r.get("freed_gib")
+        if freed is not None:
+            print(f"{OK} freed {freed} GB from {args.model} [{r.get('mode')}] "
+                  f"({r.get('free_before_gib')} -> {r.get('free_after_gib')} GB free)")
+        else:
+            # Never print 0. `None` here means this box cannot measure the delta, and
+            # "freed 0 GB" would read as "nothing happened", which is a different claim.
+            print(f"{OK} {args.model} released [{r.get('mode')}] — this machine cannot "
+                  "measure how much came back")
+        print(f"  it stays down until you run `ava alloc restore {args.model}`")
+        return 0
+
     if action == "restore":
-        ids = alloc.restore_now()
-        print("restored: " + (", ".join(ids) if ids else
-                              "nothing (either nothing is owed, or enforcement is off)"))
+        # `owner=True`: this is a person at a terminal, so it may undo an owner
+        # release. The router's POST /lease/restore deliberately does not pass it.
+        if args.model:
+            r = alloc.owner_restore(args.model)
+            for line in r.get("log") or []:
+                print(f"  {line}")
+            if not r["ok"]:
+                print(f"{BAD} {args.model} was not restored ({r['code']})")
+                return 1
+            print(f"{OK} {args.model} is back")
+            return 0
+        ids = alloc.restore_now(owner=True)
+        print("restored: " + (", ".join(ids) if ids else "nothing is owed"))
         return 0
 
     if action == "reset":
@@ -1695,9 +1737,13 @@ def main() -> int:
     dp.add_argument("--limit", type=int, default=0, help="max events to show (events)")
     dp.set_defaults(func=cmd_device)
     ap = sub.add_parser("alloc", help="model memory allocation: status / plan / "
-                                     "restore / reset / resume")
-    ap.add_argument("action", choices=["status", "plan", "restore", "reset", "resume"])
-    ap.add_argument("model", nargs="?", help="plan/reset: the declared model id")
+                                     "release / restore / reset / resume")
+    ap.add_argument("action", choices=["status", "plan", "release", "restore",
+                                       "reset", "resume"])
+    ap.add_argument("model", nargs="?",
+                    help="plan/release/restore/reset: the declared model id")
+    ap.add_argument("--mode", choices=["unload", "stop"],
+                    help="release: which lever to pull (default: the cheapest offered)")
     ap.set_defaults(func=cmd_alloc)
 
     mp = sub.add_parser("models", help="model store: list / pull / verify / bench")

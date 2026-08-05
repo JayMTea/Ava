@@ -364,7 +364,11 @@ export default function App() {
 
       {lightbox && <Lightbox url={lightbox} onClose={closeLightbox} />}
 
-      <HardwareBubble />
+      {/* Wrapped like every other view. It was the one top-level component
+          without a boundary, which was survivable while it only rendered numbers
+          — now that it carries an actuator, a throw in there would take the whole
+          app down rather than one floating widget. */}
+      <ViewErrorBoundary label="Hardware monitor"><HardwareBubble /></ViewErrorBoundary>
       <InferenceBanner />
       <TourHost view={view} />
     </>
