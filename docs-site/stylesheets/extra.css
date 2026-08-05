@@ -675,6 +675,25 @@
    IT IS A STILL IMAGE THAT ASSEMBLES ITSELF ONCE. There is no idle state: no
    pulse on the hub, no shimmer along the bus, no loop. Anything that moves
    after 1.8s is a bug, and tests/test_landing_page.py fails an `infinite`. */
+/* THE FIGURE SITS ON ITS OWN SHEET, and it is the one exception to the
+   one-canvas rule above. --input is the token that goes pure white in light
+   mode (#ffffff) and a raised grey in dark (#30302e), so the band lifts off
+   the page in both schemes from a single declaration rather than a media
+   query.
+
+   The tiles had to move with it. They were --ava-land-card-bg, which IS
+   --input, so a white band would have left eight white cards on a white sheet
+   separated by nothing but a hairline - the 1.04:1 surface difference this
+   file already warns about for the hero. They sit on --panel now, which keeps
+   them a step off the sheet in both schemes. The feature cards further down
+   are untouched: they are still --input on the page canvas, which is the
+   contrast relationship that was already working. */
+.ava-conv-sheet {
+  background-color: var(--input);
+  border-top: 1px solid var(--ava-land-border);
+  border-bottom: 1px solid var(--ava-land-border);
+}
+
 .ava-conv {
   /* Landing-scoped, alongside --ava-land-* above. The app SSOT declares only
      --dur-fast (.12s) and --dur-slow (.3s), and both are tuned for UI
@@ -725,7 +744,7 @@
   padding: clamp(0.3rem, 1.6vw, 0.5rem) clamp(0.45rem, 2vw, 0.7rem);
   border: 1px solid var(--ava-land-border);
   border-radius: var(--r-sm, 0.5rem);
-  background-color: var(--ava-land-card-bg);
+  background-color: var(--panel);
 }
 
 .ava-conv__glyph {
@@ -789,7 +808,7 @@
   padding: 0.9rem 0.85rem;
   border: 1px solid var(--ava-land-border);
   border-radius: var(--r-md, 0.7rem);
-  background-color: var(--ava-land-card-bg);
+  background-color: var(--panel);
   text-align: center;
 }
 /* Same mask idiom as the header mark and for the same reason: the artwork's
