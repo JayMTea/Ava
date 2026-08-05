@@ -37,6 +37,7 @@ SYNC = SITE / "sync.py"
 MKDOCS = SITE / "mkdocs.yml"
 TOKENS = ROOT / "frontend" / "src" / "styles" / "tokens.css"
 ICONS_TSX = ROOT / "frontend" / "src" / "lib" / "icons.tsx"
+FAVICON = ROOT / "frontend" / "public" / "favicon.svg"
 
 # The tile set is pinned here rather than inferred. This does not prove the
 # picture is honest; it makes the picture impossible to change without editing
@@ -260,4 +261,56 @@ def test_landing_ships_no_img_svg_and_no_untracked_script() -> None:
         assert path in tracked_js, (
             f"{path} is listed in extra_javascript but is NOT tracked. sync.py "
             "copies the working tree, so it works in preview and 404s in production."
+        )
+
+
+def test_header_gradient_is_the_mark_s_own_and_still_clears_aa() -> None:
+    """The site header paints the brand mark's gradient, truncated for contrast.
+
+    Two ways this rots silently. The mark gets re-drawn - tools/sync_icons.py
+    rewrites favicon.svg from the master and tests/test_icon_sync.py keeps the
+    three icon copies in step, but nothing tells this stylesheet - and the
+    header keeps a blue the logo no longer is. Or someone "restores" the
+    logo's full range without knowing why it was cut, and the nav labels quietly
+    drop below AA on every page of the site.
+
+    So: the dark stop must still be the mark's own, the light stop must lie on
+    the mark's ramp rather than be invented, and white on both must clear 4.5:1.
+    """
+    from ava_bridge import brand
+
+    svg = FAVICON.read_text(encoding="utf-8")
+    stops = re.findall(r'stop-color="(#[0-9A-Fa-f]{6})"', svg)
+    assert len(stops) == 2, f"expected two gradient stops in {FAVICON.relative_to(ROOT)}, got {stops}"
+    dark, light = stops[0].upper(), stops[1].upper()
+
+    css = _CSS_COMMENT.sub("", EXTRA_CSS.read_text(encoding="utf-8"))
+    m = re.search(r"\.md-header\s*\{[^}]*linear-gradient\(to top,\s*(#[0-9A-Fa-f]{6}),\s*(#[0-9A-Fa-f]{6})\)", css)
+    assert m, "the header no longer paints a two-stop `to top` gradient"
+    a, bb = m.group(1).upper(), m.group(2).upper()
+
+    assert a == dark, (
+        f"the header's dark stop is {a} but the mark's is {dark}.\n"
+        f"{FAVICON.relative_to(ROOT)} is the SSOT for the gradient; re-cut the "
+        "header to match, or explain the divergence here."
+    )
+
+    def rgb(h):
+        return tuple(int(h[i:i + 2], 16) for i in (1, 3, 5))
+    # The light stop must sit ON the segment between the mark's two stops, so
+    # it is a truncation of the real ramp rather than a nearby blue.
+    lo, hi, mid = rgb(dark), rgb(light), rgb(bb)
+    ts = [(mid[i] - lo[i]) / (hi[i] - lo[i]) for i in range(3) if hi[i] != lo[i]]
+    assert ts and max(ts) - min(ts) < 0.06 and 0 < max(ts) <= 1, (
+        f"{bb} is not a point on the mark's ramp {dark} -> {light}. Pick a stop "
+        "along that line so the header stays the logo's own colour."
+    )
+
+    for stop in (a, bb):
+        ratio = brand.contrast("#ffffff", stop)
+        assert ratio >= 4.5, (
+            f"white on {stop} is {ratio:.2f}:1, under WCAG AA for normal text.\n"
+            "The nav tab labels sit on this. The mark's own light stop measures "
+            "3.23:1, which is why the ramp is truncated - do not restore the "
+            "full range without solving the label contrast another way."
         )

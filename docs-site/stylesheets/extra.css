@@ -49,11 +49,35 @@
   letter-spacing: 0.2px;
 }
 
-/* The header carries the accent in both schemes */
+/* The header carries the brand mark's own gradient in light, --panel in dark.
+   ------------------------------------------------------------------
+   These two literals are the ONE colour pair in this file that has no token
+   behind it, and that is not an oversight: the mark's gradient lives in
+   frontend/public/favicon.svg (the `avaBlue` stops) because the SVG is its
+   SSOT, and copying it into the app's tokens.css would create a second source
+   that can drift from the drawing. tests/test_landing_page.py ties these back
+   to that file instead, so a re-drawn mark fails a test rather than leaving
+   the header a shade the logo no longer is.
+
+   THE RAMP IS TRUNCATED ON PURPOSE, and this is the part to read before
+   "fixing" it back to the logo's full range. The mark runs #0064E0 -> #0091FF.
+   White on the dark stop is 5.39:1; white on the LIGHT stop is 3.23:1, which
+   fails WCAG AA for normal text - and the nav tab labels (.md-tabs__link,
+   0.7rem) sit directly on it. Walking the ramp, AA survives to about 30% of
+   the way up, #0072E9 at 4.58:1. So the header uses the mark's own hue line
+   and direction, stopped where the labels stay legible.
+
+   Dark is untouched: that header is --panel, not blue, so there is nothing to
+   gradient. */
 .md-header {
-  background-color: var(--ava-accent);
+  background: linear-gradient(to top, #0064E0, #0072E9);
 }
 [data-md-color-scheme="slate"] .md-header {
+  /* background-IMAGE, not just the colour. The light rule above uses the
+     `background` shorthand to paint the mark's gradient, and an image paints
+     OVER a background-color - so overriding only the colour here left the dark
+     header blue. Measured, not assumed: it shipped blue in the first pass. */
+  background-image: none;
   background-color: var(--panel);
   border-bottom: 1px solid var(--line);
 }
