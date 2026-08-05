@@ -73,6 +73,9 @@ class IconSyncTests(unittest.TestCase):
             shutil.copy(sync_icons.SOURCE, icons / "pwa-512.png")
             shutil.copy(sync_icons.PWA_192, icons / "pwa-192.png")
             shutil.copy(sync_icons.FAVICON_SVG, tmp_root / "frontend" / "public" / "favicon.svg")
+            # Copied before ICONS is rebound below, so these come from the repo.
+            for name, _size, _fw, _fh in sync_icons.FULL_BLEED:
+                shutil.copy(sync_icons.ICONS / name, icons / name)
             # a favicon from a mark that is not this one: same geometry, inverted
             src = Image.open(sync_icons.SOURCE).convert("RGBA")
             wrong = Image.eval(src, lambda v: 255 - v)
@@ -94,6 +97,53 @@ class IconSyncTests(unittest.TestCase):
 
         self.assertTrue(any("favicon.ico" in p for p in problems),
                         f"a favicon from a different mark was not caught: {problems}")
+
+    def test_the_checker_catches_a_stale_INSTALLED_app_icon(self):
+        """The gap that let a real one ship.
+
+        A browser tab reads favicon.*, but an installed PWA takes its window and
+        taskbar icon from the manifest, where `purpose: maskable` wins — so
+        pwa-maskable-512.png can be a different logo from the tab and every check
+        stays green. It was, for months: a flat #007ACC tile holding the previous
+        letterform, while the tab carried the current gradient network mark.
+
+        Fed the real thing, in a throwaway tree: the mark inverted, so the file is
+        the right size and shape and the wrong logo.
+        """
+        import shutil
+        import tempfile
+
+        import sync_icons
+        from PIL import Image
+
+        with tempfile.TemporaryDirectory(prefix="ava-icon-mask-") as tmp:
+            tmp_root = Path(tmp)
+            public = tmp_root / "frontend" / "public"
+            icons = public / "assets" / "icons"
+            icons.mkdir(parents=True)
+            shutil.copy(sync_icons.SOURCE, icons / "pwa-512.png")
+            shutil.copy(sync_icons.PWA_192, icons / "pwa-192.png")
+            shutil.copy(sync_icons.FAVICON_SVG, public / "favicon.svg")
+            shutil.copy(sync_icons.FAVICON_ICO, public / "favicon.ico")
+            for name, size, _fw, _fh in sync_icons.FULL_BLEED:
+                good = Image.open(sync_icons.ICONS / name).convert("RGB")
+                Image.eval(good, lambda v: 255 - v).save(icons / name)
+                self.assertEqual(good.size, (size, size))
+
+            for name, value in (("ROOT", tmp_root), ("PUBLIC", public),
+                                ("ICONS", icons),
+                                ("SOURCE", icons / "pwa-512.png"),
+                                ("PWA_192", icons / "pwa-192.png"),
+                                ("FAVICON_ICO", public / "favicon.ico"),
+                                ("FAVICON_SVG", public / "favicon.svg")):
+                self.addCleanup(setattr, sync_icons, name, getattr(sync_icons, name))
+                setattr(sync_icons, name, value)
+
+            problems = sync_icons.drift()
+
+        for name, _size, _fw, _fh in sync_icons.FULL_BLEED:
+            self.assertTrue(any(name in p for p in problems),
+                            f"a stale {name} was not caught: {problems}")
 
     def test_the_tool_reports_drift_through_its_exit_code(self):
         """CI and a human both read the exit code, so it has to mean something."""

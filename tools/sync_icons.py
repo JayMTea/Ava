@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Regenerate the icons DERIVED from Ava's mark, so the tab cannot go stale.
 
-Ava's mark reaches the user through five files. Two are authored, three are not:
+Ava's mark reaches the user through seven files. Two are authored, five are not:
 
     brand/pwa-icon-transparent.svg   master (gitignored, owner-held)
     assets/icons/pwa-512.png         rendered from the master by the design tool
@@ -9,10 +9,26 @@ Ava's mark reaches the user through five files. Two are authored, three are not:
 
     favicon.ico                      DERIVED from pwa-512 by this file
     favicon.svg                      DERIVED from the master by this file
+    assets/icons/pwa-maskable-512.png  DERIVED from pwa-512 + the master's stops
+    assets/icons/apple-touch-icon.png  DERIVED the same way, at 180
 
-Nothing regenerates the derived two. Vite copies `public/` verbatim, so updating
+Nothing regenerates the derived ones. Vite copies `public/` verbatim, so updating
 pwa-512 alone leaves the browser tab on the previous logo — that happened three
 times in one afternoon, twice unnoticed until someone looked at the tab.
+
+THE TWO FULL-BLEED ICONS WERE MISSING FROM THAT LIST, AND WENT STALE EXACTLY AS
+PREDICTED. `drift()` below records that the tab "kept a flat #007ACC tile for two
+rounds after the mark became a gradient". The fix guarded favicon.svg and stopped
+there — so pwa-maskable-512 and apple-touch-icon sat on that same #007ACC, with a
+different logo inside it, for every release since. It surfaced when an installed
+PWA showed one mark and the docs site showed another: a browser tab reads
+favicon.*, but an INSTALLED app takes its window and taskbar icon from the
+manifest, where `purpose: maskable` wins. Nothing here was checking that file.
+
+They are full-bleed by requirement, not by taste: a maskable icon is masked into a
+circle or squircle by the OS, so a transparent one gets whatever background the
+launcher picks. That is why they cannot simply be pwa-512 — they are the mark in
+white over the master's own gradient, at the scale the previous pair established.
 
 WHAT THIS DELIBERATELY DOES NOT DO. It does not touch pwa-192. Measured on this
 repo's own history, a natively-rendered 192 differs from a Lanczos downscale of
@@ -60,6 +76,31 @@ SOURCE = ICONS / "pwa-512.png"
 PWA_192 = ICONS / "pwa-192.png"
 FAVICON_ICO = PUBLIC / "favicon.ico"
 FAVICON_SVG = PUBLIC / "favicon.svg"
+# (filename, size, mark width, mark height) — a NAME, not a path, so it resolves
+# against `ICONS` when it is used. tests/test_icon_sync.py rebinds these module
+# constants to a throwaway tree to prove the checker fails; a Path baked in here
+# would ignore that and point back at the real repo.
+#
+# The fractions are MEASURED from the icons these replace, not chosen: the old
+# maskable put its mark in a 53% x 69% box and apple-touch in 47% x 61%, both
+# centred. Keeping them means the tile reads at the same weight in a launcher as
+# it always has, and only the mark and the palette change.
+#
+# 53% also keeps the mark inside the maskable safe zone in the direction that
+# matters. The spec reserves a circle of 80% diameter; a 53%-wide mark survives
+# the squircle every shipping launcher actually applies, which is far more
+# forgiving than the worst-case circle.
+FULL_BLEED = [
+    ("pwa-maskable-512.png", 512, 0.53, 0.69),
+    ("apple-touch-icon.png", 180, 0.47, 0.61),
+]
+
+# How far a full-bleed icon's background may sit from a colour the mark actually
+# uses before it counts as a different palette. Measured on the failure this
+# caught: the stale #007ACC backdrop is 22/255 from the nearest current stop
+# (#0064E0), a freshly generated one is 0. 12 sits between them with room either
+# side, and is well under what an eye reads as the same blue.
+BG_TOLERANCE = 12
 
 # The sizes favicon.ico has always carried. Browsers pick per context; 48 is what
 # Windows uses for a pinned shortcut, so dropping it costs a visibly blurry icon.
@@ -112,6 +153,78 @@ def _svg_from_master() -> str | None:
             + '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"'
             + ' width="512" height="512" role="img" aria-label="Ava">'
             + inner + "</svg>\n")
+
+
+def _gradient_stops() -> tuple[tuple[int, int, int], tuple[int, int, int]] | None:
+    """(top, bottom) RGB of the master's own gradient, or None without a master.
+
+    Read rather than hardcoded so a palette revision reaches the full-bleed icons
+    by regenerating, not by someone remembering a hex here. `y1 > y2` means the
+    ramp runs bottom-to-top, so offset 0 is the BOTTOM stop — getting that
+    backwards inverts the tile and nothing else notices.
+    """
+    if not MASTER.exists():
+        return None
+    text = MASTER.read_text(encoding="utf-8")
+    grad = re.search(r"<linearGradient[^>]*>(.*?)</linearGradient>", text, re.S)
+    if not grad:
+        return None
+    stops = re.findall(r'stop-color="(#[0-9a-fA-F]{6})"', grad.group(1))
+    if len(stops) < 2:
+        return None
+    first, second = (_rgb(stops[0]), _rgb(stops[1]))
+    y1 = re.search(r'y1="([-\d.]+)"', grad.group(0))
+    y2 = re.search(r'y2="([-\d.]+)"', grad.group(0))
+    bottom_first = bool(y1 and y2 and float(y1.group(1)) > float(y2.group(1)))
+    return (second, first) if bottom_first else (first, second)
+
+
+def _rgb(hex_colour: str) -> tuple[int, int, int]:
+    h = hex_colour.lstrip("#")
+    return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+
+
+def _full_bleed(size: int, frac_w: float, frac_h: float,
+                stops: tuple[tuple[int, int, int], tuple[int, int, int]]) -> Image.Image:
+    """The mark in white over the master's gradient, centred, filling the canvas.
+
+    The shape comes from pwa-512's ALPHA rather than from a second drawing, so
+    these can never be a different logo from the tab — which is the whole failure
+    being fixed. Rasterising the SVG would need a renderer this repo deliberately
+    does not depend on (see the module docstring).
+    """
+    top, bottom = stops
+    src = Image.open(SOURCE).convert("RGBA")
+    mark = src.split()[3]
+    mark = mark.crop(mark.getbbox())
+
+    scale = min(size * frac_w / mark.width, size * frac_h / mark.height)
+    mark = mark.resize((max(1, round(mark.width * scale)),
+                        max(1, round(mark.height * scale))), Image.LANCZOS)
+
+    ramp = Image.new("RGB", (1, size))
+    for y in range(size):
+        t = y / (size - 1)
+        ramp.putpixel((0, y), tuple(round(top[i] + (bottom[i] - top[i]) * t)
+                                    for i in range(3)))
+    canvas = ramp.resize((size, size), Image.BICUBIC).convert("RGBA")
+    canvas.paste(Image.new("RGBA", mark.size, (255, 255, 255, 255)),
+                 ((size - mark.width) // 2, (size - mark.height) // 2), mark)
+    return canvas.convert("RGB")
+
+
+def _dominant_bg(img: Image.Image) -> tuple[int, int, int]:
+    """The most common opaque colour — the backdrop, on a full-bleed icon."""
+    counts = Counter(p[:3] for p in _pixels(img) if p[3] > 200)
+    return counts.most_common(1)[0][0]
+
+
+def _colour_gap(colour: tuple[int, int, int], palette: set[str]) -> int:
+    """Distance from `colour` to the nearest palette entry, worst channel."""
+    if not palette:
+        return 255
+    return min(max(abs(a - b) for a, b in zip(colour, _rgb(hexed)))
+               for hexed in palette)
 
 
 def stray_master() -> Path | None:
@@ -171,6 +284,35 @@ def drift() -> list[str]:
                             "one of them was not re-exported")
     else:
         problems.append("frontend/public/assets/icons/pwa-192.png is missing")
+
+    # The full-bleed pair. Checked two ways for the same reason favicon.svg is
+    # checked weakly: the master is gitignored, so a fresh clone cannot reproduce
+    # them exactly. With a master present the comparison is exact; without one it
+    # falls back to asking whether the backdrop is still a colour the mark uses,
+    # which is precisely the drift that went unnoticed for two rounds.
+    stops = _gradient_stops()
+    for name, size, fw, fh in FULL_BLEED:
+        path = ICONS / name
+        rel = path.relative_to(ROOT)
+        if not path.exists():
+            problems.append(f"{rel} is missing")
+            continue
+        actual = Image.open(path).convert("RGBA")
+        if actual.size != (size, size):
+            problems.append(f"{rel} is {actual.size[0]}px, expected {size}px")
+            continue
+        if stops is not None:
+            err = _mae(actual, _full_bleed(size, fw, fh, stops).convert("RGBA"))
+            if err > TOLERANCE:
+                problems.append(
+                    f"{rel} is stale against pwa-512.png (mean error {err:.1f}) — "
+                    "the installed app is on a different logo from the tab")
+            continue
+        gap = _colour_gap(_dominant_bg(actual), src_palette)
+        if gap > BG_TOLERANCE:
+            problems.append(
+                f"{rel}'s backdrop is {gap} off the nearest colour in pwa-512.png "
+                "— the installed app is on a different palette from the tab")
     return problems
 
 
@@ -191,6 +333,16 @@ def sync() -> list[str]:
         written.append(str(FAVICON_SVG.relative_to(ROOT)))
     else:
         written.append(f"skipped favicon.svg — no {MASTER.relative_to(ROOT)} here")
+
+    # Same rule as favicon.svg: the gradient stops live in the master, so without
+    # one these are left alone rather than written from a guessed palette.
+    if (stops := _gradient_stops()) is not None:
+        for name, size, fw, fh in FULL_BLEED:
+            path = ICONS / name
+            _full_bleed(size, fw, fh, stops).save(path, format="PNG")
+            written.append(str(path.relative_to(ROOT)))
+    else:
+        written.append(f"skipped the full-bleed icons — no {MASTER.relative_to(ROOT)} here")
     return written
 
 
