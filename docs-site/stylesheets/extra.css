@@ -157,19 +157,45 @@
    the header rule further up this file exists to prevent.
 
    The mark, not the wordmark, and the text stays. That is the same split the
-   header makes — mark for chrome, wordmark for the hero — and it leaves the
-   drawer with a conventional icon-over-name title instead of a lockup arguing
-   with a caption. Square box, so the 2449:1060 width that framed the
-   letterforms goes with them. */
+   header makes — mark for chrome, wordmark for the hero. Square box, so the
+   2449:1060 width that framed the letterforms goes with them. */
 .md-nav__title .md-nav__button.md-logo {
-  width: 2.4rem;
-  height: 2.4rem;
+  width: 1.9rem;
+  height: 1.9rem;
   background-color: currentColor;
-  -webkit-mask: url(../docs/assets/favicon.svg) left center / contain no-repeat;
-  mask: url(../docs/assets/favicon.svg) left center / contain no-repeat;
+  -webkit-mask: url(../docs/assets/favicon.svg) center / contain no-repeat;
+  mask: url(../docs/assets/favicon.svg) center / contain no-repeat;
 }
 .md-nav__title .md-nav__button.md-logo :is(img, svg) {
   display: none;
+}
+
+/* ...and it sits BESIDE the name, not above it. Material stacks them: the
+   title is 5.6rem tall with `padding: 3rem .8rem .2rem`, and the logo is lifted
+   out of flow (`position: absolute; top: .2rem; left: .2rem; right: .2rem`) to
+   sit in the space that padding opens up. Laying them on one line therefore
+   takes both halves — the anchor back into flow, and the title into a flex row
+   whose height its content decides.
+
+   Scoped with `>` on purpose. Material's own rules reach the nested section
+   titles through a descendant selector, and those carry a back arrow rather
+   than a logo; the child combinator keeps this to the drawer's own header and
+   leaves the ones you reach by drilling in exactly as they were. */
+@media screen and (max-width: 76.234375em) {
+  .md-nav--primary > .md-nav__title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    height: auto;
+    padding: 0.75rem 0.8rem;
+    line-height: 1.4;
+  }
+  .md-nav--primary > .md-nav__title .md-nav__button.md-logo {
+    position: static;
+    flex: 0 0 auto;
+    margin: 0;
+    padding: 0;
+  }
 }
 
 /* Tabs on the header row.
