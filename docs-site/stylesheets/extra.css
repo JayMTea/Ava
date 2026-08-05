@@ -480,46 +480,17 @@
   font-size: 0.95em;
 }
 
-/* Screenshot band */
-.ava-shot {
-  padding: 2.6rem 0 3rem;
-  background-color: var(--panel);
-  border-top: 1px solid var(--ava-land-border);
-  border-bottom: 1px solid var(--ava-land-border);
-  text-align: center;
-}
+/* .ava-shot and .ava-reel lived here and are gone with the landing-page
+   walkthrough they styled. .ava-media went with them: it was the video's own
+   wrapper, and the carousel below positions its button against .ava-carousel
+   instead.
 
-.ava-shot h2 {
-  margin: 0 0 0.7rem;
-  font-family: var(--ava-serif);
-  font-weight: 500;
-  font-size: 1.5rem;
-}
-
-.ava-shot p {
-  max-width: 42rem;
-  margin: 0 auto 1.4rem;
-  font-size: 0.8rem;
-  line-height: 1.6;
-  color: var(--ava-land-muted);
-}
-
-.ava-shot img {
-  max-width: 100%;
-  border: 1px solid var(--ava-land-border);
-  border-radius: 0.55rem;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.12);
-}
-[data-md-color-scheme="slate"] .ava-shot img {
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
-}
-
-/* A media block with a corner "expand to fullscreen" button. */
-.ava-media {
-  position: relative;
-  max-width: 44rem;
-  margin: 0 auto;
-}
+   .ava-expand STAYS, and is not dead code. It is the base class that
+   .ava-expand--carousel below modifies, and that carousel is dormant on
+   purpose — see the note beside extra_javascript in mkdocs.yml. Deleting the
+   base while keeping the modifier is exactly how this site once ended up
+   rendering a button that announced itself as "Expand video" and did nothing:
+   the two halves were separated, and only one of them was noticed. */
 .ava-expand {
   position: absolute;
   top: 0.55rem;
@@ -542,21 +513,6 @@
 }
 .ava-expand:hover {
   background: rgba(20, 18, 22, 0.9);
-}
-
-/* Tour reel (the mp4 already carries its own window frame + branded bg) */
-.ava-reel {
-  display: block;
-  width: 100%;
-  border-radius: 0.7rem;
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22);
-}
-[data-md-color-scheme="slate"] .ava-reel {
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
-}
-.ava-reel:fullscreen {
-  border-radius: 0;
-  box-shadow: none;
 }
 
 /* Screenshot carousel (javascripts/carousel.js) */
