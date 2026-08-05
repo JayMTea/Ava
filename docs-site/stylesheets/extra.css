@@ -149,13 +149,24 @@
   }
 }
 
-/* Drawer nav title on small screens — Material puts the logo there instead. */
+/* Drawer nav title on small screens — Material puts the logo there instead, and
+   it is the ONE place on the site that renders a logo and a text label
+   together: the markup is `<label class="md-nav__title"><a class="md-logo">
+   …</a> Ava </label>`. While this slot masked the wordmark, that label read
+   "AVA" over "Ava", the same word twice in one corner, which is the one thing
+   the header rule further up this file exists to prevent.
+
+   The mark, not the wordmark, and the text stays. That is the same split the
+   header makes — mark for chrome, wordmark for the hero — and it leaves the
+   drawer with a conventional icon-over-name title instead of a lockup arguing
+   with a caption. Square box, so the 2449:1060 width that framed the
+   letterforms goes with them. */
 .md-nav__title .md-nav__button.md-logo {
-  width: 5.54rem;   /* 2.4rem x 2449/1060 */
+  width: 2.4rem;
   height: 2.4rem;
   background-color: currentColor;
-  -webkit-mask: url(../docs/assets/ava-wordmark.svg) left center / contain no-repeat;
-  mask: url(../docs/assets/ava-wordmark.svg) left center / contain no-repeat;
+  -webkit-mask: url(../docs/assets/favicon.svg) left center / contain no-repeat;
+  mask: url(../docs/assets/favicon.svg) left center / contain no-repeat;
 }
 .md-nav__title .md-nav__button.md-logo :is(img, svg) {
   display: none;
