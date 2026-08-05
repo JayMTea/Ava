@@ -13,7 +13,7 @@ import os
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
-from .. import config, features, settings
+from .. import auth, config, features, settings
 from ..version import __version__
 
 router = APIRouter()
@@ -46,7 +46,12 @@ def system():
         # way — see connectors.load_errors().
         "config_error": settings.load_error(),
         "config_path": str(settings.CONFIG_PATH),
-        "docker": bool(__import__("shutil").which("docker")),
+        # "am I running in a container", NOT "is there a docker CLI on PATH".
+        # This asked shutil.which("docker"), and deploy/Dockerfile installs only
+        # curl and ffmpeg — so every containerized install, which is the primary
+        # documented one, reported "Native process" in Setup → System → About.
+        # auth.in_container() is the existing answer (it stats /.dockerenv).
+        "docker": auth.in_container(),
         "retention_days": settings.data_retention_days(),
         "retention_choices": list(settings.DATA_RETENTION_CHOICES),
         # Editable keys currently shadowed by env vars: a yaml write from the

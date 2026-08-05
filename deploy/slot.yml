@@ -1,0 +1,80 @@
+# Ava — staging-slot overlay. A SECOND Ava beside the running one, so a build can
+# be tested while the stable instance keeps serving.
+#
+#   cd deploy && ./slot.sh up -d --build     # then open http://127.0.0.1:8097
+#
+# Layered ON TOP of docker-compose.yml — never used alone, never auto-merged:
+#   docker compose -f docker-compose.yml -f slot.yml --env-file .env.staging \
+#                  -p ava-staging <cmd>
+# Always go through deploy/slot.sh, which pins all four of those flags on every
+# subcommand. The reason is the one deploy/profiles/README.md gives for keeping
+# COMPOSE_PROFILES in a file: a `down` or `logs` typed without them addresses a
+# DIFFERENT stack, and here the other stack is the production one.
+#
+# TWO BEHAVIOURS THAT COST AN HOUR IF YOU DO NOT KNOW THEM:
+#
+#  1. Passing any explicit `-f` SUPPRESSES compose's automatic pickup of
+#     docker-compose.override.yml, which docs/INSTALL_REFERENCE.md §5 teaches for
+#     GPU telemetry. A slot deliberately does not inherit it — it should not claim
+#     telemetry devices out from under the stable stack — but the omission is
+#     silent, so it is recorded here.
+#
+#  2. `external: true` below means compose will NOT create the stable network.
+#     `slot.sh up` therefore fails cleanly when the stable stack is down, which is
+#     the behaviour you want. The corollary is an ORDERING RULE: bring the SLOT
+#     down before the stable stack. `docker compose down` on stable cannot remove
+#     ava_default while the slot still holds an endpoint on it.
+
+services:
+  ava:
+    # !override REPLACES this list. Compose's default merge for a sequence is to
+    # APPEND, so without the tag the slot also inherits "127.0.0.1:8096:8096" and
+    # fails to bind — the stable bridge already owns 8096.
+    #
+    # Only the HOST side moves. The container keeps 8096, and so does AVA_PORT in
+    # docker-compose.yml: the SPA fetches same-origin relative paths
+    # (frontend/src/lib/api.ts), so it follows whatever port you reach it on, and
+    # the image healthcheck curls its own in-namespace loopback. Moving the
+    # in-container port instead would break both, plus the agent's
+    # http://ava:8096 and every generated MCP tool that defaults to it.
+    ports: !override
+      - "127.0.0.1:${AVA_PORT_HOST:-8097}:8096"
+
+    environment:
+      # docker-compose.yml's `environment:` block is an explicit ALLOWLIST, and
+      # neither of these is in it. A value in an env file is an INTERPOLATION
+      # source — it does not reach the container unless a service names it. Both
+      # of these are slot identity and slot safety, so they are named here rather
+      # than widened into the base file for every install.
+      AVA_NAME: ${AVA_NAME:-}
+      # 0 = this slot may OBSERVE the shared engine but never unload from it.
+      # alloc.infer_levers defaults true (ava_bridge/alloc/spec.py), which would
+      # hand the slot a live unload lever aimed at an engine it does not own:
+      # "Memory Ava can free" renders on every screen, and one click here would
+      # evict the model out from under production chat.
+      AVA_ALLOC_INFER: ${AVA_ALLOC_INFER:-0}
+
+    networks:
+      default: null   # the slot's own project network, as usual
+      stable: null    # plus the stable stack's, for the engine — see below
+
+networks:
+  # The stable stack's default network, joined so the slot reaches its ALREADY
+  # RUNNING engine by service DNS. AVA_BACKEND_URL in .env.staging then stays
+  # byte-identical to the one in deploy/profiles/<profile>.env: no second copy of
+  # the weights, no second claim on the GPU.
+  #
+  # host.docker.internal does NOT work for this, and fails silently, which is
+  # worse. The engine is published on 127.0.0.1 only, so its DNAT rule is
+  # qualified `-d 127.0.0.1/32`, while the host-gateway address is the bridge IP —
+  # and Docker 28+ leaves route_localnet=0. The slot would boot healthy, pass its
+  # healthcheck, serve the UI, and refuse every chat turn with what reads like a
+  # model error. docs/INSTALL_REFERENCE.md and setup_wizard.py's `refused`
+  # diagnosis both already describe this exact failure.
+  #
+  # The name is "<project>_default" for the project name in docker-compose.yml.
+  # tests/test_slot_contract.py ties the two together, so renaming that project
+  # fails the build rather than silently detaching the slot from the engine.
+  stable:
+    external: true
+    name: ava_default

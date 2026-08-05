@@ -411,5 +411,91 @@ on the [Quickstart](../deploy/README.md).
 
 ---
 
+## 11. Running a second instance (a staging slot)
+
+A **slot** is a second Ava running beside the first, with its own database, its
+own port and its own image tag, so a build can be tested while the stable
+instance keeps serving. It is the same compose file, layered with
+`deploy/slot.yml` and run as a separate compose project:
+
+```bash
+cd deploy
+./slot.sh init              # writes .env.staging from your working .env
+./slot.sh up -d --build     # builds the working tree into the slot
+./slot.sh down              # ALWAYS before `docker compose down` on stable
+```
+
+Then open **`http://127.0.0.1:8097`**. Everything else is passed through to
+`docker compose`, so `./slot.sh logs -f ava` and `./slot.sh ps` work as usual.
+
+**Go through `slot.sh` rather than typing the compose command.** A slot separates
+four things, and each one is silent when it breaks: the compose project (without
+`-p`, `up` recreates the *stable* containers), `AVA_HOME` (two bridges over one
+SQLite store and one session-signing key), the published port, and `AVA_IMAGE` -
+which is both the build output tag and the run reference, so a slot built under
+the default tag retags the image the stable stack restarts into. The wrapper pins
+all four on every subcommand and refuses to start if any of them still matches
+stable. It is the same argument [deploy/profiles/README.md](../deploy/profiles/README.md)
+makes for keeping `COMPOSE_PROFILES` in a file.
+
+!!! warning "Use `127.0.0.1` for the slot and `localhost` for stable - not both"
+    Cookies are blind to port. Ava's session cookie is host-only with no `Domain`
+    attribute, so signing in to a slot at `localhost:8097` **overwrites the stable
+    stack's cookie at `localhost:8096`**. Each instance signs with its own key, so
+    stable then rejects the cookie and shows the sign-in page - which reads
+    exactly like a session expiry, from an action that had nothing to do with it.
+    `localhost` and `127.0.0.1` are distinct cookie hosts and both are already
+    trusted, so keeping one per instance costs nothing and closes it.
+
+**The slot borrows stable's engine.** `.env.staging` sets `COMPOSE_PROFILES=`
+empty, so no engine container starts; `slot.yml` joins the stable project's
+network instead, and `AVA_BACKEND_URL` stays exactly what stable uses
+(`vllm:8002`, `ollama:11434`). No second copy of the weights, and no second claim
+on the GPU - which on a memory-capped box is the difference between working and
+not. The cost is that the slot must come **down first**: `docker compose down` on
+stable cannot remove a network the slot still holds an endpoint on.
+
+This is also why the slot does not use `host.docker.internal`. §6 above is about a
+host-native engine listening on `0.0.0.0`; a compose engine is published on
+`127.0.0.1` only, so its forwarding rule is bound to loopback while the host
+gateway address is not, and current Docker no longer routes between the two. The
+slot would boot healthy, pass its healthcheck, serve the UI, and then refuse every
+chat turn with an error that reads like a model fault.
+
+!!! warning "A slot is a second, invisible tenant on stable's engine"
+    Its brain display is honest - that model really is what would answer a turn
+    here - but the memory it reports is not the slot's to free, and turns you run
+    in the slot consume production's engine. `.env.staging` therefore sets
+    `AVA_ALLOC_INFER=0`, which keeps residency **observable** while removing the
+    unload lever: without it, "Memory Ava can free" renders on every screen of the
+    slot and one click evicts the model out from under production chat. See
+    [ALLOCATION.md](ALLOCATION.md) for what that lever normally does.
+
+**Telling them apart.** `slot.sh up` stamps the build it makes as
+`<version>+stg.<sha>`, plus `.dirty` when the working tree has uncommitted
+changes, and that string is what **Setup → System → About** shows. This is the
+only thing that distinguishes a local build from a release: a plain
+`docker compose build` leaves `AVA_VERSION` empty, so the image reports the same
+version number the signed release does. `.env.staging` also sets
+`AVA_NAME=Ava (staging)`, which labels every screen - but comment it out when the
+slot is testing persona, prompt or agent behaviour, because `AVA_NAME` is injected
+into the system prompt, not merely displayed.
+
+!!! note "Two things the slot cannot check for you"
+    `deploy/slot.yml` is passed with an explicit `-f`, and that **suppresses
+    compose's automatic pickup of `docker-compose.override.yml`** (§5). A slot
+    deliberately does not inherit it - it should not claim telemetry devices out
+    from under stable - but the omission is silent.
+
+    A slot also cannot catch **frontend `dist` drift**. The image rebuilds the SPA
+    from `src`, so the slot happily shows your change with a stale committed
+    bundle; only CI compares the two. Run `npm run build` in `frontend/` and commit
+    the result before pushing.
+
+Slots are named: `AVA_SLOT=perf ./slot.sh up -d` uses `.env.perf` and the project
+`ava-perf`. Two at once need different `AVA_PORT_HOST` values.
+
+---
+
 Back to the funnel: [Step 1: Install](../deploy/README.md) ·
 [Step 2: Pick a model](CHOOSE_A_MODEL.md)

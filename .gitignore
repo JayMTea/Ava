@@ -23,6 +23,12 @@ data/*
 logs/*
 !logs/.gitkeep
 
+# Compose AVA_HOME bind mounts — the stable stack's ./ava-data and any slot's
+# ./ava-data-<slot> (deploy/slot.sh). NOT covered by `data/*` above: that pattern
+# contains a slash, so git anchors it to the repo root and it never matched
+# deploy/ava-data/data at all. Every store Ava writes lives under here.
+deploy/ava-data*/
+
 # Log files anywhere
 *.log
 

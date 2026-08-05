@@ -8,6 +8,54 @@ pre-release milestones from when Ava ran on one box and nothing was tagged.
 
 ## [Unreleased]
 
+### Added
+
+- **Staging slots: a second Ava beside the running one.** `deploy/slot.sh up -d
+  --build` starts a separate compose project on `127.0.0.1:8097` with its own
+  `AVA_HOME`, image tag and database, so a build can be tested while the stable
+  instance keeps serving. `deploy/slot.yml` layers over the existing compose file
+  (no change to it), and the slot **borrows stable's engine** over its network
+  rather than starting a second one — no re-downloaded weights and no second
+  claim on the GPU. Documented in
+  [INSTALL_REFERENCE.md §11](docs/INSTALL_REFERENCE.md); promotion runbook in
+  `docs/RELEASING.md`.
+  - The wrapper exists because a slot is four separations and each is silent when
+    it breaks. Without `-p`, `up` **recreates the stable containers**. A shared
+    `AVA_HOME` puts two bridges on one SQLite store and one session-signing key.
+    A shared `AVA_IMAGE` is the subtle one: `image:` is both the build output tag
+    and the run reference, so a slot built under the default tag retags what
+    stable restarts into — the running container keeps serving from its old image
+    ID, so nothing looks wrong until the next restart. `slot.sh` pins the flags on
+    every subcommand and refuses to start when any of those still matches stable.
+  - Slots set `AVA_ALLOC_INFER=0`. The alloc levers are inferred by default, which
+    on a *shared* engine would give the slot a live unload button — rendered on
+    every screen — aimed at production's resident model.
+  - `slot.sh up` stamps its build `<version>+stg.<sha>`, plus `.dirty` for an
+    uncommitted tree, and that string is what Setup → System → About shows. A
+    plain local build leaves `AVA_VERSION` empty and therefore claims the same
+    version number as the signed release, with nothing telling them apart.
+  - `.gitignore` now covers `deploy/ava-data*/`. The existing `data/*` rule
+    contains a slash, so git anchored it to the repo root and it never matched the
+    compose bind mount at all.
+
+### Fixed
+
+- **A pre-release tag no longer re-points `latest` at a test build.**
+  `docs/RELEASING.md` tells you to push a throwaway `-rc` tag to exercise the
+  release pipeline, but `release.yml` applied `type=raw,value=latest`
+  unconditionally to both published images — so every such test moved the tag real
+  users pull, and left re-pointing it back at the previous digest as a manual
+  step. Both images and the GitHub Release's `prerelease:` flag now key off the
+  hyphen that defines a SemVer pre-release.
+- **Setup → System → About reported "Native process" on every containerized
+  install.** It tested `shutil.which("docker")`, and `deploy/Dockerfile` installs
+  only `curl` and `ffmpeg` — so the primary documented install described itself as
+  bare metal. It now uses the existing `auth.in_container()`.
+- **`docs/RELEASING.md` sent you to a red CI run.** Its version-bump step called
+  syncing `frontend/package.json` "cosmetic only" and never mentioned
+  `demo/package.json` or `CITATION.cff`, all three of which
+  `tests/test_version_ssot.py` hard-asserts against `VERSION`.
+
 ### Changed
 
 - **Setup went from eleven tabs to six, and every surface now has one home.**

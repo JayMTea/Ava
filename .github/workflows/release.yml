@@ -60,7 +60,14 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest
+            # `latest` must NOT follow a pre-release. docs/RELEASING.md tells you to
+            # push a throwaway `-rc` tag to exercise this pipeline, and while this
+            # was unconditional every such test re-pointed the tag real users pull
+            # at a test build — then left a manual cleanup to re-point it back at
+            # the previous digest. A SemVer pre-release is DEFINED by the hyphen,
+            # so this is exact rather than a heuristic. (metadata-action already
+            # skips the {{major}}.{{minor}} alias for pre-releases on its own.)
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
 
       - name: Build & push (multi-arch, SBOM + SLSA provenance)
         id: build
@@ -90,7 +97,8 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest
+            # Same pre-release guard as the bridge image above.
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
 
       - name: Build & push the agent runtime (multi-arch, SBOM + SLSA provenance)
         id: build_agent
@@ -132,6 +140,11 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
+          # A `-rc` tag makes a pre-release, not a headline one. Without this the
+          # pipeline test documented in docs/RELEASING.md published a real,
+          # non-draft Release to everyone watching the repo, to be deleted by hand
+          # afterwards. Same guard expression as the `latest` tag above.
+          prerelease: ${{ contains(github.ref_name, '-') }}
           body_path: RELEASE_NOTES.md
           files: |
             ava-sbom.cyclonedx.json
