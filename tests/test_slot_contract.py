@@ -237,3 +237,70 @@ def test_the_wrapper_pins_every_flag_that_selects_the_stack() -> None:
             "all four, or it addresses the stable stack instead of the slot.")
 
     assert "docker compose" in body, "deploy/slot.sh must delegate to `docker compose`"
+
+
+def test_the_wrapper_can_check_its_own_slot() -> None:
+    """`up` that only starts things leaves the verifying to a human who forgets.
+
+    The check that earns this subcommand is the version one: `up` without
+    `--build` is the commonest slot mistake there is, and it leaves you signing
+    off a container that never contained the change. Nothing else catches it —
+    the container is healthy, the UI loads, and the code is last week's.
+    """
+    src = SLOT_SH.read_text(encoding="utf-8")
+    body = "\n".join(ln for ln in src.splitlines() if not ln.lstrip().startswith("#"))
+
+    assert "cmd_smoke()" in body, "deploy/slot.sh lost its `smoke` subcommand"
+    assert re.search(r"^\s*smoke\)", body, re.M), (
+        "cmd_smoke exists but nothing dispatches to it — add `smoke)` to the case.")
+
+    assert "/api/health" in body, (
+        "smoke must ask the slot's own port whether it is serving.")
+    assert "_stamp" in body and "version" in body, (
+        "smoke must compare /api/health's version against _stamp(), or it cannot "
+        "tell a fresh build from the image that was already there.")
+    assert "/api/hub/agent/inference" in body, (
+        "smoke must ask whether Ava can actually ANSWER. A slot detached from the "
+        "borrowed engine boots healthy, serves the UI and passes its healthcheck — "
+        "the failure slot.yml's `networks:` note describes is invisible to every "
+        "other check here.")
+
+
+def test_a_smoke_that_cannot_identify_the_instance_fails_rather_than_skips() -> None:
+    """A green run against something that is not Ava is worse than no run.
+
+    Observed: the default slot port was already held by an unrelated local
+    service that answers `{"ok":true}` on /api/health. Reachability passed,
+    health passed, and an earlier draft SKIPPED the identity check for want of a
+    version — so the whole run reported success against a different application.
+    `ava_bridge/version.py` ends in `or "0.0.0+dev"`, so a missing version is
+    never a shy Ava; it is not Ava.
+    """
+    src = SLOT_SH.read_text(encoding="utf-8")
+    m = re.search(r'if \[ -z "\$version" \]; then\s*\n\s*(\w+) ', src)
+    assert m, "smoke no longer branches on an absent version at all"
+    assert m.group(1) == "fail", (
+        f"an absent version routes to `{m.group(1)}`, not `fail`. A health payload "
+        "with no version is a different application answering on the slot's port.")
+
+
+def test_the_slot_default_port_is_stated_in_one_place() -> None:
+    """Two copies of a default drift, and the drift is a port collision.
+
+    `cmd_init` writes AVA_PORT_HOST into the env file and `cmd_claim`/`cmd_smoke`
+    read it back; the fallback they use when it is absent must be the same number
+    the template ships, or a hand-written env file sends them to different ports.
+    """
+    src = SLOT_SH.read_text(encoding="utf-8")
+    fallbacks = set(re.findall(r'AVA_PORT_HOST[:-]*\}?["\']?\s*;?\s*\w*="\$\{?\w*:-(\d{4})\}?"', src))
+    fallbacks |= set(re.findall(r'port="\$\{port:-(\d{4})\}"', src))
+    fallbacks |= set(re.findall(r'local port="\$\{AVA_PORT_HOST:-(\d{4})\}"', src))
+    assert len(fallbacks) <= 1, (
+        f"deploy/slot.sh has more than one default host port: {sorted(fallbacks)}. "
+        "They must agree, or `claim` and `smoke` address different ports than "
+        "`init` wrote.")
+    if fallbacks:
+        env_port = _slot_env().get("AVA_PORT_HOST", "")
+        assert env_port == fallbacks.pop(), (
+            "deploy/slot.env.example's AVA_PORT_HOST disagrees with slot.sh's "
+            "fallback — a hand-written env file would land on a different port.")

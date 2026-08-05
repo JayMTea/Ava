@@ -194,6 +194,153 @@ cmd_up() {
   say "Slot is at http://127.0.0.1:$(_env_get AVA_PORT_HOST "$ENV_FILE")"
   say "Use 127.0.0.1, not localhost: cookies ignore the port, so signing in at"
   say "localhost:<slot port> would overwrite the stable stack's session cookie."
+
+  # Only when detached — a foreground `up` never reaches here, and there is
+  # nothing to smoke until it is backgrounded anyway.
+  case " $* " in
+    *" -d "* | *" --detach "*) echo; cmd_smoke ;;
+    *) say "When it is up:  ./slot.sh smoke" ;;
+  esac
+}
+
+# ── smoke ────────────────────────────────────────────────────────────────────
+# Four questions a slot must answer before it is worth testing anything in. Each
+# one is a failure that LOOKS like success from the outside, which is why they
+# are checked rather than eyeballed:
+#
+#   1. it answers at all                — a slot that never bound
+#   2. it is healthy                    — bound but not serving
+#   3. it is running YOUR tree          — the commonest slot mistake by far: `up`
+#                                         without `--build`, so the container is
+#                                         the last image and the change you are
+#                                         about to sign off was never in it
+#   4. it can actually answer a turn    — the failure slot.yml's `networks:` note
+#                                         describes at length: detached from the
+#                                         stable engine, the slot boots healthy,
+#                                         serves the UI, passes its healthcheck,
+#                                         and refuses every chat turn with what
+#                                         reads like a model error
+#
+# A check that could not run reports SKIP and never PASS — the rule qa/run.sh
+# states for its own tiers, for the same reason: a green line nobody earned is
+# worse than a missing one.
+_ok=0; _bad=0; _skip=0
+pass() { printf '\033[32mPASS\033[0m %s\n' "$*"; _ok=$((_ok + 1)); }
+fail() { printf '\033[31mFAIL\033[0m %s\n' "$*"; _bad=$((_bad + 1)); }
+skip() { printf '\033[33mSKIP\033[0m %s\n' "$*"; _skip=$((_skip + 1)); }
+
+# One JSON string field, without a jq dependency — this has to run in Git Bash
+# too. Tolerant of the spacing both compact and pretty encoders produce.
+_json_str() {
+  sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -1
+}
+_json_true() { grep -qE "\"$1\"[[:space:]]*:[[:space:]]*true"; }
+
+cmd_smoke() {
+  preflight
+  local port base health version want body code
+  port="$(_env_get AVA_PORT_HOST "$ENV_FILE")"; port="${port:-8097}"
+  # 127.0.0.1, never localhost: cookies ignore the port, so a login against
+  # localhost:<slot> would overwrite the stable stack's session cookie.
+  base="http://127.0.0.1:${port}"
+  say "Smoking $base"
+
+  # 1. Reachable. Give a just-started container time to bind rather than
+  #    reporting a race as a failure.
+  health=""
+  for _ in $(seq 1 30); do
+    health="$(curl -fsS --max-time 3 "$base/api/health" 2>/dev/null || true)"
+    [ -n "$health" ] && break
+    sleep 1
+  done
+  if [ -z "$health" ]; then
+    fail "nothing answered at $base/api/health after 30s"
+    say "  ./slot.sh logs ava   — the container may have exited"
+    _report; return 1
+  fi
+  pass "the slot answers on port $port"
+
+  # 2. Healthy.
+  if printf '%s' "$health" | _json_true ok; then
+    pass "/api/health reports ok"
+  else
+    fail "/api/health did not report ok: $health"
+  fi
+
+  # 3. Is this an Ava bridge at all? A MISSING version is not a shy Ava — it is
+  #    something else answering. `version.py` ends in `or "0.0.0+dev"`, so the
+  #    field is never empty for us.
+  #
+  #    Not hypothetical, and not a nicety: the default slot port collided with an
+  #    unrelated local service that serves `{"ok":true}` on /api/health. Every
+  #    check above it passed, and an earlier draft of this one SKIPPED — so the
+  #    run went green against a completely different application. A check that
+  #    cannot identify what it is talking to has to fail, not shrug.
+  version="$(printf '%s' "$health" | _json_str version)"
+  want="$(_stamp)"
+  if [ -z "$version" ]; then
+    fail "$base is not an Ava bridge — /api/health carries no version: $health"
+    say "  something else is on port $port. Pick a free one in $ENV_FILE"
+    say "  (AVA_PORT_HOST), or stop whatever holds it."
+    _report; return 1
+  fi
+
+  # 4. Running the tree you are looking at. `_stamp` is recomputed here, so an
+  #    edit made AFTER the build is a mismatch — which is the point.
+  if [ "$version" = "$want" ]; then
+    pass "running your working tree ($version)"
+  else
+    fail "the slot is running $version, your tree is $want"
+    say "  rebuild it:  ./slot.sh up -d --build"
+  fi
+
+  # 5. Is it the slot, or did the port quietly land on production? A stable
+  #    instance carries no +stg. stamp.
+  case "$version" in
+    *+stg.*) pass "this is a slot build, not the stable stack" ;;
+    *)       fail "$base is NOT a slot — version $version carries no +stg. stamp" ;;
+  esac
+
+  # 6. Can Ava actually answer? The one check that exercises the borrowed engine
+  #    over the shared network, and the only one that catches a slot which is
+  #    healthy and useless. Needs a session, so it needs the slot's password.
+  local pw jar
+  pw="$(_env_get AVA_PASSWORD "$ENV_FILE")"
+  if [ -z "$pw" ]; then
+    skip "no AVA_PASSWORD in $ENV_FILE — cannot sign in to ask whether Ava can answer"
+    say "  set it there (or run ./slot.sh claim) to include that check"
+    _report; return $(( _bad > 0 ))
+  fi
+
+  jar="$(mktemp)"; trap 'rm -f "$jar"' RETURN
+  curl -fsS --max-time 5 -c "$jar" -d "password=${pw}" "$base/login" >/dev/null 2>&1 || true
+  body="$(curl -fsS --max-time 10 -b "$jar" "$base/api/hub/agent/inference" 2>/dev/null || true)"
+  if [ -z "$body" ]; then
+    fail "could not sign in to the slot — is AVA_PASSWORD in $ENV_FILE correct?"
+  elif printf '%s' "$body" | _json_true ok; then
+    pass "Ava can answer — the borrowed engine is reachable from the slot"
+  else
+    code="$(printf '%s' "$body" | _json_str code)"
+    fail "Ava cannot answer (${code:-unknown}): $(printf '%s' "$body" | _json_str detail)"
+    case "$code" in
+      inference_down)
+        say "  the slot cannot reach the stable stack's engine. Check it joined the"
+        say "  shared network:  ./slot.sh exec ava getent hosts \$(echo \$AVA_BACKEND_URL)" ;;
+    esac
+  fi
+
+  _report
+  return $(( _bad > 0 ))
+}
+
+_report() {
+  echo
+  if [ "$_bad" -gt 0 ]; then
+    printf '\033[31m%s failed\033[0m, %s passed, %s skipped\n' "$_bad" "$_ok" "$_skip"
+  else
+    printf '\033[32mall %s checks passed\033[0m%s\n' "$_ok" \
+      "$([ "$_skip" -gt 0 ] && printf ', %s skipped' "$_skip")"
+  fi
 }
 
 usage() {
@@ -202,9 +349,12 @@ slot.sh — a second Ava beside the running one.
 
   ./slot.sh init              write .env.<slot> from the working .env
   ./slot.sh up -d --build     build the working tree into the slot
+  ./slot.sh smoke             is it up, is it YOUR code, can it answer?
   ./slot.sh claim             print the first-run link, on the slot's own port
   ./slot.sh down              stop the slot (do this BEFORE stopping stable)
   ./slot.sh <anything else>   passed through to `docker compose`
+
+`up -d` runs smoke for you. Exit is non-zero on any FAIL, so it gates a script.
 
 Env: AVA_SLOT names the slot (default "staging").
 EOF
@@ -213,6 +363,7 @@ EOF
 case "${1:-}" in
   init) shift; cmd_init "$@" ;;
   claim) shift; cmd_claim "$@" ;;
+  smoke) shift; cmd_smoke "$@" ;;
   up) shift; cmd_up "$@" ;;
   -h | --help | help | "") usage ;;
   *) preflight; compose "$@" ;;
