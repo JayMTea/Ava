@@ -290,7 +290,20 @@ def _rewrite_links(text: str, src: str, src_dst: str) -> str:
 # so no page has to fall back to an emoji, which renders as a different picture
 # on every OS and carries no accessible name.
 ICON_SRC = REPO / "frontend/src/lib/icons.tsx"
-ICONS_WANTED = ("check", "close")
+ICONS_WANTED = (
+    "check", "close",
+    # The landing figure's app tiles (overrides/home.html). Inherited for the
+    # same reason as everything above, and with one extra consequence worth
+    # naming: the site cannot draw a glyph the product does not have, so a tile
+    # can never illustrate a capability that does not exist.
+    #
+    # A DELETED GLYPH IS SILENT HERE. _stage_icons() appends to `missing` and
+    # main() prints a warning and still returns 0 — and overrides/.icons/ava/
+    # is TRACKED, so a glyph renamed in icons.tsx leaves last month's drawing on
+    # disk and rendering forever. tests/test_landing_page.py holds this tuple,
+    # the template and icons.tsx together for exactly that reason.
+    "calendar", "mail", "file", "code", "pencil", "image", "user", "gauge",
+)
 # Material resolves additional icons from `<custom_dir>/.icons/<ns>/<name>.svg`,
 # NOT from docs_dir — so these are written beside the templates, not into OUT.
 ICONS_OUT = HERE / "overrides" / ".icons" / "ava"

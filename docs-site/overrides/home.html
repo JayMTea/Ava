@@ -1,9 +1,25 @@
 {#-
   Landing page template (used by the homepage only, via `template: home.html`
-  front matter in docs-site/home.md). Renders a full-bleed hero and the feature
-  grid in the theme's empty `hero` block, then the page's own markdown
-  (learn more, quickstart) as normal typeset content below.
+  front matter in docs-site/home.md). This file is the WHOLE page: seven
+  full-bleed bands in the theme's empty `hero` block, and nothing below.
   Styles live in docs-site/stylesheets/extra.css under "Landing page".
+
+  WHY IT IS ALL HERE. The page used to be two layout systems stacked. Bands
+  came out of this block, which sits outside <main> and can be full-bleed;
+  everything after them came out of `content`, which Material wraps in
+  <article class="md-content__inner md-typeset"> inside .md-main__inner.md-grid,
+  which can never be full-bleed and can never paint a band. The eye re-anchored
+  at the seam, halfway down. Realigning the second system would not have helped:
+  the whole point of a landing page is composed horizontal bands, and that
+  article cannot make one. So `container` is emptied at the foot of this file
+  and the article is gone. `main` and its landmark stay.
+
+  What left with it was a second, worse copy of the Quickstart page: an install
+  fence, two ??? notes, a profile table and a root-Docker-socket warning, all of
+  which already live in deploy/README.md, docs/INSTALL_REFERENCE.md,
+  docs/AGENT_RUNTIME.md and docs/capabilities/agent.md. CLAUDE.md: "a surface
+  has exactly one home". Nothing was migrated, because every destination already
+  had it.
 
   Every claim on this page is code-backed. If a feature changes, fix the copy
   here in the same PR. House style: no emoji, no em dashes, keep it short.
@@ -21,6 +37,7 @@
 {% block hero %}
 <div class="ava-landing">
 
+  {#- 1. Hero -#}
   <section class="ava-hero">
     <div class="md-grid">
       {#- The wordmark stands in for the old "Meet Ava" eyebrow: it says the
@@ -37,18 +54,16 @@
       <p class="ava-hero__kicker">
         Free and open source. Runs any model, local or cloud.
       </p>
-      {#- ONE primary action. The old second button ("Why Ava?") competed with
-          the primary and sent the least-committed visitor into the deepest page
-          on the site; it is the quiet link below now. A "Watch the tour" button
-          also lived here, anchored to the walkthrough that used to sit under
-          this hero — it went with the video, since a ghost button pointing at a
-          removed #see-it is a dead scroll. The note is deliberate
-          self-selection: it tells a non-developer the price of entry before they
-          spend a click, and tells a developer the install is trivial. -#}
+      {#- ONE primary action, plus one no-commitment action. The ghost button is
+          an in-page anchor to the figure directly below, so the visitor who is
+          not ready for a shell command has somewhere to go that is not a
+          document. It was removed once for pointing at a section that no longer
+          existed; #see exists again, in the next band. -#}
       <div class="ava-hero__actions">
         {#- deploy/README.md builds to deploy/ (MkDocs maps README.md to the
             directory index), so link the directory, not deploy/README/. -#}
         <a class="ava-btn ava-btn--primary" href="{{ 'deploy/' | url }}">Get started</a>
+        <a class="ava-btn ava-btn--ghost" href="#see">See it</a>
       </div>
       <p class="ava-hero__note">
         One command to install. Everything after that is browser setup.
@@ -57,24 +72,120 @@
     </div>
   </section>
 
-  <section class="ava-features">
-    <div class="md-grid">
-      <ul class="ava-cards">
-        {#- Three cards, not four: the grid is three columns wide, so a fourth
-            card orphaned itself onto a second row. What the dropped two claimed
-            still ships and is still claimed, just not here. Voice moved into the
-            hero tagline, "Private by default" stays in the hero, and
-            self-editing moved into the observability card, where "approvals"
-            already lived.
+  {#- 2. The convergence figure.
 
-            Outcome first, jargon last or gone: these bodies ran 127 words and
-            opened on "egress policy" and "Tokens/sec, latency", which is the
-            vocabulary of someone auditing Ava, not someone deciding whether to
-            run it. They are ~75 words now. MCP is still named once, at the END
-            of a sentence a novice can already read, so a developer still scans
-            it. Nothing was demoted from claim to vibe: the tokens/sec-and-cost
-            detail is Vitals' page, the fence around a tool server is ADR 0003,
-            and both are one click away. -#}
+      NOT AN <img>. javascripts/diagram-zoom.js:142 selects `.ava-landing img`
+      and hijacks the click on any local .svg into a fullscreen lightbox, so
+      "simplifying" this into <img src="hero.svg"> would quietly turn the
+      landing centrepiece into a diagram viewer. Inline SVG is untouched by it.
+
+      The glyphs are {% raw %}{% include %}{% endraw %}d from overrides/.icons/ava/, written by
+      sync.py from the app's own icons.tsx. A missing one is a TemplateNotFound
+      and fails the build loudly, which is the opposite of the asset path: an
+      unstaged file referenced from a template 404s silently on a green build.
+      That is why this figure ships no binary of its own.
+
+      The tiles are generic categories, not a catalog. Ava ships no app
+      integrations - the tracked connectors are _template, bridge, local-llm and
+      router, all infrastructure - and its actual claim is that an app YOU
+      already run becomes a tile. The caption says the mechanism for that
+      reason, and tests/test_landing_page.py pins the set. -#}
+  <section class="ava-band" id="see">
+    <div class="md-grid">
+      <div class="ava-conv">
+
+        <ul class="ava-conv__col ava-conv__col--l">
+          <i class="ava-conv__bus" aria-hidden="true"></i>
+          <li class="ava-conv__tile" style="--i:0; --tile-accent:var(--app-accent-0); --dx:-46px; --dy:-28px; --dr:-6deg">
+            <span class="ava-conv__glyph" aria-hidden="true">{% include ".icons/ava/calendar.svg" %}</span>
+            <span class="ava-conv__label">Calendar</span>
+            <i class="ava-conv__stub" aria-hidden="true"></i>
+          </li>
+          <li class="ava-conv__tile" style="--i:1; --tile-accent:var(--app-accent-3); --dx:-56px; --dy:14px; --dr:4deg">
+            <span class="ava-conv__glyph" aria-hidden="true">{% include ".icons/ava/mail.svg" %}</span>
+            <span class="ava-conv__label">Mail</span>
+            <i class="ava-conv__stub" aria-hidden="true"></i>
+          </li>
+          <li class="ava-conv__tile" style="--i:2; --tile-accent:var(--app-accent-5); --dx:-38px; --dy:34px; --dr:-3deg">
+            <span class="ava-conv__glyph" aria-hidden="true">{% include ".icons/ava/file.svg" %}</span>
+            <span class="ava-conv__label">Docs</span>
+            <i class="ava-conv__stub" aria-hidden="true"></i>
+          </li>
+          <li class="ava-conv__tile" style="--i:3; --tile-accent:var(--app-accent-1); --dx:-50px; --dy:46px; --dr:7deg">
+            <span class="ava-conv__glyph" aria-hidden="true">{% include ".icons/ava/code.svg" %}</span>
+            <span class="ava-conv__label">Code</span>
+            <i class="ava-conv__stub" aria-hidden="true"></i>
+          </li>
+        </ul>
+
+        <div class="ava-conv__hub">
+          <i class="ava-conv__feed ava-conv__feed--l" aria-hidden="true"></i>
+          <div class="ava-conv__card">
+            <span class="ava-conv__mark" role="img" aria-label="Ava"></span>
+            <p class="ava-conv__name">One dashboard</p>
+            {#- Three of the eight accents, which is the product's own grammar:
+                CLAUDE.md requires anything representing a connected app to wear
+                that app's accent, and a chat tool chip is exactly that. Three of
+                eight reads as "it picked some of them for this piece of work",
+                which is what the agent does with connector tools. -#}
+            <ul class="ava-conv__chips">
+              <li class="ava-conv__chip" style="--i:0; --tile-accent:var(--app-accent-0)">calendar</li>
+              <li class="ava-conv__chip" style="--i:1; --tile-accent:var(--app-accent-6)">notes</li>
+              <li class="ava-conv__chip" style="--i:2; --tile-accent:var(--app-accent-7)">devices</li>
+            </ul>
+          </div>
+          <i class="ava-conv__feed ava-conv__feed--r" aria-hidden="true"></i>
+        </div>
+
+        <ul class="ava-conv__col ava-conv__col--r">
+          <i class="ava-conv__bus" aria-hidden="true"></i>
+          <li class="ava-conv__tile" style="--i:0; --tile-accent:var(--app-accent-2); --dx:44px; --dy:-34px; --dr:5deg">
+            <span class="ava-conv__glyph" aria-hidden="true">{% include ".icons/ava/pencil.svg" %}</span>
+            <span class="ava-conv__label">Notes</span>
+            <i class="ava-conv__stub" aria-hidden="true"></i>
+          </li>
+          <li class="ava-conv__tile" style="--i:1; --tile-accent:var(--app-accent-6); --dx:54px; --dy:10px; --dr:-5deg">
+            <span class="ava-conv__glyph" aria-hidden="true">{% include ".icons/ava/image.svg" %}</span>
+            <span class="ava-conv__label">Photos</span>
+            <i class="ava-conv__stub" aria-hidden="true"></i>
+          </li>
+          <li class="ava-conv__tile" style="--i:2; --tile-accent:var(--app-accent-4); --dx:40px; --dy:30px; --dr:6deg">
+            <span class="ava-conv__glyph" aria-hidden="true">{% include ".icons/ava/user.svg" %}</span>
+            <span class="ava-conv__label">Contacts</span>
+            <i class="ava-conv__stub" aria-hidden="true"></i>
+          </li>
+          <li class="ava-conv__tile" style="--i:3; --tile-accent:var(--app-accent-7); --dx:48px; --dy:44px; --dr:-4deg">
+            <span class="ava-conv__glyph" aria-hidden="true">{% include ".icons/ava/gauge.svg" %}</span>
+            <span class="ava-conv__label">Devices</span>
+            <i class="ava-conv__stub" aria-hidden="true"></i>
+          </li>
+        </ul>
+
+      </div>
+      <p class="ava-conv__caption">
+        The apps you already run become tiles in Ava. One folder with a manifest
+        gives each one its tile, a health row, a performance source, the agent's
+        tools, and the exact network destinations those tools may reach.
+      </p>
+    </div>
+  </section>
+
+  {#- 3. What it does -#}
+  <section class="ava-band ava-band--panel">
+    <div class="md-grid">
+      <div class="ava-band__head">
+        <h2>What it does</h2>
+        <p class="ava-band__lede">Most AI tools are one of these: a chat window,
+        a model runner, a voice assistant, or an agent framework. Ava is the
+        layer that ties them together.</p>
+      </div>
+      <ul class="ava-cards ava-cards--2up">
+        <li>
+          <h3>Talks and listens on your own hardware</h3>
+          <p>Type or speak. Voice runs on-device and answers your voice only.
+          The model behind it is yours: vLLM, Ollama, llama.cpp, MLX, or a cloud
+          key you supply.</p>
+        </li>
         <li>
           <h3>Drives the apps you already run</h3>
           <p>Point Ava at an app and it becomes a tab: Ava watches it, charts
@@ -82,24 +193,129 @@
           network-fenced.</p>
         </li>
         <li>
-          <h3>You can see everything it does</h3>
-          <p>Watch it work: speed, cost and energy on screen. Changes Ava writes
-          to its own code wait for your approval as git commits.</p>
+          <h3>Everything it does is on the record</h3>
+          <p>Speed, cost and energy on screen while it works. Anything that
+          touches the real world asks first, and every change Ava writes to its
+          own source waits for you as a git commit.</p>
         </li>
         <li>
-          <h3>Personalized by you, not for you</h3>
-          <p>Ava ships with no personality. You write how it talks. It learns
-          from your chats and files, and you can read, correct or delete any of
-          it.</p>
+          <h3>Yours to shape, and yours to erase</h3>
+          <p>Ava ships with no personality. You write how it talks. It remembers
+          what matters from your chats and files, and hands you the eraser for
+          any of it.</p>
         </li>
       </ul>
+    </div>
+  </section>
+
+  {#- 4. Claims you can check. This is the section no competitor can copy, so it
+      goes BEFORE the ask, not after. Twelve profiles and exactly one
+      verified-on-device is deploy/platforms.conf; the quoted lines are the real
+      strings from deploy/install.sh, without the shell colour chrome. -#}
+  <section class="ava-band">
+    <div class="md-grid">
+      <div class="ava-band__head">
+        <h2>Claims you can check</h2>
+        <p class="ava-band__lede">An assistant you cannot observe is one you
+        cannot trust. So Ava reports on itself, asks before it acts on your
+        behalf, and marks the claims it has not proved on your hardware.</p>
+      </div>
+      <p class="ava-conv__caption">Ava's hardware table names twelve platform
+      profiles. Exactly one is verified on real silicon today, so the installer
+      prints your platform's tier before it installs anything. Where a claim is
+      unverified, the code says NOT MEASURED rather than rounding up.</p>
+      {#- Real output, prefixes and all. install.sh's say() prints "==> " and
+          warn() prints "Warning: " (deploy/install.sh:68-69); only the ANSI
+          colour codes are dropped. docs/WHY_AVA.md carried these same three
+          lines under a "  ! " prefix that the installer has never emitted, and
+          that is corrected in the same commit as this - a page about not
+          rounding claims up cannot invent the shape of its own evidence. -#}
+      <div class="ava-verbatim">==&gt; Platform: Apple Silicon (Mac mini / Studio / laptop) [ci-simulated]
+Warning: This hardware class is tested by simulation, not on real hardware.
+Warning: The install should work; the numbers Ava reports are unconfirmed here.</div>
+    </div>
+  </section>
+
+  {#- 5. One command -#}
+  <section class="ava-band ava-band--panel">
+    <div class="md-grid">
+      <div class="ava-band__head">
+        <h2>One command</h2>
+        <p class="ava-band__lede">The installer detects your hardware, picks a
+        profile, resolves your model's flags, and waits for the app to actually
+        answer before it says it is done.</p>
+      </div>
+      {#- Two lines, not the 67-character && one-liner in deploy/README.md. A
+          command that visually wraps is a command somebody mistypes, and 67
+          characters cannot fit the 296px a 320px viewport leaves. Same
+          operation, and deploy/README.md already uses a two-line shape for
+          Windows. -#}
+      <div class="ava-cmd"><span>git clone https://github.com/JayMTea/Ava</span><span>cd Ava/deploy &amp;&amp; ./install.sh</span></div>
+      <div class="ava-caveats">
+        <p>It finishes by printing a one-time link. Open that whole link to set
+        your password. Everything after is browser setup: connect your apps,
+        enroll your voice, set budgets. Ava is a web app, so it installs to your
+        phone from the browser too.</p>
+        <p><strong>What needs a setup step first.</strong> Web search is off by
+        default, and the shipped Docker profiles do not provision SearXNG or Tor
+        yet, so it is opt-in setup rather than on out of the box. Voice is off
+        by default, and under Docker it needs an image built with
+        <code>AVA_VOICE_DEPS=1</code>. The agent runtime wants the NemoClaw CLI
+        already installed; Ava deliberately will not run a
+        <code>curl | bash</code> installer on your behalf.</p>
+      </div>
+      <div class="ava-actions">
+        <a class="ava-btn ava-btn--primary" href="{{ 'deploy/' | url }}">Read the install guide</a>
+        <a class="ava-btn" href="{{ 'overview/' | url }}">Why Ava?</a>
+      </div>
+    </div>
+  </section>
+
+  {#- 6. Where to go next. Three, not a sitemap: the header tabs already carry
+      all five sections on every page, so this band exists to catch the visitor
+      who is not ready to install, not to duplicate the navigation. -#}
+  <section class="ava-band">
+    <div class="md-grid">
+      <div class="ava-band__head">
+        <h2>Where to go next</h2>
+      </div>
+      <ul class="ava-cards ava-cards--links">
+        <li><a href="{{ 'overview/' | url }}"><strong>Why Ava?</strong>
+          <span>What it is, what it is not, and what backs each claim.</span></a></li>
+        <li><a href="{{ 'docs/capabilities/' | url }}"><strong>What Ava does</strong>
+          <span>Every capability, one page each.</span></a></li>
+        <li><a href="{{ 'deploy/' | url }}"><strong>Install it</strong>
+          <span>Docker or bare metal, and what each profile includes.</span></a></li>
+      </ul>
+    </div>
+  </section>
+
+  {#- 7. Colophon. The human stays on this page deliberately: the argument two
+      bands up is "twelve profiles, one verified, and the code says NOT
+      MEASURED", and that argument is credible BECAUSE it is one person with one
+      machine. Delete the person and the same sentence reads as honesty theatre.
+      The security-reporting line went: SECURITY.md is a header tab on every
+      page, and a landing page is not where a researcher looks. -#}
+  <section class="ava-colophon">
+    <div class="md-grid">
+      <p>Ava is built and maintained by Joshua Thompson.
+        <a href="https://github.com/JayMTea">GitHub</a> ·
+        <a href="https://www.linkedin.com/in/joshua-thompson-2b1b9a1b9/">LinkedIn</a></p>
+      <p>The contribution worth most right now is a hardware report from silicon
+        Ava has not been verified on.
+        <a href="{{ 'CONTRIBUTING/' | url }}">How to send one</a></p>
     </div>
   </section>
 
 </div>
 {% endblock %}
 
-{#- Page markdown renders below the hero, without the auto-h1 / edit chrome. -#}
-{% block content %}
-  {{ page.content }}
-{% endblock %}
+{#- The page IS the hero block. Emptying `container` removes Material's
+    <article class="md-content__inner md-typeset"> entirely, which is the
+    typeset column that used to fight the bands above. <main class="md-main">,
+    its data-md-component="main" hook and the navigation.top back-to-top button
+    all live OUTSIDE .md-main__inner in base.html, so the landmark and the
+    button survive; only the article goes. home.md keeps its front matter and
+    ships an empty body, so page.content is empty anyway - this block makes that
+    a decision rather than a coincidence. -#}
+{% block container %}{% endblock %}

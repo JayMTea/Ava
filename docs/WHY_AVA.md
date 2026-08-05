@@ -117,11 +117,11 @@ are on first contact, not after a week of trusting a number.
     the line a Mac gets today:
 
     ```
-    Platform: Unified-memory NVIDIA (GB10 / Grace-Blackwell) [verified-on-device]
-    Platform: Apple Silicon (Mac mini / Studio / laptop) [ci-simulated]
-      ! This hardware class is tested by simulation, not on real hardware.
-      ! The install should work; the numbers Ava reports are unconfirmed here.
-      ! Help fix that: python3 tools/ondevice_check.py --record
+    ==> Platform: Unified-memory NVIDIA (GB10 / Grace-Blackwell) [verified-on-device]
+    ==> Platform: Apple Silicon (Mac mini / Studio / laptop) [ci-simulated]
+    Warning: This hardware class is tested by simulation, not on real hardware.
+    Warning: The install should work; the numbers Ava reports are unconfirmed here.
+    Warning: Help fix that: python3 tools/ondevice_check.py --record
     ```
 
     The tiers live in `deploy/platforms.conf`, strongest first. Anything above

@@ -84,6 +84,9 @@ extra_css:
 extra_javascript:
   - javascripts/diagram-zoom.js  # zoom/pan lightbox for diagram SVGs
   - javascripts/chrome.js        # "View on GitHub" pill + the expand button
+  # Adds one class to the landing figure and nothing else. The figure is
+  # complete without it: dropping this line loses the reveal, not the picture.
+  - javascripts/hero.js          # landing figure: play the reveal once
   # carousel.js is NOT loaded: no page builds `.ava-carousel` any more. The file
   # and its .ava-carousel styles in stylesheets/extra.css are kept for whenever a
   # gallery comes back. It was called "a 93-line no-op" when it was dropped —
