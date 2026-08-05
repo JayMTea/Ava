@@ -213,10 +213,22 @@ def _full_bleed(size: int, frac_w: float, frac_h: float,
     return canvas.convert("RGB")
 
 
-def _dominant_bg(img: Image.Image) -> tuple[int, int, int]:
-    """The most common opaque colour — the backdrop, on a full-bleed icon."""
-    counts = Counter(p[:3] for p in _pixels(img) if p[3] > 200)
-    return counts.most_common(1)[0][0]
+def _corners(img: Image.Image) -> list[tuple[int, int, int]]:
+    """The four corner pixels — unambiguously backdrop on a full-bleed icon.
+
+    NOT the most common colour, which is what this asked first and got wrong. The
+    backdrop is a gradient, so each of its 512 rows holds about 512 pixels while
+    the white mark is one colour across ~40,000 — "dominant" returns WHITE, which
+    is 128 from the nearest blue, and the check failed every icon it was given.
+    It only runs without a master, so it ran on CI and nowhere else.
+
+    The corners have no such ambiguity: the mark is centred and at most 69% tall,
+    so nothing but backdrop reaches them, and on a gradient they sample both ends
+    of the ramp for free.
+    """
+    rgb = img.convert("RGB")
+    w, h = rgb.size
+    return [rgb.getpixel(p) for p in ((0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1))]
 
 
 def _colour_gap(colour: tuple[int, int, int], palette: set[str]) -> int:
@@ -308,7 +320,7 @@ def drift() -> list[str]:
                     f"{rel} is stale against pwa-512.png (mean error {err:.1f}) — "
                     "the installed app is on a different logo from the tab")
             continue
-        gap = _colour_gap(_dominant_bg(actual), src_palette)
+        gap = max(_colour_gap(c, src_palette) for c in _corners(actual))
         if gap > BG_TOLERANCE:
             problems.append(
                 f"{rel}'s backdrop is {gap} off the nearest colour in pwa-512.png "

@@ -98,6 +98,68 @@ class IconSyncTests(unittest.TestCase):
         self.assertTrue(any("favicon.ico" in p for p in problems),
                         f"a favicon from a different mark was not caught: {problems}")
 
+    def test_the_checker_works_on_a_fresh_clone_where_the_master_is_absent(self):
+        """The path CI takes, and the one a dev box never runs.
+
+        brand/ is gitignored, so `drift()` cannot regenerate the full-bleed icons
+        to compare against and falls back to asking whether their backdrop is
+        still a colour the mark uses. That branch is unreachable on the machine
+        with the master — which is exactly why the first version of it shipped
+        broken: it sampled the MOST COMMON opaque colour, and on a gradient
+        backdrop that is the white mark, 128 away from any blue. Every icon
+        failed, on CI only.
+        """
+        import sync_icons
+
+        self.addCleanup(setattr, sync_icons, "MASTER", sync_icons.MASTER)
+        sync_icons.MASTER = Path("/nonexistent/brand/pwa-icon-transparent.svg")
+        self.assertIsNone(sync_icons._gradient_stops(),
+                          "the fallback cannot be under test if a master resolves")
+
+        problems = sync_icons.drift()
+        self.assertEqual(problems, [], "\n  " + "\n  ".join(problems) +
+                         "\n\nThis is the check a fresh clone and CI run.")
+
+    def test_the_fresh_clone_check_still_catches_a_wrong_palette(self):
+        """Permissive enough to pass, strict enough to be worth running.
+
+        The real failure was a flat #007ACC tile after the mark became a
+        gradient: 21 from the nearest current blue, against a tolerance of 12.
+        """
+        import shutil
+        import tempfile
+
+        import sync_icons
+        from PIL import Image
+
+        with tempfile.TemporaryDirectory(prefix="ava-icon-fresh-") as tmp:
+            tmp_root = Path(tmp)
+            public = tmp_root / "frontend" / "public"
+            icons = public / "assets" / "icons"
+            icons.mkdir(parents=True)
+            shutil.copy(sync_icons.SOURCE, icons / "pwa-512.png")
+            shutil.copy(sync_icons.PWA_192, icons / "pwa-192.png")
+            shutil.copy(sync_icons.FAVICON_SVG, public / "favicon.svg")
+            shutil.copy(sync_icons.FAVICON_ICO, public / "favicon.ico")
+            for name, size, _fw, _fh in sync_icons.FULL_BLEED:
+                Image.new("RGB", (size, size), (0, 122, 204)).save(icons / name)
+
+            for name, value in (("ROOT", tmp_root), ("PUBLIC", public),
+                                ("ICONS", icons),
+                                ("SOURCE", icons / "pwa-512.png"),
+                                ("PWA_192", icons / "pwa-192.png"),
+                                ("FAVICON_ICO", public / "favicon.ico"),
+                                ("FAVICON_SVG", public / "favicon.svg"),
+                                ("MASTER", tmp_root / "brand" / "absent.svg")):
+                self.addCleanup(setattr, sync_icons, name, getattr(sync_icons, name))
+                setattr(sync_icons, name, value)
+
+            problems = sync_icons.drift()
+
+        for name, _size, _fw, _fh in sync_icons.FULL_BLEED:
+            self.assertTrue(any(name in p and "backdrop" in p for p in problems),
+                            f"a #007ACC {name} was not caught without a master: {problems}")
+
     def test_the_checker_catches_a_stale_INSTALLED_app_icon(self):
         """The gap that let a real one ship.
 
