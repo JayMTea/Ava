@@ -192,7 +192,6 @@ header {
   display:flex; align-items:center; gap:10px; text-align:left;
   padding:10px 14px; border-bottom:none; background:transparent; min-height:52px;
 }
-header h1 { font-size:15px; font-weight:600; letter-spacing:.2px; order:2; }
 header .sub { display:none; }
 #menuBtn { position:static; order:1; width:36px; height:36px; color:var(--muted);
   display:flex; align-items:center; justify-content:center; }
@@ -235,7 +234,7 @@ header .sub { display:none; }
              align-items:center; justify-content:center; transition:background var(--dur-fast), color var(--dur-fast); }
 .theme-btn:hover { background:var(--wash-6); color:var(--txt); }
 .theme-btn svg { width:19px; height:19px; }
-.ghost-tag { display:inline-flex; align-items:center; gap:4px; margin-left:8px; font-size:11px;
+.ghost-tag { display:inline-flex; align-items:center; gap:4px; order:2; font-size:11px;
              font-weight:600; color:#b79cff; background:rgba(139,110,246,.15); border-radius:999px;
              padding:2px 8px; vertical-align:middle; }
 .ghost-tag svg { width:13px; height:13px; }

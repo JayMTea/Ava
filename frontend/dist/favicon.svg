@@ -22,9 +22,15 @@
      in the master, not a tile here: re-adding a tile to this file without
      re-adding it to pwa-192/512 is what put the two out of sync before.
 
-     apple-touch-icon.png and pwa-maskable-512.png keep their tiles on purpose
-     and are not drift: iOS composites transparency onto black, and a maskable
-     icon is full-bleed by contract with the platform cropping into it.
+     apple-touch-icon.png and pwa-maskable-512.png kept their tiles for a while
+     after this file dropped its own — the argument being that iOS composites
+     transparency onto black and a maskable icon is full-bleed by contract. Both
+     are true; the result was still wrong. The installed app took its icon from
+     the manifest, so an owner with the docs open in one tab and Ava in the next
+     saw two different marks, which is the exact failure this file is here to
+     prevent. They are untiled now, from pwa-512's own pixels. On black the mark
+     holds because every colour in it is a bright blue; under a maskable mask the
+     launcher supplies a background, which is what the docs site shows anyway.
 
      Served by ava_bridge/pages.py:favicon_svg() — always Ava's, there is no
      branded branch. Kept out of the service-worker precache in vite.config.ts.

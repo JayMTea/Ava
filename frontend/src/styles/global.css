@@ -33,7 +33,6 @@
      - #composer (fixed height) ← always present, toggled only when in non-chat views
   */
   header { padding:14px 16px 10px; text-align:center; border-bottom:1px solid var(--line); position:relative; flex:0 0 auto; }
-  header h1 { margin:0; font-size:20px; letter-spacing:.3px; }
   header .sub { font-size:12px; color:var(--muted); margin-top:3px; }
   
   /* View container: each view fills remaining space (flex:1); switching views doesn't shift layout */

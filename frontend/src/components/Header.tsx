@@ -7,7 +7,6 @@ export function Header({
   ghost,
   onToggleGhost,
   showGhost = true,
-  brand = 'Ava',
   models = [],
   model = '',
   agentModel = null,
@@ -18,7 +17,6 @@ export function Header({
   ghost: boolean;
   onToggleGhost: () => void;
   showGhost?: boolean;
-  brand?: string;
   models?: { id: string; label: string }[];
   model?: string;
   agentModel?: string | null;
@@ -29,14 +27,13 @@ export function Header({
       <button type="button" id="menuBtn" title="Chats" aria-label="Open chats" onClick={onMenu}>
         <Icon name="sidebar" />
       </button>
-      <h1>
-        {brand}
-        {ghost && showGhost && (
-          <span className="ghost-tag">
-            <Icon name="ghost" /> ghost
-          </span>
-        )}
-      </h1>
+      {/* The sidebar wordmark already names the product; the top bar doesn't
+          repeat it. Only the ghost-mode tag renders in this slot. */}
+      {ghost && showGhost && (
+        <span className="ghost-tag">
+          <Icon name="ghost" /> ghost
+        </span>
+      )}
       <div className="sub" id="status">
         {status}
       </div>

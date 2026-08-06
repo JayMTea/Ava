@@ -264,7 +264,7 @@ export default function App() {
         />
 
         <div id="appCol">
-          <Header status={chat.status} onMenu={() => setSidebarOpen((o) => !o)} ghost={chat.ghost} onToggleGhost={chat.toggleGhost} showGhost={view === 'chat'} brand={brand} models={chat.models} model={chat.model} agentModel={chat.agentModel} onSetModel={chat.setModelMode} />
+          <Header status={chat.status} onMenu={() => setSidebarOpen((o) => !o)} ghost={chat.ghost} onToggleGhost={chat.toggleGhost} showGhost={view === 'chat'} models={chat.models} model={chat.model} agentModel={chat.agentModel} onSetModel={chat.setModelMode} />
           <div id="viewPort">
             {/* Suspense INSIDE the boundary: a chunk that fails to load is a view
                 error the boundary should own, not a blank screen. */}
