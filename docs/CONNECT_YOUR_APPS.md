@@ -46,6 +46,15 @@ the flyout at the foot of the icon rail when it's collapsed) and pick the
 **Devices**, **Apps** and **Tools**, each row carrying its transport, action
 count, deploy state and credential state.
 
+!!! tip "Shortcut: **Connect your app** in the sidebar"
+
+    The sidebar's **Apps** section - which is there whether or not anything is
+    connected yet - carries a **Connect your app** button (the plug icon on the
+    collapsed rail). It opens the same form as Step 2 in a dialog, so the first
+    app you connect doesn't have to start with finding this page. Everything
+    *after* connecting - permissions, appearance, the manifest, removal - still
+    lives here on **Setup → Connectors**, and the dialog links to it.
+
 ### Step 2: Click "Connect an app or device", name it, paste its address
 
 Give the app a name, then paste **where it is** - and be precise, because Ava

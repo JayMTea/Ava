@@ -1047,3 +1047,66 @@
 @media (max-width: 640px) {
   .skill-summary { white-space: normal; }
 }
+
+/* ---- Connect-an-app dialog (hub/ConnectApp.tsx → <ConnectAppDialog>) ----
+   The sidebar's mount of the connect form. Everything inside it is the same
+   .hub-field / .hub-input / .hub-note furniture Setup uses — these rules only
+   supply the window it sits in, so the form cannot drift between the two
+   places it is shown. */
+.connect-modal-backdrop {
+  position: fixed; inset: 0; z-index: var(--z-modal);
+  background: rgba(0, 0, 0, 0.55);
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+}
+.connect-modal {
+  width: min(680px, 100%);
+  max-height: min(86vh, 860px);
+  display: flex; flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+.connect-modal-head {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 16px 14px 14px 18px;
+  border-bottom: 1px solid var(--line);
+}
+.connect-modal-titles { flex: 1 1 auto; min-width: 0; }
+.connect-modal-titles h2 {
+  margin: 0; font-size: var(--fs-md); font-weight: var(--fw-medium); color: var(--txt);
+}
+.connect-modal-titles p { margin: 3px 0 0; font-size: var(--fs-xs); color: var(--muted); }
+.connect-modal-head .ibtn {
+  width: 32px; height: 32px; border-radius: 9px; color: var(--muted);
+}
+.connect-modal-head .ibtn:hover { background: var(--panel2); color: var(--txt); }
+.connect-modal-head .ibtn svg { width: 17px; height: 17px; }
+/* The form scrolls; the head and foot do not — a probe that fills in eleven
+   tools must not push "Connect app" off the bottom of the window. */
+.connect-modal-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 4px 18px 18px; }
+.connect-modal-foot {
+  padding: 11px 18px; border-top: 1px solid var(--line); background: var(--panel2);
+  font-size: var(--fs-xs);
+}
+/* Says where it goes, so it never reads as another tab of this dialog: managing
+   what you connected has one home, and it is Setup → Connectors. */
+.connect-modal-foot a {
+  display: inline-flex; align-items: center; gap: 5px;
+  color: var(--muted); text-decoration: none;
+}
+.connect-modal-foot a:hover { color: var(--accent); }
+.connect-modal-foot a svg { width: 13px; height: 13px; }
+
+@media (max-width: 640px) {
+  .connect-modal-backdrop { padding: 0; }
+  .connect-modal { width: 100%; max-height: 100vh; height: 100%; border-radius: 0; border: 0; }
+  /* Labelled field pairs stack on a phone — the token + health-check row would
+     otherwise be two ~170px inputs, neither of which shows a URL. Only
+     `> .hub-field` children: the address row's Detect button is a flex:0 0 auto
+     sibling of a bare input and stays beside it, where it belongs. */
+  .connect-modal .hub-fieldrow { flex-wrap: wrap; }
+  .connect-modal .hub-fieldrow > .hub-field { flex: 1 1 100%; }
+}

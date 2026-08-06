@@ -6,6 +6,7 @@ import { Icon } from '../lib/icons';
 import { AppDot, appAccent, appIcon } from '../lib/appColor';
 import { DEFAULT_BRAND } from '../lib/brand';
 import { useBrand } from '../lib/brandContext';
+import { ConnectAppDialog } from './hub/ConnectApp';
 
 // Ava's own wordmark, shipped under the SPA's static mount. Rendered only when
 // this install still answers to Ava's name: the lockup spells "AVA", so an
@@ -157,6 +158,12 @@ export function Drawer({
   // filters the Recents list by title.
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
+  // "Connect your app" — the connect flow in a dialog, mounted from the Apps
+  // section. Setup → Connectors is still where connected apps are managed; this
+  // only removes the "…Setup, then Connectors, then the button" detour from the
+  // one step an owner with no apps has to take first. The dialog is the shared
+  // <ConnectAppFields> (hub/ConnectApp.tsx), not a sidebar-local copy.
+  const [connectOpen, setConnectOpen] = useState(false);
   const tipProps = (label: string) => ({
     onMouseEnter: (e: ReactMouseEvent<HTMLElement>) => {
       const r = e.currentTarget.getBoundingClientRect();
@@ -224,6 +231,17 @@ export function Drawer({
           {railBtn('chat', `${brand} — Assistant`, 'bot')}
           {/* App tabs — derived from the connector registry, below the chat icon. */}
           {userApps.map((a) => railBtn(a.id, a.label, appIcon(a), appAccent(a)))}
+          {/* …and the way to get one more. Collapsed is the sidebar's default on
+              a phone, so the affordance has to survive the collapse or it only
+              exists for desktop users who happen to have the panel open. */}
+          <button
+            className="rail-btn rail-connect"
+            aria-label="Connect your app"
+            {...tipProps('Connect your app')}
+            onClick={() => { setConnectOpen(true); setTip(null); }}
+          >
+            <Icon name="plug" />
+          </button>
         </div>
         {tip && createPortal(
           <div className="rail-tip" style={{ top: tip.top }}>{tip.label}</div>,
@@ -301,23 +319,42 @@ export function Drawer({
           ))}
         </nav>
 
+        {/* Apps — shown even with nothing connected. An empty section is not
+            clutter here: it is the only place the sidebar says that connecting
+            your own app is a thing Ava does, and it carries the button that
+            does it. The connect row sits OUTSIDE nav[aria-label="Apps"] so that
+            list stays exactly the connected apps — it is read as such by
+            appIcon()/appAccent() checks, and a control mixed in would be one
+            more "app" with no identity of its own. */}
+        <div className="draw-sub">Apps</div>
         {userApps.length > 0 && (
-          <>
-            <div className="draw-sub">Apps</div>
-            <nav className="nav-list" aria-label="Apps">
-              {userApps.map((a) => (
-                <button type="button"
-                  key={a.id}
-                  className={'nav-item' + (view === a.id ? ' active' : '')}
-                  onClick={() => onView(a.id)}
-                >
-                  <Icon name={appIcon(a)} className="nav-ic" />
-                  <span>{a.label}</span>
-                  <AppDot accent={appAccent(a)} className="nav-app-dot" />
-                </button>
-              ))}
-            </nav>
-          </>
+          <nav className="nav-list" aria-label="Apps">
+            {userApps.map((a) => (
+              <button type="button"
+                key={a.id}
+                className={'nav-item' + (view === a.id ? ' active' : '')}
+                onClick={() => onView(a.id)}
+              >
+                <Icon name={appIcon(a)} className="nav-ic" />
+                <span>{a.label}</span>
+                <AppDot accent={appAccent(a)} className="nav-app-dot" />
+              </button>
+            ))}
+          </nav>
+        )}
+        <div className="nav-list">
+          <button type="button"
+            className="nav-item nav-connect"
+            onClick={() => setConnectOpen(true)}
+          >
+            <Icon name="plug" className="nav-ic" />
+            <span>Connect your app</span>
+          </button>
+        </div>
+        {userApps.length === 0 && (
+          <div className="draw-empty draw-apps-hint">
+            Nothing connected yet — point Ava at an app you run and it works out the rest.
+          </div>
         )}
 
         <div className="draw-sub">Recents</div>
@@ -370,6 +407,13 @@ export function Drawer({
           )}
         </div>
       </div>
+
+      {/* Portalled to <body> by the dialog itself — the drawer clips overflow
+          and is under the app shell's stacking context. It fires
+          `ava:apps-changed` on a successful connect, which is what redraws the
+          rail (App.tsx re-fetches /api/apps), so a new app appears behind the
+          dialog while it is still open. */}
+      {connectOpen && <ConnectAppDialog onClose={() => setConnectOpen(false)} />}
     </aside>
   );
 }

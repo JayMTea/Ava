@@ -10,6 +10,20 @@ pre-release milestones from when Ava ran on one box and nothing was tagged.
 
 ### Added
 
+- **Connect an app from the sidebar.** The sidebar's **Apps** section is now
+  always present — with nothing connected it says so and offers **Connect your
+  app**, and the collapsed icon rail carries the same thing as a plug button.
+  Either opens the connect form in a dialog, so the first app an owner connects
+  no longer starts with finding Setup → Connectors.
+  - It is the *same* form, not a second one: `NewConnectorForm` moved out of
+    `ConnectorsPanel.tsx` into `frontend/src/components/hub/ConnectApp.tsx`,
+    which exports the fields (`ConnectAppFields`), Setup's panel mount and the
+    dialog. The fields report facts (`ConnectResult`) and each mount writes its
+    own copy — "Preview / Deploy below" is true under Setup's connector list and
+    meaningless in a dialog. Setup → Connectors is unchanged and stays the home
+    of everything you do to an app *after* connecting it; the dialog links there
+    rather than growing its own permissions/appearance/removal.
+
 - **Staging slots: a second Ava beside the running one.** `deploy/slot.sh up -d
   --build` starts a separate compose project on `127.0.0.1:8097` with its own
   `AVA_HOME`, image tag and database, so a build can be tested while the stable
