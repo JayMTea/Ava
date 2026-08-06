@@ -74,7 +74,7 @@ class IconSyncTests(unittest.TestCase):
             shutil.copy(sync_icons.PWA_192, icons / "pwa-192.png")
             shutil.copy(sync_icons.FAVICON_SVG, tmp_root / "frontend" / "public" / "favicon.svg")
             # Copied before ICONS is rebound below, so these come from the repo.
-            for name, _size, _fw, _fh in sync_icons.FULL_BLEED:
+            for name, _size, _fw, _fh in sync_icons.PWA_PNGS:
                 shutil.copy(sync_icons.ICONS / name, icons / name)
             # a favicon from a mark that is not this one: same geometry, inverted
             src = Image.open(sync_icons.SOURCE).convert("RGBA")
@@ -101,30 +101,29 @@ class IconSyncTests(unittest.TestCase):
     def test_the_checker_works_on_a_fresh_clone_where_the_master_is_absent(self):
         """The path CI takes, and the one a dev box never runs.
 
-        brand/ is gitignored, so `drift()` cannot regenerate the full-bleed icons
-        to compare against and falls back to asking whether their backdrop is
-        still a colour the mark uses. That branch is unreachable on the machine
-        with the master — which is exactly why the first version of it shipped
-        broken: it sampled the MOST COMMON opaque colour, and on a gradient
-        backdrop that is the white mark, 128 away from any blue. Every icon
-        failed, on CI only.
+        brand/ is gitignored. While the two PWA icons carried a tile, its gradient
+        could only be read from the master, so `drift()` had a CI-only fallback
+        that sniffed the backdrop colour instead of comparing — and the first
+        version of that fallback shipped broken, failing every icon, on CI alone.
+        Untiling them removed the need for it: every input is tracked now, so this
+        asserts the ordinary comparison runs and passes with no master at all.
         """
         import sync_icons
 
         self.addCleanup(setattr, sync_icons, "MASTER", sync_icons.MASTER)
         sync_icons.MASTER = Path("/nonexistent/brand/pwa-icon-transparent.svg")
-        self.assertIsNone(sync_icons._gradient_stops(),
-                          "the fallback cannot be under test if a master resolves")
 
         problems = sync_icons.drift()
         self.assertEqual(problems, [], "\n  " + "\n  ".join(problems) +
                          "\n\nThis is the check a fresh clone and CI run.")
 
-    def test_the_fresh_clone_check_still_catches_a_wrong_palette(self):
-        """Permissive enough to pass, strict enough to be worth running.
+    def test_a_re_tiled_icon_is_caught_on_a_fresh_clone_too(self):
+        """The regression that would undo this, checked where it would land.
 
-        The real failure was a flat #007ACC tile after the mark became a
-        gradient: 21 from the nearest current blue, against a tolerance of 12.
+        A tile is how the installed app came to show a different mark from the
+        docs tab: the icons stayed the right size and shape and grew a backdrop.
+        Fed a flat #007ACC one — the real stale colour — in a throwaway tree with
+        no master, which is what CI has.
         """
         import shutil
         import tempfile
@@ -141,8 +140,11 @@ class IconSyncTests(unittest.TestCase):
             shutil.copy(sync_icons.PWA_192, icons / "pwa-192.png")
             shutil.copy(sync_icons.FAVICON_SVG, public / "favicon.svg")
             shutil.copy(sync_icons.FAVICON_ICO, public / "favicon.ico")
-            for name, size, _fw, _fh in sync_icons.FULL_BLEED:
-                Image.new("RGB", (size, size), (0, 122, 204)).save(icons / name)
+            for name, size, _fw, _fh in sync_icons.PWA_PNGS:
+                tiled = Image.open(sync_icons.ICONS / name).convert("RGBA")
+                backdrop = Image.new("RGBA", (size, size), (0, 122, 204, 255))
+                backdrop.alpha_composite(tiled)
+                backdrop.save(icons / name)
 
             for name, value in (("ROOT", tmp_root), ("PUBLIC", public),
                                 ("ICONS", icons),
@@ -156,9 +158,9 @@ class IconSyncTests(unittest.TestCase):
 
             problems = sync_icons.drift()
 
-        for name, _size, _fw, _fh in sync_icons.FULL_BLEED:
-            self.assertTrue(any(name in p and "backdrop" in p for p in problems),
-                            f"a #007ACC {name} was not caught without a master: {problems}")
+        for name, _size, _fw, _fh in sync_icons.PWA_PNGS:
+            self.assertTrue(any(name in p for p in problems),
+                            f"a re-tiled {name} was not caught without a master: {problems}")
 
     def test_the_checker_catches_a_stale_INSTALLED_app_icon(self):
         """The gap that let a real one ship.
@@ -167,7 +169,9 @@ class IconSyncTests(unittest.TestCase):
         taskbar icon from the manifest, where `purpose: maskable` wins — so
         pwa-maskable-512.png can be a different logo from the tab and every check
         stays green. It was, for months: a flat #007ACC tile holding the previous
-        letterform, while the tab carried the current gradient network mark.
+        letterform, while the tab carried the current gradient network mark. It
+        was still a different logo after that tile was regenerated rather than
+        removed, because a white mark on blue is not the mark the tab shows.
 
         Fed the real thing, in a throwaway tree: the mark inverted, so the file is
         the right size and shape and the wrong logo.
@@ -187,7 +191,7 @@ class IconSyncTests(unittest.TestCase):
             shutil.copy(sync_icons.PWA_192, icons / "pwa-192.png")
             shutil.copy(sync_icons.FAVICON_SVG, public / "favicon.svg")
             shutil.copy(sync_icons.FAVICON_ICO, public / "favicon.ico")
-            for name, size, _fw, _fh in sync_icons.FULL_BLEED:
+            for name, size, _fw, _fh in sync_icons.PWA_PNGS:
                 good = Image.open(sync_icons.ICONS / name).convert("RGB")
                 Image.eval(good, lambda v: 255 - v).save(icons / name)
                 self.assertEqual(good.size, (size, size))
@@ -203,7 +207,7 @@ class IconSyncTests(unittest.TestCase):
 
             problems = sync_icons.drift()
 
-        for name, _size, _fw, _fh in sync_icons.FULL_BLEED:
+        for name, _size, _fw, _fh in sync_icons.PWA_PNGS:
             self.assertTrue(any(name in p for p in problems),
                             f"a stale {name} was not caught: {problems}")
 
