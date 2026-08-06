@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
-import { AllocSection } from './AllocSection';
 import { api } from '../lib/api';
 import { ProgressBar } from '../lib/ProgressBar';
 import { stateCopy, stateOf } from '../lib/modelState';
@@ -258,13 +257,20 @@ export function HardwareBubble() {
                 <span style={{ color: 'var(--muted)' }}>GPU temp</span>
                 <span style={{ fontWeight: 700, color: tempColor(gpu?.temp) }}>{temp(gpu?.temp)}</span>
               </div>
-              {/* Freeing memory belongs in the MACHINE column, and not only for
-                  balance: this column is what the machine is holding, which is
-                  exactly the question the section answers. It sat on the right,
-                  where the brain and the model inspector already lived — 176px of
-                  content on the left against 708px on the right, in a panel with
-                  ~790px to spend. It read as one long list because it was one. */}
-              <AllocSection />
+              {/* "Memory Ava can free" (components/AllocSection.tsx) rendered here
+                  and is deliberately disconnected — the allocator underneath it is
+                  not ready to be a button an owner can press by accident.
+
+                  Nothing was deleted. The component, its pure view logic in
+                  allocView.ts, the hub client methods, the HTTP routes and
+                  `ava alloc release|restore` all still exist and still pass their
+                  tests; the CLI remains the way to drive it. Re-enabling is this
+                  import and this line.
+
+                  It belongs in THIS column when it comes back, not the right one:
+                  this column is what the machine is holding, which is the question
+                  the section answers. On the right it made 176px of content on the
+                  left sit against 708px, in a panel with ~790px to spend. */}
             </div>
             {/* Right column: the models. Cutting here rather than anywhere else
                 is what keeps a subject whole — the panel already drew its own
