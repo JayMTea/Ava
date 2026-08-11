@@ -49,5 +49,25 @@ export function fixForCode(code?: string | null): FixAction | undefined {
       tip: `Opens Operations — the ${pretty(m[1])} service looks down; its status and controls live there.`,
     };
   }
+  // The other three codes `connectors.unreachable()` emits. Only `_down` was
+  // resolved here, so a connected app that timed out, failed DNS, or errored in
+  // any other way gave the owner an accurate message with nowhere to go — which
+  // reads as a dead end rather than a fixable problem. Each of these is about
+  // ONE app's address, so they all lead to that app's row in Setup, not to
+  // Operations: nothing of Ava's is down.
+  m = /^(.+)_(timeout|unreachable|error)$/.exec(code);
+  if (m) {
+    const app = pretty(m[1]);
+    const why = {
+      timeout: `${app} accepted the connection but did not answer in time`,
+      unreachable: `${app}'s address could not be reached at all`,
+      error: `the call to ${app} failed`,
+    }[m[2]] as string;
+    return {
+      label: 'Check its address in Setup',
+      hash: 'hub/connectors',
+      tip: `Opens Setup → Connectors — ${why}. Check it is running and that the address in its manifest is right.`,
+    };
+  }
   return undefined;
 }

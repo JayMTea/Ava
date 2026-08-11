@@ -223,3 +223,100 @@ class TestHubSurface(_MemCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ── Durability: WAL, a schema version, and bounded writes ────────────────────
+# The store had none of the three. It is opened by the bridge, by the
+# data-maintenance routes (own connections) and by any `ava` process, with only
+# a `threading.Lock` between them — which is nothing across processes.
+
+def test_the_store_runs_in_wal_mode(tmp_path, monkeypatch):
+    """Under the default rollback journal a writer blocks every reader, the 5s
+    timeout expires, and this module's swallowing excepts turn that into "you
+    have no memories" rather than into a failure."""
+    monkeypatch.setattr(memory_store.settings, "data_dir", lambda: str(tmp_path))
+    with memory_store._conn() as con:
+        mode = con.execute("PRAGMA journal_mode").fetchone()[0]
+    assert str(mode).lower() == "wal"
+
+
+def test_a_reader_is_not_blocked_by_an_open_writer(tmp_path, monkeypatch):
+    """The behaviour WAL buys, asserted rather than assumed."""
+    monkeypatch.setattr(memory_store.settings, "data_dir", lambda: str(tmp_path))
+    memory_store.add("fact", "the kitchen light is a hue bulb")
+
+    writer = memory_store._conn()
+    writer.execute("BEGIN IMMEDIATE")
+    writer.execute("INSERT INTO items(kind, source, text, created, updated, meta)"
+                   " VALUES ('fact','', 'held open', 0, 0, '{}')")
+    try:
+        assert memory_store.counts()["facts"] == 1, (
+            "a reader could not see the last committed state while a write was "
+            "open — that is the rollback-journal behaviour WAL replaces")
+    finally:
+        writer.rollback()
+        writer.close()
+
+
+def test_the_file_carries_a_schema_version(tmp_path, monkeypatch):
+    """`CREATE … IF NOT EXISTS` re-run per connection means "an older database is
+    whatever it already was". A future column would simply not appear, and every
+    read of it would fail into a swallowing except."""
+    monkeypatch.setattr(memory_store.settings, "data_dir", lambda: str(tmp_path))
+    with memory_store._conn() as con:
+        assert int(con.execute("PRAGMA user_version").fetchone()[0]) == \
+            memory_store.SCHEMA_VERSION
+
+
+def test_every_migration_step_has_a_version_to_reach(tmp_path):
+    """A step above SCHEMA_VERSION would never run; one at or below it would run
+    on a fresh database that already has the change."""
+    for target in memory_store._MIGRATIONS:
+        assert 1 < target <= memory_store.SCHEMA_VERSION, target
+
+
+def test_a_single_memory_is_bounded(tmp_path, monkeypatch):
+    """Recall truncates at READ time, so an unbounded write was invisible: it
+    lands in the file and the FTS index, not in the prompt."""
+    monkeypatch.setattr(memory_store.settings, "data_dir", lambda: str(tmp_path))
+    mid = memory_store.add("fact", "x " * 100_000)
+    assert mid
+    row = next(r for r in memory_store.list_items() if r["id"] == mid)
+    assert len(row["text"]) <= memory_store.TEXT_MAX
+
+
+def test_prune_is_a_dry_run_by_default(tmp_path, monkeypatch):
+    """Deleting the owner's facts on a timer is a product decision, so the
+    mechanism exists and the policy does not."""
+    monkeypatch.setattr(memory_store.settings, "data_dir", lambda: str(tmp_path))
+    mid = memory_store.add("fact", "old news")
+    with memory_store._conn() as con:
+        con.execute("UPDATE items SET updated=? WHERE id=?", (0, mid))
+        con.commit()
+
+    assert memory_store.prune(older_than_days=1) == 1
+    assert memory_store.counts()["facts"] == 1, "a dry run deleted a memory"
+
+    assert memory_store.prune(older_than_days=1, write=True) == 1
+    assert memory_store.counts()["facts"] == 0
+
+
+def test_prune_leaves_pinned_memories_alone(tmp_path, monkeypatch):
+    """Pinning is the owner saying "this one matters"; an age rule that overrode
+    it would make pinning meaningless."""
+    monkeypatch.setattr(memory_store.settings, "data_dir", lambda: str(tmp_path))
+    mid = memory_store.add("fact", "my daughter's birthday is in March")
+    with memory_store._conn() as con:
+        con.execute("UPDATE items SET updated=?, pinned=1 WHERE id=?", (0, mid))
+        con.commit()
+    assert memory_store.prune(older_than_days=1, write=True) == 0
+    assert memory_store.counts()["facts"] == 1
+
+
+def test_size_reports_growth_without_acting_on_it(tmp_path, monkeypatch):
+    monkeypatch.setattr(memory_store.settings, "data_dir", lambda: str(tmp_path))
+    memory_store.add("fact", "something")
+    s = memory_store.size()
+    assert s["rows"] == 1
+    assert s["bytes"] > 0
+    assert s["schema_version"] == memory_store.SCHEMA_VERSION

@@ -29,13 +29,35 @@ from dataclasses import dataclass, field, asdict
 
 import yaml
 
-from . import config
+from . import config, settings
 
 ROOT = str(config.ROOT)
 POLICY_DIR = os.path.join(ROOT, "agent", "policies")
-GENERATED_DIR = os.path.join(POLICY_DIR, "generated")
+# Rendered from connector manifests, so it lives under AVA_HOME with the rest of
+# the generated agent material rather than in the code root — see
+# settings.agent_state_dir(). On a plain checkout the two roots are the same
+# directory and this is byte-for-byte the old path.
+GENERATED_DIR = settings.generated_policy_dir()
 # The private-overlay policies (gitignored first-party apps). Absent on a fork.
 OVERLAY_DIR = os.path.join(ROOT, "overlay", "agent", "policies")
+
+
+def _rel(path: str) -> str:
+    """A readable path for reports and the UI.
+
+    Declared and overlay policies hang off the code root; generated ones hang off
+    AVA_HOME. Naming the nearest of the two keeps every row reading like
+    `agent/policies/generated/acme.yaml` on every install shape, instead of a
+    `../../..` climb once the roots differ.
+    """
+    for base in (ROOT, str(settings.AVA_HOME)):
+        try:
+            rel = os.path.relpath(path, base)
+        except ValueError:      # different drives on Windows
+            continue
+        if not rel.startswith(os.pardir):
+            return rel
+    return path
 
 # Hosts that are Ava's own surface rather than somebody else's API. A wildcard
 # path against one of these grants the sandbox the whole internal route table;
@@ -156,10 +178,10 @@ def _load_one(path: str, source: str) -> Policy:
         raw = open(path, "rb").read()
     except OSError as e:
         return Policy(name=stem, file_stem=stem, source=source, path=path,
-                      rel=os.path.relpath(path, ROOT), sha256="",
+                      rel=_rel(path), sha256="",
                       parse_error=f"unreadable: {e}")
     pol_obj = Policy(name=stem, file_stem=stem, source=source, path=path,
-                     rel=os.path.relpath(path, ROOT), sha256=_digest(raw))
+                     rel=_rel(path), sha256=_digest(raw))
     try:
         pol = yaml.safe_load(raw.decode("utf-8")) or {}
     except (yaml.YAMLError, UnicodeDecodeError) as e:
@@ -211,5 +233,5 @@ def snapshot() -> dict:
             1 for p in inv for w in p.wildcards if w.internal),
         "parse_errors": [{"rel": p.rel, "error": p.parse_error}
                          for p in inv if p.parse_error],
-        "generated_dir": os.path.relpath(GENERATED_DIR, ROOT),
+        "generated_dir": _rel(GENERATED_DIR),
     }

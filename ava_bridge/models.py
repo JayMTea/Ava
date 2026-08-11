@@ -89,17 +89,31 @@ def ollama_env(ollama_dir: str) -> dict:
 
 
 def ollama_present(tag: str, ollama_dir: str) -> bool:
-    # Moved verbatim from ava_cli._ollama_present. Deliberately unchanged: this
-    # is an extraction, and "while I'm here" behaviour edits during a move are
-    # how a refactor turns into a regression nobody bisects to.
+    """Is this exact Ollama tag pulled?
+
+    Compares the NAME column of `ollama list`, not a substring of the whole
+    output. `tag.split(":")[0] in out.stdout` answered yes for
+    `llama3.1:70b` when only `llama3.1:8b` was present — the repo name matches
+    and the size does not — so a required model read as downloaded, the pull was
+    skipped, and the first chat turn failed against a model the engine does not
+    hold. It also matched a tag appearing anywhere else on the line, including
+    inside another model's name.
+
+    An untagged request means `:latest`, which is Ollama's own rule.
+    """
     if not shutil.which("ollama"):
         return False
+    want = tag if ":" in tag else f"{tag}:latest"
     try:
         out = subprocess.run(["ollama", "list"], env=ollama_env(ollama_dir),
                              capture_output=True, text=True, timeout=10)
-        return tag.split(":")[0] in out.stdout
     except Exception:  # noqa: BLE001
         return False
+    for line in out.stdout.splitlines()[1:]:      # skip the NAME/ID header
+        name = line.split()[0] if line.split() else ""
+        if name == want:
+            return True
+    return False
 
 
 def gguf_present(spec: dict, gguf_dir: str) -> bool:

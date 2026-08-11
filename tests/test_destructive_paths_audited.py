@@ -43,6 +43,10 @@ _ALLOW = {
     ("ava_bridge/audio.py", "decode_to_pcm"),
     ("ava_bridge/documents.py", "_office_text"),      # temp extraction dir
     ("ava_bridge/settings.py", "_write_config"),      # the .tmp of an atomic write
+    # Same cleanup, now extracted so every writer inherits it instead of
+    # re-implementing it. The only thing it ever unlinks is its own .tmp, on the
+    # failure path — the file it is replacing is untouched, which is the point.
+    ("ava_bridge/settings.py", "atomic_write"),
     ("ava_bridge/perf_store.py", "_write"),           # same: the mkstemp of an atomic
                                                       # rollup write, unlinked only on
                                                       # the failure path. Ava's own
@@ -82,8 +86,12 @@ _ALLOW = {
     # data_maintenance carries counts and bytes; a second per-file record would
     # duplicate it less usefully.
     ("ava_bridge/data_api.py", "prune_media"),
-    # policy_mgmt keeps logs/policy_changes.log, its own dedicated trail.
-    ("ava_bridge/policy_mgmt.py", "update_policy"),
+    # `policy_mgmt.update_policy` was exempted here on the grounds that it kept
+    # logs/policy_changes.log, its own dedicated trail. It no longer exists: the
+    # agent's egress-policy WRITE path was removed, so the only thing that
+    # rewrites a policy file is a human with owner approval, which
+    # access_policy.py already covers. The exemption went with it rather than
+    # sitting here granting cover to a name nothing defines.
 
     # --- the self-edit path, audited as one `code_change` event --------------- #
     # These are helpers inside an operation the applier already records whole.

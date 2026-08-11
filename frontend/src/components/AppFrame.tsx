@@ -68,7 +68,11 @@ export function AppFrame({ id, label, active = true }: { id: string; label: stri
           // the app keeps its cookies and localStorage while being cross-origin
           // with Ava — no session cookie, no parent access. UNCONFIGURED, the proxy
           // serves it from Ava's origin and this pairing does hand it Ava's session;
-          // that is the hole apps.origin exists to close, and Setup says so.
+          // that is the hole apps.origin exists to close, and Setup → Connectors
+          // says so — see the `apps_origin` banner in ConnectorsPanel.tsx, which
+          // renders it whenever an app is embedded and the origin is unset. That
+          // claim was aspirational for a long time: the bridge shipped
+          // `apps_origin.warning()` on /api/apps and nothing anywhere read it.
           sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-downloads"
           onLoad={() => setState('ready')}
         />

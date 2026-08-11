@@ -99,8 +99,8 @@ To generate the agent tools and the egress allow-list so the sandboxed agent may
 reach the bridge proxy for this app:
 
 ```bash
-ava connector tools    greenhouse --write   # -> agent/mcp_server_connectors/apps/greenhouse/
-ava connector policies greenhouse --write   # -> agent/policies/generated/greenhouse.yaml
+ava connector tools    greenhouse --write   # -> <agent state>/mcp_server_connectors/apps/greenhouse/
+ava connector policies greenhouse --write   # -> <agent state>/policies/generated/greenhouse.yaml
 cd agent && ./install.sh                    # deploy into the sandbox
 ```
 

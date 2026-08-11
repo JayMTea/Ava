@@ -163,7 +163,17 @@ function BrainManager({ onRestart }: { onRestart: () => void }) {
   // While the agent runtime is active, ITS sandbox model is what chat turns
   // actually think with (set by `nemoclaw onboard`) — pin it as the effective
   // brain so this panel never claims "no model" on a working install.
-  const agentBrain = agent?.available && agent.sandbox_model ? agent : null;
+  //
+  // The DECISION comes from the backend's resolver (`agent.brain.source`), not
+  // from re-deriving it here out of `available && sandbox_model`. That local
+  // derivation was a fourth independent answer to "which model is live", across
+  // three endpoints, and nothing kept it in step with the other three. The
+  // `sandbox_*` fields are still what gets RENDERED — they carry the detail —
+  // and the old expression stays as the fallback for a payload without `brain`.
+  const ownsBrain = agent?.brain
+    ? agent.brain.source === 'agent' && !!agent.brain.model
+    : !!(agent?.available && agent.sandbox_model);
+  const agentBrain = ownsBrain && agent?.sandbox_model ? agent : null;
   // Agent off + nothing configured: the router still serves its built-in
   // default, so chat works — show that instead of "no model linked".
   const routerDefault = !agentBrain && backends.length === 0
@@ -203,11 +213,12 @@ function BrainManager({ onRestart }: { onRestart: () => void }) {
               <b style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 {routerDefault.label}
                 <Badge tone="accent">brain</Badge>
-                <Badge tone="muted">built-in default</Badge>
+                <Badge tone="muted">from environment</Badge>
               </b>
               <small style={{ color: 'var(--muted)', wordBreak: 'break-all' }}>
-                {routerDefault.model} — nothing is configured, so the router serves this
-                default. Add a model below to choose your own.
+                {routerDefault.model} — declared by AVA_BACKEND_URL rather than in
+                Ava's config, which is how Docker installs are wired. Add a model
+                below to manage it here instead.
               </small>
               <BrainState row={brainRow} />
             </div>

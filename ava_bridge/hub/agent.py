@@ -39,6 +39,29 @@ def agent_status():
     # can't tell the operator whether to flip a switch or fix an install.
     st["enabled"] = config.AGENT_ENABLED
     st["enabled_env_override"] = settings.env_override("AVA_AGENT_ENABLED")
+    # The ONE resolver's answer, shipped so the panel does not RE-DERIVE it.
+    # BrainPanel reconstructed "the agent owns the brain" client-side from
+    # `available && sandbox_model` across three endpoints — a fourth independent
+    # answer to the question `models.effective_brain()` exists to settle, and one
+    # free to disagree with the other three. The panel still renders from the
+    # sandbox_* fields; only the DECISION moved here.
+    try:
+        from .. import models as _models
+        brain = _models.effective_brain()
+        st["brain"] = {"source": brain.get("source"),
+                       "model": brain.get("model_id"),
+                       "label": brain.get("label"),
+                       "engine": brain.get("engine"),
+                       "implicit": brain.get("implicit")}
+    except Exception:  # noqa: BLE001 — the panel falls back to its own fields
+        st["brain"] = None
+    # `runtime` above echoes what was CONFIGURED, which is exactly the string a
+    # typo lives in. Without this the status screen agreed with the typo while a
+    # different runtime served every turn.
+    st["config_error"] = runtime.name_error()
+    # The two settings that can contradict each other. `gate()` owns the wording
+    # so the turn path and this panel cannot drift apart on what is wrong.
+    st["gate_error"] = runtime.gate()[1]
     return st
 
 @router.get("/agent/skills")
@@ -248,8 +271,24 @@ def agent_inference():
         # The agent runtime serves turns inside its sandbox and owns the model
         # endpoint; we hold no base URL to probe. Probing the empty one would
         # report `inference_down` — a red banner over an install that is
-        # answering — so the honest read is the one the resolver already made:
-        # runtime.active() returned the sandbox, which means it is live.
+        # answering.
+        #
+        # But "the resolver picked the sandbox" is not the same claim as "the
+        # sandbox is up". `runtime.active()` gates on `available()`, which is a
+        # 30s-cached check that the sandbox EXISTS in `nemoclaw list` — a stopped
+        # container still exists. So this returned a flat `ok: True` for an agent
+        # that could not answer, which is the inference this codebase's own rule
+        # forbids: liveness is observed, never inferred. `live()` is the
+        # observation, and it is the same one the drift report already trusts.
+        try:
+            live = runtime.active().live()
+        except Exception as e:  # noqa: BLE001 — a failed probe is not "healthy"
+            live = {"live": False, "reason": f"could not probe the runtime: {e}"}
+        if not live.get("live"):
+            return {"ok": False, "code": "agent_down", "model": model,
+                    "engine": engine,
+                    "detail": live.get("reason")
+                    or "The agent runtime is not running, so Ava cannot reply yet."}
         return {"ok": True, "code": "", "model": model, "engine": engine,
                 "detail": ""}
 

@@ -112,8 +112,13 @@ def server_name(category: str) -> str:
     return _SERVER_NAME_OVERRIDE.get(category, f"ava-tools-{category}")
 
 
+def server_root(category: str) -> str:
+    """The sandbox directory install.sh extracts this server's tarball into."""
+    return f"/sandbox/.openclaw/mcp_server_{category}"
+
+
 def server_path(category: str) -> str:
-    return f"/sandbox/.openclaw/mcp_server_{category}/_server.mjs"
+    return f"{server_root(category)}/_server.mjs"
 
 
 # --------------------------------------------------------------------------- #
@@ -180,22 +185,65 @@ def _file_digest(path: str, transform: Callable[[bytes], bytes] | None = None) -
     return hashlib.sha256(raw).hexdigest()
 
 
+def _tree_map(root: str) -> dict[str, str]:
+    """{relpath: sha256} for every file under `root`."""
+    out: dict[str, str] = {}
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames.sort()
+        for fn in sorted(filenames):
+            full = os.path.join(dirpath, fn)
+            out[os.path.relpath(full, root)] = _file_digest(full)
+    return out
+
+
+def _fold(rows: dict[str, str]) -> str:
+    return hashlib.sha256(
+        "\n".join(sorted(f"{rel}\0{sha}" for rel, sha in rows.items()))
+        .encode("utf-8")).hexdigest()
+
+
 def tree_digest(root: str) -> str:
     """A stable fold over a server directory: sorted `relpath\\0sha256` lines.
 
     NOT a digest of the tarball install.sh ships — `tar czf` embeds mtimes and a
     gzip header, so that would change on every checkout. install.sh does
     `rm -rf "$DEST"` before extracting, so the sandbox copy is a byte-exact
-    mirror of this tree and the fold is comparable on both sides.
+    mirror of this tree and the fold is comparable on both sides — which is what
+    `AgentRuntime.tree_digests()` reproduces from inside the sandbox.
     """
-    lines: list[str] = []
-    for dirpath, dirnames, filenames in os.walk(root):
-        dirnames.sort()
-        for fn in sorted(filenames):
-            full = os.path.join(dirpath, fn)
-            rel = os.path.relpath(full, root)
-            lines.append(f"{rel}\0{_file_digest(full)}")
-    return hashlib.sha256("\n".join(sorted(lines)).encode("utf-8")).hexdigest()
+    return _fold(_tree_map(root))
+
+
+def merged_tree_digest(roots: list[str]) -> str:
+    """`tree_digest` over several roots overlaid in order, later winning.
+
+    The repo-side twin of install.sh's stage-then-tar: it copies the shipped
+    server directory and then the generated one over the top, into a single
+    tarball. Fold anything else here and every server reads `stale` forever.
+    """
+    rows: dict[str, str] = {}
+    for root in roots:
+        rows.update(_tree_map(root))
+    return _fold(rows)
+
+
+def server_sources(category: str, primary: str | None = None) -> list[str]:
+    """Every directory install.sh stages into this server's tarball, in copy
+    order (later wins on a filename collision).
+
+    A server is discovered by having a `_server.mjs` (§2c), which generated
+    material does not — so the connector tools under the agent state root are a
+    MERGE onto the shipped server, never a second discovered root that could
+    shadow it. Public because drift has to fold exactly what ships.
+    """
+    if primary is None:
+        primary = _server_dirs().get(category, "")
+    if not primary:
+        return []
+    gen = os.path.join(settings.agent_state_dir(), f"mcp_server_{category}")
+    if os.path.isdir(gen) and os.path.realpath(gen) != os.path.realpath(primary):
+        return [primary, gen]
+    return [primary]
 
 
 # --------------------------------------------------------------------------- #
@@ -232,10 +280,15 @@ def desired() -> dict[str, list[dict]]:
         out["servers"].append({
             "id": server_name(cat),
             "label": server_name(cat),
-            "sha256": tree_digest(src),
+            "sha256": merged_tree_digest(server_sources(cat, src)),
             "rel": os.path.relpath(src, config.ROOT),
             "category": cat,
             "path": server_path(cat),
+            # The directory the tarball lands in. `path` identifies the server
+            # to openclaw.json; `sandbox_root` is what gets folded against
+            # `sha256`, and the two must stay distinct — comparing a tree fold
+            # against an entry-point digest is what broke drift before.
+            "sandbox_root": server_root(cat),
         })
 
     for s in skills.catalog():
@@ -324,26 +377,29 @@ SKILLS_GLOB = "/sandbox/.openclaw/skills/*/SKILL.md"
 
 
 def _probe(rt, out: dict) -> dict:
-    """Live digests from inside the sandbox. Two execs total, not one per item."""
+    """Live digests from inside the sandbox. Four execs total, not one per item."""
     maps = dict(out["maps"])
     sources = dict(out["sources"])
 
-    # One exec covers persona + every server file we care about.
+    # One exec covers the persona plus every server entry point. The entry
+    # points are no longer *compared* — `_registered_servers` folds whole trees
+    # now — but they stay in this call as the witness that the exec channel
+    # works. Without one, an empty result could not be told apart from "the
+    # persona is absent", and absence has to stay reportable as `undeployed`.
     want_servers = {row["id"]: row for row in desired()["servers"]}
     paths = [PERSONA_PATH] + [r["path"] for r in want_servers.values()]
     got = rt.digest(paths)
     if got:
-        if PERSONA_PATH in got:
-            maps["persona"] = {"IDENTITY.md": _persona_observed(rt)}
-            sources["persona"] = "probe"
-        else:
-            maps["persona"] = {}
-            sources["persona"] = "probe"
+        # `got` already carries the persona digest — re-execing for it was one
+        # round trip spent learning what we had just been told.
+        maps["persona"] = ({"IDENTITY.md": got[PERSONA_PATH]}
+                           if PERSONA_PATH in got else {})
+        sources["persona"] = "probe"
 
     # Servers: registration is the question openclaw.json answers, and `mcp list
     # --json` cannot — it reports only `nemoclaw mcp add` HTTP bridges and comes
     # back with `bridges: []` while five servers are registered.
-    registered = _registered_servers(rt)
+    registered = _registered_servers(rt, want_servers)
     if registered is not None:
         maps["servers"] = registered
         sources["servers"] = "probe"
@@ -356,17 +412,41 @@ def _probe(rt, out: dict) -> dict:
     return {"maps": maps, "sources": sources}
 
 
-def _persona_observed(rt) -> str:
-    got = rt.digest([PERSONA_PATH])
-    return got.get(PERSONA_PATH, "")
+def _extra(have: dict[str, str] | None, want_ids: set[str],
+           source: str) -> list[str] | None:
+    """What the sandbox holds that this checkout does not declare.
+
+    `None` when there was no evidence source: "we could not look" must not read
+    as "there is nothing extra", for the same reason it must not read as
+    `undeployed` on the way in. Every comparison in this module walked `want` and
+    looked each item up in `have`; nothing walked the other way, so anything left
+    behind in the sandbox was structurally invisible.
+    """
+    if have is None or source == "none":
+        return None
+    return sorted(set(have) - want_ids)
 
 
-def _registered_servers(rt) -> dict[str, str] | None:
-    """{server name: content digest} for servers registered in openclaw.json.
+def _registered_servers(rt, want: dict[str, dict] | None = None) -> dict[str, str] | None:
+    """{server name: tree fold} for servers registered in openclaw.json.
 
-    A server counts as deployed only when it is BOTH registered under the right
-    path and byte-identical on disk — install.sh does `rm -rf "$DEST"` before
-    extracting, so the sandbox copy mirrors the repo tree exactly.
+    Two questions, deliberately answered by two different sources:
+
+      * **Presence** is what openclaw.json answers. A server not registered, or
+        registered pointing at some other path, is absent — it never reaches the
+        digest comparison, so it reads `undeployed`.
+      * **Content** is what the tree fold answers, against the SAME fold
+        `desired()` computes over the repo directory (`tree_digest`). install.sh
+        does `rm -rf "$DEST"` before extracting `tar czf - -C "$src" .`, so the
+        two sides are byte-comparable.
+
+    This used to report the sandbox's ENTRY-POINT digest against the repo's
+    WHOLE-TREE digest. Those are folds of different byte sets and can never be
+    equal, so every registered server read `stale` in perpetuity: the pending
+    count never reached zero, and `provision_job`'s post-apply assert vetoed
+    every run that had in fact succeeded.
+
+    `None` (never `{}`) when we could not look — see `AgentRuntime.tree_digests`.
     """
     raw = rt.read_file("/sandbox/.openclaw/openclaw.json")
     if not raw:
@@ -378,25 +458,32 @@ def _registered_servers(rt) -> dict[str, str] | None:
     servers = ((cfg.get("mcp") or {}).get("servers") or {})
     if not isinstance(servers, dict):
         return None
-    want = {row["id"]: row for row in desired()["servers"]}
-    # Digest every registered server's entry point in one exec.
-    paths = [row["path"] for row in want.values()]
-    live = rt.digest(paths) if paths else {}
-    out: dict[str, str] = {}
-    for name, row in want.items():
-        entry = servers.get(name)
-        if not isinstance(entry, dict):
-            continue  # not registered -> absent -> `undeployed`
-        args = entry.get("args") or []
-        if not (args and str(args[0]) == row["path"]):
-            continue  # registered under a different path: treat as absent
-        if row["path"] not in live:
-            continue
-        # We can only compare the entry point cheaply; a full tree fold would
-        # cost one exec per file. Report the entry-point digest against the
-        # repo's own _server.mjs so an edited server still reads `stale`.
-        out[name] = live[row["path"]]
-    return out
+    if want is None:
+        want = {row["id"]: row for row in desired()["servers"]}
+
+    # Only fold the servers that are actually registered at the expected path —
+    # an unregistered one is absent regardless of what is on disk, and folding
+    # it would pay for an answer we then throw away.
+    live_names = {
+        name: row for name, row in want.items()
+        if isinstance(servers.get(name), dict)
+        and (servers[name].get("args") or [None])[0] == row["path"]
+    }
+    # Registered under an `ava-` name this checkout no longer declares: an
+    # orphan. Carried with an empty digest because only its NAME is wanted —
+    # `item_state` only ever looks up ids from `want`, so an extra key here can
+    # never affect drift, and without it the orphan is invisible to `_extra`.
+    extras = {name: "" for name in servers
+              if name.startswith("ava-") and name not in want}
+    if not live_names:
+        return extras
+    folds = rt.tree_digests([row["sandbox_root"] for row in live_names.values()])
+    if folds is None:
+        return None  # no evidence source -> `unknown`, not a to-do list
+    return {**extras,
+            **{name: folds[row["sandbox_root"]]
+               for name, row in live_names.items()
+               if row["sandbox_root"] in folds}}
 
 
 def _skill_digests(rt) -> dict[str, str] | None:
@@ -542,6 +629,20 @@ def state(rt=None, force: bool = False) -> dict:
             },
         },
         "run": run,
+        # What the sandbox holds that this checkout does not declare. Additive
+        # and separate from the four-state ladder ON PURPOSE: `deployed | stale |
+        # undeployed | unknown` is a published vocabulary the UI derives from,
+        # and an orphan is not a fifth kind of drift — it is not something Apply
+        # fixes. `policy-add` has no remove verb, so a deleted connector's egress
+        # allowance lives in the sandbox until a rebuild; reporting it is the
+        # honest thing we CAN do, and saying nothing is what let it accumulate.
+        # A `None` for a scope means we could not look, never "nothing extra".
+        "orphans": {
+            scope: _extra(obs["maps"][scope],
+                          {row["id"] for row in want[scope]},
+                          obs["sources"][scope])
+            for scope in SCOPES if scope != "persona"
+        },
         "scopes": scopes,
         "items": items,
         "counts": total,

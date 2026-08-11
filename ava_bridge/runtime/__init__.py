@@ -45,7 +45,24 @@ def remote() -> RemoteRuntime:
 def configured() -> AgentRuntime:
     """The runtime the user asked for (config agent.runtime), default nemoclaw."""
     from .. import config
-    return _REGISTRY.get(str(config.AGENT_RUNTIME).lower(), _nemoclaw)
+    return _REGISTRY.get(str(config.AGENT_RUNTIME).strip().lower(), _nemoclaw)
+
+
+def name_error() -> str | None:
+    """Non-None when `agent.runtime` names something that does not exist.
+
+    The fallback itself is right — a typo must not brick the box — but it was
+    SILENT, and selecting a different runtime than the one asked for is not the
+    same kind of degradation as running with less. `agent.runtime: nemocalw` ran
+    NemoClaw and reported `runtime: nemocalw` back, so the status screen agreed
+    with the typo and nothing anywhere disagreed with the owner.
+    """
+    from .. import config
+    want = str(config.AGENT_RUNTIME).strip().lower()
+    if want in _REGISTRY:
+        return None
+    return (f"agent.runtime is {config.AGENT_RUNTIME!r}, which is not a known "
+            f"runtime ({', '.join(sorted(_REGISTRY))}). Falling back to nemoclaw.")
 
 
 def active() -> AgentRuntime:
@@ -63,6 +80,16 @@ _REQUIRED_MSG = (
     "false` in ava.yaml to allow tool-less direct chat."
 )
 
+# The config contradicts itself: `direct` IS the tool-less floor, so asking for it
+# and then requiring the full agent cannot both be honoured. Named plainly rather
+# than resolved for them — picking a side silently is how this went unnoticed.
+_DIRECT_REQUIRED_MSG = (
+    "agent.required is true, but agent.runtime is set to the tool-less Direct "
+    "floor, which has no sandbox and no tools — those two settings contradict "
+    "each other. Set `agent.runtime: nemoclaw` (or `remote`) to get the full "
+    "agent, or `agent.required: false` to allow tool-less direct chat."
+)
+
 
 def gate() -> tuple[AgentRuntime, str | None]:
     """Resolve the runtime for a turn AND enforce the `agent.required` policy.
@@ -74,7 +101,14 @@ def gate() -> tuple[AgentRuntime, str | None]:
     """
     from .. import config
     rt = configured()
-    if rt is not _direct and not rt.available():
+    if rt is _direct:
+        # The explicit-Direct case. This branch used to fall straight through to
+        # `return rt, None`, so `agent.required: true` was silently void for
+        # anyone who had also set `agent.runtime: direct` — the runtime docs
+        # promise "a hard, actionable error at startup, in `ava doctor`, and on
+        # every chat turn", and they got tool-less chat with nothing said.
+        return _direct, (_DIRECT_REQUIRED_MSG if config.AGENT_REQUIRED else None)
+    if not rt.available():
         if config.AGENT_REQUIRED:
             return _direct, _REQUIRED_MSG
         return _direct, None

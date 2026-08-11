@@ -69,13 +69,23 @@ def _router_headers() -> dict:
 
 
 def which_model() -> dict | None:
-    """Which brain served the most recent completion (for the UI pill).
+    """What ACTUALLY served the most recent completion (for the UI pill).
 
-    The router only knows about completions it proxied. When the NemoClaw agent
-    is active, turns run inside the sandbox and never touch the router — so on
-    a router miss we fall back to the sandbox's own model (cached in the
-    runtime), otherwise the pill goes blank while Ava is plainly answering.
-    Best-effort — None only when neither source knows."""
+    An observation, not a derivation, and the distinction is the point: the
+    router reports the model it really proxied, which is the only source that can
+    disagree with configuration and be right.
+
+    The router only knows about completions IT proxied, though. When the agent
+    runtime is active, turns run inside the sandbox and never reach it — so a
+    miss means either "nothing has been asked yet" or "the sandbox is answering".
+    That second case is answered by `models.effective_brain()`, the ONE resolver,
+    rather than by re-reading `sandbox_info` here: this used to derive the
+    sandbox's model independently, which made it a second answer to the same
+    question, free to drift from every other surface.
+
+    Best-effort — `None` only when neither source knows, which is a real state
+    (a fresh box that has not been asked anything) and not an error.
+    """
     try:
         r = requests.get(config.ROUTER_WHICH_URL, timeout=3, headers=_router_headers())
         d = r.json() or {}
@@ -84,17 +94,22 @@ def which_model() -> dict | None:
     if d.get("id"):
         return {"id": d.get("id"), "label": d.get("label"), "model": d.get("model"),
                 "prompt_tokens": d.get("prompt_tokens"),
-                "total_tokens": d.get("total_tokens")}
-    rt = runtime.active()
-    if rt.name == "nemoclaw":
-        try:
-            info = rt.sandbox_info() or {}
-        except Exception:  # noqa: BLE001
-            info = {}
-        model = info.get("model")
-        if model:
-            return {"id": "agent-sandbox", "label": str(model).split("/")[-1],
-                    "model": model, "prompt_tokens": None, "total_tokens": None}
+                "total_tokens": d.get("total_tokens"),
+                # This half was OBSERVED: the router proxied it.
+                "observed": True}
+    from . import models
+    try:
+        brain = models.effective_brain()
+    except Exception:  # noqa: BLE001
+        return None
+    if brain.get("source") == "agent" and brain.get("model_id"):
+        return {"id": "agent-sandbox", "label": brain.get("label") or "",
+                "model": brain.get("model_id"),
+                "prompt_tokens": None, "total_tokens": None,
+                # Nothing measured this turn — it is what the sandbox is
+                # CONFIGURED with. Callers that care must not print it as a
+                # measurement.
+                "observed": False}
     return None
 
 

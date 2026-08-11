@@ -484,7 +484,42 @@ def recommend_brain() -> dict:
     """
     out = {"source": "none", "model": "", "engine": "", "base_url": "",
            "live": False, "writes_config": True, "consequence": "", "tier": "",
-           "served": [], "pull_cmd": ""}
+           "served": [], "pull_cmd": "", "agent_owns_it": False}
+
+    # BEFORE everything below: when the agent runtime is live it OWNS the model
+    # endpoint, and turns never touch the inference backends this function reads.
+    # Without this the wizard confirmed a backend that would not serve a single
+    # message — the owner picks a model, the box uses a different one, and the
+    # two screens that report the brain disagree forever.
+    #
+    # Asked through the ONE resolver rather than by re-reading `sandbox_info`
+    # here, which would make this a fourth independent answer to "which model is
+    # live" (agent.which_model and BrainPanel were the other two).
+    try:
+        from . import models as _models
+        brain = _models.effective_brain()
+    except Exception:  # noqa: BLE001 — never let this break the wizard
+        brain = {}
+    if brain.get("source") == "agent":
+        model = str(brain.get("model_id") or "")
+        return {**out, "source": "agent", "agent_owns_it": True,
+                "model": model,
+                "engine": str(brain.get("engine") or ""),
+                # Nothing here is the wizard's to write: the sandbox holds the
+                # endpoint, and `nemoclaw onboard` is what set it.
+                "writes_config": False,
+                # An empty model is a real and common state — the sandbox exists
+                # but its container is not running, so nothing could read what it
+                # holds. Saying so beats naming a backend that will not serve a
+                # single turn, and beats claiming a model we did not read.
+                "live": bool(model),
+                "consequence": (
+                    "Your agent sandbox already holds the model it thinks with, "
+                    "so this step has nothing to change. Change it with "
+                    "`nemoclaw onboard`." if model else
+                    "Your agent runtime owns the model, but it is not running, so "
+                    "Ava cannot read which one. Start it and check Setup → Agent; "
+                    "anything chosen here would not be used.")}
 
     # Priority: what the owner (or a previous run) CHOSE beats what the installer
     # arranged, because a chosen backend is already in force and already written.

@@ -48,6 +48,12 @@ _GLOB_ALLOWED = {
     # policy set belongs in the inventory, not here.
     "ava_bridge/hub/connectors.py",     # renders + writes one policy per manifest
     "ava_cli.py",                       # `ava verify` lockstep drift check; writer
+    # The path RESOLVER, one layer below the enumerator: settings owns where the
+    # generated tree lives (under AVA_HOME, not the code root) and
+    # policy_inventory now reads GENERATED_DIR from it. That is the opposite of
+    # the failure this guard exists for — it is what makes the enumerator and
+    # every writer agree on one directory instead of each joining their own.
+    "ava_bridge/settings.py",
 }
 
 # Text that indicates a module is walking the policy tree on its own.

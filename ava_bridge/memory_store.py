@@ -64,9 +64,63 @@ END;
 CREATE TABLE IF NOT EXISTS kv(k TEXT PRIMARY KEY, v TEXT NOT NULL);
 """
 
+#: The schema this build writes. Bump it and add a step to `_MIGRATIONS` in the
+#: same commit.
+#:
+#: There was no version at all: `_SCHEMA` is `CREATE … IF NOT EXISTS` and it was
+#: re-executed on EVERY connection, which quietly means "an older database is
+#: whatever it already was". A column added in a future release would simply not
+#: appear on an existing install, and every read of it would fail into one of
+#: this module's swallowing `except` clauses — a store that reports empty rather
+#: than broken. `PRAGMA user_version` is free, lives in the file header, and
+#: makes the question answerable.
+SCHEMA_VERSION = 1
+
+#: `{target_version: (statement, …)}`, applied in order for any database below
+#: it. Version 1 is the baseline `_SCHEMA` above, so there is nothing to do yet —
+#: the ladder exists so the FIRST migration is a two-line change instead of an
+#: archaeology exercise.
+_MIGRATIONS: dict = {}
+
+#: A single fact is a sentence or two. Nothing bounded it, so a paste — or a
+#: distiller having a bad day — could store a megabyte and FTS-index every word
+#: of it. Recall truncates at read time, so the cost was invisible: it lands in
+#: the index and the file, not in the prompt.
+TEXT_MAX = 8000
+
 
 def db_path() -> str:
     return os.path.join(settings.data_dir(), "memory.db")
+
+
+def _prepare(con: sqlite3.Connection) -> None:
+    """Bring one connection, and the file behind it, up to spec.
+
+    WAL is the load-bearing line. This store is opened by the bridge, by the
+    data-maintenance routes (which build their own connections), and by any `ava`
+    process — and the only mutex is a `threading.Lock`, which means nothing
+    across processes. Under the default rollback journal a writer blocks every
+    reader for the duration; the 5s timeout then expires and the error is
+    swallowed into a neutral return, so a concurrent write showed up as "you have
+    no memories" rather than as a failure. WAL lets readers proceed against the
+    last committed state while a writer works.
+    """
+    con.execute("PRAGMA journal_mode=WAL")
+    # Wait rather than fail: the callers all swallow errors into neutral values,
+    # so a lock contention that raises reads as an empty store.
+    con.execute("PRAGMA busy_timeout=5000")
+    con.execute("PRAGMA foreign_keys=ON")
+
+    version = int(con.execute("PRAGMA user_version").fetchone()[0] or 0)
+    if version >= SCHEMA_VERSION:
+        return
+    con.executescript(_SCHEMA)
+    for target in sorted(_MIGRATIONS):
+        if version < target:
+            for stmt in _MIGRATIONS[target]:
+                con.execute(stmt)
+    con.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
+    con.commit()
 
 
 def _conn() -> sqlite3.Connection:
@@ -75,7 +129,7 @@ def _conn() -> sqlite3.Connection:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     con = sqlite3.connect(path, timeout=5)
     con.row_factory = sqlite3.Row
-    con.executescript(_SCHEMA)
+    _prepare(con)
     if fresh:
         os.chmod(path, 0o600)  # chat-derived facts are as sensitive as chats.json
     return con
@@ -94,8 +148,14 @@ def _row_dict(r: sqlite3.Row) -> dict:
 # ---- writes ---------------------------------------------------------------- #
 def add(kind: str, text: str, source: str = "", meta: dict | None = None) -> int | None:
     """Insert one item; identical (kind, text) refreshes `updated` instead of
-    duplicating. Returns the item id, or None on empty text / storage failure."""
-    text = " ".join((text or "").split()).strip()
+    duplicating. Returns the item id, or None on empty text / storage failure.
+
+    Truncated at `TEXT_MAX` rather than refused: a fact that arrives too long is
+    still a fact, and dropping it silently would lose it. Document chunks already
+    arrive pre-cut at 1200 chars, so this only ever bites a hand-added paste or a
+    distiller returning something unreasonable.
+    """
+    text = " ".join((text or "").split()).strip()[:TEXT_MAX]
     if not text or kind not in ("fact", "doc"):
         return None
     try:
@@ -299,6 +359,73 @@ def counts() -> dict:
                 "pinned": pinned, "total": sum(by.values())}
     except Exception:  # noqa: BLE001
         return {"facts": 0, "doc_chunks": 0, "pinned": 0, "total": 0}
+
+
+def size() -> dict:
+    """What the store is costing, so growth is visible before it is a problem.
+
+    There is deliberately no automatic retention here. `data.retention_days`
+    prunes media and telemetry — things Ava produced — and applying it to MEMORY
+    would delete facts the owner told her, on a timer, to save disk. That is a
+    product decision and not one a durability fix gets to make quietly. What was
+    missing is the ability to SEE the growth and to act on it deliberately, which
+    is what this and `prune` are.
+    """
+    out = {"bytes": 0, "rows": 0, "oldest": None, "schema_version": 0}
+    try:
+        out["bytes"] = os.path.getsize(db_path())
+    except OSError:
+        pass
+    try:
+        with _conn() as con:
+            row = con.execute(
+                "SELECT COUNT(*) n, MIN(created) oldest FROM items").fetchone()
+            out["rows"] = int(row["n"] or 0)
+            out["oldest"] = row["oldest"]
+            out["schema_version"] = int(
+                con.execute("PRAGMA user_version").fetchone()[0] or 0)
+    except Exception:  # noqa: BLE001
+        pass
+    return out
+
+
+def prune(*, older_than_days: float, kind: str = "", keep_pinned: bool = True,
+          write: bool = False) -> int:
+    """Remove items older than a cut-off. Dry-run unless `write=True`.
+
+    Explicit, and never on a schedule — see `size()`. `keep_pinned` defaults to
+    True because pinning is the owner saying "this one matters", and an age rule
+    that overrides that would make pinning meaningless.
+
+    Age is `updated`, not `created`: a fact re-confirmed last week is current
+    however long ago Ava first learned it, and `add()` refreshes `updated` on a
+    duplicate precisely so that stays true.
+    """
+    cutoff = time.time() - max(0.0, float(older_than_days)) * 86400
+    where = ["updated < ?"]
+    args: list = [cutoff]
+    if kind in ("fact", "doc"):
+        where.append("kind = ?")
+        args.append(kind)
+    if keep_pinned:
+        where.append("pinned = 0")
+    clause = " AND ".join(where)
+    try:
+        with _LOCK, _conn() as con:
+            n = int(con.execute(
+                f"SELECT COUNT(*) FROM items WHERE {clause}", args).fetchone()[0])
+            if not write or not n:
+                return n
+            con.execute(f"DELETE FROM items WHERE {clause}", args)
+    except Exception:  # noqa: BLE001
+        return 0
+    # Audited in the STORE, like every other destructive path here — a route that
+    # records it instead is how index_document() came to bulk-delete memories
+    # with no trace.
+    # NOT `kind=` — `audit.record`'s own first parameter is called that.
+    audit.record("memory_delete", rows=n, item_kind=kind or "all",
+                 older_than_days=older_than_days, reason="owner prune")
+    return n
 
 
 def export_all() -> dict:

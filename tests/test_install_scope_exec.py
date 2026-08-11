@@ -49,7 +49,7 @@ class ScopedInstallTests(unittest.TestCase):
         self.stub = stub
         self.log = self.tmp / "calls.log"
 
-    def _run(self, *args: str):
+    def _run(self, *args: str, env_extra: dict | None = None):
         env = {
             **os.environ,
             "STUB_LOG": str(self.log),
@@ -59,6 +59,7 @@ class ScopedInstallTests(unittest.TestCase):
             # Point the overlay at nothing so a developer's private overlay does
             # not change the counts this asserts on.
             "AVA_OVERLAY": str(self.tmp / "no-overlay"),
+            **(env_extra or {}),
         }
         env.pop("AVA_PROVISION_ONLY", None)
         p = subprocess.run(["bash", str(AGENT / "install.sh"), *args],
@@ -214,6 +215,91 @@ class ScopedInstallTests(unittest.TestCase):
                          "the retired skill stayed in the manifest, so the next run "
                          "would try to remove it again forever")
         self.assertIn("ava-web", names)
+
+    # ---- generated material under the agent state root ---------------------
+    # `ava connector policies|tools --write` renders into AVA_HOME, not the
+    # checkout: those files are state, and on the primary install the checkout
+    # is an image layer that a rebuild throws away. install.sh has to pick them
+    # up from there, and for the SERVERS that means a merge rather than a second
+    # discovered root — §2c requires a `_server.mjs`, which a generated tree does
+    # not have, so a second root would simply be skipped and the connector tools
+    # would never ship at all.
+
+    def _tar_members(self, calls: list[str], category: str) -> list[str]:
+        """Names inside the tarball install.sh pushed for one server.
+
+        The stub logs the whole argv on one line and the base64 payload is the
+        last token, which is what makes this assertable without a sandbox.
+        """
+        import base64
+        import gzip
+        import io
+        import tarfile
+
+        marker = f"DEST=/sandbox/.openclaw/mcp_server_{category}"
+        line = next((c for c in calls if marker in c), "")
+        self.assertTrue(line, f"no byte push for mcp_server_{category}")
+        blob = line.split()[-1]
+        raw = gzip.decompress(base64.b64decode(blob))
+        with tarfile.open(fileobj=io.BytesIO(raw)) as tf:
+            return tf.getnames()
+
+    def _seed_generated(self) -> None:
+        state = self.tmp / "home" / "agent"
+        tools = state / "mcp_server_connectors" / "apps" / "acme"
+        tools.mkdir(parents=True)
+        (tools / "acme_call.mjs").write_text("// generated\n", encoding="utf-8")
+        pol = state / "policies" / "generated"
+        pol.mkdir(parents=True)
+        (pol / "acme.yaml").write_text(
+            "preset:\n  name: ava-acme\n  description: acme\n", encoding="utf-8")
+
+    def test_generated_tools_are_merged_onto_the_shipped_server(self):
+        self._seed_generated()
+        p, calls = self._run()
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+
+        members = self._tar_members(calls, "connectors")
+        self.assertIn("./apps/acme/acme_call.mjs", members,
+                      "the generated tool never reached the sandbox — a connector "
+                      "the owner added is invisible to the agent")
+        self.assertIn("./_server.mjs", members,
+                      "the generated tree REPLACED the shipped server instead of "
+                      "merging onto it, so the server cannot even start")
+
+    def test_generated_policies_are_applied_from_the_state_root(self):
+        self._seed_generated()
+        p, calls = self._run()
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertTrue(
+            any("policy-add" in c and "acme" in c for c in calls),
+            "the connector's egress policy was never applied, so the sandbox's "
+            "deny-by-default blocks every call its tools make")
+
+    def test_a_server_with_no_generated_material_is_pushed_unchanged(self):
+        """The merge must not disturb the other four servers."""
+        self._seed_generated()
+        p, calls = self._run()
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        members = self._tar_members(calls, "system")
+        self.assertIn("./_server.mjs", members)
+        self.assertFalse([m for m in members if m.startswith("./apps/")])
+
+    def test_a_state_root_equal_to_the_checkout_is_not_applied_twice(self):
+        """A plain checkout, where AVA_HOME *is* the code root: `$STATE` and
+        `$HERE` are the same directory. Applying every policy twice would double
+        each log line and make a rejected one twice as easy to miss, and copying
+        the server tree onto itself is not a no-op."""
+        p_base, calls_base = self._run()
+        self.assertEqual(p_base.returncode, 0, p_base.stdout + p_base.stderr)
+        baseline = self._count(calls_base, "policy-add")
+
+        self.log.unlink()
+        p, calls = self._run("--only", "policies", env_extra={
+            "AVA_AGENT_STATE_DIR": str(AGENT)})
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self._count(calls, "policy-add"), baseline,
+                         "the same policy directory was walked twice")
 
 
 if __name__ == "__main__":

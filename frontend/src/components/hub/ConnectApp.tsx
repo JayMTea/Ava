@@ -80,8 +80,8 @@ const VALID_ID = /^[a-z][a-z0-9_-]{1,31}$/;
  *  `jit` marks the just-in-time-consent case: Ava read the app's own API, so
  *  reads already work and nothing needed reviewing at connect time. */
 export type ConnectResult =
-  | { kind: 'app'; name: string; jit: boolean }
-  | { kind: 'device'; cid: string; name: string };
+  | { kind: 'app'; name: string; jit: boolean; warnings: string[] }
+  | { kind: 'device'; cid: string; name: string; warnings: string[] };
 
 export function ConnectAppFields({ onCreated, onConnected }: {
   /** The connector registry changed — reload whatever lists it. */
@@ -197,9 +197,15 @@ export function ConnectAppFields({ onCreated, onConnected }: {
     const jit = probe?.kind === 'rest' && (probe.actions?.length || 0) > 0 && !confirmAll;
     try {
       const r = await hub.newConnector(body);
+      // `warnings` means the connector exists but something about it did not
+      // check out. It is deliberately NOT an error — refusing the connect would
+      // throw away work over a typo the owner can fix in the manifest editor —
+      // but it must reach them, because "Connected" otherwise claims more than
+      // anything verified.
+      const warnings = r.warnings ?? [];
       if (!r.ok) { setMsg(r.error || 'could not create connector'); }
-      else if (isDevice) { reset(); onCreated(); onConnected({ kind: 'device', cid: id, name: nm }); }
-      else { reset(); onCreated(); onConnected({ kind: 'app', name: nm, jit }); }
+      else if (isDevice) { reset(); onCreated(); onConnected({ kind: 'device', cid: id, name: nm, warnings }); }
+      else { reset(); onCreated(); onConnected({ kind: 'app', name: nm, jit, warnings }); }
     } catch (e) { setMsg((e as Error).message); }
     setBusy(false);
   }, [id, name, health, reach, isUrl, tokenEnv, tokenVal, probe, actions, isolate, dockerAvail, confirmAll, isDevice, addToRail, uiUrl, onCreated, onConnected]);
@@ -386,8 +392,11 @@ export function ConnectAppFields({ onCreated, onConnected }: {
           <span className="hub-check-main">
             <span className="hub-check-title">Add it to Ava’s sidebar</span>
             <span className="hub-check-sub">
-              This app has its own web UI — Ava embeds it as a tile in the left rail, served
-              same-origin so it just works. Uncheck to connect only its tools.
+              This app has its own web UI — Ava embeds it as a tile in the left rail.
+              Unless you have set <code>apps.origin</code>, its screen runs with your Ava
+              session and can reach Ava’s settings, so tick this for an app you trust.
+              Setup → Connectors explains it and how to isolate them. Uncheck to connect
+              only its tools.
             </span>
           </span>
         </label>
@@ -449,6 +458,27 @@ function DeviceVerify({ cid, name, onClose }: { cid: string; name: string; onClo
   );
 }
 
+/** Things that did not check out about a connector that WAS created. Separate
+ *  from the error path on purpose: refusing the connect over a typo'd probe URL
+ *  would throw away everything the owner just filled in, and the manifest editor
+ *  is two clicks away. What is not acceptable is saying "Connected" and nothing
+ *  else, which is what the route did — it saw these and discarded them. */
+function ConnectWarnings({ notes }: { notes: string[] }) {
+  if (!notes.length) return null;
+  return (
+    <div className="hub-msg err" style={{ marginTop: 12 }}>
+      <b>Connected, but check {notes.length === 1 ? 'this' : 'these'}:</b>
+      <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+        {notes.map((n, i) => <li key={i}>{n}</li>)}
+      </ul>
+      <div style={{ marginTop: 6, opacity: 0.85 }}>
+        Ava will not be able to use the app properly until this is fixed — edit it
+        from the connector’s ⋯ menu below.
+      </div>
+    </div>
+  );
+}
+
 /** Setup → Connectors' mount: a collapsed button that opens the fields in a
  *  panel above the connector list. Connecting leaves the form open and cleared
  *  (Cancel reveals the confirmation beside the button) — the list below is the
@@ -456,9 +486,11 @@ function DeviceVerify({ cid, name, onClose }: { cid: string; name: string; onClo
 export function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
   const [open, setOpen] = useState(false);
   const [done, setDone] = useState('');
+  const [notes, setNotes] = useState<string[]>([]);
   const [verify, setVerify] = useState<{ cid: string; name: string } | null>(null);
 
   const connected = (r: ConnectResult) => {
+    setNotes(r.warnings);
     if (r.kind === 'device') setVerify({ cid: r.cid, name: r.name });
     else setDone(r.jit
       ? `Connected “${r.name}” — reads work now; Ava asks the first time it needs anything else.`
@@ -481,6 +513,7 @@ export function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
       <button type="button" className="hub-btn ghost sm" onClick={() => setOpen(false)}>Cancel</button>
     }>
       <ConnectAppFields onCreated={onCreated} onConnected={connected} />
+      <ConnectWarnings notes={notes} />
       {verify && <DeviceVerify cid={verify.cid} name={verify.name} onClose={() => setVerify(null)} />}
     </Panel>
   );

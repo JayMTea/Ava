@@ -1,8 +1,14 @@
-# Egress policy for Ava's policy management tools (list_policies, read_policy,
-# update_policy) to reach the HOST's phone bridge and manage egress policies.
-# The bridge listens on 127.0.0.1:8096 and exposes /internal/policies via the
-# guard proxy. Calls are gated by X-Ava-Internal-Token (bearer token).
-# Protected policies are read-only and cannot be modified by Ava.
+# Egress policy for Ava's policy READING tools (list_policies, read_policy) to
+# reach the HOST's phone bridge. The bridge listens on 127.0.0.1:8096 and exposes
+# /internal/policies via the guard proxy. Calls are gated by
+# X-Ava-Internal-Token (bearer token).
+#
+# READ ONLY, by construction rather than by rule. Ava cannot modify any egress
+# policy: the write route was removed, because a sandboxed agent able to rewrite
+# the boundary that contains it contradicted access_policy.py, which puts
+# agent/policies/** in the owner-approval tier. Granting POST here would be a
+# grant for a route that does not exist — a lie in the one file whose job is to
+# say what Ava may reach.
 # Applied by ../install.sh via: nemoclaw my-assistant policy-add --from-file <this> --yes
 preset:
   name: ava-policies
@@ -23,7 +29,6 @@ network_policies:
         rules:
           - allow: { method: GET, path: "/internal/policies" }
           - allow: { method: GET, path: "/internal/policies/**" }
-          - allow: { method: POST, path: "/internal/policies" }
     binaries:
       - { path: /usr/local/bin/node }
       - { path: /usr/bin/node }

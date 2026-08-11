@@ -76,3 +76,18 @@ connectors/*
 !connectors/bridge
 !connectors/local-llm
 !connectors/router
+
+# --- agent/: the same hole, one layer down -----------------------------------
+# These two trees are RENDERED from connector manifests, never authored — the
+# egress policies and agent tools `ava connector generate` writes. .gitignore
+# keeps them out of the repo; nothing kept them out of the IMAGE, and the same
+# `COPY . /app`-copies-the-working-tree reasoning above applies verbatim: a
+# maintainer's private app shipped its generated tools and its egress policy to
+# whoever pulled the image.
+#
+# They are also runtime state, so they belong under AVA_HOME
+# (settings.agent_state_dir()) rather than in the image at all. Excluding them
+# keeps the legacy code-root path empty in a fresh container, which is what makes
+# settings.migrate_agent_state() a no-op there instead of a resurrection.
+agent/mcp_server_connectors/apps/
+agent/policies/generated/

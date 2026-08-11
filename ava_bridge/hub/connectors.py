@@ -22,7 +22,6 @@ lock the owner out of the only repair tool.
 import os
 import re
 import shutil
-import subprocess
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
@@ -37,7 +36,8 @@ import yaml as _yaml
 # (_static_actions, _mcp_spec). A contributor grepping this 50 KB file for
 # `connectors._infer_access` found nothing, because that call site said
 # `connectors._infer_access`. Residue from the hub_api.py -> hub/ split.
-from .. import audit, connectors, grants, perf_mgmt, runtime, settings
+from .. import (audit, connectors, grants, perf_mgmt, provision_job, runtime,
+                settings, tools_cache)
 from .. import devices as _devices
 from .. import internal
 from .. import mcp_client
@@ -240,11 +240,16 @@ def list_connectors():
     read-only dashboard **telemetry** view: enabled connectors only, with health /
     perf / egress-count fields for the Ops panel. Two endpoints, two audiences —
     management vs monitoring — so neither UI carries the other's fields."""
-    pol_dir = os.path.join(settings.CODE_ROOT, "agent", "policies", "generated")
-    tool_root = os.path.join(settings.CODE_ROOT, "agent", "mcp_server_connectors", "apps")
+    pol_dir = settings.generated_policy_dir()
+    tool_root = settings.connector_tools_dir()
     user_root = settings.home("connectors")
     out = []
-    for m in connectors.catalog():  # includes disabled, so they can be re-enabled
+    # Collect the validation errors for EVERY manifest, disabled included. This
+    # page is the one built to show a broken manifest, and it was the one seeing
+    # them unvalidated: `_validate` is a no-op unless an errors list is passed,
+    # and `catalog()` passed none.
+    errors: list = []
+    for m in connectors.catalog(errors):  # includes disabled, so they can be re-enabled
         cid = m["id"]
         try:
             out.append(_connector_row(m, cid, pol_dir, tool_root, user_root))
@@ -256,7 +261,21 @@ def list_connectors():
             # a field it does not yet know about cannot repeat the lockout.
             out.append({"id": cid, "label": cid, "kind": "app", "error": str(e),
                         "actions": 0, "enabled": False, "builtin": True})
-    return {"connectors": out, "errors": connectors.load_errors()}
+    # Whether an embedded app's UI is isolated on its own browser origin. It ships
+    # HERE, and not only on /api/apps, because this is the page where an owner
+    # decides to give an app a sidebar tile — the moment the answer changes what
+    # they are agreeing to. `apps_origin.warning()` has existed since the hole was
+    # documented and had no consumer anywhere in the frontend; AppFrame.tsx even
+    # claimed "Setup says so", and Setup did not.
+    from .. import apps_origin as _apps_origin
+    # Merge the fresh catalog errors with the last load's, deduped: a manifest
+    # that fails to PARSE never reaches catalog() at all, so `load_errors()` is
+    # still the only place those appear.
+    seen = {(e.get("path"), e.get("error")) for e in errors}
+    errors += [e for e in connectors.load_errors()
+               if (e.get("path"), e.get("error")) not in seen]
+    return {"connectors": out, "errors": errors,
+            "apps_origin": _apps_origin.warning()}
 
 def _connector_row(m: dict, cid: str, pol_dir: str, tool_root: str,
                    user_root: str) -> dict:
@@ -722,23 +741,52 @@ async def connector_new(body: dict):
     except OSError as e:
         return JSONResponse({"ok": False, "error": f"could not write manifest: {e}"},
                             status_code=500)
+    warnings: list[str] = []
     # Save the pasted credential ONCE to the server-side store, keyed by the
     # env-var name the manifest references. Must precede discover seeding below so
     # the very first (authenticated) tool-list call can reach the app. A real env
     # var of the same name still wins at read time (settings.env_secret).
+    auth_saved = False
     if token_value and token_env_name:
-        settings.set_env_secret(token_env_name, token_value)
+        # Guarded. An OSError here used to escape as a raw 500 AFTER the manifest
+        # was already on disk, so the connector existed with no credential and the
+        # owner saw a stack trace instead of "the app is there, the token is not".
+        try:
+            settings.set_env_secret(token_env_name, token_value)
+            auth_saved = True
+        except OSError as e:
+            warnings.append(f"the manifest was written, but the credential could "
+                            f"not be saved: {e}. Add it again from the connector's "
+                            f"⋯ menu.")
     connectors.load(force=True)   # pick it up without a restart
     perf_mgmt.refresh_sources()   # …and let Vitals see its perf source now
+
+    # What the loader made of what we just wrote. This route answered `ok: true`
+    # for a manifest it had ALREADY seen fail validation: it called load(), threw
+    # `load_errors()` away, and returned success — so a typo'd probe URL or a bad
+    # access tier landed as "Connected", and the first sign of trouble was Ava
+    # failing to use the app later.
+    warnings += [e.get("error", "") for e in connectors.load_errors()
+                 if e.get("id") == cid]
+
     if disc_in or mcp_in:
         # Seed the JIT tier cache (ava-tools/1 `access`) so the app's declared
         # tiers apply from the very first agent call — best-effort; a down app
         # just seeds later, on the next discovery.
-        await run_in_threadpool(connectors.discover_tools, cid)
+        seeded = await run_in_threadpool(connectors.discover_tools, cid)
+        # …but "best-effort" is not "unmentionable". The result was discarded
+        # entirely, so an app that was unreachable at the moment of connecting
+        # reported nothing at all.
+        if isinstance(seeded, dict) and seeded.get("error"):
+            warnings.append(f"connected, but its tools could not be read yet: "
+                            f"{seeded['error']}")
     return {"ok": True, "path": path, "manifest": manifest,
             "actions": len(actions),
             "auth_env": token_env_name or None,
-            "auth_saved": bool(token_value and token_env_name)}
+            "auth_saved": auth_saved,
+            # Not an error — the connector exists — but the owner has to be told,
+            # or "Connected" is a claim nothing checked.
+            "warnings": warnings}
 
 @router.post("/connectors/{cid}/generate")
 def generate_connector(cid: str, write: int = 0):
@@ -757,20 +805,24 @@ def generate_connector(cid: str, write: int = 0):
     tools = connectors.tool_files(cid)
     wrote: list[str] = []
     if write:
+        # Both trees live under AVA_HOME, not the code root: they are rendered
+        # from a manifest rather than authored, and the code root is an image
+        # layer on the install shape most people run. Reported relative to
+        # AVA_HOME so the paths read the same on every install shape.
         if pol:
-            pdir = os.path.join(settings.CODE_ROOT, "agent", "policies", "generated")
+            pdir = settings.generated_policy_dir()
             os.makedirs(pdir, exist_ok=True)
             pp = os.path.join(pdir, f"{cid}.yaml")
             with open(pp, "w", encoding="utf-8") as f:
                 f.write(policy_yaml)
-            wrote.append(os.path.relpath(pp, settings.CODE_ROOT))
-        tdir = os.path.join(settings.CODE_ROOT, "agent", "mcp_server_connectors", "apps", cid)
+            wrote.append(os.path.relpath(pp, settings.AVA_HOME))
+        tdir = settings.connector_tools_dir(cid)
         for t in tools:
             os.makedirs(tdir, exist_ok=True)
             tp = os.path.join(tdir, t["name"])
             with open(tp, "w", encoding="utf-8") as f:
                 f.write(t["source"])
-            wrote.append(os.path.relpath(tp, settings.CODE_ROOT))
+            wrote.append(os.path.relpath(tp, settings.AVA_HOME))
     return {"ok": True, "policy": policy_yaml, "tools": tools, "wrote": wrote}
 
 @router.get("/connectors/{cid}/ingest-token")
@@ -807,9 +859,12 @@ def delete_connector(cid: str):
         return JSONResponse({"ok": False, "error": f"unknown connector '{cid}'"},
                             status_code=404)
     # What is about to be destroyed, captured BEFORE destroying it — a record
-    # written afterwards cannot say what was there.
-    tdir = os.path.join(settings.CODE_ROOT, "agent", "mcp_server_connectors", "apps", cid)
-    pol = os.path.join(settings.CODE_ROOT, "agent", "policies", "generated", f"{cid}.yaml")
+    # written afterwards cannot say what was there. The manifest is read here for
+    # the same reason: once it is gone there is nothing left that knows which
+    # env-var name held this app's credential.
+    m = next((x for x in connectors.all() if x["id"] == cid), None)
+    tdir = settings.connector_tools_dir(cid)
+    pol = os.path.join(settings.generated_policy_dir(), f"{cid}.yaml")
     had_tools = os.path.isdir(tdir)
     had_policy = os.path.isfile(pol)
     policy_digest = ""
@@ -841,17 +896,51 @@ def delete_connector(cid: str):
     except OSError:
         pass
 
+    # Everything else this connector accumulated. Removing the manifest used to
+    # be the whole of "delete", which left four things behind — and because
+    # connector ids are reusable, every one of them was waiting to be re-applied
+    # to whatever took the name next:
+    #
+    #   * standing grants, so a new app inherited "Always allow" for actions a
+    #     DIFFERENT app was granted, with no prompt (grants.py said this was
+    #     already handled; nothing did it);
+    #   * the saved credential, still readable by anything that resolved the
+    #     same env-var name;
+    #   * the self-reported tier cache, which decides what runs silently;
+    #   * a live stdio MCP subprocess, which just kept running.
+    #
+    # Perf history is kept ON PURPOSE (see the manifest's perf path above) and is
+    # the one thing that should survive a delete.
+    forgotten_grants = grants.forget(cid)
+    if forgotten_grants:
+        removed.append(f"{len(forgotten_grants)} standing grant(s)")
+    cred = connectors.auth_env(m) if m else None
+    if cred:
+        settings.clear_env_secret(cred)   # audits itself
+        removed.append(f"credential {cred}")
+    if tools_cache.forget(cid):
+        removed.append("cached tool tiers")
+    mcp_client.reset(cid)                 # a stdio server must not outlive its manifest
+
     # This deletes an EGRESS POLICY, which is the thing that bounds what the
     # sandboxed agent may reach for that app. Removing one silently meant the
     # security posture of the box changed with nothing in the ledger to show it —
     # and the README markets the Data tab's "audited deletes". Recorded with the
     # policy's digest so the record proves which policy went, not just that one did.
+    #
+    # NOTE the policy file going is not the same as the ALLOWANCE going: the
+    # sandbox applied it with `policy-add` and there is no remove verb, so it
+    # stays live in there until a rebuild. `provision.orphans()` reports exactly
+    # that, rather than letting the ledger imply a revocation that has not
+    # happened.
     audit.record("connector_delete", id=cid, removed=removed,
                  had_policy=had_policy, policy_digest=policy_digest,
-                 had_tools=had_tools)
+                 had_tools=had_tools, grants_revoked=forgotten_grants,
+                 credential_cleared=bool(cred))
     connectors.load(force=True)
     perf_mgmt.refresh_sources()
-    return {"ok": True}
+    return {"ok": True, "removed": removed,
+            "policy_still_in_sandbox": had_policy}
 
 @router.post("/connectors/{cid}/deploy")
 def deploy_connector(cid: str):
@@ -877,27 +966,114 @@ def deploy_connector(cid: str):
                           "works as soon as it has its token."}
 
     rt = runtime.configured()
-    if getattr(rt, "name", "") != "nemoclaw" or not rt.available():
+    if not rt.available():
         steps.append({"step": "install", "ok": False,
-                      "detail": "The agent sandbox isn't reachable from here. Run "
-                                "`cd agent && ./install.sh` on the agent host."})
+                      "detail": "The agent runtime isn't reachable from here. "
+                                "Check Setup → Agent, or run `cd agent && "
+                                "./install.sh` on the agent host."})
         return {"ok": False, "deployed": False, "steps": steps,
-                "detail": "Wrote the files, but couldn't reach the agent sandbox to load them."}
+                "detail": "Wrote the files, but couldn't reach the agent to load them."}
 
-    install = os.path.join(settings.CODE_ROOT, "agent", "install.sh")
+    # Hand the sandbox work to the SAME single-slot job that "Apply to the agent"
+    # uses, rather than shelling install.sh beside it. Three things came from
+    # having a second, unlocked path:
+    #
+    #   * Two concurrent install.sh runs against one sandbox, racing on the
+    #     `rm -rf "$DEST"` that precedes each server's extraction.
+    #   * A synchronous POST that blocked for up to ten minutes — the exact
+    #     fragility through a proxy or tailnet hop that provision_job's own
+    #     docstring says it was written to remove.
+    #   * `deploy` refused outright on the `remote` runtime, so the documented
+    #     Docker full-agent profile had no working button at all. Going through
+    #     the runtime means whatever can provision can now deploy.
+    started, snap = provision_job.start(scope="all", auto_install=False)
+    if not started:
+        return JSONResponse(
+            {"ok": False, "deployed": False, "steps": steps,
+             "error": "The agent is already being updated. Wait for that run to "
+                      "finish, then deploy again.",
+             "error_code": "provision_running", "job": snap},
+            status_code=409)
+    steps.append({"step": "install", "ok": True,
+                  "detail": "deploying into the agent sandbox…"})
+    return {"ok": True, "deployed": False, "running": True,
+            "job_id": snap.get("id"), "steps": steps,
+            "detail": "Deploying into the agent sandbox — progress is on this row "
+                      "and in Setup → Agent."}
+
+_MANIFEST_HEADER = "# Managed by the Setup Hub — edit freely.\n"
+
+
+def _edit_manifest(path: str, edits: list):
+    """Apply scalar edits to a user manifest. Returns `(manifest, None)` or
+    `(None, JSONResponse)`.
+
+    Three things the two callers each got wrong on their own:
+
+      * **`yaml.YAMLError` escaped an `except OSError`.** A manifest with a typo
+        in it answered with an unhandled 500, so the one connector whose YAML was
+        broken was also the one you could not disable — from the screen whose job
+        is to fix it. It is a 409 now, with the same shape `save_patch` uses for
+        an unparsable ava.yaml, and it names the file.
+      * **The write was truncating.** A crash mid-write left a half-manifest that
+        the loader then refuses. `settings.atomic_write` makes it all-or-nothing.
+      * **The whole file went through the YAML emitter**, so ticking a checkbox
+        deleted every comment in the owner's hand-written manifest.
+        `patch_manifest_text` edits the one line and verifies by round-trip;
+        re-dumping is the fallback for a shape it will not touch, not the default.
+    """
     try:
-        cp = subprocess.run(["bash", install], stdout=subprocess.PIPE,
-                            stderr=subprocess.STDOUT, timeout=600)
-        ok = cp.returncode == 0
-        tail = cp.stdout.decode(errors="ignore")[-300:]
-        steps.append({"step": "install", "ok": ok,
-                      "detail": "agent/install.sh" if ok else f"rc={cp.returncode}: {tail}"})
-        return {"ok": ok, "deployed": ok, "steps": steps,
-                "detail": "Deployed into the agent sandbox." if ok
-                          else "install.sh failed — see steps."}
-    except Exception as e:  # noqa: BLE001
-        steps.append({"step": "install", "ok": False, "detail": str(e)})
-        return {"ok": False, "deployed": False, "steps": steps, "detail": "deploy failed"}
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+    except OSError as e:
+        return None, JSONResponse({"ok": False, "error": f"could not read: {e}"},
+                                  status_code=500)
+    try:
+        m = _yaml.safe_load(text) or {}
+    except _yaml.YAMLError as e:
+        return None, JSONResponse(
+            {"ok": False, "error":
+             f"{os.path.basename(path)} does not parse, so it cannot be changed "
+             f"from here: {str(e).splitlines()[0][:200]}. Fix it in the manifest "
+             "editor, or on disk."}, status_code=409)
+    if not isinstance(m, dict):
+        return None, JSONResponse({"ok": False, "error": "manifest is not a mapping"},
+                                  status_code=400)
+
+    patched = text
+    for keys, value in edits:
+        step = connectors.patch_manifest_text(patched, keys, value) if patched else None
+        patched = step
+        if patched is None:
+            break
+        # Keep the in-memory copy in step for the caller's response body.
+        target = m
+        for k in keys[:-1]:
+            target = target.setdefault(k, {})
+        if value is connectors.REMOVE:
+            target.pop(keys[-1], None)
+        else:
+            target[keys[-1]] = value
+
+    if patched is None:
+        # A shape the surgical patch declines to touch. Correct, lossy, and rare.
+        for keys, value in edits:
+            target = m
+            for k in keys[:-1]:
+                target = target.setdefault(k, {})
+            if value is connectors.REMOVE:
+                target.pop(keys[-1], None)
+            else:
+                target[keys[-1]] = value
+        patched = _MANIFEST_HEADER + _yaml.safe_dump(m, sort_keys=False)
+
+    try:
+        settings.atomic_write(path, patched)
+    except OSError as e:
+        return None, JSONResponse({"ok": False, "error": f"could not update: {e}"},
+                                  status_code=500)
+    return m, None
+
 
 def _user_manifest_path(cid: str) -> str:
     # connectors.USER_DIR, not a second settings.home("connectors") call. Same
@@ -963,18 +1139,10 @@ def set_connector_enabled(cid: str, body: dict):
         connectors.load(force=True)
         perf_mgmt.refresh_sources()
         return {"ok": True, "enabled": False, "builtin": True, "stub": True}
-    try:
-        with open(path, encoding="utf-8") as f:
-            m = _yaml.safe_load(f) or {}
-        if not isinstance(m, dict):
-            return JSONResponse({"ok": False, "error": "manifest is not a mapping"},
-                                status_code=400)
-        m["enabled"] = bool(body.get("enabled", True))
-        with open(path, "w", encoding="utf-8") as f:
-            f.write("# Managed by the Setup Hub — edit freely.\n")
-            _yaml.safe_dump(m, f, sort_keys=False)
-    except OSError as e:
-        return JSONResponse({"ok": False, "error": f"could not update: {e}"}, status_code=500)
+    want = bool(body.get("enabled", True))
+    m, err = _edit_manifest(path, [(("enabled",), want)])
+    if err is not None:
+        return err
     connectors.load(force=True)
     perf_mgmt.refresh_sources()
     return {"ok": True, "enabled": m["enabled"]}
@@ -1014,30 +1182,37 @@ def set_connector_appearance(cid: str, body: dict):
         return JSONResponse({"ok": False, "error": "bad icon name"}, status_code=400)
     if has_color and color not in (None, "") and not _COLOR_RE.match(str(color)):
         return JSONResponse({"ok": False, "error": "color must be a #hex value"}, status_code=400)
+    # Read once up front so "no tile to restyle" is answered before anything is
+    # written — the same refusal the route always gave, just ahead of the edit.
     try:
         with open(path, encoding="utf-8") as f:
-            m = _yaml.safe_load(f) or {}
-        if not isinstance(m, dict):
-            return JSONResponse({"ok": False, "error": "manifest is not a mapping"},
-                                status_code=400)
-        ui = m.get("ui")
-        if not isinstance(ui, dict):
-            return JSONResponse({"ok": False, "error":
-                                 "this connector has no app tile to restyle"},
-                                status_code=400)
-        for key, present, value in (("icon", has_icon, icon), ("color", has_color, color)):
-            if not present:
-                continue
-            if value in (None, ""):
-                ui.pop(key, None)          # clear -> tile falls back to auto-pick
-            else:
-                ui[key] = str(value)
-        m["ui"] = ui
-        with open(path, "w", encoding="utf-8") as f:
-            f.write("# Managed by the Setup Hub — edit freely.\n")
-            _yaml.safe_dump(m, f, sort_keys=False)
+            probe = _yaml.safe_load(f.read()) or {}
     except OSError as e:
-        return JSONResponse({"ok": False, "error": f"could not update: {e}"}, status_code=500)
+        return JSONResponse({"ok": False, "error": f"could not read: {e}"},
+                            status_code=500)
+    except _yaml.YAMLError as e:
+        return JSONResponse(
+            {"ok": False, "error":
+             f"{os.path.basename(path)} does not parse, so it cannot be restyled "
+             f"from here: {str(e).splitlines()[0][:200]}."}, status_code=409)
+    if not isinstance(probe, dict) or not isinstance(probe.get("ui"), dict):
+        return JSONResponse({"ok": False, "error":
+                             "this connector has no app tile to restyle"},
+                            status_code=400)
+
+    edits = []
+    for key, present, value in (("icon", has_icon, icon), ("color", has_color, color)):
+        if not present:
+            continue
+        # Clearing REMOVES the key: an explicit `icon: null` is a different
+        # manifest from one with no icon, and the frontend's auto-pick keys on
+        # absence.
+        edits.append((("ui", key),
+                      connectors.REMOVE if value in (None, "") else str(value)))
+    m, err = _edit_manifest(path, edits)
+    if err is not None:
+        return err
+    ui = m.get("ui") or {}
     connectors.load(force=True)
     return {"ok": True, "icon": ui.get("icon"), "color": ui.get("color")}
 

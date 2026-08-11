@@ -71,12 +71,12 @@ def _run_pull(args: list[str]) -> None:
             if line:
                 _pull_job["log"].append(line)
         rc = proc.wait()
-        _pull_job["rc"] = rc
-        _pull_job["status"] = "done" if rc == 0 else "error"
+        with _pull_lock:
+            _pull_job.update(rc=rc, status="done" if rc == 0 else "error")
     except Exception as e:  # noqa: BLE001
         _pull_job["log"].append(f"pull failed: {e}")
-        _pull_job["rc"] = 1
-        _pull_job["status"] = "error"
+        with _pull_lock:
+            _pull_job.update(rc=1, status="error")
 
 @router.post("/models/pull")
 def models_pull(role: str = ""):
@@ -96,8 +96,13 @@ def models_pull(role: str = ""):
 
 @router.get("/models/pull/status")
 def models_pull_status():
-    return {"status": _pull_job["status"], "role": _pull_job["role"],
-            "rc": _pull_job["rc"], "log": list(_pull_job["log"])}
+    # Under the lock. The worker thread writes `status` and `rc` as two separate
+    # statements, so a poll landing between them read `status: "done"` with
+    # `rc: None` — which the panel renders as a finished, successful pull. The
+    # log deque is thread-safe on its own; the pair is not.
+    with _pull_lock:
+        return {"status": _pull_job["status"], "role": _pull_job["role"],
+                "rc": _pull_job["rc"], "log": list(_pull_job["log"])}
 
 # --- Model bench/compare (background — same prompt on each backend) ---------
 _bench_job: dict = {"status": "idle", "result": None}
@@ -118,12 +123,14 @@ def _run_bench(prompt: str, only, max_tokens: int) -> None:
         }
 
     try:
-        _bench_job["result"] = bench.bench(prompt, only=only, max_tokens=max_tokens,
-                                           on_result=on_result)
-        _bench_job["status"] = "done"
+        result = bench.bench(prompt, only=only, max_tokens=max_tokens,
+                             on_result=on_result)
+        with _bench_lock:
+            _bench_job.update(result=result, status="done")
     except Exception as e:  # noqa: BLE001
-        _bench_job["result"] = {"error": str(e)[:200], "results": []}
-        _bench_job["status"] = "error"
+        with _bench_lock:
+            _bench_job.update(result={"error": str(e)[:200], "results": []},
+                              status="error")
 
 @router.post("/models/bench")
 async def models_bench(request: Request):
@@ -145,7 +152,11 @@ async def models_bench(request: Request):
 
 @router.get("/models/bench/status")
 def models_bench_status():
-    return {"status": _bench_job["status"], "result": _bench_job["result"]}
+    # Under the lock, for the same reason as the pull status above: the worker
+    # sets `result` and `status` separately, so a poll could see `done` with the
+    # PREVIOUS run's result still in place.
+    with _bench_lock:
+        return {"status": _bench_job["status"], "result": _bench_job["result"]}
 
 # --------------------------------------------------------------------------- #
 # Inference backends — the multi-model "brain" manager

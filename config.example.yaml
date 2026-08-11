@@ -117,6 +117,13 @@ paths:                     # all default under AVA_HOME; override only if needed
   logs: null              # [AVA_LOGS_DIR]
   uploads: null           # [AVA_UPLOAD_DIR]  files you attach in chat
   models: null            # [AVA_MODELS_DIR]  weights root (hf/ ollama/)
+  # Where `ava connector policies|tools --write` renders a connected app's agent
+  # surface: egress policies and per-app tools, generated from its manifest.
+  # Defaults to $AVA_HOME/agent, which on a plain checkout IS the repo's agent/
+  # directory. Keep it on the same volume as your connectors — agent/install.sh
+  # reads it from here, and a location inside the container image is discarded on
+  # every rebuild while the manifests that produced it survive.
+  agent_state: null       # [AVA_AGENT_STATE_DIR]
 
 # ── Model store: what `ava models pull` fetches into $AVA_HOME/models/ ───────
 # Logical role -> a concrete model + engine. `ava models pull --auto` picks the

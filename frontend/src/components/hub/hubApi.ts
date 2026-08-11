@@ -211,6 +211,12 @@ export interface SavePayload {
 
 // ---- Agent runtime ----------------------------------------------------------
 export interface AgentStatus {
+  /** What `models.effective_brain()` resolved — the ONE answer to "which model
+   *  does Ava think with". Read this rather than re-deriving it from
+   *  `available && sandbox_model`, which was a fourth independent derivation of
+   *  the same question and free to disagree with the other three. */
+  brain?: { source: string; model: string; label: string; engine: string;
+            implicit: boolean } | null;
   /** 'local' | 'remote' — which machine cli/sandbox describe. */
   location?: string;
   url?: string;
@@ -357,6 +363,15 @@ export interface HubConnector {
   auth_stored?: boolean;     // a value is saved in Ava's secret store (so it can be cleared)
 }
 export interface ConnectorLoadError { id: string; path: string; error: string }
+/** Whether an embedded app's UI gets its own browser origin.
+ *
+ *  With `apps.origin` unset — the default — an app Ava embeds is GENUINELY
+ *  same-origin with the shell, so its JavaScript runs with the owner's session
+ *  and can call `/api/hub/*`, including approving Ava's own consent prompts.
+ *  `ok:false` carries the sentence the owner needs to read before handing an app
+ *  a sidebar tile. See ava_bridge/apps_origin.py for why an Origin header check
+ *  cannot substitute. */
+export interface AppsOrigin { ok: boolean; origin: string | null; detail?: string }
 export interface ManifestResult { ok: boolean; yaml?: string; editable?: boolean; error?: string }
 export interface GenerateResult {
   ok: boolean;
@@ -502,9 +517,17 @@ export interface IngestToken {
 export interface DeployResult {
   ok: boolean;
   deployed?: boolean;
+  /** The files are written and the sandbox half was handed to the shared
+   *  single-slot provisioning job — the same one "Apply to the agent" uses.
+   *  Wait on it with `attachToProvisionJob()`; do NOT block on this request,
+   *  which is exactly what the ten-minute synchronous POST used to do. */
+  running?: boolean;
+  job_id?: string;
   steps?: { step: string; ok: boolean; detail: string }[];
   detail?: string;
   error?: string;
+  /** `provision_running` — another run holds the slot (HTTP 409). */
+  error_code?: string;
 }
 export interface DeviceEvent {
   ts: number;
@@ -809,7 +832,8 @@ export const hub = {
 
   // Connectors
   connectors: () =>
-    req<{ connectors: HubConnector[]; errors?: ConnectorLoadError[] }>('/api/hub/connectors'),
+    req<{ connectors: HubConnector[]; errors?: ConnectorLoadError[];
+          apps_origin?: AppsOrigin }>('/api/hub/connectors'),
   setConnectorEnabled: (id: string, enabled: boolean) =>
     req<{ ok: boolean; enabled?: boolean; error?: string }>(
       `/api/hub/connectors/${encodeURIComponent(id)}/enabled`, {
@@ -840,7 +864,13 @@ export const hub = {
       method: 'POST',
     }),
   newConnector: (body: NewConnectorBody) =>
-    req<{ ok: boolean; path?: string; actions?: number; auth_env?: string | null; auth_saved?: boolean; error?: string }>('/api/hub/connectors/new', {
+    req<{ ok: boolean; path?: string; actions?: number; auth_env?: string | null;
+          auth_saved?: boolean; error?: string;
+          // The connector EXISTS, but something about it did not check out: a
+          // probe URL that will not dial, an access tier the loader rejected, an
+          // app that was unreachable when its tools were read. The route used to
+          // discard all of this and answer a flat `ok: true`.
+          warnings?: string[] }>('/api/hub/connectors/new', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -868,6 +898,9 @@ export const hub = {
   lastEvent: (id: string) =>
     req<{ ok: boolean; event: DeviceEvent | null }>(
       `/api/hub/connectors/${encodeURIComponent(id)}/last-event`),
+  // `running: true` + `job_id` means the sandbox half was handed to the shared
+  // single-slot provisioning job; wait on it with attachToProvisionJob(). A 409
+  // means another run already holds the slot.
   deployConnector: (id: string) =>
     req<DeployResult>(`/api/hub/connectors/${encodeURIComponent(id)}/deploy`, { method: 'POST' }),
   deleteConnector: (id: string) =>

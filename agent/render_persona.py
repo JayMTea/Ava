@@ -112,12 +112,27 @@ def clean_owner_text(raw, limit: int = STYLE_MAX) -> str:
     return raw.replace("{{", "").replace("}}", "").strip()[:limit]
 
 
+#: The other four free-text identity fields. They are shorter than `style` in
+#: practice, but nothing enforced that — and every hazard `clean_owner_text`
+#: documents applies to them identically. A `brand:\n  name: yes` reached
+#: `.strip()` on a bool and aborted provisioning mid-install; `owner.name` could
+#: splice `{{STYLE_BLOCK}}` because substitution happens BEFORE the block
+#: placeholders are filled; and none of them was length-capped, so the E2BIG
+#: `STYLE_MAX` exists to prevent was reachable through any of the four. Only
+#: `persona.style` was guarded, and only because it was the one somebody had
+#: already been bitten by.
+IDENTITY_MAX = 400
+
+
 def render() -> str:
-    assistant = (_get("brand.name", "Ava", env="AVA_NAME") or "Ava").strip()
-    owner = (_get("owner.name", "", env="AVA_OWNER_NAME") or "").strip()
-    location = (_get("owner.location", "", env="AVA_OWNER_LOCATION") or "").strip()
-    hardware = (_get("owner.hardware", "", env="AVA_OWNER_HARDWARE")
-                or "your local hardware").strip()
+    def _ident(key: str, env: str, default: str = "") -> str:
+        return clean_owner_text(_get(key, default, env=env), limit=IDENTITY_MAX) \
+            or default
+
+    assistant = _ident("brand.name", "AVA_NAME", "Ava")
+    owner = _ident("owner.name", "AVA_OWNER_NAME")
+    location = _ident("owner.location", "AVA_OWNER_LOCATION")
+    hardware = _ident("owner.hardware", "AVA_OWNER_HARDWARE", "your local hardware")
     adult = _get_bool("persona.adult", False, env="AVA_PERSONA_ADULT")
     style = clean_owner_text(_get("persona.style", "", env="AVA_PERSONA_STYLE"))
     fmt = (_get("persona.format", FORMAT_DEFAULT, env="AVA_PERSONA_FORMAT")

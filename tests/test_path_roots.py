@@ -20,6 +20,7 @@ it; a static guard is the only thing that catches it.
 Style matches tests/test_diagram_sync.py: a `git ls-files` scan, no bridge, no
 AVA_HOME, no network.
 """
+import os
 import pathlib
 import re
 import subprocess
@@ -48,6 +49,23 @@ _ENV_AVA_HOME = re.compile(r"environ(?:\.get\(|\[)\s*['\"]AVA_HOME['\"]")
 # hung off it, which is what these three did.
 _STATE_ON_CODE_ROOT = re.compile(
     r"join\(\s*(?:config\.ROOT|ROOT|_HERE|HERE)\s*,\s*['\"](?:data|logs|media|uploads|secrets)['\"]")
+
+# The same bug, wearing `agent/`. Most of that tree IS code — the skills, the
+# MCP servers, install.sh, the persona template — so the directory name alone
+# proves nothing. These two subtrees are the exception: they hold files RENDERED
+# from connector manifests (`ava connector policies|tools --write`), both are
+# gitignored, and both were joined onto the code root. That is state, and it
+# broke in exactly the documented way: under Docker every `up --build` threw
+# away the generated tools and egress policies while keeping the manifests that
+# produced them, so a connector reappeared in the list silently un-deployed; on
+# the full-agent profile the bridge and the agent container hold separate copies
+# of the code root, so the tools were written where the sandbox installer could
+# never read them at all. `settings.agent_state_dir()` owns the location now.
+_GENERATED_ON_CODE_ROOT = re.compile(
+    r"join\(\s*(?:settings\.CODE_ROOT|config\.ROOT|ROOT|_HERE|HERE)\s*,\s*"
+    r"['\"]agent['\"]\s*,\s*"
+    r"['\"](?:policies['\"]\s*,\s*['\"]generated"
+    r"|mcp_server_connectors['\"]\s*,\s*['\"]apps)")
 
 
 def _tracked(pattern: str) -> list[str]:
@@ -102,6 +120,50 @@ def test_no_runtime_state_hangs_off_the_code_root() -> None:
         "the ephemeral container layer while the bridge reads the mounted volume. "
         "Use ava_bridge.settings:\n  " + "\n  ".join(offenders)
     )
+
+
+def test_generated_agent_material_does_not_hang_off_the_code_root() -> None:
+    """`agent/policies/generated/` and `agent/mcp_server_connectors/apps/`.
+
+    Split out from the scan above because `agent/` is mostly code and a blanket
+    ban would be wrong. These two are the rendered ones; both are gitignored,
+    which is the tell that they are state and not source.
+    """
+    offenders: list[str] = []
+    for rel in _tracked("*.py"):
+        if rel.startswith(("tests/", "qa/")):
+            continue
+        for i, line in enumerate(_read(rel).splitlines(), 1):
+            if _GENERATED_ON_CODE_ROOT.search(line):
+                offenders.append(f"{rel}:{i}: {line.strip()}")
+    assert not offenders, (
+        "generated agent material must not be joined onto the CODE root — it is "
+        "rendered from connector manifests, not authored, and the code root is "
+        "an image layer on the primary install. Use "
+        "ava_bridge.settings.generated_policy_dir() / connector_tools_dir():\n  "
+        + "\n  ".join(offenders)
+    )
+
+
+def test_the_generated_trees_are_reachable_from_one_resolver() -> None:
+    """Both live under the agent state root, and install.sh has to find them
+    there — its `STATE=` default and settings.agent_state_dir() are one fact
+    spelled in two languages."""
+    from ava_bridge import settings
+
+    state = settings.agent_state_dir()
+    assert settings.generated_policy_dir().startswith(state)
+    assert settings.connector_tools_dir().startswith(state)
+    assert settings.connector_tools_dir("acme").endswith(
+        os.path.join("mcp_server_connectors", "apps", "acme"))
+
+    install_sh = (ROOT / "agent" / "install.sh").read_text(encoding="utf-8")
+    assert "AVA_AGENT_STATE_DIR" in install_sh, (
+        "agent/install.sh no longer reads the agent state root, so the tools and "
+        "policies the bridge renders will never reach the sandbox")
+    for tree in ("policies/generated", "mcp_server_connectors"):
+        assert f"$STATE/{tree}" in install_sh, (
+            f"install.sh does not deploy $STATE/{tree}")
 
 
 def test_config_paths_track_settings() -> None:

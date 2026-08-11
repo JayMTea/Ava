@@ -1178,6 +1178,13 @@
   "APIRoute"
  ],
  [
+  "/internal/model",
+  [
+   "GET"
+  ],
+  "APIRoute"
+ ],
+ [
   "/internal/perf",
   [
    "POST"
@@ -1188,13 +1195,6 @@
   "/internal/policies",
   [
    "GET"
-  ],
-  "APIRoute"
- ],
- [
-  "/internal/policies",
-  [
-   "POST"
   ],
   "APIRoute"
  ],

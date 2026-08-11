@@ -18,11 +18,15 @@ def _write(base, cid, body):
 class UndeployedTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
-        self.root = tempfile.mkdtemp()          # fake CODE root (agent content)
+        # Fake AGENT STATE root. Generated tools are runtime state under
+        # AVA_HOME, not code — see settings.agent_state_dir() — so this patches
+        # the resolver rather than the code root it used to hang off.
+        self.root = tempfile.mkdtemp()
         self._p = [
             mock.patch.object(connectors, "BUILTIN_DIR", self.tmp),
             mock.patch.object(connectors, "USER_DIR", self.tmp),
-            mock.patch.object(connectors.config, "ROOT", self.root),
+            mock.patch.object(connectors.settings, "agent_state_dir",
+                              return_value=os.path.join(self.root, "agent")),
         ]
         for p in self._p:
             p.start()

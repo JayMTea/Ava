@@ -125,3 +125,22 @@ def for_connector(cid: str) -> dict:
     """{name: {access, description}} for the permissions sheet."""
     with _lock:
         return {k: dict(v) for k, v in (_load().get(cid) or {}).items()}
+
+
+def forget(cid: str) -> int:
+    """Drop one connector's cached tier declarations. Returns how many went.
+
+    `update()` only ever replaces a connector's entry, so nothing removed one —
+    a deleted app's self-reported tiers sat here indefinitely, and because ids
+    are reusable they would be consulted again for whatever took the name next.
+    That is the wrong direction to be wrong in: the tiers decide which actions
+    run silently.
+    """
+    with _lock:
+        data = {k: dict(v) for k, v in _load().items()}
+        gone = len(data.get(cid) or {})
+        if cid not in data:
+            return 0
+        del data[cid]
+        _save(data)
+    return gone

@@ -23,7 +23,20 @@ import { markProvisionDirty, startProvision, useProvisionState } from '../../../
 // own message told them to do something else entirely. Two apply verbs, one of
 // them wrong. See the convention in CLAUDE.md.
 export function PersonaPanel() {
-  const pRes = useResource(() => hub.persona());
+  // Normalised on the way in, the way SkillsPanel already is. A `/api/hub/persona`
+  // that answers 200 with a PARTIAL body — a broken ava.yaml still returns 200,
+  // and the route reports `config_error` rather than failing — used to hit
+  // `p.presets.map` and throw. Setup's boundary is per-tab now, so that no longer
+  // blanks the whole view, but a panel that cannot render its own error is still
+  // a panel the owner cannot use to fix the thing that broke it.
+  const pRes = useResource(async () => {
+    const d = await hub.persona();
+    return {
+      ...d,
+      presets: Array.isArray(d?.presets) ? d.presets : [],
+      format_choices: Array.isArray(d?.format_choices) ? d.format_choices : [],
+    };
+  });
   const { data: p, reload } = pRes;
   const { state: prov } = useProvisionState();
   const [style, setStyle] = useState('');

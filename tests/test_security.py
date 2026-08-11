@@ -1,6 +1,7 @@
+import pathlib
 import unittest
 
-from ava_bridge import internal, security
+from ava_bridge import internal, policy_mgmt, security
 from ava_bridge.config_mgmt import ConfigManager
 from ava_bridge.policy_mgmt import PolicyManager
 
@@ -84,10 +85,52 @@ class ProxyPolicyTests(unittest.TestCase):
 
 
 class PolicyMutationTests(unittest.TestCase):
-    def test_system_policy_names_are_normalized_and_reserved(self):
-        self.assertEqual(PolicyManager._normalize_name(" Ava-Knowledge "), "ava-knowledge")
-        self.assertTrue(PolicyManager._reserved_name("ava-knowledge"))
-        self.assertFalse(PolicyManager._reserved_name("my-connector-app"))
+    """There is no way for the agent to rewrite its own egress boundary.
+
+    One existed: `POST /internal/policies` -> `policy_mgmt.update_policy`, callable
+    from the sandbox by the `admin` group. It had never worked — it validated a
+    `{name, rules}` shape against a corpus that is entirely
+    `{preset, network_policies}` — and it contradicted `access_policy.py`, which
+    puts `agent/policies/**` in the OWNER-APPROVAL tier. Two enforcement layers
+    with opposite answers about one asset, held apart only by a bug.
+
+    Restoring it is a deliberate feature decision (design it against the
+    approvals gate), never an incidental one, so the absence is pinned here.
+    """
+
+    def test_policy_mgmt_exposes_no_write_verb(self):
+        for verb in ("update_policy", "create_policy", "delete_policy",
+                     "write_policy"):
+            self.assertFalse(hasattr(policy_mgmt, verb),
+                             f"policy_mgmt.{verb} is back")
+            self.assertFalse(hasattr(PolicyManager, verb),
+                             f"PolicyManager.{verb} is back")
+
+    def test_no_internal_route_writes_a_policy(self):
+        routes = {(m, r.path)
+                  for r in internal.router.routes
+                  for m in getattr(r, "methods", set() or set())}
+        self.assertIn(("GET", "/internal/policies"), routes,
+                      "reading policies is how Ava explains her own limits")
+        self.assertNotIn(("POST", "/internal/policies"), routes,
+                         "the sandboxed agent can rewrite the boundary that "
+                         "contains it again")
+
+    def test_the_sandbox_is_not_granted_a_write_it_cannot_use(self):
+        """A grant for a route that no longer exists is a lie in the one file
+        whose job is to describe what Ava may reach."""
+        pol = (pathlib.Path(__file__).resolve().parents[1]
+               / "agent" / "policies" / "ava-policies.yaml").read_text(encoding="utf-8")
+        self.assertNotIn("method: POST", pol)
+
+    def test_no_agent_tool_still_calls_it(self):
+        root = (pathlib.Path(__file__).resolve().parents[1]
+                / "agent" / "mcp_server_admin")
+        offenders = [p.name for p in root.rglob("*.mjs")
+                     if "postJson" in p.read_text(encoding="utf-8")
+                     and "/internal/policies" in p.read_text(encoding="utf-8")]
+        self.assertFalse(offenders,
+                         f"these tools POST to the removed route: {offenders}")
 
 
 class ConstantTimeCompareTests(unittest.TestCase):

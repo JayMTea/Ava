@@ -76,3 +76,30 @@ describe('appAccent / appIcon — stable per app id', () => {
       && appIcon({ id: 'b' }) === appIcon({ id: 'c' })).toBe(false);
   });
 });
+
+describe('the three codes that had nowhere to go', () => {
+  // `connectors.unreachable()` emits four codes; only `_down` resolved here, so
+  // a connected app that timed out or failed DNS gave the owner an accurate
+  // message and no destination — which reads as a dead end, not a fixable
+  // problem. All three are about ONE app's address, so they lead to that app's
+  // row in Setup rather than to Operations: nothing of Ava's is down.
+  it.each(['timeout', 'unreachable', 'error'])('resolves _%s to the app row', (kind) => {
+    const fix = fixForCode(`my_notes_${kind}`);
+    expect(fix).toBeDefined();
+    expect(fix!.hash).toBe('hub/connectors');
+    expect(fix!.tip).toContain('my notes');
+  });
+
+  it('still sends a down service to Operations', () => {
+    expect(fixForCode('web_search_down')!.hash).toBe('ops');
+  });
+
+  it('does not hijack a code that merely ends in one of those words', () => {
+    // `_off` is matched first and must stay first.
+    expect(fixForCode('voice_off')!.hash).toBe('hub/system');
+  });
+
+  it('still returns nothing for a code it has never heard of', () => {
+    expect(fixForCode('something_entirely_new')).toBeUndefined();
+  });
+});

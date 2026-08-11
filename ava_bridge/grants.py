@@ -113,6 +113,34 @@ def revoke(cid: str, action: str) -> bool:
     return True
 
 
+def forget(cid: str) -> list[str]:
+    """Drop every standing grant for one connector. Returns the actions removed.
+
+    `grant()` above has always promised that "a grant lives until revoke()
+    removes it **or the connector is deleted**", and nothing honoured the second
+    half. This file is keyed on the connector id, and ids are reusable — so
+    deleting an app and adding another one under the same name silently
+    re-inherited every prior "Always allow". A permission the owner granted to
+    one app, restored for a different one, with no prompt.
+
+    Audited as a revoke per action rather than one bulk row: the ledger has to be
+    able to answer "when did Ava stop being allowed to do X", and a single
+    "deleted the connector" line cannot.
+    """
+    from . import audit
+    with _lock:
+        data = {k: dict(v) for k, v in _load().items()}
+        actions = sorted(data.get(cid) or {})
+        if not actions:
+            return []
+        del data[cid]
+        _save(data)
+    for action in actions:
+        audit.record("revoke", connector=cid, action=action,
+                     reason="connector removed")
+    return actions
+
+
 def for_connector(cid: str) -> dict:
     """{action: meta} for one connector (the settings page's grant column)."""
     with _lock:

@@ -16,6 +16,7 @@ import type { PendingApproval } from './hubApi';
 import { PendingChangesBar } from './PendingChangesBar';
 import { agentSubPending, tabPending } from './provisionView';
 import { useProvisionState } from '../../hooks/useProvisionState';
+import { ViewErrorBoundary } from '../ViewErrorBoundary';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Approvals banner — the agent parked a sensitive action; the operator decides.
@@ -87,6 +88,10 @@ const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: 'branding', label: 'Branding', icon: 'image' },
   { id: 'system', label: 'System', icon: 'sliders' },
 ];
+
+/** Tab id -> the name its error boundary uses, so a crash says WHICH tab. */
+const TAB_LABEL: Record<string, string> = Object.fromEntries(
+  TABS.map((t) => [t.id, t.label]));
 
 // The Hub sub-tab is kept in the URL hash as a second segment (#hub/<tab>), and
 // Agent's own section as a third (#hub/agent/<sub>), so a refresh or a bookmark
@@ -218,14 +223,27 @@ export function HubView() {
           })}
         </div>
 
-        {tab === 'overview' && <Overview onGo={setTab} />}
-        {tab === 'hardware' && <HardwarePanel />}
-        {tab === 'agent' && (
-          <AgentPanel onRestart={notifyRestart} sub={sub} onSub={setSub} badges={subBadges} />
-        )}
-        {tab === 'connectors' && <ConnectorsPanel />}
-        {tab === 'branding' && <BrandingPanel />}
-        {tab === 'system' && <SystemPanel onRestart={notifyRestart} />}
+        {/* One boundary PER TAB, not one around the view.
+            App.tsx wraps all of Setup in a single ViewErrorBoundary, so any
+            panel that threw took the whole thing down — the tab bar included —
+            and Setup is the only place the owner can fix whatever caused it.
+            That is not hypothetical: a `/api/hub/persona` answering 200 with a
+            partial body crashed PersonaPanel on an unguarded `.map`, and the
+            casualty was every other tab.
+
+            Keyed on the tab so switching away and back RETRIES rather than
+            leaving a dead panel behind — a boundary with no way out is its own
+            trap. The outer boundary stays as the backstop for the shell. */}
+        <ViewErrorBoundary key={tab} label={TAB_LABEL[tab] ?? 'This tab'}>
+          {tab === 'overview' && <Overview onGo={setTab} />}
+          {tab === 'hardware' && <HardwarePanel />}
+          {tab === 'agent' && (
+            <AgentPanel onRestart={notifyRestart} sub={sub} onSub={setSub} badges={subBadges} />
+          )}
+          {tab === 'connectors' && <ConnectorsPanel />}
+          {tab === 'branding' && <BrandingPanel />}
+          {tab === 'system' && <SystemPanel onRestart={notifyRestart} />}
+        </ViewErrorBoundary>
       </div>
     </div>
   );

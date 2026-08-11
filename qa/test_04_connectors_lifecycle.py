@@ -115,8 +115,17 @@ class TestConnectorLifecycle(unittest.TestCase):
         r = c.post(f"/api/hub/approvals/{aid}", params={"decision": "deny"})
         self.assertTrue(r.json().get("ok"), r.text)
         t.join(timeout=15)
-        self.assertEqual(result["r"].status_code, 403, result["r"].text)
-        self.assertFalse(any(x["path"].startswith("/api/echo") for x in FAKE_APP.calls))
+        # HTTP 200 with a coded refusal, NOT a 403. The caller here is a sandboxed
+        # tool going through `_lib.mjs`, which uses `curl --fail` — a 403 makes
+        # curl exit 22 and discard the body, so "you denied this" reached Ava as
+        # `request failed: exit status 22` and she could not tell the owner what
+        # had happened or why. The refusal is the payload; see internal._told().
+        self.assertEqual(result["r"].status_code, 200, result["r"].text)
+        body = result["r"].json()
+        self.assertEqual(body["error_code"], "awaiting_approval")
+        self.assertIn("denied", body["error"])
+        self.assertFalse(any(x["path"].startswith("/api/echo") for x in FAKE_APP.calls),
+                         "the app was called despite the denial")
 
     def test_06_grant_then_write_runs_silently(self):
         c = CLIENT

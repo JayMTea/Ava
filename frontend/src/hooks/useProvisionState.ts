@@ -108,6 +108,27 @@ export function markProvisionDirty(scope: ProvisionScope): void {
   void refreshProvisionState();
 }
 
+/** Follow a provisioning run that something ELSE started, and resolve when it
+ *  ends.
+ *
+ *  The connector Deploy button starts the same single-slot job rather than
+ *  shelling `install.sh` a second time beside it, so it needs to wait on that
+ *  run without owning it. Everything the bar and the run view already render
+ *  keeps working, because it is the same job. */
+export async function attachToProvisionJob(): Promise<ProvisionJob | null> {
+  const first = await hub.provisionJob(0).catch(() => null);
+  if (first) set({ job: first });
+  void pollJob();
+  for (;;) {
+    const job = await hub.provisionJob(snap.job?.seq ?? 0).catch(() => null);
+    if (!job || job.status !== 'running') {
+      await refreshProvisionState();
+      return job;
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+}
+
 async function pollJob() {
   if (pollingJob) return;
   pollingJob = true;

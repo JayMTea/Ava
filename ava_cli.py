@@ -647,8 +647,8 @@ def cmd_verify(_args) -> int:
 
     # 1. Connector SDK — one manifest generates tools + egress policy, in lockstep
     print("Connector SDK  (manifest → tools + egress policy)")
-    pol_dir = os.path.join(settings.CODE_ROOT, "agent", "policies", "generated")
-    tool_root = os.path.join(settings.CODE_ROOT, "agent", "mcp_server_connectors", "apps")
+    pol_dir = settings.generated_policy_dir()
+    tool_root = settings.connector_tools_dir()
     pol_drift, tool_drift, lockstep_gap = [], [], []
     if os.path.isdir(pol_dir):
         for name in sorted(os.listdir(pol_dir)):
@@ -696,6 +696,116 @@ def cmd_verify(_args) -> int:
          f"{len(lockstep_gap)} route(s) not allow-listed" if lockstep_gap
          else "every action route allow-listed")
     fails += bool(pol_drift) + bool(tool_drift) + bool(lockstep_gap)
+
+    # 1b. Agent runtime — does what we render actually REACH the sandbox?
+    #
+    # The section above proves the generator is honest; it says nothing about the
+    # sandbox. That gap is how three separate bugs shipped at once: server drift
+    # compared a tree fold against an entry-point digest so no Apply could ever
+    # report success, the generated files were written to the code root where a
+    # container rebuild discarded them, and install.sh resolved a different
+    # sandbox name than the bridge whenever `agent.sandbox` came from ava.yaml.
+    # Every one of them is invisible until you look inside the sandbox, so this
+    # looks.
+    #
+    # Every row here is a WARN when there is no runtime to ask: a fresh fork, a
+    # CPU-only box and CI all legitimately have none, and a hard failure there
+    # would train people to ignore the whole report.
+    print("\nAgent runtime  (does what we render reach the sandbox?)")
+    from ava_bridge import provision, runtime, settings as _settings
+    rt = runtime.configured()
+    _row(OK if config.AGENT_ENABLED else WARN, "agent.enabled",
+         f"runtime={config.AGENT_RUNTIME}" if config.AGENT_ENABLED
+         else "off — tool-less direct chat only")
+    # A misspelled `agent.runtime` still falls back to NemoClaw — a typo must not
+    # brick the box — but silently running a different runtime than the one asked
+    # for is not a degradation, it is a disagreement.
+    name_err = runtime.name_error()
+    _row(BAD if name_err else OK, "agent.runtime", name_err or "a known runtime")
+    fails += bool(name_err)
+    # `agent.required: true` with `agent.runtime: direct` cannot both be honoured.
+    gate_err = runtime.gate()[1]
+    if gate_err:
+        _row(BAD, "agent.required", gate_err.split(" — ")[0])
+        fails += 1
+
+    # The generated trees must be somewhere both the bridge and install.sh read.
+    state_root = _settings.agent_state_dir()
+    legacy = os.path.join(settings.CODE_ROOT, "agent")
+    stranded = []
+    if os.path.realpath(state_root) != os.path.realpath(legacy):
+        for parts in _settings.GENERATED_AGENT_TREES:
+            old = os.path.join(legacy, *parts)
+            if os.path.isdir(old) and os.listdir(old):
+                stranded.append(os.path.join(*parts))
+    _row(BAD if stranded else OK, "generated root",
+         f"{len(stranded)} tree(s) still under the code root: {stranded} — "
+         "restart the bridge to migrate" if stranded
+         else os.path.relpath(state_root, _settings.AVA_HOME) + " (under AVA_HOME)")
+    fails += bool(stranded)
+
+    if not rt.available():
+        _row(WARN, "sandbox", getattr(rt, "live", lambda: {})().get("reason")
+             or "no agent runtime — `ava agent provision --install`")
+    else:
+        live = rt.live()
+        _row(OK if live.get("live") else WARN, "sandbox",
+             f"{getattr(rt, 'sandbox', '?')} is live" if live.get("live")
+             else live.get("reason") or "not running")
+
+        # install.sh reads its identity from the environment ALONE, so the one
+        # thing worth asserting is that the environment we hand it names the
+        # sandbox the bridge just inspected.
+        if hasattr(rt, "install_env"):
+            env = rt.install_env()
+            agrees = env.get("AVA_OC_SANDBOX") == getattr(rt, "sandbox", None)
+            _row(OK if agrees else BAD, "bridge <-> install.sh",
+                 f"both mean '{env.get('AVA_OC_SANDBOX')}'" if agrees
+                 else "install.sh would deploy into a DIFFERENT sandbox")
+            fails += (not agrees)
+
+        if live.get("live"):
+            st = provision.state(rt=rt, force=True)
+            for scope in provision.SCOPES:
+                sc = st["scopes"][scope]
+                mark = {"deployed": OK, "unknown": WARN}.get(sc["state"], BAD)
+                _row(mark, f"  {scope}",
+                     f"{sc['state']} ({sc['counts']['total']} item(s))"
+                     + (f" — {sc['pending']} pending" if sc["pending"] else ""))
+            _row(BAD if st["pending"] else OK, "apply state",
+                 f"{st['pending']} change(s) not in the sandbox — "
+                 "`ava agent provision`" if st["pending"]
+                 else "everything this checkout declares is deployed")
+            fails += bool(st["pending"])
+
+            # The other direction, which nothing looked in until now. A WARN
+            # rather than a failure: `policy-add` has no remove verb, so the
+            # only cure for a stranded allowance is a sandbox rebuild, and
+            # failing a check whose fix is that heavy would just get ignored.
+            extra = {k: v for k, v in (st.get("orphans") or {}).items() if v}
+            _row(WARN if extra else OK, "sandbox extras",
+                 ", ".join(f"{k}: {', '.join(v)}" for k, v in extra.items())
+                 + "  (not declared here; clears on `nemoclaw "
+                   f"{getattr(rt, 'sandbox', '<name>')} rebuild`)" if extra
+                 else "nothing in the sandbox this checkout does not declare")
+
+    # Generated files with no connector behind them. Hard, and local: these are
+    # tarred into the sandbox on the next provision, where no policy allows their
+    # routes — so Ava is handed tools that deny-by-default guarantees will fail.
+    orphaned = connectors.orphans()
+    n_orphan = len(orphaned["tools"]) + len(orphaned["policies"])
+    _row(BAD if n_orphan else OK, "orphaned files",
+         f"{n_orphan} generated file set(s) with no connector "
+         f"({', '.join(orphaned['tools'] + orphaned['policies'])}) — "
+         "`ava agent prune --write`" if n_orphan
+         else "every generated file has a manifest behind it")
+    fails += bool(n_orphan)
+
+    stranded_state = _settings.stranded_agent_state()
+    if stranded_state:
+        _row(WARN, "stranded state",
+             f"{len(stranded_state)} file(s) at the legacy code-root path — "
+             "`ava agent adopt-state --write`")
 
     # 2. Self-editing governance
     print("\nSelf-editing governance")
@@ -862,6 +972,47 @@ def cmd_agent(args) -> int:
         if st.get("health"):
             _row(OK, "health", str(st["health"])[:120])
         print()
+        return 0
+    if action == "adopt-state":
+        # Explicit and dry-run by default, on purpose: this moves files that live
+        # OUTSIDE this AVA_HOME. Wired into a boot step instead, it moved the
+        # primary install's generated tools into whatever home the importing
+        # process happened to have. See settings.migrate_agent_state().
+        from ava_bridge import settings as _s
+        planned = _s.migrate_agent_state(write=args.write)
+        if not planned:
+            print(f"\n{OK} nothing stranded at the legacy path "
+                  f"({os.path.join(str(_s.CODE_ROOT), 'agent')}).\n")
+            return 0
+        verb = "adopted" if args.write else "would adopt"
+        print(f"\n{B}{verb.capitalize()} into {_s.agent_state_dir()}{X}")
+        for rel in planned:
+            print(f"  {OK if args.write else '·'} {rel}")
+        if not args.write:
+            print("\nRe-run with --write to move them. "
+                  "Anything already present at the destination is left alone.\n")
+        else:
+            print()
+        return 0
+    if action == "prune":
+        from ava_bridge import connectors as _c
+        res = _c.prune_orphans(write=args.write)
+        total = len(res["tools"]) + len(res["policies"])
+        if not total:
+            print(f"\n{OK} no generated files without a connector.\n")
+            return 0
+        verb = "removed" if args.write else "would remove"
+        print(f"\n{B}Generated material with no connector ({verb}){X}")
+        for cid in res["tools"]:
+            print(f"  {OK if args.write else '·'} tools     {cid}")
+        for cid in res["policies"]:
+            print(f"  {OK if args.write else '·'} policy    {cid}")
+        if not args.write:
+            print("\nThese ship into the sandbox on the next provision, where no "
+                  "policy allows their routes —\nAva gets tools that are "
+                  "guaranteed to fail. Re-run with --write to remove them.\n")
+        else:
+            print()
         return 0
     if action == "provision":
         scope = getattr(args, "only", "all") or "all"
@@ -1037,7 +1188,7 @@ def cmd_connector(args) -> int:
                 continue
             text = _yaml.safe_dump(pol, sort_keys=False)
             if args.write:
-                outdir = os.path.join(settings.CODE_ROOT, "agent", "policies", "generated")
+                outdir = settings.generated_policy_dir()
                 os.makedirs(outdir, exist_ok=True)
                 p = os.path.join(outdir, f"{cid}.yaml")
                 with open(p, "w", encoding="utf-8") as f:
@@ -1064,8 +1215,7 @@ def cmd_connector(args) -> int:
                       f"{_why_no_tools(connectors, cid)})")
             for t in files:
                 if args.write:
-                    outdir = os.path.join(settings.CODE_ROOT, "agent",
-                                          "mcp_server_connectors", "apps", cid)
+                    outdir = settings.connector_tools_dir(cid)
                     os.makedirs(outdir, exist_ok=True)
                     p = os.path.join(outdir, t["name"])
                     with open(p, "w", encoding="utf-8") as f:
@@ -1497,7 +1647,12 @@ def cmd_models(args) -> int:
                       f"{note or 'no locally-servable model fits'}. Use a cloud "
                       f"provider (set inference.backends + AVA_INFERENCE_KEY), or "
                       f"install Ollama/MLX and `ava models pull <role>` by hand.")
-                return 0
+                # Non-zero: NOTHING WAS DOWNLOADED. This returned 0, so every
+                # caller that checks an exit code — the installer, a script, and
+                # the Hub's model-pull job, which renders `done` — was told the
+                # pull succeeded. A box with no servable model then reached the
+                # first chat turn believing it had one.
+                return 1
             if note:
                 print(f"{WARN} {note}.\n")
             print(f"{B}--auto{X}: detected tier '{tier}' \u2192 pulling '{role}'\n")
@@ -1724,9 +1879,15 @@ def main() -> int:
                      help="print the link but do not open it")
     clp.set_defaults(func=cmd_claim)
     ap = sub.add_parser("agent", help="agent runtime (NemoClaw): status / provision")
-    ap.add_argument("action", nargs="?", choices=["status", "provision"], default="status")
+    ap.add_argument("action", nargs="?",
+                    choices=["status", "provision", "adopt-state", "prune"],
+                    default="status")
     ap.add_argument("--install", action="store_true",
                     help="auto `npm install -g nemoclaw` if the CLI is missing")
+    # Both of these move or delete files, so both report and stop unless told
+    # otherwise. `adopt-state` in particular reaches OUTSIDE this AVA_HOME.
+    ap.add_argument("--write", action="store_true",
+                    help="adopt-state / prune: actually do it (default: report only)")
     ap.add_argument("--only", default="all",
                     metavar="SCOPE",
                     help="deploy just part of the kit: persona, policies, "
@@ -1735,15 +1896,18 @@ def main() -> int:
     cp = sub.add_parser("connector", help="list / scaffold / generate policies+tools for connectors")
     cp.add_argument("action", choices=["list", "apps", "new", "policies", "tools"])
     cp.add_argument("name", nargs="?", help="connector name (for new / policies / tools)")
-    # The two paths are relative to the INSTALL root, not AVA_HOME. They are the
-    # same directory on a bare-metal install and different ones under Docker,
-    # where AVA_HOME is a mounted data volume — so an unqualified relative path
-    # sends half the users to a directory that has no agent/ in it.
+    # The two paths hang off the AGENT STATE root, which is AVA_HOME-based: these
+    # files are rendered from a manifest, not authored, and the install root is
+    # an image layer under Docker — writing them there meant every rebuild threw
+    # away the tools and policies while keeping the manifests that produced them.
+    # The two roots are the same directory on a bare-metal install, which is why
+    # anchoring on the install root looked correct for so long. Printed in full
+    # rather than relatively, so the answer is unambiguous on both shapes.
     cp.add_argument("--write", action="store_true",
-                    help=f"write generated files under the install root "
-                         f"({settings.CODE_ROOT}): policies -> "
-                         f"agent/policies/generated, tools -> "
-                         f"agent/mcp_server_connectors/apps")
+                    help=f"write generated files under the agent state root "
+                         f"({settings.agent_state_dir()}): policies -> "
+                         f"policies/generated, tools -> "
+                         f"mcp_server_connectors/apps")
     cp.set_defaults(func=cmd_connector)
     apn = sub.add_parser("app", help="scaffold the ava-tools/1 agent surface inside YOUR app repo")
     apn.add_argument("action", choices=["new"])

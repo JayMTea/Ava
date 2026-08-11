@@ -27,6 +27,22 @@ from fastapi.testclient import TestClient
 from ava_bridge import setup_wizard
 
 
+@pytest.fixture(autouse=True)
+def _no_agent_by_default(monkeypatch):
+    """These tests are about the INFERENCE-BACKEND path.
+
+    `recommend_brain` now asks `models.effective_brain()` first, because a live
+    agent sandbox owns the model endpoint and the backends below are then never
+    consulted. That makes the answer depend on whether the machine running the
+    tests happens to have a sandbox — a dependency these tests already had
+    through `runtime`, and which nothing pinned. Neutralised here so the file is
+    hermetic; the tests that are ABOUT the agent case patch it themselves.
+    """
+    from ava_bridge import models
+    monkeypatch.setattr(models, "effective_brain",
+                        lambda: {"source": "configured", "model_id": ""})
+
+
 @pytest.fixture
 def env_install(monkeypatch):
     """A cpu Docker install: compose has passed the installer's model in."""
@@ -150,3 +166,70 @@ def test_a_blank_model_is_still_refused(env_install) -> None:
             "features": {}})
     assert r.status_code == 400
     assert r.json().get("field") == "model"
+
+
+def test_a_live_agent_sandbox_owns_the_brain_and_the_wizard_says_so(monkeypatch) -> None:
+    """When the agent runtime is live it OWNS the model endpoint, and turns never
+    reach the inference backends this screen reads.
+
+    `recommend_brain` was unaware of it entirely, so first run confirmed a
+    backend that would not serve one message: the owner picks a model, the box
+    uses a different one, and the two screens that report the brain disagree
+    forever. Asked through `models.effective_brain()` — the ONE resolver — so
+    this cannot become a fourth answer to the same question.
+    """
+    from ava_bridge import models, setup_wizard
+
+    monkeypatch.setattr(models, "effective_brain", lambda: {
+        "source": "agent", "model_id": "nvidia/Reasoner-30B",
+        "label": "Reasoner-30B", "engine": "ollama", "backend_id": "",
+        "base_url": "", "local": True, "implicit": False})
+
+    out = setup_wizard.recommend_brain()
+
+    assert out["source"] == "agent"
+    assert out["agent_owns_it"] is True
+    assert out["model"] == "nvidia/Reasoner-30B"
+    assert out["writes_config"] is False, (
+        "the sandbox holds the endpoint; the wizard has nothing to write")
+    assert "nemoclaw onboard" in out["consequence"]
+
+
+def test_without_an_agent_the_wizard_reads_the_backends_as_before(monkeypatch) -> None:
+    """The short-circuit must not swallow the ordinary path."""
+    from ava_bridge import models, setup_wizard
+
+    monkeypatch.setattr(models, "effective_brain",
+                        lambda: {"source": "configured", "model_id": "m"})
+    out = setup_wizard.recommend_brain()
+    assert out["agent_owns_it"] is False
+    assert out["source"] in ("none", "configured", "installed")
+
+
+def test_a_broken_resolver_does_not_break_the_wizard(monkeypatch) -> None:
+    from ava_bridge import models, setup_wizard
+
+    def _boom():
+        raise RuntimeError("no runtime")
+
+    monkeypatch.setattr(models, "effective_brain", _boom)
+    out = setup_wizard.recommend_brain()
+    assert out["agent_owns_it"] is False
+
+
+def test_an_agent_whose_model_cannot_be_read_says_so_rather_than_guessing(monkeypatch) -> None:
+    """The sandbox exists but its container is stopped, so nothing could read
+    what it holds. Naming a backend here would be worse: it will not serve a
+    single turn either way, and claiming a model we did not read is the exact
+    inference the brain-visibility rule forbids."""
+    from ava_bridge import models, setup_wizard
+
+    monkeypatch.setattr(models, "effective_brain",
+                        lambda: {"source": "agent", "model_id": "",
+                                 "engine": "nemoclaw"})
+    out = setup_wizard.recommend_brain()
+
+    assert out["agent_owns_it"] is True
+    assert out["model"] == ""
+    assert out["live"] is False, "claimed a live brain it could not read"
+    assert "not running" in out["consequence"]

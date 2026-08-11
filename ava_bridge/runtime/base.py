@@ -102,6 +102,23 @@ class AgentRuntime(ABC):
         """
         return {}
 
+    def tree_digests(self, roots: list[str],
+                     timeout: int = 30) -> dict[str, str] | None:
+        """{root: fold} for whole directories inside the sandbox, comparably to
+        `provision.tree_digest()` on the repo side.
+
+        `None` — not `{}` — when this runtime cannot look inside. The two are a
+        different answer to the drift ladder: `{}` means "I looked and the
+        sandbox holds nothing", which reads as `undeployed` and puts a to-do list
+        in front of the owner; `None` means "no evidence source", which reads as
+        `unknown` and counts as nothing. A runtime that cannot fold a tree must
+        say so rather than imply an empty one.
+
+        Takes a LIST for the same reason `digest()` does: one round trip for
+        every server, not one exec per server.
+        """
+        return None
+
     def status(self) -> dict:
         """Rich health for `ava doctor` / the ops dashboard."""
         return {"name": self.name, "available": self.available()}

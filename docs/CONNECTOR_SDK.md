@@ -674,6 +674,22 @@ Full reference: [`sdk/host/ava_mcp/README.md`](../sdk/host/ava_mcp/README.md).
 the sandbox. The generic proxy routes for your actions (and `__tools`/`__call`)
 are allow-listed automatically.
 
+!!! note "Where generated files live"
+
+    Both generated trees — `policies/generated/` and
+    `mcp_server_connectors/apps/` — hang off the **agent state root**, which is
+    `$AVA_HOME/agent` (`paths.agent_state`, `AVA_AGENT_STATE_DIR`). On a plain
+    checkout AVA_HOME *is* the repo, so that is literally the `agent/` directory
+    beside this file and the paths above read as written.
+
+    They are not source: they are rendered from your manifest, both are
+    gitignored, and they are state your install has to keep. Under Docker the
+    repo is an image layer, so keeping them there meant every `up --build` threw
+    them away while the manifests that produced them survived on the volume —
+    the connector came back in the list, silently un-deployed. `install.sh`
+    reads the state root as well as the checkout and merges the two, so
+    `ava connector … --write` followed by a provision works on either shape.
+
 ### Agent skills (`SKILL.md`) - auto-surfaced in the Agent tab
 
 A **skill** is a folder with a `SKILL.md` that coaches the model on *when and
@@ -760,7 +776,30 @@ From that one manifest, with nothing hand-maintained in Ava's core:
   belongs (the documented registry exception), for any model nothing built-in
   claims.
 
-The `chat_pickup` / `jobs` / `model_hints` field shapes are documented inline in
+- **Model-row ownership** ← `owns` (say which running things on this machine are
+  yours, so Ava's hardware monitor lists them under **Connected apps** instead of
+  "other software"):
+
+  ```yaml
+  owns:
+    container: [myapp-llm]                 # exact docker name(s)
+    cmdline:   ["--served-model-name myapp", "/myapp/main.py"]
+    paths:     ["/opt/myapp"]              # prefix of its weight files
+  ```
+
+  Any one match claims the row, tried in that order: container name, then a
+  substring of the process command line, then a prefix of a mapped weight file.
+  Substrings are lowercased and matched exactly as `model_hints` does.
+
+  This is **declared, not inferred**, on purpose. Ava will not guess ownership by
+  matching your `base_url` port against whatever a process is listening on: your
+  manifest names the port *your API* answers on, while the engine you run
+  usually sits on a different one, so the guess is wrong more often than right.
+  An unclaimed GPU process is reported honestly as other software rather than
+  attributed to the nearest plausible app.
+
+The `chat_pickup` / `jobs` / `model_hints` / `owns` field shapes are documented
+inline in
 [`connectors/_template/connector.yaml`](../connectors/_template/connector.yaml).
 
 ### Optional-feature switches and guided-fix error codes

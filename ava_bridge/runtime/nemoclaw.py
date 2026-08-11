@@ -9,6 +9,7 @@ GPU/box. All CLI specifics (flags, sandbox paths, JSON keys) live here.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import re
@@ -17,7 +18,7 @@ import subprocess
 import time
 
 from .base import AgentRuntime
-from .. import config
+from .. import config, settings
 
 try:  # perf_log lives at the repo root; best-effort only (same as router_app).
     import perf_log
@@ -139,6 +140,39 @@ class NemoClawRuntime(AgentRuntime):
 
     def _base(self, *args: str) -> list[str]:
         return [self.cli, self.sandbox, *args]
+
+    def install_env(self) -> dict[str, str]:
+        """The environment `agent/install.sh` has to run under.
+
+        install.sh resolves the sandbox name and the CLI path from the
+        environment ALONE (`AVA_OC_SANDBOX`, `AVA_NEMOCLAW`), while the bridge
+        resolves them through `settings` — so `ava.yaml`'s `agent.sandbox` is
+        first-class here and invisible there. Shelling install.sh with the
+        bridge's bare `os.environ` therefore deployed into `my-assistant` while
+        the bridge inspected whatever ava.yaml named: drift read `undeployed`
+        forever, every Apply "succeeded", and nothing named the cause. The same
+        split hits `AVA_NEMOCLAW`, since the bridge also accepts a CLI found on
+        PATH while install.sh only ever looks in `$HOME/.local/bin`.
+
+        The Docker path never hit this because deploy/agent-entrypoint.sh
+        exports both by hand. This makes every caller do that, once, from the
+        one resolver — so a bare-metal or systemd install cannot disagree with
+        itself.
+
+        `AVA_DATA_DIR` is here for the same reason one layer down. install.sh
+        writes the internal token to `${AVA_DATA_DIR:-${AVA_HOME:-…}/data}` and
+        its own comment says it "must resolve to the SAME dir the bridge reads
+        (settings.data_dir())" — but `settings.data_dir()` also layers
+        `paths.data` from ava.yaml, which install.sh cannot see. Setting that key
+        reproduced the documented 401-on-every-callback incident exactly one
+        level up. Pinning the resolved value makes the shell agree by
+        construction instead of by coincidence.
+        """
+        return {**os.environ,
+                "AVA_OC_SANDBOX": self.sandbox,
+                "AVA_NEMOCLAW": self.cli,
+                "AVA_DATA_DIR": settings.data_dir(),
+                "AVA_AGENT_STATE_DIR": settings.agent_state_dir()}
 
     # ---- availability -------------------------------------------------------
     def available(self) -> bool:
@@ -267,10 +301,12 @@ class NemoClawRuntime(AgentRuntime):
             return False
 
     # ---- provisioning -------------------------------------------------------
-    def _run(self, argv: list[str], timeout: int = 120) -> tuple[int, str]:
+    def _run(self, argv: list[str], timeout: int = 120,
+             env: dict[str, str] | None = None) -> tuple[int, str]:
         try:
             cp = subprocess.run(argv, stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT, timeout=timeout)
+                                stderr=subprocess.STDOUT, timeout=timeout,
+                                env=env)
             return cp.returncode, cp.stdout.decode(errors="ignore")
         except Exception as e:  # noqa: BLE001
             return 1, str(e)
@@ -448,7 +484,62 @@ class NemoClawRuntime(AgentRuntime):
                 found[parts[1].strip()] = parts[0]
         return found
 
-    def _stream(self, argv: list[str], timeout: int, on_line) -> tuple[int, str]:
+    def tree_digests(self, roots: list[str],
+                     timeout: int = 30) -> dict[str, str] | None:
+        """Fold whole sandbox directories the same way `provision.tree_digest()`
+        folds the repo side: sorted `relpath\\0sha256` lines, hashed.
+
+        This is the sandbox half of a promise `tree_digest`'s own docstring
+        already made — install.sh does `rm -rf "$DEST"` before extracting
+        `tar czf - -C "$src" .`, so the sandbox copy is a byte-exact mirror of
+        the source tree and the two folds are comparable. Without this half, the
+        repo's TREE digest was being compared against the sandbox's ENTRY-POINT
+        digest, which can never match: every server read `stale` forever, so the
+        pending count never cleared and the post-apply assert vetoed every
+        successful run.
+
+        One exec for every root. A root that does not exist contributes no
+        lines and simply does not appear in the result, which the caller reads
+        as absent. Empty output is indistinguishable from "the exec did not
+        run", so it yields `None` (unknown) rather than an empty mapping that
+        would read as "the sandbox holds nothing".
+
+        `find -type f` tests the link itself, so a symlink inside a server dir
+        would be folded on the repo side and skipped here — permanent, loud
+        drift rather than a silent wrong answer. Nothing ships one today.
+        """
+        roots = [r.rstrip("/") for r in roots if r]
+        if not roots:
+            return {}
+        quoted = " ".join(shlex.quote(r) for r in roots)
+        try:
+            out = self.exec(
+                f"find {quoted} -type f -exec sha256sum -- {{}} + 2>/dev/null",
+                timeout=timeout)
+        except Exception:  # noqa: BLE001 — a failed probe is `unknown`, never `{}`
+            return None
+        if not (out or "").strip():
+            return None
+
+        # Longest root first so nested roots attribute to the deepest one.
+        order = sorted(roots, key=len, reverse=True)
+        lines: dict[str, list[str]] = {}
+        for line in out.splitlines():
+            parts = line.strip().split(None, 1)
+            if len(parts) != 2 or len(parts[0]) != 64:
+                continue
+            sha, path = parts[0], parts[1].strip()
+            for root in order:
+                if path.startswith(root + "/"):
+                    lines.setdefault(root, []).append(
+                        f"{path[len(root) + 1:]}\0{sha}")
+                    break
+        return {root: hashlib.sha256(
+            "\n".join(sorted(rows)).encode("utf-8")).hexdigest()
+            for root, rows in lines.items()}
+
+    def _stream(self, argv: list[str], timeout: int, on_line,
+                env: dict[str, str] | None = None) -> tuple[int, str]:
         """Like `_run`, but hands each output line to `on_line` as it arrives.
 
         Same line-iteration shape as hub/models.py's model pull: merge stderr,
@@ -459,7 +550,8 @@ class NemoClawRuntime(AgentRuntime):
         buf: list[str] = []
         try:
             proc = subprocess.Popen(argv, stdout=subprocess.PIPE,
-                                    stderr=subprocess.STDOUT, text=True, bufsize=1)
+                                    stderr=subprocess.STDOUT, text=True, bufsize=1,
+                                    env=env)
         except Exception as e:  # noqa: BLE001
             return 1, str(e)
         try:
@@ -548,10 +640,13 @@ class NemoClawRuntime(AgentRuntime):
             argv = ["bash", install_sh]
             if scope and scope != "all":
                 argv += ["--only", scope]
+            # install.sh reads the sandbox name and CLI path from the
+            # environment only — see install_env().
+            env = self.install_env()
             if on_line is not None:
-                rc, out = self._stream(argv, timeout=600, on_line=on_line)
+                rc, out = self._stream(argv, timeout=600, on_line=on_line, env=env)
             else:
-                rc, out = self._run(argv, timeout=600)
+                rc, out = self._run(argv, timeout=600, env=env)
             step("deploy", rc == 0, "agent/install.sh" + ("" if rc == 0
                                                           else f" rc={rc}: {out[-200:]}"))
         else:

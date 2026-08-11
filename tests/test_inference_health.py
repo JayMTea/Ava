@@ -144,3 +144,55 @@ def test_a_live_agent_sandbox_is_reported_ok_and_not_probed(client) -> None:
     assert r["ok"] is True and not r["code"]
     assert r["model"] == "nvidia/Reasoner-30B"
     assert not probed, "there is no endpoint here to probe; the sandbox holds it"
+
+
+def test_a_stopped_agent_sandbox_is_not_reported_healthy(client) -> None:
+    """"The resolver picked the sandbox" is not the same claim as "the sandbox is
+    up".
+
+    `runtime.active()` gates on `available()`, a 30s-cached check that the
+    sandbox EXISTS in `nemoclaw list` — and a stopped container still exists. So
+    this branch answered a flat `ok: True` for an agent that could not reply, and
+    the owner got a green banner over a dead assistant. `live()` is the
+    observation; liveness is never inferred from configuration.
+    """
+    from ava_bridge import runtime
+
+    agent_brain = {"source": "agent", "backend_id": "", "engine": "ollama",
+                   "model_id": "nvidia/Reasoner-30B", "label": "Reasoner-30B",
+                   "base_url": "", "api_key": "", "local": True, "implicit": False}
+
+    class _Stopped:
+        name = "nemoclaw"
+
+        def live(self):
+            return {"live": False,
+                    "reason": "the sandbox container for 'my-assistant' is not running"}
+
+    with mock.patch.object(models, "effective_brain", lambda: dict(agent_brain)), \
+         mock.patch.object(runtime, "active", lambda: _Stopped()):
+        r = client.get("/api/hub/agent/inference").json()
+
+    assert r["ok"] is False
+    assert r["code"] == "agent_down"
+    assert "not running" in r["detail"]
+
+
+def test_a_runtime_that_cannot_be_probed_is_not_reported_healthy(client) -> None:
+    """A probe that raises is an unknown, and an unknown must not read as a yes."""
+    from ava_bridge import runtime
+
+    agent_brain = {"source": "agent", "backend_id": "", "engine": "", "model_id": "m",
+                   "label": "m", "base_url": "", "api_key": "", "local": True,
+                   "implicit": False}
+
+    class _Broken:
+        name = "nemoclaw"
+
+        def live(self):
+            raise OSError("docker socket gone")
+
+    with mock.patch.object(models, "effective_brain", lambda: dict(agent_brain)), \
+         mock.patch.object(runtime, "active", lambda: _Broken()):
+        r = client.get("/api/hub/agent/inference").json()
+    assert r["ok"] is False and r["code"] == "agent_down"

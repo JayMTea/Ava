@@ -7,6 +7,7 @@ import { NewConnectorForm } from '../ConnectApp';
 import { useResource } from '../hooks';
 import { connectorGroup, isExternalApp, type ConnectorGroup } from '../shared';
 import { hub } from '../hubApi';
+import { attachToProvisionJob } from '../../../hooks/useProvisionState';
 import type {
   GenerateResult, GrantAction, HubConnector, IngestToken,
 } from '../hubApi';
@@ -179,8 +180,20 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
     setBusy(true); setMsg(''); setErr('');
     try {
       const r = await hub.deployConnector(c.id);
-      if (r.ok) setMsg(r.detail || (r.deployed ? 'Deployed into the agent sandbox.' : 'Done.'));
-      else setErr(r.detail || r.steps?.find((s) => !s.ok)?.detail || 'deploy failed');
+      if (!r.ok) {
+        setErr(r.error || r.detail || r.steps?.find((s) => !s.ok)?.detail || 'deploy failed');
+      } else if (r.running) {
+        // The sandbox half now runs as the SAME single-slot job "Apply to the
+        // agent" uses, instead of a second unlocked `install.sh` beside it. So
+        // this waits on that job rather than on a ten-minute POST — which also
+        // means a proxy or tailnet hop timing out no longer looks like a failed
+        // deploy.
+        setMsg(r.detail || 'Deploying into the agent sandbox…');
+        await attachToProvisionJob();
+        setMsg('Deployed into the agent sandbox.');
+      } else {
+        setMsg(r.detail || 'Done.');
+      }
       onChanged();
     } catch (e) { setErr((e as Error).message); }
     setBusy(false);
@@ -442,6 +455,13 @@ export function ConnectorsPanel() {
   });
   const conns = raw ? raw.connectors.filter(isExternalApp) : null;
   const badManifests = raw?.errors ?? [];
+  // The backend has always shipped this fact and nothing ever rendered it —
+  // AppFrame.tsx's comment even asserts "Setup says so". It does now. Shown only
+  // when an app is actually embedded: with no tile there is no frame, so the
+  // warning would be a standing alarm about something not happening.
+  const embedded = conns?.filter((c) => c.app) ?? [];
+  const originHole = raw?.apps_origin && !raw.apps_origin.ok && embedded.length > 0
+    ? raw.apps_origin : null;
   return (
     <>
       <NewConnectorForm onCreated={load} />
@@ -450,6 +470,33 @@ export function ConnectorsPanel() {
         title="Connectors"
         subtitle="Each connector is one manifest that wires an app into Ava — its health, metrics, agent tools, and egress security policy."
       >
+        {originHole && (
+          <div className="hub-msg err" style={{ marginBottom: 12 }}>
+            <b>
+              {embedded.length === 1
+                ? `${embedded[0].label}’s screen runs with your Ava session`
+                : `${embedded.length} embedded app screens run with your Ava session`}
+            </b>
+            <div style={{ marginTop: 4 }}>
+              Ava shows {embedded.length === 1 ? 'it' : 'them'} from her own web address, so
+              {embedded.length === 1 ? ' its' : ' their'} code counts as part of Ava to your
+              browser. It can read and change Ava’s settings, and approve the permission
+              prompts Ava asks you — without asking you anything.
+            </div>
+            <div style={{ marginTop: 6 }}>
+              Fine for an app you run and trust. For one served from somewhere else, whose
+              code can change without you touching Ava, give the app screens their own web
+              address: set <code>apps.origin</code> in <code>ava.yaml</code> to a second
+              hostname pointing at this machine (a <code>hosts</code> entry, a DNS record,
+              or a Tailscale alias). Your browser then treats them as a different site and
+              stops handing over your session.
+            </div>
+            <div style={{ marginTop: 6, opacity: 0.85 }}>
+              Only affects apps with a sidebar tile — {embedded.map((c) => c.label).join(', ')}.
+              An app’s tools and data are unaffected either way.
+            </div>
+          </div>
+        )}
         {badManifests.length > 0 && (
           <div className="hub-msg err" style={{ marginBottom: 12 }}>
             <b>{badManifests.length} manifest{badManifests.length === 1 ? '' : 's'} couldn’t be loaded</b> and won’t appear below:

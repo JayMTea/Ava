@@ -35,9 +35,14 @@ WANT = {
                  "rel": "agent/persona.txt.tmpl"}],
     "policies": [{"id": "ava-weather", "label": "ava-weather", "sha256": _sha("w"),
                   "rel": "agent/policies/ava-weather.yaml"}],
+    # `sha256` is a fold of the whole server TREE, and `sandbox_root` is what it
+    # gets folded against. The fixture used to omit the root and let the fake
+    # answer with an entry-point digest that happened to equal this value —
+    # which is exactly the mismatch production had, papered over.
     "servers": [{"id": "ava-admin", "label": "ava-admin", "sha256": _sha("s"),
                  "rel": "agent/mcp_server_admin",
-                 "path": "/sandbox/.openclaw/mcp_server_admin/_server.mjs"}],
+                 "path": "/sandbox/.openclaw/mcp_server_admin/_server.mjs",
+                 "sandbox_root": "/sandbox/.openclaw/mcp_server_admin"}],
     "skills": [{"id": "weather", "label": "Weather", "sha256": _sha("k"),
                 "rel": "agent/skills/weather/SKILL.md", "sandbox_id": "weather"}],
 }
@@ -47,9 +52,12 @@ class _Rt:
     sandbox = "test-sandbox"
 
     def __init__(self, *, record=None, live=True, digests=None, openclaw=None,
-                 globs=None):
+                 globs=None, trees=None):
         self._record, self._live = record, live
         self._digests, self._openclaw, self._globs = digests or {}, openclaw, globs
+        # `None` means this runtime cannot fold a tree at all (the RemoteRuntime
+        # case), which must read `unknown` rather than an empty sandbox.
+        self._trees = trees
         self.digest_calls = 0
 
     def registry_record(self):
@@ -65,6 +73,11 @@ class _Rt:
 
     def glob_digest(self, pattern, timeout=30):
         return dict(self._globs or {})
+
+    def tree_digests(self, roots, timeout=30):
+        if self._trees is None:
+            return None
+        return {r: self._trees[r] for r in roots if r in self._trees}
 
     def read_file(self, path, timeout=20):
         return self._openclaw
@@ -118,6 +131,7 @@ class ProbeTests(unittest.TestCase):
             openclaw=('{"mcp":{"servers":{"ava-admin":{"command":"node",'
                       '"args":["/sandbox/.openclaw/mcp_server_admin/_server.mjs"]}}}}'),
             globs={"/sandbox/.openclaw/skills/weather/SKILL.md": skill},
+            trees={"/sandbox/.openclaw/mcp_server_admin": server},
         )
 
     def test_everything_matching_verifies_clean(self):

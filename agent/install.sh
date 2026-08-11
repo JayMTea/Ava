@@ -35,6 +35,20 @@ NEMOCLAW="${AVA_NEMOCLAW:-$HOME/.local/bin/nemoclaw}"
 # Optional gitignored overlay: private servers/skills/policies (e.g. personal
 # apps) that layer on top of the core kit without editing this script.
 OVERLAY="${AVA_OVERLAY:-$HERE/../overlay/agent}"
+# GENERATED material — the egress policies and per-app tools rendered from
+# connector manifests. It lives under AVA_HOME, not in the checkout, because it
+# is runtime state: under Docker the checkout is an image layer, so a rebuild
+# threw away every generated tool while keeping the manifests that produced
+# them, and on the full-agent profile the bridge and this script run in
+# containers with SEPARATE copies of the code root. Mirrors
+# ava_bridge/settings.agent_state_dir(); identical to $HERE on a plain checkout,
+# where AVA_HOME is the code root and nothing has moved.
+STATE="${AVA_AGENT_STATE_DIR:-${AVA_HOME:-$HERE/..}/agent}"
+
+# Realpath, or empty when the directory does not exist. Used to tell "core and
+# state are the same directory" (a plain checkout) from "they differ" (Docker),
+# so the merges below never copy a tree onto itself.
+_realdir() { [ -d "$1" ] && (cd "$1" && pwd -P) || echo ""; }
 # NOTE: there is no single destination. Each server deploys to its own
 # /sandbox/.openclaw/mcp_server_<category>/ (see the loop below). A `DEST` here
 # named a path nothing is ever deployed to, and the closing message printed it.
@@ -141,11 +155,39 @@ echo "[ava] sandbox=$SANDBOX"
 # rather than failing deep in a policy-add. (`ava agent provision` runs this.)
 if ! command -v "$NEMOCLAW" >/dev/null 2>&1 && [ ! -x "$NEMOCLAW" ]; then
   echo "[ava] ERROR: nemoclaw CLI not found ($NEMOCLAW)." >&2
-  echo "[ava]   Install it:  npm install -g nemoclaw   (github.com/NVIDIA/NemoClaw)" >&2
-  echo "[ava]   or run:      ava agent provision --install" >&2
+  # NOT `npm install -g nemoclaw` — that package is an empty stub, which both
+  # docs/AGENT_RUNTIME.md and ava_bridge/runtime/nemoclaw.py say plainly. This
+  # line told people to install the stub and then wonder why the CLI was still
+  # missing. The real installer is NVIDIA's, and `ava agent provision --install`
+  # runs it against the ref deploy/agent.Dockerfile pins.
+  echo "[ava]   Install it:  ava agent provision --install" >&2
+  echo "[ava]   or by hand:  see docs/AGENT_RUNTIME.md (NVIDIA's installer, not npm)" >&2
   exit 1
 fi
-if ! "$NEMOCLAW" list --json 2>/dev/null | grep -q "\"$SANDBOX\""; then
+# Parse the JSON; do NOT grep it. `grep -q "\"$SANDBOX\""` matches the sandbox
+# name ANYWHERE in the output — including inside an error message such as
+# `{"error":"sandbox 'ava' not found"}`, and inside a DIFFERENT sandbox's name
+# (looking for `ava` matches `ava-old`). ava_bridge/runtime/nemoclaw.py removed
+# exactly this check and documents why; the shell copy kept it, so the two halves
+# of the same question could disagree. Same three payload shapes the Python side
+# handles, and a parse failure means "not found" rather than a false positive.
+_sandbox_exists() {
+  "$NEMOCLAW" list --json 2>/dev/null | AVA_WANT="$SANDBOX" python3 -c '
+import json, os, sys
+want = os.environ["AVA_WANT"]
+try:
+    doc = json.load(sys.stdin)
+except Exception:
+    sys.exit(1)
+rows = doc if isinstance(doc, list) else (
+    doc.get("sandboxes") or doc.get("items") or doc.get("data") or [])
+if isinstance(rows, dict):
+    rows = list(rows.values())
+names = {r.get("name") for r in rows if isinstance(r, dict)}
+sys.exit(0 if want in names else 1)
+'
+}
+if ! _sandbox_exists; then
   echo "[ava] ERROR: sandbox '$SANDBOX' not found." >&2
   echo "[ava]   Create it:   nemoclaw onboard   (configures inference + creates the sandbox)" >&2
   echo "[ava]   then re-run: cd agent && ./install.sh" >&2
@@ -173,8 +215,18 @@ trap 'rm -rf "$_POLTMP"' EXIT
 POLICY_FAILED=0
 
 if _want policies; then
-for poldir in "$HERE/policies" "$HERE/policies/generated" "$OVERLAY/policies" "$OVERLAY/policies/generated"; do
-  [ -d "$poldir" ] || continue
+# $STATE/policies/generated is where `ava connector policies --write` puts them
+# now. On a plain checkout it IS $HERE/policies/generated, so the list is deduped
+# by real path — applying the same file twice would double every log line and
+# make a rejected policy twice as easy to miss.
+_SEEN_POLDIRS=""
+for poldir in "$HERE/policies" "$HERE/policies/generated" \
+              "$STATE/policies/generated" \
+              "$OVERLAY/policies" "$OVERLAY/policies/generated"; do
+  _real="$(_realdir "$poldir")"
+  [ -n "$_real" ] || continue
+  case " $_SEEN_POLDIRS " in *" $_real "*) continue ;; esac
+  _SEEN_POLDIRS="$_SEEN_POLDIRS $_real"
   for pol in "$poldir"/*.yaml; do
     echo "[ava] applying policy: $(basename "$pol")…"
     _send="$pol"
@@ -315,7 +367,24 @@ for cat in "${CATS[@]}"; do
   src="${CAT_SRC[$cat]}"
   dest="/sandbox/.openclaw/mcp_server_${cat}"
   echo "[ava] deploying mcp_server_${cat} → $dest ($name)…"
-  B64="$(tar czf - -C "$src" . | base64 -w0)"
+  # The generated per-app tools ($STATE/mcp_server_connectors/apps/) are a
+  # MERGE onto the shipped server, not a shadow of it: §2c's discovery requires
+  # a _server.mjs, which a generated tree does not have, so a second root there
+  # would simply be skipped and the connector tools would never ship. Stage
+  # core-then-state into one directory and tar that. State wins on a filename
+  # collision, which is the same precedence ava_bridge/provision.py folds on the
+  # repo side — the two must agree or every server reads stale.
+  payload="$src"
+  gen="$STATE/mcp_server_${cat}"
+  _gen_real="$(_realdir "$gen")"
+  if [ -n "$_gen_real" ] && [ "$_gen_real" != "$(_realdir "$src")" ]; then
+    payload="$_POLTMP/stage/mcp_server_${cat}"
+    mkdir -p "$payload"
+    cp -a "$src"/. "$payload"/
+    cp -a "$gen"/. "$payload"/
+    echo "[ava]   merged generated material from $gen"
+  fi
+  B64="$(tar czf - -C "$payload" . | base64 -w0)"
   # Simple deployment: extract to dest, check syntax
   CMD='rm -rf "$DEST"; mkdir -p "$DEST"; echo "$0" | base64 -d | tar xzf - -C "$DEST"; node --check "$DEST/_server.mjs" && echo "[ava] ok: $NAME" || echo "[ava] WARNING: $NAME (syntax error)"'
   _run_cli "$NEMOCLAW" "$SANDBOX" exec --no-tty -- env DEST="$dest" NAME="$name" bash -c "$CMD" "$B64"

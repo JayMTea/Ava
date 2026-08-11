@@ -76,6 +76,32 @@ def _first_sentence(desc: str) -> str:
     return desc.strip().rstrip(".") + "." if desc.strip() else ""
 
 
+def _known_tools() -> frozenset:
+    """Every tool name the MCP servers actually register.
+
+    The extraction below is a heuristic over prose, and a heuristic that is only
+    ever checked against itself will confidently invent things. It did:
+    `agent/skills/ava-devices/SKILL.md` names `read_temperature` and `set_relay`
+    as EXAMPLES of what a connector might generate, and both were extracted and
+    rendered to the owner as tools that skill has. Neither exists anywhere in the
+    inventory.
+
+    Cached for the process. The registry is the filesystem, and `mcp_tools.scan`
+    walks every server on every call — this is consulted once per skill.
+    """
+    global _KNOWN_TOOLS
+    if _KNOWN_TOOLS is None:
+        try:
+            from . import mcp_tools
+            _KNOWN_TOOLS = frozenset(t.name for t in mcp_tools.scan())
+        except Exception:  # noqa: BLE001 — an unreadable registry must not
+            _KNOWN_TOOLS = frozenset()   # blank every skill's tool list
+    return _KNOWN_TOOLS
+
+
+_KNOWN_TOOLS = None
+
+
 def _extract_tools(description: str, body: str) -> List[str]:
     def _collect(tokens) -> list[str]:
         seen: list[str] = []
@@ -88,6 +114,16 @@ def _extract_tools(description: str, body: str) -> List[str]:
     tools = _collect(_TOOL_IN_TEXT.findall(description or ""))
     if not tools:
         tools = _collect(_TOOL_IN_BODY.findall(body or ""))
+    # Cross-check against what is registered. A name the heuristic guessed and
+    # nothing provides is not a capability the owner has — showing it is worse
+    # than showing nothing, because it reads as something Ava can do.
+    #
+    # Only filters when the registry could be read at all: an empty inventory
+    # means "we could not look", and blanking every skill's tools on that basis
+    # would be the same mistake in the other direction.
+    known = _known_tools()
+    if known:
+        tools = [t for t in tools if t in known]
     return tools[:8]
 
 

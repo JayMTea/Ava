@@ -16,6 +16,7 @@ Manifest paths may use ${AVA_HOME} ${AVA_LOGS} ${AVA_DATA} ${ROOT} plus any
 exported process env var (e.g. an app's own ${MYAPP_ROOT}). See docs/CONNECTOR_SDK.md.
 """
 import os
+import shutil as _shutil
 import time
 from typing import Dict, List
 
@@ -39,6 +40,7 @@ _VARS = {
 _cache: Dict[str, object] = {"ts": 0.0, "list": None}
 
 
+import copy as _copy
 import json as _json
 import re as _re
 
@@ -135,6 +137,8 @@ _BLOCK_TYPES: dict = {
     "mcp": dict, "chat_pickup": dict, "jobs": dict, "discover": dict,
     "facade": dict, "health": (dict, str), "ingest": dict, "tools": (list, dict),
     "dynamic_access": (dict, bool), "actions": (list, dict), "model_hints": list,
+    # What of this machine's compute belongs to the app (see `owns()`).
+    "owns": dict,
     "id": str, "label": str, "kind": str, "role": str, "base_url": str,
     "token_env": str, "call": str,
     # `confirm` accepts BOTH shapes because `_author_confirm` implements both
@@ -284,9 +288,15 @@ def _validate(m: dict, path: str, errors: list | None) -> None:
     for label, raw, url in _declared_urls(m):
         why = _bad_url(raw, url)
         if why:
-            shown = raw if raw == url else f"{raw} -> {url}"
+            # The RAW value only. `_expand` resolves `${VAR}` through the SECRET
+            # STORE as well as the environment, so the expanded form can contain a
+            # credential — and this string is rendered verbatim in the Hub's
+            # malformed-manifest banner. Showing `${APP_TOKEN} -> hunter2` there
+            # would put the secret on screen, in a page the owner might well be
+            # screen-sharing while asking why their connector will not load. The
+            # raw form is also the more useful half: it is what they have to edit.
             errors.append({"id": cid, "path": path, "severity": "error",
-                           "error": f"`{label}: {shown}` — {why}"})
+                           "error": f"`{label}: {raw}` — {why}"})
 
 
 def _merge_all(errors: list | None = None) -> dict:
@@ -310,10 +320,21 @@ def load(force: bool = False) -> List[dict]:
     return items
 
 
-def catalog() -> List[dict]:
+def catalog(errors: list | None = None) -> List[dict]:
     """Every manifest INCLUDING disabled ones, for management UIs (so a disabled
-    connector can still be seen and re-enabled). Not cached — management is rare."""
-    items = list(_merge_all().values())
+    connector can still be seen and re-enabled). Not cached — management is rare.
+
+    Validates. `_validate` only runs when an `errors` list is passed, and this
+    used to pass none — so the ONE surface built to show a broken manifest, the
+    connector management page, was the surface seeing manifests with their bad
+    blocks still attached. A wrong-typed `actions:` was quarantined for the agent
+    (which calls `load()`) and live for the editor, which is backwards: the editor
+    is where you look at what is wrong.
+
+    Pass a list to collect the errors; the default keeps the quarantine and
+    discards the report, for callers that only want the manifests.
+    """
+    items = list(_merge_all(errors if errors is not None else []).values())
     items.sort(key=lambda m: (0 if m.get("kind") == "core" else 1, m.get("id")))
     return items
 
@@ -445,6 +466,48 @@ def model_hints() -> List[dict]:
             if isinstance(h, dict) and h.get("match") and h.get("role"):
                 out.append({"match": [str(s).lower() for s in (h["match"] or [])],
                             "role": str(h["role"])})
+    return out
+
+
+def owns() -> List[dict]:
+    """Which running things each connector claims as its own:
+
+        owns:
+          container: [myapp-llm]                 # exact docker name(s)
+          cmdline:   ["--served-model-name myapp", "/myapp/main.py"]
+          paths:     ["/opt/myapp"]              # prefix of its weight files
+
+    The hardware monitor uses this to tell a CONNECTED APP's engine apart from
+    unrelated software on the box. Both used to render identically, so a
+    third-party model looked like one of Ava's.
+
+    Declared, not inferred. Matching a connector's `base_url` port against
+    whatever a process happens to be listening on would be wrong more often
+    than right: an app's manifest names the port ITS API answers on, while the
+    engine it runs sits on a different one entirely.
+
+    Same shape as `model_hints()` — lowercased substrings, matched by the
+    caller — so an author who has written one already knows how this behaves.
+    """
+    out: List[dict] = []
+    for m in load():
+        o = m.get("owns")
+        if not isinstance(o, dict):
+            continue
+        cid = str(m.get("id") or "").strip()
+        if not cid:
+            continue
+
+        def _strs(key: str, blk=o) -> List[str]:
+            v = blk.get(key)
+            if isinstance(v, str):
+                v = [v]
+            return [str(s).strip().lower() for s in (v or []) if str(s).strip()]
+
+        entry = {"id": cid, "container": _strs("container"),
+                 "cmdline": _strs("cmdline"), "paths": _strs("paths")}
+        if entry["container"] or entry["cmdline"] or entry["paths"]:
+            out.append(entry)
     return out
 
 
@@ -1029,7 +1092,7 @@ def undeployed() -> List[dict]:
     now = time.time()
     if _undeployed_cache["list"] is not None and now - float(_undeployed_cache["ts"]) < 30:
         return _undeployed_cache["list"]  # type: ignore[return-value]
-    root = os.path.join(config.ROOT, "agent", "mcp_server_connectors", "apps")
+    root = settings.connector_tools_dir()
     out = []
     for m in load():
         files = tool_files(m["id"])
@@ -1044,6 +1107,217 @@ def undeployed() -> List[dict]:
                 break
     _undeployed_cache.update(ts=now, list=out)
     return out
+
+
+def _split_trailing_comment(rest: str) -> tuple:
+    """Split a YAML value region into `(value, comment)`.
+
+    A naive `[^#]*` split is wrong on the most common appearance edit there is:
+    `color: "#abcdef"` has a `#` INSIDE a quoted scalar, and treating it as a
+    comment corrupts the line. YAML only starts a comment at a `#` that is
+    outside quotes AND preceded by whitespace (`a: b#c` is the string `b#c`).
+    """
+    quote = ""
+    for i, ch in enumerate(rest):
+        if quote:
+            if ch == quote:
+                quote = ""
+            continue
+        if ch in "\"'":
+            quote = ch
+        elif ch == "#" and (i == 0 or rest[i - 1] in " \t"):
+            return rest[:i], rest[i:]
+    return rest, ""
+
+
+#: Sentinel for `patch_manifest_text`: remove the key rather than set it. The
+#: appearance route CLEARS `ui.icon` back to the frontend's auto-pick, and an
+#: explicit `icon: null` is not the same manifest as one with no icon at all.
+REMOVE = object()
+
+
+def patch_manifest_text(text: str, keys: tuple, value) -> str | None:
+    """Set ONE scalar key in a manifest's text, leaving every other byte alone.
+
+    Returns the new text, or `None` when the edit cannot be made confidently —
+    the caller then falls back to a full `safe_dump`, which is correct but throws
+    the file's comments away.
+
+    Why this exists. The Hub's enable/disable and appearance routes round-tripped
+    the whole manifest through the YAML emitter, so ticking a checkbox rewrote the
+    owner's hand-written file and deleted every comment and blank line in it. That
+    contradicts the loader's own rule — "the owner asked for that YAML; a loader
+    that 'repairs' it loses whatever they were in the middle of writing" — and it
+    is worse for a connector than for most files, because the comments in one are
+    usually the notes on what the app's actions do.
+
+    Handles a top-level scalar (`enabled`) and one nested level (`ui.icon`), which
+    is every key these routes touch. Anything deeper, ambiguous, or already
+    holding a non-scalar bails rather than guessing.
+
+    **The edit is verified by round-trip before it is returned**: the patched text
+    is re-parsed and compared against the original parse with only the target key
+    changed. A surgical text edit that did anything unexpected is discarded, so
+    the worst case is the old lossy behaviour and never a corrupted manifest.
+    """
+    if not keys or len(keys) > 2:
+        return None
+    try:
+        before = yaml.safe_load(text)
+    except Exception:  # noqa: BLE001 — an unparsable file is the caller's problem
+        return None
+    if not isinstance(before, dict):
+        return None
+
+    rendered = None if value is REMOVE else _json.dumps(value)
+    lines = text.splitlines(keepends=True)
+
+    def _indent(ln: str) -> int:
+        return len(ln) - len(ln.lstrip(" "))
+
+    def _is_blank(ln: str) -> bool:
+        return not ln.strip() or ln.lstrip().startswith("#")
+
+    # Locate the block the leaf lives in: the whole file, or a `parent:` mapping.
+    lo, hi, want_indent = 0, len(lines), 0
+    if len(keys) == 2:
+        opens = [i for i, ln in enumerate(lines)
+                 if _re.match(rf"^{keys[0]}:\s*(#.*)?$", ln)]
+        if len(opens) != 1:
+            return None                     # absent or ambiguous — do not guess
+        lo = opens[0] + 1
+        hi = lo
+        while hi < len(lines) and (_is_blank(lines[hi]) or _indent(lines[hi]) > 0):
+            hi += 1
+        want_indent = 2
+        for ln in lines[lo:hi]:             # match the block's own indent
+            if not _is_blank(ln):
+                want_indent = _indent(ln)
+                break
+
+    leaf = keys[-1]
+    hits = [i for i in range(lo, hi)
+            if _re.match(rf"^ {{{want_indent}}}{_re.escape(leaf)}:", lines[i])]
+    if len(hits) > 1:
+        return None                         # duplicated key: ambiguous
+    if hits:
+        i = hits[0]
+        m = _re.match(rf"^( {{{want_indent}}}{_re.escape(leaf)}:)(.*?)(\r?\n)?$",
+                      lines[i])
+        if not m:
+            return None
+        existing, comment = _split_trailing_comment(m.group(2) or "")
+        if not existing.strip() and not comment:
+            return None                     # a block value, not a scalar
+        if rendered is None:
+            del lines[i]                    # REMOVE: the whole line goes
+        else:
+            # Keep the owner's own spacing before a trailing comment — aligned
+            # comments down a column are the reason they are readable.
+            gap = existing[len(existing.rstrip()):] if comment else ""
+            lines[i] = (f"{m.group(1)} {rendered}{gap}{comment}{m.group(3) or ''}")
+    elif rendered is None:
+        return text                         # already absent — nothing to do
+    else:
+        pad = " " * want_indent
+        at = hi
+        while at > lo and _is_blank(lines[at - 1]):
+            at -= 1                         # before the block's trailing blanks
+        if at and not lines[at - 1].endswith("\n"):
+            lines[at - 1] += "\n"
+        lines.insert(at, f"{pad}{leaf}: {rendered}\n")
+
+    patched = "".join(lines)
+    try:
+        after = yaml.safe_load(patched)
+    except Exception:  # noqa: BLE001
+        return None
+    expected = _copy.deepcopy(before)
+    if len(keys) == 2:
+        if not isinstance(expected.get(keys[0]), dict):
+            return None
+        if value is REMOVE:
+            expected[keys[0]].pop(keys[1], None)
+        else:
+            expected[keys[0]][keys[1]] = value
+    elif value is REMOVE:
+        expected.pop(keys[0], None)
+    else:
+        expected[keys[0]] = value
+    return patched if after == expected else None
+
+
+def orphans() -> Dict[str, List[str]]:
+    """Generated agent material with NO connector behind it any more.
+
+    The reverse of `undeployed()`, and the direction nothing looked in. Every
+    check in the system walks what the manifests declare and asks whether it
+    reached the sandbox; none walked what is on disk and asked whether anything
+    still declares it. So a connector removed by hand — or deleted before the
+    delete path cleaned up after itself — left its rendered tools behind, and
+    `install.sh` tars the whole tree, so they ship into the sandbox on the next
+    provision. Ava is then handed tools whose `/internal/connector/<cid>/*`
+    routes no policy allows, which deny-by-default guarantees will fail: not a
+    missing capability, a broken one.
+
+    Keyed on `catalog()`, not `load()`, because a DISABLED connector still has a
+    manifest and its generated files are not orphaned — just dormant.
+    """
+    known = {x["id"] for x in catalog()}
+    tools: List[str] = []
+    policies: List[str] = []
+    try:
+        root = settings.connector_tools_dir()
+        for name in sorted(os.listdir(root)):
+            if name.startswith((".", "_")) or name in known:
+                continue
+            if os.path.isdir(os.path.join(root, name)):
+                tools.append(name)
+    except OSError:
+        pass
+    try:
+        pdir = settings.generated_policy_dir()
+        for fn in sorted(os.listdir(pdir)):
+            # The FILE STEM is the connector id — `preset.name` deliberately is
+            # not (see policy_inventory), so the stem is the only join key back
+            # to connectors/<id>/connector.yaml.
+            if fn.endswith(".yaml") and fn[:-5] not in known:
+                policies.append(fn[:-5])
+    except OSError:
+        pass
+    return {"tools": tools, "policies": policies}
+
+
+def prune_orphans(write: bool = False) -> Dict[str, List[str]]:
+    """Remove what `orphans()` found. `write=False` reports without touching.
+
+    Deliberately explicit rather than automatic on provision: this deletes files,
+    and a provision run that quietly removed things the owner had not asked about
+    is exactly the kind of surprise the audit ledger exists to make impossible.
+    """
+    from . import audit
+    found = orphans()
+    if not write:
+        return found
+    removed: Dict[str, List[str]] = {"tools": [], "policies": []}
+    for cid in found["tools"]:
+        try:
+            _shutil.rmtree(os.path.join(settings.connector_tools_dir(), cid))
+            removed["tools"].append(cid)
+        except OSError:
+            pass
+    for cid in found["policies"]:
+        try:
+            os.remove(os.path.join(settings.generated_policy_dir(), f"{cid}.yaml"))
+            removed["policies"].append(cid)
+        except OSError:
+            pass
+    if removed["tools"] or removed["policies"]:
+        # An egress policy going is a change to what the sandbox may reach, so it
+        # belongs in the ledger for the same reason a connector delete does.
+        audit.record("connector_prune", tools=removed["tools"],
+                     policies=removed["policies"])
+    return removed
 
 
 def tool_files(cid: str) -> List[dict]:

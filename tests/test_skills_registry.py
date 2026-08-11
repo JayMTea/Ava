@@ -225,3 +225,50 @@ def test_body_returns_markdown_sans_frontmatter(skills_env):
     assert "category:" not in b["body"] and "---" not in b["body"].split("\n")[0]
     assert skills.body("my-private")["body"].strip() == "# Private"
     assert skills.body("nonexistent") is None
+
+
+# ── A skill may only advertise tools that exist ──────────────────────────────
+# `_extract_tools` is a heuristic over prose, and a heuristic checked only
+# against itself invents things confidently. It did: `ava-devices/SKILL.md` names
+# `read_temperature` and `set_relay` as EXAMPLES of what a connector might
+# generate, and both were extracted and rendered to the owner as tools that skill
+# has. Neither exists in the 25-tool inventory.
+
+def test_the_shipped_skills_advertise_only_real_tools() -> None:
+    from ava_bridge import mcp_tools, skills
+
+    known = {t.name for t in mcp_tools.scan()}
+    assert known, "no MCP tools discovered at all"
+    skills.invalidate()
+    for s in skills.catalog():
+        for tool in s.get("tools") or []:
+            assert tool in known, (
+                f"skill {s['dir']!r} advertises {tool!r}, which no MCP server "
+                "registers — the owner is shown a capability that does not exist")
+
+
+def test_the_devices_skill_no_longer_claims_the_example_tools() -> None:
+    """Read the shipped file directly rather than the cached catalog, which
+    earlier tests in this module legitimately point at fixtures."""
+    import pathlib as _p
+
+    from ava_bridge import skills
+
+    md = (_p.Path(__file__).resolve().parents[1]
+          / "agent" / "skills" / "ava-devices" / "SKILL.md").read_text(encoding="utf-8")
+    front, body = skills._parse_frontmatter(md)
+    tools = skills._extract_tools(front.get("description", ""), body)
+
+    assert "read_temperature" not in tools
+    assert "set_relay" not in tools
+    assert "device_events" in tools, (
+        "the real tool was filtered out along with the examples")
+
+
+def test_an_unreadable_inventory_does_not_blank_every_skill(monkeypatch) -> None:
+    """"We could not look" must not read as "nothing is registered" — the same
+    rule the drift ladder follows."""
+    from ava_bridge import skills
+
+    monkeypatch.setattr(skills, "_KNOWN_TOOLS", frozenset())
+    assert skills._extract_tools("uses her get_weather tool", "") == ["get_weather"]

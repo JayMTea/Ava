@@ -152,6 +152,28 @@ def group_may(group: str, path: str) -> bool:
     return capability in INTERNAL_SCOPE_GROUPS.get(group, frozenset())
 
 
+def _told(message: str, code: str) -> JSONResponse:
+    """A coded error the AGENT must be able to read. HTTP 200, deliberately.
+
+    Every sandbox tool reaches the bridge through `agent/mcp_server_*/_lib.mjs`,
+    which calls `curl --fail`. Any non-2xx therefore makes curl exit 22 and the
+    JSON body is DISCARDED before the tool ever sees it — so a 400 that carefully
+    explains what went wrong arrives at Ava as `request failed: exit status 22`,
+    and she relays nothing useful to the owner.
+
+    Five routes already knew this and said so in their comments; the other
+    twenty-odd returned 4xx/5xx. The one that mattered most was the policy
+    management route, whose entire purpose was to tell Ava WHY an edit was
+    refused. CLAUDE.md states the rule; nothing enforced it, which is why
+    tests/test_internal_error_contract.py now does.
+
+    401 is the deliberate exception and stays non-2xx: an unauthenticated caller
+    is not Ava, so there is no one to explain anything to, and the middleware
+    already rejects before routing.
+    """
+    return JSONResponse({"error": message, "error_code": code}, status_code=200)
+
+
 # ── Inbound "app → Ava" ingest tokens ──────────────────────────────────────
 # A third-party device/sensor app is NOT a sandboxed MCP server, so it must not
 # hold the internal token or reach the /internal/* tool surface. Instead each
@@ -249,11 +271,11 @@ async def internal_connector(cid: str, action: str, request: Request):
     if action == "__call":
         name = (body.get("name") or "").strip()
         if not name:
-            return JSONResponse({"error": "missing tool name"}, status_code=400)
+            return _told("missing tool name", "bad_request")
         gate = await run_in_threadpool(approvals.gate, cid, name, body.get("arguments") or {})
         if gate not in ("skip", "approved"):
             audit.record("egress", connector=cid, tool=name, status=f"blocked:{gate}")
-            return JSONResponse({"error": f"not run — awaiting-approval {gate}"}, status_code=403)
+            return _told(f"not run — awaiting-approval {gate}", "awaiting_approval")
         data, status = await run_in_threadpool(
             _timed_connector_call, connectors.call_discovered, cid, name,
             body.get("arguments") or {})
@@ -261,7 +283,11 @@ async def internal_connector(cid: str, action: str, request: Request):
         # connector/MCP tool. This is the closest in-process egress signal we
         # have (the sandbox's network denials live in openclaw, not here).
         audit.record("egress", connector=cid, tool=name, status=status)
-        return JSONResponse(data, status_code=status)
+        # The APP's status is reported inside the body, not as ours: a 404 from
+        # someone else's API must not become a curl failure that hides it.
+        return JSONResponse({**data, "app_status": status} if isinstance(data, dict)
+                            else {"result": data, "app_status": status},
+                            status_code=200)
     # Merge query params (GET-style tools) with any JSON body so declared actions
     # get their args regardless of how the tool passed them.
     args = dict(request.query_params)
@@ -270,11 +296,13 @@ async def internal_connector(cid: str, action: str, request: Request):
     gate = await run_in_threadpool(approvals.gate, cid, action, args)
     if gate not in ("skip", "approved"):
         audit.record("egress", connector=cid, tool=action, status=f"blocked:{gate}")
-        return JSONResponse({"error": f"not run — awaiting-approval {gate}"}, status_code=403)
+        return _told(f"not run — awaiting-approval {gate}", "awaiting_approval")
     data, status = await run_in_threadpool(
         _timed_connector_call, connectors.call_action, cid, action, args)
     audit.record("egress", connector=cid, tool=action, status=status)
-    return JSONResponse(data, status_code=status)
+    return JSONResponse({**data, "app_status": status} if isinstance(data, dict)
+                        else {"result": data, "app_status": status},
+                        status_code=200)
 
 # ---- Internal capability surface (Ava's sandboxed MCP tools call back here) --
 # Token-gated; reached from the sandbox via host.openshell.internal:8096 under
@@ -284,6 +312,51 @@ def internal_documents(request: Request):
     if not authorized(request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     return documents_payload()
+
+@router.get("/internal/model")
+def internal_model(request: Request):
+    """Which brain Ava is actually thinking with.
+
+    `/internal/model` had a scope entry in ROUTE_SCOPES, auth tests, an egress
+    grant, and a shipped tool calling it — and no handler. `get_active_model`
+    404'd on every invocation, so the one question Ava could not answer about
+    herself was which model she was.
+
+    Two facts, deliberately kept apart, because conflating them is how the model
+    chip came to disagree with reality:
+
+      * `configured` is what `models.effective_brain()` resolves — the ONE
+        resolver, so this route cannot become a fourth independent derivation of
+        the same answer.
+      * `answering` is what actually served the last completion, observed from the
+        router rather than inferred from config. `null` means nothing has been
+        asked yet, which is a real state and not an error.
+    """
+    if not authorized(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    from . import agent as _agent
+    from . import models as _models
+    try:
+        brain = _models.effective_brain()
+    except Exception as e:  # noqa: BLE001 — a coded answer, never a 500
+        return _told(f"could not resolve the configured model: {e}",
+                     "model_unreadable")
+    try:
+        answering = _agent.which_model()
+    except Exception:  # noqa: BLE001 — best-effort; absence is a legal answer
+        answering = None
+    return {
+        "configured": {
+            "model": brain.get("model_id"), "label": brain.get("label"),
+            "engine": brain.get("engine"), "source": brain.get("source"),
+            "local": brain.get("local"),
+            # True when nothing named a brain and the router's first backend was
+            # taken by default — the owner has not chosen this.
+            "implicit": brain.get("implicit"),
+        },
+        "answering": answering,
+    }
+
 
 @router.post("/internal/extract")
 async def internal_extract(request: Request):
@@ -295,14 +368,14 @@ async def internal_extract(request: Request):
         body = {}
     file_id = str(body.get("file_id", "")).strip()
     if not file_id:
-        return JSONResponse({"error": "file_id required"}, status_code=400)
+        return _told("file_id required", "bad_request")
     try:
         max_chars = int(body.get("max_chars") or 0)
     except (TypeError, ValueError):
         max_chars = 0
     payload = extract_payload(file_id, max_chars)
     if payload is None:
-        return JSONResponse({"error": "no such document"}, status_code=404)
+        return _told("no such document", "not_found")
     return payload
 
 @router.get("/internal/devices/events")
@@ -390,7 +463,7 @@ async def internal_arch_describe(request: Request):
         body = {}
     name = str(body.get("name", "")).strip()
     if not name:
-        return JSONResponse({"error": "name required"}, status_code=400)
+        return _told("name required", "bad_request")
     return architecture.describe_payload(name)
 
 @router.post("/internal/architecture/check")
@@ -420,7 +493,7 @@ async def internal_arch_update(request: Request):
         body = {}
     new_yaml = body.get("yaml") or ""
     if not new_yaml.strip():
-        return JSONResponse({"error": "yaml required (the full new manifest)"}, status_code=400)
+        return _told("yaml required (the full new manifest)", "bad_request")
     commit = bool(body.get("commit", True))
     return architecture.update_payload(new_yaml, message=body.get("message"), commit=commit)
 
@@ -446,11 +519,12 @@ async def internal_learning_update(request: Request):
     content = body.get("content")
     
     if not script_type:
-        return JSONResponse({"error": "script_type required (daily, weekly, or both)"}, status_code=400)
+        return _told("script_type required (daily, weekly, or both)", "bad_request")
     
     result = learning_mgmt.update_digest_scripts(script_type, updates, content)
-    status = 200 if result.get("success") else 400
-    return JSONResponse(result, status_code=status)
+    if not result.get("success"):
+        result.setdefault("error_code", "refused")
+    return JSONResponse(result, status_code=200)   # see _told()
 
 @router.get("/internal/learning/state")
 async def internal_learning_state(request: Request, state_type: str = "all", limit: int = 10, patterns: bool = True):
@@ -514,17 +588,17 @@ async def internal_learning_chats(request: Request, action: str = "list", chat_i
     
     elif action == "read":
         if not chat_id:
-            return JSONResponse({"error": "chat_id required"}, status_code=400)
+            return _told("chat_id required", "bad_request")
         import json
         chats_file = Path('data/chats.json')
         if not chats_file.exists():
-            return JSONResponse({"error": "no chats"}, status_code=404)
+            return _told("no chats", "not_found")
         try:
             with open(chats_file) as f:
                 data = json.load(f)
             chat = data.get(chat_id)
             if not chat:
-                return JSONResponse({"error": "chat not found"}, status_code=404)
+                return _told("chat not found", "not_found")
             
             messages = chat.get("messages", [])[-limit:]
             if not metadata:
@@ -539,10 +613,10 @@ async def internal_learning_chats(request: Request, action: str = "list", chat_i
                 "messages": messages,
             })
         except Exception:  # noqa: BLE001 — surfaced to the client as a JSON error response
-            return JSONResponse({"error": "failed to read chat"}, status_code=500)
+            return _told("failed to read chat", "read_failed")
     
     else:
-        return JSONResponse({"error": "action must be 'list' or 'read'"}, status_code=400)
+        return _told("action must be 'list' or 'read'", "bad_request")
 
 @router.get("/internal/learning/code-turns")
 async def internal_learning_code_turns(request: Request, cycle_id: str = None, status_filter: str = "all", diffs: bool = True, reasoning: bool = True, limit: int = 10):
@@ -595,7 +669,7 @@ async def internal_logs(request: Request):
     try:
         body = await request.json()
     except:
-        return JSONResponse({"error": "invalid json"}, status_code=400)
+        return _told("invalid json", "bad_request")
     
     result = log_mgmt.read_logs(
         source=body.get("source", "systemd"),
@@ -606,8 +680,15 @@ async def internal_logs(request: Request):
         since=body.get("since", "1h")
     )
     
-    status = 200 if result.get("ok") else 400
-    return JSONResponse(result, status_code=status)
+    # Always 200: `curl --fail` in the sandbox helper would swallow the
+    
+    # body, and the body IS the answer. See _told().
+    
+    if not result.get("ok"):
+    
+        result.setdefault("error_code", "refused")
+    
+    return JSONResponse(result, status_code=200)
 
 @router.post("/internal/perf")
 async def internal_perf(request: Request):
@@ -627,8 +708,11 @@ async def internal_perf(request: Request):
         limit=body.get("limit", 50),
         summary=body.get("summary", True),
     )
-    status = 200 if result.get("ok") else 400
-    return JSONResponse(result, status_code=status)
+    # Always 200: `curl --fail` in the sandbox helper would swallow the
+    # body, and the body IS the answer. See _told().
+    if not result.get("ok"):
+        result.setdefault("error_code", "refused")
+    return JSONResponse(result, status_code=200)
 
 @router.get("/internal/config")
 async def internal_config_get(request: Request, component: str):
@@ -637,8 +721,11 @@ async def internal_config_get(request: Request, component: str):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     
     result = config_mgmt.read_config(component)
-    status = 200 if result.get("ok") else 400
-    return JSONResponse(result, status_code=status)
+    # Always 200: `curl --fail` in the sandbox helper would swallow the
+    # body, and the body IS the answer. See _told().
+    if not result.get("ok"):
+        result.setdefault("error_code", "refused")
+    return JSONResponse(result, status_code=200)
 
 @router.post("/internal/config")
 async def internal_config_post(request: Request):
@@ -649,7 +736,7 @@ async def internal_config_post(request: Request):
     try:
         body = await request.json()
     except:
-        return JSONResponse({"error": "invalid json"}, status_code=400)
+        return _told("invalid json", "bad_request")
     
     result = config_mgmt.update_config(
         component=body.get("component"),
@@ -657,8 +744,15 @@ async def internal_config_post(request: Request):
         reason=body.get("reason", "No reason provided")
     )
     
-    status = 200 if result.get("ok") else 400
-    return JSONResponse(result, status_code=status)
+    # Always 200: `curl --fail` in the sandbox helper would swallow the
+    
+    # body, and the body IS the answer. See _told().
+    
+    if not result.get("ok"):
+    
+        result.setdefault("error_code", "refused")
+    
+    return JSONResponse(result, status_code=200)
 
 @router.get("/internal/policies")
 async def internal_policies_get(request: Request):
@@ -676,28 +770,30 @@ async def internal_policy_read(request: Request, policy_name: str):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     
     result = policy_mgmt.read_policy(policy_name)
-    status = 200 if result.get("ok") else 400
-    return JSONResponse(result, status_code=status)
+    # Always 200: `curl --fail` in the sandbox helper would swallow the
+    # body, and the body IS the answer. See _told().
+    if not result.get("ok"):
+        result.setdefault("error_code", "refused")
+    return JSONResponse(result, status_code=200)
 
-@router.post("/internal/policies")
-async def internal_policies_post(request: Request):
-    """Allow Ava to update a policy."""
-    if not authorized(request):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-    
-    try:
-        body = await request.json()
-    except:
-        return JSONResponse({"error": "invalid json"}, status_code=400)
-    
-    result = policy_mgmt.update_policy(
-        name=body.get("name"),
-        updates=body.get("updates", {}),
-        reason=body.get("reason", "No reason provided")
-    )
-    
-    status = 200 if result.get("ok") else 400
-    return JSONResponse(result, status_code=status)
+# There is deliberately NO `POST /internal/policies`.
+#
+# One existed. It let the sandboxed agent rewrite `agent/policies/**` — the
+# egress rules that are the boundary containing it — and it had never worked
+# once: `policy_mgmt.update_policy` validated a `{name, rules}` shape while every
+# real policy is `{preset, network_policies}`, so every call was rejected by its
+# own validator. Nothing else called it: no hub route, no CLI, no owner UI.
+#
+# It also contradicted the layer above it. `access_policy.py` puts
+# `agent/policies/**` in the OWNER-APPROVAL tier, so the system's own stated
+# position is that a human confirms a policy edit. Two enforcement layers giving
+# opposite answers about one asset is worse than either answer alone, and the
+# only reason it was not exploitable is a bug.
+#
+# Reading policies stays — `list_policies` / `read_policy` are how Ava explains
+# what she is allowed to reach, and they change nothing. If the agent should ever
+# be able to PROPOSE a policy change, that is a feature to design against the
+# approvals gate, not a route to restore.
 
 @router.post("/internal/code-change")
 async def internal_code_change(request: Request):
@@ -716,7 +812,7 @@ async def internal_code_change(request: Request):
     try:
         body = await request.json()
     except Exception:  # noqa: BLE001
-        return JSONResponse({"error": "invalid json"}, status_code=400)
+        return _told("invalid json", "bad_request")
 
     request_text = (body.get("request") or "").strip()
     context_text = (body.get("context") or "").strip()
@@ -724,7 +820,7 @@ async def internal_code_change(request: Request):
     project = (body.get("project") or "ava").strip() or "ava"
     actor = (body.get("actor") or "Ava").strip() or "Ava"
     if not request_text:
-        return JSONResponse({"error": "empty request"}, status_code=400)
+        return _told("empty request", "bad_request")
 
     print(f"[ava-bridge] [DEBUG] /internal/code-change received: "
           f"project={project!r} actor={actor!r} request={request_text[:80]!r} files={files_list}", flush=True)
@@ -736,10 +832,11 @@ async def internal_code_change(request: Request):
             None, project, actor,
         )
     except Exception as e:  # noqa: BLE001
-        return JSONResponse({"error": f"code change failed: {e}"}, status_code=500)
+        return _told(f"code change failed: {e}", "code_change_failed")
 
-    status = 500 if result.get("status") == "error" else 200
-    return JSONResponse(result, status_code=status)
+    if result.get("status") == "error":
+        result.setdefault("error_code", "code_change_failed")
+    return JSONResponse(result, status_code=200)   # see _told()
 
 # Bespoke connected-app routes were removed: connected apps ride the generic
 # connector proxy (/internal/connector/<id>/* for agent tools, /apps/<id>/api/*
@@ -764,7 +861,7 @@ async def internal_web_search(request: Request):
     try:
         body = await request.json()
     except Exception:  # noqa: BLE001
-        return JSONResponse({"error": "invalid json"}, status_code=400)
+        return _told("invalid json", "bad_request")
     query = (body or {}).get("query") or (body or {}).get("q") or ""
     count = (body or {}).get("count")
     try:
@@ -772,9 +869,9 @@ async def internal_web_search(request: Request):
     except web_access.SearchUnreachableError as e:
         return {"error": str(e), "error_code": "web_search_down"}
     except web_access.WebAccessError as e:
-        return JSONResponse({"error": str(e)}, status_code=400)
+        return _told(str(e), "bad_request")
     except Exception as e:  # noqa: BLE001
-        return JSONResponse({"error": f"web search failed: {e}"}, status_code=502)
+        return _told(f"web search failed: {e}", "web_search_failed")
 
 @router.post("/internal/web/fetch")
 async def internal_web_fetch(request: Request):
@@ -786,12 +883,12 @@ async def internal_web_fetch(request: Request):
     try:
         body = await request.json()
     except Exception:  # noqa: BLE001
-        return JSONResponse({"error": "invalid json"}, status_code=400)
+        return _told("invalid json", "bad_request")
     url = (body or {}).get("url") or ""
     try:
         return JSONResponse(await run_in_threadpool(web_access.fetch, url))
     except web_access.WebAccessError as e:
         # Blocked/invalid target — a 400 so Ava learns the URL was refused.
-        return JSONResponse({"error": str(e)}, status_code=400)
+        return _told(str(e), "bad_request")
     except Exception as e:  # noqa: BLE001
-        return JSONResponse({"error": f"web fetch failed: {e}"}, status_code=502)
+        return _told(f"web fetch failed: {e}", "web_fetch_failed")

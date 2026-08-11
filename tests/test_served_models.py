@@ -99,3 +99,49 @@ def test_matching_is_otherwise_exact() -> None:
 def test_a_tagged_request_is_never_widened() -> None:
     """Asking for :7b must not be satisfied by :70b."""
     assert models.match_served("llama3.1:7b", ["llama3.1:70b"]) == ""
+
+
+# ── Ollama presence is an EXACT tag match ────────────────────────────────────
+# `tag.split(":")[0] in out.stdout` answered yes for `llama3.1:70b` when only
+# `llama3.1:8b` was pulled — the repo name matches and the size does not. The
+# required model then read as present, the pull was skipped, and the first chat
+# turn failed against a model the engine does not hold.
+
+_OLLAMA_LIST = """NAME                ID              SIZE      MODIFIED
+llama3.1:8b         abc123          4.7 GB    2 days ago
+qwen2.5-coder:7b    def456          4.4 GB    1 week ago
+"""
+
+
+def _present(tag, stdout=_OLLAMA_LIST, monkeypatch=None):
+    from unittest import mock
+
+    from ava_bridge import models
+
+    class _CP:
+        pass
+
+    cp = _CP()
+    cp.stdout = stdout
+    with mock.patch.object(models.shutil, "which", lambda _n: "/usr/bin/ollama"), \
+         mock.patch.object(models.subprocess, "run", lambda *a, **k: cp):
+        return models.ollama_present(tag, "/tmp/ollama")
+
+
+def test_a_different_size_of_the_same_repo_is_not_present() -> None:
+    assert _present("llama3.1:8b") is True
+    assert _present("llama3.1:70b") is False, (
+        "a 70B was reported present because an 8B of the same repo was pulled")
+
+
+def test_an_untagged_request_means_latest() -> None:
+    assert _present("llama3.1") is False, "llama3.1:latest is not pulled"
+    assert _present("mistral", stdout="NAME  ID\nmistral:latest  x\n") is True
+
+
+def test_a_name_appearing_elsewhere_on_the_line_does_not_match() -> None:
+    assert _present("abc123") is False, "matched an ID column, not a NAME"
+
+
+def test_nothing_pulled_is_not_present() -> None:
+    assert _present("llama3.1:8b", stdout="NAME  ID  SIZE  MODIFIED\n") is False

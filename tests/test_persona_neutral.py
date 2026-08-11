@@ -204,3 +204,48 @@ def test_presets_are_offered_as_text_not_stored_as_ids() -> None:
         assert p["text"].strip(), f"preset {p['id']} has no text to hand the owner"
     ids = [p["id"] for p in hub_persona.PRESETS]
     assert len(ids) == len(set(ids)), f"duplicate preset ids: {ids}"
+
+
+# ── The other four identity fields ───────────────────────────────────────────
+# `persona.style` was guarded; `brand.name`, `owner.name`, `owner.location` and
+# `owner.hardware` were not. Every hazard `clean_owner_text` documents applies to
+# all five identically — only style had actually bitten someone, so only style
+# got the guard.
+
+def test_a_yaml_bool_in_any_identity_field_does_not_abort_provisioning(tmp_path) -> None:
+    """Same failure as `style: yes`, four more ways in. Under install.sh's
+    `set -euo pipefail` an AttributeError here aborts AFTER the MCP servers are
+    already extracted into the sandbox."""
+    for block, key in (("brand", "name"), ("owner", "name"),
+                       ("owner", "location"), ("owner", "hardware")):
+        (tmp_path / "ava.yaml").write_text(
+            f"{block}:\n  {key}: yes\n", encoding="utf-8")
+        out = _render(_base_env(tmp_path))
+        assert "get_weather" in out, (
+            f"a non-string {block}.{key} broke the render")
+
+
+def test_an_identity_field_cannot_splice_a_template_block(tmp_path) -> None:
+    """Owner text is substituted BEFORE the block placeholders are filled, so a
+    `{{STYLE_BLOCK}}` in owner.name would be re-scanned and spliced — the same
+    vector `test_owner_style_cannot_splice_the_adult_clause` closes for style."""
+    (tmp_path / "ava.yaml").write_text(
+        'owner:\n  name: "Bob {{ADULT_BLOCK}}{{STYLE_BLOCK}}"\n', encoding="utf-8")
+    out = _render(_base_env(tmp_path))
+    assert "{{" not in out, "brace pair survived from owner.name"
+    assert "NSFW" not in out and "explicit" not in out.lower()
+
+
+def test_identity_fields_are_length_capped(tmp_path) -> None:
+    """The whole persona travels as one base64 argv positional. STYLE_MAX exists
+    to keep it under MAX_ARG_STRLEN, and four fields bypassed it — so the opaque
+    E2BIG it prevents was reachable through any of them."""
+    (tmp_path / "ava.yaml").write_text(
+        'owner:\n  location: "' + "x" * 50_000 + '"\n', encoding="utf-8")
+    out = _render(_base_env(tmp_path))
+    assert len(out) < 20_000, "an identity field is still unbounded"
+
+
+def test_an_empty_identity_field_still_falls_back_to_its_default(tmp_path) -> None:
+    (tmp_path / "ava.yaml").write_text('brand:\n  name: ""\n', encoding="utf-8")
+    assert "Ava" in _render(_base_env(tmp_path))

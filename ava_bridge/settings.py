@@ -333,8 +333,17 @@ PERSONA_FORMATS = ("chat", "markdown")
 
 
 def persona_style() -> str:
-    """The owner's own voice instruction. Empty = the model's own voice."""
-    return (get("persona.style", "", env="AVA_PERSONA_STYLE") or "").strip()
+    """The owner's own voice instruction. Empty = the model's own voice.
+
+    Type-guarded for the same reason `agent/render_persona.py` guards it: a YAML
+    scalar like `style: yes` parses as Python `True`, and `True.strip()` raises.
+    The renderer survived that and this did not, so one unquoted word in ava.yaml
+    turned `GET /api/hub/persona` into a 500 — the page you would go to in order
+    to fix it. Anything that is not a string reads as unset, which is what an
+    unusable value means.
+    """
+    raw = get("persona.style", "", env="AVA_PERSONA_STYLE")
+    return raw.strip() if isinstance(raw, str) else ""
 
 
 def persona_format() -> str:
@@ -351,14 +360,96 @@ def home(*parts: str) -> str:
     return str(p)
 
 
+# The generated trees, relative to an agent root. Kept as one list so the
+# migration below and install.sh's own merge cannot drift apart silently.
+GENERATED_AGENT_TREES = (("policies", "generated"),
+                         ("mcp_server_connectors", "apps"))
+
+
+def stranded_agent_state() -> list[str]:
+    """Generated agent material sitting at the legacy code-root path.
+
+    Read-only. `[]` when AVA_HOME *is* the code root, because then there is no
+    legacy path — it is the current one.
+    """
+    src_root = str(CODE_ROOT / "agent")
+    if os.path.realpath(agent_state_dir()) == os.path.realpath(src_root):
+        return []
+    out: list[str] = []
+    for parts in GENERATED_AGENT_TREES:
+        src = os.path.join(src_root, *parts)
+        try:
+            names = sorted(os.listdir(src))
+        except OSError:
+            continue
+        out.extend(os.path.join(*parts, n) for n in names)
+    return out
+
+
+def migrate_agent_state(write: bool = False) -> list[str]:
+    """Adopt generated agent material stranded at the legacy code-root path.
+
+    **Explicit only, and dry-run by default.** This must never run as a side
+    effect of an import, and it used to: `ensure_dirs()` called it, `ensure_dirs`
+    runs at `config` import, and `agent/install.sh` shells
+    `python3 -c 'from ava_bridge import config'` to resolve the bridge port. Any
+    process that imported the bridge under a DIFFERENT AVA_HOME therefore moved
+    the primary install's generated tools and policies into that other home —
+    a test harness, a `deploy/slot.sh` staging slot, or an `ava` invocation
+    pointed at a second home. It did exactly that during development, into a
+    temp directory that was then cleaned up.
+
+    The rule that came out of it: a secondary AVA_HOME is a READER of the code
+    root, never an heir to it. Only a human who has said "adopt these into this
+    home" can move them, so this is a command (`ava agent adopt-state --write`),
+    surfaced by `ava verify` when there is something to adopt.
+
+    Never raises — the worst case is that nothing moves. Anything already at the
+    destination wins and is left alone, so a re-run after a partial move finishes
+    it rather than clobbering it. Returns the relative paths moved (or, on a dry
+    run, the ones that would be).
+    """
+    dest_root = agent_state_dir()
+    src_root = str(CODE_ROOT / "agent")
+    if os.path.realpath(dest_root) == os.path.realpath(src_root):
+        return []
+
+    moved: list[str] = []
+    for parts in GENERATED_AGENT_TREES:
+        src = os.path.join(src_root, *parts)
+        if not os.path.isdir(src):
+            continue
+        dest = os.path.join(dest_root, *parts)
+        try:
+            entries = sorted(os.listdir(src))
+        except OSError:
+            continue
+        for name in entries:
+            target = os.path.join(dest, name)
+            if os.path.exists(target):
+                continue
+            if write:
+                try:
+                    os.makedirs(dest, exist_ok=True)
+                    _shutil.move(os.path.join(src, name), target)
+                except OSError:
+                    continue
+            moved.append(os.path.join(*parts, name))
+    return moved
+
+
 def ensure_dirs() -> None:
     # alloc_drivers/ is the documented drop-in point for a third-party engine
     # adapter (docs/ALLOCATION.md). It was never created and no doc said to
     # mkdir it, so the first step of "add support for your engine" was a
     # directory that did not exist.
     for d in (data_dir(), logs_dir(), upload_dir(), secrets_dir(),
-              brand_dir(), home("alloc_drivers")):
+              brand_dir(), home("alloc_drivers"),
+              generated_policy_dir(), connector_tools_dir()):
         os.makedirs(d, exist_ok=True)
+    # Deliberately does NOT adopt anything stranded at the legacy path. This runs
+    # at `config` import, so a process pointed at a second AVA_HOME would move
+    # the primary install's files into it — see migrate_agent_state().
 
 
 def data_dir() -> str:
@@ -375,6 +466,49 @@ def upload_dir() -> str:
 
 def secrets_dir() -> str:
     return get("paths.secrets", home("secrets"), env="AVA_SECRETS_DIR")
+
+
+def agent_state_dir() -> str:
+    """Where GENERATED agent material lives — tools and egress policies rendered
+    from connector manifests, not shipped source.
+
+    It mirrors the layout of the repo's `agent/` tree, because install.sh reads
+    the two together:
+
+        <agent_state>/policies/generated/<cid>.yaml
+        <agent_state>/mcp_server_connectors/apps/<cid>/*.mjs
+
+    These were written under CODE_ROOT, which is right on bare metal and wrong
+    everywhere else. Both paths are gitignored — they are runtime state produced
+    from a manifest, and the manifest already lives under AVA_HOME. In Docker
+    CODE_ROOT is an image layer, so `up --build` discarded every generated tool
+    and policy while keeping the manifests that produced them; on the full-agent
+    profile the bridge and the agent container have SEPARATE copies of /app, so
+    a connector's tools were written where the sandbox installer could never
+    read them. The manifests survived either way, which is what made it look
+    like nothing had happened.
+
+    Defaults to `$AVA_HOME/agent`. On a plain checkout AVA_HOME *is* the code
+    root, so this resolves to the same `agent/` directory as before and nothing
+    moves — the split only appears once the two roots differ, which is exactly
+    when it mattered.
+    """
+    return get("paths.agent_state", home("agent"), env="AVA_AGENT_STATE_DIR")
+
+
+def generated_policy_dir() -> str:
+    """Egress policies rendered from connector manifests."""
+    return os.path.join(agent_state_dir(), "policies", "generated")
+
+
+def connector_tools_dir(cid: str = "") -> str:
+    """Agent tools rendered from connector manifests; per-connector when given.
+
+    The `mcp_server_connectors/` prefix is load-bearing: install.sh discovers
+    servers by that directory name and merges this tree onto the shipped one.
+    """
+    base = os.path.join(agent_state_dir(), "mcp_server_connectors", "apps")
+    return os.path.join(base, cid) if cid else base
 
 
 def models_dir() -> str:
@@ -600,6 +734,44 @@ def _refuse_if_broken() -> None:
     return cfg
 
 
+def atomic_write(path: str | Path, body: str, mode: int | None = None) -> None:
+    """Replace a file's contents in one step, or not at all.
+
+    Write to a sibling temp file, fsync it, then `os.replace` — so a crash or a
+    full disk leaves the OLD file intact rather than a truncated one. The temp
+    file is removed on any failure, including a KeyboardInterrupt, which is why
+    the handler catches BaseException.
+
+    This pattern was correct in fourteen places and copy-pasted into every one of
+    them, while the three writes that rewrite a CONNECTOR MANIFEST — the file the
+    owner hand-edits — used a plain truncating `open(..., "w")`. A crash mid-write
+    there left a half-manifest that the loader then refuses, which takes the
+    connector out of the UI that could fix it. One helper so the next writer
+    inherits the guarantee instead of remembering it.
+
+    `mode` chmods the temp file before the rename, so the permissions land with
+    the content and there is never a window where the file exists world-readable.
+    """
+    path = Path(path)
+    os.makedirs(path.parent, exist_ok=True)
+    fd, tmp = _tempfile.mkstemp(dir=str(path.parent),
+                                prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(body)
+            fh.flush()
+            os.fsync(fh.fileno())
+        if mode is not None:
+            os.chmod(tmp, mode)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
 def _write_config(cfg: dict) -> None:
     """Atomically replace ava.yaml, keeping one backup.
 
@@ -608,28 +780,14 @@ def _write_config(cfg: dict) -> None:
     the owner's settings. 0600 because ava.yaml carries the owner's name and
     location, and may carry backend API bases.
     """
-    os.makedirs(CONFIG_PATH.parent, exist_ok=True)
     if CONFIG_PATH.is_file():
         try:
             _shutil.copy2(CONFIG_PATH, CONFIG_PATH.with_suffix(".yaml.bak"))
         except OSError:
             pass                        # a missing backup must not block the save
-    body = yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True)
-    fd, tmp = _tempfile.mkstemp(dir=str(CONFIG_PATH.parent),
-                                prefix=".ava.yaml.", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(body)
-            fh.flush()
-            os.fsync(fh.fileno())
-        os.chmod(tmp, 0o600)
-        os.replace(tmp, CONFIG_PATH)
-    except BaseException:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
+    atomic_write(CONFIG_PATH,
+                 yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True),
+                 mode=0o600)
 
 
 def save_patch(patch: dict) -> dict:
