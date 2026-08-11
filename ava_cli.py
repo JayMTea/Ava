@@ -1406,7 +1406,39 @@ ensure_model_dirs = models.ensure_dirs
 _hf_present = models.hf_present
 
 
+#: The floor below which NO model in the manifest can land. Deliberately not a
+#: per-model estimate: the manifest carries no sizes, the vendor CLIs do not
+#: report one before they start, and inventing tier→GB numbers would produce a
+#: confident refusal built on a guess. This is the fact we do have — under 2 GiB
+#: free, every pull fails, and it fails deep inside somebody else's CLI with a
+#: partial download already on disk.
+_DISK_FLOOR = 2 << 30
+
+
+def _disk_gate(where: str, label: str) -> int:
+    """0 to proceed. Prints the free space either way, because the pull that is
+    about to run may be tens of GB and the owner deserves to see the number
+    BEFORE the progress bar rather than after the failure.
+
+    The GGUF path has had a precise precheck (it reads content-length) since it
+    was written; HF and Ollama had none at all, which is the inconsistency this
+    closes as far as the available facts allow.
+    """
+    try:
+        free = shutil.disk_usage(where).free
+    except OSError:
+        return 0    # cannot measure -> do not block; the CLI will say if it fails
+    if free < _DISK_FLOOR:
+        print(f"  {BAD} only {free >> 20} MiB free at {where} — no model fits. "
+              f"Free some space, or point models_dir at another disk.")
+        return 1
+    print(f"    ({free >> 30} GiB free at {where}; {label} downloads can be large)")
+    return 0
+
+
 def _pull_hf(model_id: str, hf_dir: str) -> int:
+    if _disk_gate(hf_dir, "Hugging Face"):
+        return 1
     env = {**os.environ, "HF_HOME": hf_dir}
     for exe in ("hf", "huggingface-cli"):
         if shutil.which(exe):
@@ -1427,6 +1459,8 @@ _ollama_present = models.ollama_present
 def _pull_ollama(tag: str, ollama_dir: str) -> int:
     if not shutil.which("ollama"):
         print(f"  {WARN} ollama not installed — https://ollama.com/download")
+        return 1
+    if _disk_gate(ollama_dir, "Ollama"):
         return 1
     print(f"  $ OLLAMA_MODELS={ollama_dir} ollama pull {tag}")
     return subprocess.call(["ollama", "pull", tag], env=_ollama_env(ollama_dir))

@@ -156,5 +156,43 @@ class WizardHardwareNoteTests(unittest.TestCase):
         self.assertEqual(out["note_code"], "apple-silicon")
 
 
+class DiskPrecheckTests(unittest.TestCase):
+    """A full disk must fail BEFORE a multi-GB pull, not inside a vendor CLI.
+
+    The GGUF path has read content-length and prechecked since it was written.
+    HF and Ollama had no check at all, so a laptop with no room left ran
+    `huggingface-cli download` and found out several minutes and one partial
+    download later, in somebody else's error message.
+    """
+
+    def _free(self, nbytes):
+        return mock.patch.object(ava_cli.shutil, "disk_usage",
+                                 return_value=mock.Mock(free=nbytes))
+
+    def test_a_full_disk_stops_the_pull(self):
+        with self._free(100 << 20):                      # 100 MiB
+            self.assertEqual(ava_cli._disk_gate("/models", "Ollama"), 1)
+
+    def test_room_to_work_proceeds(self):
+        with self._free(80 << 30):
+            self.assertEqual(ava_cli._disk_gate("/models", "Ollama"), 0)
+
+    def test_an_unmeasurable_path_never_blocks(self):
+        """Refusing on a measurement we could not take would be the same
+        inference error the drift ladder exists to avoid: not knowing is not the
+        same as knowing there is no room."""
+        with mock.patch.object(ava_cli.shutil, "disk_usage",
+                               side_effect=OSError("no such device")):
+            self.assertEqual(ava_cli._disk_gate("/models", "HF"), 0)
+
+    def test_both_vendor_paths_are_gated(self):
+        with self._free(100 << 20):
+            self.assertEqual(ava_cli._pull_hf("org/model", "/models/hf"), 1)
+            with mock.patch.object(ava_cli.shutil, "which", return_value="/usr/bin/ollama"), \
+                 mock.patch.object(ava_cli.subprocess, "call") as call:
+                self.assertEqual(ava_cli._pull_ollama("llama3.1:8b", "/models/ollama"), 1)
+            call.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

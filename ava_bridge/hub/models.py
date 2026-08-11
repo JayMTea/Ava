@@ -69,13 +69,20 @@ def _run_pull(args: list[str]) -> None:
         for line in proc.stdout:
             line = ansi.sub("", line).rstrip()
             if line:
-                _pull_job["log"].append(line)
+                # Under the lock like every other write to this job. `deque` is
+                # append-safe, but the status route does `list(_pull_job["log"])`
+                # and iterating a deque another thread is appending to raises
+                # "deque mutated during iteration" — a 500 on the poll that draws
+                # the progress the owner is watching, at the moment of most
+                # traffic through it.
+                with _pull_lock:
+                    _pull_job["log"].append(line)
         rc = proc.wait()
         with _pull_lock:
             _pull_job.update(rc=rc, status="done" if rc == 0 else "error")
     except Exception as e:  # noqa: BLE001
-        _pull_job["log"].append(f"pull failed: {e}")
         with _pull_lock:
+            _pull_job["log"].append(f"pull failed: {e}")
             _pull_job.update(rc=1, status="error")
 
 @router.post("/models/pull")
@@ -116,11 +123,12 @@ def _run_bench(prompt: str, only, max_tokens: int) -> None:
         # backend finishes, with a live "fastest" leader.
         ok = [r for r in partial if r.get("ok")]
         winner = max(ok, key=lambda r: r["tok_s"])["id"] if ok else None
-        _bench_job["result"] = {
-            "prompt": prompt, "max_tokens": max_tokens,
-            "results": list(partial), "winner": winner,
-            "backend_count": total, "pending": total - len(partial),
-        }
+        with _bench_lock:
+            _bench_job["result"] = {
+                "prompt": prompt, "max_tokens": max_tokens,
+                "results": list(partial), "winner": winner,
+                "backend_count": total, "pending": total - len(partial),
+            }
 
     try:
         result = bench.bench(prompt, only=only, max_tokens=max_tokens,
