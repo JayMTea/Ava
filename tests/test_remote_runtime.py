@@ -149,3 +149,55 @@ class RemoteRuntimeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RemoteObservabilityTests(unittest.TestCase):
+    """The remote runtime can answer the drift probes, and used to answer none.
+
+    `read_file`, `digest`, `glob_digest` and `tree_digests` are each a shell
+    command plus parsing, and they lived on NemoClawRuntime — so RemoteRuntime
+    inherited four no-ops. On `agent.runtime: remote` the drift report then had
+    no evidence source for persona, servers or skills and reported `unknown` for
+    all three permanently, with nothing saying why. They live on the base class
+    now, over `exec()`, which RemoteRuntime proxies to a shim wrapping the same
+    NemoClawRuntime.
+    """
+
+    def _rt(self, out: str):
+        from ava_bridge.runtime.remote import RemoteRuntime
+
+        rt = RemoteRuntime()
+        return rt, mock.patch.object(rt, "exec", return_value=out)
+
+    def test_it_can_read_a_file(self):
+        rt, patched = self._rt("hello")
+        with patched:
+            self.assertEqual(rt.read_file("/sandbox/x"), "hello")
+
+    def test_it_can_digest_paths(self):
+        rt, patched = self._rt(f"{'a' * 64}  /sandbox/x\n")
+        with patched:
+            self.assertEqual(rt.digest(["/sandbox/x"]), {"/sandbox/x": "a" * 64})
+
+    def test_it_can_fold_a_tree(self):
+        rt, patched = self._rt(f"{'b' * 64}  /sandbox/s/_server.mjs\n")
+        with patched:
+            got = rt.tree_digests(["/sandbox/s"])
+        self.assertIsInstance(got, dict)
+        self.assertIn("/sandbox/s", got)
+
+    def test_an_exec_that_answers_nothing_is_unknown_not_empty(self):
+        """The honesty rule survives the move: `{}` would read as "the sandbox
+        holds nothing", which is a to-do list."""
+        rt, patched = self._rt("")
+        with patched:
+            self.assertIsNone(rt.tree_digests(["/sandbox/s"]))
+
+    def test_the_direct_floor_still_answers_nothing(self):
+        """It has no sandbox; `exec` returns '' and every probe follows."""
+        from ava_bridge.runtime.direct import DirectRuntime
+
+        d = DirectRuntime()
+        self.assertIsNone(d.read_file("/x"))
+        self.assertEqual(d.digest(["/x"]), {})
+        self.assertIsNone(d.tree_digests(["/x"]))

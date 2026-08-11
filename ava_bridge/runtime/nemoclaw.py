@@ -9,7 +9,6 @@ GPU/box. All CLI specifics (flags, sandbox paths, JSON keys) live here.
 from __future__ import annotations
 
 import base64
-import hashlib
 import json
 import os
 import re
@@ -451,39 +450,6 @@ class NemoClawRuntime(AgentRuntime):
         return {"live": False,
                 "reason": f"the sandbox container for '{self.sandbox}' is not running"}
 
-    def read_file(self, path: str, timeout: int = 20) -> str | None:
-        out = self.exec(f"cat -- {shlex.quote(path)}", timeout=timeout)
-        return out if out else None
-
-    def digest(self, paths: list[str], timeout: int = 30) -> dict[str, str]:
-        """{path: sha256} for files inside the sandbox, in ONE exec.
-
-        `sha256sum` prints `<sum>␣␣<path>`; a missing file goes to stderr (dropped)
-        so it simply does not appear in the result — which the drift ladder reads
-        as `undeployed`, correctly.
-        """
-        if not paths:
-            return {}
-        quoted = " ".join(shlex.quote(p) for p in paths)
-        out = self.exec(f"sha256sum -- {quoted} 2>/dev/null", timeout=timeout)
-        found: dict[str, str] = {}
-        for line in (out or "").splitlines():
-            parts = line.strip().split(None, 1)
-            if len(parts) == 2 and len(parts[0]) == 64:
-                found[parts[1].strip()] = parts[0]
-        return found
-
-    def glob_digest(self, pattern: str, timeout: int = 30) -> dict[str, str]:
-        """Like digest(), but for a shell glob — for skills, whose in-sandbox
-        directory is the SKILL.md frontmatter `name:`, not the repo directory."""
-        out = self.exec(f"sha256sum -- {pattern} 2>/dev/null", timeout=timeout)
-        found: dict[str, str] = {}
-        for line in (out or "").splitlines():
-            parts = line.strip().split(None, 1)
-            if len(parts) == 2 and len(parts[0]) == 64:
-                found[parts[1].strip()] = parts[0]
-        return found
-
     def remove_policy(self, preset: str, timeout: int = 60) -> bool:
         """`nemoclaw <sandbox> policy-remove <preset> --yes`.
 
@@ -501,60 +467,6 @@ class NemoClawRuntime(AgentRuntime):
         rc, _out = self._run(self._base("policy-remove", preset, "--yes"),
                              timeout=timeout)
         return rc == 0
-
-    def tree_digests(self, roots: list[str],
-                     timeout: int = 30) -> dict[str, str] | None:
-        """Fold whole sandbox directories the same way `provision.tree_digest()`
-        folds the repo side: sorted `relpath\\0sha256` lines, hashed.
-
-        This is the sandbox half of a promise `tree_digest`'s own docstring
-        already made — install.sh does `rm -rf "$DEST"` before extracting
-        `tar czf - -C "$src" .`, so the sandbox copy is a byte-exact mirror of
-        the source tree and the two folds are comparable. Without this half, the
-        repo's TREE digest was being compared against the sandbox's ENTRY-POINT
-        digest, which can never match: every server read `stale` forever, so the
-        pending count never cleared and the post-apply assert vetoed every
-        successful run.
-
-        One exec for every root. A root that does not exist contributes no
-        lines and simply does not appear in the result, which the caller reads
-        as absent. Empty output is indistinguishable from "the exec did not
-        run", so it yields `None` (unknown) rather than an empty mapping that
-        would read as "the sandbox holds nothing".
-
-        `find -type f` tests the link itself, so a symlink inside a server dir
-        would be folded on the repo side and skipped here — permanent, loud
-        drift rather than a silent wrong answer. Nothing ships one today.
-        """
-        roots = [r.rstrip("/") for r in roots if r]
-        if not roots:
-            return {}
-        quoted = " ".join(shlex.quote(r) for r in roots)
-        try:
-            out = self.exec(
-                f"find {quoted} -type f -exec sha256sum -- {{}} + 2>/dev/null",
-                timeout=timeout)
-        except Exception:  # noqa: BLE001 — a failed probe is `unknown`, never `{}`
-            return None
-        if not (out or "").strip():
-            return None
-
-        # Longest root first so nested roots attribute to the deepest one.
-        order = sorted(roots, key=len, reverse=True)
-        lines: dict[str, list[str]] = {}
-        for line in out.splitlines():
-            parts = line.strip().split(None, 1)
-            if len(parts) != 2 or len(parts[0]) != 64:
-                continue
-            sha, path = parts[0], parts[1].strip()
-            for root in order:
-                if path.startswith(root + "/"):
-                    lines.setdefault(root, []).append(
-                        f"{path[len(root) + 1:]}\0{sha}")
-                    break
-        return {root: hashlib.sha256(
-            "\n".join(sorted(rows)).encode("utf-8")).hexdigest()
-            for root, rows in lines.items()}
 
     def _stream(self, argv: list[str], timeout: int, on_line,
                 env: dict[str, str] | None = None) -> tuple[int, str]:

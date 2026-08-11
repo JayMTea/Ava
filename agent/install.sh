@@ -213,6 +213,8 @@ fi
 _POLTMP="$(mktemp -d)"
 trap 'rm -rf "$_POLTMP"' EXIT
 POLICY_FAILED=0
+POLICY_TOTAL=0
+SERVER_FAILED=0
 
 if _want policies; then
 # $STATE/policies/generated is where `ava connector policies --write` puts them
@@ -238,6 +240,7 @@ for poldir in "$HERE/policies" "$HERE/policies/generated" \
     # seven or the MCP deploy that follows. But it is REPORTED now — this used
     # to be a bare `|| true`, which is why ava-email-read-only sat unapplied
     # with nothing in Ava saying so.
+    POLICY_TOTAL=$((POLICY_TOTAL + 1))
     if _run_cli "$NEMOCLAW" "$SANDBOX" policy-add --from-file "$_send" --yes; then
       _step policies "$(basename "$pol" .yaml)" ok
     else
@@ -250,6 +253,17 @@ done
 if [ "$POLICY_FAILED" -gt 0 ]; then
   echo "[ava] WARNING: ${POLICY_FAILED} egress polic(ies) did not apply — the tools that" >&2
   echo "[ava]          depend on them will be blocked by the sandbox's deny-by-default." >&2
+fi
+# ONE rejected policy must not strand the other seven or the deploy that follows
+# — that stays deliberately non-fatal. But EVERY policy failing is not a partial
+# outcome, it is the gateway rejecting the whole egress configuration, and this
+# script exited 0 on it: `nemoclaw.provision()` then recorded `step("deploy",
+# ok)` and only the post-hoc verify veto noticed anything was wrong.
+if [ "$POLICY_TOTAL" -gt 0 ] && [ "$POLICY_FAILED" -eq "$POLICY_TOTAL" ]; then
+  echo "[ava] ERROR: every egress policy was rejected (${POLICY_TOTAL}/${POLICY_TOTAL})." >&2
+  echo "[ava]        The sandbox has no egress configuration from this checkout," >&2
+  echo "[ava]        so deny-by-default will block every tool call." >&2
+  exit 1
 fi
 fi  # _want policies
 
@@ -385,11 +399,44 @@ for cat in "${CATS[@]}"; do
     echo "[ava]   merged generated material from $gen"
   fi
   B64="$(tar czf - -C "$payload" . | base64 -w0)"
-  # Simple deployment: extract to dest, check syntax
-  CMD='rm -rf "$DEST"; mkdir -p "$DEST"; echo "$0" | base64 -d | tar xzf - -C "$DEST"; node --check "$DEST/_server.mjs" && echo "[ava] ok: $NAME" || echo "[ava] WARNING: $NAME (syntax error)"'
-  _run_cli "$NEMOCLAW" "$SANDBOX" exec --no-tty -- env DEST="$dest" NAME="$name" bash -c "$CMD" "$B64"
-  _step servers "$name" ok
+  # Stage, VALIDATE, then swap — never destroy the live copy first.
+  #
+  # This was `rm -rf "$DEST"; mkdir -p "$DEST"; tar xzf`, so the running server
+  # was deleted before its replacement existed: a dropped exec, a full disk or an
+  # OOM in that window left openclaw.json registering a directory with no code in
+  # it. And `node --check` ran AFTER the extraction, so a syntactically broken
+  # push replaced a working server and printed a WARNING while the sandbox
+  # quietly lost those tools.
+  #
+  # A rename is the closest thing to atomic available over an exec, and checking
+  # before it means a bad payload leaves the previous copy serving. That is the
+  # rollback this script never had.
+  CMD='set -eo pipefail
+       rm -rf "$DEST.new" "$DEST.old"
+       mkdir -p "$DEST.new"
+       echo "$0" | base64 -d | tar xzf - -C "$DEST.new"
+       node --check "$DEST.new/_server.mjs"
+       [ -d "$DEST" ] && mv "$DEST" "$DEST.old" || true
+       mv "$DEST.new" "$DEST"
+       rm -rf "$DEST.old"
+       echo "[ava] ok: $NAME"'
+  if _run_cli "$NEMOCLAW" "$SANDBOX" exec --no-tty -- env DEST="$dest" NAME="$name" bash -c "$CMD" "$B64"; then
+    _step servers "$name" ok
+  else
+    # Non-fatal, and REPORTED. A bare `_run_cli` here aborted the whole script
+    # under `set -e`, so one server failing to push skipped registration, the
+    # persona and every skill — the half-installed runtime §0 exists to prevent,
+    # arriving from the other end. The previous copy is still serving because the
+    # swap never happened.
+    echo "[ava] WARNING: $name was NOT updated (previous copy left in place)" >&2
+    _step servers "$name" fail "push or syntax check failed; previous copy kept"
+    SERVER_FAILED=$((SERVER_FAILED + 1))
+  fi
 done
+if [ "$SERVER_FAILED" -gt 0 ]; then
+  echo "[ava] WARNING: ${SERVER_FAILED} MCP server(s) kept their previous copy —" >&2
+  echo "[ava]          the sandbox is running older tools than this checkout." >&2
+fi
 else
   echo "[ava] skipping MCP server byte push (scope=$ONLY)"
 fi

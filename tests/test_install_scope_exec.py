@@ -236,11 +236,24 @@ class ScopedInstallTests(unittest.TestCase):
         import io
         import tarfile
 
+        # Scan the WHOLE log from the marker forward, not one line: the deploy
+        # command is multi-line now (stage -> validate -> swap), so the stub's
+        # `printf '%s\n' "$*"` spreads a single call over several lines and the
+        # payload is no longer the last token of the line that names DEST.
         marker = f"DEST=/sandbox/.openclaw/mcp_server_{category}"
-        line = next((c for c in calls if marker in c), "")
-        self.assertTrue(line, f"no byte push for mcp_server_{category}")
-        blob = line.split()[-1]
-        raw = gzip.decompress(base64.b64decode(blob))
+        text = "\n".join(calls)
+        at = text.find(marker)
+        self.assertGreater(at, -1, f"no byte push for mcp_server_{category}")
+        raw = None
+        for tok in text[at:].split():
+            if len(tok) < 64:
+                continue
+            try:
+                raw = gzip.decompress(base64.b64decode(tok))
+                break
+            except Exception:  # not the payload, keep looking
+                continue
+        self.assertIsNotNone(raw, "no gzip payload followed the DEST marker")
         with tarfile.open(fileobj=io.BytesIO(raw)) as tf:
             return tf.getnames()
 
@@ -301,6 +314,58 @@ class ScopedInstallTests(unittest.TestCase):
         self.assertEqual(self._count(calls, "policy-add"), baseline,
                          "the same policy directory was walked twice")
 
+
+    # ---- the deploy is staged, validated, then swapped ---------------------
+    # `rm -rf "$DEST"; mkdir -p "$DEST"; tar xzf` destroyed the running server
+    # before its replacement existed, and `node --check` ran AFTER that — so a
+    # syntactically broken push replaced a working server and printed a WARNING
+    # while the sandbox quietly lost those tools. There was no rollback because
+    # there was nothing left to roll back to.
+
+    def _deploy_cmd(self, calls: list[str]) -> str:
+        text = "\n".join(calls)
+        at = text.find("DEST=/sandbox/.openclaw/mcp_server_")
+        self.assertGreater(at, -1, "no server byte push happened")
+        return text[at:at + 2000]
+
+    def test_the_live_server_is_not_removed_before_its_replacement_exists(self):
+        _p, calls = self._run()
+        cmd = self._deploy_cmd(calls)
+        self.assertNotIn('rm -rf "$DEST";', cmd,
+                         "the live server directory is deleted before the new "
+                         "bytes have landed")
+        self.assertIn('"$DEST.new"', cmd, "the payload is not staged")
+
+    def test_the_syntax_check_gates_the_swap(self):
+        _p, calls = self._run()
+        cmd = self._deploy_cmd(calls)
+        check = cmd.index("node --check")
+        swap = cmd.index('mv "$DEST.new" "$DEST"')
+        self.assertLess(check, swap,
+                        "a broken server is moved into place and only then "
+                        "checked, so the check cannot protect anything")
+
+    def test_a_failed_push_does_not_abort_the_rest_of_the_deploy(self):
+        """A bare `_run_cli` under `set -e` aborted the whole script, so one
+        server failing to push skipped registration, the persona and every
+        skill — the half-installed runtime §0 exists to prevent, from the other
+        end."""
+        sh = (AGENT / "install.sh").read_text(encoding="utf-8")
+        deploy = sh[sh.index("# --- 3. Deploy MCP servers"):sh.index("# --- 4 & 5.")]
+        self.assertIn("SERVER_FAILED", deploy,
+                      "a failed server push is not counted")
+        self.assertIn("_step servers", deploy)
+        self.assertIn("fail", deploy,
+                      "the step channel reports `ok` no matter what happened")
+
+    def test_every_policy_failing_is_not_a_zero_exit(self):
+        """One rejected policy stays non-fatal on purpose. EVERY policy failing
+        is the gateway rejecting the whole egress configuration, and the script
+        exited 0 on it — so `provision()` recorded a green deploy step and only
+        the post-hoc verify veto noticed."""
+        sh = (AGENT / "install.sh").read_text(encoding="utf-8")
+        self.assertIn("POLICY_TOTAL", sh)
+        self.assertRegex(sh, r'POLICY_FAILED"?\s*-eq\s*"?\$POLICY_TOTAL')
 
 if __name__ == "__main__":
     unittest.main()

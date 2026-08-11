@@ -16,6 +16,8 @@ explicit opt-out, not a silent default — see config `agent.required`.
 """
 from __future__ import annotations
 
+import hashlib
+import shlex
 from abc import ABC, abstractmethod
 
 
@@ -90,17 +92,104 @@ class AgentRuntime(ABC):
         """
         return {"live": self.available(), "reason": ""}
 
+    # ---- sandbox probes ----------------------------------------------------
+    # Implemented HERE, over `exec()`, rather than on NemoClawRuntime.
+    #
+    # Every one is a shell command plus parsing, so any runtime that can exec
+    # into its sandbox can answer them — and RemoteRuntime can: its `exec`
+    # proxies to a shim that wraps the same NemoClawRuntime. Living on the
+    # concrete adapter, they were inherited as no-ops instead, so on
+    # `agent.runtime: remote` the drift report had no evidence source for
+    # persona, servers or skills and reported `unknown` for all three
+    # permanently, with nothing anywhere saying why. A "faithful network mirror"
+    # that cannot answer three of four scopes is not one.
+
     def read_file(self, path: str, timeout: int = 20) -> str | None:
-        """Read a file from inside the sandbox. None when unsupported."""
-        return None
+        out = self.exec(f"cat -- {shlex.quote(path)}", timeout=timeout)
+        return out if out else None
 
     def digest(self, paths: list[str], timeout: int = 30) -> dict[str, str]:
-        """{path: sha256} for files inside the sandbox. {} when unsupported.
+        """{path: sha256} for files inside the sandbox, in ONE exec.
 
-        Takes a LIST so an implementation can answer every path of every scope in
-        one round trip rather than one exec per file.
+        `sha256sum` prints `<sum>␣␣<path>`; a missing file goes to stderr (dropped)
+        so it simply does not appear in the result — which the drift ladder reads
+        as `undeployed`, correctly.
         """
-        return {}
+        if not paths:
+            return {}
+        quoted = " ".join(shlex.quote(p) for p in paths)
+        out = self.exec(f"sha256sum -- {quoted} 2>/dev/null", timeout=timeout)
+        found: dict[str, str] = {}
+        for line in (out or "").splitlines():
+            parts = line.strip().split(None, 1)
+            if len(parts) == 2 and len(parts[0]) == 64:
+                found[parts[1].strip()] = parts[0]
+        return found
+
+    def glob_digest(self, pattern: str, timeout: int = 30) -> dict[str, str]:
+        """Like digest(), but for a shell glob — for skills, whose in-sandbox
+        directory is the SKILL.md frontmatter `name:`, not the repo directory."""
+        out = self.exec(f"sha256sum -- {pattern} 2>/dev/null", timeout=timeout)
+        found: dict[str, str] = {}
+        for line in (out or "").splitlines():
+            parts = line.strip().split(None, 1)
+            if len(parts) == 2 and len(parts[0]) == 64:
+                found[parts[1].strip()] = parts[0]
+        return found
+
+    def tree_digests(self, roots: list[str],
+                     timeout: int = 30) -> dict[str, str] | None:
+        """Fold whole sandbox directories the same way `provision.tree_digest()`
+        folds the repo side: sorted `relpath\\0sha256` lines, hashed.
+
+        This is the sandbox half of a promise `tree_digest`'s own docstring
+        already made — install.sh does `rm -rf "$DEST"` before extracting
+        `tar czf - -C "$src" .`, so the sandbox copy is a byte-exact mirror of
+        the source tree and the two folds are comparable. Without this half, the
+        repo's TREE digest was being compared against the sandbox's ENTRY-POINT
+        digest, which can never match: every server read `stale` forever, so the
+        pending count never cleared and the post-apply assert vetoed every
+        successful run.
+
+        One exec for every root. A root that does not exist contributes no
+        lines and simply does not appear in the result, which the caller reads
+        as absent. Empty output is indistinguishable from "the exec did not
+        run", so it yields `None` (unknown) rather than an empty mapping that
+        would read as "the sandbox holds nothing".
+
+        `find -type f` tests the link itself, so a symlink inside a server dir
+        would be folded on the repo side and skipped here — permanent, loud
+        drift rather than a silent wrong answer. Nothing ships one today.
+        """
+        roots = [r.rstrip("/") for r in roots if r]
+        if not roots:
+            return {}
+        quoted = " ".join(shlex.quote(r) for r in roots)
+        try:
+            out = self.exec(
+                f"find {quoted} -type f -exec sha256sum -- {{}} + 2>/dev/null",
+                timeout=timeout)
+        except Exception:  # noqa: BLE001 — a failed probe is `unknown`, never `{}`
+            return None
+        if not (out or "").strip():
+            return None
+
+        # Longest root first so nested roots attribute to the deepest one.
+        order = sorted(roots, key=len, reverse=True)
+        lines: dict[str, list[str]] = {}
+        for line in out.splitlines():
+            parts = line.strip().split(None, 1)
+            if len(parts) != 2 or len(parts[0]) != 64:
+                continue
+            sha, path = parts[0], parts[1].strip()
+            for root in order:
+                if path.startswith(root + "/"):
+                    lines.setdefault(root, []).append(
+                        f"{path[len(root) + 1:]}\0{sha}")
+                    break
+        return {root: hashlib.sha256(
+            "\n".join(sorted(rows)).encode("utf-8")).hexdigest()
+            for root, rows in lines.items()}
 
     def remove_policy(self, preset: str, timeout: int = 60) -> bool:
         """Withdraw one applied egress policy. False when unsupported.
@@ -112,23 +201,6 @@ class AgentRuntime(ABC):
         the routes until someone rebuilt it.
         """
         return False
-
-    def tree_digests(self, roots: list[str],
-                     timeout: int = 30) -> dict[str, str] | None:
-        """{root: fold} for whole directories inside the sandbox, comparably to
-        `provision.tree_digest()` on the repo side.
-
-        `None` — not `{}` — when this runtime cannot look inside. The two are a
-        different answer to the drift ladder: `{}` means "I looked and the
-        sandbox holds nothing", which reads as `undeployed` and puts a to-do list
-        in front of the owner; `None` means "no evidence source", which reads as
-        `unknown` and counts as nothing. A runtime that cannot fold a tree must
-        say so rather than imply an empty one.
-
-        Takes a LIST for the same reason `digest()` does: one round trip for
-        every server, not one exec per server.
-        """
-        return None
 
     def status(self) -> dict:
         """Rich health for `ava doctor` / the ops dashboard."""
