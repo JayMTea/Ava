@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Icon } from '../../lib/icons';
 import { Panel } from '../dashboard/layout';
 import { hub } from './hubApi';
+import { attachToProvisionJob } from '../../hooks/useProvisionState';
 import type { DeviceEvent, NewConnectorBody, ProbeResult } from './hubApi';
 import { Tile } from './ui/Tile';
 
@@ -80,7 +81,11 @@ const VALID_ID = /^[a-z][a-z0-9_-]{1,31}$/;
  *  `jit` marks the just-in-time-consent case: Ava read the app's own API, so
  *  reads already work and nothing needed reviewing at connect time. */
 export type ConnectResult =
-  | { kind: 'app'; name: string; jit: boolean; warnings: string[] }
+  | { kind: 'app'; cid: string; name: string; jit: boolean; warnings: string[];
+      // The connector declares tools or actions, so Ava's sandbox needs a copy
+      // of them before she can use it. Creating the manifest does not put them
+      // there — only an Apply does.
+      needsApply: boolean }
   | { kind: 'device'; cid: string; name: string; warnings: string[] };
 
 export function ConnectAppFields({ onCreated, onConnected }: {
@@ -205,6 +210,11 @@ export function ConnectAppFields({ onCreated, onConnected }: {
       body.ui_url = uiUrl.trim();   // split app: UI served from a different address
     }
     const jit = probe?.kind === 'rest' && (probe.actions?.length || 0) > 0 && !confirmAll;
+    // Anything that renders an agent tool + an egress rule. A UI-only tile and a
+    // push-only device render neither, and have nothing to apply.
+    const needsApply = !isDevice && (
+      probe?.kind === 'mcp' || probe?.kind === 'discover'
+      || (body.actions?.length || 0) > 0);
     try {
       const r = await hub.newConnector(body);
       // `warnings` means the connector exists but something about it did not
@@ -215,7 +225,7 @@ export function ConnectAppFields({ onCreated, onConnected }: {
       const warnings = r.warnings ?? [];
       if (!r.ok) { setMsg(r.error || 'could not create connector'); }
       else if (isDevice) { reset(); onCreated(); onConnected({ kind: 'device', cid: id, name: nm, warnings }); }
-      else { reset(); onCreated(); onConnected({ kind: 'app', name: nm, jit, warnings }); }
+      else { reset(); onCreated(); onConnected({ kind: 'app', cid: id, name: nm, jit, warnings, needsApply }); }
     } catch (e) { setMsg((e as Error).message); }
     setBusy(false);
   }, [id, name, health, reach, isUrl, tokenEnv, tokenVal, probe, actions, isolate, dockerAvail, confirmAll, isDevice, addToRail, uiUrl, onCreated, onConnected]);
@@ -515,6 +525,52 @@ function ConnectWarnings({ notes }: { notes: string[] }) {
   );
 }
 
+/** The step between "connected" and "Ava can use it".
+ *
+ *  Creating a connector writes ONE file: its manifest. The agent tools and the
+ *  egress rule that let Ava actually call the app are rendered from that
+ *  manifest and pushed into her sandbox by an Apply — which is why the dialog
+ *  saying "Connected — reads work now" was a claim about a thing that had not
+ *  happened. Deny-by-default means the opposite was true: until this runs, every
+ *  call Ava makes to the app is refused by the sandbox.
+ *
+ *  It runs the same single-slot job as Setup → Agent's Apply, so a run started
+ *  here shows up there and vice versa. */
+function ApplyToAgent({ cid, name }: { cid: string; name: string }) {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [err, setErr] = useState('');
+
+  const apply = useCallback(async () => {
+    setBusy(true); setErr(''); setMsg('');
+    try {
+      const r = await hub.deployConnector(cid);
+      if (!r.ok) setErr(r.error || r.detail || 'could not apply it to the agent');
+      else if (r.running) {
+        setMsg('Applying…');
+        await attachToProvisionJob();
+        setMsg(`Ava has ${name}'s tools now.`);
+      } else setMsg(r.detail || 'Done.');
+    } catch (e) { setErr((e as Error).message); }
+    setBusy(false);
+  }, [cid, name]);
+
+  if (msg && !busy) return <div className="hub-msg ok" style={{ marginTop: 10 }}>{msg}</div>;
+  return (
+    <div style={{ marginTop: 10 }}>
+      <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--muted)' }}>
+        Ava can reach it from here, but her sandbox doesn’t have its tools yet — that’s one Apply.
+      </div>
+      <div className="hub-btn-row" style={{ marginTop: 6 }}>
+        <button type="button" className="hub-btn" onClick={apply} disabled={busy}>
+          <Icon name="check" />{busy ? 'Applying…' : 'Apply to the agent'}
+        </button>
+      </div>
+      {err && <div className="hub-msg err" style={{ marginTop: 6 }}>{err}</div>}
+    </div>
+  );
+}
+
 /** Setup → Connectors' mount: a collapsed button that opens the fields in a
  *  panel above the connector list. Connecting leaves the form open and cleared
  *  (Cancel reveals the confirmation beside the button) — the list below is the
@@ -528,9 +584,13 @@ export function NewConnectorForm({ onCreated }: { onCreated: () => void }) {
   const connected = (r: ConnectResult) => {
     setNotes(r.warnings);
     if (r.kind === 'device') setVerify({ cid: r.cid, name: r.name });
-    else setDone(r.jit
-      ? `Connected “${r.name}” — reads work now; Ava asks the first time it needs anything else.`
-      : `Connected “${r.name}”. Preview / Deploy below.`);
+    // "reads work now" said two things, and got both wrong: reads did not work
+    // yet (nothing was in the sandbox), and the JIT tier is about CONSENT, not
+    // reachability. Say what is true — the app is connected — and point at the
+    // step that makes it usable.
+    else setDone(r.needsApply
+      ? `Connected “${r.name}” — Deploy below to give Ava its tools.`
+      : `Connected “${r.name}”.`);
   };
 
   if (!open) {
@@ -633,10 +693,11 @@ export function ConnectAppDialog({ onClose, onConnected }: {
                 <b>Connected “{result.name}”.</b>
               </div>
               <div style={{ marginTop: 6 }}>
-                {result.jit && 'Reads work now; Ava asks the first time it needs anything else. '}
+                {result.jit && 'Reading won’t interrupt you; Ava asks the first time it needs to change anything. '}
                 If it has its own web page it is in your sidebar already. Its tools, permissions
                 and appearance live in Setup → Connectors.
               </div>
+              {result.needsApply && <ApplyToAgent cid={result.cid} name={result.name} />}
               <div className="hub-btn-row" style={{ marginTop: 10 }}>
                 <button type="button" className="hub-btn" onClick={onClose}>Done</button>
                 <button type="button" className="hub-btn ghost" onClick={() => setResult(null)}>

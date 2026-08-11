@@ -7,9 +7,9 @@ import { NewConnectorForm } from '../ConnectApp';
 import { useResource } from '../hooks';
 import { connectorGroup, isExternalApp, type ConnectorGroup } from '../shared';
 import { hub } from '../hubApi';
-import { attachToProvisionJob } from '../../../hooks/useProvisionState';
+import { attachToProvisionJob, markProvisionDirty } from '../../../hooks/useProvisionState';
 import type {
-  GenerateResult, GrantAction, HubConnector, IngestToken,
+  ConnectorLive, GenerateResult, GrantAction, HubConnector, IngestToken,
 } from '../hubApi';
 import { Badge } from '../ui/Badge';
 import { Legend } from '../ui/Legend';
@@ -118,6 +118,10 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
   const [token, setToken] = useState<IngestToken | null>(null);
+  // The result of a real handshake, or null until the owner asks for one. Never
+  // fetched on render: dialling every connected app every time Setup opens is a
+  // cost the owner did not ask for, and a noisy one for anything rate-limited.
+  const [live, setLive] = useState<ConnectorLive | null>(null);
   const [editText, setEditText] = useState<string | null>(null);
   const [showPerms, setShowPerms] = useState(false);
   const [showLook, setShowLook] = useState(false);
@@ -199,6 +203,23 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
     setBusy(false);
   }, [c.id, onChanged]);
 
+  // The transport chip is drawn from the manifest, so it says what the app
+  // CLAIMS to speak. `/connectors/<cid>/live` is the only call that finds out —
+  // it round-trips MCP initialize + tools/list — and nothing called it, so the
+  // one endpoint written to keep that label honest was dead code and the label
+  // stayed a claim.
+  const check = useCallback(async () => {
+    setBusy(true); setErr(''); setMsg(''); setLive(null);
+    try {
+      const r = await hub.connectorLive(c.id);
+      setLive(r);
+      if (!r.ok) setErr(r.error === 'disabled'
+        ? 'It’s switched off, so Ava didn’t dial it.'
+        : `Couldn’t talk to it: ${r.error || 'no answer'}`);
+    } catch (e) { setErr((e as Error).message); }
+    setBusy(false);
+  }, [c.id]);
+
   const showToken = useCallback(async () => {
     setErr('');
     try {
@@ -212,7 +233,16 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
     setBusy(true); setErr('');
     try {
       const r = await hub.deleteConnector(c.id);
-      if (r.ok) onChanged(); else setErr(r.error || 'could not remove');
+      if (r.ok) {
+        onChanged();
+        // Delete withdraws the app's egress policy and removes its generated
+        // tools, so what this checkout declares no longer matches what the
+        // sandbox holds — until an Apply, Ava still carries tools for an app
+        // that is gone. Drift is a server fact, but the hint is what stops the
+        // bar from waiting out the 10s poll before saying so.
+        markProvisionDirty('servers');
+        markProvisionDirty('policies');
+      } else setErr(r.error || 'could not remove');
     } catch (e) { setErr((e as Error).message); }
     setBusy(false);
   }, [c.id, c.label, onChanged]);
@@ -255,6 +285,7 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
   // at most: one primary + Permissions + Preview + the kebab. Enable is promoted
   // to the primary slot when the connector is off (its most likely next action).
   const menuActions: MenuAction[] = [
+    { label: busy ? 'Testing…' : 'Test connection', icon: 'refresh', onClick: check, disabled: busy },
     { label: 'Push token', icon: 'lock', onClick: showToken },
     ...(c.auth_env ? [{ label: c.auth_set ? 'Update credential' : 'Add credential', icon: 'lock', onClick: () => setShowCred((v) => !v) }] : []),
     ...(deployed ? [{ label: busy ? 'Redeploying…' : 'Redeploy', icon: 'refresh', onClick: deploy, disabled: busy }] : []),
@@ -280,6 +311,16 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
             {c.transport && c.transport !== 'none' && (
               <><span className="meta-sep">·</span>
               <span title={TRANSPORT_HINT[c.transport]}>{TRANSPORT_LABEL[c.transport]}</span></>
+            )}
+            {/* Only after a real handshake, and only ever about that handshake:
+                `verified: false` means the count came from the manifest, which
+                is what the chip to the left already says. */}
+            {live?.verified && (
+              <><span className="meta-sep">·</span>
+              <span className="conn-stat tone-ok"
+                    title={`Ava spoke ${live.transport} to it just now`}>
+                <Icon name="check" />answered · {live.tools} tool{live.tools === 1 ? '' : 's'}
+              </span></>
             )}
             {c.actions > 0 && <><span className="meta-sep">·</span><span>{c.actions} action{c.actions === 1 ? '' : 's'}</span></>}
             {hasAgentSurface && c.enabled && (
@@ -527,6 +568,7 @@ export function ConnectorsPanel() {
             { icon: 'check', term: 'Deploy', desc: <>Appears only when a connector's tools or egress policy are out of date — regenerates them into the agent so Ava can use it. Up-to-date connectors read <b>deployed</b>; redeploy anytime from the ⋯ menu.</> },
             { icon: 'lock', term: 'Permissions', desc: 'What Ava may do here — reads run silently, writes ask once, destructive actions always ask.' },
             { icon: 'code', term: 'Preview', desc: 'The tools and egress policy generated from the manifest, without touching the agent.' },
+            { icon: 'refresh', term: 'Test connection', desc: <>Dials the app right now and reports what answered. The transport shown on each row comes from its manifest — this is the only thing that checks it.</> },
             { icon: 'more', term: 'More', desc: <>Push token, appearance, manifest editor, and disable&nbsp;/&nbsp;remove.</> },
           ]}
           foot={<>

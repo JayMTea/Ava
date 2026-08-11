@@ -116,3 +116,33 @@ def test_ui_groups_by_identity_not_transport() -> None:
     assert "transport" not in body, (
         "connectorGroup() must group by what a connector IS to the owner "
         "(device > app > tools), never by how its tools travel.")
+
+
+def test_the_only_verifier_of_that_label_has_a_caller() -> None:
+    """`GET /connectors/{cid}/live` performs the real handshake — MCP
+    `initialize` + `tools/list`, or a GET on the ava-tools/1 facade — and it is
+    the ONLY thing that can tell a connector's claim from its behaviour. The row's
+    transport chip is drawn from the manifest, so with no caller the endpoint was
+    dead code and the label stayed an unchecked claim.
+
+    Guarding the caller rather than the endpoint: an unreferenced route is exactly
+    how this decayed the first time.
+    """
+    api = (ROOT / "frontend/src/components/hub/hubApi.ts").read_text()
+    assert "/live" in api and "connectorLive" in api, (
+        "hubApi has no client for /connectors/<cid>/live — the handshake check "
+        "is unreachable from the UI again.")
+
+    callers = [p for p in _tracked("frontend/src/**/*.tsx")
+               if "connectorLive" in (ROOT / p).read_text()]
+    assert callers, (
+        "nothing calls hub.connectorLive(). Setup renders the transport from the "
+        "manifest, so without this the label is a claim nothing verifies.")
+
+    text = PANEL.read_text()
+    # `verified` is the whole point of the payload: false means the tool count is
+    # declared, not observed, and rendering it as a live result would be the same
+    # class of lie the transport badge was.
+    assert "live?.verified" in text or "live.verified" in text, (
+        "the live result is rendered without checking `verified`, so a declared "
+        "tool count would render as a confirmed handshake.")

@@ -539,6 +539,13 @@ export interface DeviceEvent {
   message?: string;
   severity?: string;
 }
+export interface ConnectorLive {
+  ok: boolean;
+  transport: string;
+  verified: boolean;
+  tools: number | null;
+  error: string | null;
+}
 export interface ProbeResult {
   ok: boolean;
   kind?: 'mcp' | 'discover' | 'rest' | 'unknown';
@@ -913,6 +920,13 @@ export const hub = {
   deleteConnector: (id: string) =>
     req<{ ok: boolean; error?: string }>(
       `/api/hub/connectors/${encodeURIComponent(id)}/delete`, { method: 'POST' }),
+  /** Actually talk to the app right now. The row's transport chip is drawn from
+   *  the manifest, which can only say what a connector CLAIMS; this is the one
+   *  call that round-trips (MCP initialize + tools/list, or a GET on the
+   *  ava-tools/1 facade). `verified: false` means nothing was hand-shaken — a
+   *  `rest` connector has no handshake — and the count is declared, not seen. */
+  connectorLive: (id: string) =>
+    req<ConnectorLive>(`/api/hub/connectors/${encodeURIComponent(id)}/live`),
 
   // Inference backends — the multi-model brain manager
   backendList: () => req<BackendList>('/api/hub/models/backends'),
