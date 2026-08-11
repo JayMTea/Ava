@@ -1043,6 +1043,12 @@ def cmd_agent(args) -> int:
         for s in res.get("steps", []):
             print(f"  {OK if s['ok'] else BAD} {s['step']}: {s['detail']}")
         print(f"\n{OK if res['ok'] else WARN} {res['detail']}")
+        # A distinct exit code for "somebody else is deploying". Nothing was
+        # attempted, so a script that retries should be able to tell that from a
+        # deploy that ran and failed — and this is the one outcome where trying
+        # again in a minute is exactly the right move.
+        if res.get("error_code") == "provision_running":
+            return 3
         return 0 if res["ok"] else 1
     print(f"{BAD} usage: ava agent status | provision [--install] [--only SCOPE]")
     return 1

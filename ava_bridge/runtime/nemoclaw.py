@@ -17,6 +17,7 @@ import subprocess
 import time
 
 from .base import AgentRuntime
+from . import deploy_lock as _deploy_lock
 from .. import config, settings
 
 try:  # perf_log lives at the repo root; best-effort only (same as router_app).
@@ -581,10 +582,25 @@ class NemoClawRuntime(AgentRuntime):
             # install.sh reads the sandbox name and CLI path from the
             # environment only — see install_env().
             env = self.install_env()
-            if on_line is not None:
-                rc, out = self._stream(argv, timeout=600, on_line=on_line, env=env)
-            else:
-                rc, out = self._run(argv, timeout=600, env=env)
+            # ONE deploy at a time on this machine. `provision_job`'s lock is
+            # in-process, so it never saw `ava agent provision` from a terminal
+            # or the shim in the agent container — and install.sh does
+            # `rm -rf "$DEST"` before extracting each server, so two runs
+            # interleaving there leave a registered server half-written. Taken
+            # here because this is the one place all three paths funnel through.
+            with _deploy_lock.held() as mine:
+                if not mine:
+                    step("deploy", False,
+                         "another deploy is already running on this machine "
+                         "(the Hub's Apply, `ava agent provision`, or the agent "
+                         "container). Wait for it to finish and try again.")
+                    return {"ok": False, "steps": steps, "scope": scope,
+                            "error_code": "provision_running",
+                            "detail": "a deploy is already in flight"}
+                if on_line is not None:
+                    rc, out = self._stream(argv, timeout=600, on_line=on_line, env=env)
+                else:
+                    rc, out = self._run(argv, timeout=600, env=env)
             step("deploy", rc == 0, "agent/install.sh" + ("" if rc == 0
                                                           else f" rc={rc}: {out[-200:]}"))
         else:
