@@ -80,7 +80,13 @@ def _features_block() -> dict[str, str]:
 class FeatureRegistrySyncTests(unittest.TestCase):
     def test_every_registered_feature_is_documented(self):
         documented = set(_features_block())
-        missing = sorted(set(features.REGISTRY) - documented)
+        # A capability whose switch predates the registry keeps its own ava.yaml
+        # key (REGISTRY `config`) and is documented beside it — see
+        # test_feature_convention.py, which asserts that documentation exists.
+        # The rule is that an owner can find the switch, not that every switch
+        # was moved under `features:`.
+        own_key = {k for k, spec in features.REGISTRY.items() if spec.get("config")}
+        missing = sorted(set(features.REGISTRY) - documented - own_key)
         self.assertFalse(missing, (
             "these capabilities are honoured at runtime but appear nowhere in "
             "config.example.yaml, so the only way to turn one off is to already "

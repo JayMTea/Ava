@@ -309,7 +309,11 @@ def _run_turn(tid: str, agent_text: str, sid: str, chat_id: str):
     if err:  # agent.required is on but the runtime is missing — don't fake it
         with state.turns_lock:
             if tid in state.turns:
-                state.turns[tid].update(status="error", error=err)
+                # `agent_off` / `agent_down` / `agent_conflict` — the same
+                # convention every other capability follows, so the chat can
+                # offer the fix rather than only the diagnosis.
+                state.turns[tid].update(status="error", error=str(err),
+                                        error_code=getattr(err, "code", ""))
         return
     if not rt.supports_tools:  # direct floor (no sandbox, no live CoT)
         _run_turn_direct(tid, agent_text, chat_id)

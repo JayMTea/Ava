@@ -13,10 +13,17 @@ from ava_bridge import features, settings
 
 
 def _flag(key: str, value: bool):
-    """Patch settings.get_bool so features.<key> reads as `value`."""
+    """Patch settings.get_bool so this capability's switch reads as `value`.
+
+    Keyed on the registry's own config path, not `features.<key>`: a capability
+    whose switch predates the registry keeps its ava.yaml key (agent.enabled),
+    and patching the wrong path silently left it ON — which read here as
+    "preflight returned None" rather than as a mis-aimed fixture.
+    """
+    path = features._config_key(key)
     real = settings.get_bool
     def fake(k, default=False, **kw):
-        if k == f"features.{key}":
+        if k == path:
             return value
         return real(k, default, **kw)
     return mock.patch.object(settings, "get_bool", side_effect=fake)
@@ -28,9 +35,12 @@ class PreflightContractTests(unittest.TestCase):
             with _flag(key, False):
                 code, msg = features.preflight(key)
             self.assertEqual(code, f"{key}_off")
-            # The message must stand alone: agent tools relay it verbatim.
-            self.assertIn("Optional features", msg)
-            self.assertIn(f"features.{key}", msg)
+            # The message must stand alone: agent tools relay it verbatim. It
+            # names where the switch lives, which for a capability with its own
+            # Setup panel is not the Optional-features list.
+            self.assertIn("Optional features" if features.REGISTRY[key].get("panel", True)
+                          else "Setup", msg)
+            self.assertIn(features._config_key(key), msg)
 
     def test_off_never_probes(self):
         probe = mock.Mock()

@@ -131,7 +131,20 @@ def test_config_example_documents_exactly_the_registered_features() -> None:
     text = (ROOT / "config.example.yaml").read_text(encoding="utf-8")
     doc = _yaml.safe_load(text) or {}
     documented = set((doc.get("features") or {}).keys())
-    registered = set(features.REGISTRY)
+    # An entry whose switch predates this registry keeps its own ava.yaml key
+    # (REGISTRY `config`, e.g. agent.enabled) — the requirement is that the
+    # reference config documents it, not that it was moved under `features:`.
+    # Renaming an owner's config key to satisfy a test is not a refactor.
+    registered = {k for k in features.REGISTRY
+                  if not features.REGISTRY[k].get("config")}
+    for key, spec in features.REGISTRY.items():
+        cfg = spec.get("config")
+        if not cfg:
+            continue
+        node, leaf = cfg.split(".", 1) if "." in cfg else ("", cfg)
+        assert leaf in (doc.get(node) or {}), (
+            f"feature {key!r} declares config {cfg!r}, which config.example.yaml "
+            "does not document — an undiscoverable capability." + _FIX)
     assert not (documented - registered), (
         f"config.example.yaml documents unregistered feature(s) "
         f"{sorted(documented - registered)} — a switch an owner can set that "
@@ -147,8 +160,13 @@ def test_the_env_override_is_named_beside_each_documented_feature() -> None:
     """The `[AVA_*]` marker is how an owner discovers the override at all."""
     text = (ROOT / "config.example.yaml").read_text(encoding="utf-8")
     block = text.split("features:", 1)[1].split("\n\n", 1)[0]
-    missing = sorted(spec["env"] for spec in features.REGISTRY.values()
-                     if spec.get("env") and f"[{spec['env']}]" not in block)
+    # An entry with its own `config` key is documented beside that key, not in
+    # the features block — but it must still name its env marker SOMEWHERE, or
+    # the override is discoverable only by reading features.py.
+    missing = sorted(
+        spec["env"] for spec in features.REGISTRY.values()
+        if spec.get("env")
+        and f"[{spec['env']}]" not in (text if spec.get("config") else block))
     assert not missing, (
         f"env override(s) {missing} are not named in config.example.yaml's "
         "features block, so the only way to find them is to read features.py. "

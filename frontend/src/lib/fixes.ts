@@ -16,6 +16,19 @@ const pretty = (key: string) => key.replace(/_/g, ' ');
 
 export function fixForCode(code?: string | null): FixAction | undefined {
   if (!code) return undefined;
+  // The agent runtime is a registry capability like any other, but its switch,
+  // its status and its provisioning all live in Setup → Agent rather than in the
+  // Optional-features list — so the generic `_off` rule below would send the
+  // owner to a checkbox that isn't there. Its three codes are handled together
+  // because the destination is the same for all of them; only the advice differs.
+  if (code === 'agent_off' || code === 'agent_down' || code === 'agent_conflict') {
+    const tip = {
+      agent_off: 'Opens Setup → Agent — the agent runtime is switched off, so Ava has no tools, memory or skills. Turn it back on there.',
+      agent_down: 'Opens Setup → Agent — the agent runtime is required but not answering. Apply it there, or run `ava agent provision --install`.',
+      agent_conflict: 'Opens Setup → Agent — agent.required is on while agent.runtime is the tool-less Direct floor. Those two cannot both hold; pick one there.',
+    }[code];
+    return { label: 'Open Setup → Agent', hash: 'hub/agent', tip };
+  }
   let m = /^(.+)_off$/.exec(code);
   if (m) {
     return {

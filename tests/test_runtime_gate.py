@@ -76,6 +76,61 @@ class RequiredGateTests(unittest.TestCase):
         self.assertIn("provision", missing)
         self.assertNotIn("provision", contradiction)
 
+    # ---- the codes ------------------------------------------------------- #
+    # The agent runtime is the largest optional capability Ava has, and it was
+    # the one outside the feature registry: its gate emitted prose with no code,
+    # so a chat turn that failed because the agent was off gave the owner an
+    # accurate sentence and nowhere to go — while a failed web search, a far
+    # smaller thing, got a guided fix link.
+
+    def test_a_missing_runtime_is_agent_down(self):
+        _rt, err = self._gate(runtime_name="nemoclaw", required=True,
+                              available=False)
+        self.assertEqual(getattr(err, "code", ""), "agent_down")
+
+    def test_the_contradiction_has_its_own_code(self):
+        _rt, err = self._gate(runtime_name="direct", required=True)
+        self.assertEqual(getattr(err, "code", ""), "agent_conflict")
+
+    def test_a_deliberately_disabled_agent_reads_off_not_down(self):
+        """Different problems, different fixes: a switch to flip vs a runtime to
+        provision. Collapsing them would send the owner to install something they
+        already have."""
+        from ava_bridge import features
+        with mock.patch.object(features, "enabled",
+                               side_effect=lambda k: k != "agent"):
+            _rt, err = self._gate(runtime_name="nemoclaw", required=True,
+                                  available=False)
+        self.assertEqual(getattr(err, "code", ""), "agent_off")
+        self.assertIn("required", err, "the conflict with agent.required must "
+                                       "still be named — being off is only half "
+                                       "the story when it is also required")
+
+    def test_the_error_is_still_a_plain_string(self):
+        """Every existing caller does `rt, err = gate()` and formats `err`. The
+        code rides along; it does not change what the value IS."""
+        _rt, err = self._gate(runtime_name="direct", required=True)
+        self.assertIsInstance(err, str)
+        self.assertTrue(f"{err}".startswith("agent.required"))
+
+    def test_the_code_reaches_the_turn(self):
+        """`/api/turn/<id>` returns the turn dict verbatim, and fixes.ts resolves
+        the link from `error_code` — so the code has to be ON the turn, not just
+        in the gate's return value."""
+        from ava_bridge import state, turns
+
+        tid = "t-gate"
+        state.turns[tid] = {"status": "running"}
+        try:
+            with mock.patch.object(runtime, "gate",
+                                   return_value=(runtime.direct(),
+                                                 runtime.GateError("nope", "agent_down"))):
+                turns._run_turn(tid, "hi", "s1", "")
+            self.assertEqual(state.turns[tid]["status"], "error")
+            self.assertEqual(state.turns[tid]["error_code"], "agent_down")
+        finally:
+            state.turns.pop(tid, None)
+
 
 class RuntimeNameTests(unittest.TestCase):
 

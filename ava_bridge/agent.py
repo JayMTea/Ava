@@ -25,7 +25,11 @@ def run_turn(text: str, session_id: str | None = None,
     serving tool-less chat when the required runtime is missing."""
     rt, err = runtime.gate()
     if err:
-        raise RuntimeError(err)
+        # `.code` rides along: turns.py reads it off the exception the same way
+        # it reads one off a router failure, and it becomes the chat's fix link.
+        exc = RuntimeError(str(err))
+        exc.code = getattr(err, "code", "")  # type: ignore[attr-defined]
+        raise exc
     return rt.run_turn(text, session_id=session_id, history=history)
 
 

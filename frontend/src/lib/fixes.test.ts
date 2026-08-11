@@ -102,4 +102,20 @@ describe('the three codes that had nowhere to go', () => {
   it('still returns nothing for a code it has never heard of', () => {
     expect(fixForCode('something_entirely_new')).toBeUndefined();
   });
+
+  // The agent runtime is a registry capability whose switch and status live in
+  // Setup → Agent, not the Optional-features list. Its codes are checked before
+  // the generic patterns so `agent_off` does not send the owner hunting for a
+  // checkbox that is not there, and `agent_down` does not send them to
+  // Operations, which has no control for it either.
+  it.each([
+    ['agent_off', 'switched off'],
+    ['agent_down', 'not answering'],
+    ['agent_conflict', 'Direct floor'],
+  ])('sends %s to Setup → Agent', (code, why) => {
+    const fix = fixForCode(code);
+    expect(fix).toBeDefined();
+    expect(fix!.hash).toBe('hub/agent');
+    expect(fix!.tip).toContain(why);
+  });
 });

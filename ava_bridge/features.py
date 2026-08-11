@@ -21,12 +21,15 @@ features.memory) stay out of this registry — they have their own panels.
 """
 from . import settings
 
-# key -> {label, sub, default, env, panel}. `label`/`sub` feed the Setup panel;
-# `default` preserves each flag's historical default; `env` names an optional
-# env-var override (see settings.get_bool); `panel: False` keeps a flag out of
-# the Optional-features checkboxes (it has its own panel) while still routing
-# ALL its reads through this module — tests/test_feature_convention.py fails
-# any features.* read that bypasses it.
+# key -> {label, sub, default, env, panel, config}. `label`/`sub` feed the Setup
+# panel; `default` preserves each flag's historical default; `env` names an
+# optional env-var override (see settings.get_bool); `panel: False` keeps a flag
+# out of the Optional-features checkboxes (it has its own panel) while still
+# routing ALL its reads through this module — tests/test_feature_convention.py
+# fails any features.* read that bypasses it. `config` overrides the settings key
+# for a capability whose switch predates this registry and is named elsewhere in
+# ava.yaml; without it the only way to register such a capability would be to
+# rename the owner's config key, which is not a thing a refactor gets to do.
 REGISTRY: dict[str, dict] = {
     # EVERY entry carries an `env` key, including the two that manage without one
     # for Ava's own purposes. A control plane can only pin a flag it can set from
@@ -34,6 +37,21 @@ REGISTRY: dict[str, dict] = {
     # one — so an entry with no `env` is a switch that is unpinnable by anything
     # but a config write into the instance. `AVA_WEB_SEARCH` joins the existing
     # `AVA_WEB_*` family in config.py, which tunes the same capability.
+    # The agent runtime — the largest optional capability there is, and the one
+    # that was outside this registry. Its switch is `agent.enabled`, its panel is
+    # Setup → Agent, and its gate lived in runtime/__init__.py emitting prose with
+    # no code — so a chat turn that failed because the agent was off or missing
+    # said so and offered nowhere to go, while a failed web search got a fix-it
+    # link. `panel: False`: it has its own Setup tab, and a checkbox that quietly
+    # drops Ava to tool-less chat does not belong in a list of add-ons.
+    "agent": {
+        "label": "Agent runtime",
+        "sub": "tools, memory and skills in a NemoClaw sandbox",
+        "default": True,
+        "env": "AVA_AGENT_ENABLED",
+        "config": "agent.enabled",
+        "panel": False,
+    },
     "web_search": {
         "label": "Web search",
         "sub": "self-hosted SearXNG + guarded fetch",
@@ -102,8 +120,14 @@ def enabled(key: str) -> bool:
     spec = REGISTRY.get(key)
     if spec is None:
         return settings.get_bool(f"features.{key}", True)
-    return settings.get_bool(f"features.{key}", bool(spec.get("default", False)),
+    return settings.get_bool(_config_key(key), bool(spec.get("default", False)),
                              env=spec.get("env"))
+
+
+def _config_key(key: str) -> str:
+    """The ava.yaml path behind a registry entry — `features.<key>` unless the
+    entry names its own (see REGISTRY's `config`)."""
+    return REGISTRY.get(key, {}).get("config") or f"features.{key}"
 
 
 def preflight(key: str, probe=None) -> tuple[str, str] | None:
@@ -119,9 +143,11 @@ def preflight(key: str, probe=None) -> tuple[str, str] | None:
     """
     label = REGISTRY.get(key, {}).get("label") or key.replace("_", " ")
     if not enabled(key):
+        where = ("Setup → System → Optional features"
+                 if REGISTRY.get(key, {}).get("panel", True) else "Setup")
         return (f"{key}_off",
-                f"{label} is turned off. Enable it under Setup → System → "
-                f"Optional features (features.{key} in ava.yaml).")
+                f"{label} is turned off. Enable it under {where} "
+                f"({_config_key(key)} in ava.yaml).")
     if probe is not None:
         err = probe()
         if err:
@@ -135,7 +161,7 @@ def explicitly_off(key: str) -> bool:
     deps are installed (e.g. /api/talk on installs that never wrote
     features.voice), where an unset flag must not read as a refusal."""
     spec = REGISTRY.get(key, {})
-    return settings.explicitly_false(f"features.{key}", env=spec.get("env"))
+    return settings.explicitly_false(_config_key(key), env=spec.get("env"))
 
 
 def snapshot() -> list[dict]:

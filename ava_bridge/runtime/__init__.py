@@ -91,13 +91,40 @@ _DIRECT_REQUIRED_MSG = (
 )
 
 
-def gate() -> tuple[AgentRuntime, str | None]:
+class GateError(str):
+    """The gate's message, carrying its machine-readable code.
+
+    A plain `str` subclass so every existing `rt, err = gate()` caller keeps
+    working unchanged, while the ones that can use a code read it off the same
+    value. The turn dict is returned verbatim by `/api/turn/<id>`, so a code here
+    is all it takes to reach `frontend/src/lib/fixes.ts`.
+
+    The agent runtime is the biggest optional capability Ava has, and it was the
+    one emitting bare prose: a chat turn that failed because the agent was off or
+    unreachable gave the owner an accurate sentence and nowhere to go, while a
+    failed web search — a far smaller thing — got a guided fix link.
+    """
+
+    code: str
+
+    def __new__(cls, message: str, code: str) -> "GateError":
+        obj = super().__new__(cls, message)
+        obj.code = code
+        return obj
+
+
+def gate() -> tuple[AgentRuntime, GateError | None]:
     """Resolve the runtime for a turn AND enforce the `agent.required` policy.
 
     Returns (runtime, error). When `agent.required` is true and the configured
     runtime is unavailable, `error` is set — callers must surface it instead of
     silently serving a degraded (tool-less) reply. Otherwise error is None and
     the runtime is the one to use (full agent, or the Direct floor when allowed).
+
+    Codes follow the feature-registry convention (`ava_bridge/features.py`):
+    `agent_off` when the switch is deliberately off, `agent_down` when it is on
+    and the runtime will not answer, `agent_conflict` for two settings that
+    cannot both be honoured.
     """
     from .. import config
     rt = configured()
@@ -107,10 +134,20 @@ def gate() -> tuple[AgentRuntime, str | None]:
         # anyone who had also set `agent.runtime: direct` — the runtime docs
         # promise "a hard, actionable error at startup, in `ava doctor`, and on
         # every chat turn", and they got tool-less chat with nothing said.
-        return _direct, (_DIRECT_REQUIRED_MSG if config.AGENT_REQUIRED else None)
+        return _direct, (GateError(_DIRECT_REQUIRED_MSG, "agent_conflict")
+                         if config.AGENT_REQUIRED else None)
     if not rt.available():
         if config.AGENT_REQUIRED:
-            return _direct, _REQUIRED_MSG
+            from .. import features
+            # `agent_off` and `agent_down` are different problems with different
+            # fixes — a switch to flip vs a runtime to provision — and the owner
+            # gets told which one they have.
+            off = features.preflight("agent")
+            if off is not None:
+                return _direct, GateError(
+                    f"{off[1]} It is also marked required (agent.required), so "
+                    "chat cannot fall back to the tool-less floor.", off[0])
+            return _direct, GateError(_REQUIRED_MSG, "agent_down")
         return _direct, None
     return rt, None
 
