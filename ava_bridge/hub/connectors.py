@@ -621,8 +621,26 @@ async def connector_new(body: dict):
                                 status_code=400)
         if token_env_name:
             mcp["token_env"] = token_env_name
-        if command and mcp_in.get("sandbox") == "docker":
-            mcp["sandbox"] = "docker"          # run the stdio server contained
+        if command:
+            # Containment DEFAULTS ON, and dropping it is an explicit act.
+            #
+            # This read `sandbox == "docker"` and wrote nothing otherwise, so the
+            # manifest was contained only if the client remembered to say so —
+            # while `_probe` defaults to Docker and fails closed. The two halves
+            # disagreed, and the frontend sends `(isolate && dockerAvail) ?
+            # 'docker' : undefined` with `dockerAvail` stuck at `true` when
+            # `hub.system()` fails. So a command PROBED inside a container could
+            # be PERSISTED to run uncontained, and `mcp_client` then takes the
+            # uncontained branch on every later call — handing an arbitrary
+            # pasted command the bridge's environment, which is the exact
+            # escalation this module's docstring says was closed once already.
+            #
+            # `allow_unsandboxed` is the opt-out, named so it reads as a decision
+            # in the request and in the manifest diff.
+            if mcp_in.get("sandbox") == "none" or mcp_in.get("allow_unsandboxed"):
+                mcp["sandbox"] = "none"
+            else:
+                mcp["sandbox"] = "docker"      # run the stdio server contained
             if mcp_in.get("image"):
                 mcp["image"] = str(mcp_in["image"])
         manifest["mcp"] = mcp

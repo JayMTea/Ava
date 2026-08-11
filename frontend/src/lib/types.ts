@@ -116,6 +116,12 @@ export interface HardwareStats {
     // OBSERVED liveness, closed vocabulary (ava_bridge/hardware.py _STATES).
     // "unknown" means we could not look, never "not loaded".
     state?: ModelState;
+    // Whether `state: 'resident'` was READ or concluded. False for an engine
+    // that exposes no residency endpoint (vLLM, llama.cpp, MLX): it loads one
+    // model at boot and holds it, so being served IS being resident — a correct
+    // conclusion, but not an observation, and "In memory" reads identically
+    // either way. Same distinction AllocModel.measured draws for resident_gib.
+    state_measured?: boolean;
     // WHOSE this row is (ava_bridge/hardware.py _RELATIONS). Derived from
     // `role_key` / `backend` / `app` — never a second guess at which row is the
     // brain, which only models.effective_brain() decides.

@@ -165,3 +165,61 @@ class DirectRuntimeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ShimFailureTests(unittest.TestCase):
+    """The shim must answer a failure, not raise one.
+
+    `RemoteRuntime` swallows exceptions in every method except `run_turn`, whose
+    `_post` calls `raise_for_status()`. So a RuntimeError from unparsable sandbox
+    output, a TimeoutExpired, and a 401 from a token mismatch all arrived at
+    `turns.py` identically and were rendered as the canned "my tools timed out or
+    hit a snag" — the owner could not tell a misconfigured deployment from a busy
+    one.
+    """
+
+    def _client(self):
+        from fastapi.testclient import TestClient
+
+        from ava_bridge import agent_runtime_server as shim
+        return TestClient(shim.app), shim
+
+    def _headers(self):
+        from ava_bridge import config
+        return {"X-Ava-Agent-Token": config.AGENT_TOKEN}
+
+    def test_a_turn_that_raises_is_a_200_with_a_reason(self):
+        client, shim = self._client()
+        with mock.patch.object(shim._rt, "run_turn",
+                               side_effect=RuntimeError("no finalAssistantVisibleText")):
+            r = client.post("/run_turn", json={"text": "hi"}, headers=self._headers())
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["error_code"], "agent_turn_failed")
+        self.assertIn("no finalAssistantVisibleText", r.json()["error"])
+
+    def test_a_working_turn_is_unchanged(self):
+        client, shim = self._client()
+        with mock.patch.object(shim._rt, "run_turn", return_value=("hello", ["t"])):
+            r = client.post("/run_turn", json={"text": "hi"}, headers=self._headers())
+        self.assertEqual(r.json(), {"reply": "hello", "tools": ["t"]})
+
+    def test_the_exec_timeout_is_bounded_and_never_raises_on_junk(self):
+        """`int(body["timeout"])` was unvalidated: a non-numeric value was an
+        unhandled ValueError, and a huge one pinned a worker for as long as the
+        caller liked."""
+        client, shim = self._client()
+        seen = {}
+
+        def _capture(inner, timeout=20):
+            seen["timeout"] = timeout
+            return "ok"
+
+        with mock.patch.object(shim._rt, "exec", _capture):
+            client.post("/exec", json={"inner": "x", "timeout": 10**9},
+                        headers=self._headers())
+            self.assertEqual(seen["timeout"], shim._EXEC_TIMEOUT_MAX)
+
+            r = client.post("/exec", json={"inner": "x", "timeout": "soon"},
+                            headers=self._headers())
+            self.assertEqual(r.status_code, 200)
+            self.assertEqual(seen["timeout"], 20)

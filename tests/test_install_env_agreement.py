@@ -199,3 +199,43 @@ class SandboxCheckTests(unittest.TestCase):
                        if "npm install -g nemoclaw" in ln
                        and not ln.lstrip().startswith("#")]
         self.assertFalse(recommended, recommended)
+
+
+class InstallRefTests(unittest.TestCase):
+    """`ava agent provision --install` must install the ref Docker pins.
+
+    `deploy/agent.Dockerfile` pins `NEMOCLAW_INSTALL_REF` so bare-metal and
+    Docker installs get the SAME agent runtime, and docs/AGENT_RUNTIME.md calls
+    that pin load-bearing — it even tells a human to read the ref out of the
+    Dockerfile rather than hardcode it. The adapter then installed from `main`
+    regardless, so the one command the docs recommend produced exactly the drift
+    the ARG exists to prevent.
+    """
+
+    def test_it_reads_the_ref_the_container_path_pins(self):
+        from ava_bridge.runtime.nemoclaw import _install_ref
+
+        dockerfile = (ROOT / "deploy" / "agent.Dockerfile").read_text(encoding="utf-8")
+        pinned = next(ln.split("=", 1)[1].strip()
+                      for ln in dockerfile.splitlines()
+                      if ln.startswith("ARG NEMOCLAW_INSTALL_REF="))
+        with mock.patch.dict("os.environ", {}, clear=True):
+            self.assertEqual(_install_ref(), pinned)
+
+    def test_the_env_var_is_still_the_escape_hatch(self):
+        """The Dockerfile documents `NEMOCLAW_INSTALL_REF=main` as the way out
+        when a pin goes bad; that has to keep working."""
+        from ava_bridge.runtime.nemoclaw import _install_ref
+
+        with mock.patch.dict("os.environ", {"NEMOCLAW_INSTALL_REF": "main"}):
+            self.assertEqual(_install_ref(), "main")
+
+    def test_the_installer_url_carries_it(self):
+        import inspect
+
+        from ava_bridge.runtime.nemoclaw import NemoClawRuntime
+
+        src = inspect.getsource(NemoClawRuntime.provision)
+        self.assertIn("_install_ref()", src)
+        self.assertNotIn("NemoClaw/main/install.sh", src,
+                         "the installer is hardcoded to main again")

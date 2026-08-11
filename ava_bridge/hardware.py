@@ -810,8 +810,16 @@ _RELATIONS = ("brain", "configured", "app", "foreign")
 
 
 def _backend_state(b: dict, reachable: bool, served: list[str],
-                   resident: list[dict] | None) -> tuple[str, str, dict | None]:
-    """(state, confirmed_model_id, resident_entry) for one configured backend.
+                   resident: list[dict] | None) -> tuple[str, str, dict | None, bool]:
+    """(state, confirmed_model_id, resident_entry, measured) for one backend.
+
+    `measured` qualifies the RESIDENT claim, and only that claim. True when the
+    answer came from reading the engine's residency endpoint or from GPU process
+    telemetry; False when it was derived from the engine's nature — see the
+    `serves_resident` branch below, which is the one place this function reaches
+    a conclusion it did not read. Both render as "In memory", which is correct,
+    but only one of them was observed, and the UI has to be able to say which.
+    Same distinction `AllocModel.measured` already draws for resident_gib.
 
     Residency is OBSERVED here, never inferred from the existence of config.
     The distinction is the whole point: `/api/tags` lists what Ollama has on
@@ -831,9 +839,9 @@ def _backend_state(b: dict, reachable: bool, served: list[str],
     # whether or not it answers, and we do not probe it at all (see the caller).
     # Testing reachability first made "remote" unreachable for anything down.
     if not b.get("local", True):
-        return "remote", "", None
+        return "remote", "", None, True
     if not reachable:
-        return "offline", "", None
+        return "offline", "", None, True
 
     spec = _engine_get(str(b.get("engine") or ""))
 
@@ -851,11 +859,14 @@ def _backend_state(b: dict, reachable: bool, served: list[str],
         # loads at boot and lists nothing is still starting, not empty, so it
         # falls through to the honest "unknown" below.
         if served or not getattr(spec, "serves_resident", True):
-            return "absent", "", None
+            return "absent", "", None, True
     if resident is None:
         if getattr(spec, "serves_resident", True) and (matched or served):
-            return "resident", matched, None
-        return "unknown", matched, None
+            # DERIVED, not read: this engine loads one model at boot and holds
+            # it, so being served IS being resident. True of vLLM, llama.cpp and
+            # MLX, which expose no residency endpoint to read.
+            return "resident", matched, None, False
+        return "unknown", matched, None, True
 
     ids = [str(r.get("id") or "") for r in resident]
     hit = _models.match_served(matched, ids) if matched else ""
@@ -863,8 +874,8 @@ def _backend_state(b: dict, reachable: bool, served: list[str],
         entry = next((r for r in resident if str(r.get("id")) == hit), None)
         # The resident id is the exact string the engine reports holding
         # (`llama3.2:latest` for a configured `llama3.2`) — the honest one.
-        return "resident", hit, entry
-    return "idle", matched, None
+        return "resident", hit, entry, True
+    return "idle", matched, None, True
 
 
 def _loaded_models() -> list[dict]:
@@ -900,7 +911,7 @@ def _loaded_models() -> list[dict]:
             if reachable:
                 resident = _models.probe_resident(
                     str(b.get("url", "")), str(b.get("engine", "")), key, timeout=1.5)
-        state, confirmed, entry = _backend_state(b, reachable, served, resident)
+        state, confirmed, entry, measured = _backend_state(b, reachable, served, resident)
 
         label = str(b.get("label") or "").strip()
         row = _match_backend_row(rows, served or [str(b.get("model") or "")])
@@ -931,10 +942,13 @@ def _loaded_models() -> list[dict]:
             # whether a model is loaded. Letting container liveness assert "In
             # memory" over an observed-empty /api/ps is exactly the disk-listing
             # lie this change exists to end.
-            row["state"] = ("resident"
-                            if row.get("source") == "nvidia-smi"
-                            and row.get("status") == "loaded"
-                            else state)
+            gpu_holds_it = (row.get("source") == "nvidia-smi"
+                            and row.get("status") == "loaded")
+            row["state"] = "resident" if gpu_holds_it else state
+            # Whether that "In memory" was READ or derived. A GPU process holding
+            # the weights is the strongest possible reading; the `serves_resident`
+            # path is a conclusion about the engine's nature, not an observation.
+            row["state_measured"] = True if gpu_holds_it else measured
             # The config's display label belongs to the config's model. When the
             # engine turns out to be serving something else — an ava.yaml that
             # drifted from what was actually launched — showing the label would
@@ -969,6 +983,7 @@ def _loaded_models() -> list[dict]:
             "status": "loaded" if state == "resident" else (
                 "offline" if state == "offline" else "empty"),
             "state": state,
+            "state_measured": measured,
             "source": "api", "cmd": "",
             "backend": b.get("id"),
             "local": bool(b.get("local", True)),

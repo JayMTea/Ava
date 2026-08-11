@@ -4,6 +4,7 @@ in the generated agent tools. A real environment variable still wins at read
 time. This is what lets a redeploy reuse a saved token without re-prompting while
 the Ava-never-has-passwords invariant holds (the agent never sees the value)."""
 import os
+import pathlib
 import tempfile
 import unittest
 from unittest import mock
@@ -67,6 +68,17 @@ class SecretWriteSourceTests(unittest.TestCase):
     mechanism: the credential write must pass an `opener` that carries the mode,
     the way `audit.py` already does, rather than relying on a follow-up chmod."""
 
+    def setUp(self):
+        # These call `set_env_secret` for real, and without this they wrote into
+        # the DEVELOPER'S secrets directory — leaving MYAPP_TOKEN behind and
+        # leaking state into whichever test ran next.
+        self.tmp = tempfile.mkdtemp()
+        self._env = mock.patch.dict(os.environ, {"AVA_SECRETS_DIR": self.tmp},
+                                    clear=False)
+        self._env.start()
+        self.addCleanup(self._env.stop)
+        os.environ.pop("MYAPP_TOKEN", None)
+
     def test_set_env_secret_uses_a_mode_carrying_opener(self):
         import inspect
         src = inspect.getsource(settings.set_env_secret)
@@ -74,8 +86,45 @@ class SecretWriteSourceTests(unittest.TestCase):
                       "set_env_secret must create the file with its mode, not "
                       "write at the ambient umask and chmod afterwards")
         self.assertIn("0o600", src)
-        self.assertIn("mode=0o700", src, "the env/ directory must not be created "
-                                         "at the ambient umask either")
+        self.assertIn("_private_dir", src, "the env/ directory must not be created "
+                                           "at the ambient umask either")
+
+    def test_the_secrets_directories_are_private_and_stay_private(self):
+        """`os.makedirs(mode=0o700, exist_ok=True)` only applies the mode when it
+        CREATES the directory, so one made under an earlier umask keeps whatever
+        it had, forever, and nothing notices.
+
+        Observed on a real install: `secrets/` and `secrets/env/` at 0775. The
+        files inside were still 0600 — the opener sets the mode at creation — so
+        no credential was exposed, but their NAMES were world-listable. The test
+        above could not catch it because it uses a fresh tmpdir every run, which
+        is exactly the case that works.
+        """
+        env_dir = pathlib.Path(settings.secrets_dir()) / "env"
+        os.makedirs(env_dir, exist_ok=True)
+        os.chmod(env_dir.parent, 0o775)     # the drift, reproduced
+        os.chmod(env_dir, 0o775)
+
+        settings.set_env_secret("MYAPP_TOKEN", "s3cret")
+
+        self.assertEqual(env_dir.stat().st_mode & 0o777, 0o700,
+                         "secrets/env/ was left world-listable")
+        self.assertEqual(env_dir.parent.stat().st_mode & 0o777, 0o700,
+                         "secrets/ itself was left world-listable")
+
+    def test_a_directory_it_cannot_chmod_does_not_stop_the_write(self):
+        """Best-effort by design: a secrets dir owned by someone else must not
+        stop the bridge saving a credential it can otherwise save."""
+        real = os.chmod
+
+        def refuse_dirs(path, mode, *a, **k):
+            if os.path.isdir(path):
+                raise PermissionError("not yours")
+            return real(path, mode, *a, **k)
+
+        with mock.patch.object(settings.os, "chmod", refuse_dirs):
+            settings.set_env_secret("MYAPP_TOKEN", "s3cret")
+        self.assertEqual(settings.env_secret("MYAPP_TOKEN"), "s3cret")
 
     def test_real_env_var_wins_then_falls_back_to_store(self):
         settings.set_env_secret("MYAPP_TOKEN", "fromstore")

@@ -443,10 +443,14 @@ def ensure_dirs() -> None:
     # adapter (docs/ALLOCATION.md). It was never created and no doc said to
     # mkdir it, so the first step of "add support for your engine" was a
     # directory that did not exist.
-    for d in (data_dir(), logs_dir(), upload_dir(), secrets_dir(),
+    for d in (data_dir(), logs_dir(), upload_dir(),
               brand_dir(), home("alloc_drivers"),
               generated_policy_dir(), connector_tools_dir()):
         os.makedirs(d, exist_ok=True)
+    # 0700, and CORRECTED if it drifted. Doing this at boot rather than only on
+    # the next credential write is what fixes an install that has been sitting
+    # world-listable since before the mode was set at all.
+    _private_dir(secrets_dir())
     # Deliberately does NOT adopt anything stranded at the legacy path. This runs
     # at `config` import, so a process pointed at a second AVA_HOME would move
     # the primary install's files into it — see migrate_agent_state().
@@ -466,6 +470,31 @@ def upload_dir() -> str:
 
 def secrets_dir() -> str:
     return get("paths.secrets", home("secrets"), env="AVA_SECRETS_DIR")
+
+
+def _private_dir(path) -> None:
+    """Create `path` 0700, and CORRECT it if it already exists more openly.
+
+    `os.makedirs(mode=0o700, exist_ok=True)` does not do the second half: the
+    mode argument only applies when the directory is created, so a secrets
+    directory that predates the mode argument — or was made by an earlier
+    umask — keeps whatever it had, forever, and nothing ever notices.
+
+    Observed on a real install: `secrets/` and `secrets/env/` at 0775. The files
+    inside are 0600 (the opener sets the mode at creation, so contents were never
+    exposed), but the credential NAMES were world-listable, and the test that
+    pins 0700 uses a fresh tmpdir so it could not catch the drift.
+
+    Best-effort on the chmod: a directory owned by someone else must not stop the
+    bridge writing a secret it can otherwise write.
+    """
+    path = Path(path)
+    os.makedirs(path, mode=0o700, exist_ok=True)
+    try:
+        if (path.stat().st_mode & 0o777) != 0o700:
+            os.chmod(path, 0o700)
+    except OSError:
+        pass
 
 
 def agent_state_dir() -> str:
@@ -674,7 +703,8 @@ def set_env_secret(name: str, value: str) -> None:
     if not safe or not value:
         return
     d = Path(secrets_dir()) / "env"
-    os.makedirs(d, mode=0o700, exist_ok=True)
+    _private_dir(d.parent)      # secrets/ itself, not only secrets/env/
+    _private_dir(d)
     p = d / safe
     # Created 0600 by the open() itself, not written at the ambient umask and
     # chmod'ed after. The window was sub-millisecond and same-user, but a

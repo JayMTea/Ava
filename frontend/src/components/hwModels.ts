@@ -113,6 +113,14 @@ export function foundVia(source: string | undefined): string {
  *    so "Nothing is answering at its address" describes an address nobody chose. */
 export function rowHint(m: Row): string {
   if (relationOf(m) === 'foreign') return '';
+  // "In memory" that was concluded rather than read. Correct — this engine holds
+  // one model from boot — but MODEL_STATE.resident.hint reads as a measurement,
+  // and the whole point of the state vocabulary is that liveness is observed.
+  // Saying how we know costs one clause and keeps the claim honest.
+  if (stateOf(m) === 'resident' && m.state_measured === false) {
+    return 'This engine loads one model at boot and holds it, so serving it means '
+      + 'holding it. Ava cannot read its memory directly to confirm.';
+  }
   if (m.implicit && stateOf(m) === 'offline') {
     return 'Nothing is configured here — this address came from AVA_BACKEND_URL, '
       + 'and nothing is listening on it.';

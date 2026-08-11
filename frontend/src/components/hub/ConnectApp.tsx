@@ -177,7 +177,13 @@ export function ConnectAppFields({ onCreated, onConnected }: {
     if (probe?.kind === 'mcp') {
       body.mcp = isUrl
         ? { url: reach.trim() }
-        : { command: reach.trim(), sandbox: (isolate && dockerAvail) ? 'docker' : undefined };
+        // Say which, always. `undefined` used to mean "uncontained" to the
+        // manifest writer while it meant "contained" to the probe — so a command
+        // DETECTED inside a container could be SAVED to run outside one. The
+        // backend now defaults to containment, which makes an explicit 'none'
+        // the only way to record that the owner chose otherwise.
+        : { command: reach.trim(),
+            sandbox: (isolate && dockerAvail) ? 'docker' : 'none' };
       if (confirmAll) body.confirm = true;
     } else if (probe?.kind === 'discover') {
       // Facade paths from /.well-known/ava.json when declared (they may not

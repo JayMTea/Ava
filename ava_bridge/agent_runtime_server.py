@@ -54,16 +54,45 @@ def status():
 
 @app.post("/run_turn")
 async def run_turn(request: Request):
+    """Proxy one turn into the sandbox.
+
+    Answers the FAILURE as a body rather than letting it become a 500.
+    `NemoClawRuntime.run_turn` raises RuntimeError on unparsable output and
+    TimeoutExpired after OC_TIMEOUT; both used to reach `RemoteRuntime._post`'s
+    `raise_for_status()`, which is the one method on that adapter that does not
+    swallow — so `turns.py` rendered its canned "my tools timed out or hit a
+    snag" and a 401 from a token mismatch looked exactly like a slow tool. The
+    owner could not tell a misconfigured deployment from a busy one.
+    """
     body = await request.json()
-    reply, tools = _rt.run_turn(body.get("text", ""),
-                                session_id=body.get("session_id"))
+    try:
+        reply, tools = _rt.run_turn(body.get("text", ""),
+                                    session_id=body.get("session_id"))
+    except Exception as e:  # noqa: BLE001 — the reason IS the payload
+        return JSONResponse({"error": f"{type(e).__name__}: {e}"[:400],
+                             "error_code": "agent_turn_failed"}, status_code=200)
     return {"reply": reply, "tools": tools}
+
+
+#: Ceiling for a caller-supplied exec timeout. `int(body["timeout"])` was
+#: unvalidated and unbounded, so a bad value was either an unhandled ValueError
+#: (a 500 from a malformed request) or a request that pinned a worker for as long
+#: as it liked. Live chain-of-thought reads a file; it does not need minutes.
+_EXEC_TIMEOUT_MAX = 120
 
 
 @app.post("/exec")
 async def exec_(request: Request):
     body = await request.json()
-    out = _rt.exec(body.get("inner", ""), timeout=int(body.get("timeout", 20)))
+    try:
+        timeout = int(body.get("timeout", 20))
+    except (TypeError, ValueError):
+        timeout = 20
+    timeout = max(1, min(timeout, _EXEC_TIMEOUT_MAX))
+    try:
+        out = _rt.exec(body.get("inner", ""), timeout=timeout)
+    except Exception as e:  # noqa: BLE001 — RemoteRuntime.exec swallows anyway,
+        return {"out": "", "error": f"{type(e).__name__}: {e}"[:200]}
     return {"out": out}
 
 

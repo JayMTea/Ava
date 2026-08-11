@@ -25,7 +25,9 @@
    `additionalProperties`, so arguments worked — the same manifest behaved
    differently either side of META_TOOLS_MIN.
 """
+import asyncio
 import os
+import shutil
 import tempfile
 import unittest
 from unittest import mock
@@ -215,3 +217,58 @@ class OpenApiInputTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SandboxPersistenceTests(unittest.TestCase):
+    """A command PROBED in a container must not be SAVED to run outside one.
+
+    `_probe` defaults to Docker and fails closed; the manifest writer only wrote
+    `sandbox: docker` when the client explicitly said so, and `mcp_client` reads
+    an absent key as uncontained (`spec.get("sandbox") or "none"`). The frontend
+    sends the flag from `dockerAvail`, which is stuck at `true` when
+    `hub.system()` fails — so the two halves could disagree and hand an arbitrary
+    pasted command the bridge's whole environment. Containment defaults ON now,
+    and dropping it is an explicit `sandbox: none` in the request and in the diff.
+    """
+
+    def _manifest(self, mcp_in: dict) -> dict:
+        from ava_bridge.hub import connectors as hub_connectors
+        written = {}
+
+        async def _run():
+            with mock.patch.object(hub_connectors.settings, "home",
+                                   side_effect=lambda *p: os.path.join(self.tmp, *p)), \
+                 mock.patch.object(hub_connectors.connectors, "load"), \
+                 mock.patch.object(hub_connectors.connectors, "load_errors",
+                                   return_value=[]), \
+                 mock.patch.object(hub_connectors.perf_mgmt, "refresh_sources"), \
+                 mock.patch.object(hub_connectors.settings, "set_env_secret"):
+                r = await hub_connectors.connector_new(
+                    {"id": "acme", "label": "Acme", "mcp": mcp_in})
+            written.update(r.get("manifest") or {})
+
+        asyncio.run(_run())
+        return written
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def test_a_stdio_command_is_contained_by_default(self):
+        m = self._manifest({"command": "npx -y some-server"})
+        self.assertEqual(m["mcp"]["sandbox"], "docker",
+                         "an absent flag reads as UNCONTAINED downstream")
+
+    def test_an_explicit_opt_out_is_recorded_as_such(self):
+        m = self._manifest({"command": "npx -y some-server", "sandbox": "none"})
+        self.assertEqual(m["mcp"]["sandbox"], "none")
+
+    def test_docker_stays_docker(self):
+        m = self._manifest({"command": "npx -y some-server", "sandbox": "docker"})
+        self.assertEqual(m["mcp"]["sandbox"], "docker")
+
+    def test_a_url_server_has_no_sandbox_key_at_all(self):
+        """Containment is about a process WE spawn. An HTTP endpoint is someone
+        else's process and there is nothing here to contain."""
+        m = self._manifest({"url": "http://127.0.0.1:9000/mcp"})
+        self.assertNotIn("sandbox", m["mcp"])

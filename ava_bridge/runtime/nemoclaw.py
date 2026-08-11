@@ -594,8 +594,16 @@ class NemoClawRuntime(AgentRuntime):
         # CLI is NVIDIA's official installer (needs Node >=22.16 + a reachable
         # Docker daemon). The installer also attempts an onboard at the end, so
         # tolerate a non-zero exit and verify by the CLI being present.
+        # The ref the CONTAINER path pins, not `main`. deploy/agent.Dockerfile
+        # pins `NEMOCLAW_INSTALL_REF` precisely so bare-metal and Docker installs
+        # get the same agent runtime — docs/AGENT_RUNTIME.md calls that pin
+        # load-bearing and tells a human to read it out of the Dockerfile rather
+        # than hardcode it. This code then installed from `main` regardless, so
+        # the one command the docs recommend (`ava agent provision --install`)
+        # produced exactly the drift the ARG exists to prevent.
+        ref = _install_ref()
         _INSTALL = ("curl -fsSL https://raw.githubusercontent.com/NVIDIA/"
-                    "NemoClaw/main/install.sh | bash")
+                    f"NemoClaw/{ref}/install.sh | bash")
         have_cli = bool(self.cli) and os.path.exists(self.cli)
         if not have_cli and auto_install:
             if _which("curl") and _which("bash"):
@@ -699,6 +707,30 @@ class NemoClawRuntime(AgentRuntime):
                 health = {"raw": txt[:400]}
         c.update(ts=now, health=health)
         return health
+
+
+def _install_ref() -> str:
+    """The NemoClaw ref to install, read from the same place Docker reads it.
+
+    `deploy/agent.Dockerfile`'s `ARG NEMOCLAW_INSTALL_REF` is the single source
+    of truth; the env var is the documented escape hatch when a pin goes bad.
+    Falls back to `main` only when the Dockerfile cannot be read at all — a
+    checkout that has lost it is not a reason to refuse to install.
+    """
+    env = os.environ.get("NEMOCLAW_INSTALL_REF", "").strip()
+    if env:
+        return env
+    try:
+        path = os.path.join(config.ROOT, "deploy", "agent.Dockerfile")
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("ARG NEMOCLAW_INSTALL_REF="):
+                    ref = line.split("=", 1)[1].strip()
+                    if ref:
+                        return ref
+    except OSError:
+        pass
+    return "main"
 
 
 def _which(name: str) -> str | None:

@@ -146,3 +146,24 @@ describe('foundVia', () => {
     expect(foundVia('some-new-probe')).toBe('some-new-probe');
   });
 });
+
+describe('an "In memory" that was concluded, not read', () => {
+  // vLLM, llama.cpp and MLX expose no residency endpoint: they load one model at
+  // boot and hold it, so being served IS being resident. Correct — and not an
+  // observation. The resident hint reads as a measurement either way, and the
+  // whole point of the state vocabulary is that liveness is observed.
+  it('says how it knows', () => {
+    expect(rowHint(row({ backend: 'local', state: 'resident', state_measured: false })))
+      .toContain('cannot read its memory directly');
+  });
+
+  it('leaves a measured residency alone', () => {
+    expect(rowHint(row({ backend: 'local', state: 'resident', state_measured: true })))
+      .not.toContain('cannot read its memory directly');
+  });
+
+  it('treats an absent flag as measured, so older payloads do not change', () => {
+    expect(rowHint(row({ backend: 'local', state: 'resident' })))
+      .not.toContain('cannot read its memory directly');
+  });
+});
