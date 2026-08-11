@@ -28,8 +28,12 @@ def _fake_shim(ready: bool = True) -> FastAPI:
         return await call_next(request)
 
     @app.get("/healthz")
-    def healthz():
-        return {"ok": True, "ready": ready}
+    def healthz(request: Request):
+        body = {"ok": True, "ready": ready}
+        tok = request.headers.get("x-ava-agent-token", "")
+        if tok:
+            body["authed"] = tok == TOKEN
+        return body
 
     @app.get("/status")
     def status():
@@ -101,6 +105,48 @@ class RemoteRuntimeTests(unittest.TestCase):
 
     def test_available_reads_ready_flag(self):
         self.assertTrue(self.rt.available())
+
+    def test_a_wrong_token_is_not_available_and_says_why(self):
+        """/healthz is the one unauthenticated route, so a mismatched token used
+        to read as a perfectly healthy agent whose every real call came back 401.
+        The owner saw a green agent and failing turns with nothing linking them —
+        and it is the easiest mistake to make in the Docker full-agent profile,
+        where the token lives in two containers."""
+        with mock.patch.object(config, "AGENT_TOKEN", "not-the-shims-token"):
+            self.rt._avail_cache = {"ts": 0.0, "ok": None}
+            self.assertFalse(self.rt.available(),
+                             "a runtime whose every call 401s reported itself "
+                             "available")
+            reason = self.rt.live()["reason"]
+        self.assertIn("token", reason)
+        self.assertIn("AVA_AGENT_TOKEN", reason)
+
+    def test_an_older_shim_without_the_field_still_works(self):
+        """`authed` is additive: a container built before it must not read as
+        unauthenticated and lock the owner out of an agent that works."""
+        app = _fake_shim(ready=True)
+        for route in list(app.router.routes):
+            if getattr(route, "path", "") == "/healthz":
+                app.router.routes.remove(route)
+
+        @app.get("/healthz")
+        def old_healthz():
+            return {"ok": True, "ready": True}
+
+        self.client = TestClient(app, base_url="http://localhost")
+        self.rt._avail_cache = {"ts": 0.0, "ok": None}
+        self.assertTrue(self.rt.available())
+
+    def test_an_unreachable_agent_names_the_address(self):
+        def boom(url, headers=None, timeout=None):
+            raise OSError("connection refused")
+
+        with mock.patch("ava_bridge.runtime.remote.requests.get", boom):
+            self.rt._avail_cache = {"ts": 0.0, "ok": None}
+            self.assertFalse(self.rt.available())
+            reason = self.rt.live()["reason"]
+        self.assertIn("http://agent:9100", reason)
+        self.assertIn("OSError", reason)
 
     def test_available_false_when_not_ready(self):
         self.client = TestClient(_fake_shim(ready=False), base_url="http://localhost")

@@ -1002,6 +1002,22 @@ def _loaded_models() -> list[dict]:
     # its own and gets one here; otherwise the brain is whichever backend row
     # the resolver picked.
     if brain.get("source") == "agent":
+        # Is the sandbox actually running? The row used to be hardcoded to
+        # `unknown`, which is the right word for "we cannot see the weights
+        # inside it" and the wrong one for "the container is stopped" — so a
+        # memory panel showed a serene grey row over an Ava that could not answer
+        # at all. `live()` is the observation the drift report already trusts,
+        # and observing is the rule: liveness is never inferred from the fact
+        # that the resolver picked this source.
+        agent_live, agent_why = True, ""
+        if brain.get("local"):
+            try:
+                from . import runtime as _runtime
+                probe = _runtime.active().live()
+                agent_live = bool(probe.get("live"))
+                agent_why = str(probe.get("reason") or "")
+            except Exception as e:  # noqa: BLE001 — a failed probe is not "fine"
+                agent_live, agent_why = False, f"could not probe the runtime: {e}"
         # Emitted even before the sandbox's model name is known: the row's job
         # is to say what answers turns, and "the agent runtime, name pending" is
         # a truer answer than a router backend that will not see the turn.
@@ -1013,9 +1029,16 @@ def _loaded_models() -> list[dict]:
             "model_id": brain.get("model_id") or None,
             "memory_mb": None, "memory_gb": None, "gpu_util": None, "pid": None,
             "status": "empty",
-            # The sandbox holds the endpoint; we cannot see inside it, so
-            # residency is unknown rather than absent.
-            "state": "unknown" if brain.get("local") else "remote",
+            # The sandbox holds the endpoint; we cannot see inside it, so a
+            # RUNNING sandbox's residency is unknown rather than absent. A
+            # stopped one is not unknown — it is offline, and saying so is the
+            # difference between "we can't tell" and "nothing is answering".
+            "state": ("remote" if not brain.get("local")
+                      else "unknown" if agent_live else "offline"),
+            # Never measured either way: `live()` observes the container, not the
+            # weights, so the memory figure stays unreadable even when it is up.
+            "state_measured": False,
+            "state_detail": "" if agent_live else agent_why,
             "source": "agent", "cmd": "",
             "backend": "", "local": bool(brain.get("local")),
             "vram_mb": None, "served": [],

@@ -256,16 +256,28 @@ class BrainVisibility(unittest.TestCase):
     """
 
     def _rows(self, backends, brain, serving=None, resident=_cannot_ask_residency,
-              procs=()):
+              procs=(), agent_live=True):
         """`_loaded_models()` with the collaborator seams held still.
 
         `backends=None` leaves `_configured_backends` REAL (so the locality
         decision that shipped is the one under test); `procs=None` leaves
         process/container discovery real (so "this box has no telemetry" is a
         genuinely empty scan rather than a stub).
+
+        `agent_live` pins the sandbox liveness probe. It has to be pinned: the
+        agent row asks the runtime whether its container is up, and leaving that
+        real would make these assertions depend on whether the machine running
+        the tests happens to have a sandbox — and would let a test invoke the
+        real nemoclaw binary, which is forbidden (see
+        tests/test_install_scope_exec.py).
         """
         serving = serving or _serving([])
+        fake_rt = mock.Mock()
+        fake_rt.live.return_value = {"live": agent_live,
+                                     "reason": "" if agent_live else "not running"}
         with contextlib.ExitStack() as es:
+            es.enter_context(mock.patch("ava_bridge.runtime.active",
+                                        return_value=fake_rt))
             for pt in (
                 mock.patch.object(_models, "effective_brain", lambda: dict(brain)),
                 mock.patch.object(_models, "probe_serving", serving),
@@ -433,8 +445,42 @@ class BrainVisibility(unittest.TestCase):
         self.assertEqual(row["model"], "Agent sandbox")
         self.assertEqual(row["state"], "unknown")
         self.assertIsNone(row["in_memory"], "unknown residency is not 'no'")
+        self.assertFalse(row["state_measured"],
+                         "live() observes the container, never the weights")
         # And the router's own backend is present, but is NOT the brain.
         self.assertEqual([r["role_key"] for r in rows if r.get("backend") == "brain"], [""])
+
+    def test_a_stopped_sandbox_reads_offline_not_unknown(self):
+        """`unknown` is the honest word for "we cannot see the weights inside the
+        sandbox". It is the wrong word for "the container is stopped", and the
+        row was hardcoded to it — so the memory panel showed a serene grey row
+        for an Ava that could not answer at all.
+
+        Liveness is observed, never inferred from the resolver having picked this
+        source: `live()` is the same observation the drift report trusts.
+        """
+        rows = self._rows([_backend()],
+                          _brain(backend_id="", source="agent",
+                                 model_id="m", label="M", engine="nemoclaw"),
+                          _serving(OLLAMA_TAGS), _resident([]), agent_live=False)
+        row = self._only_brain(rows)
+        self.assertEqual(row["state"], "offline")
+        self.assertEqual(row["state_detail"], "not running")
+        # And here residency IS knowable, in the one direction that matters: a
+        # container that is not running holds nothing. `None` is for "we could
+        # not look", which is no longer the case once we have looked.
+        self.assertFalse(row["in_memory"])
+
+    def test_a_running_sandbox_is_still_unknown_not_resident(self):
+        """The other half: being up is not evidence about what it HOLDS. Reading
+        a live container as `resident` would be the same inference in reverse."""
+        rows = self._rows([_backend()],
+                          _brain(backend_id="", source="agent",
+                                 model_id="m", label="M", engine="nemoclaw"),
+                          _serving(OLLAMA_TAGS), _resident([]), agent_live=True)
+        row = self._only_brain(rows)
+        self.assertEqual(row["state"], "unknown")
+        self.assertEqual(row["state_detail"], "")
 
     def test_an_engine_with_an_empty_store_is_absent_not_idle(self):
         """The fresh compose install, which is the shipped first-run path:

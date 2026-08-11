@@ -121,6 +121,16 @@ export function rowHint(m: Row): string {
     return 'This engine loads one model at boot and holds it, so serving it means '
       + 'holding it. Ava cannot read its memory directly to confirm.';
   }
+  // The agent sandbox is a container, not an address, so the generic offline
+  // hint ("Nothing is answering at its address") describes something that does
+  // not exist here. The backend's probe knows which of stopped / unreachable /
+  // wrong-token it is; say that instead of inventing a cause.
+  if (m.source === 'agent' && stateOf(m) === 'offline') {
+    const why = (m.state_detail || '').trim();
+    return why
+      ? `Ava's agent sandbox is not running: ${why}`
+      : "Ava's agent sandbox is not running, so it cannot answer.";
+  }
   if (m.implicit && stateOf(m) === 'offline') {
     return 'Nothing is configured here — this address came from AVA_BACKEND_URL, '
       + 'and nothing is listening on it.';

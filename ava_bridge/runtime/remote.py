@@ -28,7 +28,7 @@ class RemoteRuntime(AgentRuntime):
     supports_cot = True
 
     def __init__(self):
-        self._avail_cache: dict = {"ts": 0.0, "ok": None, "caps": []}
+        self._avail_cache: dict = {"ts": 0.0, "ok": None, "caps": [], "why": ""}
 
     # ---- plumbing -----------------------------------------------------------
     def _url(self, path: str) -> str:
@@ -54,6 +54,12 @@ class RemoteRuntime(AgentRuntime):
             return bool(c["ok"])
         ok = False
         caps: list = []
+        # WHY it is not available, kept beside the verdict. This used to be a bare
+        # `ok = False`, so a token that does not match between the two containers
+        # — the one setup mistake the Docker full-agent profile makes easy — was
+        # indistinguishable from a container that had not booted yet, forever, in
+        # every surface. The two have nothing in common except the symptom.
+        why = ""
         try:
             r = requests.get(self._url("/healthz"), headers=self._headers(), timeout=3)
             body = (r.json() or {}) if r.ok else {}
@@ -63,9 +69,25 @@ class RemoteRuntime(AgentRuntime):
             # the fail-closed default provision() wants.
             got = body.get("capabilities")
             caps = [str(c) for c in got] if isinstance(got, list) else []
-        except Exception:  # noqa: BLE001
+            if body.get("authed") is False:
+                # /healthz is the one route the shim leaves unauthenticated, so
+                # a wrong token used to read as a perfectly healthy agent whose
+                # every actual call 401'd. Available means usable.
+                ok = False
+                why = ("the agent service rejected our token — AVA_AGENT_TOKEN "
+                       "must be the same in the bridge and agent containers")
+            elif r.status_code in (401, 403):
+                why = (f"the agent service rejected our token ({r.status_code}) — "
+                       "AVA_AGENT_TOKEN must be the same in the bridge and agent "
+                       "containers")
+            elif not r.ok:
+                why = f"the agent service answered {r.status_code}"
+            elif not ok:
+                why = "the agent service is up but reports it is not ready yet"
+        except Exception as e:  # noqa: BLE001
             ok = False
-        c.update(ts=now, ok=ok, caps=caps)
+            why = f"could not reach {config.AGENT_URL}: {type(e).__name__}"
+        c.update(ts=now, ok=ok, caps=caps, why=why)
         return ok
 
     # ---- one turn -----------------------------------------------------------
@@ -161,7 +183,9 @@ class RemoteRuntime(AgentRuntime):
     def live(self) -> dict:
         ok = self.available()
         return {"live": ok,
-                "reason": "" if ok else f"the agent service at {config.AGENT_URL} is not ready"}
+                "reason": "" if ok else (
+                    self._avail_cache.get("why")
+                    or f"the agent service at {config.AGENT_URL} is not ready")}
 
     def status(self) -> dict:
         out = {"name": self.name, "available": False, "url": config.AGENT_URL,

@@ -167,3 +167,30 @@ describe('an "In memory" that was concluded, not read', () => {
       .not.toContain('cannot read its memory directly');
   });
 });
+
+describe('the agent sandbox when it is not running', () => {
+  // The row used to be hardcoded to `unknown` — the right word for "we cannot
+  // see the weights inside it", the wrong one for "the container is stopped".
+  // Now that the backend observes liveness, the copy has to match: there is no
+  // address here to have nothing answering at, and the reasons differ.
+  it('names the sandbox rather than an address', () => {
+    const hint = rowHint(row({ ...BRAIN, state: 'offline' }));
+    expect(hint).toContain('agent sandbox');
+    expect(hint).not.toContain('address');
+  });
+
+  it('passes through what the probe found out', () => {
+    expect(rowHint(row({
+      ...BRAIN, state: 'offline',
+      state_detail: 'the agent service rejected our token',
+    }))).toContain('rejected our token');
+  });
+
+  it('still says something useful with no detail', () => {
+    expect(rowHint(row({ ...BRAIN, state: 'offline' }))).toBeTruthy();
+  });
+
+  it('leaves a running sandbox on its unknown-residency hint', () => {
+    expect(rowHint(BRAIN)).not.toContain('not running');
+  });
+});

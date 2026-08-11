@@ -41,10 +41,24 @@ async def _auth(request: Request, call_next):
 
 
 @app.get("/healthz")
-def healthz():
+def healthz(request: Request):
     # `ready` gates the bridge's RemoteRuntime.available(): true only once the
     # sandbox exists and the CLI resolves (onboarding finished).
-    return {"ok": True, "ready": _rt.available(), "capabilities": CAPABILITIES}
+    #
+    # `authed` exists because this is the ONE unauthenticated route, so a token
+    # that does not match between the two containers — the single easiest mistake
+    # in the Docker full-agent profile — used to leave the bridge reporting the
+    # agent as available while every real call came back 401. The owner saw a
+    # healthy agent and failing turns, with nothing connecting the two.
+    #
+    # Only present when a token was actually offered, so an anonymous prober
+    # learns nothing it could not learn by making a request and reading the 401.
+    body = {"ok": True, "ready": _rt.available(), "capabilities": CAPABILITIES}
+    tok = request.headers.get("x-ava-agent-token", "")
+    if tok:
+        body["authed"] = bool(config.AGENT_TOKEN
+                              and hmac.compare_digest(tok, config.AGENT_TOKEN))
+    return body
 
 
 @app.get("/status")

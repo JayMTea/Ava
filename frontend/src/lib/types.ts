@@ -122,6 +122,11 @@ export interface HardwareStats {
     // conclusion, but not an observation, and "In memory" reads identically
     // either way. Same distinction AllocModel.measured draws for resident_gib.
     state_measured?: boolean;
+    // Why a row is not live, when the probe that found it out can say. Set for
+    // the agent sandbox, where "Nothing is answering at its address" is the
+    // wrong sentence — there is no address, there is a container, and the
+    // reasons differ (stopped, unreachable, token mismatch).
+    state_detail?: string;
     // WHOSE this row is (ava_bridge/hardware.py _RELATIONS). Derived from
     // `role_key` / `backend` / `app` — never a second guess at which row is the
     // brain, which only models.effective_brain() decides.
