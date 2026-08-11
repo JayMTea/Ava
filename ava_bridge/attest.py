@@ -200,11 +200,21 @@ def collect_policies() -> Artifact:
         return Artifact(name="policies", state=UNKNOWN, evidence_class=INVENTORY,
                         reason=f"{type(e).__name__}: {e}",
                         **_producer("ava_bridge/policy_inventory.py"))
-    if snap.get("parse_errors"):
+    if snap.get("parse_errors") or snap.get("shadowed"):
+        why = []
+        if snap.get("parse_errors"):
+            why.append(f"{len(snap['parse_errors'])} policy file(s) do not parse, "
+                       "so their rules could not be inventoried")
+        if snap.get("shadowed"):
+            # The bundle's claim is "these are the policies in force". A file whose
+            # `preset.name` a later-applied file reuses is inventoried and NOT in
+            # force, so the claim is only partly true and must say so.
+            why.append(f"{len(snap['shadowed'])} policy file(s) are shadowed by "
+                       "another file declaring the same preset name, so their "
+                       "rules are not the ones the sandbox enforces")
         return Artifact(
             name="policies", state=DEGRADED, evidence_class=INVENTORY, data=snap,
-            reason=f"{len(snap['parse_errors'])} policy file(s) do not parse, so "
-                   "their rules could not be inventoried",
+            reason="; ".join(why),
             **_producer("ava_bridge/policy_inventory.py"))
     return Artifact(name="policies", state=COLLECTED, evidence_class=INVENTORY,
                     data=snap, **_producer("ava_bridge/policy_inventory.py"))

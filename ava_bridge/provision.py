@@ -268,7 +268,13 @@ def desired() -> dict[str, list[dict]]:
             "rel": "agent/persona.txt.tmpl", "error": f"could not render: {e}",
         }]
 
-    for p in policy_inventory.inventory():
+    # `effective()`, not `inventory()`: two files can declare one `preset.name`
+    # and only the last-applied survives in the sandbox. Emitting both would put
+    # two rows under one id against one observed digest, so one of them read
+    # `stale` forever and Apply could never clear it — the same shape as the
+    # entry-point-vs-tree bug. The shadowed file is not dropped from sight; it is
+    # reported as such by `policy_inventory.shadowed()`.
+    for p in policy_inventory.effective():
         out["policies"].append({
             "id": p.name,                      # preset.name — NOT the file stem
             "label": p.name,

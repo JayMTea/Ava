@@ -308,3 +308,65 @@ def test_the_checker_still_runs_as_a_script() -> None:
         f"ava_security_check.py crashed rather than reporting findings:\n{r.stderr}")
     assert "policy" not in r.stdout.lower() or "FAILED" not in r.stdout, (
         f"the script reports a policy failure:\n{r.stdout}")
+
+
+# --------------------------------------------------------------------------- #
+# Two files, one preset name
+# --------------------------------------------------------------------------- #
+def _pol(name: str) -> str:
+    return yaml.safe_dump({"preset": {"name": name}, "network_policies": {}},
+                          sort_keys=False)
+
+
+def test_a_shadowed_policy_is_reported_and_never_silently_collapsed(tmp_path,
+                                                                    monkeypatch):
+    """`policy-add` replaces by preset name, so a generated and an overlay file
+    both declaring `ava-acme` leave only one in force — the last applied.
+
+    Everything downstream was keyed on the name: `names()` is a set, the drift map
+    is `{id: row}`, and `observed()`'s applied dict is last-wins. So the loser's
+    rules sat on disk, were listed in the inventory as if in force, and nothing
+    anywhere said they were not. An owner writing an overlay policy to EXTEND a
+    generated one replaced it instead and kept being shown the rules they lost.
+    """
+    gen, over = tmp_path / "generated", tmp_path / "overlay"
+    gen.mkdir(), over.mkdir()
+    (gen / "acme.yaml").write_text(_pol("ava-acme"), encoding="utf-8")
+    (over / "acme-override.yaml").write_text(_pol("ava-acme"), encoding="utf-8")
+    monkeypatch.setattr(policy_inventory, "POLICY_DIR", str(tmp_path / "nope"))
+    monkeypatch.setattr(policy_inventory, "GENERATED_DIR", str(gen))
+    monkeypatch.setattr(policy_inventory, "OVERLAY_DIR", str(over))
+
+    inv = policy_inventory.inventory()
+    assert len(inv) == 2, "both files must stay visible in the inventory"
+
+    shadow = policy_inventory.shadowed()
+    assert len(shadow) == 1, f"the collision was not reported: {shadow}"
+    assert shadow[0]["name"] == "ava-acme"
+    assert "acme.yaml" in shadow[0]["rel"], "the generated file is the loser"
+    assert "acme-override.yaml" in shadow[0]["by"], (
+        "the winner must be the LAST applied — install.sh policy-adds declared, "
+        "then generated, then overlay")
+
+    eff = policy_inventory.effective()
+    assert [p.rel for p in eff] == [inv[1].rel], (
+        "effective() must name exactly what the sandbox ends up holding")
+    assert policy_inventory.snapshot()["shadowed"] == shadow
+
+
+def test_drift_publishes_one_row_per_preset_name(tmp_path, monkeypatch):
+    """Two rows under one id, compared against one observed digest, means one of
+    them reads `stale` in perpetuity: a pending count Apply can never clear —
+    the same shape as the entry-point-vs-tree bug."""
+    from ava_bridge import provision
+
+    gen, over = tmp_path / "generated", tmp_path / "overlay"
+    gen.mkdir(), over.mkdir()
+    (gen / "acme.yaml").write_text(_pol("ava-acme"), encoding="utf-8")
+    (over / "acme-override.yaml").write_text(_pol("ava-acme"), encoding="utf-8")
+    monkeypatch.setattr(policy_inventory, "POLICY_DIR", str(tmp_path / "nope"))
+    monkeypatch.setattr(policy_inventory, "GENERATED_DIR", str(gen))
+    monkeypatch.setattr(policy_inventory, "OVERLAY_DIR", str(over))
+
+    ids = [row["id"] for row in provision.desired()["policies"]]
+    assert ids == ["ava-acme"], f"desired() published a duplicate id: {ids}"

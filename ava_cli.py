@@ -639,7 +639,7 @@ def cmd_verify(_args) -> int:
     exits non-zero if any HARD check (x) fails. ● (warn) never fails the run —
     it flags an optional capability that isn't set up, not a broken claim."""
     import yaml as _yaml
-    from ava_bridge import connectors, config, access_policy, learning
+    from ava_bridge import connectors, config, access_policy, learning, policy_inventory
     import ava_learning_digest as _dig
 
     print(f"\n{B}Ava verify{X}  (AVA_HOME = {settings.AVA_HOME})\n")
@@ -696,6 +696,17 @@ def cmd_verify(_args) -> int:
          f"{len(lockstep_gap)} route(s) not allow-listed" if lockstep_gap
          else "every action route allow-listed")
     fails += bool(pol_drift) + bool(tool_drift) + bool(lockstep_gap)
+
+    # Two files, one `preset.name`. `policy-add` replaces by name, so the loser's
+    # rules sit on disk looking authoritative while the sandbox enforces the
+    # winner's. A WARN, not a failure: it is a legal thing to do deliberately —
+    # an overlay policy exists to override — and the owner just needs to know it
+    # happened rather than believe both files are in force.
+    shadowed = policy_inventory.shadowed()
+    _row(WARN if shadowed else OK, "policy shadowing",
+         ", ".join(f"{d['rel']} is overridden by {d['by']} (preset {d['name']})"
+                   for d in shadowed) if shadowed
+         else "every policy file declares a distinct preset name")
 
     # 1b. Agent runtime — does what we render actually REACH the sandbox?
     #

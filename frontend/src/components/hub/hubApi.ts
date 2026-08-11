@@ -554,6 +554,13 @@ export interface ProbeResult {
   discover?: { list: string; call: string };
   detail?: string;
   error?: string;
+  // The app answered 401/403: it exists and wants credentials. Distinct from
+  // "it has no tools", which is what every auth failure used to look like.
+  needs_auth?: boolean;
+  // Why each discovery step gave up, in order. The probe tries six things and
+  // used to swallow all six, so a TLS error and "not that kind of app" produced
+  // the same sentence.
+  tried?: string[];
 }
 
 // ---- Cost & budgets ---------------------------------------------------------

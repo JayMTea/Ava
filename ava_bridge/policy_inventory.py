@@ -101,6 +101,10 @@ class Policy:
     tools: int = 0
     wildcards: list[Wildcard] = field(default_factory=list)
     parse_error: str = ""
+    # Another file declares the same `preset.name` and is applied after this one,
+    # so THIS file's rules are not what the sandbox enforces. Carries the winner's
+    # `rel`. See `_mark_shadowed`.
+    shadowed_by: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -201,8 +205,36 @@ def _load_one(path: str, source: str) -> Policy:
     return pol_obj
 
 
+#: Apply order, which is also last-wins order: `agent/install.sh` policy-adds
+#: `$HERE/policies`, then the generated dirs, then `$OVERLAY/policies`, and
+#: `policy-add` on an existing preset name REPLACES it. Sorting the inventory by
+#: source reproduces that order exactly, so the last row for a name is the one
+#: the sandbox actually enforces.
+_APPLY_ORDER = {"declared": 0, "generated": 1, "overlay": 2}
+
+
+def _mark_shadowed(rows: list[Policy]) -> list[Policy]:
+    """Flag every policy whose `preset.name` a later-applied file reuses.
+
+    A generated `ava-acme.yaml` and an overlay one can both declare
+    `preset.name: ava-acme`. Only one survives in the sandbox — the last applied
+    — and until now nothing said so anywhere: `names()` returns a set, the drift
+    map is keyed by name, and the inventory listed both as if both were in force.
+    An owner adding an overlay policy to EXTEND a generated one silently replaced
+    it instead, and the inventory kept showing them the rules they had lost.
+    """
+    winner: dict[str, Policy] = {}
+    for p in rows:
+        p.shadowed_by = ""
+        winner[p.name] = p            # rows are in apply order; last wins
+    for p in rows:
+        if winner[p.name] is not p:
+            p.shadowed_by = winner[p.name].rel
+    return rows
+
+
 def inventory() -> list[Policy]:
-    """Every policy file on the box, sorted by (source, name). Never raises."""
+    """Every policy file on the box, in apply order. Never raises."""
     out: list[Policy] = []
     for d, source in ((POLICY_DIR, "declared"),
                       (GENERATED_DIR, "generated"),
@@ -212,12 +244,24 @@ def inventory() -> list[Policy]:
         for fn in sorted(os.listdir(d)):
             if fn.endswith((".yaml", ".yml")):
                 out.append(_load_one(os.path.join(d, fn), source))
-    return sorted(out, key=lambda p: (p.source, p.name))
+    return _mark_shadowed(
+        sorted(out, key=lambda p: (_APPLY_ORDER.get(p.source, 9), p.name)))
 
 
 def names() -> set[str]:
     """The set of policy names the sandbox would know — `preset.name`, not stems."""
     return {p.name for p in inventory()}
+
+
+def effective() -> list[Policy]:
+    """One row per `preset.name`: what the sandbox actually ends up holding."""
+    return [p for p in inventory() if not p.shadowed_by]
+
+
+def shadowed() -> list[dict]:
+    """`[{name, rel, by}]` — files whose rules are on disk but not in force."""
+    return [{"name": p.name, "rel": p.rel, "by": p.shadowed_by}
+            for p in inventory() if p.shadowed_by]
 
 
 def snapshot() -> dict:
@@ -233,5 +277,9 @@ def snapshot() -> dict:
             1 for p in inv for w in p.wildcards if w.internal),
         "parse_errors": [{"rel": p.rel, "error": p.parse_error}
                          for p in inv if p.parse_error],
+        # Two files, one `preset.name`. Reported rather than collapsed: the loser's
+        # rules are on disk, are inventoried, and are NOT what the sandbox enforces.
+        "shadowed": [{"name": p.name, "rel": p.rel, "by": p.shadowed_by}
+                     for p in inv if p.shadowed_by],
         "generated_dir": _rel(GENERATED_DIR),
     }

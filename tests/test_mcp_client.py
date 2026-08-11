@@ -74,6 +74,35 @@ class TestStdioEndToEnd(unittest.TestCase):
         out = mcp_client.list_tools("t3", spec)
         self.assertIn("error", out)
 
+    def test_a_server_that_dies_says_why(self):
+        """stderr went to DEVNULL, so a server that failed to start produced
+        "exited (rc=1)" and the one line naming the cause — missing module, bad
+        credential, wrong runtime — was discarded. The owner was left with an
+        error that has no next step."""
+        spec = dict(STDIO_SPEC, command=[
+            sys.executable, "-c",
+            "import sys; sys.stderr.write('ModuleNotFoundError: no module named foo\\n'); "
+            "sys.exit(1)"])
+        out = mcp_client.list_tools("t3b", spec)
+        self.assertIn("error", out)
+        self.assertIn("ModuleNotFoundError", out["error"],
+                      f"the server's own reason was dropped: {out['error']!r}")
+
+    def test_a_pasted_credential_never_reaches_the_error_text(self):
+        """A server that echoes its token in a startup banner must not put it in
+        a Hub error message — the owner's screen is not where a credential goes.
+        """
+        secret = "sk-live-abcdef1234567890"
+        spec = dict(STDIO_SPEC, env={"APP_TOKEN": secret}, command=[
+            sys.executable, "-c",
+            "import os, sys; sys.stderr.write('starting with token ' "
+            "+ os.environ.get('APP_TOKEN', '') + '\\n'); sys.exit(2)"])
+        out = mcp_client.list_tools("t3c", spec)
+        self.assertIn("error", out)
+        self.assertIn("starting with token", out["error"])
+        self.assertNotIn(secret, out["error"])
+        self.assertIn("***", out["error"])
+
 
 class _SseStub(http.server.BaseHTTPRequestHandler):
     """The legacy HTTP+SSE MCP shape (what Home Assistant serves): GET /sse

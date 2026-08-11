@@ -30,6 +30,7 @@ import shutil
 import subprocess
 import threading
 import time
+from collections import deque
 
 from . import settings
 from .version import __version__
@@ -413,9 +414,38 @@ class _StdioSession(_Session):
         else:
             cmd = spec["command"]
             popen_env = _minimal_env(spec)
+        # stderr used to go to DEVNULL. An MCP server that dies on startup —
+        # missing module, bad credential, wrong node version — writes its reason
+        # there and nowhere else, so the owner got "server exited (rc=1)" and the
+        # one line that would have told them what to fix was thrown away. A
+        # daemon reader keeps the pipe from filling and holds the tail.
+        self._err: deque[str] = deque(maxlen=40)
         self._proc = subprocess.Popen(
             cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL, env=popen_env, text=True, bufsize=1)
+            stderr=subprocess.PIPE, env=popen_env, text=True, bufsize=1)
+        # Values the owner pasted in, so a server that echoes its own token in a
+        # startup banner cannot put it in a Hub error message.
+        self._masked = sorted(
+            (str(v) for v in (spec.get("env") or {}).values() if len(str(v)) >= 8),
+            key=len, reverse=True)
+        threading.Thread(target=self._drain, daemon=True,
+                         name="ava-mcp-stderr").start()
+
+    def _drain(self) -> None:
+        try:
+            for line in self._proc.stderr:      # ends when the process exits
+                line = line.rstrip()
+                for secret in self._masked:
+                    line = line.replace(secret, "***")
+                if line:
+                    self._err.append(line[:300])
+        except Exception:  # noqa: BLE001 — a closed pipe is the normal ending
+            pass
+
+    def _why(self) -> str:
+        """The last few stderr lines, for an error the owner can act on."""
+        tail = list(self._err)[-3:]
+        return (" — it said: " + " | ".join(tail)) if tail else ""
 
     def alive(self) -> bool:
         return self._proc.poll() is None
@@ -433,7 +463,7 @@ class _StdioSession(_Session):
     def _rpc(self, payload: dict, timeout: int) -> dict | None:
         if not self.alive():
             raise McpError("MCP stdio server exited "
-                           f"(rc={self._proc.returncode})")
+                           f"(rc={self._proc.returncode}){self._why()}")
         assert self._proc.stdin and self._proc.stdout
         self._proc.stdin.write(json.dumps(payload) + "\n")
         self._proc.stdin.flush()
@@ -443,7 +473,7 @@ class _StdioSession(_Session):
         while time.time() < deadline:
             line = self._proc.stdout.readline()
             if not line:
-                raise McpError("MCP stdio server closed its pipe")
+                raise McpError("MCP stdio server closed its pipe" + self._why())
             line = line.strip()
             if not line:
                 continue
@@ -454,7 +484,7 @@ class _StdioSession(_Session):
             if isinstance(msg, dict) and msg.get("id") == payload["id"]:
                 return msg
             # server-initiated requests/notifications are ignored (tools-only client)
-        raise McpError(f"MCP stdio server timed out after {timeout}s")
+        raise McpError(f"MCP stdio server timed out after {timeout}s{self._why()}")
 
 
 # --------------------------------------------------------------------------- #

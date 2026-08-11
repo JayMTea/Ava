@@ -442,6 +442,35 @@ def _probe(url: str, command: str, token_env: str | None,
     if not url:
         return {"ok": False, "error": "give a web address or a start command"}
 
+    # Why each discovery step gave up. Every one of them used to be a bare
+    # `except: pass`, so a TLS failure, an expired token and "this app simply has
+    # no tool list" all ended at the same sentence: "No tools to auto-discover —
+    # tell Ava what this app can do." The owner was then asked to hand-write
+    # actions against a host that never answered, and the real cause — wrong port,
+    # self-signed cert, missing token — was never printed anywhere.
+    trouble: list[str] = []
+    seen: dict[str, bool | int] = {"http": False, "auth": 0}
+
+    def _note(step: str, e: Exception) -> None:
+        import requests as _rq
+        if isinstance(e, _rq.exceptions.SSLError):
+            why = "TLS failed (self-signed or wrong host name?)"
+        elif isinstance(e, _rq.exceptions.ConnectTimeout):
+            why = "timed out connecting"
+        elif isinstance(e, _rq.exceptions.Timeout):
+            why = "timed out"
+        elif isinstance(e, _rq.exceptions.ConnectionError):
+            why = "could not connect (nothing listening, or the name did not resolve)"
+        else:
+            why = f"{type(e).__name__}: {e}".split("\n")[0][:160]
+        trouble.append(f"{step}: {why}")
+
+    def _saw(r) -> None:
+        """Record that SOMETHING answered, and whether it demanded credentials."""
+        seen["http"] = True
+        if r.status_code in (401, 403):
+            seen["auth"] = r.status_code
+
     def _serves_html() -> bool:
         """Does the app have its own web UI at the base URL? Drives the
         "Add it to Ava's sidebar" offer (ui.embed: iframe — the embedded-app
@@ -449,11 +478,13 @@ def _probe(url: str, command: str, token_env: str | None,
         try:
             import requests
             r = requests.get(url, timeout=5, headers={"Accept": "text/html"})
+            _saw(r)
             ct = r.headers.get("content-type", "")
             return r.status_code < 400 and (
                 "text/html" in ct
                 or r.text[:200].lstrip().lower().startswith(("<!doctype", "<html")))
-        except Exception:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
+            _note("the base address", e)
             return False
 
     # 1.5) The app may self-describe: GET /.well-known/ava.json (SDK §5) names
@@ -464,6 +495,7 @@ def _probe(url: str, command: str, token_env: str | None,
         headers = {"Authorization": "Bearer " + tok} if tok else {}
         wk = requests.get(url.rstrip("/") + "/.well-known/ava.json",
                           headers=headers, timeout=5)
+        _saw(wk)
         meta = wk.json() if wk.status_code == 200 else None
         if isinstance(meta, dict) and str(meta.get("facade", "")).startswith("ava-tools/"):
             list_path = "/" + str(meta.get("tools") or "/tools").lstrip("/")
@@ -484,8 +516,8 @@ def _probe(url: str, command: str, token_env: str | None,
                         "discover": {"list": list_path, "call": call_path},
                         "token_env": token_env_hint,
                         "has_ui": bool(meta.get("ui")) or _serves_html()}
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as e:  # noqa: BLE001
+        _note("/.well-known/ava.json", e)
 
     # 2) Try MCP over HTTP at the URL.
     spec = {"transport": "http", "url": url, "command": None, "env": None,
@@ -497,20 +529,25 @@ def _probe(url: str, command: str, token_env: str | None,
     if res.get("tools"):
         return {"ok": True, "kind": "mcp", "transport": "http",
                 "tools": _slim_tools(res["tools"])}
+    if res.get("error"):
+        # MCP transport failures never passed through `unreachable()`, so they
+        # carried no code and no text anywhere the owner could see them.
+        trouble.append(f"MCP over HTTP: {str(res['error']).splitlines()[0][:160]}")
 
     # 3) Try a discovery endpoint (our list+call facade / FastMCP-style).
     try:
         import requests
         headers = {"Authorization": "Bearer " + tok} if tok else {}
         r = requests.get(url.rstrip("/") + "/tools", headers=headers, timeout=8)
+        _saw(r)
         data = r.json()
         tools = data.get("tools") if isinstance(data, dict) else (
             data if isinstance(data, list) else None)
         if isinstance(tools, list) and tools:
             return {"ok": True, "kind": "discover", "tools": _slim_tools(tools),
                     "has_ui": _serves_html()}
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as e:  # noqa: BLE001
+        _note("GET /tools", e)
 
     # 3.5) Most web apps (FastAPI/Swagger/anything OpenAPI) publish a
     # machine-readable spec. Read it and pre-fill the actions so the user
@@ -521,8 +558,10 @@ def _probe(url: str, command: str, token_env: str | None,
         for suffix in ("/openapi.json", "/swagger.json", "/openapi"):
             try:
                 r = requests.get(url.rstrip("/") + suffix, headers=headers, timeout=8)
-            except Exception:  # noqa: BLE001 — try the next well-known path
+            except Exception as e:  # noqa: BLE001 — try the next well-known path
+                _note(f"GET {suffix}", e)
                 continue
+            _saw(r)
             if r.status_code != 200:
                 continue
             try:
@@ -534,11 +573,33 @@ def _probe(url: str, command: str, token_env: str | None,
                 return {"ok": True, "kind": "rest", "tools": [], "actions": actions,
                         "has_ui": _serves_html(),
                         "detail": f"Read its API — found {len(actions)} actions."}
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as e:  # noqa: BLE001
+        _note("the OpenAPI spec", e)
 
-    # 4) A plain web API with no discoverable spec — the user declares actions.
-    return {"ok": True, "kind": "rest", "tools": [], "has_ui": _serves_html(),
+    # 4) Nothing was discoverable. WHY decides what the owner is asked to do next.
+    has_ui = _serves_html()
+    if not seen["http"]:
+        # Nothing at this address ever answered. Asking the owner to hand-write
+        # actions against it would be asking them to describe a host that is not
+        # there.
+        #
+        # Deliberately NO `error_code`: the guided-fix codes in fixes.ts all
+        # resolve to a connector's own row in Setup, and this connector does not
+        # exist yet — the probe is what decides whether to create it. `tried` is
+        # the fix here, because it names the actual cause.
+        return {"ok": False, "kind": "unknown",
+                "error": "nothing answered at that address",
+                "tried": trouble[:6]}
+    if seen["auth"]:
+        # It IS there and it wants credentials. Without this the owner was told
+        # the app had no tools, which is a statement about the app rather than
+        # about the empty token field right above it.
+        return {"ok": True, "kind": "rest", "tools": [], "has_ui": has_ui,
+                "needs_auth": True, "tried": trouble[:6],
+                "detail": f"It answered {seen['auth']} — it wants a token. Add one "
+                          "below and detect again, or declare its actions by hand."}
+    return {"ok": True, "kind": "rest", "tools": [], "has_ui": has_ui,
+            "tried": trouble[:6],
             "detail": "No tools to auto-discover — tell Ava what this app can do."}
 
 @router.post("/connectors/probe")

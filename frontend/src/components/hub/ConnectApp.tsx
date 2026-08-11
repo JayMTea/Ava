@@ -97,6 +97,10 @@ export function ConnectAppFields({ onCreated, onConnected }: {
   const [probing, setProbing] = useState(false);
   const [probe, setProbe] = useState<ProbeResult | null>(null);
   const [probeErr, setProbeErr] = useState('');
+  // What the probe actually tried, and how each attempt failed. The backend
+  // swallowed all six attempts, so "no tools found" was the answer to a TLS
+  // failure, a wrong port and an expired token alike.
+  const [probeTried, setProbeTried] = useState<string[]>([]);
   const [actions, setActions] = useState<ActionDraft[]>([]);
   const [isolate, setIsolate] = useState(true);
   const [dockerAvail, setDockerAvail] = useState(true);
@@ -117,14 +121,14 @@ export function ConnectAppFields({ onCreated, onConnected }: {
 
   const reset = () => {
     setName(''); setReach(''); setTokenVal(''); setTokenEnv(''); setHealth('');
-    setProbe(null); setProbeErr(''); setActions([]); setIsDevice(false); setAddToRail(false); setUiUrl('');
+    setProbe(null); setProbeErr(''); setProbeTried([]); setActions([]); setIsDevice(false); setAddToRail(false); setUiUrl('');
   };
   const setAction = (i: number, patch: Partial<ActionDraft>) =>
     setActions((a) => a.map((x, j) => (j === i ? { ...x, ...patch } : x)));
 
   const runProbe = useCallback(async () => {
     if (!reach.trim()) return;
-    setProbing(true); setProbe(null); setProbeErr(''); setActions([]);
+    setProbing(true); setProbe(null); setProbeErr(''); setProbeTried([]); setActions([]);
     try {
       // Detecting a start command RUNS it, so the isolation choice has to
       // travel with the request that runs it — not be confirmed afterwards.
@@ -140,7 +144,7 @@ export function ConnectAppFields({ onCreated, onConnected }: {
         token_env: tokenEnv.trim() || undefined,
         token_value: tokenVal.trim() || undefined,
       });
-      if (!r.ok) setProbeErr(r.error || 'could not reach it');
+      if (!r.ok) { setProbeErr(r.error || 'could not reach it'); setProbeTried(r.tried || []); }
       else {
         setProbe(r);
         setAddToRail(!!r.has_ui);   // the app has a web UI — offer the sidebar tile, default on
@@ -315,7 +319,16 @@ export function ConnectAppFields({ onCreated, onConnected }: {
         </div>
       </div>
 
-      {probeErr && <div className="hub-msg err">Couldn't reach it: {probeErr}. Check it's running, or add its actions manually below.</div>}
+      {probeErr && (
+        <div className="hub-msg err">
+          Couldn't reach it: {probeErr}. Check it's running, or add its actions manually below.
+          {probeTried.length > 0 && (
+            <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+              {probeTried.map((t) => <li key={t}>{t}</li>)}
+            </ul>
+          )}
+        </div>
+      )}
 
       {found && (
         <div className="hub-note" style={{ borderColor: 'color-mix(in srgb, var(--ok) 40%, transparent)' }}>
@@ -384,11 +397,28 @@ export function ConnectAppFields({ onCreated, onConnected }: {
       {manual && !autoFound && (
         <div className="hub-field">
           <label>
-            {probe!.kind === 'unknown'
-              ? 'Ava couldn’t auto-detect its tools — tell it what this app can do:'
-              : 'This looks like a regular web app — tell Ava what it can do:'}
+            {probe!.needs_auth
+              ? 'It answered, but it wants a token — add one above and detect again, or tell Ava what it can do:'
+              : probe!.kind === 'unknown'
+                ? 'Ava couldn’t auto-detect its tools — tell it what this app can do:'
+                : 'This looks like a regular web app — tell Ava what it can do:'}
           </label>
           <ActionEditor actions={actions} setAction={setAction} setActions={setActions} />
+          {/* The backend has always said WHY it found nothing — an MCP command
+              that exposed no tools, an app that wants a token, a spec that would
+              not parse. Nothing rendered it, so every one of those arrived as the
+              same blank action editor. */}
+          {probe!.detail && (
+            <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--muted)', marginTop: 6 }}>{probe!.detail}</div>
+          )}
+          {(probe!.tried?.length || 0) > 0 && (
+            <details style={{ fontSize: 'var(--fs-xs)', color: 'var(--muted)', marginTop: 6 }}>
+              <summary>What Ava tried</summary>
+              <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+                {probe!.tried!.map((t) => <li key={t}>{t}</li>)}
+              </ul>
+            </details>
+          )}
         </div>
       )}
 
