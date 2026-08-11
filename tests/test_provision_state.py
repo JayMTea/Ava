@@ -21,6 +21,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import threading
+import time
 import unittest
 from unittest import mock
 
@@ -338,7 +340,11 @@ class DigestContractTests(unittest.TestCase):
         """A hand-run of `cd agent && ./install.sh` leaves this stale. Drift must
         not read it for item truth — only for the imageTag rebuild baseline."""
         import inspect
-        src = inspect.getsource(provision.state)
+        # The whole computation path, not just the entry point: `state()` is a
+        # cache/single-flight wrapper and the work lives in `_state_uncached`.
+        # Scanning only the wrapper would let this guard pass vacuously.
+        src = "\n".join(inspect.getsource(fn)
+                        for fn in (provision.state, provision._state_uncached))
         self.assertIn("image_tag", src)
         for scope in ("persona", "policies", "servers", "skills"):
             self.assertNotIn(f'run["{scope}"]', src)
@@ -465,6 +471,101 @@ class RunRecordTests(unittest.TestCase):
         self.assertNotIn("credentialEnv", blob,
                          "the run record copied a credential field out of the "
                          "NemoClaw registry; it must carry only what drift needs.")
+
+
+class OneProbePassPerRefreshTests(unittest.TestCase):
+    """`state()` is polled — by the Hub every 10s, by each open tab, by the ops
+    dashboard and by `ava agent status`. The 30s cache bounded how often ONE
+    caller recomputed and bounded concurrent callers not at all, so a cache miss
+    with four watchers meant four simultaneous probe passes into a single
+    sandbox: four `nemoclaw exec` storms where one would do.
+    """
+
+    def _run_concurrently(self, rt, n=6):
+        provision.invalidate()
+        ready, results = threading.Barrier(n), []
+        lock = threading.Lock()
+
+        def go():
+            ready.wait(5)
+            st = provision.state(rt=rt)
+            with lock:
+                results.append(st)
+
+        threads = [threading.Thread(target=go) for _ in range(n)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(10)
+        return results
+
+    def test_concurrent_pollers_share_one_probe(self):
+        rows = provision.desired()["servers"]
+        rt = _CountingRuntime(rows)
+        with mock.patch.object(provision, "_manifest_map", return_value=None), \
+             mock.patch.object(provision, "load_run", return_value=None):
+            results = self._run_concurrently(rt)
+        self.assertEqual(len(results), 6)
+        self.assertEqual(
+            rt.probes, 1,
+            f"{rt.probes} concurrent probe passes ran where one answers every "
+            "caller; state() is not single-flight")
+        # And every caller got the same answer, not one real result plus five
+        # empties: waiting is only correct if the wait produces the value.
+        self.assertTrue(all(r["scopes"] == results[0]["scopes"] for r in results))
+
+    def test_force_still_recomputes(self):
+        rows = provision.desired()["servers"]
+        rt = _CountingRuntime(rows)
+        with mock.patch.object(provision, "_manifest_map", return_value=None), \
+             mock.patch.object(provision, "load_run", return_value=None):
+            provision.invalidate()
+            provision.state(rt=rt)
+            provision.state(rt=rt)              # inside the TTL -> cached
+            self.assertEqual(rt.probes, 1)
+            provision.state(rt=rt, force=True)  # an explicit refresh must look
+        self.assertEqual(rt.probes, 2,
+                         "force=True was answered from cache; the owner pressed "
+                         "refresh and got the number they were refreshing away")
+
+
+class OneDesiredSnapshotPerPassTests(unittest.TestCase):
+    """`desired()` walks every server, skill and policy tree on disk. It used to
+    be recomputed inside `_probe`, `_registered_servers` and `_skill_digests`
+    independently: redundant, and a TOCTOU — a file saved mid-pass gave two
+    scopes two different truths, so drift could describe a checkout that never
+    existed at any instant."""
+
+    def test_a_pass_reads_desired_once(self):
+        rows = provision.desired()["servers"]
+        rt = _CountingRuntime(rows)
+        real, calls = provision.desired, []
+
+        def counted():
+            calls.append(1)
+            return real()
+
+        with mock.patch.object(provision, "_manifest_map", return_value=None), \
+             mock.patch.object(provision, "load_run", return_value=None), \
+             mock.patch.object(provision, "desired", side_effect=counted):
+            provision.invalidate()
+            provision.state(rt=rt, force=True)
+        self.assertEqual(len(calls), 1,
+                         f"desired() was walked {len(calls)}x in one pass; the "
+                         "snapshot must be taken once and threaded through")
+
+
+class _CountingRuntime(_MirrorRuntime):
+    """A mirror that says how many probe passes it served."""
+
+    def __init__(self, rows):
+        super().__init__(rows)
+        self.probes = 0
+
+    def read_file(self, path, timeout=20):
+        self.probes += 1
+        time.sleep(0.05)        # widen the window a real exec would occupy
+        return super().read_file(path, timeout)
 
 
 if __name__ == "__main__":

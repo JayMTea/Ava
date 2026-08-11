@@ -16,6 +16,7 @@ observed restarting the host's OpenShell gateway and killing a host process.
 """
 from __future__ import annotations
 
+import threading
 import time
 import unittest
 
@@ -277,6 +278,82 @@ class SseSurfaceTests(unittest.TestCase):
                 hits.append(p)
         self.assertEqual(hits, ["ava_bridge/ops_api.py"],
                          f"the set of SSE endpoints changed: {hits}")
+
+
+class ProvenanceBelongsToItsOwnRunTests(unittest.TestCase):
+    """The run record is provenance. A record that mixes two runs together is
+    worse than no record: `state()` reads its `imageTag` as the rebuild baseline,
+    and `ava agent status` shows its timestamps as "when this last ran".
+
+    The `finally` block used to update the slot under `_lock` with an
+    `id == job_id` guard, and then read `started_at` / `ended_at` / `rc` / `steps`
+    back out AFTERWARDS, unguarded — by which point the slot was no longer
+    "running" and a second Apply could legally claim it. The window is small and
+    exactly the one a user hits by double-clicking Apply.
+    """
+
+    def setUp(self):
+        provision_job.reset_for_tests()
+        self.addCleanup(provision_job.reset_for_tests)
+        self.recorded = []
+        patch = mock.patch.object(provision, "record_run",
+                                  side_effect=lambda **kw: self.recorded.append(kw))
+        patch.start()
+        self.addCleanup(patch.stop)
+        # verify() would reach for a runtime; the slot mechanics are the subject.
+        v = mock.patch.object(provision, "verify", return_value={"ok": True, "items": []})
+        v.start()
+        self.addCleanup(v.stop)
+
+    def test_the_record_carries_this_runs_own_timing_and_rc(self):
+        started, released = threading.Event(), threading.Event()
+
+        def runner(scope, auto_install, on_line):
+            started.set()
+            released.wait(5)
+            return {"ok": True, "detail": "done", "steps": []}
+
+        ok, snap = provision_job.start(scope="persona", runner=runner)
+        self.assertTrue(ok)
+        started.wait(5)
+        mine = snap["started_at"]
+        released.set()
+        _wait_idle()
+
+        self.assertEqual(len(self.recorded), 1)
+        rec = self.recorded[0]
+        self.assertEqual(rec["scope"], "persona")
+        self.assertEqual(rec["started"], mine)
+        self.assertEqual(rec["rc"], 0)
+        self.assertGreaterEqual(rec["ended"], rec["started"])
+
+    def test_a_run_whose_slot_was_taken_records_nothing(self):
+        """Simulates the takeover directly: a later `start()` overwrites exactly
+        these fields. The losing run must write no provenance at all rather than
+        stamp its own scope onto the winner's timings."""
+        started, released = threading.Event(), threading.Event()
+
+        def runner(scope, auto_install, on_line):
+            started.set()
+            released.wait(5)
+            return {"ok": True, "detail": "done", "steps": []}
+
+        ok, _ = provision_job.start(scope="skills", runner=runner)
+        self.assertTrue(ok)
+        started.wait(5)
+        with provision_job._lock:            # what a second start() would do
+            provision_job._job.update(id="someone-else", scope="policies",
+                                      started_at=999.0, rc=7)
+        released.set()
+        time.sleep(0.2)
+
+        self.assertEqual(self.recorded, [],
+                         "a run that lost the slot still wrote a provenance "
+                         "record, and it carried the other run's timings")
+        with provision_job._lock:
+            self.assertEqual(provision_job._job["id"], "someone-else")
+            self.assertEqual(provision_job._job["rc"], 7,
+                             "the losing run overwrote the winner's slot")
 
 
 if __name__ == "__main__":

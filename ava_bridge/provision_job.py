@@ -168,6 +168,16 @@ def start(scope: str = "all", auto_install: bool = False,
         finally:
             # Exactly-once, and in a `finally`, so a runner that raises can never
             # strand the slot at "running" and lock out every later attempt.
+            # Capture the provenance INSIDE the guarded block, under the same
+            # `_job["id"] == job_id` check that guards the update.
+            #
+            # It used to be read afterwards and unguarded, so a second run
+            # starting in that window produced a record mixing this run's scope
+            # with the NEXT run's timestamps and exit code — a provenance file
+            # describing something that never happened, which is worse than no
+            # provenance at all. `mine` is None when the slot moved on, and then
+            # there is simply nothing of ours left to record.
+            mine = None
             with _lock:
                 if _job["id"] == job_id and _job["status"] == "running":
                     ok = bool(result.get("ok"))
@@ -180,16 +190,17 @@ def start(scope: str = "all", auto_install: bool = False,
                                 rc=0 if ok else 1,
                                 detail=str(result.get("detail") or ""),
                                 result=result)
-            try:
-                provision.record_run(
-                    scope=scope, source="bridge",
-                    started=float(_job["started_at"] or 0),
-                    ended=float(_job["ended_at"] or 0),
-                    rc=int(_job["rc"] or 0),
-                    steps=list(_job["steps"]),
-                    verify=(result or {}).get("verify"))
-            except Exception:  # noqa: BLE001 — provenance is best-effort
-                provision.invalidate()
+                    mine = {"started": float(_job["started_at"] or 0),
+                            "ended": float(_job["ended_at"] or 0),
+                            "rc": int(_job["rc"] or 0),
+                            "steps": list(_job["steps"])}
+            if mine is not None:
+                try:
+                    provision.record_run(scope=scope, source="bridge",
+                                         verify=(result or {}).get("verify"),
+                                         **mine)
+                except Exception:  # noqa: BLE001 — provenance is best-effort
+                    provision.invalidate()
 
     threading.Thread(target=_work, daemon=True, name="ava-provision").start()
     return True, snapshot()

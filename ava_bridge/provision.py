@@ -74,6 +74,8 @@ _SERVER_NAME_OVERRIDE = {"admin": "ava-admin"}
 
 _CACHE: dict[str, Any] = {"ts": 0.0, "state": None}
 _LOCK = threading.Lock()
+# Held across the whole computation, not just the cache read/write. See state().
+_COMPUTE = threading.Lock()
 _render_persona: Callable[[], str] | None = None
 
 
@@ -321,12 +323,20 @@ def _manifest_map() -> dict[str, str] | None:
             for r in rows if isinstance(r, dict) and r.get("name")}
 
 
-def observed(rt=None, live_probe: bool = True) -> dict[str, Any]:
+def observed(rt=None, live_probe: bool = True,
+             want: dict[str, list[dict]] | None = None) -> dict[str, Any]:
     """What we can see without touching the sandbox.
 
     Returns per-scope `{id: sha256}` maps plus the `source` that produced each
     scope — and `source` is the whole point, because it is what separates "we
     looked and it is not there" from "we could not look".
+
+    `want` is an already-computed `desired()`, threaded in by the caller. It used
+    to be recomputed by `_probe`, `_registered_servers` and `_skill_digests`
+    independently — three walks of the same trees per pass, and worse, three
+    DIFFERENT snapshots: a file saved mid-pass gave the servers scope one truth
+    and the skills scope another, so drift could report a state the checkout
+    never had. One snapshot per pass, read by everyone.
     """
     from . import runtime as _runtime
     rt = rt or _runtime.configured()
@@ -366,7 +376,7 @@ def observed(rt=None, live_probe: bool = True) -> dict[str, Any]:
     if live_probe:
         try:
             if rt.live().get("live"):
-                out.update(_probe(rt, out))
+                out.update(_probe(rt, out, want or desired()))
         except Exception:  # noqa: BLE001 — a probe failure is `unknown`, not an error
             pass
     return out
@@ -376,7 +386,7 @@ PERSONA_PATH = "/sandbox/.openclaw/workspace/IDENTITY.md"
 SKILLS_GLOB = "/sandbox/.openclaw/skills/*/SKILL.md"
 
 
-def _probe(rt, out: dict) -> dict:
+def _probe(rt, out: dict, want: dict[str, list[dict]]) -> dict:
     """Live digests from inside the sandbox. Four execs total, not one per item."""
     maps = dict(out["maps"])
     sources = dict(out["sources"])
@@ -386,7 +396,7 @@ def _probe(rt, out: dict) -> dict:
     # now — but they stay in this call as the witness that the exec channel
     # works. Without one, an empty result could not be told apart from "the
     # persona is absent", and absence has to stay reportable as `undeployed`.
-    want_servers = {row["id"]: row for row in desired()["servers"]}
+    want_servers = {row["id"]: row for row in want["servers"]}
     paths = [PERSONA_PATH] + [r["path"] for r in want_servers.values()]
     got = rt.digest(paths)
     if got:
@@ -404,7 +414,7 @@ def _probe(rt, out: dict) -> dict:
         maps["servers"] = registered
         sources["servers"] = "probe"
 
-    skills_live = _skill_digests(rt)
+    skills_live = _skill_digests(rt, want)
     if skills_live is not None:
         maps["skills"] = skills_live
         sources["skills"] = "probe"
@@ -533,7 +543,7 @@ def _registered_servers(rt, want: dict[str, dict] | None = None) -> dict[str, st
                if row["sandbox_root"] in folds}}
 
 
-def _skill_digests(rt) -> dict[str, str] | None:
+def _skill_digests(rt, want: dict[str, list[dict]] | None = None) -> dict[str, str] | None:
     """{repo dir: sha256} for skills present in the sandbox.
 
     There is no `nemoclaw skill list`, so this globs. Skills land under their
@@ -552,7 +562,7 @@ def _skill_digests(rt) -> dict[str, str] | None:
         if len(parts) >= 2:
             by_sandbox_id[parts[-2]] = sha
     out: dict[str, str] = {}
-    for row in desired()["skills"]:
+    for row in (want or desired())["skills"]:
         sid = row.get("sandbox_id") or row["id"]
         if sid in by_sandbox_id:
             out[row["id"]] = by_sandbox_id[sid]
@@ -598,17 +608,39 @@ def _roll_up(states: list[str]) -> str:
 # The merged payload
 # --------------------------------------------------------------------------- #
 def state(rt=None, force: bool = False) -> dict:
-    """Everything the Hub needs to answer "is what I saved actually live?"."""
+    """Everything the Hub needs to answer "is what I saved actually live?".
+
+    SINGLE-FLIGHT. `_LOCK` used to guard only the cache read and the cache write,
+    with four sandbox execs in between — so the 30s TTL bounded how often a
+    LONELY caller recomputed and nothing bounded concurrent ones. Two browser
+    tabs, the ops poller and a CLI status all missing the cache together each ran
+    their own probe pass into one sandbox. `_COMPUTE` makes the second and later
+    callers wait for the first and then read its result, which is what they
+    wanted anyway.
+    """
     with _LOCK:
         cached = _CACHE.get("state")
         if not force and cached is not None and time.time() - float(_CACHE["ts"]) < 30:
             return cached  # type: ignore[return-value]
 
+    with _COMPUTE:
+        # Re-check: while we waited, the caller ahead of us may have filled it.
+        # `force` still recomputes — an explicit refresh must not be answered
+        # from a result that was already in flight when it was asked for.
+        if not force:
+            with _LOCK:
+                cached = _CACHE.get("state")
+                if cached is not None and time.time() - float(_CACHE["ts"]) < 30:
+                    return cached  # type: ignore[return-value]
+        return _state_uncached(rt)
+
+
+def _state_uncached(rt=None) -> dict:
     from . import runtime as _runtime
     rt = rt or _runtime.configured()
 
     want = desired()
-    obs = observed(rt)
+    obs = observed(rt, want=want)
     record = obs["record"] or {}
     run = load_run()
 
