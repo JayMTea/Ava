@@ -63,15 +63,12 @@ def held(blocking: bool = False):
         except OSError:
             yield False
             return
-        # Whose it is, for a human reading the file after a hang. Informational
-        # only — nothing reads it back to decide anything.
-        try:
-            fh.seek(0)
-            fh.truncate()
-            fh.write(f"pid {os.getpid()}\n")
-            fh.flush()
-        except OSError:
-            pass
+        # The file stays EMPTY. A pid line would have been nice for a human
+        # debugging a hang, and it is not worth a write path: `lsof`/`fuser`
+        # answers the same question, the refusal message already names the three
+        # things that could be holding it, and a truncate-and-rewrite here reads
+        # to the destructive-path guard exactly like the data-destroying writes
+        # it exists to catch. The flock is the whole mechanism.
         try:
             yield True
         finally:

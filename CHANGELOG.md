@@ -36,6 +36,130 @@ pre-release milestones from when Ava ran on one box and nothing was tagged.
 
 ### Fixed
 
+Connecting an app, and getting it into Ava's sandbox — a hardening pass over
+the fork-and-self-host path from install to a working connector. Most of these
+are seams between two correct components, and most were invisible on a box with
+no live sandbox, which is why they shipped.
+
+- **"Apply to the agent" could never succeed for tool servers.** `desired()`
+  digested each MCP server as a whole-tree fold while the sandbox side reported
+  the entry-point file's digest — folds of different byte sets, so all five
+  servers read `stale` in perpetuity. The pending count never cleared, and
+  `provision_job`'s post-apply assert vetoed **every successful run**, in the
+  Hub, in the run view and in `ava agent provision`. Both sides fold the same
+  tree now, over the same directory install.sh tars. The test that should have
+  caught it patched `desired()` with a fixture that agreed with the fake
+  sandbox; a real-vs-real comparison replaces it.
+- **Generated tools and egress policies now live under `AVA_HOME`.** They were
+  written into the code root — correct on bare metal, wrong in both Docker
+  shapes. On the documented bridge-only install, `up --build` discarded every
+  generated tool and policy while keeping the manifests that produced them, so
+  apps came back listed and silently undeployed. On the full-agent profile they
+  landed in the *bridge* container while the agent container's installer read
+  its own copy of `/app`, so a user-created connector could never reach the
+  sandbox at all. `ava agent adopt-state --write` moves an existing install's
+  files; `tests/test_path_roots.py` now covers `agent/`.
+- **The bridge and `install.sh` could disagree about which sandbox.**
+  install.sh reads its identity from the environment alone, and both callers
+  shelled it with none — so `agent.sandbox: my-ava` in `ava.yaml` provisioned
+  into `my-assistant` while the bridge inspected `my-ava`. Drift read
+  `undeployed` forever and every Apply "succeeded". The resolved sandbox and CLI
+  path are now passed explicitly, and `ava verify` fails when the two disagree.
+- **Nothing reconciled backwards.** Every desired-vs-actual comparison walked
+  *desired*, so anything present that should not be was structurally invisible:
+  23 generated tool files with no manifest behind them, an egress policy that
+  outlived the connector that justified it, grants that a re-added id silently
+  re-inherited. Drift now reports `orphans`, deleting a connector purges its
+  grants, credential, tier cache and live MCP session, `install.sh` retires
+  policies this checkout no longer declares, and `ava agent prune --write`
+  clears generated files with no manifest.
+- **A failed deploy no longer leaves a server half-written.** install.sh did
+  `rm -rf "$DEST"` before extracting each MCP server, so a failure in that
+  window removed a still-registered server's code. It stages, validates with
+  `node --check`, then swaps — a bad deploy leaves the last good copy running.
+  And a deploy is now serialised across processes: the Hub's Apply, `ava agent
+  provision` and the agent container took no shared lock, and two runs racing on
+  that same `rm -rf` is an ordinary thing to trigger.
+- **A probe that failed said "no tools to auto-discover".** Six discovery
+  attempts, six swallowed exceptions: a self-signed certificate, a wrong port
+  and an expired token all ended at the same sentence, and the owner was then
+  asked to hand-write actions against a host that had never answered. Each step
+  reports why it gave up; an address nothing answers at is a failure, a 401 says
+  the app wants a token, and an MCP server that dies on startup carries its own
+  stderr into the error (with pasted credentials masked).
+- **`POST /connectors/new` answered `ok: true` for a manifest it had already
+  seen fail validation.** It called the loader, discarded `load_errors()`,
+  discarded the tool-discovery result, and saved the credential unguarded — so a
+  typo'd URL or a bad access tier landed as "Connected" and the first sign of
+  trouble was Ava failing to use the app later. It returns warnings now, and the
+  connect dialog shows them.
+- **A malformed manifest made a connector unmanageable.** `yaml.YAMLError`
+  escaped an `except OSError` as a raw 500, so the one connector whose YAML was
+  broken was also the one you could not disable — from the screen whose job is
+  to fix it. Manifest writes are atomic and comment-preserving: toggling a
+  checkbox no longer round-trips the owner's hand-written file through the YAML
+  emitter.
+- **"Connected — reads work now" was not true yet.** Creating a connector writes
+  one file, its manifest; the tools and egress rule Ava needs reach the sandbox
+  only on an Apply, and until then deny-by-default refuses every call she makes
+  to the app. The dialog says what is true and offers the Apply inline.
+- **Coded errors on `/internal/*` reach Ava again.** The sandbox helper uses
+  `curl --fail`, which discards non-2xx bodies, so ~22 routes returning 400/404
+  arrived as a bare `request failed` — including every message the policy layer
+  produced. They ship as HTTP 200 `{error, error_code}` bodies, with a test that
+  fails a regression. `GET /internal/model` — scoped, auth-tested, called by a
+  shipped tool, and never implemented — now exists, so Ava can answer "which
+  model are you using?".
+- **`agent.required: true` was silently void on the Direct runtime**, which
+  serves tool-less chat: the two settings contradict each other and the gate
+  returned neither the agent nor an error. It names the contradiction. A typo'd
+  `agent.runtime` also selected NemoClaw silently; it is reported. And the agent
+  runtime is a registered capability now, so a turn that fails because it is off
+  or unreachable carries `agent_off` / `agent_down` / `agent_conflict` and gets
+  the same guided fix link every smaller capability already had.
+- **`agent.runtime: remote` reported `unknown` for persona, servers and skills
+  permanently.** The four sandbox probes lived on the NemoClaw adapter rather
+  than the runtime interface, so the network mirror inherited no-ops and could
+  not answer three of four scopes, with nothing saying why. They are implemented
+  over `exec()` on the base class, which the shim proxies.
+- **A mismatched agent token read as a healthy agent.** `/healthz` is the one
+  unauthenticated route on the shim, so with `AVA_AGENT_TOKEN` differing between
+  the two containers the bridge reported the agent available while every real
+  call came back 401. Availability means usable, and the reason — rejected
+  token, unreachable address, up-but-not-ready — travels with the verdict.
+- **The agent sandbox's memory row was hardcoded to `unknown`.** That is the
+  right word for "we cannot see the weights inside it" and the wrong one for
+  "the container is stopped", so the hardware monitor showed a serene grey row
+  over an Ava that could not answer at all. It observes liveness; a running
+  sandbox stays `unknown`, because being up is not evidence about what it holds.
+- **Two policy files declaring one `preset.name` collapsed silently.**
+  `policy-add` replaces by name, so an overlay policy written to *extend* a
+  generated one replaced it instead — and the inventory kept listing both as if
+  both were in force. The shadowed file is reported, in `ava verify`, in the
+  policy inventory, and in an attestation bundle that degrades rather than
+  claiming those rules are enforced.
+- **One bad Setup payload took down all of Setup**, tab bar included — the only
+  place the owner can fix anything. Error boundaries are per panel now, and
+  `PersonaPanel` normalises its payload like `SkillsPanel` already did.
+- **Persona fields other than `style` were unguarded.** The whole persona
+  travels as a base64 argv positional, so a YAML `brand: {name: yes}` reached
+  `.strip()` on a bool and aborted provisioning *after* the MCP servers were
+  already in the sandbox, and `owner.name` could splice the template's own
+  block placeholders. All five fields are typed, capped and brace-stripped.
+- **Memory had no WAL, no schema version and no retention.** Cross-process
+  writers shared a SQLite file guarded only by an in-process lock; the store now
+  runs in WAL with a busy timeout, carries a `user_version` migration ladder,
+  and offers `prune()` as a mechanism (`ava data prune`), leaving the policy to
+  the owner.
+- **A full disk failed inside a vendor CLI.** The GGUF path has prechecked since
+  it was written; Hugging Face and Ollama had no check at all, so a laptop with
+  no room found out several minutes and one partial download later. And "nothing
+  fits this box" exited 0, telling the installer, any script and the Hub's pull
+  job that the download had succeeded.
+- **`snapshot.sh` could `rm -rf` every sandbox's backups** from an empty
+  `$SANDBOX`, and the secrets directory drifted to `0775` because
+  `os.makedirs(mode=…)` is a no-op on a directory that already exists — file
+  contents were safe, credential *names* were world-listable.
 - **The hardware monitor says whose each model is.** Its "Models Ava can see"
   dropdown listed every model holding memory on the box in one flat list, one
   vocabulary, equal weight — Ava's brain, another app's image generator holding
