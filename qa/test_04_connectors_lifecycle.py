@@ -161,6 +161,41 @@ class TestConnectorLifecycle(unittest.TestCase):
         r = c.post(f"/api/hub/connectors/{CID}/manifest", json={"yaml": bad})
         self.assertEqual(r.status_code, 400)
 
+    def test_07b_written_artifacts_land_where_the_sandbox_installer_reads_them(self):
+        """This tier stopped at `generate?write=0` — a preview — so nothing ever
+        asserted that a real write lands somewhere `agent/install.sh` looks.
+
+        It did not, for two of the three install shapes: the files went to
+        CODE_ROOT, which is an image layer in Docker (discarded by `up --build`,
+        keeping the manifests that produced them) and a SEPARATE copy in the
+        agent container (so the sandbox installer could never read them). The
+        symptom was an app that connected fine and simply never worked.
+        """
+        c = CLIENT
+        r = c.post(f"/api/hub/connectors/{CID}/generate?write=1")
+        gen = r.json()
+        self.assertTrue(gen["ok"], r.text)
+        self.assertTrue(gen["wrote"], "write=1 wrote nothing")
+
+        tools = os.path.join(QA_HOME, "agent", "mcp_server_connectors", "apps", CID)
+        policy = os.path.join(QA_HOME, "agent", "policies", "generated", f"{CID}.yaml")
+        self.assertTrue(os.path.isdir(tools), f"no tools at {tools}")
+        self.assertTrue([f for f in os.listdir(tools) if f.endswith(".mjs")],
+                        f"tool directory is empty: {tools}")
+        self.assertTrue(os.path.isfile(policy), f"no egress policy at {policy}")
+
+        # Every path it reports is relative to AVA_HOME, so a reader can tell
+        # which root it means on an install shape where the two differ.
+        for rel in gen["wrote"]:
+            self.assertFalse(os.path.isabs(rel), f"absolute path reported: {rel}")
+            self.assertTrue(os.path.exists(os.path.join(QA_HOME, rel)),
+                            f"reported writing {rel}, which is not under AVA_HOME")
+
+        # And the policy allows exactly the routes the tools call — the lockstep
+        # that deny-by-default makes load-bearing.
+        pol = open(policy, encoding="utf-8").read()
+        self.assertIn(f"/internal/connector/{CID}/", pol)
+
     def test_08_disable_hides_enable_restores(self):
         c = CLIENT
         c.post(f"/api/hub/connectors/{CID}/enabled", json={"enabled": False})
@@ -175,9 +210,20 @@ class TestConnectorLifecycle(unittest.TestCase):
     def test_09_delete_keeps_history_reconnect_resumes(self):
         c = CLIENT
         perf_file = os.path.join(QA_HOME, "logs", "apps", CID, "performance.jsonl")
+        tools = os.path.join(QA_HOME, "agent", "mcp_server_connectors", "apps", CID)
+        policy = os.path.join(QA_HOME, "agent", "policies", "generated", f"{CID}.yaml")
+        self.assertTrue(os.path.isdir(tools), "precondition: test_07b wrote these")
         r = c.post(f"/api/hub/connectors/{CID}/delete")
         self.assertTrue(r.json().get("ok"), r.text)
         helpers.refresh_connectors()
+
+        # No residue. Generated tools with no manifest behind them get tarred
+        # into the sandbox on the next provision, where no policy allows their
+        # routes — so Ava is handed tools that deny-by-default guarantees will
+        # fail, and nothing reports it. Nothing walked backwards from what
+        # EXISTS to what is declared until `connectors.orphans()` did.
+        self.assertFalse(os.path.exists(tools), f"tools survived delete: {tools}")
+        self.assertFalse(os.path.exists(policy), f"policy survived delete: {policy}")
         self.assertNotIn(CID, [x["id"] for x in
                                c.get("/api/ops/connectors").json()["connectors"]])
         # THE history guarantee: the perf log outlives the connector, and
@@ -194,6 +240,14 @@ class TestConnectorLifecycle(unittest.TestCase):
                          "access": "read"}]})
         self.assertEqual(r.status_code, 200, r.text)
         helpers.refresh_connectors()
+
+        # A grant is a standing "always allow" for one action. It used to outlive
+        # the connector, so re-adding the same id silently re-inherited every
+        # permission the owner had ever given the OLD app of that name — a
+        # different program, same id.
+        g = c.get(f"/api/hub/connectors/{CID}/grants").json()
+        self.assertFalse([a for a in g["actions"] if a.get("granted")],
+                         "a reconnected app inherited the deleted one's grants")
         s = c.get(f"/api/perf/summary?app={CID}").json()
         self.assertGreaterEqual(s["summary"].get("actions", {}).get("count", 0), 1,
                                 "pre-delete history did not resume after reconnect")
