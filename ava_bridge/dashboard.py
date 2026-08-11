@@ -614,7 +614,6 @@ def connectors_info() -> dict:
     items = []
     for m in connectors.all():
         svc = m.get("service") or {}
-        eg = m.get("egress") or {}
         perf_app = str((m.get("perf") or {}).get("app") or m["id"])
         items.append({
             "id": m["id"],
@@ -627,11 +626,39 @@ def connectors_info() -> dict:
             # true once any of its perf files exist on disk — "reporting yet?"
             "perf_present": any(os.path.isfile(p) for p in srcs.get(perf_app, [])),
             "status": smap.get(svc.get("name", m.get("label", m["id"]))) if svc else None,
-            "egress_routes": len(eg.get("routes") or []) + len(eg.get("hosts") or []),
-            "actions": [a.get("id") for a in (m.get("actions") or [])
+            # What the sandbox will actually be allowed, not what the manifest
+            # literally spells. `render_egress_policy` auto-allows a route per
+            # generic-proxy action and a `__tools`/`__call` pair for a dynamic or
+            # MCP connector — so counting only the literal `routes`+`hosts`
+            # reported 0 for every discover/MCP app, which is precisely the shape
+            # with the most egress.
+            "egress_routes": _egress_route_count(m),
+            # `_static_actions`, not `m["actions"]`: the block is legally a LIST
+            # or a DICT (`static:` / `discover:`), and reading it directly
+            # reported `actions: []` for every dict-form manifest.
+            "actions": [a.get("id") for a in connectors._static_actions(m)
                         if isinstance(a, dict) and a.get("id")],
         })
     return {"ok": True, "connectors": items, "action_count": len(connectors.actions())}
+
+
+def _egress_route_count(m: dict) -> int:
+    """How many rules this connector's rendered egress policy actually grants.
+
+    Rendering is the only honest answer — the manifest's `egress:` block is one
+    input to it, not the output. Falls back to the literal count if rendering
+    raises, because a telemetry row must never take down the Ops page.
+    """
+    try:
+        pol = connectors.render_egress_policy(m["id"]) or {}
+        return sum(len(ep.get("rules") or [])
+                   for np in (pol.get("network_policies") or {}).values()
+                   if isinstance(np, dict)
+                   for ep in (np.get("endpoints") or [])
+                   if isinstance(ep, dict))
+    except Exception:  # noqa: BLE001
+        eg = m.get("egress") or {}
+        return len(eg.get("routes") or []) + len(eg.get("hosts") or [])
 
 
 def ops_tools(limit=15) -> dict:

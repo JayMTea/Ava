@@ -412,6 +412,53 @@ def _probe(rt, out: dict) -> dict:
     return {"maps": maps, "sources": sources}
 
 
+#: Ava's own policy namespace. `render_egress_policy` names generated presets
+#: `ava-<cid>`, and every declared one in agent/policies/ is `ava-*` too.
+#: Retirement is confined to it: `customPolicies` also holds anything the owner
+#: applied by hand with `nemoclaw policy-add`, and reconciling those away would
+#: destroy work Ava never did and cannot know the reason for.
+_OURS = "ava-"
+
+
+def retire_policies(rt=None, write: bool = False) -> list[str]:
+    """Withdraw egress policies the sandbox still applies and this checkout no
+    longer declares. Dry-run unless `write=True`; returns the preset names.
+
+    The missing half of provisioning. `agent/install.sh` only ever runs
+    `policy-add`, so removing a connector took away its manifest, its generated
+    policy file and its tools — and left the sandbox permitting its routes. The
+    audit ledger even recorded that the security posture had changed, which was
+    true and incomplete: it had changed on disk and not in the gateway.
+
+    Scoped to `ava-*` on purpose (see `_OURS`), and it reads the registry rather
+    than shelling `policy-list`, because `observed()` already collects exactly
+    this and a second enumerator is how the three policy globs disagreed before.
+    """
+    from . import runtime as _runtime
+    rt = rt or _runtime.configured()
+    if not hasattr(rt, "remove_policy"):
+        return []
+    obs = observed(rt, live_probe=False)
+    applied = obs["maps"].get("policies")
+    if applied is None:                 # could not look -> retire nothing
+        return []
+    declared = {row["id"] for row in desired()["policies"]}
+    orphans = sorted(n for n in applied
+                     if n.startswith(_OURS) and n not in declared)
+    if not write:
+        return orphans
+    gone = [n for n in orphans if rt.remove_policy(n)]
+    if gone:
+        # An egress policy going is a change to what the sandbox may reach, so it
+        # belongs in the ledger for the same reason the connector delete does.
+        from . import audit
+        audit.record("policy_retire", policies=gone,
+                     sandbox=getattr(rt, "sandbox", ""),
+                     reason="no longer declared by this checkout")
+        invalidate()
+    return gone
+
+
 def _extra(have: dict[str, str] | None, want_ids: set[str],
            source: str) -> list[str] | None:
     """What the sandbox holds that this checkout does not declare.
@@ -612,7 +659,11 @@ def state(rt=None, force: bool = False) -> dict:
         "checked_at": time.time(),
         "runtime": config.AGENT_RUNTIME,
         "enabled": config.AGENT_ENABLED,
-        "location": "local" if rt is _runtime.nemoclaw() else "remote",
+        # Which MACHINE the cli/sandbox rows describe. `not nemoclaw` was read as
+        # "remote", which made the Direct floor — running right here, in this
+        # process — report itself as somewhere else, and the panel then hid the
+        # local rows it should have shown.
+        "location": "remote" if rt is _runtime.remote() else "local",
         "sandbox": {
             "name": getattr(rt, "sandbox", None),
             "live": live,

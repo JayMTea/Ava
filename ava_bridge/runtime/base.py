@@ -102,6 +102,17 @@ class AgentRuntime(ABC):
         """
         return {}
 
+    def remove_policy(self, preset: str, timeout: int = 60) -> bool:
+        """Withdraw one applied egress policy. False when unsupported.
+
+        The counterpart to the `policy-add` that `agent/install.sh` runs. Ava
+        only ever added, so a connector's allowance outlived the connector: the
+        manifest went, the generated file went, the audit ledger recorded that
+        the security posture had changed — and the sandbox carried on permitting
+        the routes until someone rebuilt it.
+        """
+        return False
+
     def tree_digests(self, roots: list[str],
                      timeout: int = 30) -> dict[str, str] | None:
         """{root: fold} for whole directories inside the sandbox, comparably to

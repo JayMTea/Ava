@@ -538,11 +538,17 @@ _BRIDGE_HOST = "host.openshell.internal"
 # generated tool dialled 8096, so a bridge moved to another port was blocked twice
 # and nothing in the failure named a port.
 def _bridge_port() -> int:
+    """The port the generated egress policy must allow through to the bridge.
+
+    Resolved PER CALL, not frozen at import. It used to be a module constant, so
+    a `server.port` change picked up by `provision.port_rewrite` and by
+    install.sh's own `sed` — both of which resolve it live — was NOT picked up
+    here. The rendered policy then allowed one port while the rewrite expected
+    another, and the failure is the worst kind this file produces: the sandbox
+    blocks the call and nothing in the error names a port.
+    """
     from . import config
     return int(config.SERVER_PORT)
-
-
-_BRIDGE_PORT = _bridge_port()
 _PRIVATE_IPS = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
 _TOOL_BINARIES = [{"path": "/usr/local/bin/node"}, {"path": "/usr/bin/node"},
                   {"path": "/usr/bin/curl"}]
@@ -668,7 +674,7 @@ def render_egress_policy(cid: str) -> dict | None:
     rules = _dedupe_rules(rules)
     if rules:
         endpoints.append({
-            "host": _BRIDGE_HOST, "port": _BRIDGE_PORT, "protocol": "rest",
+            "host": _BRIDGE_HOST, "port": _bridge_port(), "protocol": "rest",
             "enforcement": "enforce", "allowed_ips": list(_PRIVATE_IPS),
             "rules": rules,
         })

@@ -779,14 +779,17 @@ def cmd_verify(_args) -> int:
             fails += bool(st["pending"])
 
             # The other direction, which nothing looked in until now. A WARN
-            # rather than a failure: `policy-add` has no remove verb, so the
-            # only cure for a stranded allowance is a sandbox rebuild, and
-            # failing a check whose fix is that heavy would just get ignored.
+            # rather than a failure: an extra policy is withdrawn by the next
+            # Apply, and extra skills/servers clear on a rebuild — neither is a
+            # broken install, and failing on them would train people to ignore
+            # the report.
             extra = {k: v for k, v in (st.get("orphans") or {}).items() if v}
+            fix = ("`ava agent provision` withdraws the policies; skills and "
+                   f"servers clear on `nemoclaw {getattr(rt, 'sandbox', '<name>')} "
+                   "rebuild`")
             _row(WARN if extra else OK, "sandbox extras",
                  ", ".join(f"{k}: {', '.join(v)}" for k, v in extra.items())
-                 + "  (not declared here; clears on `nemoclaw "
-                   f"{getattr(rt, 'sandbox', '<name>')} rebuild`)" if extra
+                 + f"  (not declared here — {fix})" if extra
                  else "nothing in the sandbox this checkout does not declare")
 
     # Generated files with no connector behind them. Hard, and local: these are

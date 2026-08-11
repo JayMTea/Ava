@@ -107,7 +107,11 @@ class EgressHostRenderingTests(unittest.TestCase):
         eps = _endpoints("mcpx", m)
         br = [e for e in eps if e["host"] == connectors._BRIDGE_HOST][0]
         self.assertEqual(br["allowed_ips"], connectors._PRIVATE_IPS)
-        self.assertEqual(br["port"], connectors._BRIDGE_PORT)
+        # Resolved per call, not frozen at import:  and
+        # install.sh's own sed both resolve it live, and a module constant here
+        # meant the rendered policy allowed one port while the rewrite expected
+        # another — with nothing in the sandbox's refusal naming a port.
+        self.assertEqual(br["port"], connectors._bridge_port())
 
 
 class _R:
@@ -326,3 +330,58 @@ class NoDuplicateRulesTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OpsTelemetryHonestyTests(unittest.TestCase):
+    """The Ops row must count what the sandbox is GRANTED, not what the manifest
+    literally spells.
+
+    `egress_routes` summed the manifest's own `routes` + `hosts`, so every
+    discover/MCP connector reported 0 — the shape with the MOST egress, since
+    `render_egress_policy` auto-allows `__tools`/`__call` for it. And `actions`
+    read `m["actions"]` directly, which is legally a list OR a dict
+    (`static:` / `discover:`), so every dict-form manifest reported none.
+    """
+
+    def test_a_dynamic_connector_does_not_report_zero_egress(self):
+        from ava_bridge import dashboard
+
+        m = {"id": "mcpx", "label": "MCPX", "mcp": {"url": "http://127.0.0.1:9200/mcp"}}
+        with mock.patch.object(connectors, "all", return_value=[m]), \
+             mock.patch.object(connectors, "load", return_value=[m]):
+            n = dashboard._egress_route_count(m)
+        self.assertGreater(n, 0, "a connector whose tools ride __tools/__call "
+                                 "reported no egress at all")
+
+    def test_dict_form_actions_are_counted(self):
+        from ava_bridge import dashboard
+
+        m = {"id": "acme", "label": "Acme",
+             "actions": {"static": [{"id": "read_notes", "path": "/notes"}]}}
+        with mock.patch.object(connectors, "all", return_value=[m]), \
+             mock.patch.object(dashboard, "_egress_route_count", return_value=0), \
+             mock.patch.object(dashboard.state, "turns_lock", __import__("threading").Lock()):
+            rows = dashboard.connectors_info()["connectors"]
+        row = next(r for r in rows if r["id"] == "acme")
+        self.assertEqual(row["actions"], ["read_notes"],
+                         "a `static:`-form actions block read as empty")
+
+    def test_a_render_failure_falls_back_rather_than_breaking_the_page(self):
+        from ava_bridge import dashboard
+
+        m = {"id": "acme", "egress": {"routes": ["POST /x"], "hosts": ["h:1"]}}
+        with mock.patch.object(connectors, "render_egress_policy",
+                               side_effect=RuntimeError("boom")):
+            self.assertEqual(dashboard._egress_route_count(m), 2)
+
+
+class BridgePortTests(unittest.TestCase):
+    def test_the_rendered_policy_follows_a_moved_bridge_port(self):
+        """`_BRIDGE_PORT` was a module constant read at import, while
+        `provision.port_rewrite` and install.sh's own sed both resolve it live.
+        The rendered policy then allowed one port and the rewrite expected
+        another — and the sandbox's refusal names no port."""
+        with mock.patch.object(connectors.config, "SERVER_PORT", 9455):
+            self.assertEqual(connectors._bridge_port(), 9455)
+        # …and back, with no restart in between.
+        self.assertEqual(connectors._bridge_port(), int(connectors.config.SERVER_PORT))

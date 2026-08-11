@@ -703,6 +703,10 @@ async def api_save(request: Request):
     # Without it a user with no model yet had to either lie or abandon the page.
     skip = bool(body.get("skip_inference"))
     patch: dict = {}
+    # Things that are true about the saved config but are not refusals. The
+    # wizard used to answer a flat `{"ok": true}` for a backend it had never
+    # asked a single question of.
+    out_warnings: list[str] = []
 
     # VALIDATE FIRST. `patch = {"setup": {"completed": True}}` used to be the
     # first line of this function, and the local branch was `if base and model:`
@@ -772,11 +776,41 @@ async def api_save(request: Request):
                     {"error": "Enter the model your engine is serving — Ava sends "
                               "this id verbatim, so it must match exactly.",
                      "field": "model"}, status_code=400)
+            # Ask the engine before writing it down. The `installed` branch above
+            # already re-derives and refuses a `declared_missing` model; this one
+            # validated non-emptiness and nothing else, so a typo'd id or an
+            # engine that cannot run here completed setup and failed at the first
+            # message — with the wizard, the one screen that could fix it,
+            # reporting success. `BrainPanel` has had a Test-connection button
+            # this whole time; first run did not.
+            #
+            # A WARNING, not a refusal. The engine may legitimately be starting,
+            # or be behind something slow, and refusing would strand an owner
+            # whose setup is fine. What is not acceptable is silence.
+            from . import models as _models
+            warnings: list[str] = []
+            if not _models.engine_servable_here(engine):
+                warnings.append(
+                    f"{engine} cannot serve on {_models.platform_label()}. Ava saved "
+                    "it, but nothing will answer until you pick an engine this "
+                    "machine can run.")
+            reachable, served = await run_in_threadpool(
+                _models.probe_serving, base, engine, "", 2.0)
+            if not reachable:
+                warnings.append(
+                    f"Nothing answered at {base}. That is fine if the engine is "
+                    "still starting; if it is running, check the address.")
+            elif served and not _models.match_served(model, served):
+                warnings.append(
+                    f"{engine} is running but is not serving {model!r} — Ava sends "
+                    f"that id verbatim. It has: {', '.join(served[:4])}.")
+
             patch["inference"] = {
                 "primary": "local",
                 "backends": {"local": {"engine": engine, "base_url": base,
                                        "model": model}},
             }
+            out_warnings.extend(warnings)
 
     feats = body.get("features") or {}
     if isinstance(feats, dict):
@@ -802,4 +836,5 @@ async def api_save(request: Request):
         return JSONResponse({"error": f"could not write ava.yaml: {e}"},
                             status_code=500)
     # config.py reads several of these at import, so a restart applies them fully.
-    return {"ok": True, "restart_required": True, "completed": not skip}
+    return {"ok": True, "restart_required": True, "completed": not skip,
+            "warnings": out_warnings}

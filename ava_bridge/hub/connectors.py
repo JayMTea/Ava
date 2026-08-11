@@ -946,11 +946,11 @@ def delete_connector(cid: str):
     # and the README markets the Data tab's "audited deletes". Recorded with the
     # policy's digest so the record proves which policy went, not just that one did.
     #
-    # NOTE the policy file going is not the same as the ALLOWANCE going: the
-    # sandbox applied it with `policy-add` and there is no remove verb, so it
-    # stays live in there until a rebuild. `provision.orphans()` reports exactly
-    # that, rather than letting the ledger imply a revocation that has not
-    # happened.
+    # NOTE the policy FILE going is not yet the ALLOWANCE going: the sandbox
+    # holds what `policy-add` applied until something withdraws it. That is now
+    # `provision.retire_policies()`, which the next Apply runs — so this is a
+    # revocation that completes on the next provision rather than one that never
+    # happens. `policy_still_in_sandbox` says which state the owner is in.
     audit.record("connector_delete", id=cid, removed=removed,
                  had_policy=had_policy, policy_digest=policy_digest,
                  had_tools=had_tools, grants_revoked=forgotten_grants,

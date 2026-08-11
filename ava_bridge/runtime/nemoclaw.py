@@ -484,6 +484,24 @@ class NemoClawRuntime(AgentRuntime):
                 found[parts[1].strip()] = parts[0]
         return found
 
+    def remove_policy(self, preset: str, timeout: int = 60) -> bool:
+        """`nemoclaw <sandbox> policy-remove <preset> --yes`.
+
+        The same flat-alias grammar install.sh already uses for `policy-add`
+        (`public-route-metadata.ts` maps `sandbox:policy:remove` to
+        `policy-remove`), and `--yes` because there is no one at a terminal to
+        answer a prompt.
+
+        Ava never called this, which is the whole reason a deleted connector's
+        egress allowance survived in the sandbox until a rebuild.
+        """
+        preset = (preset or "").strip()
+        if not preset:
+            return False
+        rc, _out = self._run(self._base("policy-remove", preset, "--yes"),
+                             timeout=timeout)
+        return rc == 0
+
     def tree_digests(self, roots: list[str],
                      timeout: int = 30) -> dict[str, str] | None:
         """Fold whole sandbox directories the same way `provision.tree_digest()`
@@ -659,6 +677,24 @@ class NemoClawRuntime(AgentRuntime):
                                                           else f" rc={rc}: {out[-200:]}"))
         else:
             step("deploy", False, "agent/install.sh not found")
+
+        # Reconcile: withdraw what this checkout no longer declares. install.sh
+        # only ever ADDS a policy, so without this an Apply could report a green
+        # run over a sandbox still permitting a deleted connector's routes.
+        # Skills already retire this way (install.sh §6); policies did not.
+        #
+        # Scope-gated with policies for the same reason install.sh is: an
+        # `--only persona` run has no business touching the gateway. Non-fatal —
+        # a removal that fails must not fail a deploy that worked, and the next
+        # drift report will still name what is left over.
+        if scope in ("all", "policies") or "policies" in str(scope).split(","):
+            try:
+                from .. import provision as _provision
+                gone = _provision.retire_policies(rt=self, write=True)
+                if gone:
+                    step("retire", True, f"withdrew {len(gone)}: {', '.join(gone)}")
+            except Exception as e:  # noqa: BLE001
+                step("retire", False, f"could not retire stale policies: {e}")
 
         ok = all(s["ok"] for s in steps)
         return {"ok": ok, "steps": steps, "scope": scope,

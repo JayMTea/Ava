@@ -30,7 +30,10 @@ def agent_status():
     # a host the operator is not on.
     rt = runtime.configured()
     st = rt.status()
-    st["location"] = "local" if rt is runtime.nemoclaw() else "remote"
+    # Which MACHINE the cli/sandbox rows describe. "not nemoclaw" was read as
+    # remote, so the Direct floor — running in this very process — reported
+    # itself as elsewhere and the panel hid the local rows it should have shown.
+    st["location"] = "remote" if rt is runtime.remote() else "local"
     st["runtime"] = config.AGENT_RUNTIME
     st["required"] = config.AGENT_REQUIRED
     st["tools"] = bool(st.get("available"))

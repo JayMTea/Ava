@@ -25,7 +25,7 @@ import textwrap
 import unittest
 from unittest import mock
 
-from ava_bridge import connectors, grants, settings, tools_cache
+from ava_bridge import connectors, grants, provision, settings, tools_cache
 
 
 def _write_manifest(base: str, cid: str, body: str) -> None:
@@ -241,3 +241,104 @@ class DeleteRouteTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PolicyRetirementTests(unittest.TestCase):
+    """The sandbox half of "nothing reconciles backwards".
+
+    `agent/install.sh` only ever runs `policy-add`, so removing a connector took
+    away its manifest, its generated policy file and its tools — and left the
+    gateway permitting its routes until someone rebuilt the sandbox. The ledger
+    even recorded that the security posture had changed, which was true and
+    incomplete: it had changed on disk and not in the thing doing the enforcing.
+
+    `nemoclaw <sandbox> policy-remove <preset> --yes` exists (the CLI maps
+    `sandbox:policy:remove` to that flat alias, the same grammar install.sh uses
+    for `policy-add`); Ava simply never called it.
+    """
+
+    class _Rt:
+        sandbox = "test-sandbox"
+        name = "nemoclaw"
+
+        def __init__(self, applied, fails=()):
+            self._applied = applied
+            self._fails = set(fails)
+            self.removed = []
+
+        def registry_record(self):
+            return {"customPolicies": [{"name": n, "content": n}
+                                       for n in self._applied]}
+
+        def live(self):
+            return {"live": False, "reason": "not running"}
+
+        def remove_policy(self, preset, timeout=60):
+            if preset in self._fails:
+                return False
+            self.removed.append(preset)
+            return True
+
+    def _declared(self, names):
+        return mock.patch.object(
+            provision, "desired",
+            return_value={"persona": [], "policies": [{"id": n} for n in names],
+                          "servers": [], "skills": []})
+
+    def test_it_names_what_the_sandbox_holds_and_we_no_longer_declare(self):
+        rt = self._Rt(["ava-weather", "ava-gone"])
+        with self._declared(["ava-weather"]):
+            self.assertEqual(provision.retire_policies(rt=rt), ["ava-gone"])
+
+    def test_a_dry_run_removes_nothing(self):
+        rt = self._Rt(["ava-weather", "ava-gone"])
+        with self._declared(["ava-weather"]):
+            provision.retire_policies(rt=rt)
+        self.assertEqual(rt.removed, [], "a dry run withdrew a policy")
+
+    def test_write_withdraws_them_and_audits(self):
+        rt = self._Rt(["ava-weather", "ava-gone"])
+        with self._declared(["ava-weather"]), \
+             mock.patch("ava_bridge.audit.record") as rec:
+            gone = provision.retire_policies(rt=rt, write=True)
+        self.assertEqual(gone, ["ava-gone"])
+        self.assertEqual(rt.removed, ["ava-gone"])
+        self.assertEqual(rec.call_args.args[0], "policy_retire",
+                         "withdrawing an egress policy has to reach the ledger")
+
+    def test_it_never_touches_a_policy_the_owner_applied_by_hand(self):
+        """`customPolicies` also holds anything applied directly with
+        `nemoclaw policy-add`. Reconciling those away would destroy work Ava
+        never did and cannot know the reason for."""
+        rt = self._Rt(["ava-weather", "corp-vpn", "slack"])
+        with self._declared(["ava-weather"]):
+            self.assertEqual(provision.retire_policies(rt=rt, write=True), [])
+        self.assertEqual(rt.removed, [])
+
+    def test_a_registry_it_could_not_read_retires_nothing(self):
+        """"We could not look" must never authorise a deletion."""
+        rt = self._Rt([])
+        rt.registry_record = lambda: None
+        with self._declared(["ava-weather"]):
+            self.assertEqual(provision.retire_policies(rt=rt, write=True), [])
+
+    def test_a_removal_that_fails_is_not_reported_as_done(self):
+        rt = self._Rt(["ava-a", "ava-b"], fails=["ava-a"])
+        with self._declared([]), mock.patch("ava_bridge.audit.record"):
+            self.assertEqual(provision.retire_policies(rt=rt, write=True), ["ava-b"])
+
+    def test_a_runtime_without_the_verb_is_a_no_op(self):
+        """RemoteRuntime and Direct inherit the base `remove_policy`."""
+        from ava_bridge.runtime.base import AgentRuntime
+
+        self.assertIs(AgentRuntime.remove_policy(object(), "ava-x"), False)
+
+    def test_provision_runs_it_only_for_the_policies_scope(self):
+        import inspect
+
+        from ava_bridge.runtime.nemoclaw import NemoClawRuntime
+
+        src = inspect.getsource(NemoClawRuntime.provision)
+        self.assertIn("retire_policies", src)
+        self.assertIn('"policies"', src,
+                      "an --only persona run has no business touching the gateway")

@@ -172,3 +172,61 @@ class BackendProbeTests(_Tmp):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ── The wizard now asks the engine before writing it down ────────────────────
+# The `installed` branch re-derives and refuses a missing model; the local/cloud
+# branch validated non-emptiness and nothing else. So a typo'd id, or an engine
+# this machine cannot run, completed setup and failed at the first message —
+# with the wizard, the one screen that could fix it, reporting success.
+# BrainPanel has had a Test-connection button all along; first run did not.
+#
+# Warnings, not refusals: the engine may legitimately still be starting, and
+# refusing would strand an owner whose setup is fine.
+
+class LocalSaveProbeTests(unittest.TestCase):
+
+    def _probe(self, *, servable=True, reachable=True, served=("m",), match="m"):
+        from ava_bridge import models
+        return [
+            mock.patch.object(models, "engine_servable_here", lambda _e: servable),
+            mock.patch.object(models, "probe_serving",
+                              lambda *a, **k: (reachable, list(served))),
+            mock.patch.object(models, "match_served", lambda *a, **k: match),
+            mock.patch.object(settings, "save_patch", lambda p: None),
+        ]
+
+    def _run(self, payload, **kw):
+        patches = self._probe(**kw)
+        for pt in patches:
+            pt.start()
+        try:
+            return _save(payload)
+        finally:
+            for pt in patches:
+                pt.stop()
+
+    LOCAL = {"inference": {"mode": "local", "engine": "ollama",
+                           "base_url": "http://127.0.0.1:11434/v1",
+                           "model": "not-pulled"}}
+
+    def test_a_model_the_engine_does_not_serve_is_named(self):
+        r = self._run(self.LOCAL, served=["llama3.2:latest"], match="")
+        self.assertEqual(r["ok"], True)
+        self.assertTrue(any("not serving" in w for w in r["warnings"]), r["warnings"])
+        self.assertTrue(any("llama3.2:latest" in w for w in r["warnings"]),
+                        "the warning must name what the engine DOES have")
+
+    def test_an_unreachable_engine_warns_without_refusing(self):
+        r = self._run(self.LOCAL, reachable=False, served=[])
+        self.assertEqual(r["ok"], True, "a warming engine must not block setup")
+        self.assertTrue(any("Nothing answered" in w for w in r["warnings"]))
+
+    def test_an_engine_this_box_cannot_run_is_named(self):
+        """A Mac owner could pick vLLM and complete setup."""
+        r = self._run(self.LOCAL, servable=False)
+        self.assertTrue(any("cannot serve" in w for w in r["warnings"]))
+
+    def test_a_healthy_save_warns_about_nothing(self):
+        r = self._run(self.LOCAL)
+        self.assertEqual(r["warnings"], [])
