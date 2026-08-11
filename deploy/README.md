@@ -17,7 +17,8 @@ The installer waits up to three minutes for the app to answer, then tells you
 whether it did.
 
 **What you need first.** Docker, Docker Compose v2, and git. Plus disk for the
-weights: the default NVIDIA model is `Qwen/Qwen2.5-7B-Instruct`, 14.2 GiB.
+weights of whichever model you choose — Ava ships none, so you name one with
+`AVA_MODEL` (a 7B at BF16 is ~14 GiB). See [docs/CHOOSE_A_MODEL.md](../docs/CHOOSE_A_MODEL.md).
 
 ---
 

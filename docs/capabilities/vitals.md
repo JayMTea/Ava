@@ -190,6 +190,13 @@ running**, because which model answers is named by your configuration, not
 discovered from the GPU. It reads the same live snapshot the Vitals gauges
 use, so the two can never disagree.
 
+Everything else holding model memory is listed **under a heading that says whose
+it is** — *Ava's other engines*, *Connected apps*, or *Other programs holding
+memory*. Your machine probably runs models that have nothing to do with Ava, and
+they are shown because they are where your memory went, not because Ava owns
+them: a row under "Other programs" is another application's, and Ava will not
+load, unload or think with it.
+
 ??? note "Every state a model row can report, and the poll cadence"
 
     The bubble is rendered outside the view switch, so it is present on Chats,
@@ -202,6 +209,17 @@ use, so the two can never disagree.
     reloads on the next message), not downloaded yet, engine offline, runs
     elsewhere, or - honestly - not observable. **"Not observable" never means
     "not loaded".**
+
+    A second, separate reading says *whose* each row is. Ava's brain; an engine
+    you configured; a **connected app**, which claimed it in that app's own
+    connector manifest (`owns:`); or another program entirely. Ownership is
+    always declared, never guessed - an unclaimed process is reported honestly
+    as other software rather than pinned on whichever app looks closest.
+
+    A row Ava cannot identify - a process that exposes no model id - is named
+    from its own command line and the weight files it has mapped, so it reads
+    like `ComfyUI · flux2` rather than the bare word "Model", and lists what it
+    is holding underneath.
 
     It polls every 2 s while open and every 5 s while collapsed, reading
     `GET /api/hardware` - **the exact same live snapshot** the four gauges and

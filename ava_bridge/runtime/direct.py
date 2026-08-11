@@ -60,12 +60,32 @@ _MISSING_MODEL_HINTS = ("not found", "does not exist", "not_found",
                         "no such model", "unknown model")
 
 
+def _upstream_code(r) -> str:
+    """The `error_code` the responder set, or "".
+
+    Ava's own router sets one; a third-party engine does not, which is what the
+    prose sniffing below is for. Reading it was missing entirely, so the
+    router's "No model is configured, so there is nothing to answer with"
+    matched no hint, fell through to `inference_down`, and the chat UI offered
+    "Check it on Operations" — pointing the owner at a service health page on an
+    install where nothing was down and nothing had ever been configured.
+    A responder that names its own failure is the best source there is.
+    """
+    try:
+        body = r.json()
+    except Exception:  # noqa: BLE001
+        return ""
+    return str(body.get("error_code") or "").strip() if isinstance(body, dict) else ""
+
+
 def _inference_error(r) -> InferenceError:
     msg = _upstream_message(r)
     low = msg.lower()
-    code = "inference_down"
-    if "model" in low and any(h in low for h in _MISSING_MODEL_HINTS):
-        code = "model_unknown"
+    code = _upstream_code(r)
+    if not code:
+        code = "inference_down"
+        if "model" in low and any(h in low for h in _MISSING_MODEL_HINTS):
+            code = "model_unknown"
     return InferenceError(
         msg or f"the inference endpoint returned HTTP {r.status_code}",
         code=code, status=getattr(r, "status_code", 0))

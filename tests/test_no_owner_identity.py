@@ -54,8 +54,9 @@ _FORBIDDEN: list[tuple[re.Pattern, str]] = [
     # The maintainer's own checkpoint. It is a 30B model needing ~35 GB of
     # weights, so shipping it as a DEFAULT hands every forker an install that
     # cannot start — and it names one person's hardware in a model-agnostic
-    # product. The shipped default lives in deploy/default-model.env; this
-    # model stays available as a documented upgrade in docs/CHOOSE_A_MODEL.md.
+    # product. Ava ships no default model at all now, so there is nothing this
+    # could be the default FOR; it stays available as one documented option
+    # among others in docs/CHOOSE_A_MODEL.md.
     # Matches the PROSE forms too ("open-model 30B", "the open-model model"), not
     # just the model id. The first version of this pattern was id-shaped only,
     # and every human-written sentence walked straight past it — including
@@ -74,8 +75,8 @@ _FORBIDDEN: list[tuple[re.Pattern, str]] = [
     # frontend/src, it was baked into the tracked dist bundle too.
     (re.compile(r"Nemotron-Open|nano[-\s]omni|vllm-open|always-on\s+omni",
                 re.I),
-     "the maintainer's personal 30B checkpoint — use the shipped default from "
-     "deploy/default-model.env, and document this one as an upgrade instead"),
+     "the maintainer's personal 30B checkpoint — Ava ships no default model, "
+     "so name a model CLASS or document this one as one option among others"),
     # The maintainer's machine. Real hostnames reached tracked docs twice via
     # pasted log lines labelled "straight off disk"; a stub reads identically.
     (re.compile(r"\bspark-[0-9a-f]{4}\b", re.I),

@@ -35,7 +35,9 @@ _ADDR = f" {_OWNER_ADDR}" if _OWNER_ADDR else ""
 
 # ---- Config (env overridable) -------------------------------------------------
 AVA_URL = os.environ.get("AVA_URL", "http://localhost:8002/v1/chat/completions")
-AVA_MODEL = os.environ.get("AVA_MODEL", "Qwen/Qwen2.5-7B-Instruct")
+# No default: this standalone loop serves whatever AVA_MODEL names, and naming
+# nothing is an error the operator can see rather than a model they never chose.
+AVA_MODEL = os.environ.get("AVA_MODEL", "")
 WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "small.en")
 
 MIC_DEVICE = os.environ.get("MIC_DEVICE", "default")   # arecord -D ... (e.g. plughw:1,0)

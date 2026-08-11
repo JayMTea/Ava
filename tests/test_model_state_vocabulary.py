@@ -1,4 +1,11 @@
-"""The model-liveness vocabulary is ONE closed set, in three tracked files.
+"""The closed vocabularies on a hardware model row, each in tracked files.
+
+TWO vocabularies now, on the same rails: `state` (is this model live?) and
+`relation` (whose is it?). Both are machine tokens the frontend turns into the
+words the owner reads, and both fail SILENTLY when they drift — an unknown
+`state` renders as "Not observable", and an unknown `relation` groups the row
+under "Other programs holding memory", which for a third-party process is right
+by luck and for Ava's own brain is a lie.
 
 `state` on a hardware row is a machine token the frontend turns into the single
 sentence it shows the owner. The set of tokens lives in three places by
@@ -34,24 +41,41 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 HARDWARE = "ava_bridge/hardware.py"
 TYPES_TS = "frontend/src/lib/types.ts"
 COPY_TS = "frontend/src/lib/modelState.ts"
+RELATION_TS = "frontend/src/components/hwModels.ts"
+
+_TRACKED = (HARDWARE, TYPES_TS, COPY_TS, RELATION_TS)
 
 
 def _sources() -> dict[str, str]:
     have = set(tracked())  # also skips cleanly outside a git checkout
-    missing = [p for p in (HARDWARE, TYPES_TS, COPY_TS) if p not in have]
+    missing = [p for p in _TRACKED if p not in have]
     assert not missing, (
-        f"{missing} are not tracked — if the model-state vocabulary moved, point "
+        f"{missing} are not tracked — if a model-row vocabulary moved, point "
         "this guard at its new home rather than deleting it")
-    return {p: (ROOT / p).read_text(encoding="utf-8") for p in (HARDWARE, TYPES_TS, COPY_TS)}
+    return {p: (ROOT / p).read_text(encoding="utf-8") for p in _TRACKED}
 
 
-def _declared(src: str) -> set[str]:
-    """The `_STATES = (...)` tuple in hardware.py."""
+def _declared(src: str, name: str = "_STATES") -> set[str]:
+    """The `<name> = (...)` tuple in hardware.py."""
     for node in ast.walk(ast.parse(src)):
         if (isinstance(node, ast.Assign)
-                and any(getattr(t, "id", "") == "_STATES" for t in node.targets)):
+                and any(getattr(t, "id", "") == name for t in node.targets)):
             return {e.value for e in node.value.elts if isinstance(e.value, str)}
-    raise AssertionError(f"no `_STATES = (...)` literal in {HARDWARE}")
+    raise AssertionError(f"no `{name} = (...)` literal in {HARDWARE}")
+
+
+def _returned(src: str, fn_name: str) -> set[str]:
+    """Every string literal a function can RETURN."""
+    out: set[str] = set()
+    for fn in ast.walk(ast.parse(src)):
+        if isinstance(fn, ast.FunctionDef) and fn.name == fn_name:
+            for node in ast.walk(fn):
+                if (isinstance(node, ast.Return)
+                        and isinstance(node.value, ast.Constant)
+                        and isinstance(node.value.value, str)):
+                    out.add(node.value.value)
+    assert out, f"no string returns found in `{fn_name}` — did it move or change shape?"
+    return {s for s in out if s}
 
 
 def _emitted(src: str) -> set[str]:
@@ -101,17 +125,17 @@ def _emitted(src: str) -> set[str]:
     return {s for s in out if s}
 
 
-def _union(src: str) -> set[str]:
-    """The `ModelState` union members in types.ts."""
-    m = re.search(r"export type ModelState\s*=(.*?);", src, re.S)
-    assert m, f"no `export type ModelState` in {TYPES_TS}"
+def _union(src: str, name: str = "ModelState") -> set[str]:
+    """The named union's members in types.ts."""
+    m = re.search(rf"export type {name}\s*=(.*?);", src, re.S)
+    assert m, f"no `export type {name}` in {TYPES_TS}"
     return set(re.findall(r"'([a-z_]+)'", m.group(1)))
 
 
-def _copy_keys(src: str) -> set[str]:
-    """The `MODEL_STATE` record keys in modelState.ts."""
-    m = re.search(r"export const MODEL_STATE[^{]*\{(.*?)\n\};", src, re.S)
-    assert m, f"no `export const MODEL_STATE` in {COPY_TS}"
+def _copy_keys(src: str, const: str = "MODEL_STATE", where: str = COPY_TS) -> set[str]:
+    """The named record's keys in a copy table."""
+    m = re.search(rf"export const {const}[^{{]*\{{(.*?)\n\}};", src, re.S)
+    assert m, f"no `export const {const}` in {where}"
     return set(re.findall(r"^  ([a-z_]+):\s*\{", m.group(1), re.M))
 
 
@@ -137,3 +161,33 @@ def test_declared_vocabulary_matches_both_frontend_copies() -> None:
         f"model-state drift: `_STATES` in {HARDWARE} is {sorted(declared)} but "
         f"`MODEL_STATE` in {COPY_TS} covers {sorted(keys)}. Every state needs the "
         "label/hint/tone the owner actually reads.")
+
+
+def test_every_emitted_relation_is_in_the_declared_vocabulary() -> None:
+    """Same trap as `_STATES`: without this, `_RELATIONS` is a comment.
+
+    A new `return "sandbox"` in `_relation` would never touch the tuple, and
+    `relationOf()` downgrades what it does not recognise to `foreign` — so the
+    row would quietly be filed under "other software on this machine".
+    """
+    src = _sources()[HARDWARE]
+    declared, emitted = _declared(src, "_RELATIONS"), _returned(src, "_relation")
+    assert emitted <= declared, (
+        f"{HARDWARE} emits relation(s) {sorted(emitted - declared)} that are not "
+        f"in `_RELATIONS`. Add them there, to the `ModelRelation` union in "
+        f"{TYPES_TS}, and to `MODEL_RELATION` in {RELATION_TS} with the heading "
+        "the owner should read.")
+
+
+def test_declared_relations_match_both_frontend_copies() -> None:
+    src = _sources()
+    declared = _declared(src[HARDWARE], "_RELATIONS")
+    union = _union(src[TYPES_TS], "ModelRelation")
+    keys = _copy_keys(src[RELATION_TS], "MODEL_RELATION", RELATION_TS)
+    assert declared == union, (
+        f"model-relation drift: `_RELATIONS` in {HARDWARE} is {sorted(declared)} "
+        f"but the `ModelRelation` union in {TYPES_TS} is {sorted(union)}.")
+    assert declared == keys, (
+        f"model-relation drift: `_RELATIONS` in {HARDWARE} is {sorted(declared)} "
+        f"but `MODEL_RELATION` in {RELATION_TS} covers {sorted(keys)}. Every "
+        "relation needs the section heading the owner actually reads.")

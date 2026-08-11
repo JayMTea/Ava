@@ -264,6 +264,141 @@ def _attach_components(rows: list[dict]) -> list[dict]:
     return out
 
 
+_ENTRYPOINTS = ("main.py", "app.py", "server.py", "run.py", "__main__.py", "cli.py")
+
+# Directory names that describe a KIND of weight rather than the thing itself,
+# so they never become a model's display name. `/models/diffusion/flux2/vae/…`
+# is a `flux2`, not a "diffusion" and not a "vae".
+_KIND_DIRS = {
+    "models", "diffusion", "diffusion_models", "checkpoints", "unet", "vae",
+    "clip", "clip_vision", "text_encoders", "loras", "lora", "controlnet",
+    "embeddings", "upscale_models", "transformers", "safetensors", "gguf",
+    "snapshots", "blobs", "weights", "hub",
+}
+
+
+def _app_from_cmdline(cmd: str) -> str:
+    """The program a command line belongs to, or "".
+
+    Read, not guessed: `/opt/ImageGen/main.py` names ImageGen, because that is
+    the directory holding the entrypoint the process was started with. No table
+    of known applications — a fork running anything gets the same treatment.
+    """
+    for tok in (cmd or "").split():
+        norm = tok.replace("\\", "/")
+        base = norm.rsplit("/", 1)[-1].lower()
+        if base in _ENTRYPOINTS and "/" in norm:
+            parent = norm.rsplit("/", 2)[-2]
+            # A venv's own bin/ or a src/ wrapper says nothing about the app.
+            if parent.lower() not in {"bin", "src", "app", ".venv", "venv"}:
+                return parent
+    return ""
+
+
+def _family_from_components(comps: list[dict]) -> str:
+    """The folder the owner filed these weights under, or "".
+
+    The deepest path segment every component shares below a kind directory —
+    for weights split across `vae/`, `diffusion_models/` and `text_encoders/`,
+    that is the one folder all three sit under.
+
+    Structural on purpose. Turning a filename like `foo2_dev_fp8mixed` into a
+    branded "Foo 2.0" would be pattern-matching a model identity, which
+    `_short_model_name` exists to refuse; a directory the owner made is a fact
+    on disk.
+    """
+    segs: list[list[str]] = []
+    for c in comps:
+        p = str(c.get("path") or "").replace("\\", "/")
+        if not p:
+            continue
+        parts = [s for s in p.split("/")[:-1] if s]
+        segs.append(parts)
+    if not segs:
+        return ""
+    common = segs[0]
+    for s in segs[1:]:
+        keep = 0
+        for a, b in zip(common, s):
+            if a != b:
+                break
+            keep += 1
+        common = common[:keep]
+    # Never climb above the store root. Without this, weights filed only under
+    # kind directories (`…/models/diffusion/vae/`) walked past `models` and
+    # named the row after whatever happened to hold it — `srv`, or a username.
+    if "models" in [s.lower() for s in common]:
+        last = max(i for i, s in enumerate(common) if s.lower() == "models")
+        common = common[last + 1:]
+    for seg in reversed(common):
+        if seg.lower() not in _KIND_DIRS and not seg.startswith("."):
+            return seg
+    return ""
+
+
+def _owning_app(row: dict) -> str:
+    """The connected app that declared this row as its own, or "".
+
+    Matched against an `owns:` block in a connector manifest (connectors.owns),
+    in the order the evidence is trustworthy: an exact container name, then a
+    substring of the command line, then a prefix of a mapped weight file.
+
+    Note the row's id carries the OWNER pid while `pid` carries the top-memory
+    worker — for a vLLM those differ — but neither is used here: the command
+    line is already grouped onto the owner, and it survives the container
+    boundary because the host's /proc shows a container's argv.
+    """
+    try:
+        from . import connectors
+        claims = connectors.owns()
+    except Exception:  # noqa: BLE001 — telemetry must not depend on connectors
+        return ""
+    if not claims:
+        return ""
+
+    rid = str(row.get("id") or "").lower()
+    container = rid.split("ctr:", 1)[1] if rid.startswith("ctr:") else ""
+    cmd = str(row.get("cmd") or "").lower()
+    paths = [str(c.get("path") or "").lower()
+             for c in (row.get("components") or []) if c.get("path")]
+
+    for c in claims:
+        if container and container in c["container"]:
+            return c["id"]
+    for c in claims:
+        if cmd and any(s in cmd for s in c["cmdline"]):
+            return c["id"]
+    for c in claims:
+        if any(p.startswith(s) for s in c["paths"] for p in paths):
+            return c["id"]
+    return ""
+
+
+def _name_from_evidence(rows: list[dict]) -> list[dict]:
+    """Name a row Ava could not identify, from what is already on it.
+
+    `_short_model_name` falls back to the literal word "Model" when a process
+    exposes no model id, and the panel printed that verbatim — the least
+    informative string available, on the row holding the most memory. Yet the
+    same row carries the command line that started it and the weight files it
+    has mapped.
+
+    Only touches rows whose `model_id` is falsy: where an identity WAS read,
+    nothing here may overwrite it. And it sets `model` only, never `model_id` —
+    a folder name is not an id any engine would accept, so `model_id is None`
+    stays the honest "we never read an identity" signal the UI keys off.
+    """
+    for r in rows:
+        if r.get("model_id"):
+            continue
+        app = _app_from_cmdline(str(r.get("cmd") or ""))
+        family = _family_from_components(r.get("components") or [])
+        name = " · ".join(x for x in (app, family) if x)
+        if name:
+            r["model"] = name
+    return rows
+
+
 def _run(cmd: list[str], timeout: int = 4) -> str:
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
@@ -478,7 +613,14 @@ def _gpu_model_processes() -> list[dict]:
             "top_pid": pid, "top_mem": -1.0, "ctx": [],
         })
         if model and not g["model_id"]:
-            g["model_id"], g["owner_cmd"] = model, owner_cmd
+            g["model_id"] = model
+        # Keep the owner's command line whether or not it named a model. It was
+        # recorded only alongside a model id, so a process that exposes none —
+        # ComfyUI, a bare worker — kept nothing, and the one string that says
+        # WHICH program this is survived only by luck via `ctx`. It is what
+        # `_app_from_cmdline` reads to name the row.
+        if owner_cmd and not g["owner_cmd"]:
+            g["owner_cmd"] = owner_cmd
         if mem_mb is not None:
             g["mem_mb"] = (g["mem_mb"] or 0.0) + mem_mb
         u = util_by_pid.get(pid)
@@ -652,6 +794,20 @@ def _match_backend_row(rows: list[dict], served_ids: list[str]) -> dict | None:
 #             say, a sandbox we cannot see into). Never a synonym for "no".
 _STATES = ("resident", "idle", "absent", "offline", "remote", "unknown")
 
+# WHOSE a row is. A closed vocabulary for the same reason `_STATES` is one: the
+# UI renders one heading per value, and "some other string" has no heading.
+#   brain       what Ava thinks with. Read from `role_key`, which only
+#               models.effective_brain() sets — never re-derived here.
+#   configured  an inference engine the owner set up. Ava can route to it.
+#   app         it belongs to a CONNECTED APP, which declared it in an `owns:`
+#               block. Ava can see it; Ava does not think with it.
+#   foreign     other software on this box. Measured, not managed.
+#
+# This exists because the panel listed all four identically, so a third-party
+# ComfyUI holding 65 GB and a never-configured phantom backend both read as
+# "Ava's models" — which is what made a correct, live list look like stale junk.
+_RELATIONS = ("brain", "configured", "app", "foreign")
+
 
 def _backend_state(b: dict, reachable: bool, served: list[str],
                    resident: list[dict] | None) -> tuple[str, str, dict | None]:
@@ -763,6 +919,11 @@ def _loaded_models() -> list[dict]:
         if row is not None:
             row["backend"] = b.get("id")
             row["local"] = local
+            # `implicit` = "served because nothing was configured, not because
+            # anyone chose it". load_backends() stamps it precisely so a UI can
+            # disclaim the row; dropping it here is why the monitor presented a
+            # never-configured default as a peer of live models.
+            row["implicit"] = bool(b.get("implicit"))
             # A GPU compute process holding memory IS the weights — the
             # strongest residency evidence there is, so it outranks what the
             # engine says about itself. A docker row is not: it means the
@@ -811,6 +972,7 @@ def _loaded_models() -> list[dict]:
             "source": "api", "cmd": "",
             "backend": b.get("id"),
             "local": bool(b.get("local", True)),
+            "implicit": bool(b.get("implicit")),
             # Ollama reports how much of the model sits in VRAM vs system RAM;
             # on a CPU-only box that split is the answer to "is my GPU doing
             # anything for this model", which no other reading gives us.
@@ -859,13 +1021,24 @@ def _loaded_models() -> list[dict]:
     for r in rows:
         r.setdefault("state", "resident" if r.get("status") == "loaded" else "unknown")
         r.setdefault("local", True)
+        r.setdefault("implicit", False)
         if not r.get("role_key"):
             r["role_key"] = _role_key(r.get("model_id") or r.get("model"))
 
     # The brain first — it is what the panel is for. Everything else by weight.
     rows.sort(key=lambda x: (x.get("role_key") != "brain",
                              -(x.get("memory_mb") or 0)))
-    return _attach_components(_dedupe(rows))
+
+    # Both passes below need the FINISHED row. `_dedupe` lifts `role_key`,
+    # `backend` and `implicit` onto whichever row survives a merge, and the
+    # component evidence `_attach_components` adds is the only thing that can
+    # name a process whose command line named nothing. Deriving either before
+    # this point reads a row that is still half-built.
+    rows = _name_from_evidence(_attach_components(_dedupe(rows)))
+    for r in rows:
+        r["app"] = _owning_app(r)
+        r["relation"] = _relation(r)
+    return rows
 
 
 def _model_key(row: dict) -> str:
@@ -911,7 +1084,7 @@ def _dedupe(rows: list[dict]) -> list[dict]:
         # Same model, twice. Keep the row already in place and lift anything the
         # duplicate knew that it did not — a PID, a measurement, a backend tie.
         for field in ("pid", "memory_mb", "memory_gb", "vram_mb", "gpu_util",
-                      "backend", "cmd", "role_key"):
+                      "backend", "cmd", "role_key", "implicit"):
             if not first.get(field) and r.get(field):
                 first[field] = r[field]
         # An observed GPU process outranks an API's word on residency: the memory
@@ -1069,6 +1242,28 @@ def _role_key(model) -> str:
     brain.
     """
     return ""
+
+
+def _relation(row: dict) -> str:
+    """Whose this row is, as a closed machine token (see `_RELATIONS`).
+
+    Reads `role_key` rather than asking "is this the brain?" a second time.
+    That question has exactly one answer — models.effective_brain() — and a
+    second derivation of it is the bug this module already exists to prevent
+    (see the BrainVisibility tests, and alloc/__init__.py's refusal to
+    re-derive it). Everything else here is a fact already on the row.
+
+    Order matters: a backend tie outranks app ownership, because an engine the
+    owner pointed Ava at IS Ava's, even when the app that ships it also claims
+    it. Only a row nothing claims is foreign.
+    """
+    if row.get("role_key") == "brain":
+        return "brain"
+    if row.get("backend"):
+        return "configured"
+    if row.get("app"):
+        return "app"
+    return "foreign"
 
 
 def _model_role(model, backend_id: str | None = None) -> str:

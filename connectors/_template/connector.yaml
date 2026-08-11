@@ -98,6 +98,23 @@ service:
 # model_hints:
 #   - { match: [mymodel], role: "Speech recognition" }
 
+# --- What on this machine is YOURS (optional) ---------------------------------
+# Ava's hardware monitor lists every model holding memory on the box, including
+# ones that are not hers. Declare what belongs to your app and its rows are
+# grouped under "Connected apps" instead of "Other programs holding memory".
+#
+# Any ONE match claims a row, tried in this order: container name, then a
+# substring of the process command line, then a prefix of a mapped weight file.
+#
+# Declared rather than inferred: Ava will not guess by matching the port above
+# against whatever a process is listening on, because that names YOUR API, not
+# the engine you run. An unclaimed process is reported honestly as other
+# software rather than pinned on the nearest plausible app.
+# owns:
+#   container: [myapp-llm]
+#   cmdline:   ["--served-model-name myapp", "/myapp/main.py"]
+#   paths:     ["/opt/myapp"]
+
 # --- Agent egress (optional) ------------------------------------------------
 # What Ava's sandboxed agent tools may reach for this connector. Rendered into
 # an OpenClaw egress policy automatically (ava connector policies <id> --write).

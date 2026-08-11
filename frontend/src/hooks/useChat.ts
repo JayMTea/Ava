@@ -536,8 +536,11 @@ export function useChat() {
         if (r.backends) {
           setModels(r.backends.map((b) => ({
             id: b.id,
-            // A built-in/env default is not a user-chosen backend — say so.
-            label: b.implicit ? `${b.label} (default)` : b.label,
+            // Declared by AVA_BACKEND_URL rather than in Ava's own config —
+            // still the owner's choice, just not one made here. It read
+            // "(default)" while Ava still shipped a model of its own; it does
+            // not, so "default" would now name something that cannot exist.
+            label: b.implicit ? `${b.label} (from environment)` : b.label,
           })));
         }
         setAgentModel(r.agent_model || null);

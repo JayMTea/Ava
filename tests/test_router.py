@@ -245,15 +245,75 @@ class LoadBackendsTests(unittest.TestCase):
         self.assertEqual(out[0]["url"], "http://ollama:11434/v1")
         self.assertEqual(out[0]["model"], "llama3.2")
 
-    def test_legacy_omni_fallback_without_config_or_env(self):
+    def test_nothing_configured_yields_no_backend_at_all(self):
+        """Ava ships no model. With nothing declared, there is nothing to serve.
+
+        This asserted the opposite: a hardcoded `omni` backend on
+        127.0.0.1:8002 was synthesized whenever no config existed, so every
+        install claimed a brain the owner had never chosen. On a box where
+        nothing had ever listened on that port the hardware monitor still
+        listed it — offline, undeletable, because it was in no config file to
+        delete it from.
+
+        An empty list is the honest answer, and every caller is expected to
+        handle it: `proxy()` turns it into the `model_unknown` code, which the
+        chat UI renders as a link to Setup -> Agent -> Brain.
+        """
         with mock.patch.dict("os.environ", {}, clear=False), \
                 mock.patch("ava_bridge.settings._CFG", {}):
             # Ensure no env backend bleeds in from the developer's shell.
             import os
             os.environ.pop("AVA_BACKEND_URL", None)
             out = router_app.load_backends()
-        self.assertEqual(out[0]["id"], "omni")
-        self.assertEqual(out[0]["engine"], "vllm")
+        self.assertEqual(out, [])
+
+    def test_a_turn_with_no_backends_is_coded_whether_or_not_a_model_is_named(self):
+        """Both no-backend paths must carry `model_unknown`.
+
+        Only the first was covered. When the caller DID name a model the
+        `is_comp and not model` guard was skipped, the backend loop ran zero
+        times, and control fell to the generic 503 — where `last_err` is still
+        None, so the owner was shown `all inference backends unavailable (None)`
+        with NO error_code at all, and the chat UI could offer no fix link.
+        Unreachable while a default backend was always synthesized; the first
+        thing a fresh install hits now that none is.
+        """
+        from fastapi.testclient import TestClient
+        app = router_app.create_app(backends=[], token=None)
+        client = TestClient(app, raise_server_exceptions=False)
+        for body in ({"messages": [{"role": "user", "content": "hi"}]},
+                     {"model": "anything",
+                      "messages": [{"role": "user", "content": "hi"}]}):
+            with self.subTest(model_named="model" in body):
+                r = client.post("/v1/chat/completions", json=body)
+                self.assertEqual(r.status_code, 400, r.text)
+                self.assertEqual(r.json().get("error_code"), "model_unknown", r.text)
+
+    def test_no_backends_means_no_router_mode(self):
+        """`mode` fell back to the literal "omni" — the id of the built-in
+        default — so with nothing configured the router advertised a mode
+        naming a backend that could not exist, and the chat header selected it."""
+        with mock.patch.dict("os.environ", {}, clear=False):
+            import os
+            os.environ.pop("AVA_ROUTER_MODE", None)
+            self.assertEqual(router_app.RouterState(backends=[]).mode, "")
+
+    def test_an_env_declared_backend_still_counts_as_configured(self):
+        """AVA_BACKEND_URL is configuration, just not via ava.yaml.
+
+        Removing the built-in default must not take the container-friendly
+        declaration with it — compose installs have no `inference` block and
+        rely on exactly this path. It stays stamped `implicit` so a UI can say
+        where it came from.
+        """
+        env = {"AVA_BACKEND_URL": "http://ollama:11434/v1",
+               "AVA_BACKEND_ENGINE": "ollama", "AVA_BACKEND_MODEL": "llama3.2"}
+        with mock.patch.dict("os.environ", env), \
+                mock.patch("ava_bridge.settings._CFG", {}):
+            out = router_app.load_backends()
+        self.assertEqual(len(out), 1)
+        self.assertTrue(out[0]["implicit"])
+        self.assertEqual(out[0]["model"], "llama3.2")
 
     def test_config_backends_ordered_primary_first(self):
         cfg = {"inference": {

@@ -294,10 +294,23 @@ def cmd_doctor(_args) -> int:
         _row(OK if st.get("sandbox_exists") else (BAD if _cfg.AGENT_REQUIRED else WARN),
              "sandbox", f"{st.get('sandbox')} " +
              ("(exists)" if st.get("sandbox_exists") else "(missing — `nemoclaw onboard`)"))
-        if st.get("sandbox_model"):
-            # The model the agent actually thinks with — decided by `nemoclaw
-            # onboard`, not ava.yaml, so doctor must not stay blind to it.
-            _row(OK, "brain", f"{st['sandbox_model']} (sandbox — via `nemoclaw onboard`)")
+        # WHICH model answers a turn is one question with one answer, and this
+        # is the last surface that was still working it out for itself: it read
+        # the sandbox directly, so it printed a brain row when the agent runtime
+        # had one and NO row at all when the brain came from ava.yaml — silent
+        # about the commonest case. `alloc/__init__.py` refuses a second
+        # derivation here for exactly this reason.
+        from ava_bridge import models as _models
+        brain = _models.effective_brain()
+        _origin = {"agent": "sandbox — via `nemoclaw onboard`",
+                   "configured": "configured in ava.yaml",
+                   "implicit": "from AVA_BACKEND_URL"}.get(brain.get("source", ""), "")
+        if brain.get("source") == "none":
+            _row(WARN, "brain", "not set — connect one in Setup -> Agent -> Brain")
+        else:
+            _row(OK, "brain",
+                 f"{brain.get('label') or brain.get('model_id') or 'name pending'}"
+                 f"{f' ({_origin})' if _origin else ''}")
         if err:
             _row(BAD, "active", f"direct (BLOCKED) — {err}")
         elif rt.name == "direct":
@@ -334,20 +347,31 @@ def cmd_doctor(_args) -> int:
         # "None configured" is only a problem when nothing else serves. With an
         # onboarded agent sandbox, chat thinks with the sandbox model and the
         # yaml block is an optional fallback — say so instead of warning.
-        sbx_model = None
+        #
+        # Asked of the one resolver rather than the sandbox directly, so this
+        # agrees with the `brain` row above by construction.
+        brain_src = ""
         try:
-            from ava_bridge import runtime as _rt
-            sbx_model = (_rt.nemoclaw().sandbox_info() or {}).get("model")
+            from ava_bridge import models as _m
+            _b = _m.effective_brain()
+            brain_src = str(_b.get("source") or "none")
+            brain_name = str(_b.get("label") or _b.get("model_id") or "")
         except Exception:  # noqa: BLE001
-            pass
-        if sbx_model:
+            brain_name = ""
+        if brain_src not in ("", "none"):
             inference_ok = True
             _row(OK, "backends",
                  f"none in ava.yaml — chat thinks with the agent sandbox model "
-                 f"({sbx_model}); a yaml backend is an optional fallback")
+                 f"({brain_name or 'name pending'}); a yaml backend is an "
+                 f"optional fallback")
         else:
-            _row(BAD, "backends", "none configured in ava.yaml, and no agent "
-                 "sandbox model — nothing can answer a chat turn")
+            # Expected on a fresh install: Ava ships no default model, so there
+            # is nothing here until the owner connects one. Still BAD, because
+            # chat genuinely cannot answer and `ava setup && ava doctor && ava
+            # up` must stop here rather than hand over a chat box that 400s.
+            _row(BAD, "backends", "no model connected yet — nothing can answer "
+                 "a chat turn. Connect one in Setup -> Agent -> Brain (or run "
+                 "`ava setup`), then re-run `ava doctor`")
     for name, b in backends.items():
         b = b or {}
         url = b.get("base_url", "")

@@ -351,11 +351,6 @@ export function Drawer({
             <span>Connect your app</span>
           </button>
         </div>
-        {userApps.length === 0 && (
-          <div className="draw-empty draw-apps-hint">
-            Nothing connected yet — point Ava at an app you run and it works out the rest.
-          </div>
-        )}
 
         <div className="draw-sub">Recents</div>
         <div id="chatList">

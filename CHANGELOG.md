@@ -8,6 +8,78 @@ pre-release milestones from when Ava ran on one box and nothing was tagged.
 
 ## [Unreleased]
 
+### Removed
+
+- **BREAKING: Ava ships no default model.** `router_app` used to synthesize a
+  backend — `omni`, pointed at `http://127.0.0.1:8002/v1` serving
+  `Qwen/Qwen2.5-7B-Instruct` — on any install with no `inference:` block and no
+  `AVA_BACKEND_URL`. It existed so a fresh install "worked", and the cost was
+  that Ava asserted a brain nobody had chosen: on a box where nothing had ever
+  listened on that port, the hardware monitor still listed it, offline, beside
+  real models, and the owner could not remove it because it was in no config to
+  remove it from. `load_backends()` now returns `[]`, and every surface says the
+  brain is unset — which is true and actionable, where the phantom was neither.
+  - `deploy/default-model.env` and `tests/test_default_model_pin.py` are gone,
+    and `AVA_MODEL` ships **empty** in every `deploy/profiles/*.env`. The
+    installer no longer substitutes a smaller model on a 12–18 GB card; it
+    states what the card can hold and leaves the choice to the owner.
+  - The compose `vllm` service no longer defaults `AVA_VLLM_MAX_LEN` /
+    `AVA_VLLM_MODEL_FLAGS` to one model's resolved values. Those flags are
+    model-specific, and applying a family's tool parser to a different model
+    does not error — it returns tool calls as prose.
+  - **Migration.** A bare-metal `git clone && ava up` now has no brain until you
+    connect one (Setup → Agent → Brain, or `ava setup`); Docker installs already
+    set the `AVA_BACKEND_*` trio and are unaffected. An `ava.yaml` with a
+    hand-written `alloc.models.omni` becomes an orphan spec with no backend
+    behind it — delete it. `perf_log` history keeps its `served_by: "omni"`
+    rows; new rows carry whichever backend id you chose.
+
+### Fixed
+
+- **The hardware monitor says whose each model is.** Its "Models Ava can see"
+  dropdown listed every model holding memory on the box in one flat list, one
+  vocabulary, equal weight — Ava's brain, another app's image generator holding
+  65 GB, a third-party inference engine, and the invented backend above. Three
+  of four rows were not Ava's, so a live and entirely correct list read as a
+  pile of orphaned entries. Rows are now grouped under **Ava's brain** /
+  **Ava's other engines** / **Connected apps** / **Other programs holding
+  memory**, and the last of those says plainly that the memory is not available
+  to Ava. Foreign rows stay visible on purpose: they are the answer to "where
+  did my memory go", which is what the panel is for.
+  - New closed `relation` vocabulary on each row (`ava_bridge/hardware.py`
+    `_RELATIONS`), mirrored into the SPA and guarded by the same cross-language
+    check that already covers `state`. Derived from `role_key` — never a second
+    guess at which row is the brain.
+  - An app declares what belongs to it with a new `owns:` connector manifest
+    block (container name / cmdline substring / weight-path prefix). Declared,
+    not inferred: matching a manifest's port against whatever a process listens
+    on names the app's *own API*, not the engine it runs.
+  - A row Ava cannot identify is named from its command line and mapped weight
+    files (`ComfyUI · flux2`) instead of the literal word **"Model"**, and says
+    what it is holding. No model-family guessing — the app name is the directory
+    of the entrypoint, the family is the folder the weights sit in.
+  - A foreign row no longer inherits "Loaded and ready to answer." It will never
+    answer anything of Ava's.
+  - `Source: nvidia-smi` — a machine token used as owner-facing copy — is now
+    `Found via: GPU process telemetry`.
+  - The picker is a set of labelled sections rather than a `<select>`: a
+    dropdown shows one row at a time, which is the wrong shape for a panel whose
+    job is to account for the machine's memory.
+- **A first chat turn with no model pointed at Operations.** `_inference_error`
+  re-derived the error code from the upstream *prose* and never read
+  `error_code`, so the router's own "No model is configured" matched none of its
+  hints, fell through to `inference_down`, and offered "Check it on Operations"
+  — where nothing was wrong. It now prefers the code the responder set, and the
+  turn links to Setup → Agent → Brain. Previously masked because
+  `load_backends()` could never return empty.
+- **`/api/health` advertised a model that did not exist.** With no brain
+  resolved it fell back to `voice_ava.AVA_MODEL`, so a public, pre-auth endpoint
+  named a specific model on a box that had none. It now answers `""`.
+- **`ava doctor` printed no brain row unless the agent sandbox had one.** It
+  read the sandbox directly instead of `models.effective_brain()` — the last
+  surface still deriving "what is Ava thinking with" for itself, which is the
+  pattern that once let the monitor and Setup disagree.
+
 ### Added
 
 - **Connect an app from the sidebar.** The sidebar's **Apps** section is now

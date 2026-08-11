@@ -34,7 +34,15 @@ COMPOSE = ROOT / "deploy" / "docker-compose.yml"
 _REQUIRED = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*):\?")
 
 # Values a profile may legitimately ship empty, because only the user knows them.
-_MAY_BE_EMPTY = {"cloud.env": {"AVA_BACKEND_URL", "AVA_MODEL", "AVA_INFERENCE_KEY"}}
+#
+# AVA_MODEL is empty in EVERY profile, not just cloud.env: Ava ships no default
+# model, so there is no value a profile could carry that the owner chose. The
+# `${AVA_MODEL:?}` guard in compose is what turns that into an instruction at
+# `up` time rather than a model nobody picked getting pulled and served.
+_MAY_BE_EMPTY = {
+    "cloud.env": {"AVA_BACKEND_URL", "AVA_MODEL", "AVA_INFERENCE_KEY"},
+    "*": {"AVA_MODEL"},
+}
 
 
 def _tracked(pattern: str) -> list[str]:
@@ -91,7 +99,8 @@ def test_every_required_variable_is_supplied_by_every_profile() -> None:
     offenders: list[str] = []
     for rel in _tracked("deploy/profiles/*.env"):
         env = _profile_env(rel)
-        exempt = _MAY_BE_EMPTY.get(pathlib.Path(rel).name, set())
+        exempt = (_MAY_BE_EMPTY.get(pathlib.Path(rel).name, set())
+                  | _MAY_BE_EMPTY.get("*", set()))
         for var in sorted(required):
             if var not in env:
                 offenders.append(f"{rel}: missing {var}")

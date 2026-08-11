@@ -271,19 +271,21 @@ def _resolved_model() -> str:
     asks effective_brain(), named the right one on the same screen. The resolver
     reads the env backend because it asks the router what it would serve.
 
-    AVA_MODEL stays as the floor for the case the resolver reports as `none`
-    (no backend anywhere): a PUBLIC health probe must still answer with a
-    string. Lazily imported, and every failure swallowed, for the same reason as
-    before — health must never fail on a probe.
+    When the resolver reports `none` — no backend anywhere — the answer is the
+    EMPTY string, and callers must render that as "no model". This used to fall
+    back to the standalone AVA_MODEL constant, so a public, pre-auth endpoint
+    advertised a specific model on a box that had none and never would: the same
+    invented-brain problem the built-in default backend caused, surviving in the
+    one place anybody can read without logging in.
+
+    Lazily imported, and every failure swallowed, for the same reason as before
+    — health must never fail on a probe.
     """
     try:
         from ava_bridge import models as _models
-        m = str(_models.effective_brain().get("model_id") or "").strip()
-        if m:
-            return m
+        return str(_models.effective_brain().get("model_id") or "").strip()
     except Exception:  # noqa: BLE001 — health must never fail on a probe
-        pass
-    return va.AVA_MODEL
+        return ""
 
 
 @app.get("/api/health")

@@ -28,7 +28,6 @@ import subprocess
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CONF = ROOT / "deploy" / "model-flags.conf"
 RESOLVER = ROOT / "deploy" / "resolve-model-flags.sh"
-DEFAULT_MODEL_ENV = ROOT / "deploy" / "default-model.env"
 
 # Where a parser NAME may legitimately appear outside the table: the resolver's
 # own usage examples, release history, and this file.
@@ -69,19 +68,6 @@ def _rows() -> list[tuple[str, ...]]:
         assert len(parts) == 6, f"expected 6 pipe-separated columns, got {len(parts)}: {raw!r}"
         rows.append(tuple(parts))
     return rows
-
-
-def _default_model() -> str:
-    for line in DEFAULT_MODEL_ENV.read_text(encoding="utf-8").splitlines():
-        if line.startswith("AVA_MODEL="):
-            return line.split("=", 1)[1].strip()
-    raise AssertionError(f"no AVA_MODEL= line in {DEFAULT_MODEL_ENV}")
-
-
-def _resolve(model: str) -> dict[str, str]:
-    out = subprocess.run(["bash", str(RESOLVER), "--env", model],
-                         capture_output=True, text=True, check=True).stdout
-    return dict(ln.split("=", 1) for ln in out.splitlines() if "=" in ln)
 
 
 def test_table_is_well_formed() -> None:
@@ -167,56 +153,57 @@ def test_local_serve_has_no_inline_table() -> None:
         "the second source of truth this table exists to remove")
 
 
-def test_compose_vllm_fallbacks_match_the_resolved_default_model() -> None:
-    """The vllm service keeps `:-` fallbacks for the two flag variables so that
-    setting only AVA_MODEL (to the shipped default) still works. They are a copy
-    of the resolver's answer, so they may exist only while they still agree."""
-    model = _default_model()
-    resolved = _resolve(model)
+def test_compose_never_guesses_a_models_vllm_flags() -> None:
+    """The vllm service must not carry `:-` VALUES for the two flag variables.
+
+    They used to hold the resolved answer for a shipped default model — a 32768
+    context and the hermes tool parser — and compose applied them to whatever
+    model the owner actually named. A model served with another family's
+    tool-call parser does not error; it returns tool calls as prose, which is
+    the silent breakage deploy/omni-serve.sh's header exists to warn about.
+
+    Ava ships no default model now, so there is no model whose flags could be
+    the right guess. Empty is the only honest fallback: vLLM's own defaults,
+    with the real values written by deploy/install.sh via the resolver.
+    """
     compose = _read("deploy/docker-compose.yml")
-
-    offenders: list[str] = []
-    want_len = resolved.get("AVA_VLLM_MAX_LEN", "")
-    if f"${{AVA_VLLM_MAX_LEN:-{want_len}}}" not in compose:
-        offenders.append(f"AVA_VLLM_MAX_LEN fallback is not {want_len!r}")
-    want_flags = resolved.get("AVA_VLLM_MODEL_FLAGS", "")
-    if f"${{AVA_VLLM_MODEL_FLAGS:-{want_flags}}}" not in compose:
-        offenders.append(f"AVA_VLLM_MODEL_FLAGS fallback is not {want_flags!r}")
-
+    offenders = [
+        var for var in ("AVA_VLLM_MAX_LEN", "AVA_VLLM_MODEL_FLAGS")
+        # `${VAR:-}` and `${VAR:+...}` are fine; `${VAR:-<something>}` is not.
+        if re.search(rf"\$\{{{var}:-\s*[^}}\s]", compose)
+    ]
     assert not offenders, (
-        "deploy/docker-compose.yml's vllm fallbacks have drifted from what "
-        f"deploy/resolve-model-flags.sh resolves for {model} (the shipped default "
-        f"in deploy/default-model.env). Re-run `deploy/resolve-model-flags.sh "
-        f"--env {model}` and paste the values into the vllm `command:` — {offenders}"
+        "these carry a baked-in default value in deploy/docker-compose.yml's "
+        "vllm command. Those flags are model-specific and Ava ships no default "
+        "model, so the value is a guess about a model nobody named — and the "
+        "failure it causes (tool calls returned as prose) is silent. Leave them "
+        f"empty and let deploy/resolve-model-flags.sh fill them in: {offenders}"
     )
 
 
-def test_every_profile_pins_the_shipped_default_model() -> None:
-    """A profile that serves a LOCAL engine must name the shipped default, so
-    "change the default model" stays a one-line edit in default-model.env.
-    cloud.env is exempt: its model is the user's provider's, and ships empty."""
-    model = _default_model()
+def test_no_profile_ships_a_model_nobody_chose() -> None:
+    """Every profile declares AVA_MODEL and leaves it EMPTY.
+
+    The inverse of what this once asserted. Profiles used to pin the shipped
+    default so that changing it stayed a one-line edit; there is no shipped
+    default any more, because a model Ava picks is a model the owner did not.
+    The line still has to be PRESENT — a profile with no AVA_MODEL at all gives
+    the owner nothing to fill in, and compose's `${AVA_MODEL:?}` would fail
+    with no hint about where to set it.
+    """
     offenders: list[str] = []
     for rel in _tracked("deploy/profiles/*.env"):
         src = _read(rel)
         declared = [ln.split("=", 1)[1].strip()
                     for ln in src.splitlines() if ln.startswith("AVA_MODEL=")]
         if not declared:
-            offenders.append(f"{rel}: no AVA_MODEL line")
-            continue
-        got = declared[0]
-        engine = next((ln.split("=", 1)[1].strip() for ln in src.splitlines()
-                       if ln.startswith("AVA_BACKEND_ENGINE=")), "")
-        if engine == "openai":
-            continue                      # the user's provider, not ours
-        if engine == "ollama":
-            continue                      # Ollama tags are its own namespace
-        if got != model:
-            offenders.append(f"{rel}: AVA_MODEL={got!r}, expected {model!r}")
+            offenders.append(f"{rel}: no AVA_MODEL line to fill in")
+        elif declared[0]:
+            offenders.append(f"{rel}: ships AVA_MODEL={declared[0]!r}")
     assert not offenders, (
-        "these profiles name a model other than the shipped default in "
-        "deploy/default-model.env, so changing the default would silently leave "
-        f"them behind — {offenders}"
+        "these profiles ship a model the owner never chose. Ava has no default "
+        "brain: leave AVA_MODEL empty and say in a comment what to put there — "
+        f"{offenders}"
     )
 
 

@@ -3,8 +3,12 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
 import { api } from '../lib/api';
 import { ProgressBar } from '../lib/ProgressBar';
 import { stateCopy, stateOf } from '../lib/modelState';
-import type { StatefulRow } from '../lib/modelState';
 import type { HardwareStats } from '../lib/types';
+import { appAccent, appById, AppDot } from '../lib/appColor';
+import {
+  foundVia, groupRows, holdsLine, relationOf, rowHint, rowTitle,
+} from './hwModels';
+import type { Row as HwRow } from './hwModels';
 
 // Floating, draggable hardware monitor. Tap to expand a live quick-view of the
 // DGX Spark (GPU %, unified memory used/free, CPU, temperature); drag the bubble
@@ -70,7 +74,9 @@ function ChipGlyph({ size = 16 }: { size?: number }) {
 // this panel and Setup → Agent cannot drift into describing the same reading in
 // two different languages (which is exactly how this panel ended up saying "No
 // model process detected yet" about a model Setup was showing as the brain).
-type Row = StatefulRow & { gpu_util?: number | null; role_key?: string };
+// Taken from the payload contract rather than re-declared, so this panel and
+// lib/types.ts cannot drift apart field by field.
+type Row = HwRow;
 
 // The dot follows the STATE, and only shades it by GPU busyness when that is
 // actually known. Keying it off gpu_util first painted a grey "idle" dot beside
@@ -210,6 +216,8 @@ export function HardwareBubble() {
   // The backend already sorts the brain first; being explicit here means the
   // panel opens on what Ava thinks with even if that ever changes.
   const brain = models.find((m) => m.role_key === 'brain') || null;
+  // Everything the brain section above does not already show.
+  const otherModels = models.filter((m) => relationOf(m) !== 'brain');
   const selectedModel = models.find((m) => m.id === selectedModelId) || brain || models[0] || null;
 
   useEffect(() => {
@@ -294,7 +302,7 @@ export function HardwareBubble() {
                     <div style={{ fontSize: 12.5, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
                       <span style={activityDotStyle(brain)} />
                       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {brain.model}
+                        {rowTitle(brain)}
                       </span>
                     </div>
                     <div style={{ fontSize: 11, color: stateCopy(brain).tone, marginTop: 2 }}>
@@ -303,7 +311,7 @@ export function HardwareBubble() {
                       {brain.vram_mb != null && brain.vram_mb > 0 && ` (${(brain.vram_mb / 1024).toFixed(1)} GB on GPU)`}
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, lineHeight: 1.35 }}>
-                      {stateCopy(brain).hint}
+                      {rowHint(brain)}
                       {/* "It does not have this model" is only half an answer —
                           say what it DOES have, which is usually the whole
                           diagnosis (a tag typo, or a pull that never ran). */}
@@ -321,7 +329,15 @@ export function HardwareBubble() {
               </div>
               <div className="hwb-sec">
                 {/* Not "on this machine": a cloud or sandbox brain is listed here
-                    too, and its own state says it runs elsewhere. */}
+                    too, and its own state says it runs elsewhere.
+
+                    Grouped, not a <select>. A dropdown shows ONE row at a time,
+                    and this panel sits beside the memory gauge to answer "where
+                    did my memory go" — hiding a 65 GB row behind a closed
+                    control is the wrong shape for that question, however the
+                    options are labelled. Flattening four different
+                    relationships into one list is what made a live, correct
+                    list read as stale junk. */}
                 <div style={{ color: 'var(--muted)', marginBottom: 6 }}>Models Ava can see</div>
                 {models.length === 0 ? (
                   <div style={{ color: 'var(--muted)', fontSize: 11, lineHeight: 1.35 }}>
@@ -329,22 +345,91 @@ export function HardwareBubble() {
                   </div>
                 ) : (
                   <>
-                    <select
-                      className="st-in full"
-                      value={selectedModel?.id || ''}
-                      onChange={(e) => setSelectedModelId(e.target.value)}
-                      style={{ width: '100%', marginBottom: 7, fontSize: 12 }}
-                    >
-                      {models.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.model}{m.role_key === 'brain' ? ' · brain' : ''} — {stateCopy(m).label}
-                        </option>
-                      ))}
-                    </select>
+                    {/* The brain is excluded here: it has its own section
+                        directly above, and listing it twice on a 210px column
+                        is noise, not emphasis. */}
+                    {otherModels.length === 0 && (
+                      <div style={{ color: 'var(--muted)', fontSize: 11, lineHeight: 1.35 }}>
+                        Nothing else on this machine is holding model memory.
+                      </div>
+                    )}
+                    {groupRows(otherModels).map((g) => (
+                      <div key={g.relation} style={{ marginBottom: 7 }}>
+                        <div style={{
+                          fontSize: 11, fontWeight: 700, color: 'var(--muted)',
+                          marginBottom: 2,
+                        }}>
+                          {g.copy.group}
+                        </div>
+                        {g.copy.note && (
+                          <div style={{
+                            fontSize: 10.5, color: 'var(--muted)', lineHeight: 1.3,
+                            marginBottom: 3,
+                          }}>
+                            {g.copy.note}
+                          </div>
+                        )}
+                        {g.rows.map((m) => {
+                          const app = m.app ? appById(m.app) : undefined;
+                          return (
+                            <button
+                              key={m.id}
+                              type="button"
+                              onClick={() => setSelectedModelId(m.id)}
+                              style={{
+                                display: 'block', width: '100%', textAlign: 'left',
+                                font: 'inherit', background: m.id === selectedModel?.id
+                                  ? 'var(--line)' : 'transparent',
+                                border: 0, borderRadius: 6, padding: '2px 4px',
+                                cursor: 'pointer', marginBottom: 1,
+                              }}
+                            >
+                              <div style={{
+                                fontSize: 12, display: 'flex', alignItems: 'center',
+                                gap: 5,
+                              }}>
+                                <span style={activityDotStyle(m)} />
+                                <span style={{
+                                  overflow: 'hidden', textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap', flex: 1,
+                                }}>
+                                  {rowTitle(m)}
+                                </span>
+                                {/* A connected app's row carries the app's own
+                                    accent, never Ava's (CLAUDE.md). */}
+                                {m.app && (
+                                  <AppDot accent={appAccent(m.app)}
+                                          title={app?.label || m.app} />
+                                )}
+                                {m.memory_gb != null && (
+                                  <span style={{ color: 'var(--muted)', fontSize: 11 }}>
+                                    {m.memory_gb.toFixed(1)} GB
+                                  </span>
+                                )}
+                              </div>
+                              <div style={{
+                                fontSize: 10.5, color: stateCopy(m).tone, marginLeft: 12,
+                              }}>
+                                {stateCopy(m).label}
+                              </div>
+                              {holdsLine(m) && (
+                                <div style={{
+                                  fontSize: 10.5, color: 'var(--muted)', marginLeft: 12,
+                                  overflow: 'hidden', textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                }}>
+                                  {holdsLine(m)}
+                                </div>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ))}
                     {selectedModel && (
                       <div style={{ fontSize: 11.5, lineHeight: 1.35 }}>
                         <div>
-                          <b>Model:</b> <span style={activityDotStyle(selectedModel)} />{selectedModel.model}
+                          <b>Model:</b> <span style={activityDotStyle(selectedModel)} />{rowTitle(selectedModel)}
                           {selectedModel.role_key === 'brain' && (
                             <span style={{
                               marginLeft: 6, padding: '0 5px', borderRadius: 4, fontSize: 10,
@@ -356,6 +441,23 @@ export function HardwareBubble() {
                             directly above "Status: Empty" — two readings of the same
                             fact, in two vocabularies, neither actionable. */}
                         <div><b>State:</b> {stateCopy(selectedModel).label}</div>
+                        {rowHint(selectedModel) && (
+                          <div style={{ color: 'var(--muted)' }}>{rowHint(selectedModel)}</div>
+                        )}
+                        {/* Whose it is, said once, where there is real DOM to
+                            carry the app's own accent — an <option> could not. */}
+                        {selectedModel.app && (
+                          <div>
+                            <b>Belongs to:</b>{' '}
+                            <AppDot accent={appAccent(selectedModel.app)} />
+                            {appById(selectedModel.app)?.label || selectedModel.app}
+                          </div>
+                        )}
+                        {relationOf(selectedModel) === 'foreign' && (
+                          <div style={{ color: 'var(--muted)' }}>
+                            Not Ava’s — another program on this machine.
+                          </div>
+                        )}
                         {selectedModel.role_key !== 'brain' && selectedModel.role && (
                           <div><b>Role:</b> {selectedModel.role}</div>
                         )}
@@ -364,7 +466,9 @@ export function HardwareBubble() {
                         {selectedModel.gpu_util != null && (
                           <div><b>GPU activity:</b> {Math.round(selectedModel.gpu_util)}%</div>
                         )}
-                        <div><b>Source:</b> {selectedModel.source}{selectedModel.pid != null ? ` · PID ${selectedModel.pid}` : ''}</div>
+                        {/* "Source: nvidia-smi" was a machine token used as owner
+                            copy — the backend returns facts, the SPA words them. */}
+                        <div><b>Found via:</b> {foundVia(selectedModel.source)}{selectedModel.pid != null ? ` · PID ${selectedModel.pid}` : ''}</div>
                         <div style={{ marginTop: 7 }}>
                           <div style={{ fontWeight: 700, marginBottom: 4 }}>Model components</div>
                           {selectedModel.components && selectedModel.components.length > 0 ? (

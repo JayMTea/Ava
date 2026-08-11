@@ -292,10 +292,14 @@ class BrainVisibility(unittest.TestCase):
             f"{[(r.get('id'), r.get('role_key'), r.get('state')) for r in rows]}")
         return found[0]
 
-    # I1 — existence + uniqueness, across every shape a real install takes.
-    def test_exactly_one_row_is_the_brain_in_every_deployment_shape(self):
-        cases = [
-            # (name, backends, effective_brain, serving, resident, state)
+    def _shapes(self):
+        """Every shape a real install takes, as
+        (name, backends, effective_brain, serving, resident, expected_state).
+
+        A method rather than an inline list so the relation rules below run
+        against the same matrix instead of a second, drifting copy of it.
+        """
+        return [
             ("compose hostname", [_backend(url="http://ollama:11434/v1")],
              _brain(), _serving(OLLAMA_TAGS), _resident([]), "idle"),
             ("loopback ollama", [_backend()], _brain(), _serving(OLLAMA_TAGS),
@@ -324,7 +328,10 @@ class BrainVisibility(unittest.TestCase):
             ("unreachable engine", [_backend()], _brain(), _unreachable,
              _cannot_ask_residency, "offline"),
         ]
-        for name, backends, brain, serving, resident, state in cases:
+
+    # I1 — existence + uniqueness, across every shape a real install takes.
+    def test_exactly_one_row_is_the_brain_in_every_deployment_shape(self):
+        for name, backends, brain, serving, resident, state in self._shapes():
             with self.subTest(name):
                 rows = self._rows(backends, brain, serving, resident)
                 row = self._only_brain(rows, f" ({name})")
@@ -607,6 +614,110 @@ class BrainVisibility(unittest.TestCase):
         self.assertEqual(row["state"], "idle", "authenticated, so NOT offline")
 
 
+class RelationToAva(BrainVisibility):
+    """WHOSE each row is — the twin of the rule above.
+
+    BrainVisibility pins that identity is config and liveness is observed. This
+    pins the third question the panel has to answer and could not: whether a row
+    is Ava's at all. Every model holding memory on the box was listed in one
+    flat dropdown headed "Models Ava can see", in one vocabulary, at equal
+    weight — Ava's brain, a third-party image generator holding 65 GB, another
+    app's engine, and a backend Ava had invented because nothing was configured.
+    Three of the four were not Ava's, so a live and entirely correct list read
+    as a pile of stale entries.
+
+    `relation` is DERIVED from facts already on the row, never re-decided:
+    `role_key` (which only `models.effective_brain()` sets), the backend tie,
+    and an app's own `owns:` claim. Subclassing BrainVisibility reuses its
+    collaborator seams unchanged, so these run against the same `_loaded_models`
+    the shipped panel calls.
+    """
+
+    def _relations(self, rows):
+        return {r["id"]: r.get("relation") for r in rows}
+
+    def test_the_brain_row_is_the_only_brain_relation(self):
+        rows = self._rows([_backend(), _backend(bid="fast", model="mistral:latest")],
+                          _brain(), _serving(OLLAMA_TAGS), _resident([]))
+        brains = [r for r in rows if r.get("relation") == "brain"]
+        self.assertEqual(len(brains), 1, self._relations(rows))
+        self.assertEqual(brains[0]["role_key"], "brain",
+                         "the relation must name the row role_key already named")
+
+    def test_a_second_configured_backend_is_configured_not_foreign(self):
+        """It is not the brain, but it is still Ava's — she can route to it."""
+        rows = self._rows([_backend(), _backend(bid="fast", model="mistral:latest")],
+                          _brain(), _serving(OLLAMA_TAGS), _resident([]))
+        others = [r for r in rows if r.get("role_key") != "brain"]
+        self.assertTrue(others, "expected a second backend row")
+        for r in others:
+            self.assertEqual(r["relation"], "configured", self._relations(rows))
+
+    def test_a_gpu_process_tied_to_no_backend_is_foreign(self):
+        """Another program's model is measured, not managed.
+
+        This is the ComfyUI/third-party-vLLM case: real, live, holding real
+        memory, and nothing to do with Ava.
+        """
+        stranger = {"id": "pid:900", "name": "vLLM", "model": "Someone-Elses-8B",
+                    "model_id": "org/Someone-Elses-8B", "memory_mb": 8000.0,
+                    "memory_gb": 7.8, "gpu_util": 0.0, "pid": 900,
+                    "status": "loaded", "source": "nvidia-smi", "cmd": ""}
+        rows = self._rows([_backend()], _brain(), _serving(OLLAMA_TAGS),
+                          _resident([]), procs=[stranger])
+        got = {r["id"]: r["relation"] for r in rows}
+        self.assertEqual(got.get("pid:900"), "foreign", got)
+        self.assertIn("brain", got.values(), got)
+
+    def test_every_row_carries_a_relation_from_the_closed_set(self):
+        """Across every deployment shape, no row is left unclassified."""
+        for name, backends, brain, serving, resident, _state in self._shapes():
+            with self.subTest(name):
+                rows = self._rows(backends, brain, serving, resident)
+                for r in rows:
+                    self.assertIn(r.get("relation"), hardware._RELATIONS,
+                                  f"{name}: {r.get('id')} -> {r.get('relation')}")
+
+    def test_an_app_that_claims_a_process_gets_the_row(self):
+        """A connector's `owns:` block is what makes a row a connected app's.
+
+        Declared, never inferred: matching a manifest's port against whatever a
+        process listens on names the app's OWN API, not the engine it runs.
+        """
+        claimed = {"id": "pid:901", "name": "Python runtime", "model": "Model",
+                   "model_id": None, "memory_mb": 4000.0, "memory_gb": 3.9,
+                   "gpu_util": 0.0, "pid": 901, "status": "loaded",
+                   "source": "nvidia-smi", "cmd": "/opt/StudioApp/main.py --port 9"}
+        with mock.patch.object(hardware, "_owning_app",
+                               lambda r: "studio" if r.get("id") == "pid:901" else ""):
+            rows = self._rows([_backend()], _brain(), _serving(OLLAMA_TAGS),
+                              _resident([]), procs=[claimed])
+        got = {r["id"]: (r.get("relation"), r.get("app")) for r in rows}
+        self.assertEqual(got.get("pid:901"), ("app", "studio"), got)
+
+    def test_a_backend_tie_outranks_an_app_claim(self):
+        """An engine the owner pointed Ava at is Ava's, even if an app ships it."""
+        with mock.patch.object(hardware, "_owning_app", lambda r: "studio"):
+            rows = self._rows([_backend()], _brain(), _serving(OLLAMA_TAGS),
+                              _resident([]))
+        brain = self._only_brain(rows)
+        self.assertEqual(brain["relation"], "brain", self._relations(rows))
+
+    def test_the_implicit_flag_survives_into_the_payload(self):
+        """`load_backends()` stamps it so a UI can say where a backend came from.
+
+        `_loaded_models` dropped it, which is why an env/default backend was
+        presented as a peer of models the owner had actually chosen.
+        """
+        b = dict(_backend(), implicit=True)
+        rows = self._rows([b], _brain(), _serving(OLLAMA_TAGS), _resident([]))
+        self.assertIs(self._only_brain(rows)["implicit"], True)
+
+    def test_a_configured_backend_is_not_marked_implicit(self):
+        rows = self._rows([_backend()], _brain(), _serving(OLLAMA_TAGS), _resident([]))
+        self.assertIs(self._only_brain(rows)["implicit"], False)
+
+
 class MappedComponents(unittest.TestCase):
     """A row's components are the weight files the process was OBSERVED holding
     — a scan that found nothing must not be dressed up as an inventory."""
@@ -645,6 +756,57 @@ class HonestNaming(unittest.TestCase):
         self.assertEqual(hardware._short_model_name("python3", runtime="/x/whisper/server.py"),
                          "Model")
         self.assertEqual(hardware._short_model_name(None), "Model")
+
+    # --- naming a row nothing could identify --------------------------------
+    # `_short_model_name` correctly refuses to invent an identity, so an
+    # unnamed process was labelled the literal word "Model" — the least
+    # informative string available, printed on the row holding the most memory
+    # on the box. The evidence to do better was already on the same row.
+
+    def test_an_unidentified_process_is_named_from_its_own_evidence(self):
+        rows = hardware._name_from_evidence([{
+            "model": "Model", "model_id": None,
+            "cmd": "/opt/venv/bin/python /opt/ImageGen/main.py --port 8188",
+            "components": [
+                {"name": "thing-vae", "kind": "diffusion",
+                 "path": "/srv/ai/models/diffusion/foo2/vae/thing-vae.safetensors"},
+                {"name": "thing-fp8", "kind": "diffusion",
+                 "path": "/srv/ai/models/diffusion/foo2/unet/thing-fp8.safetensors"},
+            ],
+        }])
+        self.assertEqual(rows[0]["model"], "ImageGen · foo2")
+
+    def test_the_naming_pass_never_overwrites_an_id_that_was_read(self):
+        rows = hardware._name_from_evidence([{
+            "model": "Cool-LLM-7B", "model_id": "acme/Cool-LLM-7B",
+            "cmd": "/opt/ImageGen/main.py", "components": [],
+        }])
+        self.assertEqual(rows[0]["model"], "Cool-LLM-7B")
+
+    def test_no_evidence_leaves_the_row_exactly_as_it_was(self):
+        """`model_id` stays None — the honest "nothing read an identity" signal
+        the frontend keys off to decide what to show instead."""
+        rows = hardware._name_from_evidence([{
+            "model": "Model", "model_id": None, "cmd": "", "components": [],
+        }])
+        self.assertEqual(rows[0]["model"], "Model")
+        self.assertIsNone(rows[0]["model_id"])
+
+    def test_a_kind_directory_never_becomes_a_models_name(self):
+        """`diffusion` and `vae` describe a KIND of weight, not the thing."""
+        rows = hardware._name_from_evidence([{
+            "model": "Model", "model_id": None, "cmd": "",
+            "components": [
+                {"name": "a", "path": "/srv/models/diffusion/vae/a.safetensors"},
+                {"name": "b", "path": "/srv/models/diffusion/vae/b.safetensors"},
+            ],
+        }])
+        self.assertEqual(rows[0]["model"], "Model")
+
+    def test_a_venv_bin_is_not_an_app_name(self):
+        self.assertEqual(hardware._app_from_cmdline("/x/.venv/bin/python"), "")
+        self.assertEqual(
+            hardware._app_from_cmdline("/x/.venv/bin/python /srv/Tool/main.py"), "Tool")
 
     def test_real_ids_keep_their_own_name(self):
         self.assertEqual(hardware._short_model_name("acme/Cool-LLM-7B-FP8"), "Cool-LLM-7B-FP8")

@@ -268,10 +268,10 @@ elif [ "$AVA_PROFILE" = "gpu" ]; then
         #   -> the weights fit with 0.2 GiB spare, and a 32768-token KV cache
         #      needs ~2 GiB, so vLLM OOMs on load.
         #
-        # And the context cannot simply be shortened: deploy/default-model.env
-        # records that 32768 is chosen to clear the ~29k tokens Ava's own system
-        # prompt and tool schemas occupy. A shorter context breaks the agent, so on
-        # a card this size the honest lever is a SMALLER MODEL, not a smaller window.
+        # And the context cannot simply be shortened: 32768 is what clears the
+        # ~29k tokens Ava's own system prompt and tool schemas occupy. A shorter
+        # context breaks the agent, so on a card this size the honest lever is a
+        # SMALLER MODEL, not a smaller window.
         #
         #   weights + KV at 0.90  =>  (14.2 + 2) / 0.90  =  18.0 GiB
         #
@@ -331,19 +331,19 @@ elif [ "$AVA_PROFILE" = "gpu" ]; then
             AVA_PROFILE="cpu"
           fi
         elif [ "$_vram_mib" -lt "$_need_default_mib" ]; then
-          # A 12-18 GB card: keep the GPU, downshift the model. 3B is ~6.2 GiB of
-          # weights and resolves the same hermes tool parser and the same 32768
-          # context in deploy/model-flags.conf, so nothing else changes.
-          if [ -z "${AVA_MODEL:-}" ]; then
-            AVA_MODEL="Qwen/Qwen2.5-3B-Instruct"
-            warn "${_vram_mib} MiB of GPU memory: the default 7B needs ~${_need_default_mib} MiB"
-            warn "(14.2 GiB of weights plus a 32k KV cache at 0.90 utilization)."
-            warn "Serving ${AVA_MODEL} instead — same tool parser, same 32k context."
-            warn "To force the 7B anyway: AVA_MODEL=Qwen/Qwen2.5-7B-Instruct ./install.sh"
-            export AVA_MODEL
+          # A 12-18 GB card: keep the GPU, and say what will fit on it.
+          #
+          # This used to SUBSTITUTE a model — silently switching an unset
+          # AVA_MODEL to a 3B of Ava's choosing. Ava no longer picks models:
+          # the number below is the useful half of that branch (what this card
+          # can hold), and choosing against it is the owner's.
+          warn "${_vram_mib} MiB of GPU memory: a model larger than about"
+          warn "~$(( _vram_mib * 9 / 10240 )) GiB of weights will not load with a 32k context."
+          if [ -n "${AVA_MODEL:-}" ]; then
+            warn "AVA_MODEL is set to ${AVA_MODEL} — check it against that figure."
           else
-            warn "${_vram_mib} MiB of GPU memory and AVA_MODEL is pinned to ${AVA_MODEL}."
-            warn "If that is larger than ~$(( _vram_mib * 9 / 10240 )) GiB it will not load."
+            warn "Pick one that fits: see docs/CHOOSE_A_MODEL.md, then re-run with"
+            warn "  AVA_MODEL=<model-id> ./install.sh"
           fi
         fi
         ;;

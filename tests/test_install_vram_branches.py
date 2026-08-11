@@ -159,20 +159,45 @@ class VramBranchTests(unittest.TestCase):
         env = self._install(2048, nvidia_runtime=True, gpu_name="NVIDIA GeForce GT 1030")
         self.assertEqual(env.get("COMPOSE_PROFILES"), "cpu", self.out)
 
-    def test_a_big_card_still_gets_vllm_with_the_shipped_model(self):
-        """vLLM's own thresholds are unchanged — this is the guard on that."""
+    def test_a_big_card_gets_vllm_and_no_model_of_avas_choosing(self):
+        """vLLM's own thresholds are unchanged — this is the guard on that.
+
+        What changed is the second half: the installer no longer writes a model.
+        Ava ships none, so with nothing named there is nothing to resolve flags
+        FOR, and writing them anyway would mean guessing a model's tool parser
+        before the owner has picked the model.
+        """
         env = self._install(24564, nvidia_runtime=True, gpu_name="NVIDIA RTX A5000")
         self.assertEqual(env.get("COMPOSE_PROFILES"), "gpu", self.out)
         self.assertEqual(env.get("AVA_BACKEND_ENGINE"), "vllm")
-        self.assertTrue(env.get("AVA_VLLM_MODEL_FLAGS"),
-                        "a vLLM .env with no resolved flags falls back to "
-                        "compose's hardcoded parser, which returns no tool calls "
-                        "at all on a model that does not speak it")
+        self.assertFalse(env.get("AVA_MODEL"),
+                         "the installer must not choose a model for the owner")
 
-    def test_a_mid_sized_card_keeps_vllm_and_downshifts_the_model(self):
+    def test_naming_a_model_resolves_its_flags(self):
+        """AVA_MODEL is the owner's input, and it is what makes flags resolvable.
+
+        A vLLM .env with a model but no resolved flags is the silent-failure
+        case: compose passes no parser, vLLM returns tool calls as prose, and
+        the agent never sees them.
+        """
+        env = self._install(24564, nvidia_runtime=True, gpu_name="NVIDIA RTX A5000",
+                            AVA_MODEL="Qwen/Qwen2.5-7B-Instruct")
+        self.assertEqual(env.get("AVA_MODEL"), "Qwen/Qwen2.5-7B-Instruct", self.out)
+        self.assertTrue(env.get("AVA_VLLM_MODEL_FLAGS"),
+                        "a named model must get its parser flags resolved")
+
+    def test_a_mid_sized_card_states_the_limit_instead_of_picking_a_model(self):
+        """The 12-18 GB branch reports what fits; it does not substitute.
+
+        It used to switch an unset AVA_MODEL to a 3B of Ava's choosing. The
+        useful half of that branch is the arithmetic about the card; the choice
+        against it belongs to the owner.
+        """
         env = self._install(16376, nvidia_runtime=True, gpu_name="NVIDIA GeForce RTX 4080")
         self.assertEqual(env.get("COMPOSE_PROFILES"), "gpu", self.out)
-        self.assertEqual(env.get("AVA_MODEL"), "Qwen/Qwen2.5-3B-Instruct", self.out)
+        self.assertFalse(env.get("AVA_MODEL"), self.out)
+        self.assertIn("will not load with a 32k context", self.out)
+        self.assertIn("CHOOSE_A_MODEL", self.out)
 
     # --- the measurement must survive into the container -------------------- #
 

@@ -312,8 +312,9 @@ def recommend_tier(avail_gb: float) -> tuple:
     of truth for `ava doctor`, `ava models pull --auto` and the setup wizard."""
     # Name models by CLASS with a widely-available example, never "the default".
     # This line used to advertise the maintainer's own 30B checkpoint as the
-    # default; the shipped default is Qwen2.5-7B (deploy/default-model.env), so
-    # the hint contradicted both the installer and the "small" tier below it.
+    # default. Ava now ships no default model at all, which makes the rule
+    # simpler: these are examples of what a tier can HOLD, never a
+    # recommendation of what to run.
     if avail_gb >= 40:
         return "large", "~30B-class models (e.g. Qwen2.5 32B, Mixtral 8x7B)"
     if avail_gb >= 20:

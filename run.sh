@@ -16,7 +16,8 @@ export PLAYER="${PLAYER:-aplay}"        # aplay (ALSA) | pw-play (PipeWire deskt
 
 # ---- Ava backend (local LLM engine on port 8002) ------------------------------------
 export AVA_URL="${AVA_URL:-http://localhost:8002/v1/chat/completions}"
-export AVA_MODEL="${AVA_MODEL:-Qwen/Qwen2.5-7B-Instruct}"
+# No default model: whatever you export is what gets served.
+export AVA_MODEL="${AVA_MODEL:-}"
 export WHISPER_MODEL="${WHISPER_MODEL:-small.en}"
 
 # Optional wake word gate (only respond when the word is heard). Empty = respond to any speech.

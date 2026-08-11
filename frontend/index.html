@@ -4,13 +4,31 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#262624">
-<!-- SVG first: a browser that understands it takes it and ignores the .ico,
-     which is what we want on hi-dpi. The .ico stays as the fallback for those
-     that don't, AND as the branded path — /favicon.svg 404s when a brand icon
-     is set, so a branded install lands here. Order matters to no spec, but
-     matching preference order keeps the intent readable. -->
+<!-- THE VECTOR IS THE ONLY DECLARED TAB ICON. favicon.svg and the docs site's
+     favicon (docs-site/docs/assets/favicon.svg) are the same bytes, so the app
+     tab and the docs tab must be the same picture — and they were not. The .ico
+     used to be declared here too, with `sizes="16x16 32x32 48x48"`, and an
+     explicit exact-size match outranks a sizeless SVG in Chrome: the app tab
+     rendered the .ico while jaymtea.github.io/Ava/, which links the SVG alone,
+     rendered the vector. Same mark, two rasterisers — the .ico's 16/32px frames
+     are a Lanczos downscale of pwa-512.png, which softens the strokes and pulls
+     the legs in, so side by side in one tab strip they read as two logos. That
+     is the exact failure tools/sync_icons.py exists to prevent, arriving through
+     the one door it does not watch: it proves the FILES agree (they do, to 0.12
+     mean error at 512), not that the browser picks the same one.
+     Declaring only the SVG is what makes the two tabs match.
+
+     /favicon.ico is still built, still tracked, still served by
+     ava_bridge/pages.py:favicon(). Dropping the <link> does not delete the
+     fallback — a browser with no usable declared icon falls back to /favicon.ico
+     at the root by convention, which is also where Windows looks for a pinned
+     shortcut. It only stops the raster from outranking the vector.
+
+     The .ico was also described here as "the branded path", because
+     /favicon.svg once 404'd when a brand icon was set. It does not any more —
+     pages.py:favicon_svg() always serves Ava's mark, by rule. That reason was
+     already gone before this link was. -->
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-<link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48">
 <link rel="apple-touch-icon" href="/assets/icons/apple-touch-icon.png">
 <!-- The boot script below replaces this from the cached brand. This is
      what a profile with nothing cached sees for one frame. -->

@@ -86,7 +86,7 @@ the switch in Setup → System. See [Optional capabilities](#4-optional-capabili
     |---|---|---|
     | `cpu.env` | Ollama, on the CPU | Slow but starts anywhere. `install.sh` picks this for a box with no GPU, for one whose largest GPU has under 4 GB of VRAM, and for one whose Docker daemon cannot reach the card. |
     | `cuda.env` | Ollama with CUDA, on an NVIDIA GPU | Quantized GGUF weights (`llama3.2`, Q4_K_M, about 2 GiB) rather than FP16, so it fits where vLLM does not. `install.sh` picks this between **4096 MiB** and **12000 MiB** of VRAM - the 6-8 GB laptop cards that used to be sent to `cpu`. Needs the NVIDIA Container Toolkit, same as `gpu`. |
-    | `gpu.env` | vLLM on an NVIDIA GPU | Needs ~18 GB of VRAM for the shipped default model at the default 0.90 memory share (~12 GB for the 3B it downshifts to), and the NVIDIA container toolkit installed (`nvidia-smi` alone is not enough - the daemon needs the `nvidia` runtime, which `install.sh` checks for). |
+    | `gpu.env` | vLLM on an NVIDIA GPU | Sizing depends on the model you name in `AVA_MODEL` — a 7B at BF16 needs ~18 GB of VRAM once a 32k KV cache is counted at the default 0.90 memory share. Also needs the NVIDIA container toolkit installed (`nvidia-smi` alone is not enough - the daemon needs the `nvidia` runtime, which `install.sh` checks for). |
     | `rocm.env` | Ollama with ROCm, on an AMD GPU or APU | Needs the amdgpu kernel driver loaded (so `/dev/kfd` and `/dev/dri` exist) and your user in the `render` and `video` groups. `install.sh` checks both and falls back to `cpu` rather than starting a service that cannot see the device. **Not verified on real AMD hardware** - the `linux-amd-*` rows in `deploy/platforms.conf` read `ci-simulated`. |
     | `cloud.env` | Someone else's API | **You must fill in three values** - the file ships them empty on purpose, so compose stops with an instruction instead of guessing. |
     | `agent.env` | vLLM + the tool-using agent | Sets `COMPOSE_PROFILES=agent,gpu`, because `agent` alone starts no inference engine. Also sets the three variables the agent runtime needs. |
@@ -95,10 +95,15 @@ the switch in Setup → System. See [Optional capabilities](#4-optional-capabili
 
 ## 2. The model, and the knobs that size it
 
-Choose a model with `AVA_MODEL=...` (gpu profile) or via `ava.yaml`. The gpu
-profile defaults to `Qwen/Qwen2.5-7B-Instruct`: 14.2 GiB of BF16 weights, which
-needs ~18 GB of VRAM once a 32768-token KV cache is counted at the default 0.90
-memory share. `install.sh` sizes for that in four tiers, and each threshold is
+**Ava ships no default model.** You choose one with `AVA_MODEL=...` (gpu
+profile) or via `ava.yaml`, and until you do there is no brain — chat says so
+and links to Setup → Agent → Brain. A model Ava picked would be a model you did
+not, and the phantom backend that used to appear when nothing was configured is
+exactly what this avoids.
+
+For scale: a 7B at BF16 is 14.2 GiB of weights and needs ~18 GB of VRAM once a
+32768-token KV cache is counted at the default 0.90 memory share. `install.sh`
+sizes your card in four tiers and tells you what fits; each threshold is
 arithmetic the script spells out in a comment rather than a remembered number:
 
 | Detected GPU memory | What the installer does |
@@ -117,7 +122,7 @@ deliberate act:
 
 | Variable | Default | Notes |
 |---|---|---|
-| `AVA_MODEL` | `Qwen/Qwen2.5-7B-Instruct` | Any model vLLM can serve. Set it, then re-run `./install.sh` (or `./resolve-model-flags.sh --env <model> >> .env`) so its parsers follow. |
+| `AVA_MODEL` | *(empty — required)* | Any model vLLM can serve; Ava ships no default. Set it, then re-run `./install.sh` (or `./resolve-model-flags.sh --env <model> >> .env`) so its parsers follow. |
 | `AVA_VLLM_GPU_UTIL` | `0.90` | Fraction of GPU memory vLLM may take. Lower it if you keep a second model resident on the same card. |
 | `AVA_VLLM_MAX_LEN` | resolved | Context ceiling, **clamped to what the model actually supports** - vLLM raises rather than clamping, so asking for more than the checkpoint allows means it never boots. |
 | `AVA_VLLM_MODEL_FLAGS` | resolved | `--tool-call-parser`, `--reasoning-parser` and any model-specific boot flags, as one string. |
@@ -360,8 +365,8 @@ ollama pull llama3.1:70b                      # sized to YOUR Mac's memory
 Notes:
 
 - **`ava models pull --auto` is Apple-aware** - on a Mac it fetches an Ollama
-  model sized to your memory, never the CUDA-only vLLM default
-  (`Qwen/Qwen2.5-7B-Instruct`), which cannot be served on Apple Silicon.
+  model sized to your memory, never a CUDA-only vLLM model, which cannot be
+  served on Apple Silicon.
 
 - LM Studio and MLX also work - point the backend `base_url` at their
   OpenAI-compatible endpoint (see the Apple example in

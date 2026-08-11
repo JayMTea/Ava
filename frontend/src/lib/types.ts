@@ -45,6 +45,20 @@ export interface CotStep {
   name?: string;
 }
 
+// WHOSE a model row is. The twin of ModelState: that one says whether a model is
+// live, this one says whether it is Ava's. Closed vocabulary, mirrored from
+// ava_bridge/hardware.py _RELATIONS and guarded by
+// tests/test_model_state_vocabulary.py.
+//
+// The panel used to render all four identically, so a third-party ComfyUI
+// holding 65 GB read exactly like Ava's own brain, and a correct, live list
+// looked like stale junk.
+export type ModelRelation =
+  | 'brain'        // what Ava thinks with
+  | 'configured'   // an inference engine the owner set up, that Ava can route to
+  | 'app'          // belongs to a connected app, which declared it in `owns:`
+  | 'foreign';     // other software on this machine — measured, not managed
+
 export type ModelState =
   | 'resident'   // holding weights in memory right now
   | 'idle'       // engine up, has the model, not in memory (it loads on demand)
@@ -102,6 +116,17 @@ export interface HardwareStats {
     // OBSERVED liveness, closed vocabulary (ava_bridge/hardware.py _STATES).
     // "unknown" means we could not look, never "not loaded".
     state?: ModelState;
+    // WHOSE this row is (ava_bridge/hardware.py _RELATIONS). Derived from
+    // `role_key` / `backend` / `app` — never a second guess at which row is the
+    // brain, which only models.effective_brain() decides.
+    relation?: ModelRelation;
+    // The connected app that claimed this row via its `owns:` block, or "".
+    // A bare connector id: appAccent()/appIcon()/appById() resolve it.
+    app?: string | null;
+    // True when this backend is served because nothing was configured (the env
+    // AVA_BACKEND_URL), not because anyone chose it. Ava ships no default
+    // model, so this is no longer ever a model Ava invented.
+    implicit?: boolean;
     // False = it runs somewhere else, so this host's memory is not where to
     // look for it. Only the brain is shown when it is not local.
     local?: boolean;

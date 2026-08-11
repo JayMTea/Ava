@@ -257,18 +257,25 @@ services:
     # makes "vLLM rejects a bare --reasoning-parser" a non-problem — the flag is
     # either present with a value or absent from the string entirely.
     #
-    # The two defaults below are the resolved values for the SHIPPED default model
-    # (deploy/default-model.env), so `docker compose up` works with no .env at all.
-    # tests/test_model_flags_ssot.py asserts they still equal what the resolver
-    # produces, so they cannot drift from the table.
+    # Both flag variables default to EMPTY, and that is the point. They used to
+    # carry the resolved values for a shipped default model — a 32768 context and
+    # the hermes tool parser — which were then applied to whatever model the owner
+    # actually named. Serving a model with another family's tool parser does not
+    # error; it silently returns tool calls as prose. That is the exact bug
+    # deploy/omni-serve.sh's header describes, reintroduced one layer down.
+    #
+    # Ava now ships no default model, so there is no model whose flags could be
+    # the right guess. Empty means vLLM's own defaults; deploy/install.sh runs
+    # deploy/resolve-model-flags.sh for the model the owner chose and writes the
+    # real values into deploy/.env.
     command: >-
       --model ${AVA_MODEL:?set with AVA_BACKEND_URL — see deploy/profiles/}
       --trust-remote-code
       --port 8002
       --gpu-memory-utilization ${AVA_VLLM_GPU_UTIL:-0.90}
       --enforce-eager
-      --max-model-len ${AVA_VLLM_MAX_LEN:-32768}
-      ${AVA_VLLM_MODEL_FLAGS:---enable-auto-tool-choice --tool-call-parser hermes}
+      ${AVA_VLLM_MAX_LEN:+--max-model-len ${AVA_VLLM_MAX_LEN}}
+      ${AVA_VLLM_MODEL_FLAGS:-}
     volumes:
       - ${AVA_HOME:-./ava-data}/models/hf:/root/.cache/huggingface
     ports:

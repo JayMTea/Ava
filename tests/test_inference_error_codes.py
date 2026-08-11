@@ -47,6 +47,32 @@ def test_the_openai_error_envelope_is_understood_too() -> None:
     assert "gpt-9" in str(e)
 
 
+def test_a_responder_that_names_its_own_failure_is_believed() -> None:
+    """`error_code` on the body outranks sniffing the prose.
+
+    Ava's OWN router sets one. This function only ever read the message text,
+    so the router's "No model is configured, so there is nothing to answer
+    with" matched none of the missing-model hints, fell through to
+    `inference_down`, and the chat UI offered "Check it on Operations" — a
+    service health page, on an install where nothing was down and nothing had
+    ever been configured. It was unreachable while the router still invented a
+    default backend; removing that default made it the FIRST thing a new owner
+    would hit.
+    """
+    e = direct._inference_error(_Resp(
+        {"error": "No model is configured, so there is nothing to answer with. "
+                  "Choose one in Setup -> Agent.",
+         "error_code": "model_unknown"}, status=400))
+    assert e.code == "model_unknown", (
+        "the router named the failure; prose-sniffing must not overrule it")
+
+
+def test_prose_sniffing_still_covers_engines_that_name_nothing() -> None:
+    """A third-party engine sets no `error_code`, so the hints still apply."""
+    e = direct._inference_error(_Resp({"error": "model 'llama3.2' not found"}))
+    assert e.code == "model_unknown"
+
+
 def test_anything_else_is_a_down_engine() -> None:
     """Defaulting to model_unknown would send someone to pick a model when the
     real problem is that nothing is running."""

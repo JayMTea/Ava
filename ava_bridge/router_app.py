@@ -49,56 +49,25 @@ try:  # hardware-aware fit/selection; router must run even if it's missing.
 except Exception:  # noqa: BLE001
     model_fit = None
 
-# --- defaults / legacy fallback ----------------------------------------------
-# The built-in backend, used only when nothing is configured (no ava.yaml
-# `inference` block and no AVA_BACKEND_URL). AVA_MODEL is the canonical env var —
-# it's what deploy/local-serve.sh serves — with AVA_OMNI_MODEL kept as a legacy
-# alias. A fork that points AVA_MODEL at its own model gets that model here, and a
-# label derived from it, rather than inheriting the author's model name in its UI.
+# --- no built-in model -------------------------------------------------------
+# Ava ships NO default backend. There was one — a hardcoded `omni` pointed at
+# http://127.0.0.1:8002/v1 serving Qwen/Qwen2.5-7B-Instruct — synthesized on any
+# install with no `inference` block and no AVA_BACKEND_URL.
 #
-# The `omni` id below is deliberately NOT renamed: it is the key that existing
-# installs' perf logs and ava.yaml `alloc.models` entries are already written
-# against. The label is what users actually see.
-OMNI_URL = os.environ.get("AVA_OMNI_URL", "http://127.0.0.1:8002/v1").rstrip("/")
-def _default_model() -> str:
-    """The model id the built-in fallback backend serves.
-
-    Resolved through `settings`, not a bare os.environ read, because settings is
-    what loads the repo/AVA_HOME .env — a direct read here was correct only when
-    some earlier import happened to have pulled settings in first, which made it
-    import-order dependent. Same class tests/test_path_roots.py guards.
-    """
-    from . import settings as _s
-    return (_s.get("inference.default_model", "", env="AVA_MODEL")
-            or os.environ.get("AVA_OMNI_MODEL")
-            or "Qwen/Qwen2.5-7B-Instruct")     # deploy/default-model.env
-
-
-OMNI_MODEL = _default_model()
-
-
-def _label_for_model(model_id: str) -> str:
-    """Readable label for a model id, for when the owner hasn't set one:
-    `Qwen/Qwen2.5-7B-Instruct` -> `Qwen2.5 7B Instruct`,
-    `llama3.1:8b` -> `llama3.1:8b`."""
-    name = (model_id or "").rsplit("/", 1)[-1].strip()
-    if not name:
-        return "local model"
-    return name.replace("-", " ").replace("_", " ") if "-" in name or "_" in name else name
-
-
-OMNI_LABEL = os.environ.get("AVA_OMNI_LABEL") or _label_for_model(OMNI_MODEL)
+# It was there so a fresh install "worked", and the cost was that Ava asserted a
+# brain nobody had chosen. On a box where nothing had ever listened on 8002 the
+# hardware monitor still listed it, offline, beside real models — a phantom the
+# owner could not remove because it was not in any config to remove it from. A
+# model Ava invents cannot be a model the owner picked, and the panel had no way
+# to say so.
+#
+# Nothing replaces it. `load_backends()` returns [] and every surface says the
+# brain is unset, which is true and actionable, where the phantom was neither.
+# An explicitly-declared env backend (AVA_BACKEND_URL) is still honoured — that
+# IS configuration, just not via ava.yaml.
 
 # Statuses that mean "this backend can't serve right now, try the next one".
 _FAILOVER_STATUS = {404, 500, 502, 503, 504}
-
-_LEGACY_BACKENDS = [
-    {"id": "omni", "url": OMNI_URL, "model": OMNI_MODEL, "label": OMNI_LABEL,
-     "engine": "vllm", "api_key": None, "tools": "native",
-     "fit": {"weight_gb": 35, "tier": "large", "min_free_gb": 10,
-             "workloads": ["chat", "reasoning", "code", "vision", "audio",
-                           "fast", "cheap", "utility", "classify"]}},
-]
 
 # Engines whose OpenAI-compatible streaming endpoint accepts
 # `stream_options: {include_usage: true}` (needed so usage/token counts appear in
@@ -167,7 +136,12 @@ def _env_backend() -> dict | None:
 def load_backends() -> list:
     """Inference backends from ava.yaml `inference.backends`, ordered
     primary -> fallback -> the rest; else a single env-declared backend
-    (AVA_BACKEND_URL); else the shipped default backend — a fresh install works.
+    (AVA_BACKEND_URL); else NOTHING.
+
+    An empty list is a real, expected answer: a fresh install has no brain until
+    the owner connects one. Callers must handle it rather than assume a model —
+    see the `model_unknown` code in `proxy()`, which is what turns "nothing is
+    configured" into a link to Setup instead of a failure.
 
     Each backend is ANY OpenAI-compatible endpoint. `api_key_env` names an env
     var sent as a Bearer token. `tools: native|none` says whether the endpoint
@@ -183,14 +157,11 @@ def load_backends() -> list:
     except Exception:  # noqa: BLE001 — never let config break the router
         cfg = primary = fallback = None
     if not isinstance(cfg, dict) or not cfg:
-        # Nothing configured: serve the env/built-in default so a fresh install
-        # works — but STAMP it implicit so UIs can say "built-in default"
-        # instead of presenting it as a configured, user-chosen backend.
+        # No ava.yaml backends. An AVA_BACKEND_URL is still configuration — the
+        # container-friendly way to declare one — so it is honoured, STAMPED
+        # implicit so a UI can say where it came from. Nothing else is invented.
         env_b = _env_backend()
-        out = [env_b] if env_b else [dict(b) for b in _LEGACY_BACKENDS]
-        for b in out:
-            b["implicit"] = True
-        return out
+        return [dict(env_b, implicit=True)] if env_b else []
     order: list = []
     for n in (primary, fallback):
         if n in cfg and n not in order:
@@ -224,8 +195,10 @@ def load_backends() -> list:
         })
     if out:
         return out
+    # An `inference.backends` block that declared only unusable entries (every
+    # one missing a base_url) is the same situation as declaring none.
     env_b = _env_backend()
-    return [env_b] if env_b else list(_LEGACY_BACKENDS)
+    return [dict(env_b, implicit=True)] if env_b else []
 
 
 def _resolve_token(token: str | None) -> str | None:
@@ -325,8 +298,12 @@ class RouterState:
 
     def __init__(self, backends: list, mode: str | None = None):
         self.backends = backends
+        # No backends means no mode. This used to fall back to the literal
+        # "omni" — the id of the built-in default — so with nothing configured
+        # the router advertised a mode naming a backend that could not exist,
+        # and the chat header selected it.
         self.mode = (mode or os.environ.get("AVA_ROUTER_MODE")
-                     or (backends[0]["id"] if backends else "omni"))
+                     or (backends[0]["id"] if backends else ""))
         # Which backend served the most recent completion (single-user app, so
         # a simple last-write-wins record is enough for the UI pill).
         self.last = {"id": None, "model": None, "label": None, "ts": 0.0}
@@ -817,9 +794,20 @@ def create_app(backends: list | None = None, *, token: str | None = None,
                 headers=resp_headers,
                 media_type=resp.headers.get("content-type"))
 
+        # Two different failures used to share this one line. `last_err` is None
+        # when the loop above never ran — there were no backends to try — and
+        # the owner was shown "all inference backends unavailable (None)": a
+        # report that everything is down, on an install where nothing was ever
+        # set up, with no code for the UI to offer a fix from.
+        if not ordered:
+            return JSONResponse(
+                {"error": "No model is configured, so there is nothing to "
+                          "answer with. Choose one in Setup -> Agent.",
+                 "error_code": "model_unknown"}, status_code=400)
         return JSONResponse(
             {"error": {"message": f"all inference backends unavailable ({last_err})",
-                       "type": "router_unavailable"}},
+                       "type": "router_unavailable"},
+             "error_code": "inference_down"},
             status_code=503)
 
     return app

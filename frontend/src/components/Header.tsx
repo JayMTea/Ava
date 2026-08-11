@@ -75,6 +75,20 @@ export function Header({
               ))}
             </select>
           </label>
+        ) : showGhost ? (
+          /* No agent model and no router backend: Ava has no brain. This
+             rendered nothing at all, so the one screen every owner starts on
+             said nothing about the one thing blocking it. Ava ships no default
+             model, so this is the ordinary first-run state, not an error. */
+          <a
+            className="model-pick model-pick-static"
+            data-tour="model-chip"
+            href="#hub/agent/brain"
+            title="Ava has no model yet. Connect one in Setup → Agent → Brain."
+          >
+            <Icon name="bot" />
+            <span>Connect a model</span>
+          </a>
         ) : null}
         {showGhost && (
           <button type="button"

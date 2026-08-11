@@ -133,17 +133,19 @@ body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica
   background:var(--accent); color:#fff; margin-left:-3px; }
 .nav-new-ic svg { width:14px; height:14px; }
 
-/* "Connect your app": a nav row, not a call to action — it sits under the Apps
-   list as the next thing you can add there, and must not out-shout the apps
-   already connected. Quiet until hovered, when the plug picks up the accent. */
-.nav-item.nav-connect { color:var(--muted); }
-.nav-item.nav-connect:hover { color:var(--txt); }
-.nav-item.nav-connect:hover .nav-ic { color:var(--accent); }
-.rail-btn.rail-connect { color:var(--muted); }
-.rail-btn.rail-connect:hover { color:var(--accent); }
-/* Only shown while nothing is connected — the one line that says what the
-   button above is for. Sits tight under it, not centred like the chat empty. */
-.draw-apps-hint { padding:2px 17px 4px; line-height:1.45; }
+/* "Connect your app". The other rows in this panel are destinations — they read
+   as text because the thing they lead to is already yours. This one is an
+   action, and styled like its neighbours it was indistinguishable from a label
+   until the pointer happened to cross it. So it carries its own outline and an
+   accent plug AT REST: a button-shaped row under the apps, which is what it is.
+   Still quiet — an outline and one coloured glyph, not a filled accent bar that
+   would out-shout the apps above it. */
+.nav-item.nav-connect { margin-top:2px; border:1px solid var(--line);
+  background:var(--wash-3); font-weight:500; }
+.nav-item.nav-connect .nav-ic { color:var(--accent); }
+.nav-item.nav-connect:hover { background:var(--wash-8); border-color:var(--muted); }
+.rail-btn.rail-connect { color:var(--accent); }
+.rail-btn.rail-connect:hover { background:var(--wash-7); }
 
 /* Section labels (claude.ai's "Products" / "Starred"): quiet, sentence case. */
 .draw-sub { padding:16px 18px 5px; font-size:12px; color:var(--muted); font-weight:500;
@@ -572,7 +574,6 @@ header .sub { display:none; }
    underneath the glyph. "llama3.2 · brain — Ready, not loaded" reached the arrow
    and kept going. Reserve the arrow's width and ellipse into it rather than
    shortening the option text: the state is the reason the row is worth reading. */
-select.st-in { padding-right:30px; text-overflow:ellipsis; }
 .st-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 .st-attrs { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:8px; margin:6px 0; }
 .st-af { display:flex; flex-direction:column; gap:3px; font-size:11.5px; color:var(--muted); }

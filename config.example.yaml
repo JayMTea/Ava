@@ -153,10 +153,10 @@ models:
 # (ava_router.py) fronts it for perf logging + the `/fit` view; add a second
 # backend below only if you want an automatic cloud fallback.
 #
-# The example below is the SHIPPED DEFAULT (deploy/default-model.env): a 7B model
-# chosen because it fits the ~16 GB card deploy/install.sh green-lights, not
-# because it is the best you can run. Scaling up is the deliberate act — see
-# docs/CHOOSE_A_MODEL.md. A multimodal model additionally serves the background
+# Ava ships NO default model: there is no brain until you declare one here (or
+# in Setup → Agent → Brain, which writes this block for you). The example below
+# is an EXAMPLE — a 7B that fits a ~16 GB card — not a recommendation and not a
+# fallback. See docs/CHOOSE_A_MODEL.md for picking against your hardware. A multimodal model additionally serves the background
 # vision/audio capabilities; with a text-only one those degrade gracefully rather
 # than breaking. Easiest way to change it is Setup → Models in
 # the UI ("Add a model" → test the connection → save), which writes this block

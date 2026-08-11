@@ -86,7 +86,18 @@ GPU_ARGS="$(_gpu_args)"
 HF_CACHE="${HF_CACHE:-${AVA_HOME:-$REPO}/models/hf}"
 # AVA_MODEL is the canonical name; AVA_OMNI_MODEL is kept as a legacy alias so
 # existing .env files and the ava-omni.service unit keep working unchanged.
-MODEL="${AVA_MODEL:-${AVA_OMNI_MODEL:-Qwen/Qwen2.5-7B-Instruct}}"
+#
+# There is no fallback. Ava ships no default model, so a bare `local-serve.sh`
+# has nothing to serve and says so, rather than pulling ~15 GB of somebody
+# else's choice because no one named one.
+MODEL="${AVA_MODEL:-${AVA_OMNI_MODEL:-}}"
+if [ -z "$MODEL" ]; then
+  echo "local-serve.sh: no model to serve." >&2
+  echo "  Set AVA_MODEL to the model you want, e.g." >&2
+  echo "    AVA_MODEL=Qwen/Qwen3-8B-AWQ bash deploy/local-serve.sh" >&2
+  echo "  See docs/CHOOSE_A_MODEL.md for picking one that fits your hardware." >&2
+  exit 2
+fi
 PORT="${AVA_SERVE_PORT:-${OMNI_PORT:-8002}}"
 # Container name. Things outside this repo may reference it by name (a sibling
 # app's GPU coordinator, your own connectors/, ava_security_check.py), so rename
