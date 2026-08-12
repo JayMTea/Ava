@@ -67,7 +67,7 @@ def test_an_unreachable_engine_is_not_called_a_missing_model(client) -> None:
 
 def test_a_reachable_engine_without_the_model_is_a_missing_model(client) -> None:
     with mock.patch.object(router_app, "load_backends", lambda: [_backend()]), \
-         mock.patch.object(models, "probe_serving", lambda *a, **k: (True, ["qwen:7b"])):
+         mock.patch.object(models, "probe_serving", lambda *a, **k: (True, ["gemma2:9b"])):
         r = client.get("/api/hub/agent/inference").json()
     assert r["ok"] is False
     assert r["code"] == "model_unknown"

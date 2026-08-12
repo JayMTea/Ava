@@ -262,7 +262,7 @@ elif [ "$AVA_PROFILE" = "gpu" ]; then
         # ARITHMETIC, not a remembered number. The old gate was 16000 MiB, which
         # green-lit an RTX 4080 (16376 MiB) for a model that cannot serve on it:
         #
-        #   Qwen2.5-7B BF16 weights        14.2 GiB
+        #   a 7B model at BF16             14.2 GiB
         #   usable at --gpu-memory-utilization 0.90 of 16376 MiB
         #                                  14.4 GiB
         #   -> the weights fit with 0.2 GiB spare, and a 32768-token KV cache

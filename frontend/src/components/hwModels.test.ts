@@ -33,8 +33,8 @@ const COMFY = row({
   ],
 });
 const OTHER_VLLM = row({
-  id: 'pid:1724971', name: 'vLLM', source: 'nvidia-smi', model: 'Qwen3-8B-AWQ',
-  model_id: 'Qwen/Qwen3-8B-AWQ', state: 'resident', status: 'loaded',
+  id: 'pid:1724971', name: 'vLLM', source: 'nvidia-smi', model: 'Mistral-7B-AWQ',
+  model_id: 'mistralai/Mistral-7B-AWQ', state: 'resident', status: 'loaded',
   relation: 'foreign', memory_gb: 11.64, role_key: '',
 });
 const ENV_BACKEND = row({

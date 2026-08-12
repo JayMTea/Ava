@@ -112,14 +112,14 @@ class SizingFromAName(unittest.TestCase):
 
     def test_reads_the_parameter_count(self):
         self.assertAlmostEqual(model_fit.size_from_id("llama3.1:8b", "ollama"), 4.8, 1)
-        self.assertAlmostEqual(model_fit.size_from_id("qwen2.5:72b", "ollama"), 43.2, 1)
+        self.assertAlmostEqual(model_fit.size_from_id("llama3.1:70b", "ollama"), 42.0, 1)
 
     def test_multiplies_out_a_mixture_of_experts(self):
         self.assertAlmostEqual(model_fit.size_from_id("mixtral:8x7b", "ollama"), 33.6, 1)
 
     def test_reads_the_quantisation_the_name_declares(self):
-        awq = model_fit.size_from_id("Qwen/Qwen3-8B-AWQ", "vllm")
-        fp16 = model_fit.size_from_id("Qwen/Qwen3-8B", "vllm")
+        awq = model_fit.size_from_id("mistralai/Mistral-7B-AWQ", "vllm")
+        fp16 = model_fit.size_from_id("mistralai/Mistral-7B", "vllm")
         self.assertLess(awq, fp16)
 
     def test_falls_back_to_what_the_engine_actually_ships(self):

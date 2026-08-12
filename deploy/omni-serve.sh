@@ -11,5 +11,5 @@
 # OMNI_* env vars still work. Prefer `bash deploy/local-serve.sh` in new setups.
 #
 # To serve a different model:
-#   AVA_MODEL=Qwen/Qwen3-32B-AWQ bash deploy/local-serve.sh
+#   AVA_MODEL=<org>/<model> bash deploy/local-serve.sh
 exec "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/local-serve.sh" "$@"

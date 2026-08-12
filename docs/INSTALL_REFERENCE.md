@@ -110,7 +110,7 @@ arithmetic the script spells out in a comment rather than a remembered number:
 |---|---|
 | under 4096 MiB | falls back to the `cpu` profile - too little to hold even a quantized 3B on the card |
 | 4096 to 12000 MiB | switches to the `cuda` profile: Ollama with CUDA on quantized GGUF weights, which fit where FP16 does not. Falls back to `cpu` if Docker has no `nvidia` runtime registered |
-| 12000 to 18000 MiB | keeps vLLM and serves `Qwen/Qwen2.5-3B-Instruct` instead (same tool parser, same 32k context) |
+| 12000 to 18000 MiB | keeps vLLM and serves a ~3B model instead (same tool parser, same 32k context) |
 | 18000 MiB or more | serves the default |
 
 Pin `AVA_MODEL=` to override any of that.

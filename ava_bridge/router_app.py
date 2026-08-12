@@ -51,8 +51,8 @@ except Exception:  # noqa: BLE001
 
 # --- no built-in model -------------------------------------------------------
 # Ava ships NO default backend. There was one — a hardcoded `omni` pointed at
-# http://127.0.0.1:8002/v1 serving Qwen/Qwen2.5-7B-Instruct — synthesized on any
-# install with no `inference` block and no AVA_BACKEND_URL.
+# http://127.0.0.1:8002/v1 serving a specific 7B instruct checkpoint —
+# synthesized on any install with no `inference` block and no AVA_BACKEND_URL.
 #
 # It was there so a fresh install "worked", and the cost was that Ava asserted a
 # brain nobody had chosen. On a box where nothing had ever listened on 8002 the

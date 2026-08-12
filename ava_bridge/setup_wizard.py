@@ -558,7 +558,7 @@ def recommend_brain() -> dict:
     # Ask the engine what it is actually holding, and adopt ITS spelling. Ava
     # sends the id verbatim, so "close enough" is not a category: a pulled
     # `llama3.2` is reported by Ollama as `llama3.2:latest`, and vLLM is
-    # case-sensitive about `Qwen/Qwen2.5-7B-Instruct`.
+    # case-sensitive about `mistralai/Mistral-7B-Instruct-v0.3`.
     if out["live"] and out["base_url"]:
         from . import models as _models
         out["served"] = _models.served_models(out["base_url"], out["engine"])

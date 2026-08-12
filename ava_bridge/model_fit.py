@@ -317,11 +317,11 @@ def recommend_tier(avail_gb: float) -> tuple:
     # simpler: these are examples of what a tier can HOLD, never a
     # recommendation of what to run.
     if avail_gb >= 40:
-        return "large", "~30B-class models (e.g. Qwen2.5 32B, Mixtral 8x7B)"
+        return "large", "~30B-class models (e.g. Mixtral 8x7B, Gemma 2 27B)"
     if avail_gb >= 20:
-        return "medium", "~13-14B models (e.g. Qwen2.5 14B), or a quantized 32B"
+        return "medium", "~13-14B models (e.g. Mistral Nemo 12B), or a quantized 32B"
     if avail_gb >= 12:
-        return "small", "~7-8B models (e.g. Llama 3.1 8B, Qwen2.5 7B)"
+        return "small", "~7-8B models (e.g. Llama 3.1 8B, Gemma 2 9B)"
     if avail_gb >= 6:
         return "tiny", "~3-7B quantized (Q4) models via Ollama"
     return "cloud", "too little local memory — use a hosted API (cloud profile)"

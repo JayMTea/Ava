@@ -28,9 +28,21 @@ import subprocess
 from . import settings
 from .model_fit import recommend_tier
 
+# NO DEFAULT CHAT MODEL. Ava names no brain.
+#
+# There was one — a `chat` role pinned to a specific 7B instruct checkpoint —
+# and it was the last place Ava still asserted a model nobody had chosen.
+# `router_app` had already dropped its synthesized backend for exactly that
+# reason (see the note there, and CHANGELOG "Ava ships no default model"), which
+# left the store manifest advertising a brain the router would never serve: the
+# Model store listed it as `chat` on every fresh install, `pull --auto` fetched
+# ~15 GB of it, and nothing was ever configured to run it.
+#
+# `fast` stays. It is a small Ollama tag offered as a fallback for constrained
+# hardware, not a claim about what Ava thinks with, and it is what keeps
+# `pull --auto` able to put something servable on a bare box. `resolve_auto`
+# falls through to it now rather than giving up when `chat` is absent.
 DEFAULT_MODELS = {
-    "chat": {"engine": "vllm",
-             "id": "Qwen/Qwen2.5-7B-Instruct", "tier": "medium"},
     "fast": {"engine": "ollama", "id": "llama3.1:8b", "tier": "small"},
 }
 
@@ -54,9 +66,12 @@ LOCAL_CHAT_ENGINES = {"ollama", "llamacpp", "gguf", "mlx", "mlx-lm",
 def manifest() -> dict:
     """Default roles overlaid with the user's `models:` block.
 
-    A partial override (e.g. declaring only `fast`) must NOT delete the default
-    chat role — that silently killed `pull --auto`. Set a role to null/false in
-    ava.yaml to genuinely remove it.
+    A partial override must NOT delete the other declared roles — dropping them
+    silently killed `pull --auto`. Set a role to null/false in ava.yaml to
+    genuinely remove it.
+
+    Ava declares no `chat` model of its own, so on a stock install this is the
+    `fast` role and whatever the owner added. A `chat` role here is theirs.
     """
     m = settings.get("models", None)
     if not isinstance(m, dict) or not m:
@@ -302,8 +317,21 @@ def resolve_auto(tier: str, model_manifest: dict) -> tuple:
     """
     role = {"large": "chat", "medium": "chat",
             "small": "fast", "tiny": "fast"}.get(tier)
-    if not role or role not in model_manifest:
+    if not role:
         return None, None, None
+    if role not in model_manifest:
+        # The tier's preferred role is not declared. Ava ships no default chat
+        # model, so on a big box that is the ORDINARY case, not a broken config —
+        # returning None here made `pull --auto` a silent no-op on exactly the
+        # hardware with the most room. Take any other declared role this box can
+        # actually serve, and say that is what happened.
+        for other, spec in model_manifest.items():
+            if engine_servable_here(spec.get("engine")):
+                return other, spec, (f"no '{role}' model is declared — pulling the "
+                                     f"'{other}' role ({spec.get('engine')}: "
+                                     f"{spec.get('id')}) instead")
+        return None, None, (f"no '{role}' model is declared, and no other "
+                            f"declared model can be served on {platform_label()}")
     spec = model_manifest[role]
     if engine_servable_here(spec.get("engine")):
         return role, spec, None
@@ -375,7 +403,7 @@ def served_models(base_url: str, engine: str = "", key: str = "",
     """What this engine is ACTUALLY holding, as the exact ids it will accept.
 
     Ava sends the model id verbatim, so "close enough" is not a category: vLLM is
-    case-sensitive about `Qwen/Qwen2.5-7B-Instruct`, and Ollama reports a pulled
+    case-sensitive about `mistralai/Mistral-7B-Instruct-v0.3`, and Ollama reports a pulled
     `llama3.2` as `llama3.2:latest`. Setup asked the user to type that string from
     memory; this is how it stops having to.
 
@@ -627,3 +655,222 @@ __all__ = [
     "models_url", "served_models", "match_served", "probe_serving",
     "resident_url", "probe_resident", "effective_brain",
 ]
+
+
+# --- the store as it is ON DISK ---------------------------------------------- #
+#
+# `manifest()` says what ava.yaml DECLARES. This says what is actually here,
+# which is a different question and the one an owner asking "what can I run, and
+# what is using my disk" is asking. A model pulled outside Ava, or pulled and
+# since undeclared, is real, occupies real space, and was invisible to every
+# surface until this existed — so it could not be selected and could not be
+# reclaimed.
+#
+# SCOPED TO THE ENGINE DIRECTORIES, never the store root. `models/` also holds
+# voice assets (`ecapa/`, `en_US-*.onnx`) which are not LLMs, must not be listed
+# as models, and must never be offered for deletion by a model manager.
+
+# HuggingFace caches under `<hf>/hub/models--<org>--<name>`, with a sibling
+# `.locks/` tree that is bookkeeping, not weights.
+_HF_SUBS = ("hub", "")
+
+# What counts as a weight file in the gguf/ directory. Deliberately narrow: a
+# README or a checksum sidecar living beside the weights is not a model, and
+# listing it as one makes it deletable as one.
+_WEIGHT_EXTS = (".gguf", ".bin", ".safetensors", ".pt", ".pth", ".onnx")
+
+
+def _hf_id_from_dir(name: str) -> str:
+    """`models--org--name` -> `org/name`. Returns "" for anything else.
+
+    A repo id may itself contain no `--`, so only the leading marker is stripped
+    and the remaining separators are restored in order.
+    """
+    if not name.startswith("models--"):
+        return ""
+    return name[len("models--"):].replace("--", "/")
+
+
+def installed_models(model_dirs: dict | None = None) -> list[dict]:
+    """Every model actually on disk, newest engines first, biggest first.
+
+    Each row: {engine, id, size_gb, path}. `path` is what `delete_model` will
+    remove and is always inside the engine's own directory — it is returned so a
+    caller can show the owner exactly what is about to be deleted rather than
+    asking them to trust a name.
+    """
+    d = model_dirs or dirs()
+    out: list[dict] = []
+
+    for sub in _HF_SUBS:
+        base = os.path.join(d["hf"], sub) if sub else d["hf"]
+        if not os.path.isdir(base):
+            continue
+        for entry in sorted(os.listdir(base)):
+            mid = _hf_id_from_dir(entry)
+            if not mid:
+                continue
+            p = os.path.join(base, entry)
+            if not os.path.isdir(p):
+                continue
+            out.append({"engine": "vllm", "id": mid, "path": p,
+                        "size_gb": _tree_gb(p)})
+
+    if os.path.isdir(d["gguf"]):
+        for entry in sorted(os.listdir(d["gguf"])):
+            p = os.path.join(d["gguf"], entry)
+            if os.path.isfile(p) and entry.lower().endswith(_WEIGHT_EXTS):
+                out.append({"engine": "gguf", "id": entry, "path": p,
+                            "size_gb": round(os.path.getsize(p) / (1024 ** 3), 2)})
+
+    for tag, size in _ollama_installed(d["ollama"]):
+        out.append({"engine": "ollama", "id": tag,
+                    "path": d["ollama"], "size_gb": size})
+
+    out.sort(key=lambda m: (m.get("size_gb") or 0), reverse=True)
+    return out
+
+
+def _ollama_installed(ollama_dir: str) -> list[tuple[str, float | None]]:
+    """(tag, size_gb) for every pulled Ollama model, via `ollama list`.
+
+    Asked of the daemon rather than read off disk: Ollama's store is
+    content-addressed blobs plus manifests, so the directory says nothing about
+    which tags exist and a tag's size is not any one file.
+    """
+    if not shutil.which("ollama"):
+        return []
+    try:
+        out = subprocess.run(["ollama", "list"], env=ollama_env(ollama_dir),
+                             capture_output=True, text=True, timeout=10)
+    except Exception:  # noqa: BLE001
+        return []
+    rows = []
+    for line in out.stdout.splitlines()[1:]:
+        parts = line.split()
+        if not parts:
+            continue
+        m = _OLLAMA_SIZE.search(line)
+        rows.append((parts[0],
+                     round(float(m.group(1)) * _SIZE_GB[m.group(2).lower()], 2) if m else None))
+    return rows
+
+
+class ModelDeleteError(RuntimeError):
+    """A refusal, with an owner-readable reason. Never raised for 'not found'."""
+
+
+def _contained(path: str, root: str) -> bool:
+    """Is `path` genuinely inside `root`, after following every symlink?
+
+    The containment check is the whole safety story for a function that runs
+    `rmtree`. Comparing the strings as given is not enough: a symlinked store
+    directory, or an id carrying `../`, resolves somewhere else entirely, and
+    the caller-supplied id reaches this function from an HTTP route.
+    """
+    rp, rr = os.path.realpath(path), os.path.realpath(root)
+    return rp == rr or rp.startswith(rr + os.sep)
+
+
+def delete_model(engine: str, model_id: str, model_dirs: dict | None = None,
+                 *, forced: bool = False, held_by: list[str] | None = None) -> dict:
+    """Remove a model's weights from disk. Returns {removed, freed_gb, paths}.
+
+    Reclaims the space for real — the point of the operation. Deleting the
+    manifest entry alone left tens of GB on the volume with nothing in any UI
+    pointing at it.
+
+    Refuses rather than guesses:
+      * an id that does not resolve inside the engine's own store directory
+        raises, because the only ways to get there are a traversal attempt and a
+        bug, and both should stop at the boundary rather than at `rmtree`;
+      * Ollama is deleted through `ollama rm`, never by removing files. Its
+        store is content-addressed blobs shared BETWEEN tags, so unlinking a
+        manifest's blobs corrupts every other model that shares a layer.
+
+    Whether the model is in USE is not decided here — `hub/models.py` owns that,
+    because it is the layer that knows about backends and roles.
+    """
+    d = model_dirs or dirs()
+    eng = (engine or "").strip().lower()
+    mid = (model_id or "").strip()
+    if not mid:
+        raise ModelDeleteError("no model id given")
+
+    if eng == "ollama":
+        if not shutil.which("ollama"):
+            raise ModelDeleteError("the ollama command is not on PATH here")
+        try:
+            r = subprocess.run(["ollama", "rm", mid], env=ollama_env(d["ollama"]),
+                               capture_output=True, text=True, timeout=60)
+        except Exception as e:
+            raise ModelDeleteError(f"ollama rm failed: {e}") from e
+        if r.returncode != 0:
+            err = (r.stderr or r.stdout or "").strip()[:200]
+            if "not found" in err.lower():
+                return {"removed": False, "freed_gb": 0.0, "paths": []}
+            raise ModelDeleteError(err or "ollama rm failed")
+        _audit_delete("ollama", mid, None, forced, held_by)
+        return {"removed": True, "freed_gb": None, "paths": [d["ollama"]]}
+
+    if eng == "vllm":
+        targets = []
+        for sub in _HF_SUBS:
+            base = os.path.join(d["hf"], sub) if sub else d["hf"]
+            safe = "models--" + mid.replace("/", "--")
+            for cand in (os.path.join(base, safe),
+                         os.path.join(base, ".locks", safe)):
+                if os.path.exists(cand):
+                    if not _contained(cand, d["hf"]):
+                        raise ModelDeleteError(
+                            f"refusing to delete {cand}: outside the model store")
+                    targets.append(cand)
+        return _remove_paths(targets, "vllm", mid, forced, held_by)
+
+    if eng in ("gguf", "llamacpp"):
+        p = gguf_path({"id": mid}, d["gguf"])
+        if not os.path.exists(p):
+            return {"removed": False, "freed_gb": 0.0, "paths": []}
+        if not _contained(p, d["gguf"]):
+            raise ModelDeleteError(f"refusing to delete {p}: outside the model store")
+        return _remove_paths([p], eng, mid, forced, held_by)
+
+    raise ModelDeleteError(f"unknown engine '{engine}'")
+
+
+def _audit_delete(engine: str, model_id: str, freed_gb, forced: bool,
+                  held_by: list[str] | None) -> None:
+    """Record the destruction where it happens (tests/test_destructive_paths_audited).
+
+    Never fatal: the weights are already gone by the time this runs, and a
+    ledger write that raises would turn a completed deletion into a 500 the
+    owner would reasonably retry.
+    """
+    try:
+        from . import audit
+        audit.record("model_delete", engine=engine, model=model_id,
+                     freed_gb=freed_gb, forced=bool(forced),
+                     held_by=list(held_by or []))
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _remove_paths(paths: list[str], engine: str, model_id: str,
+                  forced: bool = False, held_by: list[str] | None = None) -> dict:
+    """Delete each path, measuring first so the owner is told what was freed."""
+    if not paths:
+        return {"removed": False, "freed_gb": 0.0, "paths": []}
+    freed = 0.0
+    for p in paths:
+        freed += (_tree_gb(p) if os.path.isdir(p)
+                  else round(os.path.getsize(p) / (1024 ** 3), 2)) or 0.0
+    for p in paths:
+        if os.path.isdir(p):
+            shutil.rmtree(p, ignore_errors=True)
+        else:
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+    _audit_delete(engine, model_id, round(freed, 2), forced, held_by)
+    return {"removed": True, "freed_gb": round(freed, 2), "paths": paths}

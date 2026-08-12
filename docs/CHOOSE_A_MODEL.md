@@ -139,7 +139,7 @@ ava models pull --auto     # fetches a model sized to your hardware (Apple-aware
     `deploy/local-serve.sh` starts the container for whatever model you name:
 
     ```bash
-    AVA_MODEL=Qwen/Qwen3-32B-AWQ bash deploy/local-serve.sh
+    AVA_MODEL=<org>/<model> bash deploy/local-serve.sh
     ```
 
     Set `AVA_MODEL` in `.env` to make it the default. Then point Ava at it:
@@ -158,7 +158,7 @@ ava models pull --auto     # fetches a model sized to your hardware (Apple-aware
     Confirm what it picked before committing to a large download:
 
     ```bash
-    AVA_SERVE_DRY_RUN=1 AVA_MODEL=Qwen/Qwen3-32B-AWQ bash deploy/local-serve.sh
+    AVA_SERVE_DRY_RUN=1 AVA_MODEL=<org>/<model> bash deploy/local-serve.sh
     ```
 
     That prints the resolved flags and exits without touching Docker, so it won't

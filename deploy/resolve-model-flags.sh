@@ -11,15 +11,15 @@
 #
 # ── Use as a library ──────────────────────────────────────────────────────────
 #   . deploy/resolve-model-flags.sh
-#   ava_resolve_model_flags "Qwen/Qwen2.5-7B-Instruct"
+#   ava_resolve_model_flags "<org>/<model>"
 #   echo "$AVA_RESOLVED_TOOL_PARSER"
 #
 # Sets: AVA_RESOLVED_{FAMILY,TOOL_PARSER,REASONING_PARSER,EXTRA_FLAGS,
 #                     NATIVE_CTX,MAX_LEN,VLLM_FLAGS}
 #
 # ── Use as a command ──────────────────────────────────────────────────────────
-#   deploy/resolve-model-flags.sh --env  Qwen/Qwen2.5-7B-Instruct   # .env lines
-#   deploy/resolve-model-flags.sh --show Qwen/Qwen2.5-7B-Instruct   # human table
+#   deploy/resolve-model-flags.sh --env  <org>/<model>   # .env lines
+#   deploy/resolve-model-flags.sh --show <org>/<model>   # human table
 #
 # ── Overrides ─────────────────────────────────────────────────────────────────
 # Explicit env beats the table. `${VAR+x}` distinguishes "set to empty" (=

@@ -17,7 +17,21 @@ from ava_bridge import models, settings, setup_wizard
 
 
 def _manifest():
+    """The STOCK manifest — no `chat` role, because Ava declares no chat model."""
     return dict(ava_cli._DEFAULT_MODELS)
+
+
+def _manifest_with_chat():
+    """An OWNER's manifest: they declared a full-size vLLM brain themselves.
+
+    Ava used to ship this and no longer does, but every rule these tests defend
+    still has to hold for a `chat` role the owner wrote — vLLM must never be
+    steered onto Apple Silicon, and a box too small for the declared model must
+    not download one thing while ava.yaml names another. Declaring it here is
+    now the only way to reach those paths.
+    """
+    return {**ava_cli._DEFAULT_MODELS,
+            "chat": {"engine": "vllm", "id": "org/Big-Instruct", "tier": "large"}}
 
 
 class EngineServableTests(unittest.TestCase):
@@ -35,16 +49,27 @@ class EngineServableTests(unittest.TestCase):
 
 
 class ResolveAutoTests(unittest.TestCase):
-    def test_nvidia_keeps_the_vllm_brain(self):
+    def test_nvidia_keeps_an_owner_declared_vllm_brain(self):
         with mock.patch("ava_bridge.hwinfo.platform_id", return_value="linux-nvidia"):
-            role, spec, note = ava_cli._resolve_auto("large", _manifest())
+            role, spec, note = ava_cli._resolve_auto("large", _manifest_with_chat())
         self.assertEqual(role, "chat")
         self.assertEqual(spec["engine"], "vllm")
         self.assertIsNone(note)
 
+    def test_a_stock_box_falls_through_to_a_role_it_can_serve(self):
+        """Ava declares no `chat` model, so on a big box the tier's preferred
+        role is simply absent. That is the ordinary case, not a broken config —
+        returning None made `pull --auto` a silent no-op on exactly the hardware
+        with the most room."""
+        with mock.patch("ava_bridge.hwinfo.platform_id", return_value="linux-nvidia"):
+            role, spec, note = ava_cli._resolve_auto("large", _manifest())
+        self.assertEqual(role, "fast")
+        self.assertEqual(spec["engine"], "ollama")
+        self.assertIn("no 'chat' model is declared", note)
+
     def test_apple_large_substitutes_ollama_never_vllm(self):
         with mock.patch("ava_bridge.hwinfo.platform_id", return_value="darwin-apple"):
-            role, spec, note = ava_cli._resolve_auto("large", _manifest())
+            role, spec, note = ava_cli._resolve_auto("large", _manifest_with_chat())
         self.assertEqual(spec["engine"], "ollama")
         self.assertNotEqual(spec["engine"], "vllm")
         self.assertEqual(spec["id"], "llama3.1:70b")
@@ -84,15 +109,29 @@ class InferenceReseedTests(unittest.TestCase):
     default — one model on disk, a different dead endpoint configured.
     """
 
-    def test_big_nvidia_keeps_the_shipped_default(self):
+    def test_big_nvidia_keeps_an_owner_declared_brain(self):
         with mock.patch("ava_bridge.hwinfo.platform_id", return_value="linux-nvidia"):
-            spec, why = ava_cli._inference_reseed(_manifest(), "large")
+            spec, why = ava_cli._inference_reseed(_manifest_with_chat(), "large")
         self.assertIsNone(spec)
         self.assertIsNone(why)
 
-    def test_small_nvidia_is_reseeded_to_what_it_downloads(self):
+    def test_a_stock_box_is_seeded_with_what_it_will_download(self):
+        """With no `chat` declared there is no default to be wrong about, so the
+        reason must not claim one is too large — it names a model that does not
+        exist, about a box nobody asked to run one."""
         with mock.patch("ava_bridge.hwinfo.platform_id", return_value="linux-nvidia"):
-            spec, why = ava_cli._inference_reseed(_manifest(), "small")
+            spec, why = ava_cli._inference_reseed(_manifest(), "large")
+        self.assertEqual(spec["engine"], "ollama")
+        self.assertIn("no chat model is declared", why)
+        self.assertNotIn("too large", why)
+
+    def test_small_nvidia_is_reseeded_to_what_it_downloads(self):
+        # Needs a declared vLLM brain: the claim is that a box which CAN serve
+        # vLLM but is too small for the declared model gets reseeded to what it
+        # will actually download, so ava.yaml never names a model that is not on
+        # disk. With nothing declared there is no such mismatch to have.
+        with mock.patch("ava_bridge.hwinfo.platform_id", return_value="linux-nvidia"):
+            spec, why = ava_cli._inference_reseed(_manifest_with_chat(), "small")
         self.assertIsNotNone(spec)
         self.assertEqual(spec["engine"], "ollama")
         # the reason must name size, not servability — vLLM does run on this box
@@ -100,7 +139,7 @@ class InferenceReseedTests(unittest.TestCase):
 
     def test_apple_reseeded_for_servability_not_size(self):
         with mock.patch("ava_bridge.hwinfo.platform_id", return_value="darwin-apple"):
-            spec, why = ava_cli._inference_reseed(_manifest(), "large")
+            spec, why = ava_cli._inference_reseed(_manifest_with_chat(), "large")
         self.assertEqual(spec["engine"], "ollama")
         self.assertIn("won't run here", why)
 

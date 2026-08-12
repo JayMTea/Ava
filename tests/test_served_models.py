@@ -51,18 +51,22 @@ def test_llamacpp_models_path_is_not_its_health_path() -> None:
 
 
 def test_the_openai_envelope_is_parsed() -> None:
-    fake, seen = _get({"data": [{"id": "Qwen/Qwen2.5-7B-Instruct"}, {"id": "b"}]})
+    # SORTED, deduped — `_fetch_served` returns `sorted(dict.fromkeys(out))`, so
+    # "b" precedes "mistralai/…". This expectation used to read in the order the
+    # payload declared and passed only because the id started with a capital,
+    # which sorts before lowercase in ASCII. Nothing was testing the sort.
+    fake, seen = _get({"data": [{"id": "mistralai/Mistral-7B-Instruct-v0.3"}, {"id": "b"}]})
     with mock.patch("requests.get", fake):
         assert models.served_models("http://vllm:8002/v1", "vllm") == \
-            ["Qwen/Qwen2.5-7B-Instruct", "b"]
+            ["b", "mistralai/Mistral-7B-Instruct-v0.3"]
     assert seen["url"].endswith("/v1/models")
 
 
 def test_the_ollama_envelope_is_parsed() -> None:
-    fake, _ = _get({"models": [{"name": "llama3.2:latest"}, {"name": "qwen:7b"}]})
+    fake, _ = _get({"models": [{"name": "llama3.2:latest"}, {"name": "gemma2:9b"}]})
     with mock.patch("requests.get", fake):
         assert models.served_models("http://ollama:11434/v1", "ollama") == \
-            ["llama3.2:latest", "qwen:7b"]
+            ["gemma2:9b", "llama3.2:latest"]   # sorted, like the OpenAI case
 
 
 def test_down_and_empty_are_different_answers() -> None:
@@ -89,11 +93,11 @@ def test_matching_is_otherwise_exact() -> None:
     """Ava sends the id verbatim, so a near-miss is a first-message failure, not
     a helpful guess. `llama3` is not `llama3.2`."""
     assert models.match_served("llama3", ["llama3.2:latest"]) == ""
-    assert models.match_served("qwen2.5-7b-instruct",
-                               ["Qwen/Qwen2.5-7B-Instruct"]) == ""
-    assert models.match_served("Qwen/Qwen2.5-7B-Instruct",
-                               ["Qwen/Qwen2.5-7B-Instruct"]) == \
-        "Qwen/Qwen2.5-7B-Instruct"
+    assert models.match_served("some-7b-instruct",
+                               ["mistralai/Mistral-7B-Instruct-v0.3"]) == ""
+    assert models.match_served("mistralai/Mistral-7B-Instruct-v0.3",
+                               ["mistralai/Mistral-7B-Instruct-v0.3"]) == \
+        "mistralai/Mistral-7B-Instruct-v0.3"
 
 
 def test_a_tagged_request_is_never_widened() -> None:
@@ -109,7 +113,7 @@ def test_a_tagged_request_is_never_widened() -> None:
 
 _OLLAMA_LIST = """NAME                ID              SIZE      MODIFIED
 llama3.1:8b         abc123          4.7 GB    2 days ago
-qwen2.5-coder:7b    def456          4.4 GB    1 week ago
+gemma2-coder:9b     def456          4.4 GB    1 week ago
 """
 
 

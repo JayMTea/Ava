@@ -79,13 +79,13 @@ def test_a_configured_model_wins_over_the_environment(monkeypatch) -> None:
     monkeypatch.setenv("AVA_BACKEND_URL", "http://ollama:11434/v1")
     monkeypatch.setattr(setup_wizard, "_probe", lambda *a, **k: False)
     cfg = {"inference.primary": "local",
-           "inference.backends": {"local": {"engine": "vllm", "model": "Qwen/Qwen2.5-7B-Instruct",
+           "inference.backends": {"local": {"engine": "vllm", "model": "mistralai/Mistral-7B-Instruct-v0.3",
                                             "base_url": "http://vllm:8002/v1"}}}
     monkeypatch.setattr(setup_wizard.settings, "get",
                         lambda key, default=None: cfg.get(key, default))
     b = setup_wizard.recommend_brain()
     assert b["source"] == "configured"
-    assert b["model"] == "Qwen/Qwen2.5-7B-Instruct"
+    assert b["model"] == "mistralai/Mistral-7B-Instruct-v0.3"
     assert b["writes_config"] is False
 
 

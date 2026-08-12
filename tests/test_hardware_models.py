@@ -201,7 +201,7 @@ def _resident_by_url(table):
 
 # What Ollama actually answers on a box with three tags pulled: a disk
 # inventory, not a residency report.
-OLLAMA_TAGS = ["llama3.1:8b", "mistral:latest", "qwen2.5:7b"]
+OLLAMA_TAGS = ["llama3.1:8b", "mistral:latest", "gemma2:9b"]
 
 # The row-level residency tri-state each state token implies. Pinned here so a
 # row we could not observe ("remote", "unknown") can never answer "no" — that is
@@ -421,7 +421,7 @@ class BrainVisibility(unittest.TestCase):
         """Configured but never pulled — the most common broken first install.
         "idle" would tell the owner to wait for something that never loads."""
         rows = self._rows([_backend()], _brain(),
-                          _serving(["mistral:latest", "qwen2.5:7b"]), _resident([]))
+                          _serving(["mistral:latest", "gemma2:9b"]), _resident([]))
         row = self._only_brain(rows)
         self.assertEqual(row["state"], "absent")
         self.assertEqual(row["model_id"], "llama3.1:8b")  # still named from config

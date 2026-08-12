@@ -133,17 +133,20 @@ paths:                     # all default under AVA_HOME; override only if needed
 #
 # THESE ARE DEFAULTS, NOT REQUIREMENTS. Ava is model-agnostic — put any model you
 # like here (any Hugging Face repo id for vllm, any Ollama tag for ollama) and
-# point `inference.backends` below at whatever serves it. The values shipped here
-# are simply what the author runs and what the docs' numbers were measured on.
+# point `inference.backends` below at whatever serves it. Ava ships no brain of
+# its own — nothing here is a recommendation, and the `chat` role is yours to
+# declare.
 models:
-  chat:                    # everyday brain (served via inference.backends above)
-    engine: vllm           # vllm|ollama  (Hugging Face hub or Ollama registry)
-    id: Qwen/Qwen2.5-7B-Instruct
-    tier: medium           # large|medium|small|tiny  (used by --auto)
-    # Swapping this for another vLLM model? deploy/local-serve.sh resolves the
-    # right --tool-call-parser / --reasoning-parser per model family. Confirm with
-    #   AVA_SERVE_DRY_RUN=1 AVA_MODEL=<your model> bash deploy/local-serve.sh
-    # before a long download — a mismatched parser breaks tool calls *silently*.
+  # Ava declares NO chat model of its own — it names no brain. Add one here and
+  # point `inference.backends` below at whatever serves it.
+  # chat:                  # everyday brain (served via inference.backends below)
+  #   engine: vllm         # vllm|ollama  (Hugging Face hub or Ollama registry)
+  #   id: <org>/<model>
+  #   tier: medium         # large|medium|small|tiny  (used by --auto)
+  #   # Using a vLLM model? deploy/local-serve.sh resolves the right
+  #   # --tool-call-parser / --reasoning-parser per model family. Confirm with
+  #   #   AVA_SERVE_DRY_RUN=1 AVA_MODEL=<your model> bash deploy/local-serve.sh
+  #   # before a long download — a mismatched parser breaks tool calls *silently*.
   fast:                    # smaller fallback for constrained hardware
     engine: ollama
     id: llama3.1:8b
@@ -229,7 +232,7 @@ inference:
   #   require_auth: auto       # [AVA_ROUTER_REQUIRE_AUTH] auto = require a
   #                            #   Bearer/X-Ava-Router-Token on /v1/* iff the
   #                            #   bind host is non-loopback
-  # Reasoning control for a *reasoning* local model (Nemotron, Qwen3, DeepSeek-R1…).
+  # Reasoning control for a *reasoning* local model (Nemotron, DeepSeek-R1, …).
   # The router injects this as the default vLLM `chat_template_kwargs` on every
   # chat completion. Left unbounded, a reasoning model emits hundreds–~1000
   # internal reasoning tokens per agent step (30–75s weather turns on Omni).
@@ -251,7 +254,7 @@ inference:
     local:
       engine: vllm             # vllm | ollama | llamacpp | openai (generic cloud)
       base_url: http://127.0.0.1:8002/v1
-      model: Qwen/Qwen2.5-7B-Instruct
+      model: <the exact id this endpoint serves>
       # tools: native          # native (default) = the endpoint returns real
       #                        #   tool_calls; none = requests carrying `tools`
       #                        #   skip this backend (plain llama.cpp without a
@@ -298,7 +301,7 @@ inference:
     #      sends this string as the OpenAI `model` field.
     #   2. deploy/local-serve.sh must pick the right --tool-call-parser for it. It
     #      resolves that from the model family; check before downloading with
-    #        AVA_SERVE_DRY_RUN=1 AVA_MODEL=Qwen/Qwen3-32B-AWQ bash deploy/local-serve.sh
+    #        AVA_SERVE_DRY_RUN=1 AVA_MODEL=<your model> bash deploy/local-serve.sh
     #      and override with AVA_TOOL_PARSER / AVA_REASONING_PARSER if the family
     #      isn't recognised. A wrong parser returns NO tool_calls, silently.
     # Drop `workloads: [vision, audio]` for a text-only model so the fit layer
@@ -306,7 +309,7 @@ inference:
     # local:
     #   engine: vllm
     #   base_url: http://127.0.0.1:8002/v1
-    #   model: Qwen/Qwen3-32B-AWQ
+    #   model: <the exact id this endpoint serves>
     #   fit: { weight_gb: 20, tier: large, min_free_gb: 8, workloads: [chat, reasoning, code] }
 
 # ── Agent runtime (the MCP host that gives Ava tools + memory) ──────────────

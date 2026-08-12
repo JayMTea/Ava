@@ -7,7 +7,7 @@
 # `ava setup` seeds an Ollama backend instead and you never run this.
 #
 # ── Serve your own model ──────────────────────────────────────────────────────
-#   AVA_MODEL=Qwen/Qwen3-32B-AWQ bash deploy/local-serve.sh
+#   AVA_MODEL=<org>/<model> bash deploy/local-serve.sh
 #
 # or set AVA_MODEL in .env and just run `bash deploy/local-serve.sh`.
 #
@@ -105,7 +105,7 @@ REVISION="${AVA_MODEL_REVISION:-}"
 if [ -z "$MODEL" ]; then
   echo "local-serve.sh: no model to serve." >&2
   echo "  Set AVA_MODEL to the model you want, e.g." >&2
-  echo "    AVA_MODEL=Qwen/Qwen3-8B-AWQ bash deploy/local-serve.sh" >&2
+  echo "    AVA_MODEL=<org>/<model> bash deploy/local-serve.sh" >&2
   echo "  See docs/CHOOSE_A_MODEL.md for picking one that fits your hardware." >&2
   exit 2
 fi

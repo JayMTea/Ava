@@ -1754,20 +1754,23 @@ _platform_label = models.platform_label
 
 
 def _inference_reseed(manifest: dict, tier: str | None) -> tuple[dict | None, str | None]:
-    """Should `ava setup` replace the shipped vLLM default backend, and why?
+    """Should `ava setup` point ava.yaml at a different model than `chat`, and why?
 
     Returns `(spec, reason)` when the model that actually fits this box differs
-    from the shipped `chat` default AND is locally servable — the caller writes it
+    from the declared `chat` role AND is locally servable — the caller writes it
     to ava.yaml. Returns `(None, warning)` when nothing local fits at all, and
-    `(None, None)` when the shipped default is already the right choice.
+    `(None, None)` when the declared model is already the right choice.
 
-    Two distinct cases reach the first branch, and both used to be missed by
-    gating on the platform alone:
+    Three distinct cases reach the first branch. The first two used to be missed
+    by gating on the platform alone:
       * vLLM can't run here (Apple Silicon, CPU-only) — substitute an engine
         that can.
-      * vLLM runs, but this GPU is too small for the full-size default, so
+      * vLLM runs, but this GPU is too small for the declared model, so
         `_resolve_auto` downshifts to the 'fast' role. Without a reseed the user
         downloads the small model while ava.yaml still names the big one.
+      * There is no `chat` role at all, which is now the STOCK case: Ava ships no
+        default chat model. The reseed is what makes ava.yaml name the model
+        `--auto` is about to download, instead of naming nothing.
     """
     if not tier:
         return None, None
@@ -1783,9 +1786,15 @@ def _inference_reseed(manifest: dict, tier: str | None) -> tuple[dict | None, st
             and spec.get("engine") == default_chat.get("engine"))
     if same or spec.get("engine") not in _LOCAL_CHAT_ENGINES:
         return None, None
-    why = ("the vLLM default won't run here"
-           if not _engine_servable_here(default_chat.get("engine"))
-           else f"the default is too large for this box (tier: {tier})")
+    if not default_chat:
+        # No declared chat model, so there is no "default" that could be wrong.
+        # Saying "the default is too large" here would name a model that does
+        # not exist, about a box that has not been asked to run one.
+        why = "no chat model is declared — seeding the one that fits this box"
+    elif not _engine_servable_here(default_chat.get("engine")):
+        why = "the vLLM default won't run here"
+    else:
+        why = f"the default is too large for this box (tier: {tier})"
     return spec, why
 
 
@@ -1957,6 +1966,18 @@ def cmd_models(args) -> int:
                 print(_backend_stanza(role, spec, dirs))
                 print()
             return rc
+        ad_hoc = getattr(args, "model_id", None)
+        if ad_hoc:
+            eng = (getattr(args, "engine", None) or "").strip().lower()
+            if not eng:
+                print(f"{WARN} --id needs --engine (vllm|ollama|gguf)")
+                return 1
+            spec = {"engine": eng, "id": ad_hoc}
+            print(f"{B}pulling{X} {eng}: {ad_hoc} into the store\n")
+            # `_pull_one`'s first argument is only a label for its output, so an
+            # ad-hoc download reports under its own id rather than borrowing a
+            # role name it does not have.
+            return _pull_one(ad_hoc, spec, dirs)
         roles = [args.name] if args.name else list(manifest)
         rc = 0
         for role in roles:
@@ -2237,6 +2258,13 @@ def main() -> int:
     mp.add_argument("action", choices=["list", "pull", "verify", "bench"])
     mp.add_argument("name", nargs="?",
                     help="pull: role (chat/fast); bench: the prompt")
+    # A model store is a library, not a fixed set of roles: the owner can hold
+    # anything they want for reference and pick from it later. Without these,
+    # the only downloadable models were the ones ava.yaml already named.
+    mp.add_argument("--engine", help="pull: engine for an ad-hoc model "
+                                     "(vllm|ollama|gguf)")
+    mp.add_argument("--id", dest="model_id",
+                    help="pull: model id/tag to download into the store")
     mp.add_argument("--auto", action="store_true",
                     help="pull the chat/fast model that fits the detected memory tier")
     mp.add_argument("--models", help="bench: comma-separated backend ids/models to compare")

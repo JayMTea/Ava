@@ -181,8 +181,8 @@ class VramBranchTests(unittest.TestCase):
         the agent never sees them.
         """
         env = self._install(24564, nvidia_runtime=True, gpu_name="NVIDIA RTX A5000",
-                            AVA_MODEL="Qwen/Qwen2.5-7B-Instruct")
-        self.assertEqual(env.get("AVA_MODEL"), "Qwen/Qwen2.5-7B-Instruct", self.out)
+                            AVA_MODEL="nvidia/Nemotron-H-8B-Instruct")
+        self.assertEqual(env.get("AVA_MODEL"), "nvidia/Nemotron-H-8B-Instruct", self.out)
         self.assertTrue(env.get("AVA_VLLM_MODEL_FLAGS"),
                         "a named model must get its parser flags resolved")
 
