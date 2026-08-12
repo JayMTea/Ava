@@ -1110,3 +1110,9 @@
   .connect-modal .hub-fieldrow { flex-wrap: wrap; }
   .connect-modal .hub-fieldrow > .hub-field { flex: 1 1 100%; }
 }
+
+/* The model-fit clause on a Model store row. Colour comes from `--tone`, which
+   a `.tone-*` class sets — the one tone system (test_hub_uniformity), same
+   shape as `.conn-stat`. It is a second `.hub-row-sub`, so it inherits that
+   row's size and spacing and only the colour differs. */
+.hub-row-fit { color: var(--tone, var(--muted)); }

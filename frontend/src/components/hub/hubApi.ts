@@ -2,6 +2,7 @@
 // automatically); a 401 bounces to the server-rendered /login. Reuses the shared
 // `req` helper so auth + error handling match the rest of the app.
 import { req } from '../../lib/api';
+import type { ModelFit } from '../../lib/modelFit';
 
 // ---- Models / inference -----------------------------------------------------
 /** GET /api/setup/hardware — see setup_wizard.api_hardware.
@@ -421,6 +422,9 @@ export interface ModelRole {
   engine: string;
   tier?: string;
   present: boolean;
+  /** Will it actually run well here? Absent on an older bridge, which
+   *  `fitLine()` reads as silence rather than as "fine". */
+  fit?: ModelFit;
 }
 export interface ModelStore {
   roles: ModelRole[];

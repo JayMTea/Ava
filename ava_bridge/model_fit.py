@@ -48,6 +48,7 @@ so an unconfigured install behaves exactly as before.
 """
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass, field
 from urllib.parse import urlparse
@@ -324,3 +325,149 @@ def recommend_tier(avail_gb: float) -> tuple:
     if avail_gb >= 6:
         return "tiny", "~3-7B quantized (Q4) models via Ollama"
     return "cloud", "too little local memory — use a hosted API (cloud profile)"
+
+
+# --- will this model actually RUN well here? --------------------------------- #
+#
+# A distinct question from `fits_now`, which asks whether a CONFIGURED BACKEND is
+# safe to route to right now. This asks whether a model in the store is worth
+# downloading and running at all, and its answer is shown per row in
+# Setup -> Agent -> Brain. The frontend words it (frontend/src/lib/modelFit.ts);
+# everything here is a fact or a machine token.
+
+# Closed vocabulary. `frontend/src/lib/modelFit.ts` mirrors it and
+# tests/test_fit_vocabulary.py fails if the two drift — the frontend renders an
+# unknown token as silence, so a seventh verdict would go quiet, not wrong.
+FIT_VERDICTS = ("should_fit", "wont_fit", "will_spill", "unknown")
+
+# How far past the pool a model can go before it stops being "slow" and starts
+# being pointless. Spilling a little means paging some layers through system RAM
+# on every token — many times slower, but it runs. At more than this multiple of
+# the pool almost nothing is resident and it is not a usable model, it is a
+# progress bar. A ratio rather than an absolute, because the point at which
+# spilling stops being worth it scales with the box.
+_SPILL_LIMIT = 2.0
+
+# Headroom to leave for the KV cache, activations and the rest of the box. Scaled
+# for small pools so a 6 GB box is not told that nothing fits: a fixed 4 GB is a
+# rounding error on 128 GB and two thirds of the budget on 6.
+_RESERVE_FRACTION = 0.15
+_RESERVE_MAX_GB = 4.0
+
+# Engines whose tags are quantised unless the name says otherwise. Used only by
+# `size_from_id`'s last-resort estimate, never by anything that measures.
+_QUANTISED_ENGINES = frozenset({"ollama", "llamacpp", "gguf", "lmstudio", "lm-studio"})
+
+
+def _reserve_gb(pool_gb: float) -> float:
+    return min(_RESERVE_MAX_GB, pool_gb * _RESERVE_FRACTION)
+
+
+def assess(need_gb: float | None, pool_gb: float | None, pool_kind: str | None,
+           spilled: bool | None = None) -> dict:
+    """Will a model of `need_gb` run well in a `pool_gb` pool?
+
+    Returns the row's `fit` block. `verdict` is always one of FIT_VERDICTS.
+
+    `spilled` is an OBSERVATION — the engine reported part of this model sitting
+    outside the accelerator last time it ran. When present it outranks the
+    arithmetic, because it is a measurement of the thing the arithmetic is only
+    predicting, and it is reported as `measured` so the UI can say "ran" instead
+    of "likely to".
+
+    SPILL IS ONLY MEANINGFUL ON A DISCRETE ACCELERATOR. On a unified pool
+    (DGX Spark, Apple Silicon) there is one pool and nothing to spill INTO — a
+    model either fits in the machine's memory or it does not. Reporting "runs
+    partly on the processor" there would describe a boundary that does not
+    exist, so a unified box only ever gets `should_fit` or `wont_fit`.
+    """
+    unified = (pool_kind or "").strip().lower() in ("unified", "system")
+    # Rounded once, here, so every consumer sees the same figure. `fit_memory()`
+    # reports the pool to full float precision (121.68934631347656 on a Spark),
+    # and a payload that ships that is inviting each reader to round it its own
+    # way — which is how one surface says 121.7 GB and the next says 121.69.
+    if pool_gb is not None:
+        pool_gb = round(pool_gb, 1)
+    if need_gb is not None:
+        need_gb = round(need_gb, 1)
+
+    if spilled and not unified:
+        return {"verdict": "will_spill", "source": "observed", "detail": "",
+                "need_gb": need_gb, "pool_gb": pool_gb, "pool_kind": pool_kind,
+                "measured": True, "spilled": True,
+                "headroom_gb": (round(pool_gb - need_gb, 1)
+                                if need_gb is not None and pool_gb is not None else None)}
+
+    # "We could not read a size" is its own answer, and the UI renders it as
+    # silence. Guessing here is what a fit advisory must never do: a wrong
+    # "too large" on a model that runs fine costs the owner the model.
+    if need_gb is None or pool_gb is None or pool_gb <= 0:
+        return {"verdict": "unknown", "source": "derived", "detail": "",
+                "need_gb": need_gb, "pool_gb": pool_gb, "pool_kind": pool_kind,
+                "measured": False, "spilled": None, "headroom_gb": None}
+
+    headroom = round(pool_gb - need_gb, 1)
+    base = {"source": "derived", "detail": "", "need_gb": need_gb,
+            "pool_gb": pool_gb, "pool_kind": pool_kind, "measured": False,
+            "spilled": None, "headroom_gb": headroom}
+
+    if need_gb > pool_gb * _SPILL_LIMIT:
+        return {**base, "verdict": "wont_fit"}
+    if need_gb > pool_gb - _reserve_gb(pool_gb):
+        # Past the pool but within reach of spilling. On a unified box there is
+        # nowhere to spill to, so the same arithmetic reads as "won't fit".
+        return {**base, "verdict": "wont_fit" if unified else "will_spill"}
+    return {**base, "verdict": "should_fit"}
+
+
+def size_from_id(model_id: str | None, engine: str | None = None) -> float | None:
+    """A rough GB footprint read out of a model's NAME, or None.
+
+    Deliberately last-resort, and deliberately crude. `models.disk_size_gb`
+    measures the real thing and is used whenever the weights are here; this
+    exists only so a model the owner has NOT downloaded yet can still be flagged
+    as far too large before they spend an hour pulling it.
+
+    Reads two facts a model id conventionally carries and nothing else: the
+    parameter count (`70b`, `8x7b`) and a quantisation hint. No table of known
+    model names — a fork running anything gets the same treatment, which is the
+    same rule `_short_model_name` in hardware.py follows.
+
+    Two places it knowingly errs high, both toward warning rather than missing:
+    an MoE name multiplies out (`8x7b` -> 56B where Mixtral is 46.7B total), and
+    a name with no quantisation hint is read at its ecosystem's default rather
+    than its smallest. A fit advisory that misses a model too big for the box
+    costs the owner an hour and a disk; one that over-warns costs a second look.
+
+    Returns None when the name says nothing, because a guess with no evidence
+    behind it is what the `unknown` verdict is for.
+    """
+    s = (model_id or "").lower()
+    m = re.search(r"(?<![\d.])(\d+)\s*x\s*(\d+(?:\.\d+)?)\s*b\b", s)
+    if m:
+        billions = float(m.group(1)) * float(m.group(2))
+    else:
+        m = re.search(r"(?<![\d.])(\d+(?:\.\d+)?)\s*b\b", s)
+        if not m:
+            return None
+        billions = float(m.group(1))
+    if billions <= 0 or billions > 2000:      # not a parameter count
+        return None
+    # Bytes per parameter, from the precision the id names.
+    if re.search(r"\b(q2|q3|int3)\b|-q2|-q3", s):
+        per = 0.45
+    elif re.search(r"\b(q4|int4|awq|gptq|nf4)\b|-q4", s):
+        per = 0.60
+    elif re.search(r"\b(q5|q6)\b|-q5|-q6", s):
+        per = 0.85
+    elif re.search(r"\b(q8|int8|fp8)\b|-q8", s):
+        per = 1.10
+    else:
+        # Nothing named, so fall back to what THIS ENGINE actually ships. Ollama
+        # and llama.cpp tags are quantised by default — `llama3.1:8b` is a 4.9 GB
+        # Q4_K_M, and reading it at half precision called it 16.8 GB and would
+        # have warned about a model that fits a laptop with room to spare. A
+        # HuggingFace repo really does ship fp16/bf16 unless its name says
+        # otherwise, which is the case the AWQ/GPTQ branch above catches.
+        per = 0.60 if (engine or "").strip().lower() in _QUANTISED_ENGINES else 2.10
+    return round(billions * per, 1)

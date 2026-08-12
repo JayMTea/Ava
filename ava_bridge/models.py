@@ -21,6 +21,7 @@ Changing a default here changes what NEW installs pull — nothing else.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 
@@ -149,6 +150,92 @@ def present(spec: dict, model_dirs: dict) -> bool:
     if eng in ("llamacpp", "gguf"):
         return gguf_present(spec, model_dirs["gguf"])
     return False
+
+
+# --- how big is it, really? -------------------------------------------------- #
+def _tree_gb(path: str) -> float | None:
+    """Bytes on disk under `path`, in GB, or None if there is nothing there.
+
+    `follow_symlinks=False` on the stat: a HuggingFace snapshot is a tree of
+    symlinks into `blobs/`, so following them counts every weight file twice —
+    once as the link target and once as the blob — and reports a 15 GB model as
+    30 GB. The blobs are walked directly, so nothing is missed by not following.
+    """
+    total = 0
+    seen: set[tuple[int, int]] = set()
+    for root, _dirs, files in os.walk(path):
+        for f in files:
+            try:
+                st = os.stat(os.path.join(root, f), follow_symlinks=False)
+            except OSError:
+                continue
+            # A blob hard-linked into two snapshots is one file on disk.
+            key = (st.st_dev, st.st_ino)
+            if st.st_nlink > 1:
+                if key in seen:
+                    continue
+                seen.add(key)
+            total += st.st_size
+    return round(total / (1024 ** 3), 2) if total else None
+
+
+def disk_size_gb(spec: dict, model_dirs: dict) -> float | None:
+    """What this model actually occupies on disk, or None if it is not here.
+
+    MEASURED. This is the honest input to the fit verdict — an estimate from the
+    parameter count in a model's name is a guess about quantisation, and this is
+    a number. Only available once the weights are downloaded, which is exactly
+    when the owner most wants to know whether they were a mistake.
+    """
+    eng = spec.get("engine")
+    try:
+        if eng == "vllm":
+            safe = "models--" + str(spec.get("id", "")).replace("/", "--")
+            for sub in ("hub", ""):
+                p = os.path.join(model_dirs["hf"], sub, safe)
+                if os.path.isdir(p):
+                    return _tree_gb(p)
+            return None
+        if eng in ("llamacpp", "gguf"):
+            p = gguf_path(spec, model_dirs["gguf"])
+            return (round(os.path.getsize(p) / (1024 ** 3), 2)
+                    if os.path.isfile(p) else None)
+        if eng == "ollama":
+            return _ollama_size_gb(str(spec.get("id", "")), model_dirs["ollama"])
+    except Exception:  # noqa: BLE001 — sizing is advisory; never break the list
+        return None
+    return None
+
+
+_OLLAMA_SIZE = re.compile(r"\b([\d.]+)\s*(kB|KB|MB|GB|TB|KiB|MiB|GiB|TiB)\b")
+_SIZE_GB = {"kb": 1 / 1e6, "mb": 1 / 1e3, "gb": 1.0, "tb": 1e3,
+            "kib": 1 / (1024 ** 2), "mib": 1 / 1024, "gib": 1.0, "tib": 1024.0}
+
+
+def _ollama_size_gb(tag: str, ollama_dir: str) -> float | None:
+    """The SIZE column `ollama list` prints for this exact tag.
+
+    Matched on the NAME column for the same reason `ollama_present` is: a
+    substring test says yes for `llama3.1:70b` when only `llama3.1:8b` is
+    pulled, and would then report the 8b's size as the 70b's.
+    """
+    if not shutil.which("ollama"):
+        return None
+    want = tag if ":" in tag else f"{tag}:latest"
+    try:
+        out = subprocess.run(["ollama", "list"], env=ollama_env(ollama_dir),
+                             capture_output=True, text=True, timeout=10)
+    except Exception:  # noqa: BLE001
+        return None
+    for line in out.stdout.splitlines()[1:]:
+        parts = line.split()
+        if not parts or parts[0] != want:
+            continue
+        m = _OLLAMA_SIZE.search(line)
+        if not m:
+            return None
+        return round(float(m.group(1)) * _SIZE_GB[m.group(2).lower()], 2)
+    return None
 
 
 # --- what this box can actually run ----------------------------------------- #

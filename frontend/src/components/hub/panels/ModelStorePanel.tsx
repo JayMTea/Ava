@@ -6,6 +6,7 @@ import { hub } from '../hubApi';
 import { ResourceError } from '../ui/ResourceState';
 import type { BenchResult, PullStatus } from '../hubApi';
 import { Badge } from '../ui/Badge';
+import { fitLine } from '../../../lib/modelFit';
 
 // The model store (download models sized to your hardware) and the head-to-head
 // benchmark nested inside it. Rendered by BrainPanel, under the brain manager.
@@ -59,11 +60,19 @@ export function ModelStorePanel() {
     >
       {store == null ? <EmptyState text="Loading model store…" />
         : store.roles.length === 0 ? <EmptyState text="No models declared in ava.yaml (models: …) — 'Pull recommended' picks one for your tier." />
-          : store.roles.map((m) => (
+          : store.roles.map((m) => {
+            // Silence is the default. `fitLine` returns null for should_fit and
+            // for unknown, so only the two readings an owner would act on ever
+            // add a line — see lib/modelFit.ts for why that is the whole point.
+            const fit = fitLine(m.fit);
+            return (
             <div className="hub-row" key={m.role}>
               <div className="hub-row-main">
                 <div className="hub-row-title">{m.role} <span style={{ color: 'var(--muted)', fontWeight: 400 }}>· {m.id}</span></div>
                 <div className="hub-row-sub">{m.engine}{m.tier ? ` · tier ${m.tier}` : ''}</div>
+                {fit && (
+                  <div className={`hub-row-sub hub-row-fit tone-${fit.tone}`}>{fit.text}</div>
+                )}
               </div>
               <div className="hub-row-actions">
                 {m.present ? <Badge tone="ok">downloaded</Badge> : (
@@ -73,7 +82,8 @@ export function ModelStorePanel() {
                 )}
               </div>
             </div>
-          ))}
+            );
+          })}
 
       {pull && pull.status !== 'idle' && (
         <div className="hub-preview" style={{ marginTop: 12 }}>

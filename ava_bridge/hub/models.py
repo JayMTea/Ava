@@ -24,6 +24,7 @@ from starlette.concurrency import run_in_threadpool
 from .. import settings
 import time as _t
 from .. import bench
+from .. import model_fit
 from .. import models as model_store
 
 router = APIRouter()
@@ -37,6 +38,23 @@ _pull_job: dict = {"status": "idle", "role": None, "log": deque(maxlen=200),
 
 _pull_lock = threading.Lock()
 
+
+def _pool_kind() -> str | None:
+    """'vram' | 'unified' | 'system' | None — which pool a model would land in.
+
+    The fit verdict needs it because spilling only exists on a discrete
+    accelerator: on a unified pool there is nowhere to spill TO, so
+    `model_fit.assess` must never describe one there. Read from the HAL rather
+    than inferred, and never fatal — an unreadable pool yields `unknown`, which
+    the UI renders as silence.
+    """
+    try:
+        from .. import hwinfo
+        return hwinfo.fit_pool().kind
+    except Exception:  # noqa: BLE001 — advisory only; never break the model list
+        return None
+
+
 @router.get("/models")
 def models_list():
     # `from .. import models` — no sys.path injection and no importing the CLI
@@ -46,11 +64,21 @@ def models_list():
     manifest = model_store.manifest()
     dirs = model_store.dirs()
     tier, avail = model_store.detected_tier()
+    pool_kind = _pool_kind()
     roles = []
     for role, spec in manifest.items():
+        here = model_store.present(spec, dirs)
+        # MEASURED first, estimated only as a fallback. Once the weights are on
+        # disk their size is a fact; before that, all we have is what the name
+        # says, and `size_from_id` returns None rather than guess when the name
+        # says nothing — which the UI renders as silence.
+        need = model_store.disk_size_gb(spec, dirs) if here else None
+        if need is None:
+            need = model_fit.size_from_id(spec.get("id"), spec.get("engine"))
         roles.append({"role": role, "id": spec.get("id"),
                       "engine": spec.get("engine"), "tier": spec.get("tier"),
-                      "present": model_store.present(spec, dirs)})
+                      "present": here,
+                      "fit": model_fit.assess(need, avail, pool_kind)})
     return {"roles": roles, "detected_tier": tier,
             "available_gb": round(avail, 0) if avail else None,
             "store": dirs["root"]}
