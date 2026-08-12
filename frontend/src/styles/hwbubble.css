@@ -26,7 +26,9 @@
   overscroll-behavior: contain;
   background: var(--panel2);
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--r-md);
+  /* The 13px is arithmetic, not a design value: MAX_W in the component is
+     derived from it (2×210 + 26 padding + …), so it is not --sp-3's to own. */
   padding: var(--sp-3) 13px;
   box-shadow: 0 10px 34px rgba(0, 0, 0, .4);
   font-size: 12.5px;
@@ -62,9 +64,9 @@
 }
 
 .hwb-sec {
-  margin-top: 10px;
+  margin-top: var(--sp-2);
   border-top: 1px solid var(--line);
-  padding-top: 9px;
+  padding-top: var(--sp-2);
 }
 
 /* A section that starts a column has nothing above it to be divided from. */
@@ -72,6 +74,321 @@
   margin-top: 0;
   border-top: 0;
   padding-top: 0;
+}
+
+/* ---- the models column ---------------------------------------------------
+   Everything below was inline `style={{}}` in HardwareBubble.tsx: five type
+   sizes (10.5 / 11 / 11.5 / 12 / 12.5px), five hardcoded hexes, literal radii,
+   and a selected-row fill made of `--line` — a hairline token used as a
+   surface. Appearance belongs here (see this file's header); only the panel's
+   geometry stays inline, because only that depends on where the bubble was
+   dropped.
+
+   THREE type levels and no more, which is what the column did not have:
+     .hwb-lab   section label     --fs-xs medium, uppercase, muted
+     .hwb-name  row / card title  --fs-sm medium, --txt
+     everything else              --fs-xs normal, muted (the column default)
+
+   Tone lives in the DOT, never in body text. Measured against --panel2:
+   --ok is 4.97:1 dark but 2.85:1 light, --err 3.03:1 dark; --muted (4.48 / 4.13)
+   is the only pair that passes in both themes. So the 7px dot carries the
+   colour and the state WORD is muted — which also stops colour being a fourth
+   type axis. (--ok/--warn still miss AA 4.5 on light, but that is app-wide —
+   .hub-badge.ok measures identically — and belongs in tokens.css, not here.) */
+
+.hwb-col-models {
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  /* The memory column's width, shared by every row AND every group heading.
+     A FIXED track, not `auto`: each row is its own grid (a separate <button>),
+     so only a shared measure makes the numbers line up down the column. Sized
+     for "999.9 GB". A local layout measure, not a design value — tokens.css
+     stays the SSOT for the scales. */
+  --hwb-mem: 52px;
+}
+
+/* The same two tracks every row and group heading uses, so the section's total
+   lands in the memory column rather than floating beside the title. */
+.hwb-lab {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--hwb-mem);
+  column-gap: var(--sp-1);
+  align-items: baseline;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  margin-bottom: var(--sp-1);
+}
+
+/* The label is uppercase and tracked out; the figure beside it is neither. */
+.hwb-lab .hwb-num { text-transform: none; letter-spacing: normal; }
+
+.hwb-empty { color: var(--muted); }
+
+/* A group band. The heading carries its rows' total in the same track the rows
+   use, so it is a data line rather than a second grey heading above the note. */
+/* Wider than it looks like it needs to be, because one group has no heading:
+   the foreign section opens on its note, and a note is the same muted 11px as
+   the note belonging to the group above it. Proximity is the only thing saying
+   which rows "Not Ava's — other software on this machine." is about, so the
+   gap between groups has to clearly beat the 2px between a note and its own
+   rows. */
+.hwb-grp + .hwb-grp { margin-top: var(--sp-3); }
+
+/* Three tracks, and the chevron one is reserved even where nothing folds, so
+   every section heading starts at the same x whether or not it is a control.
+   The indent ladder is deliberate: section label 0, group heading 12px, row
+   text 16px. */
+.hwb-grp-head {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) var(--hwb-mem);
+  column-gap: var(--sp-1);
+  align-items: baseline;
+  width: 100%;
+  padding: 2px 6px 2px 0;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: var(--r-sm);
+}
+
+.hwb-grp-head.is-toggle { cursor: pointer; }
+.hwb-grp-head.is-toggle:hover { background: var(--wash-4); }
+.hwb-grp-head.is-toggle:hover .hwb-grp-name { color: var(--txt); }
+.hwb-grp-head.is-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Points down when open, right when folded — the direction of travel, which is
+   the one convention every disclosure in every app already taught the reader. */
+.hwb-chev {
+  align-self: center;
+  color: var(--muted);
+  transform: rotate(-90deg);
+  transition: transform var(--dur-fast) ease;
+}
+.hwb-chev.is-open { transform: none; }
+.hwb-chev > .ico > svg { width: 12px; height: 12px; }
+@media (prefers-reduced-motion: reduce) { .hwb-chev { transition: none; } }
+
+/* WRAPS, where a row's name ellipses. A model name is an identifier — half of
+   one still identifies it, and the full string is a click away in the card. A
+   section heading is the sentence that says whose these rows are, and
+   "Other programs holdin…" is not that sentence. It is also the only heading
+   long enough to wrap, and only in the two-column mode's ~183px. */
+.hwb-grp-name {
+  min-width: 0;
+  color: var(--txt);
+  font-weight: var(--fw-medium);
+  overflow-wrap: anywhere;
+}
+
+/* Aligned with the heading above it, past the reserved chevron track. */
+.hwb-grp-note {
+  color: var(--muted);
+  padding: 0 6px 0 16px;
+  margin-bottom: 2px;
+}
+
+/* Numbers only compare if they share a column AND a figure width. */
+.hwb-num {
+  text-align: right;
+  color: var(--muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.hwb-rows { list-style: none; margin: 0; padding: 0; }
+
+/* ONE row shape for every model, the brain included. The brain had its own
+   markup and its own two type sizes for the same three facts. */
+.hwb-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 7px minmax(0, 1fr) var(--hwb-mem);
+  grid-template-areas:
+    "dot title mem"
+    ".   sub   sub"
+    ".   hint  hint";
+  align-items: center;
+  column-gap: var(--sp-1);
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  /* Reserved, so opening a row shifts nothing sideways. */
+  border-left: 2px solid transparent;
+  border-radius: var(--r-sm);
+  padding: 3px 6px 3px 5px;
+  cursor: pointer;
+}
+
+.hwb-row:hover { background: var(--wash-4); }
+
+.hwb-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Open. `--line` is a hairline colour; as a fill it made the selected row look
+   disabled. `--accent-soft` IS the token for this surface (tokens.css calls it
+   the active-pill background) and it follows a re-brand, which --line never
+   did — but it is only ~1.15:1 against the panel, the same separation :hover
+   has. The 2px rule is the primary cue; do not drop it for the fill alone. */
+.hwb-row[aria-expanded="true"] {
+  background: var(--accent-soft);
+  border-left-color: var(--accent);
+}
+
+/* The denominator, drawn instead of said: how much of the machine's memory this
+   row is holding. Absent (width 0) whenever `shareOf` had no honest answer. */
+.hwb-row::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  z-index: 0;
+  width: var(--share, 0%);
+  /* Deliberately one step heavier than :hover's --wash-4, because the two
+     coexist: hover fills the whole row, this fills a fraction of it, and if the
+     fraction is the fainter of the two it disappears exactly when the pointer
+     is on the row someone is reading. */
+  background: var(--wash-8);
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.hwb-row > * { position: relative; z-index: 1; }
+
+.hwb-dot {
+  grid-area: dot;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--tone, var(--muted));   /* .tone-* comes from hub.css */
+}
+
+.hwb-title {
+  grid-area: title;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.hwb-name {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--txt);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hwb-row .hwb-num { grid-area: mem; }
+
+/* Aligned under the name by the grid, not by a magic marginLeft: 12. */
+.hwb-sub {
+  grid-area: sub;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Only the brain row carries this: it must be readable on a box with no
+   telemetry at all, without anyone clicking anything. */
+.hwb-hint {
+  grid-area: hint;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+/* ---- the detail card -----------------------------------------------------
+   A card, because it is a different object from the list. Six `**Label:**
+   value` paragraphs with no container bled straight into the rows above them.
+
+   It sits inside its row's <li>, directly beneath it — which is what lets it
+   carry no title, no "Model:" line and no relation note: the row above names
+   the model and the section above that says whose it is. Its left rule is the
+   SAME rule the open row carries, and that is what ties the two together. */
+.hwb-detail {
+  margin: var(--sp-1) 0 var(--sp-2);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--accent);
+  border-radius: var(--r-sm);
+  padding: var(--sp-2);
+}
+
+.hwb-detail-meta { color: var(--muted); }
+
+.hwb-detail-mem {
+  color: var(--txt);
+  font-variant-numeric: tabular-nums;
+  margin-top: 1px;
+}
+
+.hwb-detail-hint {
+  color: var(--muted);
+  margin-top: var(--sp-1);
+}
+
+/* The six bold-label paragraphs, as ONE grid: every label shares a track, so
+   they align and every value starts at the same x. Same shape as .legend-grid
+   in hub.css, at this column's scale — the component itself is a page-footer
+   explainer with a @media breakpoint, which this panel must never use. */
+.hwb-dl {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+  column-gap: var(--sp-2);
+  row-gap: 3px;
+  align-items: baseline;
+  margin: var(--sp-2) 0 0;
+}
+
+.hwb-dl dt { color: var(--muted); }
+
+.hwb-dl dd {
+  margin: 0;
+  min-width: 0;
+  color: var(--txt);
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+.hwb-owner { display: flex; align-items: center; gap: 5px; }
+
+.hwb-cmp-lab {
+  color: var(--muted);
+  margin: var(--sp-2) 0 var(--sp-1);
+}
+
+.hwb-cmp {
+  max-height: 108px;
+  overflow: auto;
+  /* Must not chain into the panel, which must not chain into the chat. */
+  overscroll-behavior: contain;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: var(--sp-1) 6px;
+}
+
+.hwb-cmp-row + .hwb-cmp-row { margin-top: 3px; }
+.hwb-cmp-name { color: var(--txt); overflow-wrap: anywhere; }
+.hwb-cmp-meta { color: var(--muted); }
+
+/* The machine column's one casualty: tempColor() painted three hexes that exist
+   in neither theme's palette, and two of them measured 1.5:1 on light. */
+.hwb-temp {
+  font-weight: var(--fw-bold);
+  color: var(--tone, var(--txt));
 }
 
 /* Collapsed: the columns stack, so the divider goes back to being horizontal —

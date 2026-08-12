@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
+import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import { api } from '../lib/api';
 import { ProgressBar } from '../lib/ProgressBar';
-import { stateCopy, stateOf } from '../lib/modelState';
+import { stateCopy } from '../lib/modelState';
 import type { HardwareStats } from '../lib/types';
 import { appAccent, appById, AppDot } from '../lib/appColor';
 import {
-  foundVia, groupRows, holdsLine, relationOf, rowHint, rowTitle,
+  MODEL_RELATION, activityTone, componentMeta, foundVia, groupMemoryGb,
+  groupRows, holdsLine, identified, isAvas, isCollapsible,
+  listHint, memPhrase, poolOf, relationOf, rowSub, rowTitle, shareOf, tempTone,
 } from './hwModels';
-import type { Row as HwRow } from './hwModels';
+import type { MemPool, Row as HwRow } from './hwModels';
+import { Icon } from '../lib/icons';
 
 // Floating, draggable hardware monitor. Tap to expand a live quick-view of the
 // DGX Spark (GPU %, unified memory used/free, CPU, temperature); drag the bubble
@@ -19,6 +22,12 @@ import type { Row as HwRow } from './hwModels';
 // bounds below.
 
 const KEY = 'ava.hwbubble.pos';
+// Which sections the owner has folded away, by relation token. Remembered for
+// the same reason the bubble's position is: a panel that forgets what you told
+// it costs you the same click on every visit. Nothing is collapsed by default —
+// see `isCollapsible` for why a 65 GB stranger must never be hidden on the
+// first open.
+const GROUPS_KEY = 'ava.hwbubble.collapsed';
 const SIZE = 52;
 // GAP is bubble→panel, EDGE is panel→viewport edge. The panel stops shrinking at
 // MIN_W because a 40px-wide panel is not a smaller panel, it is an unreadable
@@ -50,16 +59,19 @@ function loadPos(): Pos {
   return { x: vw() - SIZE - 16, y: vh() - SIZE - 96 };
 }
 
+function loadCollapsed(): string[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(GROUPS_KEY) || '[]');
+    if (Array.isArray(v)) return v.filter((x) => typeof x === 'string');
+  } catch {
+    /* ignore */
+  }
+  return [];
+}
+
 const gb = (v: number | null | undefined) => (v == null ? '—' : v >= 1024 ? `${(v / 1024).toFixed(1)} TB` : `${v.toFixed(1)} GB`);
 const pct = (v: number | null | undefined) => (v == null ? '—' : `${Math.round(v)}%`);
 const temp = (v: number | null | undefined) => (v == null ? '—' : `${Math.round(v)}°C`);
-
-function tempColor(t: number | null | undefined): string {
-  if (t == null) return 'inherit';
-  if (t >= 85) return '#e0364d';
-  if (t >= 70) return '#e0a06f';
-  return '#7fd0a0';
-}
 
 function ChipGlyph({ size = 16 }: { size?: number }) {
   return (
@@ -78,27 +90,118 @@ function ChipGlyph({ size = 16 }: { size?: number }) {
 // lib/types.ts cannot drift apart field by field.
 type Row = HwRow;
 
-// The dot follows the STATE, and only shades it by GPU busyness when that is
-// actually known. Keying it off gpu_util first painted a grey "idle" dot beside
-// a green "In memory" — two contradictory readings of one row, and grey on
-// every CPU-only box, where per-process GPU util is never available.
-const activityDotStyle = (m: Row): CSSProperties => {
-  const copy = stateCopy(m);
-  const u = m.gpu_util;
-  const color = stateOf(m) === 'resident' && u != null && u >= 30 ? '#34d27a'
-    : stateOf(m) === 'resident' && u != null && u > 0 ? '#e6b85c'
-      : copy.tone;
-  return {
-    width: 7,
-    height: 7,
-    borderRadius: '50%',
-    display: 'inline-block',
-    background: color,
-    boxShadow: `0 0 0 1px rgba(0,0,0,.28), 0 0 6px ${color}`,
-    marginRight: 6,
-    verticalAlign: 'middle',
-  };
-};
+/** One row shape for every model, the brain included.
+ *
+ *  The brain used to have its own markup and its own two type sizes for the
+ *  same three facts. `hero` does not change the shape — it only keeps the
+ *  brain's hint on screen without a click, which Setup → Agent's brain
+ *  visibility contract requires: the brain is named by configuration, so it is
+ *  knowable even on a box where nothing is running and nothing is measurable.
+ */
+function ModelRow({ m, pool, open, onToggle, children }: {
+  m: Row; pool: MemPool; open: boolean; onToggle: (id: string) => void;
+  children?: ReactNode;
+}) {
+  const app = m.app ? appById(m.app) : undefined;
+  const share = shareOf(m, pool);
+  const hero = m.role_key === 'brain';
+  const hint = hero ? listHint(m) : '';
+  const sub = rowSub(m);
+  return (
+    <li>
+      <button
+        type="button"
+        className="hwb-row"
+        aria-expanded={open}
+        title={rowTitle(m)}
+        onClick={() => onToggle(m.id)}
+        style={share != null ? ({ '--share': `${share}%` } as CSSProperties) : undefined}
+      >
+        <span className={`hwb-dot tone-${activityTone(m)}`} aria-hidden="true" />
+        <span className="hwb-title">
+          <span className="hwb-name">{rowTitle(m)}</span>
+          {/* A connected app's row carries the app's own accent, never Ava's
+              (CLAUDE.md), beside the name the accent belongs to. */}
+          {m.app && <AppDot accent={appAccent(m.app)} title={app?.label || m.app} />}
+        </span>
+        <span className="hwb-num">{gb(m.memory_gb)}</span>
+        {sub && <span className="hwb-sub">{sub}</span>}
+        {hint && <span className="hwb-hint">{hint}</span>}
+      </button>
+      {children}
+    </li>
+  );
+}
+
+/** What a row is, once you ask.
+ *
+ *  It sits directly beneath the row it describes, which is what lets it carry
+ *  no title, no "Model:" line and no relation note — the row above names the
+ *  model, and the section heading above that already said whose it is. The old
+ *  block, pinned to the bottom of the column, had to restate all three, and
+ *  restated the group's "not Ava's" sentence ~200px below the group's own copy.
+ */
+function ModelDetail({ m, pool }: { m: Row; pool: MemPool }) {
+  const app = m.app ? appById(m.app) : undefined;
+  const comps = m.components || [];
+  const denominator = memPhrase(m, pool);
+  // The brain row already shows these; repeating them one line lower is the
+  // duplication this redesign exists to remove. `listHint` also drops the
+  // resident hint, so a working model never spends a line saying so — the meta
+  // line above already reads "In memory · vLLM".
+  const hint = m.role_key === 'brain' ? '' : listHint(m);
+  return (
+    <div className="hwb-detail">
+      {/* One state, one line. "GPU activity: offline" used to sit directly above
+          "Status: Empty" — two readings of the same fact, in two vocabularies,
+          neither actionable. The runtime joins it rather than spending a whole
+          labelled row on one word. */}
+      <div className="hwb-detail-meta">{stateCopy(m).label} · {m.name}</div>
+      {m.memory_gb != null && (
+        <div className="hwb-detail-mem">
+          {m.memory_gb.toFixed(2)} GB{denominator && ` · ${denominator}`}
+        </div>
+      )}
+      {hint && <div className="hwb-detail-hint">{hint}</div>}
+      {/* The full sentence belongs here, where it has room; the row shows the
+          short form so it does not ellipse into a truncated error. */}
+      {!identified(m) && <div className="hwb-detail-hint">{holdsLine(m)}</div>}
+      <dl className="hwb-dl">
+        {m.app && (
+          <>
+            <dt>Belongs to</dt>
+            <dd className="hwb-owner">
+              <AppDot accent={appAccent(m.app)} />{app?.label || m.app}
+            </dd>
+          </>
+        )}
+        {m.role_key !== 'brain' && m.role && (<><dt>Role</dt><dd>{m.role}</dd></>)}
+        {m.vram_mb != null && m.vram_mb > 0 && (
+          <><dt>On GPU</dt><dd>{(m.vram_mb / 1024).toFixed(1)} GB</dd></>
+        )}
+        {m.gpu_util != null && (<><dt>GPU use</dt><dd>{Math.round(m.gpu_util)}%</dd></>)}
+        {/* "Source: nvidia-smi" was a machine token used as owner copy — the
+            backend returns facts, the SPA words them. The PID is its own pair so
+            it joins the aligned value column instead of trailing on a bullet. */}
+        <dt>Found via</dt><dd>{foundVia(m.source)}</dd>
+        {m.pid != null && (<><dt>PID</dt><dd>{m.pid}</dd></>)}
+      </dl>
+      <div className="hwb-cmp-lab">Components</div>
+      {comps.length > 0 ? (
+        <div className="hwb-cmp">
+          {comps.map((c, i) => (
+            <div className="hwb-cmp-row" key={i}>
+              <div className="hwb-cmp-name">{c.name}</div>
+              <div className="hwb-cmp-meta">{componentMeta(c)}</div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="hwb-empty">No component breakdown for this runtime.</div>
+      )}
+    </div>
+  );
+}
 
 function Metric({ label, value, progress, sub }: { label: string; value: string; progress: number | null; sub?: string }) {
   return (
@@ -118,12 +221,20 @@ export function HardwareBubble() {
   const [vp, setVp] = useState(() => ({ w: vw(), h: vh() }));
   const [open, setOpen] = useState(false);
   const [stats, setStats] = useState<HardwareStats | null>(null);
-  const [selectedModelId, setSelectedModelId] = useState('');
+  // '' means browse. The panel used to default this to the brain, which meant a
+  // ~200px detail block was ALWAYS open below the list — the single biggest
+  // thing making the column unreadable. Now a card is something you asked for.
+  const [openId, setOpenId] = useState('');
+  const [collapsed, setCollapsed] = useState<string[]>(loadCollapsed);
   const drag = useRef<{ sx: number; sy: number; ox: number; oy: number; moved: boolean } | null>(null);
 
   useEffect(() => {
     localStorage.setItem(KEY, JSON.stringify(pos));
   }, [pos]);
+
+  useEffect(() => {
+    localStorage.setItem(GROUPS_KEY, JSON.stringify(collapsed));
+  }, [collapsed]);
 
   // The viewport is STATE because the panel's width and max-height are functions
   // of it. This re-rendered on resize before only because clampPos returns a
@@ -217,18 +328,34 @@ export function HardwareBubble() {
   // panel opens on what Ava thinks with even if that ever changes.
   const brain = models.find((m) => m.role_key === 'brain') || null;
   // Everything the brain section above does not already show.
-  const otherModels = models.filter((m) => relationOf(m) !== 'brain');
-  const selectedModel = models.find((m) => m.id === selectedModelId) || brain || models[0] || null;
+  // The panel's top-level cut is Ava's / not Ava's, NOT brain / everything
+  // else. A backend the owner registered with Ava is Ava's however unreachable
+  // it is, and filing it under "Model use outside Ava" put a heading calling it
+  // foreign over a row that then refused to fold because the fold rule knew
+  // better. One predicate now decides both.
+  const ownEngines = models.filter((m) => relationOf(m) === 'configured');
+  const outside = models.filter((m) => !isAvas(relationOf(m)));
+  const pool = poolOf(stats);
+  const ownGb = groupMemoryGb(ownEngines, pool);
+  const outsideGb = groupMemoryGb(outside, pool);
+  const toggle = useCallback(
+    (id: string) => setOpenId((cur) => (cur === id ? '' : id)),
+    [],
+  );
+  const toggleGroup = (relation: string, rows: Row[]) => {
+    const folding = !collapsed.includes(relation);
+    setCollapsed(folding ? [...collapsed, relation] : collapsed.filter((r) => r !== relation));
+    // Folding a section away must not leave a card open inside it — it would
+    // vanish with no way back except re-expanding, and re-expanding would then
+    // reopen a card nobody asked for a second time.
+    if (folding && rows.some((m) => m.id === openId)) setOpenId('');
+  };
 
+  // A process that exits while its card is open closes the card. The list is
+  // the truth; a card describing something that is gone is worse than no card.
   useEffect(() => {
-    if (!models.length) {
-      setSelectedModelId('');
-      return;
-    }
-    if (!models.some((m) => m.id === selectedModelId)) {
-      setSelectedModelId(models[0].id);
-    }
-  }, [models, selectedModelId]);
+    if (openId && !models.some((m) => m.id === openId)) setOpenId('');
+  }, [models, openId]);
 
   return (
     <>
@@ -263,7 +390,9 @@ export function HardwareBubble() {
               <Metric label="CPU util" value={pct(cpu?.util)} progress={cpu?.util ?? 0} />
               <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
                 <span style={{ color: 'var(--muted)' }}>GPU temp</span>
-                <span style={{ fontWeight: 700, color: tempColor(gpu?.temp) }}>{temp(gpu?.temp)}</span>
+                <span className={'hwb-temp' + (tempTone(gpu?.temp) ? ` tone-${tempTone(gpu?.temp)}` : '')}>
+                  {temp(gpu?.temp)}
+                </span>
               </div>
               {/* "Memory Ava can free" (components/AllocSection.tsx) rendered here
                   and is deliberately disconnected — the allocator underneath it is
@@ -283,50 +412,51 @@ export function HardwareBubble() {
             {/* Right column: the models. Cutting here rather than anywhere else
                 is what keeps a subject whole — the panel already drew its own
                 dividers in these two places. */}
-            <div className="hwb-col">
+            <div className="hwb-col hwb-col-models">
               {/* Ava's brain, always — it is named by configuration, so it is
                   knowable even when nothing is running. This block used to be
                   absent entirely on a machine with no GPU, which told a user whose
-                  model was serving fine that no model existed. */}
+                  model was serving fine that no model existed.
+
+                  It is the same <ModelRow> as everything below it, not a second
+                  markup for the same three facts — it just keeps its hint on
+                  screen without a click, because that is the one row whose
+                  diagnosis has to be readable on a box with no telemetry. */}
               <div className="hwb-sec">
-                <div style={{ color: 'var(--muted)', marginBottom: 6 }}>Ava's brain</div>
+                <div className="hwb-lab">{MODEL_RELATION.brain.group}</div>
                 {brain ? (
-                  <button
-                    type="button"
-                    onClick={() => setSelectedModelId(brain.id)}
-                    style={{
-                      display: 'block', width: '100%', textAlign: 'left', font: 'inherit',
-                      background: 'transparent', border: 0, padding: 0, cursor: 'pointer',
-                    }}
-                  >
-                    <div style={{ fontSize: 12.5, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span style={activityDotStyle(brain)} />
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {rowTitle(brain)}
-                      </span>
-                    </div>
-                    <div style={{ fontSize: 11, color: stateCopy(brain).tone, marginTop: 2 }}>
-                      {stateCopy(brain).label}
-                      {brain.memory_gb != null && ` · ${brain.memory_gb.toFixed(1)} GB`}
-                      {brain.vram_mb != null && brain.vram_mb > 0 && ` (${(brain.vram_mb / 1024).toFixed(1)} GB on GPU)`}
-                    </div>
-                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, lineHeight: 1.35 }}>
-                      {rowHint(brain)}
-                      {/* "It does not have this model" is only half an answer —
-                          say what it DOES have, which is usually the whole
-                          diagnosis (a tag typo, or a pull that never ran). */}
-                      {stateOf(brain) === 'absent' && brain.served && brain.served.length > 0 && (
-                        <> It has: {brain.served.slice(0, 3).join(', ')}
-                          {brain.served.length > 3 && ` +${brain.served.length - 3} more`}.</>
-                      )}
-                    </div>
-                  </button>
+                  <ul className="hwb-rows">
+                    <ModelRow m={brain} pool={pool} open={openId === brain.id} onToggle={toggle}>
+                      {openId === brain.id && <ModelDetail m={brain} pool={pool} />}
+                    </ModelRow>
+                  </ul>
                 ) : (
-                  <div style={{ color: 'var(--muted)', fontSize: 11, lineHeight: 1.35 }}>
+                  <div className="hwb-empty">
                     No model linked yet — pick one in Setup → Agent → Brain.
                   </div>
                 )}
               </div>
+              {/* Ava's own engines, on Ava's side of the cut. A top-level
+                  section rather than a group inside the one below, because that
+                  heading says "outside Ava" and this is not — the owner
+                  registered it. Dropped entirely when there is none, so a box
+                  with a single brain never grows an empty heading. */}
+              {ownEngines.length > 0 && (
+                <div className="hwb-sec">
+                  <div className="hwb-lab">
+                    <span>{MODEL_RELATION.configured.group}</span>
+                    <span className="hwb-num">{ownGb != null ? gb(ownGb) : ''}</span>
+                  </div>
+                  <ul className="hwb-rows">
+                    {ownEngines.map((m) => (
+                      <ModelRow key={m.id} m={m} pool={pool}
+                                open={openId === m.id} onToggle={toggle}>
+                        {openId === m.id && <ModelDetail m={m} pool={pool} />}
+                      </ModelRow>
+                    ))}
+                  </ul>
+                </div>
+              )}
               <div className="hwb-sec">
                 {/* Not "on this machine": a cloud or sandbox brain is listed here
                     too, and its own state says it runs elsewhere.
@@ -338,160 +468,79 @@ export function HardwareBubble() {
                     options are labelled. Flattening four different
                     relationships into one list is what made a live, correct
                     list read as stale junk. */}
-                <div style={{ color: 'var(--muted)', marginBottom: 6 }}>Models Ava can see</div>
+                <div className="hwb-lab">
+                  <span>Model use outside Ava</span>
+                  {/* The section's own total — everything holding model memory
+                      that is not Ava's. It used to sit on the "Other programs"
+                      heading, which is gone; putting it here is better than
+                      where it was, because "where did my memory go" is a
+                      question about the whole section, not one group of it. */}
+                  <span className="hwb-num">
+                    {outsideGb != null ? gb(outsideGb) : ''}
+                  </span>
+                </div>
                 {models.length === 0 ? (
-                  <div style={{ color: 'var(--muted)', fontSize: 11, lineHeight: 1.35 }}>
-                    No inference engine is running here yet.
-                  </div>
+                  <div className="hwb-empty">No inference engine is running here yet.</div>
                 ) : (
                   <>
-                    {/* The brain is excluded here: it has its own section
-                        directly above, and listing it twice on a 210px column
-                        is noise, not emphasis. */}
-                    {otherModels.length === 0 && (
-                      <div style={{ color: 'var(--muted)', fontSize: 11, lineHeight: 1.35 }}>
+                    {/* Ava's own rows are excluded here — the brain and any
+                        engines the owner registered each have their own section
+                        above, and this heading would be lying about them. */}
+                    {outside.length === 0 && (
+                      <div className="hwb-empty">
                         Nothing else on this machine is holding model memory.
                       </div>
                     )}
-                    {groupRows(otherModels).map((g) => (
-                      <div key={g.relation} style={{ marginBottom: 7 }}>
-                        <div style={{
-                          fontSize: 11, fontWeight: 700, color: 'var(--muted)',
-                          marginBottom: 2,
-                        }}>
-                          {g.copy.group}
-                        </div>
-                        {g.copy.note && (
-                          <div style={{
-                            fontSize: 10.5, color: 'var(--muted)', lineHeight: 1.3,
-                            marginBottom: 3,
-                          }}>
-                            {g.copy.note}
-                          </div>
-                        )}
-                        {g.rows.map((m) => {
-                          const app = m.app ? appById(m.app) : undefined;
-                          return (
-                            <button
-                              key={m.id}
-                              type="button"
-                              onClick={() => setSelectedModelId(m.id)}
-                              style={{
-                                display: 'block', width: '100%', textAlign: 'left',
-                                font: 'inherit', background: m.id === selectedModel?.id
-                                  ? 'var(--line)' : 'transparent',
-                                border: 0, borderRadius: 6, padding: '2px 4px',
-                                cursor: 'pointer', marginBottom: 1,
-                              }}
-                            >
-                              <div style={{
-                                fontSize: 12, display: 'flex', alignItems: 'center',
-                                gap: 5,
-                              }}>
-                                <span style={activityDotStyle(m)} />
-                                <span style={{
-                                  overflow: 'hidden', textOverflow: 'ellipsis',
-                                  whiteSpace: 'nowrap', flex: 1,
-                                }}>
-                                  {rowTitle(m)}
-                                </span>
-                                {/* A connected app's row carries the app's own
-                                    accent, never Ava's (CLAUDE.md). */}
-                                {m.app && (
-                                  <AppDot accent={appAccent(m.app)}
-                                          title={app?.label || m.app} />
-                                )}
-                                {m.memory_gb != null && (
-                                  <span style={{ color: 'var(--muted)', fontSize: 11 }}>
-                                    {m.memory_gb.toFixed(1)} GB
-                                  </span>
-                                )}
-                              </div>
-                              <div style={{
-                                fontSize: 10.5, color: stateCopy(m).tone, marginLeft: 12,
-                              }}>
-                                {stateCopy(m).label}
-                              </div>
-                              {holdsLine(m) && (
-                                <div style={{
-                                  fontSize: 10.5, color: 'var(--muted)', marginLeft: 12,
-                                  overflow: 'hidden', textOverflow: 'ellipsis',
-                                  whiteSpace: 'nowrap',
-                                }}>
-                                  {holdsLine(m)}
-                                </div>
-                              )}
+                    {/* Sections stay in RELATION_ORDER and are NOT ranked by
+                        weight, which would put a stranger's 65 GB process above
+                        the app the owner connected. The heading carries the
+                        section's total in the rows' own column, so it answers
+                        "where did my memory go" without reordering anything:
+                        how much is the number, whose is the order. */}
+                    {groupRows(outside, pool).map((g) => {
+                      const foldable = isCollapsible(g.relation);
+                      const shown = !foldable || !collapsed.includes(g.relation);
+                      const listId = `hwb-grp-${g.relation}`;
+                      // The total rides on the summary, not inside the fold, so
+                      // collapsing a section removes its detail and never its
+                      // share of the machine's memory.
+                      const total = g.memoryGb != null ? gb(g.memoryGb) : '';
+                      return (
+                        <div className="hwb-grp" key={g.relation}>
+                          {foldable ? (
+                            <button type="button" className="hwb-grp-head is-toggle"
+                                    aria-expanded={shown} aria-controls={listId}
+                                    onClick={() => toggleGroup(g.relation, g.rows)}>
+                              <span className={'hwb-chev' + (shown ? ' is-open' : '')}
+                                    aria-hidden="true"><Icon name="chevronDown" /></span>
+                              <span className="hwb-grp-name">{g.copy.group}</span>
+                              <span className="hwb-num">{total}</span>
                             </button>
-                          );
-                        })}
-                      </div>
-                    ))}
-                    {selectedModel && (
-                      <div style={{ fontSize: 11.5, lineHeight: 1.35 }}>
-                        <div>
-                          <b>Model:</b> <span style={activityDotStyle(selectedModel)} />{rowTitle(selectedModel)}
-                          {selectedModel.role_key === 'brain' && (
-                            <span style={{
-                              marginLeft: 6, padding: '0 5px', borderRadius: 4, fontSize: 10,
-                              fontWeight: 700, background: 'var(--accent)', color: '#fff',
-                            }}>brain</span>
-                          )}
-                        </div>
-                        {/* One state, one line. "GPU activity: offline" used to sit
-                            directly above "Status: Empty" — two readings of the same
-                            fact, in two vocabularies, neither actionable. */}
-                        <div><b>State:</b> {stateCopy(selectedModel).label}</div>
-                        {rowHint(selectedModel) && (
-                          <div style={{ color: 'var(--muted)' }}>{rowHint(selectedModel)}</div>
-                        )}
-                        {/* Whose it is, said once, where there is real DOM to
-                            carry the app's own accent — an <option> could not. */}
-                        {selectedModel.app && (
-                          <div>
-                            <b>Belongs to:</b>{' '}
-                            <AppDot accent={appAccent(selectedModel.app)} />
-                            {appById(selectedModel.app)?.label || selectedModel.app}
-                          </div>
-                        )}
-                        {relationOf(selectedModel) === 'foreign' && (
-                          <div style={{ color: 'var(--muted)' }}>
-                            Not Ava’s — another program on this machine.
-                          </div>
-                        )}
-                        {selectedModel.role_key !== 'brain' && selectedModel.role && (
-                          <div><b>Role:</b> {selectedModel.role}</div>
-                        )}
-                        <div><b>Runtime:</b> {selectedModel.name}</div>
-                        <div><b>Memory:</b> {selectedModel.memory_gb != null ? `${selectedModel.memory_gb.toFixed(2)} GB` : '—'}</div>
-                        {selectedModel.gpu_util != null && (
-                          <div><b>GPU activity:</b> {Math.round(selectedModel.gpu_util)}%</div>
-                        )}
-                        {/* "Source: nvidia-smi" was a machine token used as owner
-                            copy — the backend returns facts, the SPA words them. */}
-                        <div><b>Found via:</b> {foundVia(selectedModel.source)}{selectedModel.pid != null ? ` · PID ${selectedModel.pid}` : ''}</div>
-                        <div style={{ marginTop: 7 }}>
-                          <div style={{ fontWeight: 700, marginBottom: 4 }}>Model components</div>
-                          {selectedModel.components && selectedModel.components.length > 0 ? (
-                            <div style={{ maxHeight: 120, overflow: 'auto', border: '1px solid var(--line)', borderRadius: 8, padding: '5px 7px' }}>
-                              {selectedModel.components.map((c, i) => (
-                                <div key={i} style={{ fontSize: 11, marginBottom: 2 }}>
-                                  {(c.kind_label as string) || c.kind}: {c.name}
-                                  {c.in_memory === false
-                                    ? ' (configured — not in memory)'
-                                    : c.in_memory == null
-                                      ? ' (configured — residency unknown)'
-                                      : ' (in memory)'}
-                                </div>
-                              ))}
-                            </div>
                           ) : (
-                            <div style={{ color: 'var(--muted)', fontSize: 11 }}>
-                              No component breakdown available for this runtime.
+                            <div className="hwb-grp-head">
+                              <span className="hwb-chev-gap" aria-hidden="true" />
+                              <span className="hwb-grp-name">{g.copy.group}</span>
+                              <span className="hwb-num">{total}</span>
+                            </div>
+                          )}
+                          {shown && (
+                            <div id={listId}>
+                              {g.copy.note && (
+                                <div className="hwb-grp-note">{g.copy.note}</div>
+                              )}
+                              <ul className="hwb-rows">
+                                {g.rows.map((m) => (
+                                  <ModelRow key={m.id} m={m} pool={pool}
+                                            open={openId === m.id} onToggle={toggle}>
+                                    {openId === m.id && <ModelDetail m={m} pool={pool} />}
+                                  </ModelRow>
+                                ))}
+                              </ul>
                             </div>
                           )}
                         </div>
-                      </div>
-                    )}
+                      );
+                    })}
                   </>
                 )}
               </div>

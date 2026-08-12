@@ -8,42 +8,40 @@
 // with a "brain" badge. Anything that renders model liveness imports from here.
 import type { ModelState } from './types';
 
+// Colour is NOT here. This module used to carry a `tone` hex per state, and all
+// five were dark-theme values: against --panel2 in light mode they measured
+// 1.54–2.44:1, so four of the six states were effectively invisible to anyone
+// running Ava light. Tone is a token — `--ok/--warn/--err/--muted`, which every
+// theme redefines — and stateTone() below is how a surface asks for it.
 export type StateCopy = {
   label: string;   // the state, in two or three words
   hint: string;    // what it means for the user, and what to do about it
-  tone: string;    // the dot/text colour that goes with it
 };
 
 export const MODEL_STATE: Record<ModelState, StateCopy> = {
   resident: {
     label: 'In memory',
     hint: 'Loaded and ready to answer.',
-    tone: '#34d27a',
   },
   idle: {
     label: 'Ready, not loaded',
     hint: 'The engine has it; the next message loads it.',
-    tone: '#e6b85c',
   },
   absent: {
     label: 'Not downloaded',
     hint: 'The engine is running but does not have this model yet.',
-    tone: '#e0a06f',
   },
   offline: {
     label: 'Engine offline',
     hint: 'Nothing is answering at its address.',
-    tone: '#e0364d',
   },
   remote: {
     label: 'Runs elsewhere',
     hint: 'Hosted off this machine, so it uses none of its memory.',
-    tone: '#8b98ad',
   },
   unknown: {
     label: 'Not observable',
     hint: 'Ava cannot see inside this runtime to check.',
-    tone: '#8b98ad',
   },
 };
 

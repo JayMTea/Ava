@@ -160,7 +160,7 @@ def test_declared_vocabulary_matches_both_frontend_copies() -> None:
     assert declared == keys, (
         f"model-state drift: `_STATES` in {HARDWARE} is {sorted(declared)} but "
         f"`MODEL_STATE` in {COPY_TS} covers {sorted(keys)}. Every state needs the "
-        "label/hint/tone the owner actually reads.")
+        "label/hint the owner actually reads.")
 
 
 def test_every_emitted_relation_is_in_the_declared_vocabulary() -> None:

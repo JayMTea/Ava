@@ -4,10 +4,12 @@
 // one flat dropdown, which read as a list of stale entries belonging to Ava.
 import { describe, expect, it } from 'vitest';
 import {
-  MODEL_RELATION, RELATION_ORDER, foundVia, groupRows, holdsLine, identified,
-  relationOf, rowHint, rowTitle,
+  MODEL_RELATION, RELATION_ORDER, activityTone, componentMeta, foundVia,
+  groupMemoryGb, groupRows, heldGb, holdsLine, identified,
+  isAvas, isCollapsible, listHint, memPhrase, poolOf, relationOf, rowHint, rowSub,
+  rowTitle, servedLine, shareOf, tempTone,
 } from './hwModels';
-import type { Row } from './hwModels';
+import type { MemPool, Row } from './hwModels';
 
 const row = (over: Partial<Row>): Row => ({
   id: 'x', name: 'runtime', model: 'A Model', memory_mb: null, memory_gb: null,
@@ -39,6 +41,18 @@ const ENV_BACKEND = row({
   id: 'backend:m', name: 'vLLM', source: 'api', model: 'Some Model',
   model_id: 'org/Some-Model', state: 'offline', relation: 'configured',
   backend: 'backend', implicit: true, role_key: '',
+});
+
+const APP_VLLM = row({
+  id: 'pid:1811', name: 'vLLM', source: 'nvidia-smi', model: 'Pace-Small-3B',
+  model_id: 'org/Pace-Small-3B', state: 'resident', status: 'loaded',
+  relation: 'app', app: 'pace', memory_gb: 3.2, role_key: '',
+});
+
+// The box the panel is designed against: one unified pool, 121.7 GB.
+const SPARK: MemPool = poolOf({
+  gpu: { name: null, util: null, temp: null, power: null, mem_used_mb: null, mem_total_mb: 124620 },
+  mem: { total_gb: 121.7, used_gb: 81.8, free_gb: 39.9, used_pct: 67 },
 });
 
 describe('relationOf', () => {
@@ -192,5 +206,315 @@ describe('the agent sandbox when it is not running', () => {
 
   it('leaves a running sandbox on its unknown-residency hint', () => {
     expect(rowHint(BRAIN)).not.toContain('not running');
+  });
+
+  it('never tells the owner a connected app\'s engine is "ready to answer"', () => {
+    // Same sentence, same reason as the foreign case: it answers that app's
+    // requests, not Ava's. Latent until the detail card stopped defaulting to
+    // the brain — before that, an app row's hint was never rendered.
+    expect(rowHint(APP_VLLM)).toBe('');
+  });
+
+  it('keeps the readings that ARE true of an app’s engine', () => {
+    // "not Ava's" is not a reason to withhold a real diagnosis.
+    expect(rowHint(row({ ...APP_VLLM, state: 'offline' })))
+      .toBe('Nothing is answering at its address.');
+  });
+});
+
+// --- memory: the denominator the panel never had ---------------------------
+
+const pool = (memTotalGb: number | null, gpuTotalMb: number | null): MemPool => poolOf({
+  gpu: { name: null, util: null, temp: null, power: null, mem_used_mb: null, mem_total_mb: gpuTotalMb },
+  mem: { total_gb: memTotalGb, used_gb: null, free_gb: null, used_pct: null },
+});
+
+describe('poolOf', () => {
+  it('calls a box with no GPU reading one system pool', () => {
+    // The invisible-GPU case: a WSL2 box where nvidia-smi is unreachable. Every
+    // row's figure is RAM there, so the sum is honest.
+    expect(pool(15.4, null)).toEqual({ totalGb: 15.4, unified: true, noun: "this machine's" });
+  });
+
+  it('calls a Spark one pool despite the two totals never matching', () => {
+    // 124620 MiB is 121.7 GB of the same silicon, but it arrives from a
+    // different probe in a different unit minus whatever firmware reserves.
+    expect(SPARK.unified).toBe(true);
+    expect(SPARK.totalGb).toBe(121.7);
+  });
+
+  it('refuses to unify a discrete GPU', () => {
+    // 48 GB of VRAM beside 128 GB of RAM: an nvidia-smi row and a docker row
+    // are counted in different pools and must never be added.
+    const p = pool(128, 49152);
+    expect(p.unified).toBe(false);
+    expect(p.totalGb).toBe(48);
+    expect(p.noun).toBe("the GPU's");
+  });
+
+  it('invents no total when the machine reports none', () => {
+    expect(pool(null, null)).toEqual({ totalGb: null, unified: false, noun: '' });
+  });
+});
+
+describe('heldGb', () => {
+  it('reads what a resident row is holding', () => {
+    expect(heldGb(COMFY)).toBe(65.54);
+  });
+
+  it('is null, never zero, for a row that holds nothing', () => {
+    // null and 0 are different sentences. A zero-width bar would silently agree
+    // that "runs elsewhere" and "holds 0 GB" are the same reading.
+    for (const state of ['remote', 'idle', 'absent', 'offline', 'unknown'] as const) {
+      expect(heldGb(row({ state, memory_gb: 42 }))).toBeNull();
+    }
+    expect(heldGb(row({ state: 'resident', memory_gb: null }))).toBeNull();
+  });
+});
+
+describe('shareOf', () => {
+  it('divides by the pool, not by the biggest row', () => {
+    // A 0.4 GB row on a 121.7 GB box is supposed to look like nothing.
+    expect(shareOf(COMFY, SPARK)).toBeCloseTo(53.9, 1);
+    expect(shareOf(row({ state: 'resident', memory_gb: 0.4 }), SPARK)).toBeCloseTo(0.33, 2);
+  });
+
+  it('draws nothing on a two-pool box', () => {
+    expect(shareOf(COMFY, pool(128, 49152))).toBeNull();
+  });
+
+  it('draws nothing for a row that holds nothing, and nothing with no total', () => {
+    expect(shareOf(ENV_BACKEND, SPARK)).toBeNull();
+    expect(shareOf(COMFY, pool(null, null))).toBeNull();
+  });
+});
+
+describe('memPhrase', () => {
+  it('names the denominator the number is a share of', () => {
+    expect(memPhrase(COMFY, SPARK)).toBe("54% of this machine's 121.7 GB");
+  });
+
+  it('still names it per row on a two-pool box, for the rows it fits', () => {
+    // The SUM across rows mixes pools; an individual GPU reading does not.
+    const discrete = pool(128, 49152);
+    expect(memPhrase(row({ ...COMFY, memory_gb: 12 }), discrete))
+      .toBe("25% of the GPU's 48.0 GB");
+    expect(memPhrase(row({ ...COMFY, source: 'docker' }), discrete)).toBe('');
+  });
+
+  it('admits it has nothing to say rather than print an impossible share', () => {
+    // 65.5 GB against a 48 GB pool means the denominator is wrong for this row.
+    // Clamping would render the same broken reading as a confident "100%".
+    expect(memPhrase(COMFY, pool(128, 49152))).toBe('');
+  });
+
+  it('says nothing when there is nothing to say', () => {
+    expect(memPhrase(ENV_BACKEND, SPARK)).toBe('');
+    expect(memPhrase(COMFY, pool(null, null))).toBe('');
+  });
+});
+
+describe('groupMemoryGb', () => {
+  it('adds up a section that shares one pool', () => {
+    expect(groupMemoryGb([COMFY, OTHER_VLLM], SPARK)).toBeCloseTo(77.18, 2);
+  });
+
+  it('is null, never 0, when no row in the section reported one', () => {
+    // A "0.0 GB" heading claims a measurement nobody made.
+    expect(groupMemoryGb([BRAIN, ENV_BACKEND], SPARK)).toBeNull();
+  });
+
+  it('refuses to add VRAM to container RSS', () => {
+    expect(groupMemoryGb([COMFY, OTHER_VLLM], pool(128, 49152))).toBeNull();
+  });
+});
+
+describe('groupRows totals', () => {
+  it('carries each section’s total when a pool is given', () => {
+    const groups = groupRows([BRAIN, COMFY, OTHER_VLLM, ENV_BACKEND], SPARK);
+    expect(groups.map((g) => g.relation)).toEqual(['brain', 'configured', 'foreign']);
+    expect(groups[2].memoryGb).toBeCloseTo(77.18, 2);
+    expect(groups[0].memoryGb).toBeNull();
+  });
+
+  it('keeps Ava’s own sections first, however much memory the others hold', () => {
+    // Ranking sections by weight would put a stranger's 65 GB process above the
+    // app the owner connected. Whose it is is what the order answers.
+    const groups = groupRows([COMFY, APP_VLLM], SPARK);
+    expect(groups.map((g) => g.relation)).toEqual(['app', 'foreign']);
+  });
+});
+
+// --- row and card wording ---------------------------------------------------
+
+describe('activityTone', () => {
+  it('follows the state, and only shades it by busyness when that is known', () => {
+    // The encoded bug: keying off gpu_util first painted a grey "idle" dot
+    // beside a green "In memory", and grey on every CPU-only box.
+    expect(activityTone(row({ state: 'resident' }))).toBe('ok');
+    expect(activityTone(row({ state: 'resident', gpu_util: 63 }))).toBe('ok');
+    expect(activityTone(row({ state: 'resident', gpu_util: 4 }))).toBe('warn');
+    expect(activityTone(row({ state: 'resident', gpu_util: 0 }))).toBe('ok');
+  });
+
+  it('never lets busyness override a state that is not resident', () => {
+    expect(activityTone(row({ state: 'offline', gpu_util: 99 }))).toBe('err');
+    expect(activityTone(row({ state: 'absent' }))).toBe('warn');
+    expect(activityTone(BRAIN)).toBe('muted');
+  });
+});
+
+describe('rowSub', () => {
+  it('gives an unnamed row its evidence rather than its state', () => {
+    expect(rowSub(COMFY)).toBe('Holds flux2-vae, flux2_dev_fp8mixed +1');
+  });
+
+  it('keeps the no-evidence case short enough to not ellipse into nonsense', () => {
+    // holdsLine's full sentence is right in the card and wrong in a ~183px row,
+    // where it truncates to "Ava cannot tell what this progr…".
+    expect(rowSub(row({ model_id: null, components: [] }))).toBe('Contents unknown');
+  });
+
+  it('spends no words on a model that is working', () => {
+    // The dot is already green. "In memory" under a green dot is the same
+    // reading twice, on the one row that needs no attention.
+    expect(rowSub(OTHER_VLLM)).toBe('');
+  });
+
+  it('still states every reading that IS a diagnosis', () => {
+    // The silence above is only earned by "everything is fine". A row that
+    // needs acting on must say so without anyone clicking it.
+    expect(rowSub(row({ backend: 'b', state: 'absent' }))).toBe('Not downloaded');
+    expect(rowSub(row({ backend: 'b', state: 'offline' }))).toBe('Engine offline');
+    expect(rowSub(row({ backend: 'b', state: 'idle' }))).toBe('Ready, not loaded');
+    expect(rowSub(BRAIN)).toBe('Not observable');
+  });
+});
+
+describe('listHint', () => {
+  it('drops the hint for a model that is working', () => {
+    // "Loaded and ready to answer." sat under "In memory" under a green dot.
+    expect(listHint(row({ backend: 'b', state: 'resident' }))).toBe('');
+  });
+
+  it('keeps the diagnosis, and what the engine does have instead', () => {
+    expect(listHint(row({ backend: 'b', state: 'absent', served: ['a', 'b'] })))
+      .toBe('The engine is running but does not have this model yet. It has: a, b.');
+  });
+});
+
+describe('MODEL_RELATION copy', () => {
+  it('keeps every section heading short enough to be a fold control', () => {
+    // The heading is the line the owner clicks, and at the narrowest the panel
+    // gets the label track is ~105px — about eighteen characters at --fs-xs.
+    // "Not Ava's — other software on this machine." was the foreign label for a
+    // while and wrapped to three lines there.
+    for (const r of RELATION_ORDER) {
+      expect(MODEL_RELATION[r].group).toBeTruthy();
+      expect(MODEL_RELATION[r].group.length).toBeLessThanOrEqual(20);
+    }
+  });
+
+  it('puts the explanation in the note, where the fold can hide it', () => {
+    // A section folded away costs its explanation nothing, so the note can
+    // afford the whole thing — including the sentence that was cut for space
+    // back when it rendered unconditionally.
+    expect(MODEL_RELATION.foreign.note)
+      .toContain('Not Ava’s — other software on this machine.');
+    expect(MODEL_RELATION.foreign.note)
+      .toContain('The memory it holds is not available to Ava.');
+    expect(MODEL_RELATION.app.note).toBeTruthy();
+  });
+
+  it('gives Ava’s own sections nothing to explain', () => {
+    // They are named by what they are. A note under "Ava's brain" would be
+    // telling the owner what a brain is.
+    expect(MODEL_RELATION.brain.note).toBe('');
+    expect(MODEL_RELATION.configured.note).toBe('');
+  });
+});
+
+describe('isAvas', () => {
+  it('counts a registered backend as Ava’s, however unreachable', () => {
+    // The bug: the panel's top-level cut was "is it the brain", under a heading
+    // reading "Model use outside Ava". A backend the owner had registered
+    // themselves was therefore filed as foreign — and then refused to fold,
+    // because the fold rule knew it was Ava's even though the heading did not.
+    expect(isAvas('brain')).toBe(true);
+    expect(isAvas('configured')).toBe(true);
+  });
+
+  it('counts an app’s engine and a stranger’s as not Ava’s', () => {
+    expect(isAvas('app')).toBe(false);
+    expect(isAvas('foreign')).toBe(false);
+  });
+
+  it('splits every relation, so nothing lands in neither section', () => {
+    expect(RELATION_ORDER.filter(isAvas).length
+      + RELATION_ORDER.filter((r) => !isAvas(r)).length).toBe(RELATION_ORDER.length);
+  });
+});
+
+describe('isCollapsible', () => {
+  it('folds away what is not Ava’s', () => {
+    expect(isCollapsible('app')).toBe(true);
+    expect(isCollapsible('foreign')).toBe(true);
+  });
+
+  it('never folds away the panel’s own subject', () => {
+    // A hardware panel that can hide Ava's brain, or the engines Ava routes to,
+    // is not answering the question it exists for.
+    expect(isCollapsible('brain')).toBe(false);
+    expect(isCollapsible('configured')).toBe(false);
+  });
+
+  it('draws the same line the section heading draws', () => {
+    // THE invariant behind this pair. "Everything under 'Model use outside Ava'
+    // folds, and nothing above it does" is only a true sentence while these two
+    // agree; when they drifted, a row sat under a heading that mislabelled it
+    // and had no control to match.
+    for (const r of RELATION_ORDER) expect(isCollapsible(r)).toBe(!isAvas(r));
+  });
+
+  it('keeps the memory total on the line that survives folding', () => {
+    // The guarantee behind the feature: collapsing hides the DETAIL, never the
+    // fact. `groupRows` puts the section total on the group, and the summary
+    // line renders it whether or not the rows below it are showing.
+    const [g] = groupRows([COMFY, OTHER_VLLM], SPARK);
+    expect(g.relation).toBe('foreign');
+    expect(g.memoryGb).toBeCloseTo(77.18, 2);
+  });
+});
+
+describe('servedLine', () => {
+  it('says what the engine DOES have when the model was never pulled', () => {
+    expect(servedLine(row({ state: 'absent', served: ['a', 'b'] }))).toBe('It has: a, b.');
+    expect(servedLine(row({ state: 'absent', served: ['a', 'b', 'c', 'd', 'e'] })))
+      .toBe('It has: a, b, c +2 more.');
+  });
+
+  it('stays quiet when the model is not the problem', () => {
+    expect(servedLine(row({ state: 'resident', served: ['a'] }))).toBe('');
+    expect(servedLine(row({ state: 'absent', served: [] }))).toBe('');
+  });
+});
+
+describe('componentMeta', () => {
+  it('drops the word "configured" from a list where being listed IS configured', () => {
+    expect(componentMeta({ kind: 'weights', kind_label: 'Saved model', in_memory: false }))
+      .toBe('Saved model · not in memory');
+    expect(componentMeta({ kind: 'weights', kind_label: 'Saved model', in_memory: true }))
+      .toBe('Saved model · in memory');
+    expect(componentMeta({ kind: 'vae', in_memory: null })).toBe('vae · residency unknown');
+  });
+});
+
+describe('tempTone', () => {
+  it('names a token instead of a hex that exists in neither theme', () => {
+    expect(tempTone(90)).toBe('err');
+    expect(tempTone(85)).toBe('err');
+    expect(tempTone(70)).toBe('warn');
+    expect(tempTone(52)).toBe('ok');
+    expect(tempTone(null)).toBeNull();
   });
 });
