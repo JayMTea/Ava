@@ -77,7 +77,11 @@ export function ModelStoreList() {
 
   return (
     <>
-      <ResourceError r={storeRes} label="the model store" />
+      {/* Names THIS panel, not the section. ModelStorePanel below is also a
+          "model store" and also renders a <ResourceError>; two failures reading
+          "Couldn't load the model store" on one tab cannot be told apart, and
+          the two ask different routes. The labels track the panel titles. */}
+      <ResourceError r={storeRes} label="the models on disk" />
       <Panel
         title="Models on disk"
         subtitle={rows.length

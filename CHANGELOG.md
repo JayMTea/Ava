@@ -36,6 +36,34 @@ pre-release milestones from when Ava ran on one box and nothing was tagged.
 
 ### Fixed
 
+- **A 404 from a bridge that predates the page now says so.** Setup → Agent →
+  Brain reported `Couldn't load the model store. /api/hub/models/store -> 404`
+  — a raw path and a status code, on the newest panel, which reads as "the
+  model store is broken" and sends the owner looking for a fault that is not
+  there. It is version skew: `pages.py` re-reads `frontend/dist` on every
+  request so a rebuild needs no restart, so a `git pull` (or `npm run build`)
+  on a running install hands the browser a NEW page talking to the Python
+  process that is still serving the routes it booted with.
+  - The two meanings of a 404 are now told apart in `lib/api.req`. Every bridge
+    handler that answers 404 sends its own `{error: …}` body — "no backend
+    'x'", "unknown connector", "not found on disk" — so a 404 with no `error`
+    key is FastAPI's own "no route matched", and nothing else. That case gets
+    the code `bridge_outdated`, and the Hub renders the restart banner's own
+    language and colour instead of a red alert: *Restart Ava to load the models
+    on disk — this page is newer than the bridge that is running.* Scoped to
+    `/api/`; an app's own 404 relayed through `/apps/<id>/…` is not ours to
+    reinterpret.
+  - `useResource` keeps the failure's `code` alongside its message, so a panel
+    can act on the difference rather than pattern-matching a sentence.
+  - The two Brain panels no longer share one label. `ModelStoreList` and
+    `ModelStorePanel` both said "the model store" while asking different
+    routes, so the failure could not be attributed to either; the labels now
+    track the panel titles ("the models on disk" / "the model store").
+  - `tests/test_frontend_api_paths.py` covers the half that IS knowable at
+    commit time: every `/api/…` literal in the tracked frontend sources must
+    match a real route on `phone_bridge.app`, so the repo can no longer ship a
+    bundle that calls a route the repo does not have.
+
 Connecting an app, and getting it into Ava's sandbox — a hardening pass over
 the fork-and-self-host path from install to a working connector. Most of these
 are seams between two correct components, and most were invisible on a box with

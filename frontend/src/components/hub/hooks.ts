@@ -10,27 +10,38 @@ export type ActionMsg = { text: string; ok: boolean } | null;
 
 /**
  * Load a resource on mount (and whenever `deps` change), exposing the same
- * `{ data, error, loading, reload, setData }` every panel needs. `setData` is
- * returned so callers can still patch state optimistically (pins, toggles).
+ * `{ data, error, code, loading, reload, setData }` every panel needs.
+ * `setData` is returned so callers can still patch state optimistically (pins,
+ * toggles).
+ *
+ * `code` is the failure's machine-readable code when it has one (`lib/api.req`
+ * sets it from the backend's `error_code`, or to `bridge_outdated` when the
+ * running bridge has no such route). Kept alongside the message because some
+ * failures are not faults in the thing being loaded and must not be rendered
+ * as one — see <ResourceError>.
  */
 export function useResource<T>(fetcher: () => Promise<T>, deps: React.DependencyList = []) {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState('');
+  const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
 
   // The fetcher closes over `deps`; we intentionally key the callback on those,
   // not on the (always-new) fetcher identity — the standard load-hook pattern.
   const reload = useCallback(() => {
-    setLoading(true); setError('');
+    setLoading(true); setError(''); setCode('');
     fetcher()
       .then((d) => setData(d))
-      .catch((e) => setError((e as Error).message))
+      .catch((e) => {
+        setError((e as Error).message);
+        setCode((e as { code?: string }).code || '');
+      })
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
 
   useEffect(() => { reload(); }, [reload]);
-  return { data, error, loading, reload, setData };
+  return { data, error, code, loading, reload, setData };
 }
 
 /**

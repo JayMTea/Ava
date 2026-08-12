@@ -20,6 +20,11 @@ function onUnauthorized() {
   window.location.href = '/login';
 }
 
+/** The bridge does not have the route this page asked for — see `req` below.
+ *  A code rather than a string test, so a surface can render the restart
+ *  instruction instead of a red "something failed" it cannot act on. */
+export const BRIDGE_OUTDATED = 'bridge_outdated';
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const r = await fetch(path, { credentials: 'same-origin', ...init });
   if (r.status === 401) {
@@ -31,10 +36,35 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     // it sends one — see features.preflight) instead of a bare status line, so
     // callers can show "voice is turned off…" + a fix-it link, not "-> 503".
     const body = await r.json().catch(() => null) as { error?: string; error_code?: string } | null;
-    const err = new Error(body?.error || `${path} -> ${r.status}`) as Error & {
+    // A 404 on Ava's own API has two unrelated meanings, and they must not read
+    // alike. EVERY bridge handler that answers 404 sends its own `{error: …}`
+    // body — "no backend 'x'", "unknown connector", "not found on disk". A 404
+    // with no `error` key is FastAPI's own "no route matched": the RUNNING
+    // bridge has never heard of this path.
+    //
+    // That is version skew far more often than it is a fault. pages.py re-reads
+    // frontend/dist on every request, precisely so a rebuild is picked up with
+    // no restart — so a `git pull` (or `npm run build`) on a live install hands
+    // the browser a NEW page that is talking to the OLD Python process, and the
+    // first thing the owner sees is the newest panel failing. Reported as
+    // "/api/hub/models/store -> 404" that reads as "the model store is broken",
+    // and the owner goes looking for a fault in the model store. The truth is
+    // "restart Ava", which is one line and one action.
+    //
+    // Scoped to `/api/` — Ava's own surface. `/apps/<id>/…` is a reverse proxy
+    // to somebody else's server, whose 404 means their route is missing, not
+    // ours, and whose body shape is not ours to interpret.
+    const routeUnknown = r.status === 404 && !body?.error && path.startsWith('/api/');
+    const err = new Error(
+      body?.error
+      || (routeUnknown
+        ? `this Ava has no ${path} — the page is newer than the bridge that is `
+          + 'running. Restart Ava to load it.'
+        : `${path} -> ${r.status}`)) as Error & {
       code?: string; detail?: unknown;
     };
     if (body?.error_code) err.code = body.error_code;
+    else if (routeUnknown) err.code = BRIDGE_OUTDATED;
     // The whole parsed body, so a caller can act on STRUCTURED detail rather
     // than only on the message. Setup → Branding needs this: a refused accent
     // comes back with the contrast ratios and a suggested replacement colour,
