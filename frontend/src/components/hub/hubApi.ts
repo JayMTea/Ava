@@ -432,6 +432,26 @@ export interface ModelStore {
   available_gb: number | null;
   store: string;
 }
+export interface StoreModel {
+  engine: string;
+  id: string;
+  path: string;
+  size_gb: number | null;
+  in_use: boolean;
+  /** What is holding it, in the owner's terms. Empty = safe to delete. */
+  held_by: string[];
+}
+export interface ModelStoreList {
+  models: StoreModel[];
+  total_gb: number;
+  store: string;
+}
+export interface SwapStatus {
+  status: 'idle' | 'running' | 'done' | 'error';
+  model: string | null;
+  error: string | null;
+  log: string[];
+}
 export interface PullStatus {
   status: 'idle' | 'running' | 'done' | 'error';
   role: string | null;
@@ -956,6 +976,19 @@ export const hub = {
 
   // Model store
   models: () => req<ModelStore>('/api/hub/models'),
+  store: () => req<ModelStoreList>('/api/hub/models/store'),
+  storeDelete: (engine: string, id: string, force = false) =>
+    req<{ ok: boolean; error?: string; held_by?: string[]; freed_gb?: number | null }>(
+      '/api/hub/models/store/delete',
+      { method: 'POST', body: JSON.stringify({ engine, id, force }) }),
+  storeBrain: (engine: string, id: string) =>
+    req<{ ok: boolean; error?: string }>('/api/hub/models/store/brain',
+      { method: 'POST', body: JSON.stringify({ engine, id }) }),
+  storeBrainStatus: () => req<SwapStatus>('/api/hub/models/store/brain/status'),
+  pullModel: (engine: string, id: string) =>
+    req<{ ok: boolean; error?: string }>(
+      `/api/hub/models/pull?engine=${encodeURIComponent(engine)}&id=${encodeURIComponent(id)}`,
+      { method: 'POST' }),
   pull: (role: string) =>
     req<{ ok: boolean; error?: string }>(`/api/hub/models/pull?role=${encodeURIComponent(role)}`, { method: 'POST' }),
   pullStatus: () => req<PullStatus>('/api/hub/models/pull/status'),

@@ -20,6 +20,8 @@ export const EVENT_META: Record<string, { icon: string; label: string; tone: Ton
   data_export: { icon: 'file', label: 'Data export', tone: 'muted' },
   data_maintenance: { icon: 'db', label: 'Data maintenance', tone: 'muted' },
   data_delete: { icon: 'trash', label: 'Data deleted', tone: 'err' },
+  model_delete: { icon: 'trash', label: 'Model deleted', tone: 'err' },
+  brain_swap: { icon: 'sparkles', label: 'Brain swapped', tone: 'accent' },
   memory_delete: { icon: 'trash', label: 'Memory deleted', tone: 'err' },
   secret: { icon: 'lock', label: 'Secret changed', tone: 'warn' },
   voiceprint: { icon: 'mic', label: 'Voiceprint enrolled', tone: 'accent' },

@@ -10,6 +10,7 @@ import { Badge } from '../ui/Badge';
 import { stateCopy, stateTone } from '../../../lib/modelState';
 import type { StatefulRow } from '../../../lib/modelState';
 import { ModelStorePanel } from './ModelStorePanel';
+import { ModelStoreList } from './ModelStoreList';
 
 // Setup -> Agent -> Brain: what Ava thinks with. The multi-model brain manager
 // plus the model store and the head-to-head benchmark, which are the two things
@@ -334,6 +335,7 @@ export function BrainPanel({ onRestart }: { onRestart: () => void }) {
     <>
       <BrainManager onRestart={onRestart} />
       <div className="hub-section" />
+      <ModelStoreList />
       <ModelStorePanel />
     </>
   );

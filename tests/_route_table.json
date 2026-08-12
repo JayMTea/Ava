@@ -651,6 +651,34 @@
   "APIRoute"
  ],
  [
+  "/api/hub/models/store",
+  [
+   "GET"
+  ],
+  "APIRoute"
+ ],
+ [
+  "/api/hub/models/store/brain",
+  [
+   "POST"
+  ],
+  "APIRoute"
+ ],
+ [
+  "/api/hub/models/store/brain/status",
+  [
+   "GET"
+  ],
+  "APIRoute"
+ ],
+ [
+  "/api/hub/models/store/delete",
+  [
+   "POST"
+  ],
+  "APIRoute"
+ ],
+ [
   "/api/hub/persona",
   [
    "GET"

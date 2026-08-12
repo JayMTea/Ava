@@ -23,6 +23,7 @@ from ..base import DriverContext, ModelDriver
 from .docker import DockerDriver
 from .http_unload import HttpUnloadDriver
 from .inproc import InProcDriver
+from .local_serve import LocalServeDriver
 from .observe import ObserveDriver
 from .systemd import SystemdDriver
 
@@ -31,6 +32,10 @@ _REGISTRY: dict[str, type[ModelDriver]] = {
     "systemd": SystemdDriver, "unit": SystemdDriver, "service": SystemdDriver,
     "http-unload": HttpUnloadDriver, "http_unload": HttpUnloadDriver,
     "inproc": InProcDriver, "in-process": InProcDriver,
+    # The only adapter that can START an engine from nothing; every other
+    # one actuates something an operator already arranged.
+    "local-serve": LocalServeDriver, "local_serve": LocalServeDriver,
+    "vllm": LocalServeDriver,
     "observe": ObserveDriver, "none": ObserveDriver, "": ObserveDriver,
 }
 

@@ -23,6 +23,7 @@ from starlette.concurrency import run_in_threadpool
 
 from .. import settings
 import time as _t
+from .. import audit
 from .. import bench
 from .. import model_fit
 from .. import models as model_store
@@ -83,6 +84,187 @@ def models_list():
             "available_gb": round(avail, 0) if avail else None,
             "store": dirs["root"]}
 
+def model_in_use(engine: str, model_id: str) -> list[str]:
+    """Why this model must not be deleted yet, in the owner's terms. [] = free.
+
+    Deleting weights an engine is serving does not fail loudly: the process
+    keeps running on the file handles it already holds, and the failure arrives
+    on the next restart, hours later, with nothing connecting it to the deletion.
+    So the check happens BEFORE, and names what is holding it.
+    """
+    reasons = []
+    inf = settings.current_config().get("inference") or {}
+    backends = inf.get("backends") or {}
+    brain = (inf.get("roles") or {}).get("chat") or inf.get("primary")
+    for bid, b in backends.items():
+        if str(b.get("model") or "").strip() != model_id:
+            continue
+        reasons.append(f"Ava's brain is served from it (backend '{bid}')"
+                       if bid == brain else f"the backend '{bid}' serves it")
+    for role, spec in model_store.manifest().items():
+        if (spec.get("id") == model_id
+                and str(spec.get("engine") or "") == engine):
+            reasons.append(f"ava.yaml declares it as the '{role}' model")
+    return reasons
+
+
+@router.get("/models/store")
+def models_store():
+    """Every model ON DISK, with what is holding it and what it costs.
+
+    A different question from GET /models, which lists what ava.yaml declares.
+    A model pulled outside Ava, or pulled and since undeclared, is real and
+    occupies real space — and was invisible to every surface, so it could
+    neither be selected nor reclaimed.
+    """
+    rows = []
+    total = 0.0
+    for m in model_store.installed_models():
+        held = model_in_use(m["engine"], m["id"])
+        rows.append({**m, "in_use": bool(held), "held_by": held})
+        total += m.get("size_gb") or 0.0
+    return {"models": rows, "total_gb": round(total, 2),
+            "store": model_store.dirs()["root"]}
+
+
+def _local_serve_driver(model_id: str, weight_gb=None):
+    """The driver that can start/stop a vLLM this box owns."""
+    from ..alloc import capacity, drivers
+    from ..alloc.base import DriverContext
+    ctx = DriverContext(model_id=model_id, weight_gb=weight_gb,
+                        config={"port": int(os.environ.get("AVA_SERVE_PORT") or 8002)},
+                        free_gib=lambda: capacity.free_gib(),
+                        wait_free=lambda target, **kw: capacity.wait_free(target, **kw),
+                        log=lambda m: _swap_log(m))
+    return drivers.for_spec("local-serve", ctx)
+
+
+_swap_job: dict = {"status": "idle", "model": None, "log": deque(maxlen=200),
+                   "error": None}
+_swap_lock = threading.Lock()
+
+
+def _swap_log(msg: str) -> None:
+    with _swap_lock:
+        _swap_job["log"].append(str(msg)[:400])
+
+
+def _run_swap(model_id: str, engine: str, weight_gb) -> None:
+    """Stop whatever is serving, start the new model, then repoint config.
+
+    ORDER MATTERS and this order is the safe one. Config is written LAST, only
+    after the engine reports it is holding the model, so a failed start leaves
+    ava.yaml pointing at the brain that still works. Repointing first and then
+    starting would, on any failure, leave Ava configured for a model nothing
+    serves — an install that is broken until someone edits YAML by hand.
+    """
+    try:
+        drv = _local_serve_driver(model_id, weight_gb)
+        if not drv.usable():
+            raise RuntimeError(drv.unusable_reason())
+
+        _swap_log("stopping the current engine")
+        rel = drv.release("stop", timeout=120)
+        if rel.acted and not rel.ok:
+            raise RuntimeError(f"could not stop the running engine: {rel.detail}")
+
+        _swap_log(f"starting {model_id}")
+        got = drv.acquire(timeout=900)
+        if not got.ok:
+            raise RuntimeError(got.detail or "the engine did not come up")
+
+        port = int(os.environ.get("AVA_SERVE_PORT") or 8002)
+        cfg = settings.current_config()
+        inf = cfg.setdefault("inference", {})
+        backends = inf.setdefault("backends", {})
+        bid = "local"
+        backends[bid] = {**(backends.get(bid) or {}), "engine": "vllm",
+                         "base_url": f"http://127.0.0.1:{port}/v1", "model": model_id}
+        inf["primary"] = bid
+        inf.setdefault("roles", {})["chat"] = bid
+        settings.save_config(cfg)
+        _swap_log("Ava's brain now points at it")
+        audit.record("brain_swap", model=model_id, engine=engine, backend=bid)
+        with _swap_lock:
+            _swap_job.update(status="done", error=None)
+    except Exception as e:  # noqa: BLE001 — the job reports; it must not raise here
+        _swap_log(f"failed: {e}")
+        with _swap_lock:
+            _swap_job.update(status="error", error=str(e)[:300])
+
+
+@router.post("/models/store/brain")
+def models_store_brain(payload: dict):
+    """Load a store model into Ava's brain: stop, start, health-gate, repoint.
+
+    Runs in the background — a vLLM boot is minutes, not a request — and the
+    caller polls /models/store/brain/status for the live log.
+    """
+    model_id = str(payload.get("id") or "").strip()
+    engine = str(payload.get("engine") or "vllm").strip().lower()
+    if not model_id:
+        return JSONResponse({"ok": False, "error": "id is required"}, status_code=400)
+    if engine != "vllm":
+        # Ollama loads on demand, so a swap there is a repoint with nothing to
+        # start. Saying so is better than pretending this path handled it.
+        return JSONResponse(
+            {"ok": False, "error": f"'{engine}' models are not started by Ava; "
+                                   "point a backend at it instead"}, status_code=400)
+    with _swap_lock:
+        if _swap_job["status"] == "running":
+            return JSONResponse({"ok": False, "error": "a swap is already running"},
+                                status_code=409)
+        _swap_job.update(status="running", model=model_id, error=None)
+        _swap_job["log"].clear()
+    weight = model_store.disk_size_gb({"engine": engine, "id": model_id},
+                                      model_store.dirs())
+    threading.Thread(target=_run_swap, args=(model_id, engine, weight),
+                     daemon=True, name="hub-brain-swap").start()
+    return {"ok": True, "status": "running"}
+
+
+@router.get("/models/store/brain/status")
+def models_store_brain_status():
+    with _swap_lock:
+        return {"status": _swap_job["status"], "model": _swap_job["model"],
+                "error": _swap_job["error"], "log": list(_swap_job["log"])}
+
+
+@router.post("/models/store/delete")
+def models_store_delete(payload: dict):
+    """Delete a model's weights from disk and reclaim the space.
+
+    Refuses while anything is holding it unless `force` is set, and says WHAT is
+    holding it rather than just declining. Audited, because removing tens of GB
+    is not recoverable and the flight recorder should be able to answer "where
+    did that model go".
+    """
+    engine = str(payload.get("engine") or "").strip().lower()
+    model_id = str(payload.get("id") or "").strip()
+    force = bool(payload.get("force"))
+    if not engine or not model_id:
+        return JSONResponse({"ok": False, "error": "engine and id are required"},
+                            status_code=400)
+    held = model_in_use(engine, model_id)
+    if held and not force:
+        return JSONResponse({"ok": False, "error": "in use", "held_by": held},
+                            status_code=409)
+    try:
+        out = model_store.delete_model(engine, model_id,
+                                       forced=force, held_by=held)
+    except model_store.ModelDeleteError as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": f"delete failed: {e}"},
+                            status_code=500)
+    if not out["removed"]:
+        return JSONResponse({"ok": False, "error": "not found on disk"},
+                            status_code=404)
+    # The ledger record is written by `models.delete_model`, at the destruction
+    # itself — see tests/test_destructive_paths_audited for why not here.
+    return {"ok": True, **out}
+
+
 def _run_pull(args: list[str]) -> None:
     """Worker: run `ava models pull …` as a subprocess, streaming stdout into
     the job log so the UI can poll progress. One pull at a time."""
@@ -114,16 +296,32 @@ def _run_pull(args: list[str]) -> None:
             _pull_job.update(rc=1, status="error")
 
 @router.post("/models/pull")
-def models_pull(role: str = ""):
-    """Start a model download in the background. role='' or 'auto' picks the
-    model that fits the detected hardware tier (same as `ava models pull --auto`)."""
+def models_pull(role: str = "", engine: str = "", id: str = ""):
+    """Start a model download in the background.
+
+    Three shapes, one implementation behind all of them (`ava models pull`):
+    `role=<name>` for a declared role, `role=auto` for whatever fits this box,
+    and `engine=+id=` for ANY model the owner wants in their store — which is
+    what makes the store a library rather than a fixed set of roles.
+    """
     with _pull_lock:
         if _pull_job["status"] == "running":
             return JSONResponse({"ok": False, "error": "a pull is already running"},
                                 status_code=409)
         role = (role or "").strip().lower()
-        args = ["--auto"] if role in ("", "auto") else [role]
-        _pull_job.update(status="running", role=role or "auto", rc=None)
+        model_id = (id or "").strip()
+        eng = (engine or "").strip().lower()
+        if model_id:
+            if eng not in ("vllm", "ollama", "gguf", "llamacpp"):
+                return JSONResponse(
+                    {"ok": False, "error": "engine must be vllm, ollama or gguf"},
+                    status_code=400)
+            args = ["--engine", eng, "--id", model_id]
+            label = f"{eng}:{model_id}"
+        else:
+            args = ["--auto"] if role in ("", "auto") else [role]
+            label = role or "auto"
+        _pull_job.update(status="running", role=label, rc=None)
         _pull_job["log"].clear()
         threading.Thread(target=_run_pull, args=(args,), daemon=True,
                          name="hub-model-pull").start()
@@ -376,29 +574,94 @@ def backends_set_brain(bid: str):
     settings.save_config(cfg)
     return {"ok": True, "brain": bid, "restart_required": True}
 
-@router.post("/models/backends/{bid}/delete")
-def backends_delete(bid: str):
-    """Remove a backend; repoint the brain to a survivor if we removed it."""
-    bid = settings._safe_backend_id(bid)
-    cfg = settings.current_config()
+def purge_backend(cfg: dict, bid: str) -> list[str]:
+    """Remove `bid` and EVERY pointer to it from a config dict, in place.
+
+    Returns the config paths that were changed, so the caller can report what a
+    removal actually touched instead of asserting it was clean.
+
+    Deleting a backend used to clear four of the seven places its id can appear —
+    the backend itself, `inference.primary`, `inference.roles.chat`, and the key
+    file. Everything else was left dangling, and each dangling pointer fails
+    differently and quietly:
+
+      * `inference.fallback` is read by router_app on every request. A fallback
+        naming a deleted backend is a failover target that cannot answer, so the
+        request that needed a fallback is the one that finds out.
+      * `inference.roles.<other>` — roles are "chat / fast / embed / …"
+        (settings.resolve_role). Only `chat` was repointed, so an embed role
+        outlived its backend and every embedding call resolved to nothing.
+      * `alloc.models.<id>` is keyed by the same id (alloc/spec.py). A declared
+        model with no backend stays governable: the planner counts memory it can
+        never actually free, and the Free button drives an address nobody serves.
+
+    Roles are repointed rather than dropped where a survivor exists, matching
+    what the brain repoint already did — a role the owner configured should
+    survive the removal of one engine behind it.
+    """
+    touched: list[str] = []
     inf = cfg.get("inference") or {}
     backends = inf.get("backends") or {}
+    backends.pop(bid, None)
+    touched.append(f"inference.backends.{bid}")
+    survivor = next(iter(backends), None)
+
+    for key in ("primary", "fallback"):
+        if inf.get(key) == bid:
+            # `fallback` falls away rather than moving to the survivor: it is the
+            # SECOND choice, and promoting the only remaining backend to be its
+            # own fallback is a loop, not a safety net.
+            new = survivor if key == "primary" else None
+            if new:
+                inf[key] = new
+            else:
+                inf.pop(key, None)
+            touched.append(f"inference.{key}")
+
+    roles = inf.get("roles") or {}
+    for role in [r for r, v in roles.items() if v == bid]:
+        if survivor:
+            roles[role] = inf.get("primary") or survivor
+        else:
+            roles.pop(role, None)
+        touched.append(f"inference.roles.{role}")
+    if roles:
+        inf["roles"] = roles
+    elif "roles" in inf:
+        inf.pop("roles")
+
+    cfg["inference"] = inf
+
+    alloc = cfg.get("alloc") or {}
+    declared = alloc.get("models") or {}
+    if bid in declared:
+        declared.pop(bid, None)
+        alloc["models"] = declared
+        cfg["alloc"] = alloc
+        touched.append(f"alloc.models.{bid}")
+    return touched
+
+
+@router.post("/models/backends/{bid}/delete")
+def backends_delete(bid: str):
+    """Remove a backend and every reference to it — config, key, breaker state."""
+    bid = settings._safe_backend_id(bid)
+    cfg = settings.current_config()
+    backends = (cfg.get("inference") or {}).get("backends") or {}
     if bid not in backends:
         return JSONResponse({"ok": False, "error": f"no backend '{bid}'"},
                             status_code=404)
-    del backends[bid]
-    survivor = next(iter(backends), None)
-    if inf.get("primary") == bid:
-        inf["primary"] = survivor
-    roles = inf.get("roles") or {}
-    if roles.get("chat") == bid:
-        if survivor:
-            roles["chat"] = inf.get("primary") or survivor
-        else:
-            roles.pop("chat", None)
-        inf["roles"] = roles
-    cfg["inference"] = inf
+    touched = purge_backend(cfg, bid)
     settings.save_config(cfg)
     settings.delete_backend_key(bid)
-    return {"ok": True, "restart_required": True}
+    # Runtime state outlives config. The breaker keeps per-model failure counts
+    # and give-up timestamps in its own state file, so a re-added backend with
+    # the same id inherited the dead one's strikes and could start out already
+    # given up on.
+    try:
+        from ..alloc import breaker
+        breaker.reset(bid)
+    except Exception:  # noqa: BLE001 — the config removal already succeeded
+        pass
+    return {"ok": True, "restart_required": True, "removed": touched}
 
