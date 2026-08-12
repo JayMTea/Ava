@@ -19,6 +19,25 @@ export const EVENT_META: Record<string, { icon: string; label: string; tone: Ton
   chat_delete: { icon: 'trash', label: 'Chat deleted', tone: 'err' },
   data_export: { icon: 'file', label: 'Data export', tone: 'muted' },
   data_maintenance: { icon: 'db', label: 'Data maintenance', tone: 'muted' },
+  data_delete: { icon: 'trash', label: 'Data deleted', tone: 'err' },
+  memory_delete: { icon: 'trash', label: 'Memory deleted', tone: 'err' },
+  secret: { icon: 'lock', label: 'Secret changed', tone: 'warn' },
+  voiceprint: { icon: 'mic', label: 'Voiceprint enrolled', tone: 'accent' },
+  policy_retire: { icon: 'ghost', label: 'Policy retired', tone: 'warn' },
+  connector_delete: { icon: 'trash', label: 'App removed', tone: 'err' },
+  connector_prune: { icon: 'plug', label: 'App tools pruned', tone: 'warn' },
+  brand_change: { icon: 'sliders', label: 'Branding changed', tone: 'accent' },
+  brand_asset: { icon: 'image', label: 'Brand asset set', tone: 'accent' },
+  brand_asset_delete: { icon: 'trash', label: 'Brand asset removed', tone: 'warn' },
+  brand_import: { icon: 'sliders', label: 'Branding imported', tone: 'accent' },
+  brand_export: { icon: 'file', label: 'Branding exported', tone: 'muted' },
+  // The allocator's own ledger surfaces here too. Dotted keys are legal object
+  // keys and the backend sends them verbatim; without these three the ledger
+  // rendered "Alloc.lease expired", which is `humanize` doing its best with a
+  // machine token nobody worded.
+  'alloc.restore': { icon: 'refresh', label: 'Memory restored', tone: 'accent' },
+  'alloc.lease_expired': { icon: 'gauge', label: 'Memory lease expired', tone: 'muted' },
+  'alloc.breaker_reset': { icon: 'gauge', label: 'Memory guard reset', tone: 'warn' },
 };
 
 export const humanize = (s: string) =>
