@@ -116,8 +116,28 @@ def ollama_present(tag: str, ollama_dir: str) -> bool:
     return False
 
 
+def gguf_path(spec: dict, gguf_dir: str) -> str:
+    """Where a direct-URL GGUF lands on disk.
+
+    ONE rule, because two existed and they disagreed. `gguf_present` joined
+    `spec["id"]` while the downloader wrote `basename(id or url)`, so:
+
+      * a URL-only spec (no `id`) checked `isfile(<dir>/)` — the directory —
+        which is never a file, so the model read "missing" forever and every
+        `ava models pull` re-downloaded gigabytes it already had; and
+      * a slash-qualified id (`bartowski/model.gguf`) was written flat but
+        looked for in a subdirectory, so a checksum re-check would hash a path
+        nothing had written.
+
+    `basename` is the downloader's rule and therefore the true one: it is what
+    actually exists after a pull.
+    """
+    name = os.path.basename(spec.get("id") or spec.get("url") or "model.gguf")
+    return os.path.join(gguf_dir, name)
+
+
 def gguf_present(spec: dict, gguf_dir: str) -> bool:
-    return os.path.isfile(os.path.join(gguf_dir, spec.get("id", "")))
+    return os.path.isfile(gguf_path(spec, gguf_dir))
 
 
 def present(spec: dict, model_dirs: dict) -> bool:

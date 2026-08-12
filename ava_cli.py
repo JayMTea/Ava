@@ -12,8 +12,10 @@ from zero to a running Ava with no source edits. See deploy/README.md.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -1432,6 +1434,36 @@ _hf_present = models.hf_present
 #: partial download already on disk.
 _DISK_FLOOR = 2 << 30
 
+def _file_sha256(path: str, chunk: int = 1 << 20) -> str:
+    """Streamed, because these files are gigabytes. `""` when it cannot be read.
+
+    Every existing digest helper in this repo (`attest._sha256_file`,
+    `provision._file_digest`, `d2.d2sum`) reads the whole file into memory, which
+    is fine for a policy or an SVG and is not fine for a 40 GB GGUF.
+    """
+    h = hashlib.sha256()
+    try:
+        with open(path, "rb") as f:
+            while True:
+                block = f.read(chunk)
+                if not block:
+                    break
+                h.update(block)
+    except OSError:
+        return ""
+    return h.hexdigest()
+
+
+#: A model spec's optional `revision:` for Hugging Face — a commit sha, tag or
+#: branch. Kept to the characters git actually allows in a ref so the value can
+#: never carry a second argument into the CLI call it is spliced into.
+_HF_REVISION_RE = re.compile(r"^[A-Za-z0-9._/-]{1,128}$")
+
+#: A model spec's optional `sha256:`. Exactly 64 hex characters — a short or
+#: mistyped digest must be a loud error, never a check that quietly passes
+#: because the comparison was against a truncated string.
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+
 
 def _disk_gate(where: str, label: str) -> int:
     """0 to proceed. Prints the free space either way, because the pull that is
@@ -1454,13 +1486,36 @@ def _disk_gate(where: str, label: str) -> int:
     return 0
 
 
-def _pull_hf(model_id: str, hf_dir: str) -> int:
+def _pull_hf(model_id: str, hf_dir: str, revision: str = "") -> int:
+    """`hf download <repo>` — the vendor CLI verifies the size of each file it
+    fetches against the repo metadata, and the store is its own cache.
+
+    What it does NOT pin is WHICH commit: with no `--revision` it takes the
+    default branch tip, so the same spec can yield different weights on two
+    different days and nothing anywhere reports that it did. `revision:` on the
+    model spec is the integrity control that fits this path — a file checksum
+    does not, because a repo is many files and this command fetches all of them.
+
+    The pin is on the DOWNLOAD. `deploy/local-serve.sh` launches the server with
+    `--model <id>` and no revision, so the serving process resolves its own; a
+    pinned pull does not by itself pin what gets loaded. `ava models verify`
+    reports when the pinned snapshot is not the one in the store, which is the
+    part this command can honestly promise.
+    """
     if _disk_gate(hf_dir, "Hugging Face"):
+        return 1
+    if revision and not _HF_REVISION_RE.match(revision):
+        print(f"  {BAD} models.<role>.revision is not a git revision: {revision!r}")
         return 1
     env = {**os.environ, "HF_HOME": hf_dir}
     for exe in ("hf", "huggingface-cli"):
         if shutil.which(exe):
             cmd = [exe, "download", model_id]
+            if revision:
+                cmd += ["--revision", revision]
+            else:
+                print("    (no `revision:` in the model spec — this takes whatever "
+                      "the repo's default branch holds right now)")
             print(f"  $ HF_HOME={hf_dir} {' '.join(cmd)}")
             return subprocess.call(cmd, env=env)
     print(f"  {WARN} huggingface CLI not found — pip install huggingface_hub")
@@ -1484,21 +1539,48 @@ def _pull_ollama(tag: str, ollama_dir: str) -> int:
     return subprocess.call(["ollama", "pull", tag], env=_ollama_env(ollama_dir))
 
 
-def _gguf_target(spec: dict, gguf_dir: str) -> str:
-    name = os.path.basename(spec.get("id") or spec.get("url") or "model.gguf")
-    return os.path.join(gguf_dir, name)
+#: Where a direct-URL GGUF lands. `models.gguf_path` is the single rule — the
+#: downloader and the presence check MUST agree, or a model reads "missing"
+#: forever and a checksum re-check hashes a file nobody wrote.
+_gguf_target = models.gguf_path
 
 
 _gguf_present = models.gguf_present
 
 
-def _pull_gguf(spec: dict, gguf_dir: str) -> int:
-    """Direct-URL GGUF download for llama.cpp — a plain streaming download."""
+def _pull_gguf(spec: dict, gguf_dir: str, role: str = "") -> int:
+    """Direct-URL GGUF download for llama.cpp — a plain streaming download.
+
+    The ONLY download path where a declared checksum adds a guarantee, which is
+    why `sha256:` is verified here and nowhere else:
+
+      * **Ollama** already content-addresses every layer and verifies it against
+        the registry manifest (`verifyBlob`, `digest mismatch, file must be
+        downloaded again`), deleting a blob that does not match. A second check
+        against a digest Ava would have to fetch from the same registry adds
+        nothing.
+      * **Hugging Face** verifies the downloaded size against the repo's
+        metadata, and `hf download <repo>` fetches a whole repository — there is
+        no single file for a spec-level hash to name. The meaningful pin on that
+        path is a `revision:` commit sha, which is why that is what this supports
+        there.
+      * **Here** the bytes come from an arbitrary owner-supplied URL with no
+        registry, no manifest and no content-addressed store behind them, and
+        the only existing check is `done == total` against a Content-Length the
+        same server supplies. Anything that can substitute the body can supply a
+        matching header — and when the response is chunked there is no header to
+        check at all.
+    """
+    # The ROLE, not the model id: every message this produces names a config key
+    # (`models.<role>.sha256`), and `models.my-model.Q4_K_M.gguf.sha256` is a
+    # path an owner can grep their ava.yaml for and never find.
     return _download_url(spec.get("url"), _gguf_target(spec, gguf_dir),
-                         spec.get("id", "model"))
+                         role or spec.get("id", "model"),
+                         sha256=str(spec.get("sha256") or "").strip().lower())
 
 
-def _download_url(url: str | None, target: str, label: str) -> int:
+def _download_url(url: str | None, target: str, label: str,
+                  sha256: str = "") -> int:
     if not url:
         print(f"  {WARN} no url for {label} — place the file at {target} by hand")
         return 1
@@ -1510,6 +1592,18 @@ def _download_url(url: str | None, target: str, label: str) -> int:
         return 1
     tmp = target + ".part"
     print(f"  \u2193 {url}")
+    if sha256 and not _SHA256_RE.match(sha256):
+        print(f"  {BAD} models.{label}.sha256 is not a 64-character sha256 digest: "
+              f"{sha256!r}")
+        return 1
+    if not sha256:
+        # Said once, plainly, rather than left for the owner to infer. It is not
+        # a failure: no shipped default carries a hash, and refusing would break
+        # every working install to enforce a field nobody has yet written.
+        print("    (no `sha256:` in the model spec — these bytes cannot be verified)")
+    if url.lower().startswith("http://") and not sha256:
+        print(f"  {WARN} plain http and no checksum: anything between here and "
+              f"that server can substitute the weights Ava will think with.")
     try:
         with requests.get(url, stream=True, timeout=60) as r:
             r.raise_for_status()
@@ -1525,21 +1619,56 @@ def _download_url(url: str | None, target: str, label: str) -> int:
                     return 1
                 print(f"    ({total >> 20} MiB, {free >> 30} GiB free)")
             done = 0
+            # Hashed in the SAME pass that writes it. A second read of a
+            # multi-gigabyte file to verify what we just streamed would double
+            # the slowest part of a first install.
+            digest = hashlib.sha256()
             with open(tmp, "wb") as f:
                 for chunk in r.iter_content(chunk_size=1 << 20):
                     f.write(chunk)
+                    digest.update(chunk)
                     done += len(chunk)
                     if total:
                         print(f"\r    {done * 100 // total:3d}%  "
                               f"{done >> 20}/{total >> 20} MiB", end="", flush=True)
             print()
-        # Integrity: a truncated stream (server closed early without raising)
-        # must NOT be promoted to the final file and reported "present".
-        if total and done != total:
+        # Integrity, BEFORE the file is promoted — the same order brand_pack.py
+        # verifies a downloaded pack in, and for the same reason: once
+        # `os.replace` runs, every later check reads `os.path.isfile` and the
+        # file is "present" forever.
+        got = digest.hexdigest()
+        if sha256 and got != sha256 and total and done != total:
+            # Both checks fail on a truncated stream, and only one of them names
+            # the cause. Telling an owner their weights were substituted sends
+            # them hunting for a compromised mirror when the fix is to retry.
+            print(f"  {BAD} truncated download for {label}: got {done} of {total} "
+                  f"bytes, so the checksum could not match. Nothing was installed.")
+            os.remove(tmp)
+            return 1
+        if sha256 and got != sha256:
+            print(f"  {BAD} checksum mismatch for {label}:")
+            print(f"       expected {sha256}")
+            print(f"       got      {got}")
+            print("       These are not the weights the config asked for. Nothing "
+                  "was installed.")
+            os.remove(tmp)
+            return 1
+        # A truncated stream (server closed early without raising) must NOT be
+        # promoted and reported "present". Skipped when a checksum already
+        # answered the same question more strongly.
+        if not sha256 and total and done != total:
             print(f"  {BAD} truncated download: got {done} of {total} bytes")
             os.remove(tmp)
             return 1
+        if not sha256 and not total:
+            # No Content-Length and no hash: the length check never ran either,
+            # so nothing at all checked these bytes. Say so — this used to be
+            # the one path that promoted a silently truncated file.
+            print(f"  {WARN} no content-length and no checksum — a truncated "
+                  f"download would have been indistinguishable from a complete one.")
         os.replace(tmp, target)
+        if sha256:
+            print(f"    checksum ok ({got[:12]}…)")
         return 0
     except Exception as e:  # noqa: BLE001
         print(f"  {BAD} download failed: {e}")
@@ -1557,14 +1686,25 @@ def _pull_one(role: str, spec: dict, dirs: dict) -> int:
     eng = spec.get("engine")
     print(f"{B}{role}{X}  {spec.get('id')}  ({eng})")
     if _model_present(spec, dirs):
-        print(f"  {OK} already present")
+        # "Present" is `os.path.isfile`, and this path does not re-hash: on a
+        # multi-gigabyte file that would make every pull a several-minute read of
+        # something it is not going to change. Say which question was answered,
+        # so a declared checksum does not read as one this command checked.
+        note = ""
+        if str(spec.get("sha256") or "").strip():
+            note = " (checksum not re-checked here — `ava models verify`)"
+        elif str(spec.get("revision") or "").strip() and eng == "vllm":
+            note = " (the pinned revision is not re-checked here — "
+            note += "`ava models verify`)"
+        print(f"  {OK} already present{note}")
         return 0
     if eng == "vllm":
-        return _pull_hf(spec["id"], dirs["hf"])
+        return _pull_hf(spec["id"], dirs["hf"],
+                        revision=str(spec.get("revision") or "").strip())
     if eng == "ollama":
         return _pull_ollama(spec["id"], dirs["ollama"])
     if eng in ("llamacpp", "gguf"):
-        return _pull_gguf(spec, dirs["gguf"])
+        return _pull_gguf(spec, dirs["gguf"], role=role)
     print(f"  {WARN} unknown engine '{eng}' — skipped")
     return 1
 
@@ -1699,9 +1839,67 @@ def cmd_models(args) -> int:
         ok = True
         for role, spec in manifest.items():
             present = _model_present(spec, dirs)
-            _row(OK if present else WARN, role,
-                 "present" if present else "missing (`ava models pull`)")
-            ok = ok and present
+            if not present:
+                _row(WARN, role, "missing (`ava models pull`)")
+                ok = False
+                continue
+            # `present` is `os.path.isfile`. For a file fetched from an arbitrary
+            # URL that is a statement about the filesystem, not about the bytes —
+            # and a file that was correct when it landed can be edited, truncated
+            # or swapped afterwards. Re-hash when the spec says what to expect.
+            eng = str(spec.get("engine") or "").lower()
+            want = str(spec.get("sha256") or "").strip().lower()
+            rev = str(spec.get("revision") or "").strip()
+            if want and eng not in ("llamacpp", "gguf"):
+                # An owner who writes a field expects it to do something. Nothing
+                # hashes an Ollama blob or an HF snapshot here, so a green
+                # "present" would let them believe a checksum guards a model Ava
+                # never checks.
+                _row(WARN, role, f"present · `sha256:` is ignored on engine "
+                                 f"{eng or '?'} (it verifies direct-URL GGUF "
+                                 f"downloads only — {eng or 'this engine'} "
+                                 f"verifies its own store)")
+                ok = False
+                continue
+            if rev and eng == "vllm":
+                # `_pull_one` returns early when a model is already present, so a
+                # revision added AFTER the first pull never reaches `hf download`
+                # and the snapshot on disk stays whatever the branch tip was that
+                # day. Nothing reported that until now.
+                snap = os.path.join(dirs["hf"], "hub",
+                                    "models--" + str(spec.get("id", "")).replace("/", "--"),
+                                    "snapshots", rev)
+                if not os.path.isdir(snap):
+                    _row(WARN, role, f"present, but the pinned revision {rev[:12]}… "
+                                     f"is not in the store — the files on disk are "
+                                     f"whatever was pulled first (`ava models pull "
+                                     f"--force` after clearing {dirs['hf']})")
+                    ok = False
+                    continue
+            if not want:
+                _row(OK, role, "present" + (f" · revision {rev[:12]}…" if rev else ""))
+                continue
+            if not _SHA256_RE.match(want):
+                # A typo must never read as corruption: the old branch went
+                # straight to CHECKSUM MISMATCH, whose advice is to delete a
+                # good multi-gigabyte file and download it again.
+                _row(BAD, role, f"models.{role}.sha256 is not a 64-character "
+                                f"sha256 digest: {want!r} — fix the config, the "
+                                f"file on disk was not checked")
+                ok = False
+                continue
+            path = _gguf_target(spec, dirs["gguf"])
+            got = _file_sha256(path)
+            if got == want:
+                _row(OK, role, f"present · checksum ok ({got[:12]}…)")
+            elif not got:
+                _row(WARN, role, f"present, but could not be read to verify: {path}")
+                ok = False
+            else:
+                _row(BAD, role, f"CHECKSUM MISMATCH — {path} is not what "
+                                f"models.{role}.sha256 declares (`ava models pull` "
+                                f"after removing it)")
+                ok = False
         return 0 if ok else 1
     if args.action == "pull":
         ensure_model_dirs()

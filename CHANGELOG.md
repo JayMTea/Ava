@@ -73,6 +73,29 @@ no live sandbox, which is why they shipped.
   tool server therefore applied whatever persona `ava.yaml` happened to hold,
   and the owner watched the persona's pending count clear without ever pressing
   Apply for it.
+- **Model downloads can declare what they should be.** `sha256:` on a model
+  spec is hashed while the file streams and compared before it is promoted, so
+  a mismatch installs nothing, and `ava models verify` re-checks it on disk
+  rather than only asking whether a file exists. `revision:` pins a Hugging
+  Face commit, because `hf download` with no revision takes the default branch
+  tip and one config can fetch different weights on different days.
+  - Verified only where it adds a guarantee. Ollama already content-addresses
+    every layer and verifies it against the registry manifest; Hugging Face
+    checks each file's size against the repo metadata and fetches a whole repo,
+    which no single file hash can name. The direct-URL GGUF path had neither —
+    its strongest check was the byte count against a Content-Length the same
+    server supplied, and a chunked response does not even have that.
+  - `ava models verify` now says when a declared field is inert rather than
+    passing it green: a `sha256:` on an engine that verifies its own store, a
+    digest that is not 64 hex characters (which used to read as CORRUPTION,
+    whose advice is to delete a good multi-gigabyte file), and a `revision:`
+    added after the first pull, which never reaches `hf download` because the
+    model is already present.
+- **A downloaded GGUF could read as missing forever.** The presence check joined
+  the spec's `id` while the downloader wrote `basename(id or url)`, so a
+  URL-only spec checked whether a *directory* was a file — always false — and
+  re-downloaded gigabytes it already had on every pull. One rule now, and it is
+  the downloader's, because that is the path that actually exists afterwards.
 - **"Apply to the agent" could never succeed for tool servers.** `desired()`
   digested each MCP server as a whole-tree fold while the sandbox side reported
   the entry-point file's digest — folds of different byte sets, so all five
