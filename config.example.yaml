@@ -167,11 +167,14 @@ models:
 #              reporting that it did. A file checksum does not fit here: the
 #              command fetches a whole repository, and the CLI already verifies
 #              each file's size against the repo metadata.
-#              SCOPE: it pins what `ava models pull` DOWNLOADS. The serving
-#              process is launched with `--model <id>` and resolves its own
-#              revision, so pinning the download does not by itself pin what
-#              vLLM loads — `ava models verify` reports whether the pinned
-#              snapshot is the one in the store.
+#              TWO HALVES, and both are needed. This pins what `ava models pull`
+#              DOWNLOADS; `AVA_MODEL_REVISION` in deploy/.env pins what the
+#              server LOADS (both `deploy/local-serve.sh` and the compose vllm
+#              service pass it to vLLM as --revision + --tokenizer-revision).
+#              Set one without the other and vLLM still resolves the default
+#              branch on every start; `ava models verify` reports that, and
+#              reports the two being pinned to DIFFERENT commits as an error —
+#              Ava would then serve weights it never downloaded.
 #
 # Ollama needs neither: it content-addresses every layer and verifies it against
 # the registry manifest, deleting any blob whose digest does not match.

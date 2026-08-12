@@ -85,6 +85,15 @@ no live sandbox, which is why they shipped.
     which no single file hash can name. The direct-URL GGUF path had neither —
     its strongest check was the byte count against a Content-Length the same
     server supplied, and a chunked response does not even have that.
+  - The pin has two halves and both are wired: `models.<role>.revision` pins the
+    download, `AVA_MODEL_REVISION` in deploy/.env pins the server, and both
+    serving paths — `deploy/local-serve.sh` and the compose `vllm` service —
+    pass it to vLLM as `--revision` **and** `--tokenizer-revision`, because
+    vLLM's tokenizer revision defaults to the repo's branch tip even when the
+    weights are pinned, and half a pin reads exactly like a whole one. A
+    download pinned against an unpinned server is reported; the two pinned to
+    different commits is an error, because Ava would serve weights it never
+    downloaded.
   - `ava models verify` now says when a declared field is inert rather than
     passing it green: a `sha256:` on an engine that verifies its own store, a
     digest that is not 64 hex characters (which used to read as CORRUPTION,

@@ -11,6 +11,11 @@
 #
 # or set AVA_MODEL in .env and just run `bash deploy/local-serve.sh`.
 #
+# AVA_MODEL_REVISION pins the COMMIT. Without it vLLM resolves the repo's default
+# branch every start, so the weights can change under a box that has been serving
+# happily for a month. `ava models pull` honours the same value from ava.yaml
+# (`models.<role>.revision`); set both, or the pin stops at the download.
+#
 # The two flags that MUST match the model are --tool-call-parser and
 # --reasoning-parser. Getting them wrong does not raise an error: vLLM returns
 # NO tool_calls, the call falls through as plain text, the agent never sees it,
@@ -91,6 +96,12 @@ HF_CACHE="${HF_CACHE:-${AVA_HOME:-$REPO}/models/hf}"
 # has nothing to serve and says so, rather than pulling ~15 GB of somebody
 # else's choice because no one named one.
 MODEL="${AVA_MODEL:-${AVA_OMNI_MODEL:-}}"
+# WHICH COMMIT of that repo. Unset means the default branch tip, resolved fresh
+# every start — so a box that has been serving for a month reloads different
+# weights the day upstream pushes, with nothing anywhere reporting the change.
+# `models.<role>.revision` in ava.yaml pins what `ava models pull` DOWNLOADS;
+# this is the other half, and without it the pin stops at the cache.
+REVISION="${AVA_MODEL_REVISION:-}"
 if [ -z "$MODEL" ]; then
   echo "local-serve.sh: no model to serve." >&2
   echo "  Set AVA_MODEL to the model you want, e.g." >&2
@@ -168,7 +179,8 @@ if [ -z "${AVA_SERVE_DRY_RUN:-}" ]; then
 fi
 
 echo "[local-serve] Starting $NAME on :$PORT"
-echo "[local-serve]   model=$MODEL"
+echo "[local-serve]   model=$MODEL${REVISION:+ @ $REVISION}"
+[ -n "$REVISION" ] || echo "[local-serve]   revision=<default branch tip> (set AVA_MODEL_REVISION to pin it)"
 echo "[local-serve]   family=${family:-unknown} tool-parser=${TOOL_PARSER:-<none>} reasoning-parser=${REASON_PARSER:-<none>}"
 echo "[local-serve]   util=$UTIL ctx=$CTX restart=$RESTART"
 
@@ -181,7 +193,19 @@ set -- --model "${MODEL}" \
   --max-model-len "${CTX}" \
   --gpu-memory-utilization "${UTIL}" \
   --enable-prefix-caching
+if [ -n "$REVISION" ]; then
+  set -- "$@" --revision "$REVISION"
+  # The tokenizer too, or the pin is half a pin: vLLM's --tokenizer-revision
+  # defaults to None, which resolves the tokenizer repo's default branch even
+  # when the weights are pinned. Skipped when the caller pointed --tokenizer at
+  # a DIFFERENT repo, where this commit id means nothing.
+  case " $EXTRA_FLAGS " in
+    *" --tokenizer "*|*" --tokenizer="*) ;;
+    *) set -- "$@" --tokenizer-revision "$REVISION" ;;
+  esac
+fi
 # EXTRA_FLAGS is a deliberate word-split flag list, not a single argument.
+# It is appended LAST so an explicit override wins over everything above.
 # shellcheck disable=SC2086
 [ -n "$EXTRA_FLAGS" ] && set -- "$@" $EXTRA_FLAGS
 if [ -n "$TOOL_PARSER" ]; then

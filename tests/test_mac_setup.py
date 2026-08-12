@@ -6,6 +6,7 @@ we can't run on real macOS here, so the platform is injected via
 `hwinfo.platform_id` and the decision logic is what's asserted.
 """
 import hashlib
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -439,13 +440,34 @@ class ModelsVerifyHonestyTests(unittest.TestCase):
                                     "revision": "b" * 40}}, self.dirs)
         self.assertEqual(rc, 1)
 
-    def test_a_revision_that_is_in_the_store_passes(self):
+    def _pinned(self, rev):
+        (self.d / "hf" / "hub" / "models--org--model" / "snapshots" / rev).mkdir(parents=True)
+        return {"chat": {"engine": "vllm", "id": "org/model", "revision": rev}}
+
+    def test_a_revision_in_the_store_but_not_on_the_server_is_reported(self):
+        """The pin has two halves. Pinning the DOWNLOAD alone leaves vLLM
+        resolving the default branch on every start, so the same config serves
+        different weights the day upstream pushes — a pin that reads like a
+        guarantee and is not one."""
         rev = "b" * 40
-        snap = self.d / "hf" / "hub" / "models--org--model" / "snapshots" / rev
-        snap.mkdir(parents=True)
-        rc = self._verify({"chat": {"engine": "vllm", "id": "org/model",
-                                    "revision": rev}}, self.dirs)
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("AVA_MODEL_REVISION", None)
+            rc = self._verify(self._pinned(rev), self.dirs)
+        self.assertEqual(rc, 1)
+
+    def test_both_halves_pinned_to_the_same_commit_passes(self):
+        rev = "b" * 40
+        with mock.patch.dict(os.environ, {"AVA_MODEL_REVISION": rev}):
+            rc = self._verify(self._pinned(rev), self.dirs)
         self.assertEqual(rc, 0)
+
+    def test_the_two_halves_pinned_to_different_commits_is_an_error(self):
+        """Worse than unpinned: Ava would serve weights it did not download, and
+        both surfaces would separately report themselves correct."""
+        rev = "b" * 40
+        with mock.patch.dict(os.environ, {"AVA_MODEL_REVISION": "c" * 40}):
+            rc = self._verify(self._pinned(rev), self.dirs)
+        self.assertEqual(rc, 1)
 
     def test_a_plain_spec_still_passes(self):
         rc = self._verify({"chat": {"engine": "vllm", "id": "org/model"}}, self.dirs)

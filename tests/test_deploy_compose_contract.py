@@ -265,3 +265,54 @@ def test_the_bridge_port_is_published_on_loopback_only() -> None:
         "the bridge must publish on 127.0.0.1 only. It binds 0.0.0.0 INSIDE its "
         "namespace (deploy/Dockerfile), so a 0.0.0.0 publish here would expose an "
         f"unauthenticated first-run /setup to the whole network — {offenders}")
+
+
+def test_both_serving_paths_honour_the_model_revision_pin() -> None:
+    """`models.<role>.revision` pins what `ava models pull` DOWNLOADS. Without
+    the same pin on the server, vLLM resolves the model repo's default branch on
+    every start — so the same config serves different weights the day upstream
+    pushes, and nothing anywhere reports the change.
+
+    There are two serving paths and they are edited independently: the compose
+    `vllm` service (the documented Docker install) and `deploy/local-serve.sh`
+    (bare metal). A pin honoured by one and not the other is worse than no pin,
+    because the owner has no way to tell which of their boxes is actually pinned.
+    """
+    raw = ((_compose().get("services") or {}).get("vllm") or {}).get("command", "")
+    # `command:` is a folded scalar here, but compose also accepts a list — join
+    # a list, keep a string. Joining a STRING iterates its characters, which
+    # spaces out every token and makes every assertion below pass or fail for
+    # the wrong reason.
+    cmd = " ".join(str(x) for x in raw) if isinstance(raw, list) else str(raw)
+    assert "AVA_MODEL_REVISION" in cmd, (
+        "the compose vllm service ignores AVA_MODEL_REVISION, so a pinned model "
+        "is downloaded at one commit and served from whatever the branch tip is")
+    assert "--revision" in cmd, "the revision is read but never passed to vLLM"
+
+    serve = (ROOT / "deploy" / "local-serve.sh").read_text(encoding="utf-8")
+    assert "AVA_MODEL_REVISION" in serve, (
+        "deploy/local-serve.sh ignores AVA_MODEL_REVISION — the bare-metal path "
+        "is unpinnable while the Docker path is pinned")
+    assert "--revision" in serve
+
+    # The tokenizer too, on both. vLLM's --tokenizer-revision defaults to None,
+    # which resolves the tokenizer repo's own branch tip even when the weights
+    # are pinned — and half a pin reads exactly like a whole one.
+    assert "--tokenizer-revision" in cmd, "compose pins the weights, not the tokenizer"
+    assert "--tokenizer-revision" in serve, "local-serve pins the weights, not the tokenizer"
+
+
+def test_every_vllm_profile_documents_the_pin() -> None:
+    """A knob nobody can find is a knob nobody sets. The profiles are where an
+    owner names their model, so it is where the commit pin belongs too."""
+    missing = []
+    for env in sorted((ROOT / "deploy" / "profiles").glob("*.env")):
+        text = env.read_text(encoding="utf-8")
+        # Only the profiles that actually serve with vLLM.
+        if "AVA_BACKEND_ENGINE=vllm" not in text:
+            continue
+        if "AVA_MODEL_REVISION" not in text:
+            missing.append(env.name)
+    assert not missing, (
+        "these vLLM profiles name a model but offer no way to pin its commit, "
+        f"so the model they serve can change under them: {missing}")

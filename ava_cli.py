@@ -1496,11 +1496,12 @@ def _pull_hf(model_id: str, hf_dir: str, revision: str = "") -> int:
     model spec is the integrity control that fits this path — a file checksum
     does not, because a repo is many files and this command fetches all of them.
 
-    The pin is on the DOWNLOAD. `deploy/local-serve.sh` launches the server with
-    `--model <id>` and no revision, so the serving process resolves its own; a
-    pinned pull does not by itself pin what gets loaded. `ava models verify`
-    reports when the pinned snapshot is not the one in the store, which is the
-    part this command can honestly promise.
+    This half pins the DOWNLOAD. The other half is `AVA_MODEL_REVISION` in
+    deploy/.env, which both serving paths pass to vLLM as --revision and
+    --tokenizer-revision; without it the server resolves the default branch on
+    every start no matter what was fetched. `ava models verify` reports a
+    download pinned with an unpinned server, and reports the two pinned to
+    different commits as an error.
     """
     if _disk_gate(hf_dir, "Hugging Face"):
         return 1
@@ -1731,6 +1732,18 @@ def _backend_stanza(role: str, spec: dict, dirs: dict) -> str:
         lines.append(f"      # serve it:  llama-server -m {_gguf_target(spec, dirs['gguf'])} "
                      "--port 8080 --jinja")
         lines.append("      tools: none   # set to native only with a tool-call chat template")
+    rev = str(spec.get("revision") or "").strip()
+    if rev and eng == "vllm":
+        # The pin has two halves and this is the moment the owner is wiring the
+        # second one. Pinning the download alone leaves the server resolving the
+        # branch tip on every start, which is a pin that reads like a guarantee
+        # and is not one.
+        lines += [
+            "",
+            f"# You pinned revision {rev} for this model. Pin the SERVER to it too,",
+            "# in deploy/.env, or vLLM resolves the default branch tip on every start:",
+            f"#   AVA_MODEL_REVISION={rev}",
+        ]
     return "\n".join(lines)
 
 
@@ -1874,6 +1887,24 @@ def cmd_models(args) -> int:
                                      f"is not in the store — the files on disk are "
                                      f"whatever was pulled first (`ava models pull "
                                      f"--force` after clearing {dirs['hf']})")
+                    ok = False
+                    continue
+                # The store half is satisfied. The SERVING half is a different
+                # process reading deploy/.env, which this command does not own —
+                # so name the variable rather than guess at its value. A pin on
+                # the download alone leaves vLLM resolving the branch tip.
+                if not os.environ.get("AVA_MODEL_REVISION"):
+                    _row(WARN, role, f"downloaded at {rev[:12]}…, but the server is "
+                                     f"not pinned to it — set AVA_MODEL_REVISION="
+                                     f"{rev} in deploy/.env, or vLLM resolves the "
+                                     f"default branch on every start")
+                    ok = False
+                    continue
+                if os.environ["AVA_MODEL_REVISION"].strip() != rev:
+                    _row(BAD, role, f"the store is pinned to {rev[:12]}… and the "
+                                    f"server to "
+                                    f"{os.environ['AVA_MODEL_REVISION'][:12]}… — "
+                                    f"Ava would serve weights it did not download")
                     ok = False
                     continue
             if not want:

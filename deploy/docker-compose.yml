@@ -268,6 +268,14 @@ services:
     # the right guess. Empty means vLLM's own defaults; deploy/install.sh runs
     # deploy/resolve-model-flags.sh for the model the owner chose and writes the
     # real values into deploy/.env.
+    # AVA_MODEL_REVISION pins the COMMIT, not just the repo. Unset, vLLM resolves
+    # the default branch tip on every start, so the weights can change under a
+    # box that has been serving happily for a month with nothing reporting it.
+    # The tokenizer is pinned alongside because vLLM's --tokenizer-revision
+    # defaults to None, which resolves the tokenizer repo's own branch tip even
+    # when the weights are pinned — half a pin reads exactly like a whole one.
+    # `ava models pull` honours the same value from ava.yaml
+    # (`models.<role>.revision`); set both, or the pin stops at the download.
     command: >-
       --model ${AVA_MODEL:?set with AVA_BACKEND_URL — see deploy/profiles/}
       --trust-remote-code
@@ -275,6 +283,8 @@ services:
       --gpu-memory-utilization ${AVA_VLLM_GPU_UTIL:-0.90}
       --enforce-eager
       ${AVA_VLLM_MAX_LEN:+--max-model-len ${AVA_VLLM_MAX_LEN}}
+      ${AVA_MODEL_REVISION:+--revision ${AVA_MODEL_REVISION}}
+      ${AVA_MODEL_REVISION:+--tokenizer-revision ${AVA_MODEL_REVISION}}
       ${AVA_VLLM_MODEL_FLAGS:-}
     volumes:
       - ${AVA_HOME:-./ava-data}/models/hf:/root/.cache/huggingface
