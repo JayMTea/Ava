@@ -20,6 +20,7 @@ Nothing here touches a real runtime or the real `nemoclaw` binary.
 from __future__ import annotations
 
 import hashlib
+import json
 import unittest
 from unittest import mock
 
@@ -83,12 +84,12 @@ class _Rt:
         return self._openclaw
 
 
-def _verify(rt, scope="all", manifest=None):
-    with mock.patch.object(provision, "desired", return_value=WANT), \
+def _verify(rt, scope="all", manifest=None, want=None, connector=None):
+    with mock.patch.object(provision, "desired", return_value=want or WANT), \
          mock.patch.object(provision, "_manifest_map", return_value=manifest), \
          mock.patch.object(provision, "load_run", return_value=None):
         provision.invalidate()
-        return provision.verify(rt=rt, scope=scope)
+        return provision.verify(rt=rt, scope=scope, connector=connector)
 
 
 class LivenessGateTests(unittest.TestCase):
@@ -216,6 +217,121 @@ class ScopeTests(unittest.TestCase):
         rt = _Rt(record={"customPolicies": []}, live=False)
         res = _verify(rt, scope="policies")
         self.assertEqual({i["scope"] for i in res["items"]}, {"policies"})
+
+    def test_a_comma_scope_is_the_union_of_both(self):
+        rt = _Rt(record={"customPolicies": []}, live=False)
+        res = _verify(rt, scope="policies,servers")
+        self.assertEqual({i["scope"] for i in res["items"]}, {"policies", "servers"})
+
+    def test_an_unknown_token_verifies_nothing_rather_than_everything(self):
+        """`wanted` collapsing to empty is how the post-apply veto silently
+        switches itself off: no rows, no `checked`, no step, and the run reports
+        green with nothing asserted. The gates reject the token before it can get
+        here — this pins the behaviour if one ever leaks through."""
+        rt = _Rt(record={"customPolicies": []}, live=False)
+        res = _verify(rt, scope="connector:acme")
+        self.assertEqual(res["items"], [])
+        self.assertFalse(res["checked"])
+        self.assertIsNone(provision.verify_step(res),
+                          "an unverifiable result produced a step, which would "
+                          "read as a verdict")
+
+
+class ConnectorScopedVerifyTests(unittest.TestCase):
+    """A per-connector deploy must be judged on what IT did.
+
+    `deploy_connector` used to run a FULL provision, so it also applied every
+    other connector's policy on the way past — and verify(scope="all") was
+    therefore fair. Narrowing the deploy without narrowing the assert means
+    connector B's undeployed policy vetoes connector A's successful run: a green
+    deploy reported as a failure, which is the shape the entry-point-vs-tree bug
+    had, arriving from the other direction.
+    """
+
+    #: Two connectors. `acme` is applied in the sandbox; `ghost` never was.
+    WANT_TWO = {
+        "persona": [],
+        "policies": [
+            {"id": "ava-acme", "label": "ava-acme", "sha256": _sha("a"),
+             "rel": "agent/policies/generated/acme.yaml"},
+            {"id": "ava-ghost", "label": "ava-ghost", "sha256": _sha("g"),
+             "rel": "agent/policies/generated/ghost.yaml"},
+        ],
+        "servers": [
+            {"id": "ava-tools-connectors", "label": "ava-tools-connectors",
+             "sha256": _sha("c"), "rel": "agent/mcp_server_connectors",
+             "path": "/sandbox/.openclaw/mcp_server_connectors/_server.mjs",
+             "sandbox_root": "/sandbox/.openclaw/mcp_server_connectors"},
+        ],
+        "skills": [],
+    }
+
+    def _rt(self):
+        # `acme`'s policy is applied; `ghost`'s is not. The connectors server
+        # matches this checkout.
+        return _Rt(record={"customPolicies": [{"name": "ava-acme", "content": "a"}]},
+                   live=True,
+                   openclaw=json.dumps({"mcp": {"servers": {"ava-tools-connectors": {
+                       "command": "node",
+                       "args": ["/sandbox/.openclaw/mcp_server_connectors/_server.mjs"]}}}}),
+                   trees={"/sandbox/.openclaw/mcp_server_connectors": _sha("c")},
+                   digests={"/sandbox/.openclaw/mcp_server_connectors/_server.mjs": "x"})
+
+    def test_another_connectors_drift_does_not_veto_this_run(self):
+        res = _verify(self._rt(), scope="policies,servers",
+                      want=self.WANT_TWO, connector="acme")
+        self.assertEqual(res["failed"], [],
+                         "deploying 'acme' was vetoed by 'ghost', which this run "
+                         "never claimed to deploy")
+        step = provision.verify_step(res)
+        self.assertIsNotNone(step, "nothing was asserted at all")
+        self.assertTrue(step["ok"],
+                        f"the post-apply step failed a run that did its job: {step}")
+
+    def test_it_still_checks_the_connectors_own_rows(self):
+        res = _verify(self._rt(), scope="policies,servers",
+                      want=self.WANT_TWO, connector="acme")
+        self.assertEqual({i["id"] for i in res["items"]},
+                         {"ava-acme", "ava-tools-connectors"},
+                         "the narrowed verify checked the wrong rows")
+        self.assertTrue(res["checked"], "it asserted nothing at all")
+
+    def test_this_connectors_own_failure_still_vetoes(self):
+        """Narrowing must not become a way to never fail. `ghost` has no policy
+        in the sandbox, so deploying GHOST must report it."""
+        res = _verify(self._rt(), scope="policies,servers",
+                      want=self.WANT_TWO, connector="ghost")
+        self.assertIn("policies/ava-ghost", res["failed"])
+        step = provision.verify_step(res)
+        self.assertIsNotNone(step)
+        self.assertFalse(step["ok"])
+
+    def test_an_ava_prefixed_connector_id_is_not_double_prefixed(self):
+        """`render_egress_policy` deliberately does NOT double the prefix — a
+        connector called `ava-notes` keeps the preset `ava-notes`, pinned by
+        tests/test_connectors.py. Re-deriving that rule here got it wrong for
+        exactly the ids the special case exists for, and the failure was silent:
+        the row never matched, so the deploy asserted nothing about its own
+        policy and reported success either way."""
+        from ava_bridge import connectors
+
+        self.assertEqual(connectors.policy_preset_name("ava-notes"), "ava-notes")
+        self.assertEqual(connectors.policy_preset_name("notes"), "ava-notes")
+        self.assertEqual(provision.connector_items("ava-notes")["policies"],
+                         {"ava-notes"})
+
+    def test_the_filter_uses_the_same_rule_the_renderer_does(self):
+        """One rule, two readers — asserted directly so a second copy cannot
+        drift back in."""
+        from ava_bridge import connectors
+
+        for cid in ("acme", "ava-notes", "ava", "a-b_c"):
+            self.assertEqual(provision.connector_items(cid)["policies"],
+                             {connectors.policy_preset_name(cid)}, cid)
+
+    def test_an_unnarrowed_run_still_sees_everything(self):
+        res = _verify(self._rt(), scope="policies,servers", want=self.WANT_TWO)
+        self.assertIn("policies/ava-ghost", res["failed"])
 
 
 if __name__ == "__main__":

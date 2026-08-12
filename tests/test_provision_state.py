@@ -266,7 +266,7 @@ class DigestContractTests(unittest.TestCase):
         """The producer/consumer contract, end to end.
 
         `desired()` folds the repo directory with `tree_digest`; the runtime
-        folds the sandbox mirror. install.sh does `rm -rf "$DEST"` before
+        folds the sandbox mirror. install.sh replaces the destination outright before
         extracting `tar czf - -C "$src" .`, so the two byte sets are identical
         and the two folds must be too. Nothing checked that, which is how the
         repo's TREE digest came to be compared against the sandbox's
@@ -355,8 +355,9 @@ class _MirrorRuntime:
     """A sandbox that IS a byte-exact mirror of this checkout's server dirs.
 
     Deliberately derives its answers from the same files `desired()` reads,
-    because that is the physical guarantee install.sh provides: `rm -rf "$DEST"`
-    then extract `tar czf - -C "$src" .`. Nothing here is hand-fed, which is the
+    because that is the physical guarantee install.sh provides: extract
+    `tar czf - -C "$src" .` into a fresh directory and swap it over the
+    destination, never merging into what was there. Nothing here is hand-fed, which is the
     point — the shipped bug survived precisely because both sides of the
     comparison were hand-fed in a fixture.
     """

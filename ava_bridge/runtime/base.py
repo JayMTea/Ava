@@ -58,12 +58,20 @@ class AgentRuntime(ABC):
         return None
 
     def provision(self, auto_install: bool = False, scope: str = "all",
-                  on_line=None) -> dict:
+                  on_line=None, connector: str | None = None) -> dict:
         """Make the runtime ready (install CLI, create sandbox, deploy tools).
         Idempotent. Returns {ok, steps, detail, scope}.
 
-        `scope` is one of ava_bridge.provision.ALL_SCOPES: changing a persona
-        should not cost a full redeploy of every server, skill and policy.
+        `scope` is one or more of ava_bridge.provision.SCOPES, comma-separated,
+        or "all": changing a persona should not cost a full redeploy of every
+        server, skill and policy.
+
+        `connector` narrows a `policies,servers` run to ONE connected app — its
+        generated egress policy, and the one server its tools live in. It is
+        deliberately NOT a fifth scope: a scope is a domain of the desired
+        manifest (`provision.desired()` has exactly four keys) and a connector's
+        material is already enumerated as rows inside two of them. A fifth domain
+        would double-count it in every pending total.
 
         `on_line` is an optional `(str) -> None` called with each output line as
         it arrives. A callback rather than a generator because there are three
@@ -143,9 +151,9 @@ class AgentRuntime(ABC):
         folds the repo side: sorted `relpath\\0sha256` lines, hashed.
 
         This is the sandbox half of a promise `tree_digest`'s own docstring
-        already made — install.sh does `rm -rf "$DEST"` before extracting
-        `tar czf - -C "$src" .`, so the sandbox copy is a byte-exact mirror of
-        the source tree and the two folds are comparable. Without this half, the
+        already made — install.sh extracts `tar czf - -C "$src" .` into a fresh
+        directory and swaps that over the destination, so the sandbox copy is a
+        byte-exact mirror of the source tree and the two folds are comparable. Without this half, the
         repo's TREE digest was being compared against the sandbox's ENTRY-POINT
         digest, which can never match: every server read `stale` forever, so the
         pending count never cleared and the post-apply assert vetoed every

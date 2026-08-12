@@ -366,6 +366,132 @@ class ScopedInstallTests(unittest.TestCase):
         sh = (AGENT / "install.sh").read_text(encoding="utf-8")
         self.assertIn("POLICY_TOTAL", sh)
         self.assertRegex(sh, r'POLICY_FAILED"?\s*-eq\s*"?\$POLICY_TOTAL')
+    # --- --connector: deploy ONE app without redeploying the kit ------------- #
+    # Connecting an app shipped two generated files and cost a full deploy of
+    # everything — five server pushes, six skill installs, seven policy applies —
+    # because `deploy_connector` had no narrower verb to ask for.
+
+    def test_a_connector_run_pushes_one_server_not_five(self):
+        self._seed_generated()
+        full_p, full_calls = self._run()
+        self.assertEqual(full_p.returncode, 0, full_p.stdout + full_p.stderr)
+        full_pushes = self._count(full_calls, "env DEST=")
+        self.assertGreater(full_pushes, 1, "the full run pushed one server or none")
+
+        self.log.write_text("", encoding="utf-8")
+        p, calls = self._run("--only", "policies,servers", "--connector", "acme")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self._count(calls, "env DEST="), 1,
+                         "a connector run still pushed every server")
+        self.assertEqual(
+            self._count(calls, "DEST=/sandbox/.openclaw/mcp_server_connectors"), 1,
+            "the one server it pushed was not the one carrying connector tools")
+        self.assertEqual(self._count(calls, "skill install"), 0,
+                         "a connector run reinstalled the skills")
+
+    def test_a_connector_run_applies_only_that_connectors_policy(self):
+        self._seed_generated()
+        p, calls = self._run("--only", "policies,servers", "--connector", "acme")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        adds = [c for c in calls if "policy-add" in c]
+        self.assertEqual(len(adds), 1, f"expected one policy-add, got: {adds}")
+        self.assertIn("acme", adds[0])
+
+    def test_a_connector_runs_tools_still_reach_the_sandbox(self):
+        """Narrowing must not change WHAT lands. The push is still the whole
+        merged connectors tree — stage-validate-swap replaces a directory, not a
+        file — so the shipped server has to be in there too or the sandbox ends
+        up with tools and no server to load them."""
+        self._seed_generated()
+        p, calls = self._run("--only", "policies,servers", "--connector", "acme")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        members = self._tar_members(calls, "connectors")
+        self.assertIn("./apps/acme/acme_call.mjs", members)
+        self.assertIn("./_server.mjs", members)
+
+    def test_a_connector_run_still_registers_every_server(self):
+        """§4/5 is delete-then-recreate over every ava-* key, so a narrow run
+        that registered a subset would unregister the rest — the same trap the
+        persona scope has."""
+        self._seed_generated()
+        full_p, full_calls = self._run()
+        self.assertEqual(full_p.returncode, 0, full_p.stdout + full_p.stderr)
+        full_names = self._register_call(full_calls).count("ava-")
+
+        self.log.write_text("", encoding="utf-8")
+        p, calls = self._run("--only", "policies,servers", "--connector", "acme")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        register = self._register_call(calls)
+        self.assertTrue(register, "a connector run did not register servers at all")
+        self.assertFalse(register.rstrip().endswith(" []"))
+        self.assertEqual(register.count("ava-"), full_names)
+
+    def test_a_connector_run_does_not_write_the_persona(self):
+        """Registration has to run, and it used to write IDENTITY.md on the way
+        past — so deploying an app silently applied whatever persona ava.yaml
+        held, clearing a pending count the owner never pressed Apply for."""
+        self._seed_generated()
+        p, calls = self._run("--only", "policies,servers", "--connector", "acme")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        register = self._register_call(calls)
+        self.assertTrue(register)
+        self.assertIn("persona untouched", p.stdout,
+                      "a connector run rendered and shipped the persona anyway")
+        # The empty positional is the persona; it must be EMPTY, not absent —
+        # an absent one would shift every later positional in the exec.
+        self.assertIn("node -e", register)
+
+    def test_a_servers_only_run_leaves_the_persona_alone_too(self):
+        """Same fix, wider blast radius: `--only servers` had it as well."""
+        p, calls = self._run("--only", "servers")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("persona untouched", p.stdout)
+        self.assertEqual(self._register_call(calls).count("ava-"),
+                         self._register_call(self._run()[1]).count("ava-"))
+
+    def test_a_connector_with_no_generated_policy_is_a_failed_deploy(self):
+        """The policy is half of what a connector deploy delivers: without it the
+        sandbox denies every route its tools call, so the app is installed and
+        unusable. Exiting 0 let the Hub report success — and the post-apply
+        verify cannot catch it either, because a policy file that does not exist
+        is not in `desired()` and so has no row to check."""
+        self._seed_generated()
+        p, calls = self._run("--only", "policies,servers", "--connector", "ghost")
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertEqual(self._count(calls, "policy-add"), 0)
+        self.assertIn("no egress policy for 'ghost'", p.stdout + p.stderr)
+        self.assertIn("ava connector policies ghost --write", p.stdout + p.stderr)
+
+    def test_a_connector_with_no_only_deploys_that_app_not_everything(self):
+        """`--connector X` alone used to default the scope to `all`, so the run
+        skipped six of seven policies and four of five servers while printing
+        `provisioned` — less than asked, silently."""
+        self._seed_generated()
+        p, calls = self._run("--connector", "acme")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self._count(calls, "env DEST="), 1)
+        self.assertEqual(self._count(calls, "skill install"), 0)
+        self.assertEqual(len([c for c in calls if "policy-add" in c]), 1)
+
+    def test_all_plus_connector_is_refused_rather_than_resolved(self):
+        p, calls = self._run("--only", "all", "--connector", "acme")
+        self.assertEqual(p.returncode, 2)
+        self.assertIn("cannot narrow", p.stdout + p.stderr)
+        self.assertEqual(calls, [])
+
+    def test_a_connector_id_that_is_a_path_is_refused(self):
+        p, calls = self._run("--only", "policies", "--connector", "../../etc")
+        self.assertEqual(p.returncode, 2)
+        self.assertIn("is not a connector id", p.stdout + p.stderr)
+        self.assertEqual(calls, [], "it reached the CLI before validating the id")
+
+    def test_a_connector_with_nothing_to_narrow_is_refused(self):
+        p, calls = self._run("--only", "persona", "--connector", "acme")
+        self.assertEqual(p.returncode, 2)
+        self.assertIn("needs a scope that includes policies or servers",
+                      p.stdout + p.stderr)
+        self.assertEqual(calls, [])
+
 
 if __name__ == "__main__":
     unittest.main()

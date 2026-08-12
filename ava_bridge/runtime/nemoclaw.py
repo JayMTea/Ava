@@ -502,7 +502,7 @@ class NemoClawRuntime(AgentRuntime):
         return rc, "\n".join(buf)
 
     def provision(self, auto_install: bool = False, scope: str = "all",
-                  on_line=None) -> dict:
+                  on_line=None, connector: str | None = None) -> dict:
         """Make NemoClaw ready, idempotently:
           1. ensure the `nemoclaw` CLI (via NVIDIA's official installer if asked;
              the npm package is a stub — needs Node >=22.16 + a Docker daemon),
@@ -577,17 +577,31 @@ class NemoClawRuntime(AgentRuntime):
         install_sh = os.path.join(config.ROOT, "agent", "install.sh")
         if os.path.exists(install_sh):
             argv = ["bash", install_sh]
-            if scope and scope != "all":
-                argv += ["--only", scope]
+            # NORMALISED, never the raw string. install.sh's `_want` does literal
+            # `case ",$ONLY," in *",$1,"*` matching, so `"policies, servers"` —
+            # which every Python gate accepts, because they strip each token —
+            # matches `,policies,` and NOT `,servers,`, and the byte push,
+            # registration and gateway nudge are all skipped by a run that
+            # reported success. One spelling crosses the boundary.
+            from .. import provision as _provision
+            wanted = _provision.parse_scope(scope)
+            if wanted and set(wanted) != set(_provision.SCOPES):
+                argv += ["--only", ",".join(wanted)]
+            if connector:
+                # install.sh validates the id again on its own side: this script
+                # is also run by hand, and the value ends up as a filename
+                # component on both ends of an exec.
+                argv += ["--connector", connector]
             # install.sh reads the sandbox name and CLI path from the
             # environment only — see install_env().
             env = self.install_env()
             # ONE deploy at a time on this machine. `provision_job`'s lock is
             # in-process, so it never saw `ava agent provision` from a terminal
-            # or the shim in the agent container — and install.sh does
-            # `rm -rf "$DEST"` before extracting each server, so two runs
-            # interleaving there leave a registered server half-written. Taken
-            # here because this is the one place all three paths funnel through.
+            # or the shim in the agent container — and install.sh stages every
+            # server through the same fixed `$DEST.new`, so two runs pushing one
+            # server interleave inside it and the second swap promotes the
+            # wreckage. Taken here because this is the one place all three paths
+            # funnel through.
             with _deploy_lock.held() as mine:
                 if not mine:
                     step("deploy", False,
@@ -615,7 +629,15 @@ class NemoClawRuntime(AgentRuntime):
         # `--only persona` run has no business touching the gateway. Non-fatal —
         # a removal that fails must not fail a deploy that worked, and the next
         # drift report will still name what is left over.
-        if scope in ("all", "policies") or "policies" in str(scope).split(","):
+        # NOT on a per-connector run. Retirement reconciles the WHOLE checkout
+        # against the sandbox, which is a global action, and a deploy the owner
+        # scoped to one app has no business withdrawing another app's policy on
+        # the way past — the same reason it no longer writes the persona. The
+        # full Apply still does it, and `state()["orphans"]` still names what is
+        # left over in the meantime.
+        if connector:
+            pass
+        elif scope in ("all", "policies") or "policies" in str(scope).split(","):
             try:
                 from .. import provision as _provision
                 gone = _provision.retire_policies(rt=self, write=True)

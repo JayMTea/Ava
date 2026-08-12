@@ -113,6 +113,36 @@ class ScopeMatrixTests(unittest.TestCase):
         self.assertEqual(p.returncode, 2)
         self.assertIn("unknown flag", p.stdout + p.stderr)
 
+    def test_a_connector_run_plans_one_server_and_one_policy(self):
+        """Connecting an app shipped two generated files and cost a full deploy
+        of everything, because `deploy_connector` had no narrower verb to ask
+        for. The plan is where that narrowing has to be visible — it is what a
+        human reads before letting it run."""
+        rc, out = _plan("--only", "policies,servers", "--connector", "acme")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("connector=acme", out)
+        self.assertIn("§1 apply egress policies (only acme)", out)
+        self.assertIn("§3 push MCP server bytes (only mcp_server_connectors)", out)
+        self.assertNotIn("§6 install skills", out)
+        self.assertNotIn("§4/5 write persona", out,
+                         "a connector run plans to write the persona, which "
+                         "clears a pending count nobody pressed Apply for")
+        # Registration still covers every server: §4/5 is delete-then-recreate,
+        # so a subset would unregister the rest.
+        discovered = int(out.split("servers discovered:")[1].split()[0])
+        self.assertIn(f"register servers={discovered}", out)
+
+    def test_registration_and_the_persona_write_are_separate_lines(self):
+        """They are two facts under one `if`: registration runs for `servers`
+        too, the persona write runs for `persona` alone. One line saying
+        "+ write persona" claimed work a servers-only run should not do."""
+        _, servers = _plan("--only", "servers")
+        self.assertIn("register servers=", servers)
+        self.assertNotIn("write persona", servers)
+        _, persona = _plan("--only", "persona")
+        self.assertIn("register servers=", persona)
+        self.assertIn("write persona", persona)
+
     def test_the_documented_scopes_match_the_ones_the_script_accepts(self):
         """Usage text, the validator, and ava_bridge/provision.py must agree."""
         from ava_bridge import provision
@@ -126,6 +156,22 @@ class ScopeMatrixTests(unittest.TestCase):
         usage = next(ln for ln in sh.splitlines() if "usage:" in ln)
         for scope in provision.SCOPES:
             self.assertIn(scope, usage, f"--only {scope} is undocumented in the usage line")
+
+    def test_the_connector_flag_is_documented(self):
+        """`--connector` deliberately is NOT a scope: the four scope names are
+        one vocabulary shared with provision.py, the API and the UI, and a
+        compound token would have to be taught to every one of them. It is a
+        narrowing modifier, and the usage block has to say so or the only way to
+        find it is to read the argument parser."""
+        sh = INSTALL_SH.read_text(encoding="utf-8")
+        head = sh.split("set -euo pipefail", 1)[0]
+        self.assertIn("--connector", head, "--connector is undocumented")
+        self.assertIn("--connector", sh.split("usage:", 1)[1].split("\n\n", 1)[0])
+        from ava_bridge import provision
+        self.assertNotIn("connector", provision.SCOPES,
+                         "--connector became a scope; it must stay a modifier, or "
+                         "provision.py, provision_job, the CLI, the remote "
+                         "capability handshake and the Hub all have to learn it.")
 
 
 if __name__ == "__main__":

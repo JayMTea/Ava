@@ -75,6 +75,52 @@ class HandshakeTests(unittest.TestCase):
         self.assertTrue(res["ok"])
         self.assertEqual(post.call_args.kwargs["json"]["scope"], "persona")
 
+    # --- the same handshake, one narrowing later --------------------------- #
+    # `--connector` is a NEW key in the same body. The shim reads its body with
+    # `.get()` and ignores what it does not know, so an older container handed
+    # `connector` would deploy EVERYTHING and report success — the identical
+    # silent widening `provision.scope` exists to stop. A narrowing without its
+    # own capability string is unsafe by construction.
+
+    def test_an_old_shim_refuses_a_per_connector_apply(self):
+        rt, body = _runtime_with_caps(["provision.scope"])   # scope, but not connector
+        with mock.patch("ava_bridge.runtime.remote.requests.get",
+                        return_value=_Resp(body)), \
+             mock.patch("ava_bridge.runtime.remote.requests.post") as post, \
+             mock.patch.object(__import__("ava_bridge.config", fromlist=["config"]),
+                               "AGENT_ENABLED", True):
+            res = rt.provision(scope="policies,servers", connector="acme")
+        self.assertFalse(res["ok"])
+        self.assertEqual(res["error_code"], "remote_connector_unsupported")
+        post.assert_not_called()
+
+    def test_a_capable_shim_gets_the_connector_in_the_body(self):
+        rt, body = _runtime_with_caps(["provision.scope", "provision.connector"])
+        with mock.patch("ava_bridge.runtime.remote.requests.get",
+                        return_value=_Resp(body)), \
+             mock.patch("ava_bridge.runtime.remote.requests.post",
+                        return_value=_Resp({"ok": True, "steps": []})) as post, \
+             mock.patch.object(__import__("ava_bridge.config", fromlist=["config"]),
+                               "AGENT_ENABLED", True):
+            res = rt.provision(scope="policies,servers", connector="acme")
+        self.assertTrue(res["ok"])
+        sent = post.call_args.kwargs["json"]
+        self.assertEqual(sent["scope"], "policies,servers")
+        self.assertEqual(sent["connector"], "acme")
+
+    def test_a_run_with_no_connector_never_sends_the_key(self):
+        """An unscoped run must stay byte-identical to what an old shim already
+        understands — the key's ABSENCE is what keeps `all` working everywhere."""
+        rt, body = _runtime_with_caps(None)
+        with mock.patch("ava_bridge.runtime.remote.requests.get",
+                        return_value=_Resp(body)), \
+             mock.patch("ava_bridge.runtime.remote.requests.post",
+                        return_value=_Resp({"ok": True, "steps": []})) as post, \
+             mock.patch.object(__import__("ava_bridge.config", fromlist=["config"]),
+                               "AGENT_ENABLED", True):
+            rt.provision(scope="all")
+        self.assertNotIn("connector", post.call_args.kwargs["json"])
+
     def test_scope_all_works_against_an_old_shim(self):
         """The handshake must not break the case that always worked."""
         rt, body = _runtime_with_caps(None)
@@ -144,6 +190,53 @@ class ShimTests(unittest.TestCase):
                             headers={"x-ava-agent-token": token})
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(prov.call_args.kwargs["scope"], "skills")
+
+    def test_the_shim_takes_a_comma_scope_and_a_connector(self):
+        """`policies,servers` is what a connector deploy asks for. Four gates
+        used bare `in ALL_SCOPES` membership while install.sh, verify() and the
+        policy-retire gate all implemented comma unions — legal at the bottom of
+        the stack, rejected at every entrance to it."""
+        from fastapi.testclient import TestClient
+        from ava_bridge import agent_runtime_server as shim
+        from ava_bridge import config as real_config
+
+        token = "t" * 32
+        with mock.patch.object(real_config, "AGENT_TOKEN", token), \
+             mock.patch.object(shim._rt, "provision",
+                               return_value={"ok": True, "steps": []}) as prov:
+            client = TestClient(shim.app, raise_server_exceptions=False)
+            r = client.post("/provision",
+                            json={"scope": "policies,servers", "connector": "acme"},
+                            headers={"x-ava-agent-token": token})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(prov.call_args.kwargs["scope"], "policies,servers")
+        self.assertEqual(prov.call_args.kwargs["connector"], "acme")
+
+    def test_the_shim_refuses_a_connector_id_that_is_a_path(self):
+        """It crosses a network boundary and becomes a filename component inside
+        the sandbox. install.sh checks it again — two ends of an exec, two
+        checks."""
+        from fastapi.testclient import TestClient
+        from ava_bridge import agent_runtime_server as shim
+        from ava_bridge import config as real_config
+
+        token = "t" * 32
+        with mock.patch.object(real_config, "AGENT_TOKEN", token), \
+             mock.patch.object(shim._rt, "provision") as prov:
+            client = TestClient(shim.app, raise_server_exceptions=False)
+            r = client.post("/provision",
+                            json={"scope": "policies", "connector": "../../etc"},
+                            headers={"x-ava-agent-token": token})
+        self.assertEqual(r.status_code, 400, r.text)
+        self.assertEqual(r.json()["error_code"], "bad_connector")
+        prov.assert_not_called()
+
+    def test_the_narrowing_is_advertised_so_an_old_container_is_refused(self):
+        from ava_bridge import agent_runtime_server as shim
+        self.assertIn("provision.connector", shim.CAPABILITIES,
+                      "the shim accepts `connector` without advertising it, so a "
+                      "newer bridge cannot tell whether it will be honoured — "
+                      "and an unadvertised narrowing is a silent full deploy")
 
     def test_every_scope_the_bridge_can_send_is_one_the_shim_accepts(self):
         """Guards the class of bug where one side grows a name the other drops."""

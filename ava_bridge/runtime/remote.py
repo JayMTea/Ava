@@ -141,7 +141,7 @@ class RemoteRuntime(AgentRuntime):
         return list(self._avail_cache.get("caps") or [])
 
     def provision(self, auto_install: bool = False, scope: str = "all",
-                  on_line=None) -> dict:
+                  on_line=None, connector: str | None = None) -> dict:
         """Provision the remote agent, refusing to silently widen the scope.
 
         The shim reads its body with `body.get(...)` and ignores unknown keys, so
@@ -163,10 +163,23 @@ class RemoteRuntime(AgentRuntime):
                            "provisioning, so it cannot apply just "
                            f"'{scope}'. Rebuild it, or apply everything."),
             }
+        # Its own capability string, for the reason the docstring above gives:
+        # the shim reads its body with `.get()` and ignores keys it does not
+        # know, so an older container handed `connector` would deploy EVERYTHING
+        # and report success — the same silent widening, one narrowing later.
+        if connector and "provision.connector" not in self.capabilities():
+            return {
+                "ok": False, "steps": [], "scope": scope,
+                "error_code": "remote_connector_unsupported",
+                "detail": ("this agent-runtime container predates per-connector "
+                           f"deploys, so it cannot apply just '{connector}'. "
+                           "Rebuild it, or apply everything."),
+            }
         try:
-            return self._post("/provision",
-                              {"auto_install": auto_install, "scope": scope},
-                              timeout=900)
+            body = {"auto_install": auto_install, "scope": scope}
+            if connector:
+                body["connector"] = connector
+            return self._post("/provision", body, timeout=900)
         except Exception as e:  # noqa: BLE001
             return {"ok": False, "steps": [], "scope": scope,
                     "detail": f"agent service unreachable: {e}"}

@@ -89,6 +89,19 @@ the last three for you.)
     (`ava agent provision --install`, or `nemoclaw onboard`) rather than
     half-deploying.
 
+    Deploying **one** app, once the kit is already in the sandbox:
+
+    ```
+    $ cd agent && ./install.sh --connector mycrm
+    ```
+
+    That applies `mycrm`'s egress policy and pushes the one server its tools live
+    in, instead of re-pushing every MCP server, skill and policy to ship two
+    generated files. `ava agent provision --connector mycrm` does the same
+    through the bridge, and Setup → Connectors' **Deploy** button uses it
+    automatically — falling back to a full deploy when the rest of the kit is not
+    in the sandbox yet, because that is the run that puts it there.
+
 ---
 
 ## 2. The manifest

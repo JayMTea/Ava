@@ -27,9 +27,22 @@ from ava_bridge import runtime
 
 class RequiredGateTests(unittest.TestCase):
 
-    def _gate(self, *, runtime_name: str, required: bool, available: bool = True):
+    def _gate(self, *, runtime_name: str, required: bool, available: bool = True,
+              enabled: bool = True):
+        """`enabled` is pinned, not inherited.
+
+        `gate()` reads the agent's feature switch to tell `agent_off` from
+        `agent_down`, and that switch is a real environment variable
+        (AVA_AGENT_ENABLED) which the QA tier sets to 0 for its own reasons. A
+        test whose verdict depends on the ambient environment passes alone and
+        fails beside another suite, which is the least useful kind of failure.
+        """
+        from ava_bridge import features
         with mock.patch("ava_bridge.config.AGENT_RUNTIME", runtime_name), \
              mock.patch("ava_bridge.config.AGENT_REQUIRED", required), \
+             mock.patch.object(features, "enabled",
+                               side_effect=lambda k: enabled if k == "agent"
+                               else True), \
              mock.patch.object(runtime.nemoclaw(), "available",
                                return_value=available):
             return runtime.gate()
@@ -96,11 +109,8 @@ class RequiredGateTests(unittest.TestCase):
         """Different problems, different fixes: a switch to flip vs a runtime to
         provision. Collapsing them would send the owner to install something they
         already have."""
-        from ava_bridge import features
-        with mock.patch.object(features, "enabled",
-                               side_effect=lambda k: k != "agent"):
-            _rt, err = self._gate(runtime_name="nemoclaw", required=True,
-                                  available=False)
+        _rt, err = self._gate(runtime_name="nemoclaw", required=True,
+                              available=False, enabled=False)
         self.assertEqual(getattr(err, "code", ""), "agent_off")
         self.assertIn("required", err, "the conflict with agent.required must "
                                        "still be named — being off is only half "

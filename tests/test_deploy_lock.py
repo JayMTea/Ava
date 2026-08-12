@@ -4,9 +4,12 @@
 for everything inside the bridge and for nothing outside it. Two other things run
 the same `agent/install.sh` against the same sandbox: `ava agent provision` from
 a terminal, and the shim inside the agent container. install.sh does
-`rm -rf "$DEST"` before extracting each MCP server, so two runs interleaving
-there leave a server half-written while still registered in openclaw.json —
-which reads `stale` forever and is only fixed by another deploy.
+stages every server through the same FIXED path — `rm -rf "$DEST.new"`, extract,
+`node --check`, swap over `$DEST`. Fixed is the problem: two runs pushing one
+server share that staging directory, so they interleave inside it and whichever
+swaps second promotes the wreckage. The syntax check does not save it — both
+runs check the same shared tree. What lands is a server registered in
+openclaw.json whose code is some interleaving of two tarballs.
 
 Nothing here invokes the real `nemoclaw` binary: `nemoclaw <sandbox> status
 --json` was observed restarting the host's OpenShell gateway and killing a host

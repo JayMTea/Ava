@@ -21,11 +21,18 @@
 # To add a capability: run ./new-tool.sh <name>, implement it, add a policy if it
 # needs network, then re-run ./install.sh. Nothing else to wire up.
 #
-#   usage: ./install.sh [--only persona|policies|servers|skills|all[,...]] [--dry-run]
+#   usage: ./install.sh [--only persona|policies|servers|skills|all[,...]]
+#                       [--connector <id>] [--dry-run]
 #
 #   --only     deploy just part of the kit. Changing a persona costs one file
 #              write; a full run re-pushes five MCP servers, six skills and
 #              seven policies, then nudges the gateway. Default: all.
+#   --connector  narrow --only policies,servers to ONE connected app: its
+#              generated egress policy, and the one server its tools live in
+#              (mcp_server_connectors). Connecting an app used to cost a full
+#              deploy of everything — five servers, six skills, seven policies
+#              — to ship two generated files. Requires a scope that includes
+#              policies or servers, because there is nothing else it can narrow.
 #   --dry-run  print the plan and exit 0. Touches nothing, needs no sandbox and
 #              no CLI — which is what makes the scope matrix testable in CI.
 set -euo pipefail
@@ -92,18 +99,35 @@ _step() { printf '[ava::step]\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "${4:-}"; }
 # Scope names are shared with `ava_bridge/provision.py` SCOPES and the Hub's
 # domain keys. One spelling everywhere.
 SCOPES_ALL="persona policies servers skills"
+# The category whose server carries every connected app's generated tools.
+# Named once: --connector narrows the server push to it, and a fork that renamed
+# the directory gets a loud error rather than a silent full deploy.
+CONNECTOR_CAT="connectors"
 ONLY=""
+ONLY_GIVEN=0
+CONNECTOR=""
 DRY_RUN=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --only)    ONLY="${2:-}"; shift 2 ;;
-    --only=*)  ONLY="${1#--only=}"; shift ;;
+    --only)    ONLY="${2:-}"; ONLY_GIVEN=1; shift 2 ;;
+    --only=*)  ONLY="${1#--only=}"; ONLY_GIVEN=1; shift ;;
+    --connector)   CONNECTOR="${2:-}"; shift 2 ;;
+    --connector=*) CONNECTOR="${1#--connector=}"; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
-    -h|--help) sed -n '2,31p' "${BASH_SOURCE[0]}"; exit 0 ;;
-    *) echo "[ava] ERROR: unknown flag '$1' (try --only or --dry-run)" >&2; exit 2 ;;
+    -h|--help) sed -n '2,35p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    *) echo "[ava] ERROR: unknown flag '$1' (try --only, --connector or --dry-run)" >&2; exit 2 ;;
   esac
 done
-ONLY="${ONLY:-${AVA_PROVISION_ONLY:-all}}"
+# `--connector` with no `--only` means "deploy this app", not "deploy everything
+# and also narrow two sections of it". Defaulting to `all` there produced a run
+# that skipped six of seven policies and four of five servers while printing
+# `provisioned` — less than asked, silently, which is the one outcome the scope
+# validator below exists to prevent.
+if [ -n "$CONNECTOR" ] && [ "$ONLY_GIVEN" = "0" ] && [ -z "${AVA_PROVISION_ONLY:-}" ]; then
+  ONLY="policies,servers"
+else
+  ONLY="${ONLY:-${AVA_PROVISION_ONLY:-all}}"
+fi
 # Reject an unknown scope LOUDLY. A future scope name arriving at an older copy
 # of this script must fail, never silently fall through to doing everything —
 # that is the shell-level half of the capability handshake the remote runtime
@@ -117,6 +141,39 @@ for _s in ${ONLY//,/ }; do
 done
 _want() { case ",$ONLY," in *,all,*) return 0 ;; *",$1,"*) return 0 ;; *) return 1 ;; esac; }
 
+# A connector id is a filename component on both sides of an exec — it selects
+# `policies/generated/<id>.yaml` here and names a directory inside the sandbox.
+# Same shape ava_bridge/hub/connectors.py `_ID_RE` enforces at creation, checked
+# again here because this script is also run by hand: a `..` or a slash that got
+# this far would escape the generated directory.
+if [ -n "$CONNECTOR" ]; then
+  case "$CONNECTOR" in
+    *[!a-z0-9_-]*|-*|_*|"")
+      echo "[ava] ERROR: '--connector $CONNECTOR' is not a connector id" >&2
+      echo "[ava]        (lowercase letters, digits, '-' and '_'; must not start with either)" >&2
+      exit 2 ;;
+  esac
+  # `all` and a narrowing cannot both be honoured: `all` says deploy every
+  # policy, every server, every skill; `--connector` says deploy one app's
+  # policy and one server. Named rather than resolved for them — picking a side
+  # silently is how a run comes to do a fraction of what it reported.
+  case ",$ONLY," in
+    *,all,*)
+      echo "[ava] ERROR: --connector cannot narrow '--only all' — they ask for" >&2
+      echo "[ava]        opposite things. Use --only policies,servers (or drop" >&2
+      echo "[ava]        --only entirely, which means exactly that)." >&2
+      exit 2 ;;
+  esac
+  # Nothing else narrows, so a scope with neither policies nor servers in it is
+  # a request that cannot be honoured. Say so rather than deploying everything
+  # or nothing — both are surprises.
+  if ! _want policies && ! _want servers; then
+    echo "[ava] ERROR: --connector needs a scope that includes policies or servers" >&2
+    echo "[ava]        (got --only $ONLY)" >&2
+    exit 2
+  fi
+fi
+
 # Sections are gated on _want; this says which, in one place, for --dry-run and
 # for the humans reading a diff. Pure: no CLI, no sandbox, no writes.
 _plan() {
@@ -127,15 +184,21 @@ _plan() {
       [ -f "${d}_server.mjs" ] && n=$((n + 1))
     done
   done
-  echo "[ava] plan: scope=$ONLY"
-  _want policies && echo "[ava]   §1 apply egress policies"                || true
+  echo "[ava] plan: scope=$ONLY${CONNECTOR:+ connector=$CONNECTOR}"
+  _want policies && echo "[ava]   §1 apply egress policies${CONNECTOR:+ (only $CONNECTOR)}" || true
   echo   "[ava]   §2/2b/2c proxy + tokens + server discovery (always)"
-  _want servers  && echo "[ava]   §3 push MCP server bytes"                || true
+  _want servers  && echo "[ava]   §3 push MCP server bytes${CONNECTOR:+ (only mcp_server_$CONNECTOR_CAT)}" || true
   # The registration pass ALWAYS registers every discovered server, whatever the
   # scope — it is delete-then-recreate, so registering a subset would unregister
   # the rest. The count below is the guard a test can assert on.
+  #
+  # Two lines, because they are two facts under one `if`: registration runs for
+  # `servers` as well as `persona`, and the persona write runs for `persona`
+  # alone. One line saying "+ write persona" claimed work a servers-only run
+  # both planned and (until this) actually did.
   { _want persona || _want servers; } \
-                 && echo "[ava]   §4/5 register servers=$n + write persona"  || true
+                 && echo "[ava]   §4/5 register servers=$n"                  || true
+  _want persona  && echo "[ava]   §4/5 write persona"                        || true
   _want skills   && echo "[ava]   §6 install skills"                       || true
   { _want servers || [ "$ONLY" = "all" ]; } \
                  && echo "[ava]   §7 nudge gateway"                        || true
@@ -230,6 +293,13 @@ for poldir in "$HERE/policies" "$HERE/policies/generated" \
   case " $_SEEN_POLDIRS " in *" $_real "*) continue ;; esac
   _SEEN_POLDIRS="$_SEEN_POLDIRS $_real"
   for pol in "$poldir"/*.yaml; do
+    # --connector: this app's generated policy and nothing else. Matching on the
+    # STEM is right because that is the connector id — `ava connector policies`
+    # writes generated/<id>.yaml — while the preset name inside the file is
+    # `ava-<id>`, which is not this file's key.
+    if [ -n "$CONNECTOR" ] && [ "$(basename "$pol")" != "$CONNECTOR.yaml" ]; then
+      continue
+    fi
     echo "[ava] applying policy: $(basename "$pol")…"
     _send="$pol"
     if [ "$_BRIDGE_PORT_RESOLVED" != "8096" ]; then
@@ -250,6 +320,22 @@ for poldir in "$HERE/policies" "$HERE/policies/generated" \
     fi
   done
 done
+# A connector run that matched no policy file is not a no-op to shrug at: the
+# app's routes stay denied by default, so its tools will fail one at a time with
+# nothing naming the cause. Regenerate is the fix, and it is one command.
+# FATAL, not a warning. The policy is half of what a connector deploy delivers:
+# without it the sandbox's deny-by-default blocks every route its tools call, so
+# the app is installed and unusable. Exiting 0 here let the Hub report a
+# successful deploy — and the post-apply verify has no row to catch it either,
+# because a policy file that does not exist is not in `desired()`.
+if [ -n "$CONNECTOR" ] && [ "$POLICY_TOTAL" -eq 0 ]; then
+  echo "[ava] ERROR: no egress policy for '$CONNECTOR' — looked for" >&2
+  echo "[ava]        policies/generated/$CONNECTOR.yaml. Without it the sandbox" >&2
+  echo "[ava]        denies every route its tools call." >&2
+  echo "[ava]        Run: ava connector policies $CONNECTOR --write" >&2
+  _step policies "$CONNECTOR" fail "no generated policy file to apply"
+  exit 1
+fi
 if [ "$POLICY_FAILED" -gt 0 ]; then
   echo "[ava] WARNING: ${POLICY_FAILED} egress polic(ies) did not apply — the tools that" >&2
   echo "[ava]          depend on them will be blocked by the sandbox's deny-by-default." >&2
@@ -376,7 +462,23 @@ PY
 # The set is whatever §2c discovered, so adding/removing a category dir (core or
 # overlay) needs no edits here. Each server is small + fully independent.
 if _want servers; then
+# --connector: only the server that carries connector tools. The push is still
+# the whole merged mcp_server_connectors tree — stage-validate-swap replaces a
+# directory, not a file — so this narrows five server pushes to one, not to one
+# app's files. Saying that plainly beats implying a granularity the mechanism
+# does not have.
+if [ -n "$CONNECTOR" ]; then
+  if [ -z "${CAT_SRC[$CONNECTOR_CAT]+x}" ]; then
+    echo "[ava] ERROR: --connector needs an mcp_server_$CONNECTOR_CAT server, and" >&2
+    echo "[ava]        discovery found none. Run a full deploy instead." >&2
+    exit 2
+  fi
+  echo "[ava] connector run: pushing mcp_server_$CONNECTOR_CAT only"
+fi
 for cat in "${CATS[@]}"; do
+  if [ -n "$CONNECTOR" ] && [ "$cat" != "$CONNECTOR_CAT" ]; then
+    continue
+  fi
   name="${SERVER_NAME[$cat]}"
   src="${CAT_SRC[$cat]}"
   dest="/sandbox/.openclaw/mcp_server_${cat}"
@@ -421,7 +523,11 @@ for cat in "${CATS[@]}"; do
        rm -rf "$DEST.old"
        echo "[ava] ok: $NAME"'
   if _run_cli "$NEMOCLAW" "$SANDBOX" exec --no-tty -- env DEST="$dest" NAME="$name" bash -c "$CMD" "$B64"; then
-    _step servers "$name" ok
+    # Name the app on a connector run. The step stream is keyed on the SERVER,
+    # so the Hub reported "Tools · ava-tools-connectors ok" for what the owner
+    # asked as "deploy <their app>" — accurate about the mechanism and useless
+    # as an answer to the thing they pressed.
+    _step servers "$name" ok "${CONNECTOR:+tools for $CONNECTOR}"
   else
     # Non-fatal, and REPORTED. A bare `_run_cli` here aborted the whole script
     # under `set -e`, so one server failing to push skipped registration, the
@@ -448,10 +554,23 @@ fi
 # owner/persona). Prefer the repo venv (has pyyaml) so ava.yaml is honoured; fall
 # back to system python3 (renders a neutral persona from built-in defaults).
 if _want persona || _want servers; then
-PY="$HERE/../.venv/bin/python"; [ -x "$PY" ] || PY="$(command -v python3)"
-PROMPT="$("$PY" "$HERE/render_persona.py")"
-PROMPT_B64="$(printf %s "$PROMPT" | base64 -w0)"
-echo "[ava] registering ${#CATS[@]} mcp servers + persona (${#PROMPT} chars)…"
+# The persona is rendered ONLY when it was asked for. This block runs for
+# `servers` too, because registration is delete-then-recreate and a subset would
+# unregister the rest — but it used to write IDENTITY.md on the way past
+# regardless, so deploying a tool server silently applied whatever persona
+# ava.yaml happened to hold. The owner would watch the persona's pending count
+# clear without ever pressing Apply for it, which is the two-verb rule breaking
+# from the inside.
+PROMPT=""
+PROMPT_B64=""
+if _want persona; then
+  PY="$HERE/../.venv/bin/python"; [ -x "$PY" ] || PY="$(command -v python3)"
+  PROMPT="$("$PY" "$HERE/render_persona.py")"
+  PROMPT_B64="$(printf %s "$PROMPT" | base64 -w0)"
+  echo "[ava] registering ${#CATS[@]} mcp servers + persona (${#PROMPT} chars)…"
+else
+  echo "[ava] registering ${#CATS[@]} mcp servers (persona untouched — not in scope)"
+fi
 # tools.toolSearch MUST be false so the model can call MCP tools as native calls
 JS="$(cat <<'JS'
 const fs = require("fs");
@@ -490,9 +609,16 @@ d.agents.defaults = d.agents.defaults || {};
 // where the agent went from "I am Nemotron" to "I'm Max, assisting Alpha
 // Tester".
 delete d.agents.defaults.systemPromptOverride;
-const wsDir = "/sandbox/.openclaw/workspace";
-fs.mkdirSync(wsDir, { recursive: true });
-fs.writeFileSync(wsDir + "/IDENTITY.md", process.env.AVA_P);
+// An EMPTY persona means "not in this scope", never "the owner has no persona":
+// render_persona.py always produces text, so empty can only come from the guard
+// above. Writing it would blank IDENTITY.md and leave Ava answering as the base
+// model — the exact failure the deleted systemPromptOverride key used to cause.
+const persona = process.env.AVA_P || "";
+if (persona) {
+  const wsDir = "/sandbox/.openclaw/workspace";
+  fs.mkdirSync(wsDir, { recursive: true });
+  fs.writeFileSync(wsDir + "/IDENTITY.md", persona);
+}
 d.tools = d.tools || {};
 d.tools.toolSearch = false;
 d.mcp = d.mcp || {};
@@ -506,7 +632,9 @@ for (const k of Object.keys(d.mcp.servers)) {
 for (const s of servers) d.mcp.servers[s.name] = server(s.path, s.group);
 
 fs.writeFileSync(f, JSON.stringify(d, null, 2));
-console.log("[ava] config written, " + servers.length + " servers registered, persona=" + process.env.AVA_P.length + " chars -> workspace/IDENTITY.md");
+console.log("[ava] config written, " + servers.length + " servers registered"
+  + (persona ? ", persona=" + persona.length + " chars -> workspace/IDENTITY.md"
+             : ", persona untouched"));
 JS
 )"
 JS_B64="$(printf %s "$JS" | base64 -w0)"

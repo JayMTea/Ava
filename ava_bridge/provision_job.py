@@ -38,6 +38,7 @@ _job: dict[str, Any] = {
     "status": "idle",       # idle | running | done | error
     "id": None,
     "scope": None,
+    "connector": None,      # set when a run deploys ONE connected app
     "started_at": None,
     "ended_at": None,
     "rc": None,
@@ -88,6 +89,7 @@ def _snapshot_locked(since: int = 0) -> dict:
         "status": _job["status"],
         "id": _job["id"],
         "scope": _job["scope"],
+        "connector": _job["connector"],
         "started_at": _job["started_at"],
         "ended_at": _job["ended_at"],
         "rc": _job["rc"],
@@ -101,10 +103,17 @@ def _snapshot_locked(since: int = 0) -> dict:
 
 
 def start(scope: str = "all", auto_install: bool = False,
-          runner: Callable[..., dict] | None = None) -> tuple[bool, dict]:
+          runner: Callable[..., dict] | None = None,
+          connector: str | None = None) -> tuple[bool, dict]:
     """Begin a run. Returns (started, snapshot); (False, …) means one is already
-    in flight and the caller should 409."""
-    if scope not in provision.ALL_SCOPES:
+    in flight and the caller should 409.
+
+    `connector` narrows a `policies,servers` run to one connected app. It rides
+    on the job rather than in the scope string because a scope is a domain of the
+    desired manifest and a connector's material already lives inside two of them
+    — see `provision.parse_scope`.
+    """
+    if provision.parse_scope(scope) is None:
         return False, {**snapshot(), "error": f"unknown scope {scope!r}",
                        "error_code": "unknown_scope"}
 
@@ -113,6 +122,7 @@ def start(scope: str = "all", auto_install: bool = False,
             return False, _snapshot_locked()
         _job.update(
             status="running", id=uuid.uuid4().hex[:12], scope=scope,
+            connector=connector or None,
             started_at=time.time(), ended_at=None, rc=None, steps=[], detail="",
             result=None, seq=0, observable=True,
         )
@@ -134,8 +144,11 @@ def start(scope: str = "all", auto_install: bool = False,
         result: dict = {}
         try:
             if runner is not None:
+                # The injected runner sees exactly what the real runtime sees,
+                # narrowing included — a test seam that is handed less than
+                # production is a seam that can pass while production is wrong.
                 result = runner(scope=scope, auto_install=auto_install,
-                                on_line=_on_line) or {}
+                                on_line=_on_line, connector=connector) or {}
             else:
                 from . import runtime as _runtime
                 rt = _runtime.configured()
@@ -146,7 +159,7 @@ def start(scope: str = "all", auto_install: bool = False,
                     # never fills.
                     _job["observable"] = hasattr(rt, "_stream")
                 result = rt.provision(auto_install=auto_install, scope=scope,
-                                      on_line=_on_line) or {}
+                                      on_line=_on_line, connector=connector) or {}
         except Exception as e:  # noqa: BLE001
             result = {"ok": False, "detail": f"provisioning crashed: {e}"}
         else:
@@ -155,7 +168,10 @@ def start(scope: str = "all", auto_install: bool = False,
             # is reported and skipped by design, so without this a deploy that
             # silently dropped a policy still reads as success.
             try:
-                verdict = provision.verify(scope=scope)
+                # Scoped AND narrowed the same way the run was: a connector
+                # deploy that reported failure because a DIFFERENT connector is
+                # undeployed would be vetoing work it never claimed to do.
+                verdict = provision.verify(scope=scope, connector=connector)
                 result["verify"] = verdict
                 step = provision.verify_step(verdict)
                 if step is not None:
@@ -208,7 +224,8 @@ def start(scope: str = "all", auto_install: bool = False,
 
 def reset_for_tests() -> None:
     with _lock:
-        _job.update(status="idle", id=None, scope=None, started_at=None,
+        _job.update(status="idle", id=None, scope=None, connector=None,
+                    started_at=None,
                     ended_at=None, rc=None, steps=[], detail="", result=None,
                     seq=0, observable=True)
         _job["log"].clear()

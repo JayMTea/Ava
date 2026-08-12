@@ -41,6 +41,38 @@ the fork-and-self-host path from install to a working connector. Most of these
 are seams between two correct components, and most were invisible on a box with
 no live sandbox, which is why they shipped.
 
+- **Connecting an app no longer redeploys the whole kit.** Deploying one
+  connector ran a full provision — five MCP server pushes, six skill installs,
+  seven policy applies, a persona write and a gateway nudge — to ship the two
+  generated files that app actually needs. `agent/install.sh` takes
+  `--connector <id>`, which narrows the policy apply to that app's generated
+  file and the byte push to the one server connector tools live in; the Hub's
+  Deploy button asks for exactly that. The payload stays whole on purpose: the
+  push swaps a directory, so shipping only one app's files would delete every
+  other app's tools.
+  - It is a modifier, not a fifth scope. A scope is a domain of the desired
+    manifest, and a connector's material is already enumerated as rows inside
+    `policies` and `servers` — a fifth domain would double-count it in every
+    pending total, and could not be spelled in the closed vocabulary the Hub,
+    the CLI, the shell and the API share.
+  - The post-apply assert is narrowed the same way the run was. Verifying the
+    whole `policies` scope would let another connector's undeployed policy veto
+    a run that did its own job perfectly — a green deploy reported as a failure.
+  - `provision.parse_scope()` replaces four independent `scope in ALL_SCOPES`
+    checks. `install.sh`, `verify()` and the policy-retire gate all implemented
+    comma unions already, so `policies,servers` was legal at the bottom of the
+    stack and rejected at every entrance to it.
+  - The remote path gets its own `provision.connector` capability string. The
+    shim reads its body with `.get()` and ignores keys it does not know, so an
+    older container handed a narrowing would have deployed everything and
+    reported success — the same silent widening the scope handshake exists to
+    stop.
+- **A `servers` apply no longer rewrites the persona.** §4/5 has to run for
+  `servers` (registration is delete-then-recreate, so a subset would unregister
+  the rest) and it wrote IDENTITY.md on the way past regardless. Deploying a
+  tool server therefore applied whatever persona `ava.yaml` happened to hold,
+  and the owner watched the persona's pending count clear without ever pressing
+  Apply for it.
 - **"Apply to the agent" could never succeed for tool servers.** `desired()`
   digested each MCP server as a whole-tree fold while the sandbox side reported
   the entry-point file's digest — folds of different byte sets, so all five

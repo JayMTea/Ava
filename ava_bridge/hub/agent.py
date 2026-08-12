@@ -169,7 +169,7 @@ def agent_provision(scope: str = "all"):
     # `agent.runtime: remote` the panel correctly reported the remote agent host
     # while this button provisioned the bridge container instead: it would fail on
     # a missing CLI, or worse, succeed against the wrong machine.
-    if scope not in provision.ALL_SCOPES:
+    if provision.parse_scope(scope) is None:
         return JSONResponse({"ok": False, "error": f"unknown scope {scope!r}",
                              "error_code": "unknown_scope",
                              "supported": list(provision.ALL_SCOPES)}, status_code=400)

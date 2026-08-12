@@ -53,7 +53,7 @@ class ProvisionJobTests(unittest.TestCase):
 
     # ---- lifecycle ---------------------------------------------------------
     def test_a_successful_run_reaches_done(self):
-        def runner(scope, auto_install, on_line):
+        def runner(scope, auto_install, on_line, connector=None):
             on_line("[ava] applying policy: ava-weather.yaml…")
             return {"ok": True, "detail": "provisioned", "steps": []}
 
@@ -70,7 +70,7 @@ class ProvisionJobTests(unittest.TestCase):
         self.assertIsNotNone(final["ended_at"])
 
     def test_a_failing_run_reaches_error_with_a_nonzero_rc(self):
-        def runner(scope, auto_install, on_line):
+        def runner(scope, auto_install, on_line, connector=None):
             return {"ok": False, "detail": "sandbox not found", "steps": []}
 
         provision_job.start(scope="all", runner=runner)
@@ -82,7 +82,7 @@ class ProvisionJobTests(unittest.TestCase):
     def test_a_runner_that_raises_still_reaches_a_terminal_status(self):
         """THE test. Without the `finally`, the slot stays 'running' forever and
         every later Apply 409s with nothing explaining why."""
-        def runner(scope, auto_install, on_line):
+        def runner(scope, auto_install, on_line, connector=None):
             raise RuntimeError("boom")
 
         provision_job.start(scope="all", runner=runner)
@@ -98,7 +98,7 @@ class ProvisionJobTests(unittest.TestCase):
     def test_a_second_start_while_running_is_refused(self):
         release = __import__("threading").Event()
 
-        def slow(scope, auto_install, on_line):
+        def slow(scope, auto_install, on_line, connector=None):
             release.wait(timeout=5)
             return {"ok": True, "steps": []}
 
@@ -123,7 +123,7 @@ class ProvisionJobTests(unittest.TestCase):
 
     # ---- the step channel --------------------------------------------------
     def test_step_lines_become_steps_and_stay_out_of_the_log(self):
-        def runner(scope, auto_install, on_line):
+        def runner(scope, auto_install, on_line, connector=None):
             on_line("[ava] applying policy: ava-weather.yaml…")
             on_line("[ava::step]\tpolicies\tava-weather\tok\t")
             on_line("[ava::step]\tpolicies\tava-email\tfail\tpolicy-add rejected the file")
@@ -143,7 +143,7 @@ class ProvisionJobTests(unittest.TestCase):
                              "the machine channel is leaking into the human log")
 
     def test_a_malformed_step_line_is_kept_as_log_rather_than_dropped(self):
-        def runner(scope, auto_install, on_line):
+        def runner(scope, auto_install, on_line, connector=None):
             on_line("[ava::step]\tbroken")
             return {"ok": True, "steps": []}
 
@@ -156,7 +156,7 @@ class ProvisionJobTests(unittest.TestCase):
                         "an unparseable step line vanished entirely")
 
     def test_runtime_steps_are_folded_in_at_the_end(self):
-        def runner(scope, auto_install, on_line):
+        def runner(scope, auto_install, on_line, connector=None):
             return {"ok": True, "steps": [{"step": "deploy", "ok": True,
                                            "detail": "agent/install.sh"}]}
 
@@ -167,7 +167,7 @@ class ProvisionJobTests(unittest.TestCase):
 
     # ---- the log -----------------------------------------------------------
     def test_the_log_is_bounded(self):
-        def runner(scope, auto_install, on_line):
+        def runner(scope, auto_install, on_line, connector=None):
             for i in range(2000):
                 on_line(f"line {i}")
             return {"ok": True, "steps": []}
@@ -179,7 +179,7 @@ class ProvisionJobTests(unittest.TestCase):
         self.assertIn("line 1999", final["log"][-1])
 
     def test_since_ships_only_new_lines_and_seq_is_monotonic(self):
-        def runner(scope, auto_install, on_line):
+        def runner(scope, auto_install, on_line, connector=None):
             for i in range(10):
                 on_line(f"line {i}")
             return {"ok": True, "steps": []}
@@ -197,7 +197,7 @@ class ProvisionJobTests(unittest.TestCase):
         """A worker whose slot was taken must not write into the new run."""
         captured = {}
 
-        def runner(scope, auto_install, on_line):
+        def runner(scope, auto_install, on_line, connector=None):
             captured["on_line"] = on_line
             return {"ok": True, "steps": []}
 
@@ -308,7 +308,7 @@ class ProvenanceBelongsToItsOwnRunTests(unittest.TestCase):
     def test_the_record_carries_this_runs_own_timing_and_rc(self):
         started, released = threading.Event(), threading.Event()
 
-        def runner(scope, auto_install, on_line):
+        def runner(scope, auto_install, on_line, connector=None):
             started.set()
             released.wait(5)
             return {"ok": True, "detail": "done", "steps": []}
@@ -333,7 +333,7 @@ class ProvenanceBelongsToItsOwnRunTests(unittest.TestCase):
         stamp its own scope onto the winner's timings."""
         started, released = threading.Event(), threading.Event()
 
-        def runner(scope, auto_install, on_line):
+        def runner(scope, auto_install, on_line, connector=None):
             started.set()
             released.wait(5)
             return {"ok": True, "detail": "done", "steps": []}
@@ -354,6 +354,87 @@ class ProvenanceBelongsToItsOwnRunTests(unittest.TestCase):
             self.assertEqual(provision_job._job["id"], "someone-else")
             self.assertEqual(provision_job._job["rc"], 7,
                              "the losing run overwrote the winner's slot")
+
+
+class NarrowConnectorRunTests(unittest.TestCase):
+    """Deploying one app used to re-push five MCP servers, reinstall six skills
+    and re-apply seven policies to ship two generated files."""
+
+    def setUp(self):
+        provision_job.reset_for_tests()
+        self.addCleanup(provision_job.reset_for_tests)
+
+    def test_a_comma_scope_is_accepted(self):
+        """Four gates did bare `in ALL_SCOPES` membership while install.sh,
+        verify() and the retire gate all implemented comma unions — so the union
+        was legal at the bottom of the stack and rejected at every entrance."""
+        seen = {}
+
+        def runner(scope, auto_install, on_line, **kw):
+            seen["scope"] = scope
+            return {"ok": True, "steps": []}
+
+        with mock.patch.object(provision, "verify",
+                               return_value={"ok": True, "items": []}), \
+             mock.patch.object(provision, "record_run"):
+            ok, _ = provision_job.start(scope="policies,servers", runner=runner)
+            self.assertTrue(ok)
+            _wait_idle()
+        self.assertEqual(seen["scope"], "policies,servers")
+
+    def test_an_unknown_token_is_still_refused(self):
+        ok, snap = provision_job.start(scope="connector:acme")
+        self.assertFalse(ok)
+        self.assertEqual(snap["error_code"], "unknown_scope")
+
+    def test_the_connector_reaches_the_runtime_and_the_verify(self):
+        seen = {}
+
+        def fake_provision(auto_install=False, scope="all", on_line=None,
+                           connector=None):
+            seen["provision"] = (scope, connector)
+            return {"ok": True, "steps": []}
+
+        rt = mock.Mock()
+        rt.provision.side_effect = fake_provision
+        del rt._stream          # not a streaming runtime; keeps `observable` honest
+
+        def fake_verify(scope="all", connector=None, **kw):
+            seen["verify"] = (scope, connector)
+            return {"checked": True, "failed": [], "items": []}
+
+        with mock.patch("ava_bridge.runtime.configured", return_value=rt), \
+             mock.patch.object(provision, "verify", side_effect=fake_verify), \
+             mock.patch.object(provision, "record_run"):
+            ok, _ = provision_job.start(scope="policies,servers", connector="acme")
+            self.assertTrue(ok)
+            _wait_idle()
+
+        self.assertEqual(seen["provision"], ("policies,servers", "acme"))
+        self.assertEqual(seen["verify"], ("policies,servers", "acme"),
+                         "the post-apply assert was not narrowed the same way "
+                         "the run was, so another connector's drift can veto it")
+
+    def test_the_snapshot_says_which_connector(self):
+        with mock.patch.object(provision, "verify",
+                               return_value={"ok": True, "items": []}), \
+             mock.patch.object(provision, "record_run"):
+            ok, snap = provision_job.start(
+                scope="policies,servers", connector="acme",
+                runner=lambda **kw: {"ok": True, "steps": []})
+            self.assertTrue(ok)
+            self.assertEqual(snap["connector"], "acme")
+            _wait_idle()
+
+    def test_an_ordinary_run_carries_no_connector(self):
+        with mock.patch.object(provision, "verify",
+                               return_value={"ok": True, "items": []}), \
+             mock.patch.object(provision, "record_run"):
+            ok, snap = provision_job.start(
+                scope="all", runner=lambda **kw: {"ok": True, "steps": []})
+            self.assertTrue(ok)
+            self.assertIsNone(snap["connector"])
+            _wait_idle()
 
 
 if __name__ == "__main__":

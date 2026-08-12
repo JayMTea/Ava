@@ -1029,17 +1029,28 @@ def cmd_agent(args) -> int:
             print()
         return 0
     if action == "provision":
-        scope = getattr(args, "only", "all") or "all"
+        scope = getattr(args, "only", None)
+        connector = getattr(args, "connector", None) or None
+        # Same rule install.sh applies, and it has to be applied HERE too: this
+        # scope is what `provision.verify` is narrowed to afterwards, so leaving
+        # it at "all" would assert against every policy and server while the run
+        # deployed one app's.
+        if scope is None:
+            scope = "policies,servers" if connector else "all"
         from ava_bridge import provision as provision_mod
-        if scope not in provision_mod.ALL_SCOPES:
+        if provision_mod.parse_scope(scope) is None:
             print(f"{BAD} unknown scope {scope!r} "
-                  f"(want: {', '.join(provision_mod.ALL_SCOPES)})")
+                  f"(want: {', '.join(provision_mod.ALL_SCOPES)}; "
+                  f"comma-separate to combine)")
             return 2
         what = "the agent runtime (NemoClaw)" if scope == "all" else f"{scope}"
+        if connector:
+            what = f"{what} for connector '{connector}'"
         print(f"{B}Provisioning {what}…{X}")
         # `configured()`, not `nemoclaw()`: on `agent.runtime: remote` the local
         # CLI is the wrong machine entirely.
-        res = runtime.configured().provision(auto_install=args.install, scope=scope)
+        res = runtime.configured().provision(auto_install=args.install, scope=scope,
+                                             connector=connector)
         for s in res.get("steps", []):
             print(f"  {OK if s['ok'] else BAD} {s['step']}: {s['detail']}")
         print(f"\n{OK if res['ok'] else WARN} {res['detail']}")
@@ -1050,7 +1061,8 @@ def cmd_agent(args) -> int:
         if res.get("error_code") == "provision_running":
             return 3
         return 0 if res["ok"] else 1
-    print(f"{BAD} usage: ava agent status | provision [--install] [--only SCOPE]")
+    print(f"{BAD} usage: ava agent status | provision [--install] [--only SCOPE] "
+          "[--connector ID]")
     return 1
 
 
@@ -1942,10 +1954,14 @@ def main() -> int:
     # otherwise. `adopt-state` in particular reaches OUTSIDE this AVA_HOME.
     ap.add_argument("--write", action="store_true",
                     help="adopt-state / prune: actually do it (default: report only)")
-    ap.add_argument("--only", default="all",
+    ap.add_argument("--only", default=None,
                     metavar="SCOPE",
                     help="deploy just part of the kit: persona, policies, "
-                         "servers, skills (comma-separated), or all (default)")
+                         "servers, skills (comma-separated), or all (default; "
+                         "with --connector the default is policies,servers)")
+    ap.add_argument("--connector", metavar="ID",
+                    help="with --only policies,servers: deploy just this "
+                         "connected app's egress policy and tools")
     ap.set_defaults(func=cmd_agent)
     cp = sub.add_parser("connector", help="list / scaffold / generate policies+tools for connectors")
     cp.add_argument("action", choices=["list", "apps", "new", "policies", "tools"])

@@ -61,6 +61,45 @@ STATES = ("deployed", "stale", "undeployed", "unknown")
 SCOPES = ("persona", "policies", "servers", "skills")
 ALL_SCOPES = (*SCOPES, "all")
 
+
+def parse_scope(scope: str | None) -> tuple[str, ...] | None:
+    """`"policies,servers"` -> `("policies", "servers")`; `None` if the value is
+    not a scope this code understands. `"all"` and `None` yield every scope.
+
+    ONE parser, because there were four independent gates doing bare `in
+    ALL_SCOPES` membership — the bridge route, the job, the shim and the CLI —
+    while `install.sh`'s `_want`, `verify()` and the policy-retire gate all
+    implemented comma unions. So a union was legal at the bottom of the stack and
+    rejected at every entrance to it, and the only way to reach the comma path
+    was a hand-run or an env var. A connector deploy needs exactly one union
+    (`policies,servers`), and four copies of the fix is how they drift apart.
+
+    Rejecting is the point: a token an older copy of this code does not know must
+    fail loudly, never fall through to doing everything. That is the same
+    contract `install.sh` states at its own validator.
+    """
+    if scope is None:
+        return SCOPES              # the in-process default, not owner input
+    raw = scope.strip()
+    if not raw:
+        # An EMPTY value is a caller bug, not a request for everything. It used
+        # to be a 400 (`"" not in ALL_SCOPES`), and turning it into "deploy
+        # everything" would let a truncated query string or a proxy that drops
+        # empty values start a full ten-minute run nobody asked for.
+        return None
+    if raw == "all":
+        return SCOPES
+    want: list[str] = []
+    for token in raw.split(","):
+        token = token.strip()
+        if token == "all":
+            return SCOPES
+        if token not in SCOPES:
+            return None
+        if token not in want:
+            want.append(token)
+    return tuple(want) or None
+
 # Worst-wins severity when rolling item states up to a scope. `stale` outranks
 # `undeployed` because it is the only state where the sandbox is actively running
 # content a human believes was replaced: a missing item fails loudly, a stale one
@@ -71,6 +110,12 @@ _SEVERITY = {"deployed": 0, "unknown": 1, "undeployed": 2, "stale": 3}
 # overlay/agent/server-names.sh, which is shell and is not parsed here — an
 # overlay server therefore verifies by path rather than by name.
 _SERVER_NAME_OVERRIDE = {"admin": "ava-admin"}
+
+#: The one server category that carries every connected app's generated tools.
+#: Mirrors `agent/install.sh`'s CONNECTOR_CAT, which `--connector` narrows the
+#: byte push to. Named once on each side so a fork that renames the directory
+#: gets a loud failure rather than a deploy that quietly ships nothing.
+CONNECTOR_CATEGORY = "connectors"
 
 _CACHE: dict[str, Any] = {"ts": 0.0, "state": None}
 _LOCK = threading.Lock()
@@ -209,7 +254,8 @@ def tree_digest(root: str) -> str:
 
     NOT a digest of the tarball install.sh ships — `tar czf` embeds mtimes and a
     gzip header, so that would change on every checkout. install.sh does
-    `rm -rf "$DEST"` before extracting, so the sandbox copy is a byte-exact
+    extracts the tarball into a fresh directory and swaps it over the
+    destination, so the sandbox copy is a byte-exact
     mirror of this tree and the fold is comparable on both sides — which is what
     `AgentRuntime.tree_digests()` reproduces from inside the sandbox.
     """
@@ -500,7 +546,8 @@ def _registered_servers(rt, want: dict[str, dict] | None = None) -> dict[str, st
         digest comparison, so it reads `undeployed`.
       * **Content** is what the tree fold answers, against the SAME fold
         `desired()` computes over the repo directory (`tree_digest`). install.sh
-        does `rm -rf "$DEST"` before extracting `tar czf - -C "$src" .`, so the
+        extracts `tar czf - -C "$src" .` into a fresh directory and swaps that
+        over the destination — never merging into what was already there — so the
         two sides are byte-comparable.
 
     This used to report the sandbox's ENTRY-POINT digest against the repo's
@@ -780,7 +827,22 @@ def apply_skill_states(catalog: list[dict], rt=None) -> list[dict]:
             for s in catalog]
 
 
-def verify(rt=None, scope: str = "all", live_probe: bool = True) -> dict:
+def connector_items(cid: str) -> dict[str, set[str]]:
+    """The drift rows one connector owns: `{scope: {id}}`.
+
+    A connector's material is not a scope of its own — it is rows inside
+    `policies` and `servers` (see `parse_scope`). Its egress preset is
+    `ava-<cid>` (what `render_egress_policy` names it, and what the sandbox knows
+    it as — never the file stem), and its tools live in the one server that
+    carries every app's generated tools.
+    """
+    from . import connectors as _connectors
+    return {"policies": {_connectors.policy_preset_name(cid)},
+            "servers": {server_name(CONNECTOR_CATEGORY)}}
+
+
+def verify(rt=None, scope: str = "all", live_probe: bool = True,
+           connector: str | None = None) -> dict:
     """Did what we just deployed actually land?
 
     The honesty rule is the liveness gate. Registry-sourced checks (policies,
@@ -798,14 +860,21 @@ def verify(rt=None, scope: str = "all", live_probe: bool = True) -> dict:
     st = state(rt=rt, force=True)
 
     live = bool(st["sandbox"]["live"])
-    wanted = SCOPES if scope in ("all", None) else tuple(
-        s for s in scope.split(",") if s in SCOPES)
+    wanted = parse_scope(scope) or ()
+    # A connector run asserts what IT did, not what every other connector left
+    # undone. Without this, deploying app A reports failure because app B's
+    # policy — which this run never claimed to apply, and no longer does — is
+    # still undeployed. That is the "a green run reports failure" shape the
+    # entry-point-vs-tree bug had, arriving from the other direction.
+    mine = connector_items(connector) if connector else None
 
     items: list[dict] = []
     failed: list[str] = []
     scopes_checked: dict[str, bool] = {}
     for row in st["items"]:
         if row["scope"] not in wanted:
+            continue
+        if mine is not None and row["id"] not in mine.get(row["scope"], set()):
             continue
         source = row["source"]
         # `manifest` is install.sh's record of intent, not evidence of outcome —
@@ -835,6 +904,7 @@ def verify(rt=None, scope: str = "all", live_probe: bool = True) -> dict:
         "reason": st["sandbox"]["reason"],
         "at": time.time(),
         "scope": scope,
+        "connector": connector or None,
         "scopes": scopes_checked,
         "items": items,
         "failed": failed,

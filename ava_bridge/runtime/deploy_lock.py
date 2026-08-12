@@ -8,12 +8,15 @@ the same `agent/install.sh` against the same sandbox:
   * `ava agent provision` from a terminal, which is a different process, and
   * the agent-runtime shim, which is a different *container* sharing the socket.
 
-install.sh does `rm -rf "$DEST"` before extracting each MCP server. Two runs
-interleaving there means one of them deletes a tree the other is mid-extract
-into — a server that ends up half-written or missing while still registered in
-openclaw.json, which reads as `stale` forever and is fixed only by another
-deploy. The window is small and the trigger is ordinary: press Apply in the Hub,
-then run the CLI command the docs print.
+install.sh stages each MCP server through a FIXED path — `rm -rf "$DEST.new"`,
+extract into it, `node --check`, then swap it over `$DEST`. Fixed is the problem:
+two runs pushing the same server share `$DEST.new`, so one deletes and re-creates
+the directory the other is mid-extract into, and whichever swaps second promotes
+whatever the collision left behind. The syntax check does not save it — both runs
+check the same shared tree. The result is a server registered in openclaw.json
+whose code is some interleaving of two tarballs. The window is small and the
+trigger is ordinary: press Apply in the Hub, then run the CLI command the docs
+print.
 
 An advisory `flock` on a file under AVA_HOME is the right shape because AVA_HOME
 is precisely what the racing parties share — the bridge, the CLI and the agent

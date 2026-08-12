@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hmac
 import os
+import re
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -23,12 +24,18 @@ from . import provision as provision_mod
 from .runtime import nemoclaw
 
 app = FastAPI(title="ava-agent-runtime")
+
+#: Same shape ava_bridge/hub/connectors.py enforces when a connector is created,
+#: checked again at the door: this value crosses a network boundary and becomes a
+#: filename component inside the sandbox. install.sh checks it a third time — the
+#: two ends of an exec are worth two checks.
+_CONNECTOR_ID = re.compile(r"^[a-z][a-z0-9_-]{1,31}$")
 _rt = nemoclaw()
 
 # What this container can do, advertised on /healthz so the bridge's
 # RemoteRuntime can refuse to ask for something an older build would silently
 # mishandle. Additive only: dropping an entry is a breaking change.
-CAPABILITIES = ["provision.scope", "provision.assert"]
+CAPABILITIES = ["provision.scope", "provision.assert", "provision.connector"]
 
 
 @app.middleware("http")
@@ -137,12 +144,18 @@ async def provision(request: Request):
     # container for a persona-only apply used to get a full ten-minute redeploy
     # reported as success. Refusing a scope we do not know is the other half of
     # the /healthz capability handshake.
-    if scope not in provision_mod.ALL_SCOPES:
+    if provision_mod.parse_scope(scope) is None:
         return JSONResponse(
             {"ok": False, "error": f"unsupported scope {scope!r}",
              "error_code": "unknown_scope",
              "supported": list(provision_mod.ALL_SCOPES)}, status_code=400)
-    return _rt.provision(auto_install=bool(body.get("auto_install")), scope=scope)
+    connector = str(body.get("connector") or "").strip() or None
+    if connector and not _CONNECTOR_ID.match(connector):
+        return JSONResponse(
+            {"ok": False, "error": f"not a connector id: {connector!r}",
+             "error_code": "bad_connector"}, status_code=400)
+    return _rt.provision(auto_install=bool(body.get("auto_install")), scope=scope,
+                         connector=connector)
 
 
 @app.post("/registry_record")

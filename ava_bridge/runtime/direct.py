@@ -100,7 +100,7 @@ class DirectRuntime(AgentRuntime):
         return True  # only needs the inference endpoint, checked at call time
 
     def provision(self, auto_install: bool = False, scope: str = "all",
-                  on_line=None) -> dict:
+                  on_line=None, connector: str | None = None) -> dict:
         """There is nothing to provision, and saying so is not the same as `ok`.
 
         The base class returns a cheerful `{"ok": True, "detail": "no provisioning

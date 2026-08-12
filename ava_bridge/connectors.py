@@ -622,6 +622,23 @@ def _dedupe_rules(rules: list) -> list:
     return out
 
 
+def policy_preset_name(cid: str) -> str:
+    """The egress preset name the SANDBOX knows a connector's policy by.
+
+    Namespaced under `ava-`, but never doubled for a connector whose id already
+    starts with it — `ava-notes` stays `ava-notes`, not `ava-ava-notes`.
+
+    A function rather than an inline expression because two places need the same
+    answer and they are in different modules: this renders the policy, and
+    `provision.connector_items` uses the name to find that policy's row in the
+    drift report. When the second one re-derived the rule it got it wrong for
+    exactly the ids this special case exists for, and the failure was silent —
+    the row simply never matched, so a per-connector deploy asserted nothing
+    about its own policy and reported success either way.
+    """
+    return cid if cid.startswith("ava-") else f"ava-{cid}"
+
+
 def render_egress_policy(cid: str) -> dict | None:
     """Render a connector's `egress` block into an OpenClaw egress-policy dict
     (same shape as agent/policies/*.yaml). Returns None if it declares no egress.
@@ -716,10 +733,7 @@ def render_egress_policy(cid: str) -> dict | None:
         endpoints.append(ep)
     if not endpoints:
         return None
-    # Namespace the policy under "ava-", but don't double the prefix for a
-    # connector whose id already starts with it (e.g. "ava-notes" must stay
-    # "ava-notes", not "ava-ava-notes").
-    pname = cid if cid.startswith("ava-") else f"ava-{cid}"
+    pname = policy_preset_name(cid)
     return {
         "preset": {"name": pname,
                    "description": f"Auto-generated egress for the {m.get('label', cid)} connector"},

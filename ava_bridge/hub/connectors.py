@@ -36,8 +36,8 @@ import yaml as _yaml
 # (_static_actions, _mcp_spec). A contributor grepping this 50 KB file for
 # `connectors._infer_access` found nothing, because that call site said
 # `connectors._infer_access`. Residue from the hub_api.py -> hub/ split.
-from .. import (audit, connectors, grants, perf_mgmt, provision_job, runtime,
-                settings, tools_cache)
+from .. import (audit, connectors, grants, perf_mgmt, provision, provision_job,
+                runtime, settings, tools_cache)
 from .. import devices as _devices
 from .. import internal
 from .. import mcp_client
@@ -1021,6 +1021,26 @@ def delete_connector(cid: str):
     return {"ok": True, "removed": removed,
             "policy_still_in_sandbox": had_policy}
 
+def _kit_is_deployed(rt) -> bool:
+    """Is every server and the persona already in the sandbox?
+
+    The question a per-connector deploy has to answer before narrowing: it can
+    only skip the rest of the kit if the rest of the kit is there. `unknown`
+    counts as NO — it means "we could not look", and narrowing on a guess is how
+    a fresh box ends up with four MCP servers registered at paths that were never
+    pushed. Falling back to a full deploy is slower and always correct.
+    """
+    try:
+        st = provision.state(rt=rt)
+    except Exception:  # noqa: BLE001 — a probe that fails is not a green light
+        return False
+    for scope in ("servers", "persona"):
+        row = (st.get("scopes") or {}).get(scope) or {}
+        if row.get("state") != "deployed":
+            return False
+    return True
+
+
 @router.post("/connectors/{cid}/deploy")
 def deploy_connector(cid: str):
     """One-button version of `ava connector generate` + `cd agent && ./install.sh`:
@@ -1057,15 +1077,35 @@ def deploy_connector(cid: str):
     # uses, rather than shelling install.sh beside it. Three things came from
     # having a second, unlocked path:
     #
-    #   * Two concurrent install.sh runs against one sandbox, racing on the
-    #     `rm -rf "$DEST"` that precedes each server's extraction.
+    #   * Two concurrent install.sh runs against one sandbox, racing inside the
+    #     fixed `$DEST.new` staging directory every server push extracts into.
     #   * A synchronous POST that blocked for up to ten minutes — the exact
     #     fragility through a proxy or tailnet hop that provision_job's own
     #     docstring says it was written to remove.
     #   * `deploy` refused outright on the `remote` runtime, so the documented
     #     Docker full-agent profile had no working button at all. Going through
     #     the runtime means whatever can provision can now deploy.
-    started, snap = provision_job.start(scope="all", auto_install=False)
+    # `policies,servers` + this connector, not `all`. Deploying one app used to
+    # re-push five MCP servers, reinstall six skills and re-apply seven policies
+    # to ship two generated files — minutes of work, a gateway nudge, and a
+    # persona rewrite, for a change that touches one policy and one server. The
+    # narrowing is a modifier rather than a fifth scope because a connector's
+    # material is already enumerated as rows inside those two domains; see
+    # provision.parse_scope.
+    #
+    # BUT ONLY ONCE THE KIT IS ALREADY THERE. Registration is delete-then-recreate
+    # over every ava-* key, so a narrow run on a box that has never been fully
+    # applied registers five servers while pushing one — leaving four entries
+    # pointing at sandbox directories that do not exist — and writes no persona,
+    # so Ava answers as the base model. The old `scope="all"` deploy happened to
+    # bootstrap that box on the way past. Narrowing is a speed optimisation and
+    # must never be the reason a fresh install ends up half-built, so it applies
+    # only when everything else is already deployed, and the full path stays for
+    # when it is not.
+    narrow = _kit_is_deployed(rt)
+    started, snap = provision_job.start(
+        scope="policies,servers" if narrow else "all",
+        auto_install=False, connector=cid if narrow else None)
     if not started:
         return JSONResponse(
             {"ok": False, "deployed": False, "steps": steps,
