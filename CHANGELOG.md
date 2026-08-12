@@ -91,6 +91,13 @@ no live sandbox, which is why they shipped.
     whose advice is to delete a good multi-gigabyte file), and a `revision:`
     added after the first pull, which never reaches `hf download` because the
     model is already present.
+- **A broken generated tool used to deploy cleanly and then not exist.** The
+  push validated the server's entry point and nothing else, and the server
+  itself catches a module that will not import — one line to its own stderr,
+  then it carries on — so a syntax error in a generated connector tool shipped,
+  reported success, and left Ava without that tool with nothing anywhere saying
+  so. Every module in the payload is checked before the swap now, and a failure
+  keeps the previous copy serving, which is what staging it was for.
 - **A downloaded GGUF could read as missing forever.** The presence check joined
   the spec's `id` while the downloader wrote `basename(id or url)`, so a
   URL-only spec checked whether a *directory* was a file — always false — and

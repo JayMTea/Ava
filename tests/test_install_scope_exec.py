@@ -336,6 +336,114 @@ class ScopedInstallTests(unittest.TestCase):
                          "bytes have landed")
         self.assertIn('"$DEST.new"', cmd, "the payload is not staged")
 
+    def test_every_module_is_checked_not_just_the_entry_point(self):
+        """`_server.mjs` discovers tools by recursive import and CATCHES a module
+        that will not load — one line to its own stderr, then it carries on. So a
+        syntactically broken tool deployed cleanly, reported success, and simply
+        did not exist as far as Ava was concerned, with nothing between the
+        generator and the missing tool ever saying a word."""
+        self._seed_generated()
+        _p, calls = self._run()
+        # The CONNECTORS push specifically — the generated tool only exists
+        # there, and `_deploy_cmd` returns whichever server sorts first.
+        text = "\n".join(calls)
+        at = text.find("DEST=/sandbox/.openclaw/mcp_server_connectors")
+        self.assertGreater(at, -1, "no byte push for the connectors server")
+        cmd = text[at:at + 3000]
+        self.assertIn("AVA_MJS=", cmd,
+                      "the module list never reaches the sandbox, so only the "
+                      "entry point is checked")
+        self.assertIn("apps/acme/acme_call.mjs", cmd,
+                      "a generated connector tool is not in the list the deploy "
+                      "checks — a syntax error in it would deploy clean and the "
+                      "tool would simply not exist")
+        self.assertIn("_server.mjs", cmd)
+
+    def test_a_broken_module_keeps_the_previous_copy(self):
+        """The deploy command itself, executed for real against a temp DEST —
+        no sandbox, no CLI, just bash and node. Asserting the command CONTAINS a
+        check only proves it was written; this proves it works, and that the
+        rollback the swap exists for actually happens.
+        """
+        if not shutil.which("node"):
+            self.skipTest("needs node to run the syntax gate")
+        _p, calls = self._run()
+        text = "\n".join(calls)
+        at = text.find("bash -c set -eo pipefail")
+        self.assertGreater(at, -1, "no deploy command was issued")
+        # The command body is everything from `set -eo pipefail` to the payload.
+        body = text[text.index("set -eo pipefail", at):]
+        body = body[:body.index("echo \"[ava] ok: $NAME\"") + len('echo "[ava] ok: $NAME"')]
+
+        root = self.tmp / "swap"
+        dest = root / "server"
+        (dest).mkdir(parents=True)
+        (dest / "_server.mjs").write_text("// the GOOD copy\n", encoding="utf-8")
+
+        # A payload whose entry point is fine and whose TOOL is broken — the
+        # exact shape the entry-point-only check waved through.
+        payload = self.tmp / "payload"
+        (payload / "apps" / "acme").mkdir(parents=True)
+        (payload / "_server.mjs").write_text("export const ok = 1\n", encoding="utf-8")
+        (payload / "apps" / "acme" / "bad.mjs").write_text(
+            "export default { name: 'x', handler: (\n", encoding="utf-8")
+        import base64 as _b64
+        import io as _io
+        import tarfile as _tar
+        buf = _io.BytesIO()
+        with _tar.open(fileobj=buf, mode="w:gz") as tf:
+            tf.add(str(payload), arcname=".")
+        b64 = _b64.b64encode(buf.getvalue()).decode()
+
+        r = subprocess.run(
+            ["bash", "-c", body, b64],
+            capture_output=True, text=True, timeout=120,
+            env={**os.environ, "DEST": str(dest), "NAME": "ava-tools-connectors",
+                 "AVA_MJS": "_server.mjs apps/acme/bad.mjs"})
+
+        self.assertNotEqual(r.returncode, 0,
+                            "a syntactically broken tool deployed cleanly")
+        self.assertIn("SYNTAX ERROR in apps/acme/bad.mjs", r.stdout + r.stderr)
+        self.assertEqual((dest / "_server.mjs").read_text(), "// the GOOD copy\n",
+                         "the previous copy was replaced by a payload that does "
+                         "not parse — the swap's whole purpose is that it is not")
+        self.assertFalse((dest / "apps").exists(), "the bad payload landed anyway")
+
+    def test_a_sound_payload_still_swaps_in(self):
+        """The other half: the gate must not block a good deploy."""
+        if not shutil.which("node"):
+            self.skipTest("needs node to run the syntax gate")
+        _p, calls = self._run()
+        text = "\n".join(calls)
+        at = text.find("bash -c set -eo pipefail")
+        body = text[text.index("set -eo pipefail", at):]
+        body = body[:body.index("echo \"[ava] ok: $NAME\"") + len('echo "[ava] ok: $NAME"')]
+
+        dest = self.tmp / "swap2" / "server"
+        dest.mkdir(parents=True)
+        (dest / "_server.mjs").write_text("// old\n", encoding="utf-8")
+        payload = self.tmp / "payload2"
+        (payload / "apps" / "acme").mkdir(parents=True)
+        (payload / "_server.mjs").write_text("export const ok = 2\n", encoding="utf-8")
+        (payload / "apps" / "acme" / "good.mjs").write_text(
+            "export default { name: 'x' }\n", encoding="utf-8")
+        import base64 as _b64
+        import io as _io
+        import tarfile as _tar
+        buf = _io.BytesIO()
+        with _tar.open(fileobj=buf, mode="w:gz") as tf:
+            tf.add(str(payload), arcname=".")
+
+        r = subprocess.run(
+            ["bash", "-c", body, _b64.b64encode(buf.getvalue()).decode()],
+            capture_output=True, text=True, timeout=120,
+            env={**os.environ, "DEST": str(dest), "NAME": "ava-tools-connectors",
+                 "AVA_MJS": "_server.mjs apps/acme/good.mjs"})
+
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual((dest / "_server.mjs").read_text(), "export const ok = 2\n")
+        self.assertTrue((dest / "apps" / "acme" / "good.mjs").exists())
+
     def test_the_syntax_check_gates_the_swap(self):
         _p, calls = self._run()
         cmd = self._deploy_cmd(calls)

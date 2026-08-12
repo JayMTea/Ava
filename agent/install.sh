@@ -500,6 +500,12 @@ for cat in "${CATS[@]}"; do
     cp -a "$gen"/. "$payload"/
     echo "[ava]   merged generated material from $gen"
   fi
+  # Every module in the payload, computed HOST-side from the staged tree. The
+  # sandbox side could glob for them, but that needs `find`/`globstar` in an
+  # image whose tooling we do not control — and a glob that silently matched
+  # nothing would turn the check below back into the no-op it replaces. We have
+  # the tree right here; enumerate it where the answer is certain.
+  MJS_LIST="$(cd "$payload" && find . -type f -name '*.mjs' | sed 's|^\./||' | sort | tr '\n' ' ')"
   B64="$(tar czf - -C "$payload" . | base64 -w0)"
   # Stage, VALIDATE, then swap — never destroy the live copy first.
   #
@@ -513,16 +519,32 @@ for cat in "${CATS[@]}"; do
   # A rename is the closest thing to atomic available over an exec, and checking
   # before it means a bad payload leaves the previous copy serving. That is the
   # rollback this script never had.
+  #
+  # EVERY module, not just the entry point. `_server.mjs` discovers tools by
+  # recursive import and CATCHES a module that will not load — it writes one
+  # line to its own stderr and carries on — so a syntactically broken tool used
+  # to deploy cleanly, report success, and then simply not exist as far as Ava
+  # was concerned. That silence is the expensive part: nothing between the
+  # generator and the missing tool ever said a word. Checking the whole payload
+  # makes it a push that fails loudly and keeps the previous copy, which is what
+  # the swap was built to allow. ~20ms per file, ~40 files.
   CMD='set -eo pipefail
        rm -rf "$DEST.new" "$DEST.old"
        mkdir -p "$DEST.new"
        echo "$0" | base64 -d | tar xzf - -C "$DEST.new"
        node --check "$DEST.new/_server.mjs"
+       for _rel in $AVA_MJS; do
+         node --check "$DEST.new/$_rel" || {
+           echo "[ava] SYNTAX ERROR in $_rel — not deploying $NAME" >&2
+           exit 1
+         }
+       done
        [ -d "$DEST" ] && mv "$DEST" "$DEST.old" || true
        mv "$DEST.new" "$DEST"
        rm -rf "$DEST.old"
        echo "[ava] ok: $NAME"'
-  if _run_cli "$NEMOCLAW" "$SANDBOX" exec --no-tty -- env DEST="$dest" NAME="$name" bash -c "$CMD" "$B64"; then
+  if _run_cli "$NEMOCLAW" "$SANDBOX" exec --no-tty -- \
+       env DEST="$dest" NAME="$name" AVA_MJS="$MJS_LIST" bash -c "$CMD" "$B64"; then
     # Name the app on a connector run. The step stream is keyed on the SERVER,
     # so the Hub reported "Tools · ava-tools-connectors ok" for what the owner
     # asked as "deploy <their app>" — accurate about the mechanism and useless
