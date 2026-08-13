@@ -40,16 +40,18 @@ const OUTSIDE_KEY = 'ava.hwbubble.outside';
 const SIZE = 52;
 // GAP is bubble→panel, EDGE is panel→viewport edge. The panel stops shrinking at
 // MIN_W because a 40px-wide panel is not a smaller panel, it is an unreadable
-// one. MAX_W is the width at which two columns each get ~254px (2×254 + 26
-// padding + 12 gap + 12 column padding + 1 divider); past that the lines get too
-// long to scan. Under 430px of CONTENT — the container query measures the inline
-// content box, so ~456px outer — hwbubble.css stacks the columns again.
+// one. MAX_W is what the two columns need side by side: the machine column's
+// fixed 210px (styles/hwbubble.css) + ~299px of models + 26 padding + 12 gap +
+// 12 column padding + 1 divider; past that the lines get too long to scan. Under
+// 430px of CONTENT — the container query measures the inline content box, so
+// ~456px outer — hwbubble.css stacks the columns again.
 //
-// It was 470, i.e. ~210px a column, and that is what made the models column feel
-// crammed: at 210 the section heading "MODEL USE OUTSIDE AVA" cannot sit on one
-// line beside its own total, so every section label wrapped and the note under
-// it broke into four lines. 254 is the width at which the heading, the number
-// and the ~183px of row text each get their own line back.
+// It was 470 with the columns splitting it evenly, which left the models column
+// ~210px: too narrow for "MODEL USE OUTSIDE AVA" to sit on one line beside its
+// own total, so every section label wrapped and the note under it broke into
+// four lines. The extra width belongs to that column alone — the machine column
+// was never the cramped one, which is why it is pinned rather than sharing the
+// gain.
 const GAP = 8;
 const EDGE = 8;
 const MIN_W = 236;

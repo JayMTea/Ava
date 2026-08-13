@@ -416,13 +416,12 @@ describe('MODEL_RELATION copy', () => {
   });
 
   it('puts the explanation in the note, where the fold can hide it', () => {
-    // A section folded away costs its explanation nothing, so the note can
-    // afford the whole thing — including the sentence that was cut for space
-    // back when it rendered unconditionally.
+    // ONE sentence, and it is the one that says whose these rows are. The note
+    // used to add "The memory it holds is not available to Ava.", which is the
+    // first sentence's consequence restated beside a row already reporting that
+    // memory in Ava's own memory column.
     expect(MODEL_RELATION.foreign.note)
-      .toContain('Not Ava’s — other software on this machine.');
-    expect(MODEL_RELATION.foreign.note)
-      .toContain('The memory it holds is not available to Ava.');
+      .toBe('Not Ava’s — other software on this machine.');
     expect(MODEL_RELATION.app.note).toBeTruthy();
   });
 

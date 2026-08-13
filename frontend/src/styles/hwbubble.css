@@ -47,10 +47,17 @@
 /* The split is the one the panel already drew with its own dividers: the
    machine on the left (GPU, memory, disk, CPU, temp), the models on the right
    (Ava's brain, then everything Ava can see). Cutting anywhere else would put
-   half a subject in each column. */
+   half a subject in each column.
+
+   The machine column is a FIXED measure and the models column takes whatever is
+   left. Not `1fr 1fr`: the left column is five short label/value pairs over full
+   width bars and is finished at ~210px — past that the extra width is blank
+   space between "GPU util" and "0%". The right column is the one with headings,
+   model names and a memory column competing for the same line, so every pixel
+   the panel gains has to land there. */
 .hwb-cols {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 210px minmax(0, 1fr);
   gap: var(--sp-3);
   align-items: start;
 }

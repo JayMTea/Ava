@@ -56,11 +56,11 @@ export const MODEL_RELATION: Record<ModelRelation, RelationCopy> = {
     // second group to tell it apart FROM; see `needsGroupHeads`, because on its
     // own it is that section title again, one line lower, with the same total.
     group: 'Other software',
-    // Two sentences again. This is inside the fold now, so it is read by
-    // someone who opened the section and has room for the whole explanation —
-    // which is exactly the case the second sentence was cut for space from.
-    note: 'Not Ava’s — other software on this machine. '
-      + 'The memory it holds is not available to Ava.',
+    // One sentence. It carried a second — "The memory it holds is not available
+    // to Ava." — which is the first sentence's consequence spelled out, and
+    // beside a row already reporting that memory in Ava's own memory column it
+    // was the same fact a third time.
+    note: 'Not Ava’s — other software on this machine.',
   },
 };
 
