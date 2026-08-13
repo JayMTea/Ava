@@ -6,8 +6,8 @@ import { describe, expect, it } from 'vitest';
 import {
   MODEL_RELATION, RELATION_ORDER, activityTone, componentMeta, foundVia,
   groupMemoryGb, groupRows, heldGb, holdsLine, identified,
-  isAvas, isCollapsible, listHint, memPhrase, poolOf, relationOf, rowHint, rowSub,
-  rowTitle, servedLine, shareOf, tempTone,
+  isAvas, listHint, memPhrase, needsGroupHeads, poolOf, relationOf, rowHint,
+  rowSub, rowTitle, servedLine, shareOf, tempTone,
 } from './hwModels';
 import type { MemPool, Row } from './hwModels';
 
@@ -455,34 +455,47 @@ describe('isAvas', () => {
   });
 });
 
-describe('isCollapsible', () => {
-  it('folds away what is not Ava’s', () => {
-    expect(isCollapsible('app')).toBe(true);
-    expect(isCollapsible('foreign')).toBe(true);
+describe('folding "Model use outside Ava"', () => {
+  it('folds exactly the rows the heading is about', () => {
+    // The panel has ONE fold, on the section heading, and `isAvas` is what
+    // decides who is inside it — so the heading, the membership and the control
+    // cannot drift apart. When the fold lived per-relation and the cut was "is
+    // it the brain", a backend the owner had registered sat under a heading
+    // calling it foreign and then refused to fold.
+    const inside = [BRAIN, ENV_BACKEND, APP_VLLM, COMFY]
+      .filter((m) => !isAvas(relationOf(m)));
+    expect(inside).toEqual([APP_VLLM, COMFY]);
   });
 
-  it('never folds away the panel’s own subject', () => {
+  it('never puts Ava’s own subject inside the fold', () => {
     // A hardware panel that can hide Ava's brain, or the engines Ava routes to,
     // is not answering the question it exists for.
-    expect(isCollapsible('brain')).toBe(false);
-    expect(isCollapsible('configured')).toBe(false);
-  });
-
-  it('draws the same line the section heading draws', () => {
-    // THE invariant behind this pair. "Everything under 'Model use outside Ava'
-    // folds, and nothing above it does" is only a true sentence while these two
-    // agree; when they drifted, a row sat under a heading that mislabelled it
-    // and had no control to match.
-    for (const r of RELATION_ORDER) expect(isCollapsible(r)).toBe(!isAvas(r));
+    expect(RELATION_ORDER.filter(isAvas)).toEqual(['brain', 'configured']);
   });
 
   it('keeps the memory total on the line that survives folding', () => {
-    // The guarantee behind the feature: collapsing hides the DETAIL, never the
-    // fact. `groupRows` puts the section total on the group, and the summary
-    // line renders it whether or not the rows below it are showing.
-    const [g] = groupRows([COMFY, OTHER_VLLM], SPARK);
-    expect(g.relation).toBe('foreign');
-    expect(g.memoryGb).toBeCloseTo(77.18, 2);
+    // The guarantee that makes closed-by-default honest: collapsing hides the
+    // DETAIL, never the fact. The section's total is `groupMemoryGb` over every
+    // row inside the fold, and the heading renders it open or shut.
+    expect(groupMemoryGb([APP_VLLM, COMFY, OTHER_VLLM], SPARK))
+      .toBeCloseTo(80.38, 2);
+  });
+});
+
+describe('needsGroupHeads', () => {
+  it('drops the heading when a section has one group', () => {
+    // What the owner saw: "MODEL USE OUTSIDE AVA · 12.0 GB" and, one line
+    // below, "Other software · 12.0 GB" — the same claim and the same number
+    // twice, with the fold spent on the second copy.
+    expect(needsGroupHeads(groupRows([COMFY, OTHER_VLLM], SPARK))).toBe(false);
+  });
+
+  it('keeps them when there is a distinction to draw', () => {
+    // An app the owner connected is not a stranger's software, and that is the
+    // one thing a group heading here is for.
+    const groups = groupRows([APP_VLLM, COMFY], SPARK);
+    expect(groups.map((g) => g.relation)).toEqual(['app', 'foreign']);
+    expect(needsGroupHeads(groups)).toBe(true);
   });
 });
 

@@ -45,15 +45,16 @@ export const MODEL_RELATION: Record<ModelRelation, RelationCopy> = {
     note: 'Owned by an app you connected — not what Ava thinks with.',
   },
   foreign: {
-    // Short, and the same length as its sibling "Connected apps", because this
-    // is the line the owner clicks to fold the section: at the narrowest the
-    // panel gets, the label track is ~105px, or about eighteen characters.
-    // "Not Ava's — other software on this machine." was the label for a while
-    // and wrapped to three lines there.
+    // Short, and the same length as its sibling "Connected apps", because the
+    // two are read against each other: at the narrowest the panel gets, the
+    // label track is ~105px, or about eighteen characters. "Not Ava's — other
+    // software on this machine." was the label for a while and wrapped to three
+    // lines there.
     //
     // It does not need to carry "not Ava's" either — the section above it is
-    // titled "Model use outside Ava", so a folded section still reads
-    // "Model use outside Ava → Other software → 77.2 GB".
+    // titled "Model use outside Ava". And it only appears when there is a
+    // second group to tell it apart FROM; see `needsGroupHeads`, because on its
+    // own it is that section title again, one line lower, with the same total.
     group: 'Other software',
     // Two sentences again. This is inside the fold now, so it is read by
     // someone who opened the section and has room for the whole explanation —
@@ -200,6 +201,19 @@ export function groupRows(rows: Row[], pool?: MemPool): RowGroup[] {
   }
   return out;
 }
+
+/** Does a section's groups need their own headings?
+ *
+ *  Only when there is more than one, because a group heading exists to tell one
+ *  relationship apart from another. A single group under "Model use outside
+ *  Ava" was the section title said twice — "Model use outside Ava · 12.0 GB"
+ *  and, one line below it, "Other software · 12.0 GB": same claim, same number,
+ *  a heading and a fold spent on a distinction nobody was drawing. The group's
+ *  NOTE still renders, because that is the line that says something new. */
+export function needsGroupHeads(groups: RowGroup[]): boolean {
+  return groups.length > 1;
+}
+
 
 // ---------------------------------------------------------------------------
 // Memory: what a row holds, and what it holds a share OF.
@@ -369,24 +383,14 @@ export function listHint(m: Row): string {
  *  over everything below the brain said "Model use outside Ava". A configured
  *  backend is not outside Ava, so a row the owner had registered themselves
  *  was filed under a heading calling it foreign — and then refused to fold,
- *  because the fold rule knew it was Ava's even though the heading did not. */
+ *  because the fold rule knew it was Ava's even though the heading did not.
+ *
+ *  It is also the panel's ONE fold rule now. There is no per-relation
+ *  collapsibility any more: what folds is the "Model use outside Ava" section,
+ *  and this predicate is what decides which rows are inside it — so the
+ *  heading, the membership and the control cannot drift apart again. */
 export function isAvas(relation: ModelRelation): boolean {
   return relation === 'brain' || relation === 'configured';
-}
-
-/** Can this section be folded away?
- *
- *  Exactly the sections that are not Ava's — the same line `isAvas` draws, so
- *  the heading and the control can never disagree again: everything under
- *  "Model use outside Ava" folds, and nothing above it does. A panel that can
- *  hide its own subject is not answering anything.
- *
- *  Folding is never allowed to hide the memory question: the section's total
- *  rides on the summary line, so collapsing removes the detail and not the
- *  fact. That is also why nothing starts collapsed — a 65 GB stranger hidden
- *  on first open is the exact bug this module was written to end. */
-export function isCollapsible(relation: ModelRelation): boolean {
-  return !isAvas(relation);
 }
 
 /** What an engine DOES have, when the model it was pointed at was never

@@ -7,8 +7,8 @@ import type { HardwareStats } from '../lib/types';
 import { appAccent, appById, AppDot } from '../lib/appColor';
 import {
   MODEL_RELATION, activityTone, componentMeta, foundVia, groupMemoryGb,
-  groupRows, holdsLine, identified, isAvas, isCollapsible,
-  listHint, memPhrase, poolOf, relationOf, rowSub, rowTitle, shareOf, tempTone,
+  groupRows, holdsLine, identified, isAvas, listHint, memPhrase,
+  needsGroupHeads, poolOf, relationOf, rowSub, rowTitle, shareOf, tempTone,
 } from './hwModels';
 import type { MemPool, Row as HwRow } from './hwModels';
 import { Icon } from '../lib/icons';
@@ -22,12 +22,21 @@ import { Icon } from '../lib/icons';
 // bounds below.
 
 const KEY = 'ava.hwbubble.pos';
-// Which sections the owner has folded away, by relation token. Remembered for
-// the same reason the bubble's position is: a panel that forgets what you told
-// it costs you the same click on every visit. Nothing is collapsed by default —
-// see `isCollapsible` for why a 65 GB stranger must never be hidden on the
-// first open.
-const GROUPS_KEY = 'ava.hwbubble.collapsed';
+// Whether the owner has OPENED the panel's one foldable section, "Model use
+// outside Ava". Remembered for the same reason the bubble's position is: a
+// panel that forgets what you told it costs you the same click on every visit.
+//
+// It stores what is OPEN, not what is folded, and that is deliberate: the
+// section starts CLOSED, and the old key recorded the inverse — every visitor
+// wrote `[]` ("nothing folded") to it on their first open, so a default read
+// from that list would still be expanding the section for everyone who had ever
+// seen the panel.
+//
+// Closed by default is only safe because the section's TOTAL rides on the
+// heading, not inside the fold: folded, it still reads "MODEL USE OUTSIDE AVA ·
+// 80.4 GB", so a 65 GB stranger is still accounted for right beside the memory
+// gauge — the one thing this panel exists to answer. Never move that number in.
+const OUTSIDE_KEY = 'ava.hwbubble.outside';
 const SIZE = 52;
 // GAP is bubble→panel, EDGE is panel→viewport edge. The panel stops shrinking at
 // MIN_W because a 40px-wide panel is not a smaller panel, it is an unreadable
@@ -59,14 +68,13 @@ function loadPos(): Pos {
   return { x: vw() - SIZE - 16, y: vh() - SIZE - 96 };
 }
 
-function loadCollapsed(): string[] {
+function loadOutsideOpen(): boolean {
   try {
-    const v = JSON.parse(localStorage.getItem(GROUPS_KEY) || '[]');
-    if (Array.isArray(v)) return v.filter((x) => typeof x === 'string');
+    return localStorage.getItem(OUTSIDE_KEY) === '1';
   } catch {
     /* ignore */
   }
-  return [];
+  return false;
 }
 
 const gb = (v: number | null | undefined) => (v == null ? '—' : v >= 1024 ? `${(v / 1024).toFixed(1)} TB` : `${v.toFixed(1)} GB`);
@@ -225,7 +233,7 @@ export function HardwareBubble() {
   // ~200px detail block was ALWAYS open below the list — the single biggest
   // thing making the column unreadable. Now a card is something you asked for.
   const [openId, setOpenId] = useState('');
-  const [collapsed, setCollapsed] = useState<string[]>(loadCollapsed);
+  const [outsideOpen, setOutsideOpen] = useState(loadOutsideOpen);
   const drag = useRef<{ sx: number; sy: number; ox: number; oy: number; moved: boolean } | null>(null);
 
   useEffect(() => {
@@ -233,8 +241,8 @@ export function HardwareBubble() {
   }, [pos]);
 
   useEffect(() => {
-    localStorage.setItem(GROUPS_KEY, JSON.stringify(collapsed));
-  }, [collapsed]);
+    localStorage.setItem(OUTSIDE_KEY, outsideOpen ? '1' : '0');
+  }, [outsideOpen]);
 
   // The viewport is STATE because the panel's width and max-height are functions
   // of it. This re-rendered on resize before only because clampPos returns a
@@ -338,17 +346,21 @@ export function HardwareBubble() {
   const pool = poolOf(stats);
   const ownGb = groupMemoryGb(ownEngines, pool);
   const outsideGb = groupMemoryGb(outside, pool);
+  const outsideGroups = groupRows(outside, pool);
+  // Group headings only when there is a second relationship to tell apart from
+  // the first — see `needsGroupHeads`. Their fold is gone: one section, one
+  // control, on the line that names the section.
+  const groupHeads = needsGroupHeads(outsideGroups);
   const toggle = useCallback(
     (id: string) => setOpenId((cur) => (cur === id ? '' : id)),
     [],
   );
-  const toggleGroup = (relation: string, rows: Row[]) => {
-    const folding = !collapsed.includes(relation);
-    setCollapsed(folding ? [...collapsed, relation] : collapsed.filter((r) => r !== relation));
-    // Folding a section away must not leave a card open inside it — it would
+  const toggleOutside = () => {
+    // Folding the section away must not leave a card open inside it — it would
     // vanish with no way back except re-expanding, and re-expanding would then
     // reopen a card nobody asked for a second time.
-    if (folding && rows.some((m) => m.id === openId)) setOpenId('');
+    if (outsideOpen && outside.some((m) => m.id === openId)) setOpenId('');
+    setOutsideOpen(!outsideOpen);
   };
 
   // A process that exits while its card is open closes the card. The list is
@@ -423,7 +435,13 @@ export function HardwareBubble() {
                   screen without a click, because that is the one row whose
                   diagnosis has to be readable on a box with no telemetry. */}
               <div className="hwb-sec">
-                <div className="hwb-lab">{MODEL_RELATION.brain.group}</div>
+                {/* The chevron track is reserved on every section label, folding
+                    or not, so all three headings start at the same x — the same
+                    rule the group headings already followed. */}
+                <div className="hwb-lab">
+                  <span className="hwb-chev-gap" aria-hidden="true" />
+                  <span>{MODEL_RELATION.brain.group}</span>
+                </div>
                 {brain ? (
                   <ul className="hwb-rows">
                     <ModelRow m={brain} pool={pool} open={openId === brain.id} onToggle={toggle}>
@@ -444,6 +462,7 @@ export function HardwareBubble() {
               {ownEngines.length > 0 && (
                 <div className="hwb-sec">
                   <div className="hwb-lab">
+                    <span className="hwb-chev-gap" aria-hidden="true" />
                     <span>{MODEL_RELATION.configured.group}</span>
                     <span className="hwb-num">{ownGb != null ? gb(ownGb) : ''}</span>
                   </div>
@@ -461,87 +480,84 @@ export function HardwareBubble() {
                 {/* Not "on this machine": a cloud or sandbox brain is listed here
                     too, and its own state says it runs elsewhere.
 
-                    Grouped, not a <select>. A dropdown shows ONE row at a time,
-                    and this panel sits beside the memory gauge to answer "where
-                    did my memory go" — hiding a 65 GB row behind a closed
-                    control is the wrong shape for that question, however the
-                    options are labelled. Flattening four different
+                    Grouped, not a <select>. A dropdown shows ONE row at a time
+                    and never says how much the ones it is hiding hold; this
+                    section names its subject and carries its whole total on the
+                    line you fold it by, which is why folding it is honest and
+                    the dropdown was not. Flattening four different
                     relationships into one list is what made a live, correct
                     list read as stale junk. */}
-                <div className="hwb-lab">
-                  <span>Model use outside Ava</span>
-                  {/* The section's own total — everything holding model memory
-                      that is not Ava's. It used to sit on the "Other programs"
-                      heading, which is gone; putting it here is better than
-                      where it was, because "where did my memory go" is a
-                      question about the whole section, not one group of it. */}
-                  <span className="hwb-num">
-                    {outsideGb != null ? gb(outsideGb) : ''}
-                  </span>
-                </div>
+                {/* The panel's ONE fold, and it is this heading: everything
+                    that is not Ava's, under the line that says so. It used to
+                    sit one level lower, on a per-group heading — which on the
+                    common box (one group, "Other software") meant this title,
+                    then the same claim again with the same total one line
+                    below it, and the control on the second copy.
+
+                    The section's total stays on the summary line whether it is
+                    open or shut, so folding removes the DETAIL and never the
+                    fact: "where did my memory go" is answered by a closed
+                    section too. */}
+                {outside.length > 0 ? (
+                  <button type="button" className="hwb-lab is-toggle"
+                          aria-expanded={outsideOpen} aria-controls="hwb-outside"
+                          onClick={toggleOutside}>
+                    <span className={'hwb-chev' + (outsideOpen ? ' is-open' : '')}
+                          aria-hidden="true"><Icon name="chevronDown" /></span>
+                    <span>Model use outside Ava</span>
+                    <span className="hwb-num">
+                      {outsideGb != null ? gb(outsideGb) : ''}
+                    </span>
+                  </button>
+                ) : (
+                  <div className="hwb-lab">
+                    <span className="hwb-chev-gap" aria-hidden="true" />
+                    <span>Model use outside Ava</span>
+                  </div>
+                )}
+                {/* Ava's own rows are excluded here — the brain and any engines
+                    the owner registered each have their own section above, and
+                    this heading would be lying about them. */}
                 {models.length === 0 ? (
                   <div className="hwb-empty">No inference engine is running here yet.</div>
-                ) : (
-                  <>
-                    {/* Ava's own rows are excluded here — the brain and any
-                        engines the owner registered each have their own section
-                        above, and this heading would be lying about them. */}
-                    {outside.length === 0 && (
-                      <div className="hwb-empty">
-                        Nothing else on this machine is holding model memory.
+                ) : outside.length === 0 ? (
+                  <div className="hwb-empty">
+                    Nothing else on this machine is holding model memory.
+                  </div>
+                ) : outsideOpen && (
+                  /* Groups stay in RELATION_ORDER and are NOT ranked by weight,
+                     which would put a stranger's 65 GB process above the app the
+                     owner connected: how much is the number, whose is the
+                     order. */
+                  <div id="hwb-outside">
+                    {outsideGroups.map((g) => (
+                      <div className="hwb-grp" key={g.relation}>
+                        {groupHeads && (
+                          <div className="hwb-grp-head">
+                            <span className="hwb-chev-gap" aria-hidden="true" />
+                            <span className="hwb-grp-name">{g.copy.group}</span>
+                            <span className="hwb-num">
+                              {g.memoryGb != null ? gb(g.memoryGb) : ''}
+                            </span>
+                          </div>
+                        )}
+                        {/* The note stays even when the heading goes: it is the
+                            only line that explains the relationship, and it is
+                            never the section title repeated. */}
+                        {g.copy.note && (
+                          <div className="hwb-grp-note">{g.copy.note}</div>
+                        )}
+                        <ul className="hwb-rows">
+                          {g.rows.map((m) => (
+                            <ModelRow key={m.id} m={m} pool={pool}
+                                      open={openId === m.id} onToggle={toggle}>
+                              {openId === m.id && <ModelDetail m={m} pool={pool} />}
+                            </ModelRow>
+                          ))}
+                        </ul>
                       </div>
-                    )}
-                    {/* Sections stay in RELATION_ORDER and are NOT ranked by
-                        weight, which would put a stranger's 65 GB process above
-                        the app the owner connected. The heading carries the
-                        section's total in the rows' own column, so it answers
-                        "where did my memory go" without reordering anything:
-                        how much is the number, whose is the order. */}
-                    {groupRows(outside, pool).map((g) => {
-                      const foldable = isCollapsible(g.relation);
-                      const shown = !foldable || !collapsed.includes(g.relation);
-                      const listId = `hwb-grp-${g.relation}`;
-                      // The total rides on the summary, not inside the fold, so
-                      // collapsing a section removes its detail and never its
-                      // share of the machine's memory.
-                      const total = g.memoryGb != null ? gb(g.memoryGb) : '';
-                      return (
-                        <div className="hwb-grp" key={g.relation}>
-                          {foldable ? (
-                            <button type="button" className="hwb-grp-head is-toggle"
-                                    aria-expanded={shown} aria-controls={listId}
-                                    onClick={() => toggleGroup(g.relation, g.rows)}>
-                              <span className={'hwb-chev' + (shown ? ' is-open' : '')}
-                                    aria-hidden="true"><Icon name="chevronDown" /></span>
-                              <span className="hwb-grp-name">{g.copy.group}</span>
-                              <span className="hwb-num">{total}</span>
-                            </button>
-                          ) : (
-                            <div className="hwb-grp-head">
-                              <span className="hwb-chev-gap" aria-hidden="true" />
-                              <span className="hwb-grp-name">{g.copy.group}</span>
-                              <span className="hwb-num">{total}</span>
-                            </div>
-                          )}
-                          {shown && (
-                            <div id={listId}>
-                              {g.copy.note && (
-                                <div className="hwb-grp-note">{g.copy.note}</div>
-                              )}
-                              <ul className="hwb-rows">
-                                {g.rows.map((m) => (
-                                  <ModelRow key={m.id} m={m} pool={pool}
-                                            open={openId === m.id} onToggle={toggle}>
-                                    {openId === m.id && <ModelDetail m={m} pool={pool} />}
-                                  </ModelRow>
-                                ))}
-                              </ul>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </>
+                    ))}
+                  </div>
                 )}
               </div>
             </div>

@@ -107,11 +107,13 @@
   --hwb-mem: 52px;
 }
 
-/* The same two tracks every row and group heading uses, so the section's total
-   lands in the memory column rather than floating beside the title. */
+/* The same three tracks every row and group heading uses, so the section's
+   total lands in the memory column rather than floating beside the title — and
+   so every section heading starts at the same x whether or not it is the one
+   that folds. The chevron track is reserved on all of them for that reason. */
 .hwb-lab {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) var(--hwb-mem);
+  grid-template-columns: 12px minmax(0, 1fr) var(--hwb-mem);
   column-gap: var(--sp-1);
   align-items: baseline;
   font-size: var(--fs-xs);
@@ -122,25 +124,48 @@
   margin-bottom: var(--sp-1);
 }
 
+/* The panel's one fold lives on a section heading — "Model use outside Ava" —
+   so that heading is a <button>. Only the button chrome is reset: `font:
+   inherit` would take the size and weight above with it, and this is still the
+   same section label it was when it was a <div>. */
+.hwb-lab.is-toggle {
+  width: 100%;
+  padding: 2px 6px 2px 0;
+  text-align: left;
+  font-family: inherit;
+  line-height: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+
+.hwb-lab.is-toggle:hover { background: var(--wash-4); color: var(--txt); }
+
+.hwb-lab.is-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 /* The label is uppercase and tracked out; the figure beside it is neither. */
 .hwb-lab .hwb-num { text-transform: none; letter-spacing: normal; }
 
 .hwb-empty { color: var(--muted); }
 
-/* A group band. The heading carries its rows' total in the same track the rows
-   use, so it is a data line rather than a second grey heading above the note. */
-/* Wider than it looks like it needs to be, because one group has no heading:
-   the foreign section opens on its note, and a note is the same muted 11px as
-   the note belonging to the group above it. Proximity is the only thing saying
-   which rows "Not Ava's — other software on this machine." is about, so the
-   gap between groups has to clearly beat the 2px between a note and its own
-   rows. */
+/* A group band, drawn only when the section holds more than one relationship
+   (hwModels.needsGroupHeads) — a lone group is the section heading again. The
+   heading carries its rows' total in the same track the rows use, so it is a
+   data line rather than a second grey heading above the note. */
+/* Wider than it looks like it needs to be, because a group opens on its note,
+   and a note is the same muted 11px as the note belonging to the group above
+   it. Proximity is the only thing saying which rows "Not Ava's — other software
+   on this machine." is about, so the gap between groups has to clearly beat the
+   2px between a note and its own rows. */
 .hwb-grp + .hwb-grp { margin-top: var(--sp-3); }
 
-/* Three tracks, and the chevron one is reserved even where nothing folds, so
-   every section heading starts at the same x whether or not it is a control.
-   The indent ladder is deliberate: section label 0, group heading 12px, row
-   text 16px. */
+/* The same three tracks as the section label above it, chevron track included,
+   so a group heading sits directly under the section title it belongs to. It is
+   never a control itself: the fold is one level up, on the section. */
 .hwb-grp-head {
   display: grid;
   grid-template-columns: 12px minmax(0, 1fr) var(--hwb-mem);
@@ -148,20 +173,6 @@
   align-items: baseline;
   width: 100%;
   padding: 2px 6px 2px 0;
-  text-align: left;
-  font: inherit;
-  color: inherit;
-  background: transparent;
-  border: 0;
-  border-radius: var(--r-sm);
-}
-
-.hwb-grp-head.is-toggle { cursor: pointer; }
-.hwb-grp-head.is-toggle:hover { background: var(--wash-4); }
-.hwb-grp-head.is-toggle:hover .hwb-grp-name { color: var(--txt); }
-.hwb-grp-head.is-toggle:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
 }
 
 /* Points down when open, right when folded — the direction of travel, which is
