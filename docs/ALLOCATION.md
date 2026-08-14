@@ -172,15 +172,18 @@ itself. A model you shut down deliberately stays down.
 Everything above is about Ava deciding. This is about you deciding, and it is a
 different thing with different rules.
 
-Open the hardware monitor - the chip button that floats over every page - and look
-under **Memory Ava can free**. Each row says what it is holding and offers the one
-lever its engine actually has. Or from a terminal:
+From a terminal:
 
 ```
 ava alloc status                 # what is holding memory
 ava alloc release <model-id>     # free it
 ava alloc restore <model-id>     # bring it back
 ```
+
+The panel section that does this from the UI (**Memory Ava can free**) is written
+and tested, but it is not wired in: the allocator underneath it is not yet
+something to put behind a button an owner can press by accident. Until it is, the
+terminal is the way.
 
 Four things are worth knowing before you press it.
 
@@ -211,6 +214,7 @@ rather than counting a working release as a failure.
 | Ava's own voice models | always | by itself, on the next voice turn |
 | An engine that publishes an unload endpoint | inferred, if `alloc.infer_levers` | by itself, on the next request |
 | A model you declared with `driver: docker` / `systemd` | yours | `Load it back` starts it again |
+| A model you declared `pinned: true` | **none, by your choice** - the planner will not evict it and your own release is refused | - |
 | Anything else | none - reported, never touched | - |
 
 Ava fills in **one** kind of lever for you: an engine's own documented "drop your
@@ -345,7 +349,14 @@ active while the condition persists and clear themselves when it is fixed:
 | `alloc_absent_<model>` | Declared, but not installed here. Usually a typo, or config carried from another machine. |
 | `alloc_unfit_<model>` | Has not been able to start for a sustained period. |
 | `alloc_unknown_hog` | Undeclared processes holding memory while a declared model is blocked. |
+| `alloc_config_<model>` | The driver's own `validate()` complaint about your declaration - an unbounded container restart policy that will fight the allocator, or no `readiness.url`, which makes `alloc_degraded` undetectable. |
 | `alloc_giveup_<model>` / `alloc_quiesced` | Ava stopped trying, and why. Both name the command that resumes. |
+
+A **pinned** model raises `alloc_degraded_<model>` like any other - a model that
+is up and lying about its health is exactly what you want to hear about - but
+never `alloc_unfit_<model>`, and it is never named as "blocked" by
+`alloc_unknown_hog`. Ava cannot start it, so reporting that it has not started is
+a complaint about somebody else's decision.
 
 ```console
 ava alloc status              # pool, leases, breaker, per-model residency
@@ -361,6 +372,65 @@ ava alloc resume              # un-quiesce
 
 A second app can hold leases without importing Ava - that is how two applications
 stop fighting over one pool: exactly one component decides, and the other asks.
+
+### A model that belongs to another app
+
+Before any of that, there is a smaller and more common case: another app on this
+box is holding several GB, and Ava has no idea what it is. Undeclared, that memory
+lands in the pool's **unknown** residual, which is what drives
+`alloc_unknown_hog` - so Ava reports "something is holding 12 GB and I cannot say
+what" while the answer is a perfectly well-behaved neighbour.
+
+Declaring it is about **counting**, not controlling:
+
+```yaml
+alloc:
+  models:
+    their-drafter:
+      label: Sidecar app's drafting model
+      driver: docker
+      pinned: true
+      weight_gb: 11.6                    # MEASURED, not quoted
+      driver_config: {container: their-drafter-llm}
+      readiness:
+        url: ${THEIR_APP_API:-http://127.0.0.1:8003}/v1/models
+        expect: models_contains
+        model: their-alias                # the SERVED alias, not the checkpoint
+```
+
+**`pinned: true` means never released, at any priority.** It is not a priority
+level - it removes the model from candidacy entirely. The surprising half, and
+the reason it is spelled out here: **your own `ava alloc release` is refused
+too**, with the code `pinned`. That is deliberate. There is no force flag.
+
+Reach for it when the other app treats the model as always-resident **and its own
+supervisor would not bring it back**. That combination is what makes a release
+unrecoverable: a container started `--restart no` by a `Type=oneshot` unit has
+nobody watching it, so a model Ava stops stays stopped, and the other app's
+feature is silently down until a human notices. Pinning is Ava declining a lever
+whose consequences it cannot own.
+
+What you still get, which is the whole point: the weight moves out of `unknown`
+into `declared`, so the planner stops promising room that is not there; residency
+is measured through the driver; and the readiness probe watches a model nothing
+else on the box is watching.
+
+!!! warning "The served-alias trap"
+
+    For an OpenAI-compatible server, `expect: models_contains` must name the id
+    that `/v1/models` **actually returns**. An engine started with
+    `--served-model-name foo` answers `{"id": "foo", "root": "org/Checkpoint"}` -
+    so matching on `org/Checkpoint` is False forever, which the watchdog reads as
+    `degraded` and raises a **critical** alert about a completely healthy model.
+
+    Getting this wrong is worse than omitting `expect` - but omitting it is not
+    safe either: with no `require`/`expect`, **any** 2xx counts as ready, and a
+    bare `/health` cannot tell a loaded model from a warm-up that hit OOM, caught
+    it, and served its port anyway. That is the failure this whole layer exists
+    for.
+
+Applying it: `alloc.models` is read at boot. Edit `ava.yaml` and restart Ava. No
+Setup screen writes this block, so no banner will appear to remind you.
 
 ??? note "The lease API (four endpoints, on Ava's router, token-guarded)"
 

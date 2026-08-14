@@ -84,9 +84,26 @@ def _wants_start(row: dict) -> bool:
     Nor does a model the owner freed by hand. It is down because they said so, and
     "has not been able to start for 60 min" about a state someone chose is the
     watchdog nagging them for using the feature.
+
+    Nor a **pinned** model, and that one is structural rather than a preference:
+    Ava cannot start one even if it wanted to. `_restore()` is gated on
+    `_owe_restore()`, which requires `released_by_us`/`releasing`; only
+    `_release_one` sets those; and both the planner (`policy.Candidate.releasable`
+    excludes pinned) and `owner_release` (which returns the `pinned` verdict before
+    touching a driver) refuse to release a pinned model — so those flags can never
+    be set for one. "Has not been able to start for 60 min" about an action Ava is
+    forbidden to take is a complaint about somebody else's decision, and it also
+    drags the model into the undeclared-memory alert's blocked list, where it makes
+    unrelated processes look like the reason nothing is starting.
+
+    This deliberately does NOT buy a pinned model silence about lying: `_state_of`'s
+    `degraded` branch reads `resident and ready is False` and never consults this
+    function, so a pinned model that is up and failing its readiness probe still
+    raises critical. Pinning is protection from the allocator, not from the truth.
     """
     return (bool(row.get("local")) and not row.get("observe_only")
             and not row.get("released_by_owner")
+            and not row.get("pinned")
             and row.get("resident") is False)
 
 

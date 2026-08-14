@@ -609,8 +609,30 @@ alloc:
   #   my-voice:
   #     driver: systemd
   #     priority: background
+  #     pinned: true              # never released, at any priority — and note
+  #                               #   your OWN `ava alloc release` is refused too
   #     weight_gb: 3.4
   #     driver_config: { unit: my-voice.service }
   #     readiness:
   #       url: "http://127.0.0.1:8129/health"
   #       require: [ok, stt_ready]   # every key must be truthy in the JSON body
+  #
+  #   # A model belonging to ANOTHER APP on this box: counted, never actuated.
+  #   # Declared so its memory leaves the pool's `unknown` residual — undeclared,
+  #   # it drives alloc_unknown_hog while being a perfectly good neighbour.
+  #   # `pinned` because that app treats it as always-resident and its own
+  #   # supervisor would not restart it if Ava stopped it. See docs/ALLOCATION.md
+  #   # "A model that belongs to another app".
+  #   their-drafter:
+  #     driver: docker
+  #     pinned: true
+  #     weight_gb: 11.6                  # MEASURED, not quoted from a README
+  #     driver_config: { container: their-drafter-llm }
+  #     readiness:
+  #       url: "http://127.0.0.1:8003/v1/models"
+  #       expect: models_contains
+  #       # The SERVED alias, not the checkpoint id. An engine started with
+  #       # --served-model-name answers /v1/models with the alias, so matching
+  #       # the checkpoint is False forever — which reads as `degraded` and
+  #       # raises a CRITICAL alert about a healthy model.
+  #       model: their-alias

@@ -201,6 +201,56 @@ class UnknownHogTests(WatchTestCase):
         self.assertNotIn("alloc_unknown_hog", self._alert_ids())
 
 
+class PinnedTests(WatchTestCase):
+    """A pinned model is one Ava may not touch — so it must not be nagged about.
+
+    Pinning exists for a model that belongs to ANOTHER app on this box: declared so
+    its memory is counted, never actuated. Ava genuinely cannot start one (`_restore`
+    needs provenance flags that only a release sets, and a pinned model is never
+    released), so "has not been able to start for 60 min" is a complaint about
+    somebody else's decision — and it drags the model into the undeclared-memory
+    alert's blocked list, where it makes unrelated processes look like the cause.
+
+    The line these draw: protection from the ALLOCATOR, never silence about lying.
+    """
+
+    def test_a_pinned_model_that_is_down_is_not_reported_as_unable_to_start(self):
+        rows = [_unfit("vip", pinned=True)]
+        watch.run_cycle(_report(rows))
+        watch._unfit_since["vip"] = 0.0          # backdate past any grace window
+        watch.run_cycle(_report(rows))
+        self.assertNotIn("alloc_unfit_vip", self._alert_ids())
+        self.assertFalse(watch._wants_start(rows[0]))
+
+    def test_a_pinned_model_down_is_recorded_as_stopped(self):
+        """Silent is not the same as unobserved: the ledger still gets the change."""
+        self.assertEqual(watch._state_of(_unfit("vip", pinned=True)), "stopped")
+
+    def test_a_pinned_model_does_not_appear_in_the_undeclared_memory_alert(self):
+        # 60 GiB unexplained AND the only down model is one Ava may not start. There
+        # is nothing being blocked, so blaming the unknown memory would be a lie.
+        watch.run_cycle(_report([_unfit("vip", pinned=True)], unknown_gib=60.0))
+        self.assertNotIn("alloc_unknown_hog", self._alert_ids())
+
+    def test_a_pinned_model_that_is_running_but_not_ready_is_still_degraded(self):
+        """The guard the other way — this is the failure the watchdog exists for.
+
+        A pinned engine whose warm-up failed and served its port anyway is exactly
+        the six-day silent fallback. Pinning must buy it no quiet at all.
+        """
+        watch.run_cycle(_report([_row("vip", pinned=True, ready=False)]))
+        got = [a for a in alerts.active() if a["id"] == "alloc_degraded_vip"]
+        self.assertTrue(got)
+        self.assertEqual(got[0]["severity"], "critical")
+
+    def test_metrics_do_not_count_a_pinned_model_as_unfit(self):
+        rows = [_unfit("vip", pinned=True), _unfit("ordinary")]
+        with mock.patch("ava_bridge.alloc.spec.load_models", return_value=[object()]), \
+             mock.patch("ava_bridge.alloc.report", return_value=_report(rows)):
+            m = watch.metrics()
+        self.assertEqual(m["alloc_unfit_count"], 1)
+
+
 class AuditTests(WatchTestCase):
     def test_only_transitions_are_recorded(self):
         rows = [_row("m")]

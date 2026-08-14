@@ -219,5 +219,47 @@ class WatchdogTests(unittest.TestCase):
         self.assertEqual(watch._state_of(row), "released")
 
 
+class PinnedTests(OwnerTestCase):
+    """`pinned` is a promise about what cannot happen — so it needs a test.
+
+    The whole enforcement is one `if s.pinned` in `owner_release`. A promise whose
+    only guard is a branch nothing drives is a comment, and this one is load-bearing
+    for a real case: a model belonging to ANOTHER app on the box, declared so Ava can
+    see its memory, whose own supervisor would not bring it back if Ava stopped it.
+    """
+
+    def test_the_owner_button_is_refused_for_a_pinned_model(self):
+        drv = self._driver()
+        with mock.patch.object(broker, "_driver", return_value=drv), \
+             mock.patch.object(broker.spec, "by_id",
+                               return_value={"vip": mock.Mock(local=True,
+                                                              pinned=True)}):
+            out = broker.owner_release("vip")
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["code"], "pinned")
+        # The refusal must come BEFORE any driver work. Pinning means Ava does not
+        # touch it — not even to ask a container whether it could be stopped.
+        drv.plan_release.assert_not_called()
+        drv.release.assert_not_called()
+
+    def test_a_pinned_model_is_never_owed_a_restore(self):
+        """The other half: Ava can neither stop it nor start it.
+
+        `_restore` is gated on `_owe_restore`, which needs `released_by_us`/
+        `releasing` — flags only `_release_one` sets, and a pinned model never
+        reaches it. So there is no route by which Ava starts someone else's model.
+        """
+        drv = self._driver()
+        with mock.patch.object(broker, "_driver", return_value=drv), \
+             mock.patch.object(broker.spec, "by_id",
+                               return_value={"vip": mock.Mock(local=True, pinned=True,
+                                                              need_gib=1.0,
+                                                              restore={})}):
+            out = broker.owner_restore("vip")
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["code"], "not_owed")
+        drv.acquire.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

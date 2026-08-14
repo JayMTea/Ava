@@ -123,6 +123,76 @@ class SpecTests(unittest.TestCase):
         with _cfg({"alloc": {"models": {"m": {"priority": "urgent!"}}}}):
             self.assertEqual(spec.by_id()["m"].priority, spec.DEFAULT_PRIORITY)
 
+    def test_a_third_party_model_declares_pinned_and_a_served_alias(self):
+        """The shape used for a model that belongs to ANOTHER app on this box.
+
+        Every key here is one the reader in `_spec_from_alloc` must actually keep:
+        it is a closed list, so a typo or a renamed key is dropped in silence rather
+        than raising, and the declaration would look right while doing nothing.
+        """
+        cfg = {"alloc": {"models": {"their-llm": {
+            "label": "Another app's drafter",
+            "driver": "docker", "pinned": True, "priority": "background",
+            "weight_gb": 11.6,
+            "driver_config": {"container": "their-llm-ctr"},
+            # `expect: models_contains` naming the SERVED alias, not the checkpoint:
+            # an OpenAI-compatible server started with --served-model-name answers
+            # /v1/models with the alias, so matching the checkpoint id is False
+            # forever — which the watchdog reads as degraded and raises critical on.
+            "readiness": {"url": "http://127.0.0.1:9/v1/models",
+                          "expect": "models_contains", "model": "their-alias"},
+        }}}}
+        with _cfg(cfg):
+            s = spec.by_id()["their-llm"]
+        self.assertTrue(s.pinned)
+        self.assertEqual(s.driver, "docker")
+        self.assertEqual(s.priority, "background")
+        self.assertEqual(s.weight_gb, 11.6)
+        self.assertEqual(s.driver_config, {"container": "their-llm-ctr"})
+        self.assertEqual(s.readiness["expect"], "models_contains")
+        self.assertEqual(s.readiness["model"], "their-alias")
+
+    def test_a_pinned_model_still_counts_against_the_pool(self):
+        """The entire point of declaring another app's model.
+
+        Pinning says Ava will not reclaim it. It must NOT also mean Ava forgets the
+        memory exists — undeclared, those GB sit in the pool's `unknown` residual and
+        drive the undeclared-memory alert; declared, they are a known cost the
+        planner can subtract before promising room to anything else.
+        """
+        cfg = {"alloc": {"models": {"their-llm": {
+            "driver": "docker", "pinned": True, "weight_gb": 11.6,
+            "driver_config": {"container": "their-llm-ctr"},
+        }}}}
+        import ava_bridge.alloc as alloc
+
+        class _Held(ModelDriver):
+            """A real driver subclass: `report()` inspects the TYPE for acquire()."""
+
+            name = "held"
+            RELEASE_MODES = (ReleaseMode.STOP,)
+
+            def residency(self):
+                return Residency(resident=True, gib=11.6, measured=True, ready=True)
+
+            def release(self, mode, **kw):
+                raise AssertionError("a pinned model must never be released")
+
+            def acquire(self, **kw):
+                raise AssertionError("a pinned model must never be started")
+
+        ctx = DriverContext(model_id="their-llm", weight_gb=11.6, config={},
+                            free_gib=lambda: 50.0, wait_free=lambda *a, **k: True)
+        # Ava's OWN models are ingested separately from alloc.models; silence them
+        # too so `declared_gib` is attributable to the one declaration under test.
+        with _cfg(cfg), mock.patch.object(spec, "_own_models", lambda: []), \
+                mock.patch.object(alloc, "_driver", lambda s: _Held(ctx)):
+            rep = alloc.report()
+        row = next(r for r in rep["models"] if r["id"] == "their-llm")
+        self.assertTrue(row["pinned"])
+        self.assertEqual(row["resident_gib"], 11.6)
+        self.assertEqual(rep["pool"]["declared_gib"], 11.6)
+
     def test_driver_inferred_from_config_shape(self):
         cfg = {"alloc": {"models": {
             "a": {"driver_config": {"container": "c"}},
