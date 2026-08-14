@@ -31,16 +31,25 @@ from ava_bridge import setup_wizard
 def _no_agent_by_default(monkeypatch):
     """These tests are about the INFERENCE-BACKEND path.
 
-    `recommend_brain` now asks `models.effective_brain()` first, because a live
-    agent sandbox owns the model endpoint and the backends below are then never
+    `recommend_brain` asks `models.effective_brain()` first, because a live agent
+    sandbox owns the model endpoint and the backends below are then never
     consulted. That makes the answer depend on whether the machine running the
     tests happens to have a sandbox — a dependency these tests already had
-    through `runtime`, and which nothing pinned. Neutralised here so the file is
-    hermetic; the tests that are ABOUT the agent case patch it themselves.
+    through `runtime`, and which nothing pinned.
+
+    Neutralised at the RUNTIME seam, which is the actual environmental
+    dependency. Stubbing `effective_brain` wholesale (as this fixture used to)
+    also stubbed out the config/env resolution these tests exist to exercise —
+    fine while `recommend_brain` re-read `inference.*` itself, and silently
+    vacuous the moment it stopped keeping a second copy of that logic. The tests
+    that are ABOUT the agent case patch the resolver themselves.
     """
-    from ava_bridge import models
-    monkeypatch.setattr(models, "effective_brain",
-                        lambda: {"source": "configured", "model_id": ""})
+    from ava_bridge import runtime
+
+    class _Direct:
+        name = "direct"
+
+    monkeypatch.setattr(runtime, "active", lambda: _Direct())
 
 
 @pytest.fixture

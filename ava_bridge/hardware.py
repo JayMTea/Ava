@@ -913,6 +913,21 @@ def _loaded_models() -> list[dict]:
                     str(b.get("url", "")), str(b.get("engine", "")), key, timeout=1.5)
         state, confirmed, entry, measured = _backend_state(b, reachable, served, resident)
 
+        # Whether the config and the engine AGREE — computed in exactly one place
+        # (models.serving_truth) rather than re-derived here. It is handed the
+        # observations already made above, so this costs no extra probe.
+        #
+        # This function used to reach the same conclusion inline, in the `label`
+        # branch below, and then throw it away: the observed name replaced the
+        # configured one and the disagreement left no trace. That is how a router
+        # served a model its engine did not have for twelve days while this panel
+        # showed a green, correctly-named brain.
+        truth = _models.serving_truth(
+            {"source": "configured", "backend_id": str(b.get("id") or ""),
+             "model_id": str(b.get("model") or ""), "engine": str(b.get("engine") or ""),
+             "base_url": str(b.get("url") or ""), "api_key": key, "local": local},
+            served=(served if local else []), reachable=(reachable if local else None))
+
         label = str(b.get("label") or "").strip()
         row = _match_backend_row(rows, served or [str(b.get("model") or "")])
         if row is None and served:
@@ -963,6 +978,15 @@ def _loaded_models() -> list[dict]:
             if (label and label != str(b.get("id") or "")
                     and (confirmed or not str(b.get("model") or "").strip())):
                 row["model"] = label
+            # …but the config's name is no longer LOST when the engine wins. The
+            # display stays observed-identity-first (a name that is not in memory
+            # anywhere would be worse); what changes is that the row can now say
+            # the two disagree, and name both sides, instead of quietly resolving
+            # it. `config_label` is what the owner wrote; `drift` is the verdict.
+            row["drift"] = truth["verdict"]
+            row["config_label"] = label or str(b.get("model") or "")
+            row["drift_detail"] = {"want": truth["want"], "serving": truth["serving"],
+                                   "matched": truth["matched"]}
             continue
 
         # One row per backend — never one per model the engine happens to have
@@ -994,6 +1018,14 @@ def _loaded_models() -> list[dict]:
             "vram_mb": (round(entry["vram_bytes"] / (1024 * 1024), 1)
                         if entry and entry.get("vram_bytes") else None),
             "served": served,
+            # Same three facts as the process-backed branch above. A backend with
+            # no process row of its own can drift just as thoroughly — that is in
+            # fact the shape the twelve-day outage took, since the phantom router
+            # named a model no process on the box had ever loaded.
+            "drift": truth["verdict"],
+            "config_label": label or str(b.get("model") or ""),
+            "drift_detail": {"want": truth["want"], "serving": truth["serving"],
+                             "matched": truth["matched"]},
         })
 
     # The brain is named by config, so it is knowable with zero telemetry —
@@ -1042,6 +1074,13 @@ def _loaded_models() -> list[dict]:
             "source": "agent", "cmd": "",
             "backend": "", "local": bool(brain.get("local")),
             "vram_mb": None, "served": [],
+            # The same reason residency is unknown above: the sandbox owns its
+            # model endpoint and Ava does not hold it, so there is nothing to
+            # compare the config against. `unobservable`, never `agrees` — an
+            # agreement nobody checked is the reassurance this whole exercise
+            # exists to stop manufacturing — and never `drifted` either.
+            "drift": _models.serving_truth(brain, served=[], reachable=None)["verdict"],
+            "config_label": str(brain.get("label") or ""),
         })
         rows[-1]["role_key"] = "brain"
     elif brain_backend:
@@ -1060,6 +1099,11 @@ def _loaded_models() -> list[dict]:
         r.setdefault("state", "resident" if r.get("status") == "loaded" else "unknown")
         r.setdefault("local", True)
         r.setdefault("implicit", False)
+        # "" rather than a verdict: a row nobody compared has not agreed either.
+        # Defaulting to "agrees" would manufacture the reassurance this whole
+        # exercise exists to stop manufacturing.
+        r.setdefault("drift", "")
+        r.setdefault("config_label", "")
         if not r.get("role_key"):
             r["role_key"] = _role_key(r.get("model_id") or r.get("model"))
 
@@ -1121,8 +1165,13 @@ def _dedupe(rows: list[dict]) -> list[dict]:
             continue
         # Same model, twice. Keep the row already in place and lift anything the
         # duplicate knew that it did not — a PID, a measurement, a backend tie.
+        # `drift`/`config_label`/`drift_detail` are in this list for the same
+        # reason `backend` is: only the API-side row carries them, and a merge
+        # that dropped them would put the panel back where it started — one row,
+        # observed name, no way to tell it disagrees with the config.
         for field in ("pid", "memory_mb", "memory_gb", "vram_mb", "gpu_util",
-                      "backend", "cmd", "role_key", "implicit"):
+                      "backend", "cmd", "role_key", "implicit",
+                      "drift", "config_label", "drift_detail"):
             if not first.get(field) and r.get(field):
                 first[field] = r[field]
         # An observed GPU process outranks an API's word on residency: the memory

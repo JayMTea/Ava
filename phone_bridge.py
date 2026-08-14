@@ -189,6 +189,16 @@ def _startup():
         alloc_watch.start_scheduler()
     except Exception as e:  # noqa: BLE001 — optional subsystem; never block boot
         print(f"[ava-bridge] allocation watchdog unavailable: {e}", flush=True)
+    # Brain drift watchdog: compares what ava.yaml asks for against what the
+    # engine is actually serving. Unconditional, and NOT folded into the
+    # allocation watchdog above — that one no-ops until alloc.models is declared,
+    # and the box where a router served a model its engine did not have for
+    # twelve days had nothing declared at all.
+    try:
+        from ava_bridge import brain_watch
+        brain_watch.start_scheduler()
+    except Exception as e:  # noqa: BLE001 — optional subsystem; never block boot
+        print(f"[ava-bridge] brain watchdog unavailable: {e}", flush=True)
 
 
 # --- Optional personal-app routes (overlay) ---------------------------------
@@ -621,7 +631,17 @@ async def api_model_get():
     When the agent runtime is active, chat turns are served by the SANDBOX
     model and bypass the router entirely — so the router pick below only
     governs the tool-less fallback path. `agent_model` lets the picker say so
-    instead of promising "which model answers" while changing nothing."""
+    instead of promising "which model answers" while changing nothing.
+
+    Both fields come from `models.effective_brain()`. They used to be derived
+    here, independently, by asking `sandbox_info()` directly — and the two
+    derivations did not agree: this one gated on `rt.name == "nemoclaw"` while
+    the resolver gates on `rt.name != "direct"`, so on a `remote` runtime the
+    resolver said the sandbox WAS the brain and this endpoint said `null`, and
+    the header pill went blank on a perfectly working install. That is the
+    second-answer problem the one-resolver rule exists to prevent, and
+    tests/test_one_brain_resolver.py now fails any new instance of it.
+    """
     def _load():
         r = get_route() or {}
         if not isinstance(r, dict):
@@ -630,14 +650,19 @@ async def api_model_get():
         r.setdefault("mode", None)
         r.setdefault("backends", [])
         try:
-            from ava_bridge import runtime as _runtime
-            rt = _runtime.active()
-            if rt.name == "nemoclaw":
-                r["agent_model"] = (rt.sandbox_info(wait=False) or {}).get("model")
-            else:
-                r["agent_model"] = None
+            from ava_bridge import models as _models
+            brain = _models.effective_brain()
+            # Kept for the existing contract (qa/test_02_api_contracts.py asserts
+            # the key; useChat.ts reads it). Only its DERIVATION changes.
+            r["agent_model"] = (brain.get("model_id") or None
+                                if brain.get("source") == "agent" else None)
+            # The whole answer, so the header can name the brain in EVERY shape
+            # rather than only when a sandbox happens to be running.
+            r["brain"] = {k: brain.get(k) for k in
+                          ("source", "model_id", "label", "engine", "implicit")}
         except Exception:  # noqa: BLE001
             r["agent_model"] = None
+            r["brain"] = None
         return r
     return await run_in_threadpool(_load)
 

@@ -523,33 +523,32 @@ def recommend_brain() -> dict:
 
     # Priority: what the owner (or a previous run) CHOSE beats what the installer
     # arranged, because a chosen backend is already in force and already written.
-    primary = settings.get("inference.primary") or ""
-    backends = settings.get("inference.backends", {}) or {}
-    spec = None
-    if isinstance(backends, dict) and backends:
-        if primary and isinstance(backends.get(primary), dict):
-            spec = backends[primary]
-        else:
-            for v in backends.values():
-                if isinstance(v, dict) and str(v.get("model", "")).strip():
-                    spec = v
-                    break
-    if isinstance(spec, dict) and str(spec.get("model", "")).strip():
-        out.update(source="configured", model=str(spec["model"]).strip(),
-                   base_url=str(spec.get("base_url", "")).strip(),
-                   engine=str(spec.get("engine", "")).strip(),
-                   # Already in ava.yaml — confirming changes nothing.
+    #
+    # Asked of the ONE resolver rather than re-read here. This block used to
+    # walk `inference.primary` / `inference.backends` / AVA_BACKEND_MODEL itself
+    # and reached a subtly different answer than `effective_brain()`: it picked
+    # the first backend with a non-empty model where the resolver picks
+    # backends[0], so on a config whose first backend had no model the wizard
+    # and every other surface named different brains on the same box.
+    #
+    # `implicit` is exactly the installer/env case this endpoint exists to keep
+    # OUT of ava.yaml — `load_backends()` stamps it, so the distinction survives
+    # without a second read of the environment.
+    # Reuses the `brain` resolved above — NOT a second call. That one is inside a
+    # try/except so a broken resolver degrades to "nothing found" instead of
+    # taking the setup wizard down with it
+    # (test_a_broken_resolver_does_not_break_the_wizard).
+    from . import models as _models
+    if brain.get("source") in ("configured", "implicit") and brain.get("model_id"):
+        out.update(source=("installed" if brain.get("implicit") else "configured"),
+                   model=str(brain["model_id"]).strip(),
+                   base_url=str(brain.get("base_url") or "").strip().rstrip("/"),
+                   engine=str(brain.get("engine") or "").strip(),
+                   # Already in force either way: a configured backend is already
+                   # written, and the installer's env backend is live WITHOUT
+                   # being written — copying it into ava.yaml would freeze it,
+                   # which is the whole point of this endpoint.
                    writes_config=False)
-    else:
-        url = os.environ.get("AVA_BACKEND_URL", "").strip()
-        model = os.environ.get("AVA_BACKEND_MODEL", "").strip()
-        if url and model:
-            out.update(source="installed", model=model, base_url=url.rstrip("/"),
-                       engine=os.environ.get("AVA_BACKEND_ENGINE", "").strip(),
-                       # THE point of this whole endpoint: the installer's value
-                       # is live via the env backend, so confirming it must not
-                       # copy it into ava.yaml and freeze it.
-                       writes_config=False)
 
     if out["base_url"]:
         out["engine"] = _engine_of(out["base_url"], out["engine"])
@@ -560,19 +559,29 @@ def recommend_brain() -> dict:
     # `llama3.2` is reported by Ollama as `llama3.2:latest`, and vLLM is
     # case-sensitive about `mistralai/Mistral-7B-Instruct-v0.3`.
     if out["live"] and out["base_url"]:
-        from . import models as _models
         out["served"] = _models.served_models(out["base_url"], out["engine"])
-        if out["model"] and out["served"]:
-            exact = _models.match_served(out["model"], out["served"])
-            if exact:
-                out["model"] = exact
-            else:
-                # Declared but absent. Only reachable when the list was READ —
-                # an engine that is down or slow returns [] and must degrade to
-                # "we do not know", never to "your model is missing".
-                out["source"] = "declared_missing"
-                out["pull_cmd"] = _pull_cmd(out["base_url"], out["engine"],
-                                            out["model"])
+        # One comparison, one home. This screen was the ONLY place in the tree
+        # that reconciled the config against the running engine, and it was
+        # locked inside the setup wizard — so the hardware panel, the router and
+        # `ava doctor` each had to get by without it, and the box went twelve
+        # days serving a model its engine did not have. Same rule, now shared.
+        truth = _models.serving_truth(
+            {"source": "configured", "model_id": out["model"],
+             "engine": out["engine"], "base_url": out["base_url"],
+             "api_key": "", "local": True},
+            served=out["served"], reachable=True)
+        if truth["verdict"] == "agrees":
+            # Adopt the ENGINE's spelling: Ava sends the id verbatim, so "close
+            # enough" is not a category — a pulled `llama3.2` is reported by
+            # Ollama as `llama3.2:latest`.
+            out["model"] = truth["matched"]
+        elif truth["verdict"] == "drifted":
+            # Declared but absent. Only reachable when the list was READ — an
+            # engine that is down or slow degrades to `unreachable` /
+            # `unobservable` above and must never land here.
+            out["source"] = "declared_missing"
+            out["pull_cmd"] = _pull_cmd(out["base_url"], out["engine"],
+                                        out["model"])
 
     # What it costs them, in consequences rather than parameters. Reuses the tier
     # the hardware step already shows, so the two screens cannot disagree.

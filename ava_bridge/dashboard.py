@@ -712,6 +712,16 @@ def build_alert_metrics() -> dict:
         m.setdefault("alloc_unfit_count", 0)
         m.setdefault("alloc_unknown_hold_gb", 0)
 
+    # Ava's configured model vs what the engine actually holds. Same reason as
+    # above — a router serving an id its engine does not have answers its port
+    # perfectly, fails every turn, and shows up in no other metric. Cached
+    # alongside the alloc gauges because it costs an engine probe.
+    try:
+        from . import brain_watch as _brain_watch
+        m.update(_cached("brain_metrics", 30, _brain_watch.metrics))
+    except Exception:  # noqa: BLE001 — never break the feed
+        m.setdefault("brain_drift_count", 0)
+
     # --- cost / energy budgets + idle burn (dormant until a budget is set) ---
     cfg = _cost_cfg()
     budgets = cfg.get("budgets") or {}

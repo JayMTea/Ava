@@ -626,6 +626,149 @@ def effective_brain() -> dict:
             "implicit": implicit}
 
 
+#: What a config-vs-reality comparison can conclude. Closed, and mirrored in the
+#: frontend (`BrainTruth` in lib/types.ts) — tests/test_model_state_vocabulary.py
+#: reconciles the two.
+#:
+#: Only TWO of these are disagreements. The rest are the honest ways of not
+#: knowing, and none of them may ever be reported as a disagreement: an engine
+#: that is down, slow, or on someone else's box has not contradicted the config,
+#: and a watchdog that pages on silence is a watchdog people turn off.
+#:
+#: `drifted` and `mismatched` are deliberately separate because they have
+#: different consequences. `drifted` means the ENGINE answered and does not hold
+#: the model — every turn fails, so it is critical. `mismatched` means two
+#: CONFIG surfaces name different models; turns still succeed, because the router
+#: rewrites the model id on the way through, but a UI reading the wrong surface
+#: will name a model that is not answering. That is a lie, not an outage.
+TRUTHS = ("agrees", "drifted", "mismatched", "unreachable", "unobservable",
+          "elsewhere", "unconfigured")
+
+
+def _configured_backend_model() -> str:
+    """The model id of the backend Ava would route to, ignoring the sandbox.
+
+    Only for the agent-branch comparison in `serving_truth`: it answers "what
+    would serve a turn if the sandbox were not in the way", which is exactly what
+    the sandbox's own upstream reaches. Returns "" when nothing is configured, so
+    an install with no backend simply has nothing to disagree with.
+    """
+    try:
+        from . import router_app
+
+        backends = router_app.load_backends()
+    except Exception:  # noqa: BLE001 — never let this break the resolver
+        return ""
+    if not backends:
+        return ""
+    want = ""
+    try:
+        inf = settings.get("inference") or {}
+        if isinstance(inf, dict):
+            roles = inf.get("roles") or {}
+            want = str((roles.get("chat") if isinstance(roles, dict) else "")
+                       or inf.get("primary") or "").strip()
+    except Exception:  # noqa: BLE001
+        want = ""
+    b = next((x for x in backends if x.get("id") == want), backends[0])
+    return str(b.get("model") or "")
+
+
+def serving_truth(brain: dict | None = None, *, served: list[str] | None = None,
+                  reachable: bool | None = None, timeout: float = 2.0) -> dict:
+    """What the engine is ACTUALLY serving, and whether it matches the config.
+
+    The companion to `effective_brain()`, and deliberately a SECOND function
+    rather than more fields on the first: that one is documented as reading only
+    configuration, and an observed field on it would make its contract a lie.
+    Two functions in one module — a caller that has one has the other — and the
+    pair is what makes a disagreement expressible at all.
+
+    That it was NOT expressible is the whole reason this exists. A router served
+    a model id its engine did not have for twelve days; every completion 404'd;
+    and the hardware panel showed a green, correctly-named brain the entire time,
+    because the panel reads the engine, the router read the config, and no code
+    path could hold the two side by side. `hardware._loaded_models` already
+    computed this comparison inline and then threw the answer away.
+
+    Pass `served`/`reachable` when you have already probed — `/api/hardware` is
+    polled every 2s per open client and probes each local backend anyway, so the
+    hot path must not probe a second time. With both supplied this does no I/O.
+    """
+    b = brain if brain is not None else effective_brain()
+    out = {"verdict": "unconfigured", "want": "", "serving": [], "matched": "",
+           "engine": "", "base_url": "", "backend_id": "", "source": "",
+           "observed": False, "detail": ""}
+    out.update(backend_id=str(b.get("backend_id") or ""),
+               source=str(b.get("source") or ""),
+               engine=str(b.get("engine") or ""),
+               base_url=str(b.get("base_url") or ""),
+               want=str(b.get("model_id") or ""))
+
+    if out["source"] in ("", "none"):
+        return {**out, "verdict": "unconfigured",
+                "detail": "no brain is configured"}
+    # The agent sandbox answers turns itself and holds its own model endpoint;
+    # Ava does not have it. `effective_brain` says so where it sets local=True
+    # with an empty base_url: unobservable rather than absent. Probing our own
+    # router here would compare the config against an engine that is not the one
+    # answering, which is a fabricated agreement or a fabricated drift.
+    #
+    # But there IS one comparison worth making, and missing it cost a real
+    # discrepancy on 2026-08-13. The sandbox's model is baked in at
+    # `nemoclaw onboard` time (NEMOCLAW_MODEL in its container), so swapping
+    # Ava's backend leaves the sandbox naming the OLD model. Nothing failed —
+    # the sandbox's upstream runs through Ava's router, which rewrites the model
+    # id — but the hardware panel named a model that was no longer being served,
+    # and put the engine that WAS serving under "Ava's other engines". Both ids
+    # are config Ava can read, so the disagreement is observable even when the
+    # engine behind the sandbox is not.
+    if out["source"] == "agent":
+        theirs = out["want"]
+        ours = _configured_backend_model()
+        if theirs and ours and theirs != ours:
+            return {**out, "verdict": "mismatched", "serving": [ours],
+                    "detail": (f"the agent sandbox is onboarded with {theirs}, but "
+                               f"the model Ava serves is {ours}")}
+        return {**out, "verdict": "unobservable",
+                "detail": "the agent sandbox holds the model endpoint"}
+    # A remote endpoint is not ours to poll on a timer — an API key would leave
+    # the box every couple of seconds to learn something we cannot act on.
+    if not b.get("local", False):
+        return {**out, "verdict": "elsewhere",
+                "detail": "the brain is on another host; not probed from here"}
+    if not out["want"] or not out["base_url"]:
+        return {**out, "verdict": "unconfigured",
+                "detail": "no brain is configured"}
+
+    if served is None or reachable is None:
+        reachable, served = probe_serving(out["base_url"], out["engine"],
+                                          str(b.get("api_key") or ""), timeout)
+    out["observed"] = bool(reachable)
+    out["serving"] = list(served or [])
+
+    if not reachable:
+        return {**out, "verdict": "unreachable",
+                "detail": f"{out['base_url']} did not answer"}
+    if not out["serving"]:
+        # Reachable and listing nothing is a real state: a vLLM still loading
+        # lists nothing, and an empty Ollama store lists nothing. Neither has
+        # told us the configured model is absent.
+        return {**out, "verdict": "unobservable",
+                "detail": "the engine answered but listed no models"}
+
+    matched = match_served(out["want"], out["serving"])
+    if matched:
+        # `matched` is the engine's OWN spelling, which can differ from the
+        # config's (a bare Ollama tag against `llama3.2:latest`). Callers that
+        # display an id should prefer it.
+        return {**out, "verdict": "agrees", "matched": matched,
+                "detail": f"serving {matched}"}
+    return {**out, "verdict": "drifted",
+            "detail": (f"configured for {out['want']}, but the engine is serving "
+                       + ", ".join(out["serving"][:4]))}
+
+
 def match_served(model: str, served: list[str]) -> str:
     """The id the engine will accept for `model`, or "" if it holds no such thing.
 
@@ -654,6 +797,7 @@ __all__ = [
     "engine_servable_here", "resolve_auto", "roles_status",
     "models_url", "served_models", "match_served", "probe_serving",
     "resident_url", "probe_resident", "effective_brain",
+    "serving_truth", "TRUTHS",
 ]
 
 

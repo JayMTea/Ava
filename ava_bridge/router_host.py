@@ -41,6 +41,28 @@ def _external_alive(port: int) -> bool:
         return False
 
 
+def router_boot() -> dict:
+    """What the RUNNING router booted with, read from its own /healthz.
+
+    Asked over HTTP rather than from this process's memory on purpose: when the
+    router is a separate systemd unit (the always-on install shape), the bridge
+    holds no state of its own about it, and that separation is precisely how a
+    router kept serving four-day-old deleted code while the bridge that could
+    have noticed was restarted around it.
+
+    {} when the router does not answer or is too old to report a stamp — a
+    missing stamp is unknown, never "current".
+    """
+    _host, port, _embedded = _cfg()
+    try:
+        r = requests.get(f"http://127.0.0.1:{port}/healthz", timeout=1)
+        if not r.ok:
+            return {}
+        return dict((r.json() or {}).get("booted") or {})
+    except Exception:  # noqa: BLE001
+        return {}
+
+
 def router_status() -> dict:
     """For doctor / the dashboard: how the router is being provided."""
     host, port, embedded = _cfg()

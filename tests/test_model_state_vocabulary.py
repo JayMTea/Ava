@@ -42,8 +42,9 @@ HARDWARE = "ava_bridge/hardware.py"
 TYPES_TS = "frontend/src/lib/types.ts"
 COPY_TS = "frontend/src/lib/modelState.ts"
 RELATION_TS = "frontend/src/components/hwModels.ts"
+MODELS_PY = "ava_bridge/models.py"
 
-_TRACKED = (HARDWARE, TYPES_TS, COPY_TS, RELATION_TS)
+_TRACKED = (HARDWARE, TYPES_TS, COPY_TS, RELATION_TS, MODELS_PY)
 
 
 def _sources() -> dict[str, str]:
@@ -191,3 +192,43 @@ def test_declared_relations_match_both_frontend_copies() -> None:
         f"model-relation drift: `_RELATIONS` in {HARDWARE} is {sorted(declared)} "
         f"but `MODEL_RELATION` in {RELATION_TS} covers {sorted(keys)}. Every "
         "relation needs the section heading the owner actually reads.")
+
+
+def test_declared_truths_match_the_frontend_union() -> None:
+    """The THIRD vocabulary on a model row: does config agree with reality?
+
+    Same rails, same failure mode. `drift` is a machine token the frontend turns
+    into the sentence the owner reads, and an unrecognised one renders as nothing
+    at all — which is precisely the outcome the fact exists to prevent.
+
+    This one earned its guard the hard way. `TRUTHS` gained `mismatched` on
+    2026-08-13 after a model swap left the agent sandbox onboarded with the old
+    id: nothing failed, because the router rewrites the model on the way through,
+    but the panel named a model that was not answering. A verdict the TypeScript
+    side does not know about is a verdict nobody is ever told.
+    """
+    src = _sources()
+    declared = _declared(src[MODELS_PY], "TRUTHS")
+    union = _union(src[TYPES_TS], "BrainTruth")
+    assert declared == union, (
+        f"brain-truth drift: `TRUTHS` in {MODELS_PY} is {sorted(declared)} but "
+        f"the `BrainTruth` union in {TYPES_TS} is {sorted(union)}. Add the "
+        "verdict to BOTH, and give it a line in `driftLine()` "
+        f"({RELATION_TS}) — a verdict with no copy is one the owner never sees.")
+
+
+def test_every_returned_truth_is_declared() -> None:
+    """The non-vacuity half: `TRUTHS` must not be a comment that cannot fail.
+
+    `serving_truth` returns its verdict as a literal in a dict, so a new branch
+    can invent a token without touching `TRUTHS` and every test stays green.
+    """
+    src = _sources()[MODELS_PY]
+    declared = _declared(src, "TRUTHS")
+    emitted = set(re.findall(r'"verdict":\s*"([a-z_]+)"', src))
+    extra = emitted - declared
+    assert not extra, (
+        f"`serving_truth` returns {sorted(extra)}, which is not in `TRUTHS`. "
+        "A verdict outside the declared set reaches the frontend as an unknown "
+        "token and renders as silence.")
+    assert emitted, "found no verdict literals — this guard has stopped matching"

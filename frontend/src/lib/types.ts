@@ -59,6 +59,20 @@ export type ModelRelation =
   | 'app'          // belongs to a connected app, which declared it in `owns:`
   | 'foreign';     // other software on this machine — measured, not managed
 
+// Does what Ava is CONFIGURED for match what the engine is actually serving?
+// Mirrors ava_bridge/models.py TRUTHS; tests/test_model_state_vocabulary.py
+// reconciles the two. Exactly one value is a disagreement.
+export type BrainTruth =
+  | 'agrees'        // the engine answered and holds the configured model
+  | 'drifted'       // it answered and does NOT — every chat turn fails
+  | 'mismatched'    // two CONFIG surfaces name different models. Turns still work
+                    //   (the router rewrites the id) but a UI reading the wrong
+                    //   one names a model that is not answering.
+  | 'unreachable'   // it did not answer — silence is not evidence of a mismatch
+  | 'unobservable'  // reachable but listed nothing, or a sandbox owns the endpoint
+  | 'elsewhere'     // on another host, deliberately not probed from here
+  | 'unconfigured'; // no brain is configured yet
+
 export type ModelState =
   | 'resident'   // holding weights in memory right now
   | 'idle'       // engine up, has the model, not in memory (it loads on demand)
@@ -116,6 +130,16 @@ export interface HardwareStats {
     // OBSERVED liveness, closed vocabulary (ava_bridge/hardware.py _STATES).
     // "unknown" means we could not look, never "not loaded".
     state?: ModelState;
+    // Does the CONFIG agree with what the engine is actually serving? Closed
+    // vocabulary (ava_bridge/models.py TRUTHS); "" for a row nobody compared.
+    // Only `drifted` is a contradiction — the rest are ways of not knowing, and
+    // a surface must never render them as a fault.
+    drift?: BrainTruth | '';
+    // What ava.yaml called this model. The row's `model` deliberately shows the
+    // OBSERVED name when the two disagree (a name that is in memory nowhere
+    // would be worse), so this is the other half of a drift message.
+    config_label?: string;
+    drift_detail?: { want: string; serving: string[]; matched: string };
     // Whether `state: 'resident'` was READ or concluded. False for an engine
     // that exposes no residency endpoint (vLLM, llama.cpp, MLX): it loads one
     // model at boot and holds it, so being served IS being resident — a correct

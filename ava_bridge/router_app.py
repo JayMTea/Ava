@@ -292,6 +292,24 @@ def _extract_params(raw: bytes, is_json: bool) -> dict:
     return params
 
 
+def _backends_sig(backends: list) -> str:
+    """Fingerprint of the backend set this router is serving.
+
+    Over (id, url, model) — the three fields that decide where a turn goes and
+    what id it is stamped with. A change in any of them means the running router
+    no longer matches ava.yaml, whatever its /healthz says.
+    """
+    import hashlib
+
+    try:
+        blob = json.dumps([[str(b.get("id") or ""), str(b.get("url") or ""),
+                            str(b.get("model") or "")] for b in backends],
+                          sort_keys=True)
+    except Exception:  # noqa: BLE001
+        return ""
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
+
+
 class RouterState:
     """Per-app mutable state (was module globals; app-scoped so tests can build
     isolated apps and the embedded + standalone shapes don't share records)."""
@@ -313,6 +331,20 @@ class RouterState:
                           "gen_seconds": None}
         # Why the router ordered the last request the way it did (for /fit).
         self.last_fit = {"order": None, "workload": None, "ts": 0.0}
+        # What this router BOOTED with, frozen here. `load_backends()` is called
+        # exactly once, by create_app, and nothing re-reads ava.yaml afterwards —
+        # so a router can outlive the config that produced it (and, in the
+        # incident this stamp exists for, outlive the CODE that produced it by
+        # four days). The signature is over the (id, url, model) triples, so a
+        # caller outside this process can tell "the config changed under it"
+        # from "it is current" without a second endpoint.
+        self.boot = {"ts": time.time(), "backends_sig": _backends_sig(backends),
+                     "revision": "", "source_mtime": 0.0}
+        try:
+            from .version import boot_stamp as _bs
+            self.boot.update(_bs())
+        except Exception:  # noqa: BLE001 — a stamp is never worth a failed boot
+            pass
 
     def ordered_backends(self, workload: str | None = None,
                          wants_tools: bool = False) -> list:
@@ -662,7 +694,16 @@ def create_app(backends: list | None = None, *, token: str | None = None,
 
     @app.get("/healthz")
     async def healthz():
-        return {"ok": True, "backends": [b["id"] for b in state.backends]}
+        # `backends` alone cannot tell you this router is current: it lists the
+        # ids it BOOTED with, and a router still serving a config deleted from
+        # disk four days ago returns a perfectly healthy-looking list. It did.
+        #
+        # `booted`/`backends_sig` are what let anything outside this process —
+        # `ava doctor`, the bridge, router_host's own liveness probe — see that
+        # the answer is stale. /healthz because it is the one route that is open
+        # unconditionally, so the standalone-router deployment is covered too.
+        return {"ok": True, "backends": [b["id"] for b in state.backends],
+                "booted": state.boot}
 
     @app.api_route("/v1/{path:path}",
                    methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
@@ -753,6 +794,37 @@ def create_app(backends: list | None = None, *, token: str | None = None,
                 await resp.aclose()
                 last_err = f"{backend['id']}: HTTP {resp.status_code}"
                 continue
+
+            # The LAST backend answering 404 is the end of the line, and it used
+            # to be relayed verbatim: a bare upstream body with no error_code.
+            # That is how twelve days of every-single-turn failures produced
+            # nothing anyone could act on — the engine was saying "I do not have
+            # that model" and Ava passed it along as an opaque 404.
+            #
+            # Re-answer it as a coded error naming what the engine DOES have, so
+            # the SPA's fix-it links (frontend/src/lib/fixes.ts) can offer the
+            # two ways out, exactly as they already do for `model_unknown`
+            # elsewhere. One probe, only on this failure path.
+            if resp.status_code == 404 and is_comp:
+                await resp.aclose()
+                want = str(backend.get("model") or "")
+                served: list[str] = []
+                try:
+                    from . import models as _models
+                    _ok, served = _models.probe_serving(
+                        str(backend.get("url") or ""), str(backend.get("engine") or ""),
+                        str(backend.get("api_key") or ""), timeout=2.0)
+                except Exception:  # noqa: BLE001 — the coded error matters more
+                    served = []
+                has = (", ".join(served[:4]) if served
+                       else "nothing this request could name")
+                return JSONResponse(status_code=404, content={"error": {
+                    "message": (f"The engine at {backend.get('url')} does not have "
+                                f"{want!r}. It is serving: {has}. Ava's configured "
+                                f"model and the running engine disagree."),
+                    "type": "model_unknown", "code": "model_unknown",
+                    "param": "model", "ava": {"want": want, "serving": served,
+                                              "backend": backend.get("id")}}})
 
             # Commit to this backend: record it and relay.
             if is_comp:

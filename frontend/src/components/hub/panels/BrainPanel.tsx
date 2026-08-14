@@ -171,10 +171,20 @@ function BrainManager({ onRestart }: { onRestart: () => void }) {
   // three endpoints, and nothing kept it in step with the other three. The
   // `sandbox_*` fields are still what gets RENDERED — they carry the detail —
   // and the old expression stays as the fallback for a payload without `brain`.
-  const ownsBrain = agent?.brain
-    ? agent.brain.source === 'agent' && !!agent.brain.model
-    : !!(agent?.available && agent.sandbox_model);
-  const agentBrain = ownsBrain && agent?.sandbox_model ? agent : null;
+  // BOTH halves come from the resolver — the decision AND the name. Taking the
+  // decision from `brain.source` and then rendering `sandbox_model` put a CONFIG
+  // name next to an OBSERVED state (the `<BrainState>` badge below is fed by
+  // /api/hardware) in a single sentence. That composition is exactly what let a
+  // panel show a green, correctly-named brain through twelve days of every chat
+  // turn failing, and tests/test_one_brain_resolver.py now fails it.
+  //
+  // There is deliberately no `sandbox_model` fallback for an older payload: that
+  // fallback IS the second derivation. A bridge too old to send `brain` is a
+  // staleness problem, which Setup → System now reports as one.
+  const ownsBrain = agent?.brain?.source === 'agent' && !!agent.brain.model;
+  const agentBrain = ownsBrain ? agent : null;
+  const brainId = agentBrain?.brain?.model || '';
+  const brainName = agentBrain?.brain?.label || brainId.split('/').pop() || '';
   // Agent off + nothing configured: the router still serves its built-in
   // default, so chat works — show that instead of "no model linked".
   const routerDefault = !agentBrain && backends.length === 0
@@ -193,12 +203,12 @@ function BrainManager({ onRestart }: { onRestart: () => void }) {
           <div className="hub-opt sel" style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'default' }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <b style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                {agentBrain.sandbox_model!.split('/').pop()}
+                {brainName}
                 <Badge tone="accent">brain</Badge>
                 <Badge tone="muted">agent sandbox</Badge>
               </b>
               <small style={{ color: 'var(--muted)', wordBreak: 'break-all' }}>
-                {agentBrain.sandbox_model} · {agentBrain.sandbox_provider || 'sandbox provider'} · sandbox “{agentBrain.sandbox}”
+                {brainId} · {agentBrain.sandbox_provider || 'sandbox provider'} · sandbox “{agentBrain.sandbox}”
                 — the agent thinks with this; change it via <b>nemoclaw onboard</b>.
                 Models linked below serve the tool-less fallback and other roles.
               </small>

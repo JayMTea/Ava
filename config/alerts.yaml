@@ -145,3 +145,29 @@ rules:
     cooldown: 1800
     severity: warn
     message: "Undeclared processes are holding a large share of memory"
+  # Ava's brain vs the engine actually running. `for: 0` and critical, unlike the
+  # allocation rules above, because this is not a degradation — every single chat
+  # turn fails while it holds, and it is invisible everywhere else: the engine's
+  # port answers, the process is up, the hardware panel shows a green brain. It
+  # ran undetected for twelve days on the development box.
+  - id: brain_drift
+    metric: brain_drift_count
+    op: ">"
+    value: 0
+    for: 0
+    cooldown: 300
+    severity: critical
+    message: "Ava's configured model is not what the engine is serving"
+  # Warn, not critical, and `for: 300` rather than 0: this one does not break
+  # anything — the router rewrites the model id, so turns keep working — but a
+  # surface reading the stale side names a model that is not answering. It is a
+  # display lie, and it stays until someone re-onboards, so a short settle window
+  # costs nothing and avoids firing during a restart.
+  - id: brain_mismatch
+    metric: brain_mismatch_count
+    op: ">"
+    value: 0
+    for: 300
+    cooldown: 1800
+    severity: warn
+    message: "Two surfaces name different models — one of them is not what answers"

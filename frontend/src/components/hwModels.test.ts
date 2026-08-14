@@ -7,7 +7,7 @@ import {
   MODEL_RELATION, RELATION_ORDER, activityTone, componentMeta, foundVia,
   groupMemoryGb, groupRows, heldGb, holdsLine, identified,
   isAvas, listHint, memPhrase, needsGroupHeads, poolOf, relationOf, rowHint,
-  rowSub, rowTitle, servedLine, shareOf, tempTone,
+  rowSub, rowTitle, servedLine, shareOf, tempTone, driftLine,
 } from './hwModels';
 import type { MemPool, Row } from './hwModels';
 
@@ -528,5 +528,75 @@ describe('tempTone', () => {
     expect(tempTone(70)).toBe('warn');
     expect(tempTone(52)).toBe('ok');
     expect(tempTone(null)).toBeNull();
+  });
+});
+
+describe('driftLine', () => {
+  // The twelve-day outage, as a rendering rule. The engine held weights and
+  // answered every probe; the panel showed a green, correctly-named brain; and
+  // every chat turn 404'd because ava.yaml named a model the engine did not
+  // have. The row was RESIDENT and healthy-looking the whole time.
+  const DRIFTED = row({
+    id: 'omni:x', name: 'vLLM', source: 'nvidia-smi', model: 'Other-LLM-30B',
+    model_id: 'nvidia/Other-LLM-30B', state: 'resident', status: 'loaded',
+    relation: 'brain', role_key: 'brain', backend: 'omni', memory_gb: 45.2,
+    drift: 'drifted', config_label: 'Cool LLM',
+    drift_detail: { want: 'acme/Cool-LLM-7B-FP8', serving: ['nvidia/Other-LLM-30B'], matched: '' },
+  });
+
+  it('names the configured model beside the observed one', () => {
+    // The row title shows what is ACTUALLY in memory; without the configured id
+    // arriving too, the owner has no way to see what to change.
+    expect(driftLine(DRIFTED)).toContain('acme/Cool-LLM-7B-FP8');
+  });
+
+  it('speaks even when the row is resident, unlike every other hint', () => {
+    // listHint returns '' for a healthy resident row. A drifted engine IS
+    // resident — that is exactly why it looked healthy — so the drift has to be
+    // the one explanation that survives that rule.
+    expect(listHint(DRIFTED)).toContain('acme/Cool-LLM-7B-FP8');
+    expect(listHint(row({ state: 'resident', status: 'loaded' }))).toBe('');
+  });
+
+  it('says nothing for the verdicts that are not a disagreement', () => {
+    // Silence is not evidence of a mismatch. Rendering these would turn "we
+    // could not look" into a reported fault, which is how an alert gets ignored.
+    for (const d of ['agrees', 'unreachable', 'unobservable', 'elsewhere', 'unconfigured'] as const) {
+      expect(driftLine(row({ ...DRIFTED, drift: d }))).toBe('');
+    }
+    expect(driftLine(row({ state: 'resident' }))).toBe('');
+  });
+});
+
+describe('driftLine — mismatched', () => {
+  // The 2026-08-13 discrepancy: the agent sandbox stayed onboarded with the FP8
+  // id after the brain moved to NVFP4. Nothing failed (the router rewrites the
+  // model), so there was no error anywhere to lead the owner to it — the panel
+  // just named one model as the brain and showed the other under "Ava's other
+  // engines". This line is what makes that legible.
+  const MISMATCHED = row({
+    id: 'agent:sandbox', name: 'Agent sandbox', source: 'agent',
+    model: 'Cool-LLM-30B-FP8',
+    state: 'offline', role_key: 'brain', relation: 'brain',
+    drift: 'mismatched', config_label: 'Agent sandbox',
+    drift_detail: { want: 'acme/Cool-LLM-30B-FP8', serving: ['acme/Cool-LLM-30B-NVFP4'], matched: '' },
+  });
+
+  it('names the stale model and what actually answers', () => {
+    const s = driftLine(MISMATCHED);
+    expect(s).toContain('acme/Cool-LLM-30B-FP8');
+    expect(s).toContain('acme/Cool-LLM-30B-NVFP4');
+  });
+
+  it('says plainly that chat still works', () => {
+    // Without this the warning reads like an outage, and the owner goes looking
+    // for a break that is not there.
+    expect(driftLine(MISMATCHED)).toMatch(/works/i);
+  });
+
+  it('still says nothing for the non-disagreement verdicts', () => {
+    for (const d of ['agrees', 'unreachable', 'unobservable', 'elsewhere', 'unconfigured'] as const) {
+      expect(driftLine(row({ ...MISMATCHED, drift: d }))).toBe('');
+    }
   });
 });

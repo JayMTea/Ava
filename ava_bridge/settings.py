@@ -23,6 +23,7 @@ See docs/INSTALL_REFERENCE.md.
 from __future__ import annotations
 
 import copy as _copy
+import json as _json
 import os
 import re as _re
 import secrets as _secrets
@@ -136,6 +137,51 @@ def load_error() -> str:
     "a config file the user wrote is broken and they need to be told" correctly.
     """
     return _CFG_ERROR
+
+
+def _digest(cfg: dict) -> str:
+    """A stable fingerprint of a parsed config, order-independent."""
+    import hashlib
+
+    try:
+        blob = _json.dumps(cfg, sort_keys=True, default=str)
+    except Exception:  # noqa: BLE001 — unknown is a state, not an error
+        return ""
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
+
+
+#: The digest of the config THIS PROCESS is running on. Set at import and
+#: re-stamped by the two save paths, so a write made through Ava never looks
+#: like drift to itself.
+_CFG_DIGEST = _digest(_CFG)
+
+
+def config_drift() -> dict:
+    """Has ava.yaml changed on disk since this process read it?
+
+    `_CFG` is parsed exactly once, at import (line ~122): there is no reload and
+    no watcher. That is why "Restart Ava" is a verb at all — and yet nothing
+    anywhere observed whether a restart was actually OWED. An owner who hand-edits
+    ava.yaml (the documented way to change several blocks, including alloc.models)
+    gets no banner, because the banner is raised by a mutation RESPONSE and a text
+    editor does not send one. CLAUDE.md is explicit that drift must be a server
+    fact that "survives a reload, a second tab, an edit made on disk".
+
+    `changed` is only True when the file parses AND its digest differs. A file
+    that has become unparseable is a different problem with its own message
+    (`load_error`), and reporting it as "restart to apply" would tell the owner
+    to apply something Ava could not read.
+    """
+    try:
+        cfg, err = _load_config()
+    except Exception as e:  # noqa: BLE001
+        return {"changed": False, "known": False, "error": str(e)}
+    if err:
+        return {"changed": False, "known": False, "error": err}
+    now = _digest(cfg)
+    return {"changed": bool(now and _CFG_DIGEST and now != _CFG_DIGEST),
+            "known": bool(now and _CFG_DIGEST), "error": "",
+            "path": str(CONFIG_PATH)}
 
 
 def _dig(d: dict, dotted: str):
@@ -839,8 +885,11 @@ def save_patch(patch: dict) -> dict:
     current = _refuse_if_broken()
     merged = _deep_merge(current if isinstance(current, dict) else {}, patch)
     _write_config(merged)
-    global _CFG
+    global _CFG, _CFG_DIGEST
     _CFG = merged
+    # Re-stamp, or Ava's own save would report itself as an external edit and
+    # raise "ava.yaml changed on disk" against a write it just made.
+    _CFG_DIGEST = _digest(merged)
     return merged
 
 
@@ -864,8 +913,9 @@ def save_config(cfg: dict) -> dict:
         raise RuntimeError("PyYAML is required to write ava.yaml")
     _refuse_if_broken()
     _write_config(cfg)
-    global _CFG
+    global _CFG, _CFG_DIGEST
     _CFG = cfg
+    _CFG_DIGEST = _digest(cfg)          # see save_patch
     return cfg
 
 

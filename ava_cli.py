@@ -464,8 +464,67 @@ def cmd_doctor(_args) -> int:
             declared = chat_role in (settings.get("inference.backends", {}) or {})
             _row(OK if declared else BAD, "chat role",
                  chat_role + ("" if declared else "  ! not a declared backend"))
+        # The identity half. Every check above asks "does the endpoint answer" —
+        # which the engine did, perfectly, throughout the twelve days it was
+        # answering 404 to every completion because ava.yaml named a model it did
+        # not have. Reachability was never the question.
+        from ava_bridge import models as _m
+        t = _m.serving_truth()
+        if t["verdict"] == "drifted":
+            _row(BAD, "brain serving",
+                 f"ava.yaml asks for {t['want']}, engine is serving "
+                 f"{', '.join(t['serving'][:3])} — every chat turn will fail")
+            inference_ok = False        # chat genuinely cannot answer
+        elif t["verdict"] == "mismatched":
+            # Not a failure — turns succeed via the router's model rewrite — but
+            # the owner is being shown a model that is not answering, and there
+            # is no error anywhere else that would lead them here.
+            _row(WARN, "brain serving", t["detail"] + " — re-onboard the sandbox, "
+                 "or turn the agent runtime off until you do")
+        elif t["verdict"] == "agrees":
+            _row(OK, "brain serving", t["matched"])
+        elif t["verdict"] == "unreachable":
+            _row(WARN, "brain serving", f"{t['base_url']} did not answer")
+        elif t["verdict"] in ("unobservable", "elsewhere"):
+            # Not a fault, and not an agreement either. Saying which is the point.
+            _row(OK, "brain serving", f"not checkable from here ({t['detail']})")
     except Exception as e:  # noqa: BLE001
         _row(WARN, "inference route", f"probe failed: {e}")
+
+    # Is what is RUNNING still what is on disk? A process holds the code and the
+    # config it loaded, and both can be edited underneath it with nothing saying
+    # so. This is the check that would have named the four-day phantom router.
+    print("\nUp to date (is a restart owed?)")
+    try:
+        from ava_bridge import router_host as _rh, version as _v
+        cd = _v.code_drift()
+        if not cd["known"]:
+            _row(OK, "code", "no build stamp to compare (not a git checkout)")
+        elif cd["stale"]:
+            _row(WARN, "code", f"this process is running code from "
+                 f"{int(cd['since_s'] / 60)} min before the tree on disk — "
+                 "restart Ava to pick it up")
+        else:
+            _row(OK, "code", "running the code on disk")
+        cfg_d = settings.config_drift()
+        if cfg_d.get("changed"):
+            _row(WARN, "config", f"{cfg_d.get('path')} has changed since Ava read "
+                 "it — restart Ava to apply")
+        elif cfg_d.get("known"):
+            _row(OK, "config", "ava.yaml matches what is loaded")
+        booted = _rh.router_boot()
+        if not booted:
+            _row(OK, "router config", "the running router reports no stamp")
+        else:
+            from ava_bridge import router_app as _ra
+            sig = _ra._backends_sig(_ra.load_backends())
+            if booted.get("backends_sig") and sig != booted["backends_sig"]:
+                _row(WARN, "router config", "the router is serving the backends it "
+                     "booted with, not the ones in ava.yaml — restart it")
+            else:
+                _row(OK, "router config", "the router matches ava.yaml")
+    except Exception as e:  # noqa: BLE001
+        _row(WARN, "up to date", f"check failed: {e}")
 
     print("\nBridge")
     port = _server_port()

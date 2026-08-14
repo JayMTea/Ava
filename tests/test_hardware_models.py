@@ -306,21 +306,40 @@ class BrainVisibility(unittest.TestCase):
 
     def _shapes(self):
         """Every shape a real install takes, as
-        (name, backends, effective_brain, serving, resident, expected_state).
+        (name, backends, effective_brain, serving, resident, expected_state,
+         expected_drift).
 
         A method rather than an inline list so the relation rules below run
         against the same matrix instead of a second, drifting copy of it.
+
+        `expected_drift` is the config-vs-reality verdict (models.TRUTHS). It is
+        part of THIS matrix rather than a test of its own precisely because the
+        failure it guards was invisible in every other shape: only one entry
+        below is `drifted`, and the value of the others is that they are not.
         """
         return [
             ("compose hostname", [_backend(url="http://ollama:11434/v1")],
-             _brain(), _serving(OLLAMA_TAGS), _resident([]), "idle"),
+             _brain(), _serving(OLLAMA_TAGS), _resident([]), "idle", "agrees"),
             ("loopback ollama", [_backend()], _brain(), _serving(OLLAMA_TAGS),
-             _resident([_ps("llama3.1:8b")]), "resident"),
+             _resident([_ps("llama3.1:8b")]), "resident", "agrees"),
             ("loopback vllm",
              [_backend(url="http://127.0.0.1:8000/v1", engine="vllm",
                        model="acme/Cool-LLM-7B-FP8", label="Cool LLM")],
              _brain(), _serving(["acme/Cool-LLM-7B-FP8"]),
-             _cannot_ask_residency, "resident"),
+             _cannot_ask_residency, "resident", "agrees"),
+            # THE TWELVE-DAY FAILURE. The engine answers, and holds something
+            # else entirely. Before this shape existed, every entry in this
+            # matrix had a config that matched what was served, so the one
+            # branch that silently replaces the configured name with the
+            # observed one (hardware.py, "The observed identity wins") was
+            # never exercised against a disagreement — and the panel that
+            # showed a green, correctly-named brain through the whole outage
+            # was, as far as this suite knew, behaving perfectly.
+            ("config drifted from the engine",
+             [_backend(url="http://127.0.0.1:8000/v1", engine="vllm",
+                       model="acme/Cool-LLM-7B-FP8", label="Cool LLM")],
+             _brain(), _serving(["nvidia/Other-LLM-30B"]),
+             _cannot_ask_residency, "absent", "drifted"),
             # Not on this box, so it cannot be found by looking at this box's
             # memory — and the owner must still be able to see what Ava thinks
             # with. A key on a cloud backend is normal, not a probe failure.
@@ -329,21 +348,25 @@ class BrainVisibility(unittest.TestCase):
                        model="acme-cloud-mini", label="Acme Cloud",
                        key="sk-cloud", local=False)],
              _brain("cloud"), _serving(["acme-cloud-mini"]),
-             _cannot_ask_residency, "remote"),
+             _cannot_ask_residency, "remote", "elsewhere"),
             # The agent runtime answers turns inside its own sandbox, bypassing
             # the router, so it has no backend row of its own — and we cannot
             # see into the sandbox, so residency is unknown, never absent.
             ("agent sandbox", [_backend(bid="fast")],
              _brain(backend_id="", source="agent",
                     model_id="acme/Reasoner-30B-A3B", label="Reasoner-30B-A3B"),
-             _serving(OLLAMA_TAGS), _resident([]), "unknown"),
+             # `unobservable`, not `agrees`: the sandbox owns its endpoint, so
+             # there is nothing here to compare the config against. Claiming
+             # agreement nobody checked is the same class of lie as the panel's
+             # green brain during the outage.
+             _serving(OLLAMA_TAGS), _resident([]), "unknown", "unobservable"),
             ("unreachable engine", [_backend()], _brain(), _unreachable,
-             _cannot_ask_residency, "offline"),
+             _cannot_ask_residency, "offline", "unreachable"),
         ]
 
     # I1 — existence + uniqueness, across every shape a real install takes.
     def test_exactly_one_row_is_the_brain_in_every_deployment_shape(self):
-        for name, backends, brain, serving, resident, state in self._shapes():
+        for name, backends, brain, serving, resident, state, _d in self._shapes():
             with self.subTest(name):
                 rows = self._rows(backends, brain, serving, resident)
                 row = self._only_brain(rows, f" ({name})")
@@ -352,6 +375,45 @@ class BrainVisibility(unittest.TestCase):
                 # The panel exists to answer "what is Ava thinking with", so the
                 # brain sorts first — never below a fatter GPU process.
                 self.assertEqual(rows[0]["role_key"], "brain")
+
+    # I1b — the brain row can SAY when the config and the engine disagree.
+    def test_every_shape_reports_the_expected_config_reality_verdict(self):
+        """One matrix, one place the verdict is declared.
+
+        The point is as much the six shapes that are NOT `drifted` as the one
+        that is: silence, a cloud endpoint and a sandbox we cannot see into must
+        never be reported as a contradiction, or the alert built on this becomes
+        one people switch off.
+        """
+        for name, backends, brain, serving, resident, _s, drift in self._shapes():
+            with self.subTest(name):
+                rows = self._rows(backends, brain, serving, resident)
+                row = self._only_brain(rows, f" ({name})")
+                self.assertEqual(row.get("drift"), drift,
+                                 f"{name}: expected {drift!r}")
+
+    def test_a_drifted_row_carries_both_names_and_keeps_the_configured_one(self):
+        """The panel still shows the OBSERVED name — printing a model that is in
+        memory nowhere would be worse — but the configured one is no longer lost.
+        Both ids have to reach the owner or the message is unactionable."""
+        shape = next(s for s in self._shapes() if s[6] == "drifted")
+        _n, backends, brain, serving, resident, _s, _d = shape
+        row = self._only_brain(self._rows(backends, brain, serving, resident))
+        self.assertEqual(row["drift"], "drifted")
+        self.assertEqual(row["config_label"], "Cool LLM")
+        self.assertEqual(row["drift_detail"]["want"], "acme/Cool-LLM-7B-FP8")
+        self.assertEqual(row["drift_detail"]["serving"], ["nvidia/Other-LLM-30B"])
+        self.assertEqual(row["drift_detail"]["matched"], "")
+        # The pre-existing state vocabulary is untouched: this is a NEW fact
+        # beside `state`, not a redefinition of it.
+        self.assertEqual(row["state"], "absent")
+
+    def test_an_unreachable_engine_is_never_reported_as_drifted(self):
+        """Silence is not evidence of a mismatch. This is the false-page guard."""
+        shape = next(s for s in self._shapes() if s[0] == "unreachable engine")
+        _n, backends, brain, serving, resident, _s, _d = shape
+        row = self._only_brain(self._rows(backends, brain, serving, resident))
+        self.assertEqual(row["drift"], "unreachable")
 
     # I2 — the laptop. No GPU tooling, no docker, no process rows at all.
     def test_a_box_with_no_nvidia_smi_and_no_docker_still_shows_the_brain(self):
@@ -717,7 +779,7 @@ class RelationToAva(BrainVisibility):
 
     def test_every_row_carries_a_relation_from_the_closed_set(self):
         """Across every deployment shape, no row is left unclassified."""
-        for name, backends, brain, serving, resident, _state in self._shapes():
+        for name, backends, brain, serving, resident, _s, _d in self._shapes():
             with self.subTest(name):
                 rows = self._rows(backends, brain, serving, resident)
                 for r in rows:

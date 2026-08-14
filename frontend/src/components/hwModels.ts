@@ -368,8 +368,14 @@ export function rowSub(m: Row): string {
  *  "Loaded and ready to answer." sat under "In memory" under a green dot —
  *  three renderings of one fact, on the row that needed no attention at all. */
 export function listHint(m: Row): string {
-  if (stateOf(m) === 'resident') return '';
-  return [rowHint(m), servedLine(m)].filter(Boolean).join(' ');
+  // `drifted` is the one explanation a RESIDENT row still owes. Every other
+  // hint here answers "why is this not live", and a drifted engine is very much
+  // live — it is holding weights and answering, just not the ones Ava asks for.
+  // Returning '' on resident (the rule for everything else) is precisely how a
+  // green row with the wrong model reads as a healthy one.
+  const drift = driftLine(m);
+  if (stateOf(m) === 'resident') return drift;
+  return [rowHint(m), drift, servedLine(m)].filter(Boolean).join(' ');
 }
 
 /** Is this row Ava's own?
@@ -398,12 +404,41 @@ export function isAvas(relation: ModelRelation): boolean {
  *  half is usually the whole diagnosis (a tag typo, or a pull that never ran). */
 export function servedLine(m: Row): string {
   if (stateOf(m) !== 'absent') return '';
-  const served = m.served || [];
+  const served = m.served || m.drift_detail?.serving || [];
   if (!served.length) return '';
   const shown = served.slice(0, 3).join(', ');
   return served.length > 3
     ? `It has: ${shown} +${served.length - 3} more.`
     : `It has: ${shown}.`;
+}
+
+/** The two names, when the config and the engine disagree.
+ *
+ *  Only ever emitted for `drifted` — an engine that ANSWERED and does not hold
+ *  the configured model. The other verdicts are ways of not knowing, and
+ *  rendering them here would turn "we could not look" into a reported fault.
+ *
+ *  Both ids or it is not actionable: the row already shows the OBSERVED name
+ *  (showing a model that is in memory nowhere would be worse), so the
+ *  configured one has to arrive alongside it or the owner cannot see what to
+ *  change. A panel showing only one of the two is what let this run for twelve
+ *  days looking healthy. */
+export function driftLine(m: Row): string {
+  const want = m.drift_detail?.want || m.config_label;
+  if (!want) return '';
+  if (m.drift === 'drifted') {
+    return `Ava is set to ${want}, but this engine is serving something else.`;
+  }
+  // `mismatched` is the quieter one, and needs saying MORE clearly rather than
+  // less: nothing is failing, so there is no error anywhere to lead the owner
+  // to it. Left unsaid it reads as two unrelated models in two panel sections.
+  if (m.drift === 'mismatched') {
+    const serving = m.drift_detail?.serving?.[0];
+    return serving
+      ? `This names ${want}, but ${serving} is what answers. Chat works; the name is wrong.`
+      : `This names ${want}, which is not what answers.`;
+  }
+  return '';
 }
 
 /** A component's kind and residency, in the owner's words.
