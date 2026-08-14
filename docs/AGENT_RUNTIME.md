@@ -43,9 +43,13 @@ specific GPU or box.
 ## Set it up
 
 In the app it is two clicks: open **Setup → Agent**, click
-**Provision / re-check**, and watch each step verify. Here it is end to end:
+**Provision / re-check**, and watch each step verify.
 
-### Step 1: Open Setup → Agent
+### Step 1: Open Setup → Agent, then the Runtime section
+
+The **Agent runtime** card is the whole status picture: which runtime is
+configured, whether its CLI and sandbox are present on this machine, and how
+many tools are deployed. The **Provision / re-check** button sits below it.
 
 ### Step 2: Click "Provision / re-check"
 

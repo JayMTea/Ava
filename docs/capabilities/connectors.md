@@ -388,7 +388,7 @@ or the agent's own `device_events` tool.
 
 No files and no terminal: **Setup → Connectors → Connect an app**. Name it,
 paste its address, let Ava detect its tools, and deploy it. The guided version,
-with a screenshot per step, is
+step by step, is
 [Connect your apps](../CONNECT_YOUR_APPS.md).
 
 You paste either a web address like `http://127.0.0.1:9000` or a start command

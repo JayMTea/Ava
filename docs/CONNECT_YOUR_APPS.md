@@ -11,8 +11,7 @@
 Ava for in plain language, behind an auto-generated security policy. If it serves
 a web page, it also gets its own tile in Ava's sidebar.
 
-**Time:** the walkthrough below runs about two minutes; the connecting itself
-takes well under one. It happens in the browser. No files, no terminal.
+**Time:** well under a minute. It happens in the browser. No files, no terminal.
 
 Connecting an app wires it into everything Ava does: its tools become things you
 can ask for in plain language, each behind an auto-generated security policy. If
@@ -27,15 +26,14 @@ for developers building their own connector, and its full reference is the
 
 ## The no-code way: from the browser
 
-Everything happens in the app, on the **Setup → Connectors** page. Here it is end
-to end.
+Everything happens in the app, on the **Setup → Connectors** page. The six steps
+below are the whole flow.
 
-*(The app in the walkthrough is a real one - a personal training log with its own
-codebase, its own SQLite file and an MCP server, which knows nothing about Ava.
-The six tools Ava discovers are the ones its server actually advertises, and the
-figures it reports at the end come out of its own database. Ava's surrounding
-numbers are sample data. Any app you already run connects the same way - to
-follow along with one you can start in a terminal right now, use
+*(The app used as the example is a real one - a personal training log with its
+own codebase, its own SQLite file and an MCP server, which knows nothing about
+Ava. The six tools Ava discovers are the ones its server actually advertises.
+Any app you already run connects the same way - to follow along with one you can
+start in a terminal right now, use
 [`examples/device-app/`](../examples/device-app/).)*
 
 ### Step 1: Open Setup, then Connectors

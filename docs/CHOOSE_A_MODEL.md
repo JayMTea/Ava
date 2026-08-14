@@ -18,9 +18,7 @@ hardware you just installed on.
 
 ---
 
-Here it is end to end.
-
-*(The screenshots use sample data on a Mac host; your instance will show your own
+*(The examples below are from a Mac host; your instance will show your own
 hardware and models.)*
 
 ## Ava already knows what fits
