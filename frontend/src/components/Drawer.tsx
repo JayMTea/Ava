@@ -585,12 +585,32 @@ export function Drawer({
 
         {/* Apps — shown even with nothing connected. An empty section is not
             clutter here: it is the only place the sidebar says that connecting
-            your own app is a thing Ava does, and it carries the button that
-            does it. The connect row sits OUTSIDE nav[aria-label="Apps"] so that
-            list stays exactly the connected apps — it is read as such by
-            appIcon()/appAccent() checks, and a control mixed in would be one
-            more "app" with no identity of its own. */}
-        <div className="draw-sub">Apps</div>
+            your own app is a thing Ava does, and it carries the control that
+            does it.
+            That control is the "+" ON THE HEADER, not a row in the list. A
+            full-width "Connect your app" row sat in the same shape as the app
+            entries beneath it and had to fight its way out with an outline and a
+            coloured glyph just to stop reading as a fourth app. A section header
+            with an add button is the shape this actually is, and it costs the
+            list nothing. It also keeps the control OUTSIDE nav[aria-label="Apps"]
+            — that list stays exactly the connected apps, which is how
+            appIcon()/appAccent() checks read it, and a control mixed in would be
+            one more "app" with no identity of its own.
+            Visible at rest, never hover-only: the row it replaces was given its
+            outline precisely because it was indistinguishable until the pointer
+            crossed it, and this is the only way to connect an app from the
+            expanded panel. */}
+        <div className="draw-sub draw-sub-row">
+          <span>Apps</span>
+          <button type="button"
+            className="draw-add"
+            title="Connect your app"
+            aria-label="Connect your app"
+            onClick={() => setConnectOpen(true)}
+          >
+            <Icon name="plus" />
+          </button>
+        </div>
         {userApps.length > 0 && (
           <nav className="nav-list" aria-label="Apps">
             {userApps.map((a) => (
@@ -606,16 +626,6 @@ export function Drawer({
             ))}
           </nav>
         )}
-        <div className="nav-list">
-          <button type="button"
-            className="nav-item nav-connect"
-            onClick={() => setConnectOpen(true)}
-          >
-            <Icon name="plug" className="nav-ic" />
-            <span>Connect your app</span>
-          </button>
-        </div>
-
         <div className="draw-sub">Recents</div>
         <div id="chatList">
           {visibleChats.length === 0 ? (

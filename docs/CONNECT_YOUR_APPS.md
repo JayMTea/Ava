@@ -47,10 +47,10 @@ gear at the bottom of the icon rail when it's collapsed) and pick the
 **Devices**, **Apps** and **Tools**, each row carrying its transport, action
 count, deploy state and credential state.
 
-!!! tip "Shortcut: **Connect your app** in the sidebar"
+!!! tip "Shortcut: the **+** on the sidebar's Apps section"
 
     The sidebar's **Apps** section - which is there whether or not anything is
-    connected yet - carries a **Connect your app** button (the plug icon on the
+    connected yet - carries a **+** on its header (the plug icon on the
     collapsed rail). It opens the same form as Step 2 in a dialog, so the first
     app you connect doesn't have to start with finding this page. Everything
     *after* connecting - permissions, appearance, the manifest, removal - still
