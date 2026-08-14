@@ -193,7 +193,7 @@ locked to a single cloud vendor.
 Wire an app in from the browser: **Setup → Connectors → Connect an app**, paste
 its address, click Detect, done. Ava then monitors it in the dashboard, charts
 its performance, and can call its actions natively, with every app behind an
-auto-generated egress policy. Step-by-step guide, with a video:
+auto-generated egress policy. Step-by-step guide:
 [Connect your apps](docs/CONNECT_YOUR_APPS.md). Building your own connector?
 See the [Connector SDK](docs/CONNECTOR_SDK.md).
 

@@ -40,6 +40,24 @@ type View = string;
 // Built-in tabs that ship in the shell (always present, no connector needed).
 const BUILTIN_VIEWS = ['vitals', 'ops', 'data', 'chat', 'hub'];
 
+// Sidebar resize limits. The floor is set by the panel's own contents — the head
+// row (wordmark + two icon buttons) and the "Settings & dashboards" foot row stop
+// being readable below it, and a sidebar that ellipsises its own furniture is not
+// a narrower sidebar, it is a broken one. The ceiling keeps the chat column
+// (--col: 768px) off the composer's minimum on a 1280px laptop, which is the
+// smallest screen anyone resizes this on.
+const NAV_W_MIN = 240;
+const NAV_W_MAX = 460;
+const NAV_W_DEFAULT = 300;
+const clampNav = (w: number) => Math.round(Math.max(NAV_W_MIN, Math.min(NAV_W_MAX, w)));
+
+// Matches the 760px breakpoint every stylesheet in the repo uses. Module scope,
+// not the component body: it closes over nothing, and as a per-render arrow it
+// was a fresh identity each pass, so every useCallback that consulted it had to
+// either take a dependency that changes every render — defeating the memo — or
+// leave it out and be flagged for it.
+const isMobile = () => typeof window !== 'undefined' && window.innerWidth <= 760;
+
 // Registry of native app views. The core shell ships NONE — personal/first-party
 // apps live in an optional, gitignored overlay (frontend/src/overlay/views/*),
 // each module default-exporting a component and naming its key via `viewId`.
@@ -160,19 +178,88 @@ export default function App() {
     if (typeof window === 'undefined' || window.innerWidth <= 760) return;
     try { localStorage.setItem('ava.sidebarOpen', sidebarOpen ? '1' : '0'); } catch { /* storage unavailable */ }
   }, [sidebarOpen]);
+  // Sidebar width. Resizable, but inside limits — a sidebar narrower than its
+  // own rows is not a preference, and one wide enough to squeeze the chat column
+  // costs more than it gives. Remembered across reloads like the open/closed
+  // state, and ignored on mobile, where the drawer is a full-height overlay at a
+  // fixed width and the handle is not rendered.
+  const [navWidth, setNavWidth] = useState(() => {
+    if (typeof window === 'undefined') return NAV_W_DEFAULT;
+    const stored = Number(localStorage.getItem('ava.sidebarWidth'));
+    return Number.isFinite(stored) && stored > 0 ? clampNav(stored) : NAV_W_DEFAULT;
+  });
+  const [navResizing, setNavResizing] = useState(false);
+  useEffect(() => {
+    try { localStorage.setItem('ava.sidebarWidth', String(navWidth)); } catch { /* storage unavailable */ }
+  }, [navWidth]);
   const [text, setText] = useState('');
   const [codeMode, setCodeMode] = useState(false);
   const [artWidth, setArtWidth] = useState('50%');
   const [refreshing, setRefreshing] = useState(false);
   const [lightbox, setLightbox] = useState<string | null>(null);
 
-  const isMobile = () => typeof window !== 'undefined' && window.innerWidth <= 760;
 
   const shellRef = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
 
   const openLightbox = useCallback((url: string) => setLightbox(url), []);
   const closeLightbox = useCallback(() => setLightbox(null), []);
+
+  // ---- sidebar drag resize (desktop) ---------------------------------------
+  // Same shape as the artifact divider below, with two differences that matter:
+  // the width is absolute px rather than a percentage (a sidebar's job is to fit
+  // its rows, not to hold a share of the window), and `navResizing` is REACT
+  // STATE rather than a class poked onto the node. Poking it would not survive —
+  // every drag frame calls setNavWidth, and the re-render rewrites className from
+  // props, dropping the class and letting the .22s width transition back in to
+  // lag the pointer for the rest of the drag.
+  const navDragging = useRef(false);
+  const startNavDrag = useCallback((e: React.MouseEvent | React.TouchEvent) => {
+    if (isMobile()) return;
+    navDragging.current = true;
+    setNavResizing(true);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+    const move = (ev: MouseEvent | TouchEvent) => {
+      if (!navDragging.current) return;
+      const x = 'touches' in ev ? ev.touches[0]?.clientX : ev.clientX;
+      if (x == null) return;
+      // Measured from the shell's left edge, not the viewport's: the shell is
+      // the drawer's containing block, and they are not the same origin once
+      // anything sits to the left of it.
+      const left = shellRef.current?.getBoundingClientRect().left ?? 0;
+      setNavWidth(clampNav(x - left));
+    };
+    const stop = () => {
+      navDragging.current = false;
+      setNavResizing(false);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', stop);
+      window.removeEventListener('touchmove', move);
+      window.removeEventListener('touchend', stop);
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', stop);
+    window.addEventListener('touchmove', move, { passive: false });
+    window.addEventListener('touchend', stop);
+  }, []);
+  // A drag handle is functionality, so it answers to the keyboard too — the
+  // separator pattern: arrows nudge, Shift jumps, Home/End take the limits, and
+  // Enter restores the default rather than making "put it back" a pixel hunt.
+  const onNavKey = useCallback((e: React.KeyboardEvent) => {
+    const step = e.shiftKey ? 48 : 16;
+    switch (e.key) {
+      case 'ArrowLeft': e.preventDefault(); setNavWidth((w) => clampNav(w - step)); break;
+      case 'ArrowRight': e.preventDefault(); setNavWidth((w) => clampNav(w + step)); break;
+      case 'Home': e.preventDefault(); setNavWidth(NAV_W_MIN); break;
+      case 'End': e.preventDefault(); setNavWidth(NAV_W_MAX); break;
+      case 'Enter': case ' ': e.preventDefault(); setNavWidth(NAV_W_DEFAULT); break;
+      default: break;
+    }
+  }, []);
 
   // ---- divider drag resize (desktop) --------------------------------------
   const onMove = useCallback((clientX: number) => {
@@ -234,8 +321,12 @@ export default function App() {
     <>
       <div
         id="appShell"
-        className={(chat.artifact ? 'art-open' : '') + (sidebarOpen ? ' nav-open' : ' nav-closed')}
-        style={{ ['--art-w' as string]: artWidth }}
+        className={
+          (chat.artifact ? 'art-open' : '') +
+          (sidebarOpen ? ' nav-open' : ' nav-closed') +
+          (navResizing ? ' nav-drag' : '')
+        }
+        style={{ ['--art-w' as string]: artWidth, ['--nav-w' as string]: `${navWidth}px` }}
         ref={shellRef}
       >
         <Drawer
@@ -262,6 +353,27 @@ export default function App() {
           }}
           onDeleteChat={chat.deleteChat}
         />
+
+        {/* Sidebar resize handle. Rendered always and shown by CSS only when the
+            panel is expanded and we are not on a phone — the same arrangement as
+            #artifactDivider, so the DOM does not shuffle on every collapse. */}
+        <div
+          id="navDivider"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize sidebar"
+          aria-valuenow={navWidth}
+          aria-valuemin={NAV_W_MIN}
+          aria-valuemax={NAV_W_MAX}
+          tabIndex={0}
+          title="Drag to resize — double-click to reset"
+          onMouseDown={startNavDrag}
+          onTouchStart={startNavDrag}
+          onDoubleClick={() => setNavWidth(NAV_W_DEFAULT)}
+          onKeyDown={onNavKey}
+        >
+          <span className="nav-grip" />
+        </div>
 
         <div id="appCol">
           <Header status={chat.status} onMenu={() => setSidebarOpen((o) => !o)} ghost={chat.ghost} onToggleGhost={chat.toggleGhost} showGhost={view === 'chat'} models={chat.models} model={chat.model} agentModel={chat.agentModel} onSetModel={chat.setModelMode} />
