@@ -130,6 +130,11 @@ ASSETS: dict[str, str] = {
     "docs/assets/chat-tools-used.png": "docs/assets/chat-tools-used.png",
     "docs/assets/data-secrets.png": "docs/assets/data-secrets.png",
     "docs/assets/approvals-banner.png": "docs/assets/approvals-banner.png",
+    # The expanded hardware bubble, on docs/capabilities/vitals.md. That section
+    # argues the brain-visibility invariant in four paragraphs and carried a
+    # TODO where the picture belongs, so the surface that proves it had never
+    # been published. Scene `hardware-bubble` in demo/manifests/docs-crops.yaml.
+    "docs/assets/hardware-bubble.png": "docs/assets/hardware-bubble.png",
     # ASSETS is an explicit allow-list, so a new image referenced from a page is
     # a 404 on the site until it is named here.
     "docs/assets/install-1-terminal.png": "docs/assets/install-1-terminal.png",

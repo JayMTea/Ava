@@ -181,7 +181,7 @@ tiers under `logs/hw_history/`:
 
 ### One snapshot, two renderings
 
-<!-- TODO: a cropped screenshot of the expanded hardware bubble belongs here. -->
+![The expanded hardware bubble: a left column of GPU util, memory, disk, CPU and GPU temperature with live bars, and a right column that opens on "Ava's brain" listing Mistral 7B at 31.1 GB, then "Ava's other engines" with bge-large-en:latest marked "Ready, not loaded", then "Model use outside Ava" reading "Nothing else on this machine is holding model memory"](../assets/hardware-bubble.png)
 
 The floating **hardware bubble** is on every view, draggable, and remembers
 where you put it. Tap it for GPU, memory, disk, CPU, temperature and the
@@ -191,11 +191,11 @@ discovered from the GPU. It reads the same live snapshot the Vitals gauges
 use, so the two can never disagree.
 
 Everything else holding model memory is listed **under a heading that says whose
-it is** — *Ava's other engines*, *Connected apps*, or *Other programs holding
-memory*. Your machine probably runs models that have nothing to do with Ava, and
-they are shown because they are where your memory went, not because Ava owns
-them: a row under "Other programs" is another application's, and Ava will not
-load, unload or think with it.
+it is** — *Ava's other engines* on Ava's side of the cut, and under **Model use
+outside Ava**, *Connected apps* and *Other software*. Your machine probably runs
+models that have nothing to do with Ava, and they are shown because they are
+where your memory went, not because Ava owns them: a row under "Other software"
+is another application's, and Ava will not load, unload or think with it.
 
 ??? note "Every state a model row can report, and the poll cadence"
 
