@@ -184,6 +184,56 @@ body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica
 .chatitem-wrap .del svg { width:15px; height:15px; }
 .draw-empty { color:var(--muted); font-size:12.5px; text-align:left; padding:10px 14px; }
 
+/* Panel foot: the "Settings & dashboards" row, pinned under the scrolling
+   Recents list. No margin-top:auto and no absolute positioning — #chatList above
+   is `flex:1 1 auto; min-height:0`, so it already absorbs every spare pixel and
+   a `flex:0 0 auto` sibling after it lands on the bottom edge for free. The
+   border-top is what separates a pinned control from the list it is pinned
+   under; without it the row reads as one more chat that will not open. */
+.panel-foot { flex:0 0 auto; display:flex; flex-direction:column;
+  padding:6px 8px calc(8px + env(safe-area-inset-bottom));
+  border-top:1px solid var(--line); }
+
+/* The trigger reuses .nav-item wholesale — same type, same 7px/9px box, same
+   hover and .active wash — because it IS a destination row; it just happens to
+   lead to four. Only the chevron is new. */
+.panel-foot-btn { width:100%; }
+
+/* The chevron. `display:flex` is load-bearing, NOT decoration: every <Icon>
+   wraps its SVG in a `.ico` span that global.css sets to `display:contents`, so
+   the span generates no box — margin-left:auto and transform on it would both be
+   silent no-ops, leaving the chevron glued to the label and refusing to turn.
+   Re-establishing a box is exactly what .nav-ic already does above.
+   Points UP at rest, because that is where the menu will appear, and turns down
+   when it is open, because that is what dismissing it does. */
+.panel-foot-chev { display:flex; flex:0 0 auto; margin-left:auto; color:var(--muted);
+  transform:rotate(180deg); transition:transform var(--dur-fast); }
+.panel-foot-chev svg { width:15px; height:15px; }
+.panel-foot-btn[aria-expanded="true"] .panel-foot-chev { transform:rotate(0deg); }
+.panel-foot-btn.active .panel-foot-chev { color:var(--txt); }
+
+/* The panel's flyout — the rail's chrome, the panel's geometry. ADDITIVE
+   MODIFIER ONLY: .rail-menu and .rail-menu-item above are shared with RowMenu
+   (lib/RowMenu.tsx, styled further as .hub-rowmenu in hub.css), which is what
+   Setup's Connectors and Memory rows hang their "⋯" menu off. Changing the base
+   rules here would move those.
+   min-width is released because the inline `width` from placePanel() matches the
+   trigger exactly (284px in a 300px panel) and the base 180px floor would
+   otherwise fight a narrower one. overflow-y pairs with the maxHeight clamp in
+   flyoutPlace.ts — without it a short viewport clips the menu instead of
+   scrolling it. */
+.rail-menu.panel-menu { min-width:0; overflow-y:auto; overscroll-behavior:contain; }
+
+/* Focus ring. There was no :focus-visible rule for .rail-menu-item, .nav-item or
+   .rail-btn anywhere in this stylesheet — the only hand-rolled rings here are on
+   .chatitem and its delete button, added when those rows were made reachable.
+   Roving focus through a menu that shows no ring is the same defect in a new
+   place, so the menu items get one. A NEW rule for a state that had none, not an
+   edit to a base rule: RowMenu inherits it, which is a fix — its items are
+   tabbable today and show only the UA default. */
+.rail-menu-item:focus-visible,
+.panel-foot-btn:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
+
 /* Mobile: sidebar becomes a fixed overlay again (rail included — no pinned rail). */
 @media (max-width:760px) {
   #drawer { position:fixed; top:0; left:0; height:100dvh; z-index:40;

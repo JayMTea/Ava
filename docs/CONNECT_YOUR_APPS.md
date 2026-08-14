@@ -40,8 +40,9 @@ follow along with one you can start in a terminal right now, use
 
 ### Step 1: Open Setup, then Connectors
 
-In Ava, open **Setup** (the sliders icon - in the sidebar when it's expanded, in
-the flyout at the foot of the icon rail when it's collapsed) and pick the
+In Ava, open **Setup** from the **Settings & dashboards** pop-up at the foot of
+the sidebar (the sliders icon - a labelled row when the sidebar is expanded, the
+gear at the bottom of the icon rail when it's collapsed) and pick the
 **Connectors** tab. You'll see every app already wired in, grouped into
 **Devices**, **Apps** and **Tools**, each row carrying its transport, action
 count, deploy state and credential state.

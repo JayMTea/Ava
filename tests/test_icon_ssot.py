@@ -55,8 +55,8 @@ def _icon_names() -> set[str]:
 def _declared(rel: str, const: str) -> dict[str, str]:
     """{id: icon} for a `const NAME = [ { id: '…', icon: '…' } ]` declaration.
 
-    The closing bracket may be indented: HubView's TABS is module-level, Drawer's
-    NAV is declared inside the component.
+    The closing bracket may be indented — both declarations are module-level
+    today, but neither file is obliged to keep it that way.
     """
     m = re.search(rf"const {const}\b[^=]*=\s*\[(.*?)\n\s*\];", _read(rel), re.S)
     assert m, f"could not find `const {const}` in {rel}"

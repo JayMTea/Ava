@@ -1,11 +1,17 @@
-import { useEffect, useRef, useState } from 'react';
-import type { MouseEvent as ReactMouseEvent } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import type {
+  CSSProperties,
+  KeyboardEvent as ReactKeyboardEvent,
+  MouseEvent as ReactMouseEvent,
+  RefObject,
+} from 'react';
 import { createPortal } from 'react-dom';
 import type { AppEntry, ChatSummary } from '../lib/types';
 import { Icon } from '../lib/icons';
 import { AppDot, appAccent, appIcon } from '../lib/appColor';
 import { DEFAULT_BRAND } from '../lib/brand';
 import { useBrand } from '../lib/brandContext';
+import { type Placed, type Viewport, placePanel, placeRail } from './flyoutPlace';
 import { ConnectAppDialog } from './hub/ConnectApp';
 
 // Ava's own wordmark, shipped under the SPA's static mount. Rendered only when
@@ -18,10 +24,35 @@ const AVA_WORDMARK = {
   light: '/assets/marks/ava-wordmark-light.png', // dark ink, for the light canvas
 };
 
-// Rail foot flyout: the sliders icon reveals the "system" destinations (Vitals,
-// Operations, Setup) as a hover/click pop-up, so the rail itself stays just chat
-// + the user's connected apps. Rendered through a portal (the drawer clips
-// overflow) and positioned against the trigger, opening up-and-to-the-right.
+// ── Sidebar destinations ────────────────────────────────────────────────────
+// One list, three consumers: the expanded panel's inline rows, the collapsed
+// rail's foot flyout, and the expanded panel's foot flyout. `system: true` marks
+// the dashboards-and-settings destinations, which are inline nowhere — they live
+// behind the "Settings & dashboards" pop-up at the foot of whichever sidebar
+// form is on screen, so the panel stays the thing you are doing: chats, your
+// apps, your history. Everything else in the sidebar is derived from the
+// connector app registry (/api/apps), so a new app appears by dropping a
+// connector folder — no edits here.
+//
+// KEEP THIS ONE LITERAL, AND KEEP ITS SHAPE. tests/test_icon_ssot.py parses this
+// declaration out of the file and asserts every icon name exists in
+// lib/icons.tsx. The rail flyout used to carry a second, inline copy of the four
+// system entries, which that guard could never see — a typo there rendered an
+// empty slot and failed nothing. What the guard needs: `id` first inside the
+// braces and `icon` before the closing brace, both single-quoted; no equals sign
+// in the type annotation; no `as const`; and the array closed by a bare
+// bracket-semicolon alone on its own line.
+type NavItem = { id: string; label: string; icon: string; system?: boolean };
+const NAV: NavItem[] = [
+  { id: 'chat', label: 'Chats', icon: 'chats' },
+  { id: 'vitals', label: 'Vitals', icon: 'gauge', system: true },
+  { id: 'ops', label: 'Operations', icon: 'activity', system: true },
+  { id: 'data', label: 'Data', icon: 'db', system: true },
+  { id: 'hub', label: 'Setup', icon: 'sliders', system: true },
+];
+const NAV_INLINE = NAV.filter((it) => !it.system);
+const NAV_SYSTEM = NAV.filter((it) => it.system);
+
 /** The sidebar head: a wordmark image when there is one to show, else the name
  *  as text — which is what this always did before the slot had a default.
  *
@@ -51,75 +82,325 @@ function BrandWord({ name }: { name: string }) {
   );
 }
 
-type MenuItem = { id: string; label: string; icon: string };
-function RailFlyout({
-  items, view, onView,
-}: {
-  items: MenuItem[]; view: string; onView: (v: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [pos, setPos] = useState({ left: 0, bottom: 0 });
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const closeTimer = useRef<number | undefined>(undefined);
-  const active = items.some((it) => it.id === view);
+// ── The "Settings & dashboards" flyout ──────────────────────────────────────
+// Two triggers, one behaviour. The collapsed rail's foot has an icon button that
+// opens on hover with a grace timer; the expanded panel's foot has a full-width
+// labelled row that opens on CLICK ONLY — a 284px bar across the bottom of the
+// panel is on the way to everything, so hover-to-open would fire every time the
+// pointer travelled down toward Recents. A 40px icon in a 56px rail is the
+// opposite: reaching it is already a deliberate visit.
+//
+// Everything after "it is open" is identical, so it lives here once — including
+// the part that was missing.
+//
+// THE KEYBOARD IS NOT OPTIONAL. A portal renders at the END of <body>, so Tab
+// from the trigger does not enter the menu. Those four destinations used to be
+// plain tabbable <button>s in the panel's nav list; moving them behind a
+// keyboard-dead pop-up would make Vitals / Operations / Data / Setup unreachable
+// by keyboard in BOTH sidebar forms. That is WCAG 2.1.1 Level A, and it is the
+// same defect the Recents rows below carry a comment about. The rail flyout has
+// shipped with this gap since it was written, and only got away with it because
+// the same four rows were still inline in the expanded panel — which is the
+// escape hatch this change removes. The hook closes it for both.
+//
+// No first-letter typeahead: optional in WAI-ARIA, and there are four items.
 
-  const place = () => {
-    const r = wrapRef.current?.getBoundingClientRect();
-    if (r) setPos({ left: r.right + 8, bottom: window.innerHeight - r.bottom });
-  };
-  const openMenu = () => { window.clearTimeout(closeTimer.current); place(); setOpen(true); };
-  const scheduleClose = () => { closeTimer.current = window.setTimeout(() => setOpen(false), 140); };
+interface FlyoutProps {
+  items: NavItem[];
+  view: string;
+  onView: (v: string) => void;
+  /** The sidebar's open/collapsed state. Not used for layout — used to DISMISS.
+   *  The menu is portalled to <body>, so it outlives its trigger: collapsing the
+   *  panel sets `.side-panel { display:none }` and the menu would keep floating
+   *  over the chat canvas, anchored to a button that is no longer there. */
+  drawerOpen: boolean;
+}
+
+function useFlyout(
+  count: number,
+  place: (r: DOMRect, vp: Viewport) => Placed,
+  drawerOpen: boolean,
+) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<Placed>({ left: 0, bottom: 0 });
+  // Roving focus index. -1 means "no item owns focus" — the correct state for a
+  // hover-opened menu: hover must never pull focus out from under whatever the
+  // user is actually typing in.
+  const [cursor, setCursor] = useState(-1);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const closeTimer = useRef<number | undefined>(undefined);
+  // Escape dismissed it while the pointer was still on the trigger. Without this
+  // the menu reappears instantly: unmounting the portal makes the browser redo
+  // hit-testing, React sees a fresh mouseover on the still-hovered trigger and
+  // fires onMouseEnter again, so Escape looked like it did nothing at all.
+  // Cleared when the pointer leaves, or on any deliberate re-open.
+  const escaped = useRef(false);
+
+  const measure = useCallback(() => {
+    const r = triggerRef.current?.getBoundingClientRect();
+    if (r) setPos(place(r, { width: window.innerWidth, height: window.innerHeight }));
+  }, [place]);
+
+  /** `focus` = which item takes focus once the portal exists, or null to open
+   *  without moving focus (hover). Re-entering an already-open menu passes null,
+   *  so the roving cursor is never reset out from under the keyboard. */
+  const openMenu = useCallback((focus: number | null) => {
+    window.clearTimeout(closeTimer.current);
+    escaped.current = false;
+    measure();
+    setOpen(true);
+    if (focus != null) setCursor(focus);
+  }, [measure]);
+
+  // Hover-open defers to a preceding Escape. The dismissal expires in
+  // scheduleClose() below — i.e. as soon as the pointer leaves.
+  const hoverOpen = useCallback(() => {
+    if (!escaped.current) openMenu(null);
+  }, [openMenu]);
+
+  // close() leaves focus where it is (outside click, hover-out, sidebar
+  // collapse). closeToTrigger() hands it back — required after Escape, and after
+  // Tab so the browser continues the tab sequence from the TRIGGER rather than
+  // from the end of <body>, where the portal lives.
+  const close = useCallback(() => {
+    window.clearTimeout(closeTimer.current);
+    setOpen(false);
+    setCursor(-1);
+  }, []);
+  const closeToTrigger = useCallback(() => {
+    close();
+    triggerRef.current?.focus();
+  }, [close]);
+  const scheduleClose = useCallback(() => {
+    escaped.current = false;
+    closeTimer.current = window.setTimeout(() => { setOpen(false); setCursor(-1); }, 140);
+  }, []);
+
+  // The sidebar swapped forms while the menu was open — see FlyoutProps. This is
+  // the render-phase adjustment React documents for "reset state when a prop
+  // changes", NOT an effect: an effect runs after paint, so the menu would show
+  // for a frame hanging off a trigger that is already display:none. Any pending
+  // close timer is left alone on purpose — if it fires it repeats this, which is
+  // a no-op.
+  const [lastDrawerOpen, setLastDrawerOpen] = useState(drawerOpen);
+  if (lastDrawerOpen !== drawerOpen) {
+    setLastDrawerOpen(drawerOpen);
+    setOpen(false);
+    setCursor(-1);
+  }
+
+  // One place moves focus: the cursor changes, this puts focus on it. Layout
+  // effect, not effect — the portal is measured, painted and focused in the same
+  // frame, so focus never touches <body> in between.
+  useLayoutEffect(() => {
+    if (open && cursor >= 0) itemRefs.current[cursor]?.focus();
+  }, [open, cursor]);
 
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
     const onDown = (e: PointerEvent) => {
-      const t = e.target as Element;
-      if (!wrapRef.current?.contains(t) && !t.closest?.('.rail-menu')) setOpen(false);
+      const t = e.target as Node;
+      if (triggerRef.current?.contains(t) || menuRef.current?.contains(t)) return;
+      close();
     };
-    document.addEventListener('keydown', onKey);
-    document.addEventListener('pointerdown', onDown);
+    // Escape lives on the document, not on the menu, because a hover-opened menu
+    // has no focus inside it — a menu-scoped handler would leave the rail's
+    // flyout undismissable by keyboard, which is what it did before this line.
+    // Capture phase so stopPropagation actually lands: React attaches its
+    // listeners at the root container, BELOW document, so a bubble-phase
+    // stopPropagation here would fire too late to keep this Escape out of the
+    // panel's search field.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      escaped.current = true;
+      // Hand focus back only if the menu had it. Hover never took focus, so
+      // pulling it to the trigger would move the caret out of whatever the user
+      // was actually typing in.
+      if (menuRef.current?.contains(document.activeElement)) closeToTrigger();
+      else close();
+    };
+    document.addEventListener('keydown', onKey, true);
+    // Re-place, do not dismiss. RowMenu closes on scroll because its kebab rides
+    // a scrolling list; both of these triggers are pinned to a sidebar that never
+    // scrolls, so closing here would be a FALSE dismissal — the menu the user
+    // just opened vanishing because they nudged the Recents list underneath it.
+    document.addEventListener('pointerdown', onDown, true);
+    window.addEventListener('scroll', measure, true);
+    window.addEventListener('resize', measure);
     return () => {
-      document.removeEventListener('keydown', onKey);
-      document.removeEventListener('pointerdown', onDown);
+      document.removeEventListener('keydown', onKey, true);
+      document.removeEventListener('pointerdown', onDown, true);
+      window.removeEventListener('scroll', measure, true);
+      window.removeEventListener('resize', measure);
     };
-  }, [open]);
+  }, [open, close, closeToTrigger, measure]);
 
+  const onMenuKeyDown = (e: ReactKeyboardEvent) => {
+    const found = itemRefs.current.findIndex((el) => el === document.activeElement);
+    const at = found < 0 ? 0 : found;
+    const to = (i: number) => setCursor(((i % count) + count) % count);
+    switch (e.key) {
+      case 'ArrowDown': e.preventDefault(); to(at + 1); break;
+      case 'ArrowUp': e.preventDefault(); to(at - 1); break;
+      case 'Home': e.preventDefault(); to(0); break;
+      case 'End': e.preventDefault(); to(count - 1); break;
+      // Escape is NOT here — it is a document capture listener above, so it also
+      // dismisses a hover-opened menu that never took focus.
+      //
+      // Deliberately NOT prevented. Focus goes back to the trigger synchronously,
+      // then the browser's own Tab runs its default action from there — forwards
+      // or backwards — exactly as if the menu had never opened. React unmounts
+      // the portal afterwards, so nothing is left holding focus.
+      case 'Tab': closeToTrigger(); break;
+      default: break;
+    }
+  };
+
+  // Enter and Space are deliberately absent: a <button> already turns both into
+  // a click, and handling them here as well would open the menu on keydown and
+  // close it again on the click that follows. The arrows open with focus placed
+  // the way the menu READS — it grows upward, so Up lands on the item nearest
+  // the trigger (the last one) and Down on the far one.
+  const onTriggerKeyDown = (e: ReactKeyboardEvent) => {
+    if (e.key === 'ArrowUp') { e.preventDefault(); openMenu(count - 1); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); openMenu(0); }
+  };
+
+  return { open, pos, cursor, triggerRef, menuRef, itemRefs,
+           openMenu, hoverOpen, close, closeToTrigger, scheduleClose,
+           onMenuKeyDown, onTriggerKeyDown };
+}
+
+/** The menu itself — identical for both triggers, which is the point. */
+function FlyoutMenu({
+  id, labelledBy, className, items, view, onView,
+  cursor, menuRef, itemRefs, style, onKeyDown, onClose, onMouseEnter, onMouseLeave,
+}: {
+  id: string; labelledBy: string; className?: string;
+  items: NavItem[]; view: string; onView: (v: string) => void;
+  cursor: number;
+  menuRef: RefObject<HTMLDivElement | null>;
+  itemRefs: RefObject<(HTMLButtonElement | null)[]>;
+  style: CSSProperties;
+  onKeyDown: (e: ReactKeyboardEvent) => void;
+  onClose: () => void;
+  onMouseEnter?: () => void; onMouseLeave?: () => void;
+}) {
+  return createPortal(
+    <div
+      id={id}
+      ref={menuRef}
+      className={'rail-menu' + (className ? ' ' + className : '')}
+      role="menu"
+      aria-orientation="vertical"
+      aria-labelledby={labelledBy}
+      style={style}
+      onKeyDown={onKeyDown}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+    >
+      {items.map((it, i) => (
+        <button type="button"
+          key={it.id}
+          // Braces, not a concise body: React reads a ref callback's RETURN
+          // value as a cleanup function.
+          ref={(el) => { itemRefs.current[i] = el; }}
+          role="menuitem"
+          // Roving tabindex. Inside role="menu" exactly one item is in the tab
+          // order and arrows do the rest. -1 across the board while cursor is -1
+          // is correct for a hover-opened menu: Tab should leave the trigger the
+          // way it always did.
+          tabIndex={i === cursor ? 0 : -1}
+          aria-current={view === it.id ? 'page' : undefined}
+          className={'rail-menu-item' + (view === it.id ? ' active' : '')}
+          onClick={() => { onView(it.id); onClose(); }}
+        >
+          <Icon name={it.icon} />
+          <span>{it.label}</span>
+        </button>
+      ))}
+    </div>,
+    document.body,
+  );
+}
+
+/** Collapsed rail, foot. Hover-opens with a 140ms grace timer covering the
+ *  diagonal from button to menu — unchanged behaviour, now also operable from
+ *  the keyboard. */
+function RailFlyout({ items, view, onView, drawerOpen }: FlyoutProps) {
+  const menuId = useId();
+  const btnId = useId();
+  const f = useFlyout(items.length, placeRail, drawerOpen);
+  const active = items.some((it) => it.id === view);
   return (
-    <div className="rail-menu-wrap" ref={wrapRef} onMouseEnter={openMenu} onMouseLeave={scheduleClose}>
+    <div className="rail-menu-wrap"
+      onMouseEnter={f.hoverOpen}
+      onMouseLeave={f.scheduleClose}
+    >
       <button type="button"
+        id={btnId}
+        ref={f.triggerRef}
         className={'rail-btn' + (active ? ' active' : '')}
         aria-haspopup="menu"
-        aria-expanded={open}
+        aria-expanded={f.open}
+        aria-controls={f.open ? menuId : undefined}
         title="Settings & dashboards"
         aria-label="Settings & dashboards"
-        onClick={() => (open ? setOpen(false) : openMenu())}
+        onClick={() => (f.open ? f.close() : f.openMenu(0))}
+        onKeyDown={f.onTriggerKeyDown}
       >
         <Icon name="sliders" />
       </button>
-      {open && createPortal(
-        <div
-          className="rail-menu"
-          role="menu"
-          style={{ left: pos.left, bottom: pos.bottom }}
-          onMouseEnter={openMenu}
-          onMouseLeave={scheduleClose}
-        >
-          {items.map((it) => (
-            <button type="button"
-              key={it.id}
-              role="menuitem"
-              className={'rail-menu-item' + (view === it.id ? ' active' : '')}
-              onClick={() => { onView(it.id); setOpen(false); }}
-            >
-              <Icon name={it.icon} />
-              <span>{it.label}</span>
-            </button>
-          ))}
-        </div>,
-        document.body,
+      {f.open && (
+        <FlyoutMenu
+          id={menuId} labelledBy={btnId}
+          items={items} view={view} onView={onView}
+          cursor={f.cursor} menuRef={f.menuRef} itemRefs={f.itemRefs}
+          style={f.pos} onKeyDown={f.onMenuKeyDown} onClose={f.closeToTrigger}
+          onMouseEnter={f.hoverOpen} onMouseLeave={f.scheduleClose}
+        />
       )}
     </div>
+  );
+}
+
+/** Expanded panel, foot. No aria-label: the row's own text names it, and adding
+ *  one would make `[aria-label="Settings & dashboards"]` match two elements —
+ *  one of them display:none — which is how demo/src/tour.ts drives the rail's
+ *  gear, and a two-element match is a Playwright strict-mode failure. */
+function PanelFlyout({ items, view, onView, drawerOpen }: FlyoutProps) {
+  const menuId = useId();
+  const btnId = useId();
+  const f = useFlyout(items.length, placePanel, drawerOpen);
+  const active = items.some((it) => it.id === view);
+  return (
+    <>
+      <button type="button"
+        id={btnId}
+        ref={f.triggerRef}
+        className={'nav-item panel-foot-btn' + (active ? ' active' : '')}
+        aria-haspopup="menu"
+        aria-expanded={f.open}
+        aria-controls={f.open ? menuId : undefined}
+        onClick={() => (f.open ? f.close() : f.openMenu(0))}
+        onKeyDown={f.onTriggerKeyDown}
+      >
+        <Icon name="sliders" className="nav-ic" />
+        <span>Settings &amp; dashboards</span>
+        <Icon name="chevronDown" className="panel-foot-chev" />
+      </button>
+      {f.open && (
+        <FlyoutMenu
+          id={menuId} labelledBy={btnId} className="panel-menu"
+          items={items} view={view} onView={onView}
+          cursor={f.cursor} menuRef={f.menuRef} itemRefs={f.itemRefs}
+          style={f.pos} onKeyDown={f.onMenuKeyDown} onClose={f.closeToTrigger}
+        />
+      )}
+    </>
   );
 }
 
@@ -172,17 +453,6 @@ export function Drawer({
     onMouseLeave: () => setTip(null),
   });
 
-  // Primary destinations in the expanded panel (claude.ai's Chats / Projects /
-  // Artifacts / Customize slot). Everything else is derived from the connector
-  // app registry (/api/apps), so a new app appears by dropping a connector
-  // folder — no edits here.
-  const NAV: { id: string; label: string; icon: string }[] = [
-    { id: 'chat', label: 'Chats', icon: 'chats' },
-    { id: 'vitals', label: 'Vitals', icon: 'gauge' },
-    { id: 'ops', label: 'Operations', icon: 'activity' },
-    { id: 'data', label: 'Data', icon: 'db' },
-    { id: 'hub', label: 'Setup', icon: 'sliders' },
-  ];
   const userApps = apps.filter((a) => a.section !== 'core');
   const q = query.trim().toLowerCase();
   const visibleChats = q
@@ -207,8 +477,9 @@ export function Drawer({
   return (
     <aside id="drawer" className={open ? 'open' : ''}>
       {/* Narrow icon rail (claude.ai style) — panel toggle on top, then new chat,
-          the Assistant, and the user's connected apps. Vitals / Operations / Setup
-          live in the settings flyout at the foot. */}
+          the Assistant, and the user's connected apps. Vitals / Operations /
+          Data / Setup live in the settings flyout at the foot — as they do in
+          the expanded panel, from the same list. */}
       <div className="side-rail">
         <button
           className="rail-btn rail-toggle"
@@ -249,16 +520,7 @@ export function Drawer({
         )}
         <div className="rail-spacer" />
         <div className="rail-foot">
-          <RailFlyout
-            items={[
-              { id: 'vitals', label: 'Vitals', icon: 'gauge' },
-              { id: 'ops', label: 'Operations', icon: 'activity' },
-              { id: 'data', label: 'Data', icon: 'db' },
-              { id: 'hub', label: 'Setup', icon: 'sliders' },
-            ]}
-            view={view}
-            onView={onView}
-          />
+          <RailFlyout items={NAV_SYSTEM} view={view} onView={onView} drawerOpen={open} />
         </div>
       </div>
 
@@ -306,8 +568,10 @@ export function Drawer({
           <span>New chat</span>
         </button>
 
+        {/* Chats, alone. The dashboards-and-settings destinations are not here —
+            they are behind the flyout pinned at the foot of this panel. */}
         <nav className="nav-list" aria-label="Primary">
-          {NAV.map((it) => (
+          {NAV_INLINE.map((it) => (
             <button type="button"
               key={it.id}
               className={'nav-item' + (view === it.id ? ' active' : '')}
@@ -400,6 +664,16 @@ export function Drawer({
               </div>
             ))
           )}
+        </div>
+
+        {/* Pinned foot. The four system destinations moved off the nav list and
+            behind this row: the sidebar's job is the thing you are doing — your
+            chats, your apps, your history — and four dashboards standing
+            permanently above them made the panel a control surface with a chat
+            list attached. Mirrors the collapsed rail's foot flyout: same items,
+            same menu, one list (NAV_SYSTEM), so the two forms cannot drift. */}
+        <div className="panel-foot">
+          <PanelFlyout items={NAV_SYSTEM} view={view} onView={onView} drawerOpen={open} />
         </div>
       </div>
 

@@ -15,7 +15,13 @@ const PASSWORD = process.env.AVA_E2E_PASSWORD || 'testpass123';
 /** Land on the app, let its hash effect settle, then click through to the tab. */
 async function openBranding(page: any) {
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
-  await page.waitForSelector('text=Vitals', { timeout: 15_000 });
+  // Wait on the sidebar head, not on a destination name. This used to wait for
+  // "Vitals", which worked only because Vitals was an inline nav row and the app
+  // lands on #hub with the sidebar open — the string was nowhere else on the
+  // Setup view. Vitals now lives behind the panel-foot flyout, so that sentinel
+  // would never resolve. The head is rendered by the same first React pass and
+  // says nothing about which view won.
+  await page.waitForSelector('.panel-head', { timeout: 15_000 });
   await page.evaluate(() => { window.location.hash = 'hub'; });
   await page.waitForSelector('.hub-tabs button:has-text("Branding")', { timeout: 15_000 });
   await page.click('.hub-tabs button:has-text("Branding")');
