@@ -1,6 +1,6 @@
 """The landing page is a Jinja template, and almost nothing else checks it.
 
-docs-site/overrides/home.html is the whole homepage now: seven bands, no
+docs-site/overrides/home.html is the whole homepage now: six bands, no
 markdown body. That buys composed full-bleed layout and costs every check the
 markdown pipeline was doing for free, because `mkdocs build --strict` validates
 links in MARKDOWN, not `{{ ... | url }}` in a template, and MkDocs never
@@ -52,6 +52,11 @@ _TILE_EL = re.compile(r"<li class=\"ava-conv__tile\"[^>]*>")
 _TILE_LABEL = re.compile(r'<span class="ava-conv__label">([^<]+)</span>')
 _ACCENT_USE = re.compile(r"--tile-accent:\s*var\(--app-accent-(\d)\)")
 _IMG_SVG = re.compile(r"<img[^>]+src=[^>]*\.svg", re.I)
+# {{ 'docs/assets/ava-tour.mp4' | url }} — the template's only way of naming a
+# staged file. Pages are written the same way but end in "/", which is what
+# separates a nav destination from an asset here.
+_URL_REF = re.compile(r"\{\{\s*'([^']+)'\s*\|\s*url\s*\}\}")
+_VIDEO_EL = re.compile(r"<video\b", re.I)
 _VAR_USE = re.compile(r"var\(\s*(--[a-zA-Z0-9-]+)\s*(\)|,)")
 _DECLARES = re.compile(r"^\s*(--[a-zA-Z0-9-]+)\s*:", re.M)
 
@@ -72,16 +77,21 @@ def _landing_css() -> str:
     return _CSS_COMMENT.sub("", css[css.index("/* The convergence figure"):])
 
 
-def _sync_literal(name: str) -> list[str]:
+def _sync_value(name: str):
     """Read a tuple/dict literal out of sync.py without importing it."""
     tree = ast.parse(SYNC.read_text(encoding="utf-8"))
     for node in ast.walk(tree):
         targets = getattr(node, "targets", []) or ([node.target] if getattr(node, "target", None) else [])
         for t in targets:
             if isinstance(t, ast.Name) and t.id == name:
-                value = ast.literal_eval(node.value)
-                return list(value.keys()) if isinstance(value, dict) else list(value)
+                return ast.literal_eval(node.value)
     raise AssertionError(f"{name} not found in {SYNC.relative_to(ROOT)}")
+
+
+def _sync_literal(name: str) -> list[str]:
+    """`_sync_value()` flattened to the names a guard usually wants."""
+    value = _sync_value(name)
+    return list(value.keys()) if isinstance(value, dict) else list(value)
 
 
 def test_every_landing_glyph_is_staged_and_still_exists() -> None:
@@ -229,6 +239,69 @@ def test_landing_motion_rests_and_honours_reduced_motion() -> None:
             uncovered.append(sel.strip())
     assert not uncovered, (
         f"these animate but the reduced-motion block does not name them: {uncovered}"
+    )
+
+
+def test_landing_media_is_staged_and_tracked() -> None:
+    """The silent 404 this page has already shipped twice.
+
+    `{{ 'docs/assets/ava-tour.mp4' | url }}` is not a markdown link, so
+    `mkdocs build --strict` never looks at it. sync.py's ASSETS is an explicit
+    allow-list whose misses only WARN. And CI checks out tracked files only,
+    while sync.py copies the working tree - so an untracked binary previews
+    perfectly on the author's machine and 404s in production.
+
+    Stack those three and you get the actual history: a2148e7 stripped the tour
+    binaries and re-added only the svg/png ones, leaving a player whose source
+    AND poster both 404'd on a green build, for weeks. Every layer stayed green
+    because no layer owned the question. This test owns it.
+    """
+    require_git()
+    home = _home()
+    refs = sorted({r for r in _URL_REF.findall(home) if not r.endswith("/")})
+    assert refs, "the landing template names no staged file - did the media go?"
+
+    assets = _sync_value("ASSETS")            # source path -> staged destination
+    staged = {dest: src for src, dest in assets.items()}
+    unstaged = sorted(r for r in refs if r not in staged)
+    assert not unstaged, (
+        f"home.html points at files sync.py does not stage: {unstaged}\n"
+        f"Add them to ASSETS in {SYNC.relative_to(ROOT)}, or drop the markup. A "
+        "miss here only prints a warning, so the page ships a 404 on a green build."
+    )
+
+    tracked_assets = set(tracked())
+    for ref in refs:
+        src = staged[ref]
+        assert (ROOT / src).is_file(), (
+            f"home.html shows {ref} and its source {src} does not exist.\n"
+            f"The masters are rendered by demo/src/tour-hero.ts - see demo/SCRIPT.md."
+        )
+        assert src in tracked_assets, (
+            f"{src} is staged and referenced by home.html but is NOT tracked.\n"
+            "sync.py copies the working tree and CI checks out tracked files only, "
+            "so this previews locally and 404s in production. `git add` it."
+        )
+
+
+def test_landing_carries_exactly_one_video() -> None:
+    """One walkthrough, and the landing page is the only place it plays.
+
+    demo/out/ holds a dozen renders - six task tours, seven diagram clips, a
+    chaptered cut - and any of them can be argued onto this page. The moment
+    there are two, the visitor's first decision is which video is THE video,
+    which is a decision about the website rather than about Ava. The task tours
+    have a home already: the Get-started pages that teach the task.
+
+    Nothing here judges whether the one video is any good. That is
+    demo/SCRIPT.md's job and a human's.
+    """
+    count = len(_VIDEO_EL.findall(_home()))
+    assert count == 1, (
+        f"the landing page carries {count} <video> elements, expected exactly 1.\n"
+        "If a second tour really belongs on the site, put it on the page that "
+        "teaches its task and link it - see the 'Other videos' table in "
+        "demo/SCRIPT.md."
     )
 
 

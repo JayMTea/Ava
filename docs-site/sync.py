@@ -137,17 +137,27 @@ ASSETS: dict[str, str] = {
     # of the old row-layout "Your hardware" panel and no page references it.
     "docs/assets/pwa-install-ios.png": "docs/assets/pwa-install-ios.png",
     "docs/assets/pwa-install-android.png": "docs/assets/pwa-install-android.png",
-    # The landing hero's narrated walkthrough (ava-tour.mp4, its .vtt and
-    # reel-poster.png) was staged here and is gone with the embed in
-    # overrides/home.html, deleted in the same commit as the entries — which is
-    # the order that matters, because a MISSING ASSET HERE IS SILENT. main()
-    # only appends to `missing` and prints a warning, and mkdocs --strict checks
-    # markdown links, not the `src` of a <video> in a Jinja template. That is
-    # how the tour vanished once without anyone noticing: a2148e7 stripped the
-    # binaries from history and re-added only the svg/png ones, so the page
-    # shipped a player whose source AND poster both 404'd and every build stayed
-    # green. The masters are still rendered by demo/src/tour-hero.ts if it ever
-    # comes back.
+    # The landing hero's narrated walkthrough, its poster, and its captions —
+    # the ONE video on this site, embedded in overrides/home.html band 2.
+    # Rendered by demo/src/tour-hero.ts from demo/vo-hero/SCRIPT.md.
+    #
+    # A MISSING ASSET HERE IS SILENT. main() only appends to `missing` and
+    # prints a warning, and mkdocs --strict checks markdown links, not the
+    # `src` of a <video> in a Jinja template. That is how this tour vanished
+    # twice: a2148e7 stripped the binaries from history and re-added only the
+    # svg/png ones, so the page shipped a player whose source AND poster both
+    # 404'd on a green build; 2ceb9f6 then removed the embed and these entries
+    # together, which is the correct order and the one to repeat. If you strip
+    # these again, delete the embed in overrides/home.html in the same commit.
+    #
+    # tests/test_landing_page.py::test_landing_media_is_staged_and_tracked
+    # now fails on either half going missing, so the silence above is bounded.
+    "docs/assets/reel-poster.png": "docs/assets/reel-poster.png",
+    "docs/assets/ava-tour.mp4": "docs/assets/ava-tour.mp4",
+    # The .vtt is listed for the same reason as the mp4, and matters more: an
+    # unlisted caption track does not fail anything, it just 404s and leaves a
+    # video that looks like it has no captions at all.
+    "docs/assets/ava-tour.vtt": "docs/assets/ava-tour.vtt",
     "agent/docs/diagrams/security.svg": "agent/docs/diagrams/security.svg",
     # Staged as assets, not pages: both are fixed-width plain text that markdown
     # would reflow into mush. Copying them verbatim keeps the licence readable

@@ -486,6 +486,38 @@
   color: var(--ava-land-muted);
 }
 
+/* The walkthrough band (home.html band 2)
+   ------------------------------------------------------------------
+   The mp4 already carries its own window frame and branded background, so the
+   element takes a radius and a shadow and nothing else: no border, no panel
+   fill behind it. It is capped WELL below the 61rem rail on purpose. A 1920px
+   capture stretched across the full rail turns the app's own chrome into
+   wallpaper and pushes every band below it off the first two screens; 44rem is
+   the same measure the docs column caps media at, which keeps the UI in the
+   video at roughly the size it has on screen.
+
+   Centred as a block, per the axis rule above: the band's heading and lede are
+   centred text, the video is a centred BOX. */
+.ava-tour .ava-reel {
+  display: block;
+  width: 100%;
+  max-width: 44rem;
+  margin: 0 auto;
+  border-radius: 0.7rem;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22);
+}
+[data-md-color-scheme="slate"] .ava-tour .ava-reel {
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+}
+/* Native fullscreen (the `controls` button - this page ships no expand button
+   of its own) letterboxes against the browser's black backdrop, where a
+   rounded corner and a drop shadow are both invisible and wrong. */
+.ava-reel:fullscreen {
+  max-width: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
 /* Material's <main> is still emitted (home.html keeps the landmark and the
    back-to-top button, and only empties the article inside it), so its
    1.5rem top margin would leave 24px of dead space under the last band.

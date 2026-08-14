@@ -1,6 +1,6 @@
 {#-
   Landing page template (used by the homepage only, via `template: home.html`
-  front matter in docs-site/home.md). This file is the WHOLE page: seven
+  front matter in docs-site/home.md). This file is the WHOLE page: six
   full-bleed bands in the theme's empty `hero` block, and nothing below.
   Styles live in docs-site/stylesheets/extra.css under "Landing page".
 
@@ -55,15 +55,16 @@
         Free and open source. Runs any model, local or cloud.
       </p>
       {#- ONE primary action, plus one no-commitment action. The ghost button is
-          an in-page anchor to the figure directly below, so the visitor who is
-          not ready for a shell command has somewhere to go that is not a
+          an in-page anchor to the walkthrough directly below, so the visitor
+          who is not ready for a shell command has somewhere to go that is not a
           document. It was removed once for pointing at a section that no longer
-          existed; #see exists again, in the next band. -#}
+          existed; #see is the next band, and moving that id moves this button
+          with it. -#}
       <div class="ava-hero__actions">
         {#- deploy/README.md builds to deploy/ (MkDocs maps README.md to the
             directory index), so link the directory, not deploy/README/. -#}
         <a class="ava-btn ava-btn--primary" href="{{ 'deploy/' | url }}">Get started</a>
-        <a class="ava-btn ava-btn--ghost" href="#see">See it</a>
+        <a class="ava-btn ava-btn--ghost" href="#see">Watch the tour</a>
       </div>
       <p class="ava-hero__note">
         One command to install. Everything after that is browser setup.
@@ -72,7 +73,59 @@
     </div>
   </section>
 
-  {#- 2. The convergence figure.
+  {#- 2. The walkthrough. THE ONE VIDEO ON THIS SITE, and it is deliberately
+      one: docs/assets/ava-tour.mp4 is the narrated landing cut rendered by
+      demo/src/tour-hero.ts from demo/vo-hero/SCRIPT.md, and the five task
+      tours under demo/out/ stay in the capture studio. A second embed here
+      would make the visitor choose which video is THE video before they know
+      what the product is.
+
+      It sits directly under the hero, above the figure: showing the product
+      beats describing it, and the figure then explains the mechanism behind
+      what was just watched. #see is the hero ghost button's anchor - renaming
+      this id breaks that button.
+
+      THE ASSETS ARE STAGED BY sync.py's ASSETS ALLOW-LIST, and a missing one
+      is SILENT: main() only warns, and mkdocs --strict checks markdown links,
+      not the `src` of a <video> in a Jinja template. That is how this page
+      once shipped a player whose source AND poster both 404'd behind a green
+      build. tests/test_landing_page.py now fails on it instead. -#}
+  <section class="ava-band ava-tour" id="see">
+    <div class="md-grid">
+      <div class="ava-band__head">
+        <h2>See it do something real</h2>
+        <p class="ava-band__lede">A plain-language question, the apps Ava
+        drives to answer it, and what a whole week of that costs. Under a
+        minute.</p>
+      </div>
+      {#- Captions, not "sound on". The old copy told the viewer to unmute,
+          which is the one instruction a muted-by-default browser and a deaf
+          viewer both cannot follow.
+
+          NO `default` ON THE TRACK. ea0fc7e turned captions off by default on
+          all six tours and changed the five markdown pages; this template was
+          not in that commit, so the landing page went on force-burning its
+          captions while every other embed let the viewer choose. The renderer
+          agrees - demo/src/engine/narrated.ts prints "off by default" as it
+          writes the .vtt.
+
+          NO EXPAND BUTTON. `controls` already gives every browser a native
+          fullscreen control, and the .ava-expand / wireExpand() pair is the
+          dormant carousel's, not this video's - see the note in
+          javascripts/chrome.js. A second expand affordance beside the first
+          is how that button ended up announcing itself and doing nothing. -#}
+      <video class="ava-reel" controls playsinline preload="metadata"
+             poster="{{ 'docs/assets/reel-poster.png' | url }}"
+             aria-label="A walkthrough of Ava: a plain-language question answered from your calendar and the forecast, a connected app opened inside Ava's shell, push-to-talk voice, and the Vitals dashboard showing zero spend for the week">
+        <track kind="captions" srclang="en" label="English" src="{{ 'docs/assets/ava-tour.vtt' | url }}">
+        <source src="{{ 'docs/assets/ava-tour.mp4' | url }}" type="video/mp4">
+        Your browser can't play video.
+        <a href="{{ 'docs/assets/ava-tour.mp4' | url }}">Download the walkthrough</a>.
+      </video>
+    </div>
+  </section>
+
+  {#- 3. The convergence figure.
 
       NOT AN <img>. javascripts/diagram-zoom.js:142 selects `.ava-landing img`
       and hijacks the click on any local .svg into a fullscreen lightbox, so
@@ -90,7 +143,7 @@
       router, all infrastructure - and its actual claim is that an app YOU
       already run becomes a tile. The caption says the mechanism for that
       reason, and tests/test_landing_page.py pins the set. -#}
-  <section class="ava-band ava-conv-sheet" id="see">
+  <section class="ava-band ava-conv-sheet">
     <div class="md-grid">
       <div class="ava-conv">
 
@@ -170,7 +223,7 @@
     </div>
   </section>
 
-  {#- 3. What it does -#}
+  {#- 4. What it does -#}
   <section class="ava-band">
     <div class="md-grid">
       <div class="ava-band__head">
@@ -209,7 +262,7 @@
   </section>
 
 
-  {#- 4. One command -#}
+  {#- 5. One command -#}
   <section class="ava-band">
     <div class="md-grid">
       <div class="ava-band__head">
@@ -245,7 +298,7 @@
   </section>
 
 
-  {#- 5. Colophon. The human stays on this page deliberately. This project's
+  {#- 6. Colophon. The human stays on this page deliberately. This project's
       credibility rests on it being one person with one machine who says NOT
       MEASURED rather than rounding up, and an unsigned page cannot make that
       argument. The security-reporting line went: SECURITY.md is a header tab on
