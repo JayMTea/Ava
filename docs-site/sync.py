@@ -317,7 +317,13 @@ ICONS_WANTED = (
     # is TRACKED, so a glyph renamed in icons.tsx leaves last month's drawing on
     # disk and rendering forever. tests/test_landing_page.py holds this tuple,
     # the template and icons.tsx together for exactly that reason.
-    "calendar", "mail", "file", "code", "pencil", "image", "user", "gauge",
+    #
+    # A REMOVED GLYPH IS SILENT TOO, in the other direction: nothing here
+    # deletes a staged file, so dropping a name from this tuple leaves the old
+    # svg tracked and shipping. calendar/mail/code/gauge left with the stock
+    # icon-grid tiles they drew (see the WHY THESE EIGHT note in home.html) and
+    # were `git rm`'d in the same commit. Do the same for the next one.
+    "activity", "chart", "user", "pencil", "db", "image", "file", "plug",
 )
 # Material resolves additional icons from `<custom_dir>/.icons/<ns>/<name>.svg`,
 # NOT from docs_dir — so these are written beside the templates, not into OUT.

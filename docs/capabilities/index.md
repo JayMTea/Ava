@@ -6,6 +6,11 @@ thinking to whatever backend you point it at - vLLM, Ollama, llama.cpp, MLX,
 LM Studio, or a cloud endpoint. Nothing on this page is about model quality.
 It is about what the layer around the model does for you.
 
+The short version of that: **five built-in tabs, and then one more for every app
+you connect.** The five are Ava's own instrument panel. The rest of the sidebar
+is your software, and it is the half that makes this worth running - see
+[Connected apps become tabs](#connected-apps-become-tabs) below.
+
 ## The five tabs that always ship
 
 Five built-in tabs (`BUILTIN_VIEWS` in `frontend/src/App.tsx`). They are on

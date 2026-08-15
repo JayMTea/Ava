@@ -25,7 +25,7 @@ from a laptop or a phone.
 **Tools used** is the one worth opening. It is how you check Ava's work: the
 answer above it came from these calls, on this machine, and nothing else.
 
-![The "Tools used (2)" control expanded under a reply, listing the two tools that turn actually called: calendar.read and weather.forecast](../assets/chat-tools-used.png)
+![The "Tools used (2)" control expanded under a reply, listing the two tools that turn actually called: paceboard_summary and ledger_totals, from two different connected apps](../assets/chat-tools-used.png)
 
 Chats title themselves from your first message (truncated to 48 characters);
 the sidebar's search box filters the recents list by title.

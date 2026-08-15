@@ -42,8 +42,14 @@ ICONS_TSX = ROOT / "frontend" / "src" / "lib" / "icons.tsx"
 # picture is honest; it makes the picture impossible to change without editing
 # a test whose docstring says what the rule is. That is the same thing a
 # d2sum stamp buys in test_diagram_sync.py - a forced stop, not a proof.
-_TILES = frozenset({"Calendar", "Mail", "Docs", "Code",
-                    "Notes", "Photos", "Contacts", "Devices"})
+#
+# These eight are the apps a person BUILDS for themselves, which is the claim
+# the page makes. They were Calendar / Mail / Docs / Code / Notes / Photos /
+# Contacts / Devices, the stock icon grid every assistant on the market draws,
+# and that set argued the commodity claim instead. If you change them again,
+# read test_tile_set_is_pinned_and_names_no_shipped_connector below first.
+_TILES = frozenset({"Health", "Finance", "Clients", "Blog",
+                    "Inventory", "Photos", "Notes", "Home"})
 
 _INCLUDE = re.compile(r"""\{%-?\s*include\s+"\.icons/ava/([A-Za-z]+)\.svg"\s*-?%\}""")
 _JINJA_COMMENT = re.compile(r"\{#.*?#\}", re.S)

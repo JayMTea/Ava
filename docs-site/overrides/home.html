@@ -46,13 +46,15 @@
           .ava-wordmark in stylesheets/extra.css. The header carries the bare
           mark, so the two do not repeat each other. -#}
       <span class="ava-wordmark ava-hero__mark" role="img" aria-label="Ava"></span>
-      <h1>Your AI. Your hardware.</h1>
+      <h1>All your apps. One AI. Your machine.</h1>
       <p class="ava-hero__tagline">
-        Chat, voice, and app automation in one private dashboard, on a
-        computer you own. Nothing leaves your machine unless you wire it out.
+        Anyone can build an app now, so you have a pile of them: your health,
+        your money, your business, your blog, your house. Ava is the one place
+        they all land, and the assistant that lives there can reach inside
+        every one of them.
       </p>
       <p class="ava-hero__kicker">
-        Free and open source. Runs any model, local or cloud.
+        Free and open source. Runs on hardware you own, on a model you choose.
       </p>
       {#- ONE primary action, plus one no-commitment action. The ghost button is
           an in-page anchor to the walkthrough directly below, so the visitor
@@ -93,10 +95,11 @@
   <section class="ava-band ava-tour" id="see">
     <div class="md-grid">
       <div class="ava-band__head">
-        <h2>See it do something real</h2>
-        <p class="ava-band__lede">A plain-language question, the apps Ava
-        drives to answer it, and what a whole week of that costs. Under a
-        minute.</p>
+        <h2>See it reach into your apps</h2>
+        <p class="ava-band__lede">One question that crosses two of them, the
+        tools it called named under the reply, an app opened inside Ava's own
+        shell, and what a week of that costs. Under a minute, and the same turn
+        whether you type it or say it.</p>
       </div>
       {#- Captions, not "sound on". The old copy told the viewer to unmute,
           which is the one instruction a muted-by-default browser and a deaf
@@ -116,7 +119,7 @@
           is how that button ended up announcing itself and doing nothing. -#}
       <video class="ava-reel" controls playsinline preload="metadata"
              poster="{{ 'docs/assets/reel-poster.png' | url }}"
-             aria-label="A walkthrough of Ava: a plain-language question answered from your calendar and the forecast, a connected app opened inside Ava's shell, push-to-talk voice, and the Vitals dashboard showing zero spend for the week">
+             aria-label="A walkthrough of Ava: a plain-language question answered out of a training app and a finance app, the tools that turn actually called named under the reply, a connected app opened inside Ava's shell, the voice control on the composer, and the Vitals dashboard showing zero cloud spend for the week">
         <track kind="captions" srclang="en" label="English" src="{{ 'docs/assets/ava-tour.vtt' | url }}">
         <source src="{{ 'docs/assets/ava-tour.mp4' | url }}" type="video/mp4">
         Your browser can't play video.
@@ -142,7 +145,16 @@
       integrations - the tracked connectors are _template, bridge, local-llm and
       router, all infrastructure - and its actual claim is that an app YOU
       already run becomes a tile. The caption says the mechanism for that
-      reason, and tests/test_landing_page.py pins the set. -#}
+      reason, and tests/test_landing_page.py pins the set.
+
+      WHY THESE EIGHT. They were Calendar / Mail / Docs / Code / Notes / Photos
+      / Contacts / Devices, which is the stock icon grid every assistant on the
+      market draws, and it argued the commodity claim: "I can read your mail".
+      The set is now the apps a person BUILDS for themselves now that writing
+      one is a weekend - health, money, the business, the blog, the house - so
+      the figure argues the claim that is actually ours: those apps exist,
+      nothing joins them up, and Ava is where they converge. Same rule as
+      before, so no tile may name a shipped connector. -#}
   <section class="ava-band ava-conv-sheet">
     <div class="md-grid">
       <div class="ava-conv">
@@ -150,23 +162,23 @@
         <ul class="ava-conv__col ava-conv__col--l">
           <i class="ava-conv__bus" aria-hidden="true"></i>
           <li class="ava-conv__tile" style="--i:0; --tile-accent:var(--app-accent-0); --dx:-46px; --dy:-28px; --dr:-6deg">
-            <span class="ava-conv__glyph" aria-hidden="true">{% include ".icons/ava/calendar.svg" %}</span>
-            <span class="ava-conv__label">Calendar</span>
+            <span class="ava-conv__glyph" aria-hidden="true">{% include ".icons/ava/activity.svg" %}</span>
+            <span class="ava-conv__label">Health</span>
             <i class="ava-conv__stub" aria-hidden="true"></i>
           </li>
           <li class="ava-conv__tile" style="--i:1; --tile-accent:var(--app-accent-3); --dx:-56px; --dy:14px; --dr:4deg">
-            <span class="ava-conv__glyph" aria-hidden="true">{% include ".icons/ava/mail.svg" %}</span>
-            <span class="ava-conv__label">Mail</span>
+            <span class="ava-conv__glyph" aria-hidden="true">{% include ".icons/ava/chart.svg" %}</span>
+            <span class="ava-conv__label">Finance</span>
             <i class="ava-conv__stub" aria-hidden="true"></i>
           </li>
           <li class="ava-conv__tile" style="--i:2; --tile-accent:var(--app-accent-5); --dx:-38px; --dy:34px; --dr:-3deg">
-            <span class="ava-conv__glyph" aria-hidden="true">{% include ".icons/ava/file.svg" %}</span>
-            <span class="ava-conv__label">Docs</span>
+            <span class="ava-conv__glyph" aria-hidden="true">{% include ".icons/ava/user.svg" %}</span>
+            <span class="ava-conv__label">Clients</span>
             <i class="ava-conv__stub" aria-hidden="true"></i>
           </li>
           <li class="ava-conv__tile" style="--i:3; --tile-accent:var(--app-accent-1); --dx:-50px; --dy:46px; --dr:7deg">
-            <span class="ava-conv__glyph" aria-hidden="true">{% include ".icons/ava/code.svg" %}</span>
-            <span class="ava-conv__label">Code</span>
+            <span class="ava-conv__glyph" aria-hidden="true">{% include ".icons/ava/pencil.svg" %}</span>
+            <span class="ava-conv__label">Blog</span>
             <i class="ava-conv__stub" aria-hidden="true"></i>
           </li>
         </ul>
@@ -175,16 +187,16 @@
           <i class="ava-conv__feed ava-conv__feed--l" aria-hidden="true"></i>
           <div class="ava-conv__card">
             <span class="ava-conv__mark" role="img" aria-label="Ava"></span>
-            <p class="ava-conv__name">One dashboard</p>
+            <p class="ava-conv__name">One place, one AI</p>
             {#- Three of the eight accents, which is the product's own grammar:
                 CLAUDE.md requires anything representing a connected app to wear
                 that app's accent, and a chat tool chip is exactly that. Three of
                 eight reads as "it picked some of them for this piece of work",
                 which is what the agent does with connector tools. -#}
             <ul class="ava-conv__chips">
-              <li class="ava-conv__chip" style="--i:0; --tile-accent:var(--app-accent-0)">calendar</li>
-              <li class="ava-conv__chip" style="--i:1; --tile-accent:var(--app-accent-6)">notes</li>
-              <li class="ava-conv__chip" style="--i:2; --tile-accent:var(--app-accent-7)">devices</li>
+              <li class="ava-conv__chip" style="--i:0; --tile-accent:var(--app-accent-0)">health</li>
+              <li class="ava-conv__chip" style="--i:1; --tile-accent:var(--app-accent-3)">finance</li>
+              <li class="ava-conv__chip" style="--i:2; --tile-accent:var(--app-accent-7)">home</li>
             </ul>
           </div>
           <i class="ava-conv__feed ava-conv__feed--r" aria-hidden="true"></i>
@@ -193,8 +205,8 @@
         <ul class="ava-conv__col ava-conv__col--r">
           <i class="ava-conv__bus" aria-hidden="true"></i>
           <li class="ava-conv__tile" style="--i:0; --tile-accent:var(--app-accent-2); --dx:44px; --dy:-34px; --dr:5deg">
-            <span class="ava-conv__glyph" aria-hidden="true">{% include ".icons/ava/pencil.svg" %}</span>
-            <span class="ava-conv__label">Notes</span>
+            <span class="ava-conv__glyph" aria-hidden="true">{% include ".icons/ava/db.svg" %}</span>
+            <span class="ava-conv__label">Inventory</span>
             <i class="ava-conv__stub" aria-hidden="true"></i>
           </li>
           <li class="ava-conv__tile" style="--i:1; --tile-accent:var(--app-accent-6); --dx:54px; --dy:10px; --dr:-5deg">
@@ -203,22 +215,24 @@
             <i class="ava-conv__stub" aria-hidden="true"></i>
           </li>
           <li class="ava-conv__tile" style="--i:2; --tile-accent:var(--app-accent-4); --dx:40px; --dy:30px; --dr:6deg">
-            <span class="ava-conv__glyph" aria-hidden="true">{% include ".icons/ava/user.svg" %}</span>
-            <span class="ava-conv__label">Contacts</span>
+            <span class="ava-conv__glyph" aria-hidden="true">{% include ".icons/ava/file.svg" %}</span>
+            <span class="ava-conv__label">Notes</span>
             <i class="ava-conv__stub" aria-hidden="true"></i>
           </li>
           <li class="ava-conv__tile" style="--i:3; --tile-accent:var(--app-accent-7); --dx:48px; --dy:44px; --dr:-4deg">
-            <span class="ava-conv__glyph" aria-hidden="true">{% include ".icons/ava/gauge.svg" %}</span>
-            <span class="ava-conv__label">Devices</span>
+            <span class="ava-conv__glyph" aria-hidden="true">{% include ".icons/ava/plug.svg" %}</span>
+            <span class="ava-conv__label">Home</span>
             <i class="ava-conv__stub" aria-hidden="true"></i>
           </li>
         </ul>
 
       </div>
       <p class="ava-conv__caption">
-        The apps you already run become tiles in Ava. One folder with a manifest
-        gives each one its tile, a health row, a performance source, the agent's
-        tools, and the exact network destinations those tools may reach.
+        The apps you already run, and the ones you wrote yourself, become tiles
+        in Ava. One folder with a manifest gives each one its tile, a health
+        row, a performance source, the tools Ava calls to reach inside it, and
+        the exact network destinations those tools may use. No change to Ava's
+        core, and nothing to rebuild.
       </p>
     </div>
   </section>
@@ -228,34 +242,40 @@
     <div class="md-grid">
       <div class="ava-band__head">
         <h2>What it does</h2>
-        <p class="ava-band__lede">Most AI tools are one of these: a chat window,
-        a model runner, a voice assistant, or an agent framework. Ava is the
-        layer that ties them together.</p>
+        <p class="ava-band__lede">Writing an app is a weekend now, so people
+        have five of them and no way to join them up. Every assistant on the
+        market sits outside your apps and guesses. Ava is the place they all
+        live, and it can reach inside each one.</p>
       </div>
       <ul class="ava-cards ava-cards--2up">
         <li>
-          <h3>Talks and listens on your own hardware</h3>
-          <p>Type or speak. Voice runs on-device and answers your voice only.
-          The model behind it is yours: vLLM, Ollama, llama.cpp, MLX, or a cloud
-          key you supply.</p>
+          <h3>Every app becomes a tile and a set of tools</h3>
+          <p>Point Ava at an app you already run, or one you wrote last
+          weekend. It gets a tile in the sidebar, a health row and a
+          performance source, and its actions become things you can ask for in
+          plain language. One folder with a manifest, no core change, no
+          rebuild.</p>
         </li>
         <li>
-          <h3>Drives the apps you already run</h3>
-          <p>Point Ava at an app and it becomes a tab: Ava watches it, charts
-          it, acts in it. MCP tool servers plug in the same way, each one
-          network-fenced.</p>
+          <h3>It reaches inside them, not just alongside them</h3>
+          <p>Apps advertise what they can do over MCP, and Ava discovers those
+          tools live. Your training log, your ledger and your house answer one
+          question together, and every reply names the calls it actually
+          made.</p>
         </li>
         <li>
-          <h3>Everything it does is on the record</h3>
-          <p>Speed, cost and energy on screen while it works. Anything that
-          touches the real world asks first, and every change Ava writes to its
-          own source waits for you as a git commit.</p>
+          <h3>Your model, your agent, your rules</h3>
+          <p>The model, the persona, the skills, the memory and the per-tool
+          egress policies are all yours to write. The agent runs inside a
+          NemoClaw sandbox that reaches only the destinations you allow, and
+          anything touching the real world asks you first.</p>
         </li>
         <li>
-          <h3>Yours to shape, and yours to erase</h3>
-          <p>Ava ships with no personality. You write how it talks. It remembers
-          what matters from your chats and files, and hands you the eraser for
-          any of it.</p>
+          <h3>It knows what your hardware can take</h3>
+          <p>Ava reads your chip and usable memory and names the size class of
+          model your machine can hold, before you download one. Then speed,
+          cost, energy and every connected app's health stay on screen while it
+          works.</p>
         </li>
       </ul>
     </div>

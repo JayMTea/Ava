@@ -32,6 +32,15 @@ on:
     paths:
       - "**/*.md"
       - "**/*.svg"          # diagrams are published on the site
+      # The landing hero's mp4, poster and captions, plus the docs detail crops.
+      # WITHOUT THIS a re-render deploys nothing: the filter above catches .md
+      # and .svg, so every previous media change happened to ride along with a
+      # prose edit in the same push and the gap never showed. A push that ONLY
+      # swaps ava-tour.mp4 (exactly what `npm run tour:hero` produces) matches
+      # no path, so the job never runs and the site keeps serving last month's
+      # video on a green build — the same silent-404 class of failure
+      # tests/test_landing_page.py exists to catch on the other side.
+      - "docs/assets/**"
       - "docs-site/**"
       - "frontend/src/styles/tokens.css"  # the site inherits the app palette
       - ".github/workflows/docs.yml"

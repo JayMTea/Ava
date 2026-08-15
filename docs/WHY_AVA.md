@@ -1,33 +1,59 @@
 # Why Ava?
 
-A private AI hub that runs on the box you already own, and tells you which parts
-of that claim it has actually verified on your hardware.
+One private home for every app you built, with an AI that can reach inside each
+of them, on hardware you already own.
+
+## The problem
+
+**Writing an app used to be a project. It is a weekend now.** So you have
+several: something that tracks your training, something that tracks the money, a
+blog, whatever your business needed last month, a thing that runs the house.
+Each one works.
+
+None of them know about each other. And the assistants you can buy sit *outside*
+all of them, answering from whatever you remember to paste into a chat box. That
+gap is the whole reason this project exists. "Talk to it and it listens" is a
+commodity now, shipped by everyone; **being the place your own software plugs
+into is not.**
 
 ## What is Ava?
 
-Most AI tools are *one* of these: a chat UI, a local model runner, a voice
-assistant, or an agent framework. **Ava is the layer that ties them together**
-into one assistant you actually own: chat, voice, app automation, and
-self-editing, behind a single dashboard, running on your own hardware with the
-model of your choice (served locally by **vLLM / Ollama / llama.cpp**, or
-through a **cloud API key**).
+**A private, AI-native platform for the apps you own.** Every app you run becomes
+a tab in one dashboard, with its own health row, its own performance chart and
+its own set of tools - and the assistant in the middle can call those tools to
+reach *inside* each app, on your behalf, over MCP.
+
+Adding one is a single folder with a manifest: no change to Ava's core, no
+rebuild, no pull request against this repository.
+
+The assistant is yours end to end: your model (served locally by **vLLM /
+Ollama / llama.cpp / MLX**, or through a **cloud API key**), your persona, your
+skills, your memory, and per-tool egress policies naming exactly which addresses
+it may reach. The agent runs sandboxed in [NemoClaw](AGENT_RUNTIME.md). Chat,
+voice and governed self-editing come with it, but they are how you *use* the
+platform, not what it is for.
 
 ## Who it's for
 
-Privacy-conscious prosumers and small teams who want an always-on AI that runs
-on their **own** hardware, connects to their **own** apps, and isn't locked to a
-single cloud vendor.
+People who build their own software - increasingly with AI writing most of it -
+and now have a scatter of small apps for their health, their money, their
+business, their writing and their home, with nothing joining them up. Ava is the
+hub for that scatter: always-on, on their **own** hardware, wired to their
+**own** apps, not locked to a single cloud vendor.
 
 ## What it does
 
+- **Turns any app you run into a tab**, a health row, a chart and a set of tools.
+- **Reaches inside those apps** through the tools they advertise over MCP,
+  behind a policed boundary.
+- **Sizes your hardware** and names the model class it can hold, before you
+  download one.
+- **Shows throughput, cost, energy, jobs and per-app health** live.
 - **Talks and listens** on-device, gated to *your* voice.
-- **Drives your other apps**, not just charts them.
-- **Fronts any MCP tool server** behind a policed boundary.
 - **Searches the web** through a SearXNG *you* run.
 - **Edits its own source**, every change awaiting your approval.
 - **Studies its own activity** and parks proposals for you.
 - **Remembers what matters**, and hands you the eraser.
-- **Shows throughput, cost, energy and jobs** live.
 - **Installs to your phone** as a home-screen app.
 
 Each of those is taken apart, with the endpoint or config key behind it, in
@@ -49,6 +75,10 @@ Each of those is taken apart, with the endpoint or config key behind it, in
 
 ## What it is not
 
+- **Not another chat app.** The chat window is the way in, not the product. If
+  all you want is a private chat UI over a local model, several projects do
+  that in fewer moving parts. Ava is worth its complexity only if you have apps
+  to plug into it.
 - **Not a model.** Ava is the control layer around one. It trails the cloud
   giants on raw model IQ and polish, because its job is to put *their* models
   (or yours) to work, privately.
@@ -62,15 +92,15 @@ Each of those is taken apart, with the endpoint or config key behind it, in
 
 | Claim | What backs it |
 |---|---|
+| **Your apps become its apps.** | A small manifest adds your app, no core-code changes. Ava picks up its health and metrics and generates its agent tools and egress policy. [Connect your apps](CONNECT_YOUR_APPS.md) |
+| **It reaches inside them, governed.** | Tools are discovered live from the app's own MCP server. The MCP client runs host-side, so a compromised server never gets a line into the sandbox, and the agent reaches exactly two policed bridge routes and nothing else. [Connector SDK](CONNECTOR_SDK.md) |
+| **It knows what your hardware can take.** | Setup reads your chip and usable memory and names the model tier it will hold, detected live, before you download anything. [Pick a model](CHOOSE_A_MODEL.md) |
+| **It watches itself, and your apps.** | Tokens per second, time to first token (TTFT), cost and energy, jobs, alerts, and per-app service health and call latency. An assistant you can't observe is one you can't trust. |
 | **No personality until you give it one.** | The shipped prompt covers only what Ava must *do*. How it talks is a blank field you fill in, so a fork sounds like *your* assistant. [Persona](PERSONA.md) |
 | **You own it.** | Self-hosted and single-tenant, on your GPU. Conversations, files and voiceprint stay on your box. Nothing reaches a third party unless you turn it on. |
 | **Your model, local by default.** | Ships a 7B model that fits a normal GPU, and swaps in one line: vLLM, Ollama, llama.cpp, LM Studio, MLX, or a cloud endpoint. [Pick a model](CHOOSE_A_MODEL.md) |
-| **It does more than talk.** | It calls tools, remembers, and reaches into your other apps. |
-| **It watches itself.** | Tokens per second, time to first token (TTFT), cost and energy, jobs, alerts, service health. An assistant you can't observe is one you can't trust. |
 | **It edits its own source, governed.** | Changes land as git commits, every one a revert away. By default *every* change waits for you, and secrets and models are never writable. |
 | **It learns without leaking.** | Local-first cycles analyse Ava's own activity and park proposals for your sign-off. Nothing self-applies. [Memory](MEMORY.md) |
-| **Anyone can extend it.** | A small manifest adds your app, no core-code changes. Ava picks up its health and metrics and generates its agent tools and egress policy. [Connect your apps](CONNECT_YOUR_APPS.md) |
-| **MCP, but governed.** | The MCP client runs host-side, so a compromised server never gets a line into the sandbox. The agent reaches exactly two policed bridge routes and nothing else. [Connector SDK](CONNECTOR_SDK.md) |
 
 ??? note "The config keys behind those claims"
     Every default below is read straight out of the code, not out of a brochure.

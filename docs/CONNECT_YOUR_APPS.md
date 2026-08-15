@@ -7,16 +7,19 @@
 <li class="is-now"><span><b>Step 4</b>Connect your apps</span></li>
 </ul>
 
-**At the end of this step:** an app you already run becomes something you can ask
-Ava for in plain language, behind an auto-generated security policy. If it serves
-a web page, it also gets its own tile in Ava's sidebar.
+**This is the step Ava exists for.** Everything before it set up an assistant;
+this is where your own software plugs into it. An app you already run - or one
+you wrote yourself last weekend - becomes something you can ask Ava for in plain
+language, behind an auto-generated security policy. If it serves a web page, it
+also gets its own tile in Ava's sidebar.
 
 **Time:** well under a minute. It happens in the browser. No files, no terminal.
 
 Connecting an app wires it into everything Ava does: its tools become things you
 can ask for in plain language, each behind an auto-generated security policy. If
 it serves a web UI or a health endpoint, it also gets a tile in the left rail and
-a row on Operations → Service health.
+a row on Operations → Service health. Connect two, and a question that spans both
+of them is one question rather than two tabs.
 
 There are two ways to do it. Most people should use the first one; the second is
 for developers building their own connector, and its full reference is the

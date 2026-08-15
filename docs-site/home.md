@@ -1,7 +1,7 @@
 ---
 template: home.html
-title: "Ava: a private AI assistant that runs on your own computer"
-description: A private AI hub that runs on the box you already own, and tells you which parts of that claim it has verified on your hardware.
+title: "Ava: one private home for every app you built"
+description: Anyone can build an app now. Ava is the one place they all land, with an AI that reaches inside each one over MCP, running on hardware you own.
 hide:
   - navigation
   - toc
