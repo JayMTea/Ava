@@ -1,8 +1,24 @@
 {#-
   Landing page template (used by the homepage only, via `template: home.html`
-  front matter in docs-site/home.md). This file is the WHOLE page: six
+  front matter in docs-site/home.md). This file is the WHOLE page: seven
   full-bleed bands in the theme's empty `hero` block, and nothing below.
   Styles live in docs-site/stylesheets/extra.css under "Landing page".
+
+  WHAT THIS PAGE IS ALLOWED TO CLAIM, and it is narrower than it looks. Four of
+  the things Ava does are COMMODITY as of 2026 and must never be the lede:
+  self-hosted chat over a local model, being an MCP client, on-device voice, and
+  egress policy for MCP tools. Open WebUI, LibreChat, AnythingLLM, Goose, Home
+  Assistant's Assist pipeline and a whole category of MCP gateways ship those,
+  several with far more distribution than this project will ever have. A hero
+  that leads on any of them loses a comparison it did not need to enter.
+
+  What is actually unoccupied is the DERIVATION: one connector.yaml emits a
+  same-origin tab, a health row, a self-registering perf source, the agent's
+  tools, a per-connector egress policy AND per-app cost/energy attribution, from
+  a single declaration. The gateways do policy. The chat UIs do tools. Nothing
+  found in the market does UI + observability + policy from one file. Band 4
+  exists to say that, in surfaces the reader can count, and it is the reason to
+  choose Ava. Do not dilute it back into a generic feature grid.
 
   WHY IT IS ALL HERE. The page used to be two layout systems stacked. Bands
   came out of this block, which sits outside <main> and can be full-bleed;
@@ -46,15 +62,17 @@
           .ava-wordmark in stylesheets/extra.css. The header carries the bare
           mark, so the two do not repeat each other. -#}
       <span class="ava-wordmark ava-hero__mark" role="img" aria-label="Ava"></span>
-      <h1>All your apps. One AI. Your machine.</h1>
+      <h1>Connect an app. Get its tools, its dashboard, and its firewall.</h1>
       <p class="ava-hero__tagline">
-        Anyone can build an app now, so you have a pile of them: your health,
-        your money, your business, your blog, your house. Ava is the one place
-        they all land, and the assistant that lives there can reach inside
-        every one of them.
+        Anyone can build an app now, so you have five of them and nothing joins
+        them up. Point Ava at one: a single manifest gives it a tab in your
+        sidebar, a health row, a live performance chart, the tools your AI is
+        allowed to call, and an allow-list naming every address those tools may
+        reach. Ava writes every one of them for you, from that one file.
       </p>
       <p class="ava-hero__kicker">
-        Free and open source. Runs on hardware you own, on a model you choose.
+        Free and open source. On your hardware, on your model, with the agent
+        sandboxed.
       </p>
       {#- ONE primary action, plus one no-commitment action. The ghost button is
           an in-page anchor to the walkthrough directly below, so the visitor
@@ -229,60 +247,118 @@
       </div>
       <p class="ava-conv__caption">
         The apps you already run, and the ones you wrote yourself, become tiles
-        in Ava. One folder with a manifest gives each one its tile, a health
-        row, a performance source, the tools Ava calls to reach inside it, and
-        the exact network destinations those tools may use. No change to Ava's
-        core, and nothing to rebuild.
+        in Ava. Every one of them is a folder you drop in, and no change to
+        Ava's core: no fork, no rebuild, no pull request against this project.
+        What that one folder buys is the band below.
       </p>
     </div>
   </section>
 
-  {#- 4. What it does -#}
+  {#- 4. THE DIFFERENTIATOR BAND. Read the "WHAT THIS PAGE IS ALLOWED TO CLAIM"
+      note at the top of this file before touching it.
+
+      Six surfaces, all derived from one connector.yaml at load time, none of
+      them hand-maintained in Ava's core. Every card here is a line item in
+      docs/capabilities/connectors.md's "What one manifest gives you", which is
+      the SSOT for this list - if a surface stops being derived, that page and
+      this band change together.
+
+      It is deliberately concrete and countable. "Extensible via plugins" is
+      what every competitor says; six named surfaces out of one file is a claim
+      a reader can check, and the checking is the point. -#}
   <section class="ava-band">
     <div class="md-grid">
       <div class="ava-band__head">
-        <h2>What it does</h2>
-        <p class="ava-band__lede">Writing an app is a weekend now, so people
-        have five of them and no way to join them up. Every assistant on the
-        market sits outside your apps and guesses. Ava is the place they all
-        live, and it can reach inside each one.</p>
+        <h2>What one manifest gives you</h2>
+        <p class="ava-band__lede">Every surface below is generated from your
+        app's folder when Ava loads it. None of it is hand-maintained anywhere
+        in Ava's core, and none of it is a plugin you have to write.</p>
+      </div>
+      <ul class="ava-cards">
+        <li>
+          <h3>A tab in your sidebar</h3>
+          <p>Your app's own web UI, reverse-proxied same-origin under
+          <code>/apps/&lt;id&gt;/</code> so it inherits your session and your
+          theme. No second login, no third-party cookies.</p>
+        </li>
+        <li>
+          <h3>A health row</h3>
+          <p>From one probe address. Name the feature switch that governs the
+          service and a dead probe reads <em>off</em> rather than
+          <em>down</em>, so a thing you turned off never looks like an
+          outage.</p>
+        </li>
+        <li>
+          <h3>A live performance chart</h3>
+          <p>If your app writes no performance log, the bridge writes one for
+          it: every proxied call timed, with its status. A brand-new app shows
+          up in Vitals on its first call, with no restart.</p>
+        </li>
+        <li>
+          <h3>Tools your AI may call</h3>
+          <p>Declared in the manifest, discovered live from your app's own tool
+          list, or read straight off its MCP server. Ava generates them into
+          the sandbox for you.</p>
+        </li>
+        <li>
+          <h3>An egress policy</h3>
+          <p>An allow-list of exactly which addresses the agent's sandbox may
+          reach on this app's behalf. Anything not on it is refused. You did
+          not write it; Ava rendered it from the same file.</p>
+        </li>
+        <li>
+          <h3>Cost and energy, per app</h3>
+          <p>Call count and energy attribution land on that app's dashboard
+          tile, so you can see which of the things you built is the expensive
+          one. Most AI tools cannot tell you this about anything.</p>
+        </li>
+      </ul>
+    </div>
+  </section>
+
+  {#- 5. The rest of the argument, and note what is NOT here: "chat with your
+      documents", "runs locally", "speaks MCP". All true, all commodity, all
+      demoted to a line inside a card rather than a card of their own. -#}
+  <section class="ava-band">
+    <div class="md-grid">
+      <div class="ava-band__head">
+        <h2>And then it watches all of it</h2>
+        <p class="ava-band__lede">An AI hub that cannot tell you how your own
+        software is doing is just a chat window with extra steps.</p>
       </div>
       <ul class="ava-cards ava-cards--2up">
         <li>
-          <h3>Every app becomes a tile and a set of tools</h3>
-          <p>Point Ava at an app you already run, or one you wrote last
-          weekend. It gets a tile in the sidebar, a health row and a
-          performance source, and its actions become things you can ask for in
-          plain language. One folder with a manifest, no core change, no
-          rebuild.</p>
+          <h3>Your apps' ops console, not just your AI's</h3>
+          <p>Spend, speed, errors and service health for every connected app,
+          computed from Ava's own logs rather than estimated. Energy is the one
+          exception and is labelled an estimate wherever it appears.</p>
         </li>
         <li>
-          <h3>It reaches inside them, not just alongside them</h3>
-          <p>Apps advertise what they can do over MCP, and Ava discovers those
-          tools live. Your training log, your ledger and your house answer one
-          question together, and every reply names the calls it actually
-          made.</p>
+          <h3>The agent is what is contained, not your server</h3>
+          <p>The MCP client runs host-side, so a compromised tool server never
+          gets a line into the sandbox. The agent reaches exactly two policed
+          bridge routes and nothing else. Anything touching the real world asks
+          you first.</p>
         </li>
         <li>
-          <h3>Your model, your agent, your rules</h3>
-          <p>The model, the persona, the skills, the memory and the per-tool
-          egress policies are all yours to write. The agent runs inside a
-          NemoClaw sandbox that reaches only the destinations you allow, and
-          anything touching the real world asks you first.</p>
+          <h3>Your model, your rules</h3>
+          <p>The model, the persona, the skills and the memory are yours to
+          write, and the agent runs in a NemoClaw sandbox. Chat and on-device
+          voice are how you use it, not what it is for.</p>
         </li>
         <li>
-          <h3>It knows what your hardware can take</h3>
-          <p>Ava reads your chip and usable memory and names the size class of
-          model your machine can hold, before you download one. Then speed,
-          cost, energy and every connected app's health stay on screen while it
-          works.</p>
+          <h3>It says NOT MEASURED</h3>
+          <p>Ava names the model class your machine can hold before you
+          download one, and where a claim about your hardware is unverified it
+          says so instead of rounding up. The installer prints that verdict
+          before it installs anything.</p>
         </li>
       </ul>
     </div>
   </section>
 
 
-  {#- 5. One command -#}
+  {#- 6. One command -#}
   <section class="ava-band">
     <div class="md-grid">
       <div class="ava-band__head">
@@ -318,7 +394,7 @@
   </section>
 
 
-  {#- 6. Colophon. The human stays on this page deliberately. This project's
+  {#- 7. Colophon. The human stays on this page deliberately. This project's
       credibility rests on it being one person with one machine who says NOT
       MEASURED rather than rounding up, and an unsigned page cannot make that
       argument. The security-reporting line went: SECURITY.md is a header tab on

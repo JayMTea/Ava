@@ -2,7 +2,7 @@
 
 # Ava
 
-### One private home for every app you built.
+### Connect an app. Get its tools, its dashboard, and its firewall.
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Self-hosted](https://img.shields.io/badge/self--hosted-yes-success.svg)](deploy/README.md)
@@ -11,22 +11,46 @@
 **Anyone can write an app now. Nobody has a place to put them all.**
 
 You have a training log, something that tracks the money, a blog, whatever your
-business needed last month, a thing that runs the house. Each one works. None of
+business needed last month, a thing that runs the house. Each one works, none of
 them know about each other, and the assistants you can buy sit *outside* all of
 them, guessing from whatever you paste into a chat box.
 
-**Ava is where they converge.** Every app you run becomes a tab in one dashboard,
-with its own health row, its own performance chart and its own set of tools — and
-the AI sitting in the middle can call those tools to reach *inside* each app,
-over [MCP](docs/capabilities/connectors.md), on your behalf. Adding one is a single folder
-with a manifest: no core-code change, no rebuild, no pull request against this
-repo.
+</div>
 
-And all of it is yours. It runs on hardware you already own, on the model you
-picked, with the persona you wrote, the skills you gave it, and per-tool egress
-policies that say exactly which addresses it may reach. The agent itself runs
-sandboxed in [NemoClaw](docs/AGENT_RUNTIME.md). Nothing leaves your machine
-unless you wire it out.
+## One manifest, six surfaces
+
+**This is the part that is not available anywhere else.** Drop a folder with a
+`connector.yaml` into your data root and Ava derives, at load time, from that one
+declaration:
+
+| Surface | What it is |
+|---|---|
+| **A tab in the sidebar** | Your app's own web UI, reverse-proxied same-origin under `/apps/<id>/` so it inherits your session cookie and the current theme. No second login. |
+| **A health row** | On Operations → Service health, from `service.probe`. Name the feature flag governing the service and a dead probe reads *off* rather than *down*. |
+| **A live perf source** | Charted on Vitals from `perf.path` — and if your app never writes a `performance.jsonl`, the bridge writes one *for* it: every proxied call timed with its latency and HTTP status, self-registering, so a brand-new app appears in Vitals on its first call with no restart. |
+| **Agent tools** | Declared statically, discovered live from an `ava-tools/1` facade, or read off your app's MCP server. Generated as `.mjs` into the sandbox for you. |
+| **An egress policy** | The allow-list of exactly which addresses the agent's sandbox may reach on this app's behalf, namespaced `ava-<id>`, rendered from the same file. Anything not on it is refused. |
+| **Cost and energy attribution** | Per-app call count and energy on the Connected apps tile, so you can see which of the things you built is the expensive one. |
+
+Plenty of tools are MCP clients. A whole category of MCP gateways does policy.
+Every self-hosted chat UI does tools. **Deriving the UI surface, the
+observability and the network policy from one declaration is the thing Ava does
+that they do not** — and none of it is hand-maintained in Ava's core, so adding
+your app needs no fork, no rebuild and no pull request against this repo.
+
+Full reference: [Apps, devices & MCP](docs/capabilities/connectors.md) and the
+[Connector SDK](docs/CONNECTOR_SDK.md).
+
+## And it is all yours
+
+It runs on hardware you already own, on the model you picked, with the persona
+you wrote, the skills you gave it, and a [NemoClaw](docs/AGENT_RUNTIME.md)
+sandbox around the agent. The MCP client runs **host-side**, so a compromised
+tool server never gets a line into that sandbox; the agent reaches exactly two
+policed bridge routes (`__tools` / `__call`) and nothing else. Nothing leaves
+your machine unless you wire it out.
+
+<div align="center">
 
 [![Ava's architecture: clients (phone, browser, voice) reach the FastAPI bridge over a private Tailscale network; the bridge fronts a sandboxed agent runtime, a hardware-aware inference router over local models, and drop-in connector apps](docs/assets/architecture.svg)](docs/assets/architecture.svg)
 
@@ -120,8 +144,9 @@ your environment.) Full guide: [deploy/README.md](deploy/README.md).
 
 ## What it does
 
-- **Centralize the apps you already built.** Each one becomes a tab in Ava's sidebar, a health row, a performance chart and a set of tools the AI can call — from one folder with a manifest, with no change to Ava's core.
-- **Reach *inside* them, not just alongside them.** Point Ava at any MCP server and its tools are discovered live, so a question about your training log, your ledger and your house is one question instead of three tabs. The agent reaches those tools only through two allow-listed bridge routes — never the server itself.
+- **Centralize the apps you already built** — the six derived surfaces above, one manifest each. This is the reason to run Ava rather than a chat UI.
+- **Answer across them.** Point Ava at any MCP server and its tools are discovered live, so a question about your training log, your ledger and your house is one question instead of three tabs, and every reply names the calls it actually made.
+- **Be your apps' ops console, not just your AI's.** Spend, speed, errors and service health per connected app, computed from Ava's own logs rather than estimated.
 - **Size your hardware, then watch it.** Ava names the model class your machine can hold before you download one, and keeps GPU, memory, throughput, cost and energy on screen while it runs.
 - **Talk to it.** On-device voice, speech in and speech out, gated to *your* voice.
 - **Search the web without being the product.** Web search goes through a SearXNG *you* run — no third party, no API key — and host-side fetch is fail-closed over Tor by default (`AVA_WEB_TOR=0` opts out), with every redirect hop re-validated against an SSRF guard. The sandboxed agent never reaches the internet directly. Note: the shipped Docker profiles do not yet provision SearXNG or Tor, so this one is opt-in setup rather than on out of the box — see [deploy/README.md](deploy/README.md).
@@ -136,17 +161,22 @@ your environment.) Full guide: [deploy/README.md](deploy/README.md).
 ## What is Ava?
 
 **A private, AI-native platform for the apps you own.** Most AI tools are *one*
-thing: a chat UI, a local model runner, a voice assistant, or an agent
-framework — and every one of them sits outside your apps. Ava is the layer your
-apps plug *into*: one dashboard where each of them is a tab, a health row, a
-performance source and a set of tools, with an assistant in the middle that can
-call those tools on your behalf.
+thing: a chat UI, a local model runner, a voice assistant, an agent framework,
+or an MCP gateway — and every one of them sits outside your apps. Ava is the
+layer your apps plug *into*, and the plug is one file (see the table above).
 
 The assistant is yours end to end: your model (served locally by **vLLM /
 Ollama / llama.cpp / MLX**, or through a **cloud API key**), your persona, your
 skills, your memory, your egress policies, running sandboxed on hardware you
 own. Chat, voice and governed self-editing come with it — but they are how you
 use the platform, not what it is for.
+
+**Being honest about what is not special:** self-hosted chat over a local model,
+speaking MCP, on-device voice, and egress policy for tool servers are all
+commodity in 2026, shipped by Open WebUI, LibreChat, AnythingLLM, Goose, Home
+Assistant and a whole category of MCP gateways. Ava does all four because a
+platform needs them, not because they are a reason to pick it. The reason is the
+derivation above.
 
 ## Vitals, Operations, and Data
 
@@ -162,16 +192,15 @@ the Data tab shows you exactly what's in it.
 
 ## Why Ava?
 
-- **Your apps become its apps.** A small manifest adds one, with no core-code
-  change: Ava picks up its health and metrics, gives it a tab, and generates
-  its agent tools and egress policy for you to deploy in one click. This is the
-  reason to run Ava rather than any chat UI
+- **One declaration, six surfaces.** UI, observability *and* network policy from
+  the same manifest. MCP clients give you tools. MCP gateways give you policy.
+  Deriving all three from one file, with nothing hand-maintained in Ava's core,
+  is the claim worth checking against anything else you are considering
   ([docs/CONNECT_YOUR_APPS.md](docs/CONNECT_YOUR_APPS.md)).
-- **MCP, but governed.** Point a manifest at any Model Context Protocol server
-  (HTTP or stdio) and its tools go live behind an auto-generated egress policy,
-  so the AI can reach *into* your app rather than guess at it from outside —
-  while the sandboxed agent still reaches exactly two policed routes and
-  nothing else.
+- **The AI hub is the ops console for your software.** Per-app call counts,
+  latency, service health and energy attribution, so the layer that drives your
+  apps is also the layer that tells you how they are doing. Most assistants have
+  no concept of "your app's health" at all.
 - **It has no personality until you give it one.** The prompt Ava ships with
   covers only what it must *do* — call its tools rather than answer around
   them. How it talks is a blank field you fill in, so a fork sounds like

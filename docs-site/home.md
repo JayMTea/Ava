@@ -1,7 +1,7 @@
 ---
 template: home.html
-title: "Ava: one private home for every app you built"
-description: Anyone can build an app now. Ava is the one place they all land, with an AI that reaches inside each one over MCP, running on hardware you own.
+title: "Ava: connect an app, get its tools, its dashboard and its firewall"
+description: One manifest gives your app a tab, a health row, a live performance chart, the tools your AI may call, and an allow-list of every address those tools may reach. Self-hosted, on your own model.
 hide:
   - navigation
   - toc

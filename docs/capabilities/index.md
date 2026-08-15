@@ -9,7 +9,9 @@ It is about what the layer around the model does for you.
 The short version of that: **five built-in tabs, and then one more for every app
 you connect.** The five are Ava's own instrument panel. The rest of the sidebar
 is your software, and it is the half that makes this worth running - see
-[Connected apps become tabs](#connected-apps-become-tabs) below.
+[Connected apps become tabs](#connected-apps-become-tabs) below, and
+[what one manifest gives you](connectors.md#what-one-manifest-gives-you) for the
+six surfaces a single `connector.yaml` derives.
 
 ## The five tabs that always ship
 
