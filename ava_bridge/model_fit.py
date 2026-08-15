@@ -456,7 +456,21 @@ def size_from_id(model_id: str | None, engine: str | None = None) -> float | Non
     # Bytes per parameter, from the precision the id names.
     if re.search(r"\b(q2|q3|int3)\b|-q2|-q3", s):
         per = 0.45
-    elif re.search(r"\b(q4|int4|awq|gptq|nf4)\b|-q4", s):
+    # The 4-bit FLOAT formats belong here, beside the 4-bit integer ones, and
+    # they were missing: `nvfp4` (Blackwell), `mxfp4` (OCP, what gpt-oss ships)
+    # and bare `fp4`. None of them matched a branch, so a 4-bit checkpoint fell
+    # through to the fp16 default and was read at 2.10 bytes per parameter —
+    # `...-30B-A3B-Reasoning-NVFP4` estimated 63.0 GB against the 18.0 GB the
+    # same 30B in AWQ reports. That is not the docstring's deliberate lean
+    # toward over-warning; it is reading a 4-bit model as half precision, and it
+    # tells an owner their own brain will not fit the box it is already serving
+    # on. `nf4` does NOT cover them: `\bnf4\b` cannot match inside `nvfp4`,
+    # where the preceding `v` is a word character, so each spelling is listed.
+    #
+    # 0.60 B/param is the same figure the integer 4-bit formats use, and it is
+    # right for these: NVFP4 stores 4-bit elements with FP8 block scales, about
+    # 4.8 bits all in.
+    elif re.search(r"\b(q4|int4|awq|gptq|nf4|(?:nv|mx)?fp4)\b|-q4", s):
         per = 0.60
     elif re.search(r"\b(q5|q6)\b|-q5|-q6", s):
         per = 0.85

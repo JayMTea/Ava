@@ -18,7 +18,7 @@ LIST_JSON = json.dumps({
     "sandboxes": [
         {"name": "other-box", "model": "meta/llama-3.1-8b", "provider": "ollama"},
         {"name": "my-assistant",
-         "model": "nvidia/Nemotron-Open-30B-A3B-Reasoning-FP8",
+         "model": "nvidia/Nemotron-Open-30B-A3B-Reasoning-NVFP4",
          "provider": "compatible-endpoint", "isDefault": True},
     ],
 })

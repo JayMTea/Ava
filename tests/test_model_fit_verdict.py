@@ -122,6 +122,30 @@ class SizingFromAName(unittest.TestCase):
         fp16 = model_fit.size_from_id("mistralai/Mistral-7B", "vllm")
         self.assertLess(awq, fp16)
 
+    def test_reads_the_four_bit_float_formats_as_four_bit(self):
+        """NVFP4 / MXFP4 / FP4 are 4-bit, and were read as half precision.
+
+        None of the three matched a branch, so they fell through to the fp16
+        default: a `...-30B-A3B-Reasoning-NVFP4` was estimated at 63.0 GB while
+        the same 30B in AWQ read 18.0 GB. That is not the docstring's deliberate
+        lean toward over-warning, it is a 3.5x error in the direction that tells
+        an owner their own brain will not fit the box already serving it.
+
+        `nf4` was in the table and does not cover them: `\\bnf4\\b` cannot match
+        inside `nvfp4`, because the `v` before it is a word character. Each
+        spelling has to be listed, which is what makes this test worth having.
+        """
+        awq = model_fit.size_from_id("acme/Reasoner-30B-AWQ", "vllm")
+        for name in ("acme/Reasoner-30B-NVFP4", "acme/Reasoner-30B-MXFP4",
+                     "acme/Reasoner-30B-FP4", "acme/Reasoner-30B-A3B-Reasoning-NVFP4"):
+            self.assertAlmostEqual(model_fit.size_from_id(name, "vllm"), awq, 1,
+                                   msg=f"{name} should size like a 4-bit checkpoint")
+
+        # ...and the 8-bit float is still 8-bit. A regex that swallowed fp8 into
+        # the 4-bit branch would halve every FP8 estimate and pass the loop above.
+        fp8 = model_fit.size_from_id("acme/Reasoner-30B-FP8", "vllm")
+        self.assertGreater(fp8, awq)
+
     def test_falls_back_to_what_the_engine_actually_ships(self):
         """`llama3.1:8b` is a 4.9 GB Q4 in Ollama and a ~16 GB fp16 on the Hub.
         Reading the Ollama tag at half precision called it 16.8 GB and would

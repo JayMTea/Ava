@@ -9,7 +9,7 @@ from ava_bridge import model_fit
 # config.example.yaml). SMALL is a synthetic second local backend used here only
 # to exercise the engine's tier / workload / memory-shedding logic.
 OMNI = {"id": "omni", "label": "open-model 30B",
-        "model": "nvidia/Nemotron-Open-30B-A3B-Reasoning-FP8",
+        "model": "nvidia/Nemotron-Open-30B-A3B-Reasoning-NVFP4",
         "engine": "vllm", "url": "http://127.0.0.1:8002/v1",
         "fit": {"weight_gb": 35, "tier": "large", "min_free_gb": 10,
                 "workloads": ["chat", "reasoning", "code", "vision", "audio",
