@@ -23,8 +23,15 @@ theme:
   language: en
   # A site that sells "nothing leaves your box" must not make its own visitors
   # fetch fonts from Google. `false` disables Material's webfont loading
-  # entirely; stylesheets/extra.css declares the same families as a local-first
-  # stack, so anyone who has Inter/JetBrains Mono installed still sees them.
+  # entirely; stylesheets/extra.css SELF-HOSTS Inter instead, from .woff2 files
+  # sync.py stages out of frontend/public/fonts/ — same privacy promise, but the
+  # font now actually arrives.
+  #
+  # It did not before. This key was `false` while the stack merely NAMED Inter
+  # and nothing served it, so the intended font reached only visitors who
+  # happened to have it installed locally and everyone else silently got their
+  # OS default. Turning this back to `true` is not the fix for that — it trades
+  # the bug for a Google request. Adding a @font-face is.
   font: false
   # Ava's own mark, staged from frontend/public/ by sync.py. Unset, Material
   # ships its own favicon, so every docs tab advertised the theme's mark instead

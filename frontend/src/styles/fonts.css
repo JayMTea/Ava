@@ -1,0 +1,50 @@
+/* Inter, SELF-HOSTED. The app and the docs site both render in one typeface on
+   every machine, and neither makes a third-party request to do it — a product
+   whose pitch is "nothing leaves your box" cannot ship a Google Fonts <link>.
+
+   This file owns WHERE the bytes are; tokens.css owns WHICH family (--font-ui).
+   They are split because the two surfaces serve the same font from different
+   URLs: the app is mounted at "/" so it uses the absolute paths below, while the
+   docs site lives under /Ava/ and declares its own @font-face against a relative
+   path (docs-site/stylesheets/extra.css). One SSOT for the family name, one
+   per-surface answer for the URL.
+
+   BEFORE THIS FILE the stacks named Inter and JetBrains Mono but nothing ever
+   loaded them, so every visitor fell through to system-ui and the site rendered
+   in Segoe UI on Windows, SF on macOS and Cantarell on Linux — a different
+   typeface per machine, under a heading stack that resolved to Times New Roman.
+
+   ONE FILE PER STYLE, not per weight: these are variable fonts carrying the
+   whole 100..900 axis in 48KB (roman) and 52KB (italic), latin subset. Adding a
+   static weight would cost another request for something the axis already has.
+
+   The files are Inter under the SIL Open Font License 1.1 — see
+   public/fonts/OFL.txt, which the licence requires us to redistribute with
+   them. Refreshing them: take @fontsource-variable/inter's `files/*.woff2`,
+   drop them in public/fonts/ and change nothing here. */
+
+@font-face {
+  font-family: "Inter Variable";
+  font-style: normal;
+  font-display: swap;
+  /* The full variable axis. A `font-weight: 600` anywhere in the app is an
+     instance of this one file, not a second download. */
+  font-weight: 100 900;
+  src: url("/fonts/inter-latin-wght-normal.woff2") format("woff2-variations");
+  /* Latin subset. Declared so a page of non-latin text skips the download
+     rather than fetching 48KB it cannot draw a single glyph from. */
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Inter Variable";
+  font-style: italic;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("/fonts/inter-latin-wght-italic.woff2") format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}

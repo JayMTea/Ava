@@ -348,6 +348,38 @@ def favicon_svg():
         return JSONResponse({"error": "not built"}, status_code=404)
     return FileResponse(p, media_type="image/svg+xml")
 
+# The self-hosted typeface. Served explicitly rather than by the /assets mount
+# for the same reason the two favicons are: these files sit at the dist ROOT
+# (they come from frontend/public/fonts/), which app.mount("/assets", …) does
+# not cover, and they must answer before any cookie exists — the sign-in, setup
+# and claim cards are styled in this font (brand.pre_auth_css), so both names
+# are in auth._PUBLIC_PATHS.
+#
+# `name` is a FIXED ENUM, not a filename, exactly as in brand_asset below: no
+# caller-supplied path ever reaches os.path.join, so there is nothing to
+# traverse with.
+#
+# On an install with no built frontend this 404s and the pages fall back to the
+# system stack. That is the same "not built" behaviour as the favicons and it is
+# deliberate — the alternative is shipping a second copy of the files outside
+# dist to serve one fallback page.
+_FONT_FILES = {"inter-latin-wght-normal.woff2", "inter-latin-wght-italic.woff2"}
+
+
+@router.get("/fonts/{name}", include_in_schema=False)
+def font_file(name: str):
+    if name not in _FONT_FILES:
+        return JSONResponse({"error": "unknown font"}, status_code=404)
+    p = os.path.join(FRONTEND_DIST, "fonts", name)
+    if not os.path.isfile(p):
+        return JSONResponse({"error": "not built"}, status_code=404)
+    # Content-stable: the filename changes when the font does (a new Inter
+    # release is a new upstream file), so this can be cached hard. Without it
+    # every full reload re-fetches 48KB to draw the same glyphs.
+    return FileResponse(p, media_type="font/woff2", headers={
+        "Cache-Control": "public, max-age=31536000, immutable",
+    })
+
 @router.get("/brand/asset/{slot}", include_in_schema=False)
 def brand_asset(slot: str, request: Request):
     """Serve one branding image.

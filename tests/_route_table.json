@@ -1072,6 +1072,13 @@
   "APIRoute"
  ],
  [
+  "/fonts/{name}",
+  [
+   "GET"
+  ],
+  "APIRoute"
+ ],
+ [
   "/internal/architecture",
   [
    "GET"

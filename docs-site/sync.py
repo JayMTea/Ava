@@ -117,6 +117,19 @@ ASSETS: dict[str, str] = {
     # not the accent-painted header, and the mark was checked at 16px on both a
     # dark and a light strip.
     "frontend/public/favicon.svg": "docs/assets/favicon.svg",
+    # The typeface, INHERITED from the app exactly like the favicon and the
+    # palette — one copy of the bytes in the repo, staged into the site at build
+    # time. stylesheets/extra.css declares the @font-face against these paths.
+    # Material's own webfont loading stays off (mkdocs.yml `font: false`), so
+    # without these two files the site silently renders in whatever sans the
+    # visitor's OS supplies, which is the state this replaced.
+    "frontend/public/fonts/inter-latin-wght-normal.woff2":
+        "docs/assets/fonts/inter-latin-wght-normal.woff2",
+    "frontend/public/fonts/inter-latin-wght-italic.woff2":
+        "docs/assets/fonts/inter-latin-wght-italic.woff2",
+    # The SIL Open Font License requires the licence travel with the fonts, and
+    # the published site redistributes them just as the app does.
+    "frontend/public/fonts/OFL.txt": "docs/assets/fonts/OFL.txt",
     "docs/assets/architecture.svg": "docs/assets/architecture.svg",
     "docs/assets/agent-remote-runtime.svg": "docs/assets/agent-remote-runtime.svg",
     # "What leaves your machine" — the owner-facing privacy picture, on the

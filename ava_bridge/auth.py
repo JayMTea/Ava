@@ -408,7 +408,18 @@ _PUBLIC_PATHS = {"/login", "/logout", "/setup", "/api/health", "/favicon.ico",
                  # the built bundle stays behind the login wall.
                  "/assets/icons/pwa-192.png", "/assets/icons/pwa-512.png",
                  "/assets/icons/pwa-maskable-512.png",
-                 "/assets/icons/apple-touch-icon.png"}
+                 "/assets/icons/apple-touch-icon.png",
+                 # The self-hosted typeface, for the same reason as the favicon:
+                 # the sign-in, setup and claim cards are rendered before any
+                 # cookie exists and they are styled in it (brand.pre_auth_css).
+                 # Gated, these would 303 to /setup and the card would fall back
+                 # to the OS default — the silent-fallback failure the whole
+                 # self-hosting change exists to remove. Two static woff2 files
+                 # leak strictly less than the accent, brand name and mark this
+                 # page already serves unauthenticated. Listed exactly, not by
+                 # prefix, per the note above.
+                 "/fonts/inter-latin-wght-normal.woff2",
+                 "/fonts/inter-latin-wght-italic.woff2"}
 # No /brand/asset/* is public any more. Those slots are the owner's logo and
 # wordmark, which now appear only INSIDE the signed-in app — the sign-in card
 # renders Ava's mark inline (brand.pre_auth_mark), so nothing pre-auth fetches

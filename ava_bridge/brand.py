@@ -409,8 +409,33 @@ def accent_hover(base: str = "") -> str:
 # sign-in page and a branded app. One function now emits it for all three, WITH
 # the live accent already resolved, which means those pages follow the brand
 # server-side: no client JS, no cached value, and therefore no flash at all.
+# The pre-auth pages get the SAME self-hosted typeface as the app, from the same
+# two files the app serves out of frontend/public/fonts/. These are the first
+# screens a fresh owner ever sees, so a system-font sign-in card handing over to
+# an Inter app is a visible jump on exactly the surface that should feel settled.
+#
+# Both files are listed by name in auth._PUBLIC_PATHS. They have to be: this page
+# renders before any cookie exists, so a gated font 303s to /setup and the card
+# silently falls back — the same invisible failure that made the app's own
+# `Inter` stack a no-op for years. Listed exactly, never by prefix, so the rest
+# of the built bundle stays behind the login wall (see the note there).
+#
+# The declaration is duplicated from frontend/src/styles/fonts.css rather than
+# imported because these pages ship as one self-contained <style> with no build
+# step and no second request. tests/test_font_stack.py pins the two copies to the
+# same family name and the same files.
+_FONT_FACE = (
+    '@font-face{font-family:"Inter Variable";font-style:normal;font-display:swap;'
+    "font-weight:100 900;"
+    'src:url("/fonts/inter-latin-wght-normal.woff2") format("woff2-variations")}'
+    '@font-face{font-family:"Inter Variable";font-style:italic;font-display:swap;'
+    "font-weight:100 900;"
+    'src:url("/fonts/inter-latin-wght-italic.woff2") format("woff2-variations")}'
+)
+
+
 def pre_auth_css() -> str:
-    """The `:root` token block the three server-rendered pages share.
+    """The `@font-face` + `:root` token block the three server-rendered pages share.
 
     When nothing is branded this emits the shipped literals byte for byte, so
     the default sign-in page is pixel-identical to the one that shipped. Only a
@@ -419,10 +444,11 @@ def pre_auth_css() -> str:
     a = normalize_hex(accent()) if brand_is_public() else ""
     hover = accent_hover(a) if a else ""
     bg = (normalize_hex(chrome()) if brand_is_public() else "") or "#262624"
-    return (
+    return _FONT_FACE + (
         ":root{--bg:%s;--panel:#1f1e1d;--line:#3b3a36;--muted:#9a968c;--txt:#f4f3ee;\n"
         "   --accent:%s;--accent-hover:%s;--input:#30302e;--inputline:#46443f;\n"
-        '   --serif:ui-serif,Georgia,"Times New Roman",serif}'
+        '   --font-ui:"Inter Variable",-apple-system,BlinkMacSystemFont,"Segoe UI",'
+        "Roboto,sans-serif}"
     ) % (bg, a or DEFAULT_ACCENT, hover or "#0068ad")
 
 

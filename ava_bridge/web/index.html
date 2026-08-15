@@ -5,10 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Ava</title>
 <style>
+  /* Self-hosted Inter, same two files the app and the pre-auth pages use. This
+     page is the no-bundle fallback (and /legacy), so it is what a fresh install
+     sees before `npm run build` has ever run — it should not be the one screen
+     in the product rendering in the OS default. Declared inline because this
+     page carries its own token block rather than __BRAND_CSS__. */
+  @font-face { font-family:"Inter Variable"; font-style:normal; font-display:swap;
+               font-weight:100 900;
+               src:url("/fonts/inter-latin-wght-normal.woff2") format("woff2-variations"); }
   :root { color-scheme: dark; --bg:#0b0d12; --panel:#161b26; --panel2:#1a1f2b;
-          --line:#283047; --muted:#7b8394; --txt:#e7eaf0; --accent:#2a6df4; --rec:#e0364d; }
+          --line:#283047; --muted:#7b8394; --txt:#e7eaf0; --accent:#2a6df4; --rec:#e0364d;
+          --font-ui:"Inter Variable",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  body { margin:0; font-family:var(--font-ui);
          background:var(--bg); color:var(--txt); height:100dvh; display:flex; flex-direction:column; }
   
   /* === LAYOUT STRUCTURE (NO SHIFT) ===

@@ -5,16 +5,60 @@
    the app and the site follows on the next docs build — declare no color
    literals here that the app already has a token for. */
 
-:root {
-  --ava-serif: ui-serif, Georgia, "Times New Roman", serif;
-  /* Material's webfont loading is off (mkdocs.yml `font: false`) so the site
-     makes no third-party request. Keep the intended families first — they
-     resolve for anyone who has them installed — then fall back to the system
-     UI stack rather than to Google. */
-  --md-text-font-family: Inter, ui-sans-serif, system-ui, -apple-system,
-    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --md-code-font-family: "JetBrains Mono", ui-monospace, SFMono-Regular,
-    "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+/* The typeface, SELF-HOSTED — the same two .woff2 files the app serves, staged
+   here from frontend/public/fonts/ by sync.py (ASSETS). Material's own webfont
+   loading stays off in mkdocs.yml: a site that sells "nothing leaves your box"
+   must not make its visitors fetch from Google, and self-hosting keeps that
+   promise while actually delivering the font.
+
+   IT PREVIOUSLY DID NOT. `font: false` with `Inter` at the head of the stack and
+   no @font-face anywhere meant Inter rendered only for the few visitors who
+   happened to have it installed; everyone else fell through to system-ui, so the
+   site drew itself in Segoe UI on Windows, SF on macOS and Cantarell on Linux —
+   under headings that resolved to Times New Roman. "Standardised across the web"
+   was true of the stylesheet and of nothing else.
+
+   The URL is relative to THIS file's published location (/Ava/stylesheets/), not
+   to the site root — the site is served from a /Ava/ subpath, so a leading-slash
+   path would 404 and fail back to system-ui silently. Same form as the wordmark
+   mask further down. */
+@font-face {
+  font-family: "Inter Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("../docs/assets/fonts/inter-latin-wght-normal.woff2")
+    format("woff2-variations");
+}
+@font-face {
+  font-family: "Inter Variable";
+  font-style: italic;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("../docs/assets/fonts/inter-latin-wght-italic.woff2")
+    format("woff2-variations");
+}
+
+/* The families, INHERITED from the app rather than restated — same rule as the
+   palette. They live in frontend/src/styles/tokens.css (SSOT), which sync.py
+   stages as stylesheets/tokens.css and mkdocs loads before this file. Declaring
+   a stack again here is what let the site and the app drift apart to begin with.
+
+   ON `body`, NOT `:root`, and that is not a style preference. Material's own
+   main.css carries
+
+       body { --md-text-font-family: var(--md-text-font,_),-apple-system,… }
+
+   so it REDECLARES this property on body, overriding anything :root says — the
+   scheme-attribute mappings below sit on body for a related reason. Setting it
+   at :root looks right, computes right on <html>, and is silently discarded for
+   every element that actually renders text: the whole page keeps drawing in
+   `_` → the OS default. Measured in Chrome, not reasoned about. If a future
+   Material moves that rule, the alternative knob is --md-text-font (the bare
+   family name, which it wraps in its own fallback stack). */
+body {
+  --md-text-font-family: var(--font-ui);
+  --md-code-font-family: var(--font-mono);
 }
 
 /* One mapping for BOTH schemes: the token file swaps the underlying values per
@@ -40,13 +84,16 @@
   --md-footer-bg-color: var(--panel);
 }
 
-/* Serif headings, matching the setup/login screens */
+/* Headings are the SAME family as the paragraphs under them — the whole point of
+   the change. They are set apart by weight and tracking instead, which is what
+   the app and the setup/login screens now do too. No font-family here at all:
+   inheriting is what guarantees a heading can never disagree with its own body
+   text, which is exactly what a second declaration reintroduces. */
 .md-typeset h1,
 .md-typeset h2,
 .md-typeset h3 {
-  font-family: var(--ava-serif);
-  font-weight: 500;
-  letter-spacing: 0.2px;
+  font-weight: var(--fw-medium);
+  letter-spacing: var(--tracking-display);
 }
 
 /* The header carries the accent in both schemes */
@@ -361,11 +408,14 @@
 
 .ava-hero h1 {
   margin: 0 0 0.9rem;
-  font-family: var(--ava-serif);
-  font-weight: 500;
+  /* --fw-display, not --fw-medium: this is the one line on the site that runs to
+     2.6rem, and type reads optically heavier as it grows. */
+  font-weight: var(--fw-display);
   font-size: clamp(1.9rem, 4vw, 2.6rem);
   line-height: 1.12;
-  letter-spacing: 0.2px;
+  /* Negative, and it has to be: the old +0.2px was tuned for a serif at this
+     size. Inter at 2.6rem needs tracking pulled IN, not opened out. */
+  letter-spacing: var(--tracking-display);
 }
 
 .ava-hero__tagline {
@@ -378,7 +428,9 @@
 
 .ava-hero__kicker {
   margin: 0 0 1.6rem;
-  font-family: var(--ava-serif);
+  /* Still italic — that is what marks it as an aside rather than a second
+     heading — but now the body family's italic, which is why the italic .woff2
+     is shipped alongside the roman one. */
   font-style: italic;
   font-size: 0.9rem;
 }
@@ -471,13 +523,14 @@
 }
 .ava-band__head h2 {
   margin: 0 0 0.6rem;
-  font-family: var(--ava-serif);
-  font-weight: 500;
-  /* Tops out at 1.35rem on purpose. The restraint IS the brand: every heading
-     on this site is serif 500 under 1.4rem, and a 2rem sans headline here
-     would look imported from a different website. */
+  font-weight: var(--fw-medium);
+  /* Tops out at 1.35rem on purpose. The restraint IS the brand: every heading on
+     this site sits under 1.4rem at --fw-medium except the hero, and a 2rem
+     headline here would look imported from a different website. (This used to
+     read "serif 500" — the restraint survived the move to one family; the serif
+     did not.) */
   font-size: clamp(1.15rem, 2.6vw, 1.35rem);
-  letter-spacing: 0.2px;
+  letter-spacing: var(--tracking-display);
 }
 .ava-band__lede {
   margin: 0;
@@ -560,8 +613,7 @@
 
 .ava-cards h3 {
   margin: 0 0 0.5rem;
-  font-family: var(--ava-serif);
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   font-size: 0.95rem;
 }
 
@@ -861,7 +913,7 @@
   margin: 0 0 0.55rem;
   padding-bottom: 0.55rem;
   border-bottom: 1px solid var(--ava-land-border);
-  font-family: var(--ava-serif);
+  font-weight: var(--fw-medium);
   font-size: 0.8rem;
   color: var(--txt);
 }
@@ -1238,8 +1290,8 @@
   text-align: center;
 }
 .ava-404 h1 {
-  font-family: var(--ava-serif);
-  font-weight: 500;
+  font-weight: var(--fw-display);
+  letter-spacing: var(--tracking-display);
 }
 .ava-404__actions {
   display: flex;
@@ -1296,7 +1348,7 @@
 .ava-steps b {
   display: block;
   font-size: 0.62rem;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--tracking-label);
   text-transform: uppercase;
   opacity: 0.7;
   font-weight: 500;

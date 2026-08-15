@@ -8,7 +8,10 @@
 
 /* Design tokens (colours, spacing, radius, type, etc.) live in tokens.css (SSOT). */
 
-body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif; }
+/* Via the token, NOT a copy of the stack. This rule used to inline the system
+   fonts, which meant tokens.css's --font-ui was referenced by nothing at all and
+   the app's real body font lived here instead of in the SSOT. */
+body { font-family:var(--font-ui); }
 
 /* --- root must be a full-height flex column so #appShell(flex:1) can grow --- */
 #root { flex:1 1 auto; display:flex; flex-direction:column; min-height:0; }
@@ -100,7 +103,7 @@ body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica
 /* Head row: brand wordmark left, search + collapse icons right. */
 .panel-head { padding:12px 8px 6px 16px; display:flex; align-items:center;
   justify-content:space-between; gap:8px; }
-.brand-word { font-family:var(--serif); font-size:20px; font-weight:600; letter-spacing:.2px;
+.brand-word { font-size:20px; font-weight:var(--fw-medium); letter-spacing:var(--tracking-display);
   color:var(--txt); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 /* Wordmark image head. Height-capped to the text it replaces so the head row
    does not resize when a brand is applied; width follows the lockup's own
@@ -436,8 +439,8 @@ header .sub { display:none; }
 }
 .chat-empty .ce-star { color:var(--accent); display:flex; }
 .chat-empty .ce-star svg { width:34px; height:34px; }
-.chat-empty h2 { margin:0; font-family:var(--serif); font-weight:400; font-size:32px;
-  letter-spacing:.2px; color:var(--txt); }
+.chat-empty h2 { margin:0; font-weight:var(--fw-display); font-size:32px;
+  letter-spacing:var(--tracking-display); color:var(--txt); }
 .chat-empty p { margin:0; color:var(--muted); font-size:14.5px; }
 
 /* ============================= COMPOSER ============================= */
@@ -495,7 +498,8 @@ header .sub { display:none; }
 .lv-inner, .sv-inner { max-width:860px; margin:0 auto; padding:24px 20px 60px; }
 
 /* ---------------- Learning ---------------- */
-.lv-head h2, .sv-head h2 { font-family:var(--serif); font-weight:500; font-size:24px; margin:0 0 4px; }
+.lv-head h2, .sv-head h2 { font-weight:var(--fw-medium); font-size:24px;
+  letter-spacing:var(--tracking-display); margin:0 0 4px; }
 .lv-sub { color:var(--muted); font-size:13.5px; margin:0 0 16px; }
 .lv-tabs { display:flex; align-items:center; gap:6px; margin-bottom:18px; }
 .lv-tab { display:inline-flex; align-items:center; gap:7px; padding:7px 14px; border-radius:999px;
@@ -582,7 +586,8 @@ header .sub { display:none; }
 /* ---------------- Control Center dashboard ---------------- */
 .lv-inner.dash { max-width:920px; }
 .dash-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:18px; }
-.dash-head h2 { font-family:var(--serif); font-weight:500; font-size:24px; margin:0 0 4px; }
+.dash-head h2 { font-weight:var(--fw-medium); font-size:24px;
+  letter-spacing:var(--tracking-display); margin:0 0 4px; }
 .dash-back { align-self:flex-start; margin-bottom:14px; background:transparent; border:1px solid var(--line);
   color:var(--muted); font-size:12.5px; padding:6px 12px; border-radius:8px; cursor:pointer; }
 .dash-back:hover { background:var(--wash-5); color:var(--txt); }

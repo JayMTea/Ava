@@ -5,6 +5,8 @@ import App from './App';
 import { api } from './lib/api';
 import { revalidate } from './lib/brand';
 import { BrandProvider } from './lib/brandContext';
+// @font-face first: tokens.css names the family, this declares where it lives.
+import './styles/fonts.css';
 import './styles/tokens.css';
 import './styles/global.css';
 import './styles/claude.css';

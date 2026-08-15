@@ -102,18 +102,42 @@
   --sp-5:24px;
   --sp-6:32px;
 
-  /* ---- Typography ---- */
-  --font-ui:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+  /* ---- Typography ----
+     ONE typeface for every surface: app, pre-auth pages and docs site. The
+     leading family is SELF-HOSTED (frontend/src/styles/fonts.css declares the
+     @font-face; the .woff2 lives in public/fonts/), so it actually renders
+     rather than silently falling through to whatever the OS supplies. The
+     system stack behind it is a real fallback for the swap window, not the
+     thing everyone actually sees — which is what it had quietly become.
+
+     THERE IS NO --serif ANY MORE. A serif display face was set on every h1/h2/h3
+     here, on the pre-auth pages and across the docs site, and because the value
+     was `ui-serif, Georgia, "Times New Roman", serif` it resolved to Times on
+     Windows: Times headings over a Segoe UI body on the same page. Hierarchy is
+     now weight + size + tracking within one family (--fw-*, --fs-*, --tracking-*)
+     so a heading can never disagree with its own paragraph. Reintroducing a
+     second family means adding it here and self-hosting it — never a bare
+     `Georgia` or `ui-serif`, which is how the mismatch got in. */
+  --font-ui:"Inter Variable",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
   --font-mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-  --serif:ui-serif, Georgia, "Times New Roman", serif;
   --fs-xs:11px;
   --fs-sm:13px;
   --fs-md:15px;
   --fs-lg:20px;
   --fs-xl:28px;
   --fw-normal:400;
+  /* Large headings only. Type gets optically heavier as it grows, so a 32px
+     display line at --fw-medium reads as shouting next to a 24px one; the axis
+     is continuous, so 500 costs nothing extra to use. */
+  --fw-display:500;
   --fw-medium:600;
   --fw-bold:700;
+  /* Optical tracking. Inter is drawn for text sizes, so display sizes need it
+     pulled in and small-caps-ish labels need it opened out; leaving both at 0 is
+     what makes a single-family page read as flat rather than as a hierarchy. */
+  --tracking-display:-.02em;
+  --tracking-normal:0;
+  --tracking-label:.08em;
 
   /* ---- Elevation / motion / z-index ---- */
   --shadow-1:0 1px 2px rgba(0,0,0,.25);

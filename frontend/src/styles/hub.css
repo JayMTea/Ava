@@ -20,9 +20,9 @@
 }
 .hub-head h2 {
   margin: 0;
-  font-family: var(--serif);
-  font-weight: 500;
+  font-weight: var(--fw-display);
   font-size: var(--fs-xl);
+  letter-spacing: var(--tracking-display);
   color: var(--txt);
 }
 .hub-head p {
