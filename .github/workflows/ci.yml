@@ -329,13 +329,33 @@ jobs:
           test -n "$_engine" \
             || { echo "::error::install.sh's managed block wired no AVA_BACKEND_ENGINE, so the bridge has no engine — and the flag check below would have silently taken its no-vLLM branch and stopped biting. Managed block was: ${_managed:-<empty>}"; exit 1; }
           echo "resolved: $(grep '^COMPOSE_PROFILES=' <<<"$_managed"), engine $_engine"
-          if [ "$_engine" = "vllm" ]; then
+          # THE FLAGS ARE A PROPERTY OF THE MODEL, so there is nothing to resolve
+          # until one is named — and since "ship no default model" this re-run
+          # names none, because it deliberately passes no AVA_MODEL. The check
+          # below used to fire on that state and blame install.sh for it.
+          #
+          # Its error message was also describing a hazard that no longer exists:
+          # docker-compose.yml used to carry a hardcoded '--tool-call-parser
+          # hermes' as the default for this variable, resolved for the 7B Ava once
+          # shipped. That default went with the shipped model — the compose file
+          # now defaults both flag variables to EMPTY, which means vLLM's own
+          # defaults, precisely because no model means no right guess.
+          _model_in_env="$(grep '^AVA_MODEL=' <<<"$_managed" | tail -1 | cut -d= -f2- || true)"
+          if [ "$_engine" = "vllm" ] && [ -n "$_model_in_env" ]; then
             if ! grep -qE '^AVA_VLLM_MODEL_FLAGS=.+' <<<"$_managed"; then
-              echo "::error::this .env serves on vLLM but install.sh resolved no vLLM flags — docker-compose.yml then falls back to its hardcoded '--tool-call-parser hermes', which returns no tool calls at all on a model that does not speak it, with no error anywhere"
+              echo "::error::this .env serves $_model_in_env on vLLM and install.sh resolved no flags for it, so it will be served with vLLM's default tool parser — which returns tool calls as prose on a model that does not speak it, with no error anywhere. Check deploy/model-flags.conf has a row matching $_model_in_env"
               exit 1
             fi
-            echo "engine is vllm, and the flags are resolved:"
+            echo "engine is vllm, model is $_model_in_env, and the flags are resolved:"
             grep '^AVA_VLLM_MODEL_FLAGS=' <<<"$_managed"
+          elif [ "$_engine" = "vllm" ]; then
+            # No model chosen yet. Flags would be flags for nothing, and writing
+            # them would be the dead config the else-branch below rejects.
+            if grep -q '^AVA_VLLM_MODEL_FLAGS=' <<<"$_managed"; then
+              echo "::error::install.sh resolved vLLM flags with no AVA_MODEL named — they cannot describe a model nobody picked"
+              exit 1
+            fi
+            echo "engine is vllm with no model chosen, and no flags were invented — as it should be"
           else
             if grep -q '^AVA_VLLM_MODEL_FLAGS=' <<<"$_managed"; then
               echo "::error::install.sh wrote vLLM flags into a .env that serves on '$_engine', not vLLM — dead config that would take effect the moment someone flipped COMPOSE_PROFILES by hand"
@@ -379,8 +399,23 @@ jobs:
           #   the VRAM number above is actually consumed instead of skipped as it is
           #   on unified memory. The assertions below hold under either answer — the
           #   override just pins which branch runs.
+          # THE MODEL IS NAMED HERE, not read out of profiles/gpu.env, and that
+          # is the second fact this step has to inject. Since "ship no default
+          # model" every profile carries `AVA_MODEL=` empty and install.sh omits
+          # the line entirely when nobody has chosen one, so this step asserted
+          # "the gpu .env names no AVA_MODEL" against a design that guarantees
+          # exactly that. It was masked for two weeks because the job died at an
+          # earlier step, on the same root cause.
+          #
+          # install.sh takes AVA_MODEL as an override (it prefers the env var
+          # over the profile's value), which is the documented way to name one:
+          #   AVA_MODEL=<model-id> ./install.sh
+          # Any id with a row in deploy/model-flags.conf works; this one resolves
+          # to a non-empty flag string, which the assertions below require.
+          _want_model=mistralai/Mistral-7B-Instruct-v0.3
+
           PATH="$RUNNER_TEMP/fakebin:$PATH" \
-            AVA_INSTALL_DRY_RUN=1 AVA_PROFILE=gpu \
+            AVA_INSTALL_DRY_RUN=1 AVA_PROFILE=gpu AVA_MODEL="$_want_model" \
             AVA_GPU_MEMORY_MODEL=discrete AVA_SKIP_GPU_RUNTIME_CHECK=1 \
             bash install.sh
 
@@ -397,7 +432,7 @@ jobs:
           # with its hardcoded default parser.
           _model="$(grep '^AVA_MODEL=' .env | tail -1 | cut -d= -f2- || true)"
           test -n "$_model" \
-            || { echo "::error::the gpu .env names no AVA_MODEL, so there is nothing to resolve flags for"; exit 1; }
+            || { echo "::error::install.sh dropped the AVA_MODEL override — it was given $_want_model and wrote no AVA_MODEL line at all, so there is nothing to resolve flags for"; exit 1; }
           if ! _resolver="$(bash ./resolve-model-flags.sh --env "$_model" 2>&1)"; then
             echo "::error::deploy/resolve-model-flags.sh itself failed for $_model. install.sh runs it as '|| true', so a broken resolver writes NO flags at all and compose serves with its hardcoded default parser instead — silently. Resolver said: $_resolver"
             exit 1
@@ -413,12 +448,11 @@ jobs:
           echo "gpu resolved: $_want"
 
           # 24564 MiB is above install.sh's 18000 MiB gate, so the sizing code must
-          # NOT have downshifted the model. Read the expectation out of the profile
-          # rather than naming a model here, or changing the shipped default turns
-          # this step red for no reason.
-          _default_model="$(grep '^AVA_MODEL=' profiles/gpu.env | head -1 | cut -d= -f2-)"
-          test "$_model" = "$_default_model" \
-            || { echo "::error::24564 MiB clears the 18000 MiB gate, but install.sh still changed the model: profiles/gpu.env ships $_default_model and .env got $_model"; exit 1; }
+          # NOT have downshifted the model. The expectation is the model this step
+          # asked for; it used to be read out of profiles/gpu.env, which has
+          # shipped empty since Ava stopped naming a model of its own.
+          test "$_model" = "$_want_model" \
+            || { echo "::error::24564 MiB clears the 18000 MiB gate, but install.sh still changed the model: asked for $_want_model and .env got $_model"; exit 1; }
 
           # And the switch still did not eat the hand-written secrets.
           grep -q 'ci-precious' .env \
