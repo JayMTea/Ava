@@ -36,9 +36,18 @@ _REQUIRED = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*):\?")
 # Values a profile may legitimately ship empty, because only the user knows them.
 #
 # AVA_MODEL is empty in EVERY profile, not just cloud.env: Ava ships no default
-# model, so there is no value a profile could carry that the owner chose. The
-# `${AVA_MODEL:?}` guard in compose is what turns that into an instruction at
-# `up` time rather than a model nobody picked getting pulled and served.
+# model, so there is no value a profile could carry that the owner chose.
+#
+# THIS COMMENT USED TO SAY the `${AVA_MODEL:?}` guard in compose "turns that
+# into an instruction at `up` time". That was wrong, and being wrong here is
+# what kept CI red for two weeks. `${VAR:?}` fires during INTERPOLATION, which
+# `docker compose config` performs on every service in the file — so a variable
+# every profile ships empty plus a `:?` guard on it is not a helpful message at
+# `up` time, it is a compose file that cannot be validated at all, under any
+# profile. This exemption and that guard were in direct contradiction, and only
+# the CI job that shells out to `docker compose config` could see it, because
+# nothing in this suite runs compose. test_no_required_guard_on_a_variable_
+# profiles_ship_empty below now catches it here, without a Docker daemon.
 _MAY_BE_EMPTY = {
     "cloud.env": {"AVA_BACKEND_URL", "AVA_MODEL", "AVA_INFERENCE_KEY"},
     "*": {"AVA_MODEL"},
@@ -53,6 +62,31 @@ def _tracked(pattern: str) -> list[str]:
 
 def _compose() -> dict:
     return yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))
+
+
+def _compose_interpolated_text() -> str:
+    """The compose file with its `#` comments removed.
+
+    Everything that scans for `${VAR:?...}` must read THIS, not the raw file.
+    docker-compose.yml carries long why-comments that quote the very expansion
+    they warn against - "not `--model ${AVA_MODEL:?...}`, because ..." - and a
+    scan over the raw text reads the warning as the offence, which is a guard
+    that fires on its own documentation. tests/test_landing_page.py strips
+    Jinja comments for exactly this reason; same rule, different syntax.
+
+    Compose itself never interpolates a comment, so stripping them is also the
+    faithful model of what `docker compose config` actually does.
+    """
+    out = []
+    for line in COMPOSE.read_text(encoding="utf-8").splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith("#"):
+            continue
+        # An inline trailing comment: ` # ...`. Guarded on the space so a `#`
+        # inside a value (a URL fragment, a colour) is left alone.
+        cut = line.find(" #")
+        out.append(line[:cut] if cut != -1 else line)
+    return "\n".join(out)
 
 
 def _profile_env(rel: str) -> dict[str, str]:
@@ -91,7 +125,7 @@ def test_profile_files_exist_for_every_declared_profile() -> None:
 
 
 def test_every_required_variable_is_supplied_by_every_profile() -> None:
-    required = set(_REQUIRED.findall(COMPOSE.read_text(encoding="utf-8")))
+    required = set(_REQUIRED.findall(_compose_interpolated_text()))
     assert required, (
         "no `${VAR:?...}` guards found in deploy/docker-compose.yml — the backend "
         "trio must stay guarded, or a wrong default silently returns")
@@ -109,6 +143,53 @@ def test_every_required_variable_is_supplied_by_every_profile() -> None:
     assert not offenders, (
         "compose refuses to interpolate these, so a profile that omits one "
         f"cannot start at all — {offenders}")
+
+
+def test_no_required_guard_on_a_variable_profiles_ship_empty() -> None:
+    """`:?` and "ships empty" cannot both be true, and CI is the only witness.
+
+    `${VAR:?msg}` is refused by compose when VAR is unset OR EMPTY, and the
+    refusal happens at interpolation — which `docker compose config` runs over
+    every service in the file, regardless of which profile is selected. So one
+    guarded variable that every shipped profile leaves blank makes the whole
+    compose file unvalidatable, for everybody, not just for the profile that
+    needs the value.
+
+    That is exactly what happened. `${AVA_MODEL:?}` was correct while the
+    profiles shipped `AVA_MODEL=llama3.2`; "ship no default model" emptied them
+    all and left both guards standing, and from that commit `docker compose
+    config` failed for every profile. Two CI jobs went red and stayed red
+    through seven pushes, because the failure lives in a `docker compose` shell
+    -out that no test here performs, and _MAY_BE_EMPTY above had talked itself
+    into believing `:?` only fires at `up` time.
+
+    This test is the cheap version of that CI job: pure text, no daemon, so the
+    contradiction is caught by `pytest tests/` on the machine that writes it.
+    """
+    guarded = set(_REQUIRED.findall(_compose_interpolated_text()))
+
+    always_empty: dict[str, list[str]] = {}
+    for rel in _tracked("deploy/profiles/*.env"):
+        env = _profile_env(rel)
+        for var in guarded:
+            if not env.get(var, ""):
+                always_empty.setdefault(var, []).append(pathlib.Path(rel).name)
+
+    # cloud.env is the deliberate exception: it ships its values blank so that
+    # compose REFUSES it, which is asserted directly in the compose-config CI
+    # job. A variable is only a contradiction when NO profile supplies it.
+    shipped = {pathlib.Path(p).name for p in _tracked("deploy/profiles/*.env")}
+    offenders = sorted(v for v, files in always_empty.items()
+                       if set(files) == shipped)
+    assert not offenders, (
+        f"deploy/docker-compose.yml guards {offenders} with `${{VAR:?...}}`, and "
+        "every deploy/profiles/*.env ships them empty. compose refuses an empty "
+        "value at interpolation time, so `docker compose config` fails under "
+        "EVERY profile and the stack cannot start at all.\n"
+        "Either give the profiles a real value, or drop the guard to "
+        "`${VAR:-}` (or `${VAR:+--flag ${VAR}}` for a command argument, so an "
+        "empty value omits the flag instead of passing a blank one)."
+    )
 
 
 def test_each_profile_points_at_an_engine_it_actually_starts() -> None:

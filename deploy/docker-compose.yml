@@ -72,7 +72,23 @@ services:
       AVA_BACKEND_ENGINE: ${AVA_BACKEND_ENGINE:?set with AVA_BACKEND_URL — see deploy/profiles/}
       # The router sends this string verbatim as the OpenAI `model` field, so it
       # must be what the engine was STARTED with; a mismatch is a 404 per turn.
-      AVA_BACKEND_MODEL: ${AVA_MODEL:?set with AVA_BACKEND_URL — see deploy/profiles/}
+      #
+      # NO `:?` HERE, unlike the two above, and the difference is the whole
+      # reason this file was unvalidatable for two weeks. A backend URL and
+      # engine are facts about the PROFILE, so every profile can carry them and
+      # a missing one really is a broken install. A model is a fact about the
+      # OWNER: since "ship no default model", deploy/profiles/*.env carries
+      # `AVA_MODEL=` empty in every single file and install.sh omits the line
+      # entirely when nobody has chosen one. `:?` refuses unset AND empty, so
+      # the guard fired on every shipped profile — `docker compose config`
+      # could not interpolate this file at all, and both compose CI jobs went
+      # red the day the default model was removed and stayed red.
+      #
+      # Empty is a state the product already handles: the app shows "Connect a
+      # model" and the brain resolver reports no brain, which is the honest
+      # thing to render before the owner picks one. It is not compose's job to
+      # turn that into a startup failure.
+      AVA_BACKEND_MODEL: ${AVA_MODEL:-}
       AVA_INFERENCE_KEY: ${AVA_INFERENCE_KEY:-}
       # The host's GPU, MEASURED by deploy/install.sh and DECLARED to the bridge.
       #
@@ -276,8 +292,28 @@ services:
     # when the weights are pinned — half a pin reads exactly like a whole one.
     # `ava models pull` honours the same value from ava.yaml
     # (`models.<role>.revision`); set both, or the pin stops at the download.
+    # `${AVA_MODEL:+--model ${AVA_MODEL}}`, not `--model ${AVA_MODEL:?...}` and
+    # not `--model ${AVA_MODEL:-}`.
+    #
+    # The `:?` had to go for the reason spelled out on the `ava` service's
+    # AVA_BACKEND_MODEL: compose interpolates EVERY service regardless of
+    # profile, so a guard here reported a missing model against `vllm` on the
+    # cpu profile, which never starts vllm. That is the same lesson already
+    # recorded on the `agent` service, applied one service too late.
+    #
+    # It is NOT `--model ${AVA_MODEL:-}` either, and that alternative is a trap
+    # worth naming: this is a `>-` folded block, so an empty expansion collapses
+    # the whitespace and vLLM would receive `--model --trust-remote-code`, i.e.
+    # it would try to load a model literally named `--trust-remote-code`. The
+    # `:+` form emits the flag and its value together or neither, which is the
+    # same idiom the revision and max-len flags below already use.
+    #
+    # With no model chosen, vLLM starts with no --model and refuses on its own
+    # terms. That is correct: this service only exists under the gpu and agent
+    # profiles, and by the time somebody selects one, deploy/install.sh has
+    # asked them for a model and written it into deploy/.env.
     command: >-
-      --model ${AVA_MODEL:?set with AVA_BACKEND_URL — see deploy/profiles/}
+      ${AVA_MODEL:+--model ${AVA_MODEL}}
       --trust-remote-code
       --port 8002
       --gpu-memory-utilization ${AVA_VLLM_GPU_UTIL:-0.90}

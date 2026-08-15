@@ -209,15 +209,31 @@ def test_no_profile_ships_a_model_nobody_chose() -> None:
 
 def test_compose_requires_a_backend_rather_than_guessing_one() -> None:
     """The `ava` service starts under EVERY profile, so a single global default
-    for the backend trio is wrong for most of them. `http://vllm:8002/v1` pointed
-    `--profile cpu` at a service that profile never starts."""
+    for the backend ADDRESS is wrong for most of them. `http://vllm:8002/v1`
+    pointed `--profile cpu` at a service that profile never starts.
+
+    THE MODEL IS NOT PART OF THAT ARGUMENT, and this test used to say it was.
+    A URL and an engine are facts about the profile: every profile can carry a
+    correct one, so a `:-` default there really is a guess that misconfigures
+    five profiles to suit one. A model is a fact about the OWNER. Since "ship no
+    default model" (dafdd05) every deploy/profiles/*.env carries `AVA_MODEL=`
+    empty and install.sh omits the line when nobody has chosen one, so demanding
+    `${AVA_MODEL:?}` did not produce a helpful message — `${VAR:?}` refuses
+    empty as well as unset, and it refuses at INTERPOLATION, so `docker compose
+    config` could not read the file under any profile at all. Both compose CI
+    jobs were red from that commit onward.
+
+    Requiring it here and exempting it in
+    tests/test_deploy_compose_contract.py::_MAY_BE_EMPTY was a direct
+    contradiction that neither file could see, because neither one runs compose.
+    The address half of the guard is the half that was ever true, so that is the
+    half that survives.
+    """
     compose = _read("deploy/docker-compose.yml")
     offenders = [
         var for var in ("AVA_BACKEND_URL", "AVA_BACKEND_ENGINE")
         if re.search(rf"{var}:\s*\$\{{{var}:-", compose)
     ]
-    if re.search(r"AVA_BACKEND_MODEL:\s*\$\{AVA_MODEL:-", compose):
-        offenders.append("AVA_BACKEND_MODEL")
     assert not offenders, (
         "these carry a `:-` default in deploy/docker-compose.yml. The bridge runs "
         "under every profile, so a default that suits one silently misconfigures "
