@@ -133,12 +133,22 @@ services:
       AVA_BRIDGE_URL: http://ava:8096
       AVA_OC_SANDBOX: ${AVA_OC_SANDBOX:-my-assistant}
       AVA_OC_AGENT: ${AVA_OC_AGENT:-main}
-      # Same value the bridge uses. No `:?` here: `docker compose config`
-      # interpolates EVERY service regardless of profile, so a guard on this one
-      # reports a missing model against `agent` even when the user is on the
-      # cloud profile and has no agent. The `ava` service above always runs and
-      # already enforces it, with a message naming the thing they configured.
-      AVA_BACKEND_MODEL: ${AVA_MODEL}
+      # Same value the bridge uses, and it carries `:-` for the same reason that
+      # one does — plus a second reason that is this line's own.
+      #
+      # No `:?`: `docker compose config` interpolates EVERY service regardless of
+      # profile, so a guard here reports a missing model against `agent` to
+      # someone on the cloud profile who has no agent.
+      #
+      # And no BARE `${AVA_MODEL}` either, which is what this was. Since "ship no
+      # default model" every deploy/profiles/*.env leaves AVA_MODEL empty, so an
+      # unguarded reference made compose open every single command with
+      #   The "AVA_MODEL" variable is not set. Defaulting to a blank string.
+      # — printed to every owner, on a fresh install that is working exactly as
+      # designed, as the FIRST line of their first run. Empty is a state the
+      # product handles (the app shows "Connect a model"), so it has to
+      # interpolate silently, not merely without failing.
+      AVA_BACKEND_MODEL: ${AVA_MODEL:-}
       # Override if the sandbox can't auto-resolve the bridge container's IP.
       AVA_BRIDGE_IP: ${AVA_BRIDGE_IP:-}
     volumes:

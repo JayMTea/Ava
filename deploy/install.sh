@@ -99,6 +99,44 @@ fi
 if [ "$_BARE_METAL" = "0" ]; then
   command -v docker >/dev/null 2>&1 || die "Docker is required — https://docs.docker.com/get-docker/"
   docker compose version >/dev/null 2>&1 || die "Docker Compose v2 is required."
+
+  # ...and neither line above needs a RUNNING Docker. `docker` is on PATH from
+  # the moment Docker Desktop is installed, and `docker compose version` is
+  # answered by the client alone — so an install with the engine merely stopped
+  # cleared both, spent a minute probing hardware and writing .env, and died at
+  # `docker compose up` with a raw npipe/socket error.
+  #
+  # The wasted minute is the small half. Every probe in between that ASKS THE
+  # DAEMON a question read its silence as an answer: the container-runtime probe
+  # below announced "Docker has no 'nvidia' runtime registered", sent the owner
+  # of a perfectly good 6 GB card away to install the NVIDIA Container Toolkit
+  # (from a Linux package-manager URL, on Windows), and wrote the cpu profile
+  # into .env on the way past. Two confident wrong diagnoses and a silently
+  # downgraded install, all from one question nobody actually asked.
+  #
+  # So it is asked once, here, first. Nothing this script does afterwards works
+  # without the daemon, which makes this the only honest place to stop.
+  if ! _docker_err="$({ docker info >/dev/null; } 2>&1)"; then
+    warn "Docker is installed, but its daemon is not answering:"
+    printf '%s\n' "$_docker_err" | awk 'NF && n < 2 { print "    " $0; n++ }' >&2
+    case "$_docker_err" in
+      *"permission denied"*)
+        warn "That is a permissions problem, not a stopped engine — your user"
+        warn "cannot reach the socket. Add yourself to the 'docker' group, then"
+        warn "log out and back in (a new terminal is not enough):"
+        warn "  sudo usermod -aG docker \$USER" ;;
+      *)
+        case "$(uname -s 2>/dev/null || true)" in
+          MINGW*|MSYS*|CYGWIN*|Darwin)
+            warn "Start Docker Desktop, wait until it reports Running, and run this"
+            warn "again." ;;
+          *)
+            warn "Start it, then run this again:"
+            warn "  sudo systemctl start docker" ;;
+        esac ;;
+    esac
+    die "Docker's daemon is not reachable — nothing can be built or started."
+  fi
 fi
 
 # A user-supplied profile must name a file we actually ship. Unvalidated, a typo
@@ -239,11 +277,19 @@ _nvidia_docker="unknown"
 if [ "$_BARE_METAL" = "0" ] && { [ "$_nvidia_smi" = "1" ] || [ "$AVA_PROFILE" = "gpu" ]; }; then
   if [ "${AVA_SKIP_GPU_RUNTIME_CHECK:-0}" = "1" ]; then
     _nvidia_docker="yes"        # the owner overrode the probe; take their word
-  elif docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q nvidia; then
-    _nvidia_docker="yes"
-  else
-    _nvidia_docker="no"
+  elif _runtimes="$(docker info --format '{{json .Runtimes}}' 2>/dev/null)"; then
+    case "$_runtimes" in
+      *nvidia*) _nvidia_docker="yes" ;;
+      *)        _nvidia_docker="no"  ;;
+    esac
   fi
+  # Deliberately no `else`. A `docker info` that FAILED has not reported an
+  # absent runtime, it has reported nothing, and `unknown` is the value for
+  # that. This was `docker info ... 2>/dev/null | grep -q nvidia`, where an
+  # unreachable daemon and a daemon with no NVIDIA runtime produce the identical
+  # empty output — so a stopped Docker Desktop reached the owner as a missing
+  # NVIDIA Container Toolkit. The preflight above stops that case before it can
+  # get here; keeping the two questions apart is what stops it coming back.
 fi
 
 if [ "$AVA_PROFILE" = "gpu" ] && [ "${AVA_DETECTED_MEM_MODEL:-}" = "unified" ]; then
@@ -320,7 +366,7 @@ elif [ "$AVA_PROFILE" = "gpu" ]; then
               warn "TAG (llama3.1:8b), not a Hugging Face repo id. Unset it to take the"
               warn "profile's default, or pin an Ollama tag."
             fi
-          else
+          elif [ "$_nvidia_docker" = "no" ]; then
             warn "${_vram_mib} MiB would serve a quantized model on the GPU (the cuda profile),"
             warn "but Docker has no 'nvidia' runtime registered, so no container here can"
             warn "reach the card. That is the NVIDIA Container Toolkit, installed separately"
@@ -328,6 +374,15 @@ elif [ "$AVA_PROFILE" = "gpu" ]; then
             warn "  https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html"
             warn "Falling back to the cpu profile. Install it and re-run to use the GPU,"
             warn "or re-run with AVA_SKIP_GPU_RUNTIME_CHECK=1 to override this probe."
+            AVA_PROFILE="cpu"
+          else
+            # `unknown` — the daemon never answered, so this says what it knows
+            # rather than blaming a toolkit nobody checked for. The same value
+            # is treated the same way by the gpu-profile gate below; a card is
+            # given up for a fact, never for a silence.
+            warn "${_vram_mib} MiB would serve a quantized model on the GPU, but Docker did"
+            warn "not answer when asked whether it can reach the card. Falling back to the"
+            warn "cpu profile — re-run once Docker is healthy to use the GPU."
             AVA_PROFILE="cpu"
           fi
         elif [ "$_vram_mib" -lt "$_need_default_mib" ]; then

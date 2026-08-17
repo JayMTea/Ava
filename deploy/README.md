@@ -329,6 +329,13 @@ memory instead, as described above. That is expected, not a fault.
 
 ## Troubleshooting
 
+- "Docker's daemon is not reachable"? Docker Desktop is installed but not
+  running - start it and re-run. On Linux with the engine already up, it means
+  your user cannot reach the socket: `sudo usermod -aG docker $USER`, then log
+  out and back in. The installer stops there on purpose rather than continuing,
+  because with no daemon to answer them its GPU probes cannot tell "no" from
+  silence - and it used to report the difference as a missing NVIDIA Container
+  Toolkit.
 - Health check: `curl http://localhost:8096/api/health`.
 - Docker logs: `docker compose logs -f ava`.
 - Bare metal: `ava doctor` is the first stop; it shows what is missing.
