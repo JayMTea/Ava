@@ -204,6 +204,81 @@ function showChooser(){
 }
 function useBrain(){S.mode='installed';go(2);}
 async function j(u,o){const r=await fetch(u,o);return r.json();}
+// ── Which backend the form is TALKING ABOUT, and what to say when none answers ─
+//
+// Both pure, and bounded by the markers below so tests/test_setup_wizard_prefill.py
+// can evaluate them in node with no browser. They were inline in the render,
+// where the one decision that matters — identity is READ, liveness is merely
+// observed — was a single `||` that nothing could test and anything could undo.
+//
+// WIZARD-CHOICE-BEGIN
+function chooseBackend(b){
+  const live=(b.backends||[]).filter(x=>x.up);
+  // What this install DECLARES, whether or not it is answering. `blind:false`
+  // marks a candidate the server actually READ — out of `inference.backends`,
+  // then out of AVA_BACKEND_URL, which is what deploy/install.sh writes. Every
+  // entry after those is a guess the server appends so a box with neither still
+  // has something to probe, and a guess must never be presented as a fact.
+  const declared=(b.backends||[]).find(x=>!x.blind&&x.base_url&&x.engine)||null;
+  // The engine the app would actually use. `locality` is the backend's word,
+  // not a guess made here.
+  //
+  // Live FIRST, declared second: an engine answering on the host must outrank a
+  // compose address that is not. But `live[0]||null` ALONE made identity a
+  // function of liveness, and that is the one thing it must never be —
+  // models.effective_brain() is explicit that configuration "says nothing about
+  // whether the thing is up, which is a separate, observed question".
+  //
+  // With nothing answering there was no `chosen`, so step 2 kept the static
+  // markup: a Docker install whose own .env reads http://ollama:11434/v1 was
+  // shown — and offered to SAVE — the ava container's own loopback, which
+  // reaches no sibling service on any profile. Saving it writes
+  // inference.backends.local, and load_backends() then stops building the env
+  // backend at all, so the installer's working address stays shadowed. On the
+  // gpu profile that same form read "Ollama" over a vLLM install.
+  const chosen=live[0]||declared||null;
+  return {live, declared, chosen};
+}
+function nothingYetText(b, declared){
+  // "Nothing answering" is a claim the bridge cannot actually make from inside a
+  // container: an engine on the host that binds 127.0.0.1 — which is what
+  // Ollama's Windows installer does — is running and unreachable, and looks
+  // identical from in here to one that was never installed. Naming the likelier
+  // cause is the difference between a dead end and a two-minute fix. Only shown
+  // where it can apply: `host_gateway` is the runtime's own name for the machine
+  // outside, so its absence means there is no host to have missed.
+  //
+  // Two causes, two different fixes, and telling them apart is the whole value:
+  // `refused` means the machine is reachable and the engine is bound to loopback
+  // (set OLLAMA_HOST); `dropped` means a firewall is eating the packets, which no
+  // bind address will fix. Verified against a real container with a live engine
+  // on the host - which timed out, and would have been given the wrong advice.
+  //
+  // The compose case goes FIRST, being both the most specific and by far the most
+  // common on the documented install. None of the host advice below applies to
+  // it: there is no host Ollama to have bound the wrong address, so naming
+  // OLLAMA_HOST sends the owner to reconfigure a program they never installed.
+  // That is what a fresh Windows install was told while its own ollama container
+  // was the thing not answering.
+  //
+  // Keyed on the DECLARED candidate, not on "any compose candidate": the server
+  // appends ollama-service/vllm-service unconditionally, so a genuine host-Ollama
+  // box carries compose candidates too and must still get the advice below.
+  const composeDown = !!declared && declared.locality === 'compose' && !declared.up;
+  const svc = composeDown
+    ? ((declared.base_url.match(/^https?:\/\/([^:/]+)/) || [])[1] || '') : '';
+  const nothingYet = composeDown
+    ? `nothing answering yet — this install serves on ${declared.base_url}, which is`
+      + ` the ${svc} container compose started. Check "docker compose ps" and`
+      + ` "docker compose logs ${svc}", then reload this page.`
+    : !(b.in_container && b.host_gateway)
+    ? 'nothing answering yet — start your engine, or install Ollama (ollama.com)'
+    : b.host_reach === 'dropped'
+    ? 'nothing answering yet — and something is blocking __BRAND__ from reaching this machine at all. On Windows that is usually Defender Firewall: allow inbound connections on the WSL vEthernet adapter, or add a rule for your engine\'s port.'
+    : 'nothing answering yet — if you installed Ollama on the machine itself, it listens on 127.0.0.1 only by default, so __BRAND__ cannot reach it from its container. Set OLLAMA_HOST=0.0.0.0 and restart it.';
+  return nothingYet;
+}
+// WIZARD-CHOICE-END
 (async()=>{
   // Both facts before step 1 renders, because one qualifies the other: a tier
   // sized from THIS container is meaningless when the engine turns out to be on
@@ -212,10 +287,7 @@ async function j(u,o){const r=await fetch(u,o);return r.json();}
   // on a laptop whose native Ollama had the full 32 GB and the real GPU.
   const [h,b]=await Promise.all([j('/api/setup/hardware'),j('/api/setup/backends')]);
   S.tier=h.tier;
-  const live=(b.backends||[]).filter(x=>x.up);
-  // The engine the app would actually use, and whether it is somewhere the
-  // bridge can measure. `locality` is the backend's word, not a guess made here.
-  const chosen=live[0]||null;
+  const {live,declared,chosen}=chooseBackend(b);
   const elsewhere=!!chosen&&chosen.locality==='host'&&b.in_container;
   // Step 1 answers ONE question — "will this run here?" — and answers it as a
   // capability rather than as a diagnosis.
@@ -290,24 +362,7 @@ async function j(u,o){const r=await fetch(u,o);return r.json();}
           : '');
   const opts=document.getElementById('backendOpts');
   const mk=(id,title,sub)=>`<div class="opt" data-m="${id}"><b>${title}</b><small>${sub}</small></div>`;
-  // "Nothing answering" is a claim the bridge cannot actually make from inside a
-  // container: an engine on the host that binds 127.0.0.1 — which is what
-  // Ollama's Windows installer does — is running and unreachable, and looks
-  // identical from in here to one that was never installed. Naming the likelier
-  // cause is the difference between a dead end and a two-minute fix. Only shown
-  // where it can apply: `host_gateway` is the runtime's own name for the machine
-  // outside, so its absence means there is no host to have missed.
-  //
-  // Two causes, two different fixes, and telling them apart is the whole value:
-  // `refused` means the machine is reachable and the engine is bound to loopback
-  // (set OLLAMA_HOST); `dropped` means a firewall is eating the packets, which no
-  // bind address will fix. Verified against a real container with a live engine
-  // on the host - which timed out, and would have been given the wrong advice.
-  const nothingYet = !(b.in_container && b.host_gateway)
-    ? 'nothing answering yet — start your engine, or install Ollama (ollama.com)'
-    : b.host_reach === 'dropped'
-    ? 'nothing answering yet — and something is blocking __BRAND__ from reaching this machine at all. On Windows that is usually Defender Firewall: allow inbound connections on the WSL vEthernet adapter, or add a rule for your engine\'s port.'
-    : 'nothing answering yet — if you installed Ollama on the machine itself, it listens on 127.0.0.1 only by default, so __BRAND__ cannot reach it from its container. Set OLLAMA_HOST=0.0.0.0 and restart it.';
+  const nothingYet=nothingYetText(b,declared);
   opts.innerHTML =
     mk('local','Local engine', live.length
         ? `${chosen.engine_label||chosen.engine} answering at ${chosen.base_url}`
@@ -319,7 +374,9 @@ async function j(u,o){const r=await fetch(u,o);return r.json();}
     S.mode=o.dataset.m;
     document.getElementById('localFields').style.display=S.mode==='local'?'block':'none';
     document.getElementById('cloudFields').style.display=S.mode==='cloud'?'block':'none';
-    // Prefill from whatever is actually answering, whichever engine that is.
+    // Prefill from what this install DECLARED, and from the live engine when
+    // there is one. Never from the markup below: those literals are a bare
+    // -metal default, and are wrong in every containerised install.
     if(S.mode==='local'&&chosen){
       document.getElementById('engine').value=chosen.engine;
       document.getElementById('baseUrl').value=chosen.base_url;
@@ -370,11 +427,23 @@ async function save(skip){
     if(el){el.focus();el.select&&el.select();}
     return;
   }
-  msg.style.color='#9a968c';
-  msg.textContent=skip
+  // api_save ASKS THE ENGINE before writing the address down, and returns what
+  // it found. Those warnings were computed and dropped on the floor right here,
+  // so a setup saved against an address nothing answers on — or a model the
+  // engine is not serving — reported plain success, then failed at the first
+  // message, from the one screen that could have said so.
+  //
+  // A warning, not a failure: the engine may simply still be starting, so the
+  // redirect still happens. It just waits long enough to be read first. `.msg`
+  // is warm-toned by default, which is the right register for this; the success
+  // grey below is the override.
+  const warn=(d.warnings||[]).filter(Boolean);
+  msg.style.color=warn.length?'#e58a6f':'#9a968c';
+  msg.textContent=(skip
     ? 'Saved. You can finish choosing a model any time from Setup.'
-    : 'Saved. Restart __BRAND__ to apply, then reload…';
-  setTimeout(()=>location.href='/',1500);
+    : 'Saved. Restart __BRAND__ to apply, then reload…')
+    + (warn.length?'  '+warn.join('  '):'');
+  setTimeout(()=>location.href='/',warn.length?7000:1500);
 }
 function finish(){return save(false);}
 function skipInference(){return save(true);}
