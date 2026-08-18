@@ -20,6 +20,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response
 from . import config, state
 
 
+from .security import constant_time_equals
 from .security import secure_opener as _secure_opener
 
 
@@ -136,7 +137,12 @@ def _valid_token(tok: str) -> bool:
     exp, sid, sig = parts
     if not exp or not sid:
         return False
-    if not hmac.compare_digest(sig, _sign(f"{exp}.{sid}")):
+    # constant_time_equals, not hmac.compare_digest: the latter raises
+    # TypeError on a `str` holding any non-ASCII character, and `sig` is
+    # attacker-supplied cookie text. That is an unauthenticated 500 on every
+    # route that reads a session — security.py exists for exactly this and
+    # says so; these two call sites were simply missed.
+    if not constant_time_equals(sig, _sign(f"{exp}.{sid}")):
         return False
     try:
         return int(exp) > int(time.time())
@@ -269,7 +275,11 @@ def may_claim(request: Request) -> bool:
         return False
     got = (request.query_params.get("claim")
            or request.headers.get("x-ava-setup-claim") or "")
-    return bool(got) and hmac.compare_digest(got.strip(), want)
+    # Same reason, and it lands on the worst possible screen: a first-run
+    # owner pasting a token that picked up a smart quote or an accent got a
+    # blank Internal Server Error instead of the "that token was not
+    # accepted" page written for them.
+    return bool(got) and constant_time_equals(got.strip(), want)
 
 
 def same_site_write(request: Request) -> tuple[bool, str]:

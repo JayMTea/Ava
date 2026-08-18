@@ -56,8 +56,41 @@ open_browser() {
     MINGW*|MSYS*|CYGWIN*)
       # Git Bash: `start` is a cmd builtin, not a program. The empty "" is the
       # window title cmd would otherwise take the URL for.
-      command -v cmd >/dev/null 2>&1 && cmd //c start "" "$1" >/dev/null 2>&1 & ;;
+      #
+      # NOT backgrounded, unlike the arms around it. `start` returns the moment
+      # it has handed the URL over, so the `&` bought nothing — and it turned the
+      # launch into a race against this script exiting two lines later, a race
+      # the launch loses often enough to be the reported bug. The dbus hazard the
+      # backgrounding exists for is a Linux-desktop one; there is none here.
+      #
+      # `|| true` because set -e does NOT exempt the command after a final `&&`,
+      # so a launcher that returns non-zero would fail an install that has
+      # already succeeded, on its very last step.
+      command -v cmd >/dev/null 2>&1 && { cmd //c start "" "$1" >/dev/null 2>&1 || true; } ;;
     Linux)
+      # WSL is a WINDOWS install wearing a Linux uname, and the two guards below
+      # are right for a Linux desktop and wrong for it. A minimal WSL image has
+      # neither DISPLAY nor xdg-open, so this arm returned 0 having done nothing
+      # — silently, because the `&&` failure is swallowed by the backgrounding.
+      # And where xdg-open IS present it opens a browser INSIDE WSL, not the
+      # Windows one the owner is looking at. Either way the first-run link never
+      # reaches them, and the token that link carries becomes something they are
+      # asked to fetch and paste by hand.
+      #
+      # WSL_DISTRO_NAME first because it is settable, so a test can take this
+      # branch on a Linux runner; /proc/version is the fallback for the shells
+      # that do not export it.
+      if [ -n "${WSL_DISTRO_NAME:-}" ] || grep -qi microsoft /proc/version 2>/dev/null; then
+        # Foreground, and `|| true`, for the same two reasons as the Git Bash
+        # arm below: neither launcher blocks, so backgrounding only races the
+        # script's own exit, and neither may fail an install that worked.
+        if command -v wslview >/dev/null 2>&1; then
+          wslview "$1" >/dev/null 2>&1 || true
+        elif command -v powershell.exe >/dev/null 2>&1; then
+          powershell.exe -NoProfile -Command Start-Process "$1" >/dev/null 2>&1 || true
+        fi
+        return 0
+      fi
       [ -z "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && return 0
       command -v xdg-open >/dev/null 2>&1 && xdg-open "$1" >/dev/null 2>&1 & ;;
     *) return 0 ;;
@@ -624,7 +657,24 @@ case "$AVA_PROFILE" in
   *)    _ollama_svc="" ;;   # gpu/agent serve through vLLM, which loads at boot
 esac
 if [ -n "$_ollama_svc" ]; then
-  _ollama_model="$(grep -E '^AVA_MODEL=' "$_ENV" | tail -1 | cut -d= -f2-)"
+  # `|| true` on the GREP, and only the grep. A .env with no AVA_MODEL line is
+  # the NORMAL state, not an odd one: since "ship no default model" every
+  # profile leaves it empty and line 593 above writes the line ONLY when a model
+  # exists — so `grep` matches nothing and exits 1 on a stock install. Under
+  # this script's own `set -euo pipefail` that non-zero travelled through the
+  # pipe into the assignment and killed the installer outright, four lines after
+  # `docker compose up` and a hundred before it hands over the first-run link.
+  #
+  # The stack was up, so the install LOOKED fine. What was skipped is everything
+  # that makes a first run usable: the health wait, the claim-token read, the
+  # link, the browser. The owner finds :8096 themselves later, meets the claim
+  # gate with nothing in hand, and is told by the page to run a docker command
+  # and paste a token — which is exactly the report that started this.
+  #
+  # Two commits in tension made it: "a model nobody has chosen is not a broken
+  # install" stopped writing the line, and this read still assumed it. Scoped to
+  # the grep so a broken `tail` or `cut` is still a real error.
+  _ollama_model="$( { grep -E '^AVA_MODEL=' "$_ENV" || true; } | tail -1 | cut -d= -f2- )"
   if [ -n "$_ollama_model" ]; then
     say "Pulling ${_ollama_model} into Ollama (first run only; this takes a while)"
     docker compose exec -T "$_ollama_svc" ollama pull "$_ollama_model" \
@@ -748,7 +798,7 @@ if [ "$_ok" = 1 ]; then
 
   if [ -n "$_claim" ]; then
     _link="http://localhost:8096/setup?claim=$_claim"
-    say "Ava is up. Opening your browser to set an admin password:"
+    say "Ava is up. Set your admin password here — opening it for you now:"
     say "  $_link"
     # Also on its own line: terminals wrap long URLs, and a wrapped link that is
     # copied in two pieces loses the query string — which on this URL is the only
@@ -764,13 +814,38 @@ if [ "$_ok" = 1 ]; then
     warn "  cd $AVA_DIR/deploy && docker compose logs ava | grep 'setup?claim='"
   else
     # No token because a password was preset in .env — no gate, so the plain URL is
-    # right.
-    say "Ava is up. Open http://localhost:8096 and sign in."
+    # right. It still gets opened: "there is nothing to prove" is a reason to skip
+    # the token, not a reason to make the owner type an address.
+    say "Ava is up. Opening the sign-in page:"
+    say "  http://localhost:8096"
+    open_browser "http://localhost:8096"
   fi
 else
   warn "Ava did not answer on http://localhost:8096 within ~3 minutes."
   warn "It may still be pulling a model. Check with:"
   warn "  cd $AVA_DIR/deploy && docker compose logs -f ava"
   warn "  cd $AVA_DIR/deploy && docker compose ps"
+  # ...and hand over the first-run link ANYWAY. This branch used to end on those
+  # two commands, which is how a slow first boot produced the one outcome this
+  # whole block exists to prevent: the owner browses to :8096 themselves a few
+  # minutes later, meets the claim gate with nothing in hand, and is told BY THE
+  # PAGE to run a docker command and paste a token into a box. The token is
+  # machinery. A human is never supposed to hold one, and a boot that took four
+  # minutes instead of three is not a reason to hand them one.
+  #
+  # The bridge prints the link on startup, so the log carries it even though the
+  # published port is not answering yet. `|| true` unlike the read above: there
+  # the daemon is known good by then, here its health is exactly what is in
+  # doubt, and a failed scrape must not turn a slow boot into a failed install
+  # under `set -euo pipefail`.
+  _late="$(docker compose logs ava 2>/dev/null \
+           | sed -n 's|.*/setup?claim=\([A-Za-z0-9_-]\{8,\}\).*|\1|p' \
+           | tail -1 || true)"
+  if [ -n "$_late" ]; then
+    warn "When it does answer, this is your first-run link — it is already valid:"
+    warn "  http://localhost:8096/setup?claim=$_late"
+  fi
+  # Deliberately no open_browser here: the port is not answering, and a tab that
+  # says ERR_CONNECTION_REFUSED reads as a failed install rather than a slow one.
 fi
 say "Logs:  cd $AVA_DIR/deploy && docker compose logs -f ava"
