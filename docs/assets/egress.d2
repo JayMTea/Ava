@@ -13,7 +13,12 @@
 # same PR:
 #   web_search default                             -> ava_bridge/features.py
 #   loopback bind + sandbox egress model           -> SECURITY.md sections 2 and 3
-#   ANTHROPIC_API_KEY as opt-in third-party egress -> SECURITY.md section 5
+#
+# There used to be a third: ANTHROPIC_API_KEY as an opt-in third-party egress,
+# backed by a table in SECURITY.md section 5. Both the key and that section went
+# with governed self-editing (8b849c5), and the `fallback` node they justified
+# was removed from the drawing. Ava now reaches no third-party model API, so the
+# only boxes left on the far side are ones the owner switches on.
 #
 # Render:  python agent/docs/arch.py sync   (registered in STATIC_D2)
 

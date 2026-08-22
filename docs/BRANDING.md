@@ -240,8 +240,8 @@ $AVA_HOME/branding/derived/   legacy; only on installs upgraded from a version
     `AVA_HOME` defaults to the code root, where `brand/` is already a gitignored
     folder of logo source art, and "reset to defaults" clears this directory.
 
-    The agent cannot write here - `branding/**` is in `access_policy._DENY`,
-    because your artwork is not Ava's to rewrite.
+    The agent cannot write here at all: Ava has no file-writing tool. Your
+    artwork is not Ava's to rewrite, and there is no path by which it could be.
 
 ---
 
