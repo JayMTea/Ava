@@ -12,8 +12,6 @@ interface Props {
   onSend: () => void;
   onTalk: (blob: Blob) => void;
   busy: boolean;
-  codeMode: boolean;
-  onToggleCode: (v: boolean) => void;
   hint: string;
   ctxTokens: number;
   ctxMax: number;
@@ -41,8 +39,6 @@ export function Composer({
   onSend,
   onTalk,
   busy,
-  codeMode,
-  onToggleCode,
   hint,
   ctxTokens,
   ctxMax,
@@ -115,18 +111,6 @@ export function Composer({
 
   return (
     <div id="composer">
-      <div id="codebar">
-        <button
-          type="button"
-          className={'codetoggle' + (codeMode ? ' on' : '')}
-          title={`Code mode — ${brand} edits its own code with Claude`}
-          onClick={() => onToggleCode(!codeMode)}
-        >
-          <Icon name="code" />
-          <span>Code mode</span>
-        </button>
-      </div>
-
       {pending.length > 0 && (
         <div id="chips">
           {pending.map((a) => (
@@ -169,7 +153,7 @@ export function Composer({
           ref={taRef}
           id="text"
           placeholder={
-            recording ? 'Listening… tap the mic to send' : codeMode ? `Tell ${brand} what to change…` : `Reply to ${brand}…`
+            recording ? 'Listening… tap the mic to send' : `Reply to ${brand}…`
           }
           value={text}
           autoComplete="off"

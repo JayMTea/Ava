@@ -1,4 +1,3 @@
-import { Icon } from '../../../lib/icons';
 import { EmptyState, Panel } from '../../dashboard/layout';
 import { ResourceError } from '../ui/ResourceState';
 import { useAction, useResource } from '../hooks';
@@ -7,8 +6,7 @@ import { Badge } from '../ui/Badge';
 import { HubMessage } from '../ui/HubMessage';
 import { Tile } from '../ui/Tile';
 
-// System — about, self-editing governance, data retention, optional features,
-// learning status.
+// System — about, data retention, optional features, the walkthrough.
 // Human label for a retention window in days (0 == forever).
 const RETENTION_LABELS: Record<number, string> = {
   0: 'Forever', 30: '1 month', 90: '3 months', 183: '6 months', 365: '1 year', 730: '2 years',
@@ -20,32 +18,14 @@ function retentionLabel(days: number): string {
 // Optional-feature capability key → a typed glyph, so each feature row carries
 // an identity like the connector/memory rows. Unknown keys fall back to sliders.
 const FEATURE_ICONS: Record<string, string> = {
-  web_search: 'search', voice: 'mic', memory: 'db', code: 'code',
+  web_search: 'search', voice: 'mic', memory: 'db',
 };
 const featureIcon = (key: string) => FEATURE_ICONS[key] || 'sliders';
-
-// Self-editing modes, safest → most permissive, each with a glyph that reads its
-// posture at a glance (locked / selective / hands-off).
-const APPROVALS: { id: string; title: string; sub: string; icon: string }[] = [
-  { id: 'all', title: 'All changes need approval', icon: 'lock', sub: 'Safest. Every edit Ava makes to its own code waits for you.' },
-  { id: 'policy', title: 'Only sensitive paths', icon: 'sliders', sub: 'Auth/config/deploy edits are gated; routine edits auto-commit to git.' },
-  { id: 'none', title: 'Auto-apply', icon: 'bot', sub: 'Trusted box — all non-secret edits commit automatically.' },
-];
 
 export function SystemPanel({ onRestart }: { onRestart: () => void }) {
   const sysRes = useResource(() => hub.system());
   const { data: sys, reload, setData: setSys } = sysRes;
   const { busy, message, setMessage, run } = useAction();
-
-  const setApproval = (mode: string) => run(async () => {
-    const r = await hub.setApproval(mode);
-    if (r.error) return r.error;
-    setSys((s) => (s ? { ...s, code_approval: mode } : s));
-    // Approval now applies live (no restart); only nudge a restart if the
-    // backend still asks for one — and only claim "in effect now" when it is.
-    if (r.restart_required) onRestart();
-    else setMessage({ text: 'Saved — in effect now.', ok: true });
-  });
 
   const saveFeatures = (patch: Record<string, boolean>) => run(async () => {
     const r = await hub.save({ features: patch });
@@ -102,23 +82,6 @@ export function SystemPanel({ onRestart }: { onRestart: () => void }) {
       </Panel>
 
       <div className="hub-section" />
-      <Panel title="Self-editing governance" subtitle="How Ava's code-change agent applies edits to its own repo (secrets, models/ and .git are always denied).">
-        <div className="sys-gov">
-          {APPROVALS.map((a) => {
-            const on = sys?.code_approval === a.id;
-            return (
-              <button type="button" key={a.id} className={'sys-gov-opt' + (on ? ' sel' : '')}
-                disabled={busy} aria-pressed={on} onClick={() => setApproval(a.id)}>
-                <Tile icon={a.icon} tone={on ? 'accent' : 'muted'} size={34} />
-                <span className="sys-gov-txt"><b>{a.title}</b><small>{a.sub}</small></span>
-                {on ? <span className="sys-gov-check"><Icon name="check" />Current</span> : <span className="sys-gov-pick">Use</span>}
-              </button>
-            );
-          })}
-        </div>
-      </Panel>
-
-      <div className="hub-section" />
       <Panel title="Data retention" subtitle="How long Ava keeps performance metrics and hardware history. Older data is pruned automatically; the dashboard's time-range filters can only reach back as far as this.">
         {sys ? (
           <>
@@ -167,15 +130,6 @@ export function SystemPanel({ onRestart }: { onRestart: () => void }) {
         )) : <EmptyState text="Loading…" />}
       </Panel>
 
-      <div className="hub-section" />
-      <Panel title="Learning" subtitle="Periodic local-first self-analysis that parks improvement proposals for your approval.">
-        {sys && (
-          <dl className="hub-kv">
-            <dt>Status</dt><dd>{sys.learning_enabled ? <Badge tone="ok">on · every {sys.learning_interval_h}h</Badge> : <Badge tone="muted">off</Badge>}</dd>
-            <dt>Proposals</dt><dd><span style={{ color: 'var(--muted)' }}>Review &amp; run cycles on the Operations → Control Center page.</span></dd>
-          </dl>
-        )}
-      </Panel>
       <div className="hub-section" />
       <Panel title="Walkthrough" subtitle="The short guided tour shown on a fresh install.">
         <p className="hub-note">

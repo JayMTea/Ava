@@ -8,7 +8,6 @@ import type { Tone } from './ui/Tile';
 // muted = passive/system. Unknown kinds fall back to a humanised label.
 export const EVENT_META: Record<string, { icon: string; label: string; tone: Tone }> = {
   turn: { icon: 'chats', label: 'Chat turn', tone: 'ok' },
-  code_change: { icon: 'code', label: 'Self-edit', tone: 'accent' },
   egress: { icon: 'code', label: 'Tool call', tone: 'info' },
   memory_recall: { icon: 'db', label: 'Memory recall', tone: 'muted' },
   memory_distill: { icon: 'sparkles', label: 'Memory distilled', tone: 'accent' },

@@ -98,9 +98,8 @@ that was never enrolled. It does not lock you out.
   Act's biometric-categorisation provisions concern inferring characteristics from
   biometric data; Ava does not do that.
 - **Distributing Ava is not distributing a voiceprint.** The artifact is generated
-  on your machine and `models/**` is in the agent's hard-deny list
-  (`ava_bridge/access_policy.py`), so Ava's own self-editing cannot read or
-  rewrite it.
+  on your machine, `models/**` is gitignored, and no agent tool can read or
+  rewrite it — Ava has no filesystem tool at all.
 
 See also: [SECURITY.md](../SECURITY.md) for the trust boundaries,
 [MEMORY.md](MEMORY.md) for how other personal data is stored and erased.

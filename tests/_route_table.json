@@ -84,20 +84,6 @@
   "APIRoute"
  ],
  [
-  "/api/code-turns",
-  [
-   "GET"
-  ],
-  "APIRoute"
- ],
- [
-  "/api/code/models",
-  [
-   "GET"
-  ],
-  "APIRoute"
- ],
- [
   "/api/connectors/{cid}/events",
   [
    "POST"
@@ -707,13 +693,6 @@
   "APIRoute"
  ],
  [
-  "/api/hub/system/approval",
-  [
-   "POST"
-  ],
-  "APIRoute"
- ],
- [
   "/api/hub/system/retention",
   [
    "POST"
@@ -771,69 +750,6 @@
  ],
  [
   "/api/hub/voice/threshold",
-  [
-   "POST"
-  ],
-  "APIRoute"
- ],
- [
-  "/api/learning/chat/apply",
-  [
-   "POST"
-  ],
-  "APIRoute"
- ],
- [
-  "/api/learning/chat/feedback",
-  [
-   "POST"
-  ],
-  "APIRoute"
- ],
- [
-  "/api/learning/chat/reject",
-  [
-   "POST"
-  ],
-  "APIRoute"
- ],
- [
-  "/api/learning/chat/state",
-  [
-   "GET"
-  ],
-  "APIRoute"
- ],
- [
-  "/api/learning/code/apply",
-  [
-   "POST"
-  ],
-  "APIRoute"
- ],
- [
-  "/api/learning/code/feedback",
-  [
-   "POST"
-  ],
-  "APIRoute"
- ],
- [
-  "/api/learning/code/reject",
-  [
-   "POST"
-  ],
-  "APIRoute"
- ],
- [
-  "/api/learning/code/state",
-  [
-   "GET"
-  ],
-  "APIRoute"
- ],
- [
-  "/api/learning/run",
   [
    "POST"
   ],
@@ -1107,37 +1023,9 @@
   "APIRoute"
  ],
  [
-  "/internal/architecture/sync",
-  [
-   "POST"
-  ],
-  "APIRoute"
- ],
- [
-  "/internal/architecture/update",
-  [
-   "POST"
-  ],
-  "APIRoute"
- ],
- [
-  "/internal/code-change",
-  [
-   "POST"
-  ],
-  "APIRoute"
- ],
- [
   "/internal/config",
   [
    "GET"
-  ],
-  "APIRoute"
- ],
- [
-  "/internal/config",
-  [
-   "POST"
   ],
   "APIRoute"
  ],
@@ -1174,34 +1062,6 @@
   "/internal/learning/chats",
   [
    "GET"
-  ],
-  "APIRoute"
- ],
- [
-  "/internal/learning/code-turns",
-  [
-   "GET"
-  ],
-  "APIRoute"
- ],
- [
-  "/internal/learning/scripts",
-  [
-   "GET"
-  ],
-  "APIRoute"
- ],
- [
-  "/internal/learning/state",
-  [
-   "GET"
-  ],
-  "APIRoute"
- ],
- [
-  "/internal/learning/update",
-  [
-   "POST"
   ],
   "APIRoute"
  ],

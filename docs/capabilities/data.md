@@ -8,13 +8,12 @@ Ava keeps, named and sized and pointed at its exact path, plus the controls
 that read, export and erase each one. A hosted assistant can tell you it
 respects your privacy. It cannot show you the files.
 
-[![What stays on your machine and what leaves only if you switch it on. Staying: your chats and history, what Ava remembers about you, your files and images, your voiceprint, the model weights, your connected apps' data, your secrets and API keys. Leaving only when switched on: a web search, your prompt to a cloud model you picked, one learning cycle, a model download, and reaching Ava from your phone](../assets/egress.svg)](../assets/egress.svg)
+[![What stays on your machine and what leaves only if you switch it on. Staying: your chats and history, what Ava remembers about you, your files and images, your voiceprint, the model weights, your connected apps' data, your secrets and API keys. Leaving only when switched on: a web search, your prompt to a cloud model you picked, a model download, and reaching Ava from your phone](../assets/egress.svg)](../assets/egress.svg)
 
 Each box on the right carries the switch that opens it. Every one of them is
 off, unconfigured, or not yet asked for on a fresh install: `features.web_search`
-and `features.learning_cloud_fallback` both default to `false`
-(`ava_bridge/features.py`), no cloud model is configured as the brain, and the
-bridge binds to loopback only.
+defaults to `false` (`ava_bridge/features.py`), no cloud model is configured as
+the brain, and the bridge binds to loopback only.
 
 ## You hold the eraser
 
@@ -93,7 +92,7 @@ The secrets row is the one to look at, because it is where the promise is
 easiest to break. Ava lists the *names* it holds so you can audit them, and
 never the values:
 
-![The Secrets row: badges reading LOCKED, "never leaves this machine" and "protected"; the path secrets.json; then six named entries with descriptions and no values - login_password, session_key, anthropic_api_key, fitness_token, ledger_token and home_assistant_token; footer reads 6 items held, written 1h ago](../assets/data-secrets.png)
+![The Secrets row: badges reading LOCKED, "never leaves this machine" and "protected"; the path secrets.json; then five named entries with descriptions and no values - login_password, session_key, fitness_token, ledger_token and home_assistant_token; footer reads 5 items held, written 1h ago](../assets/data-secrets.png)
 
 `GET /api/data/stores` walks the real filesystem and returns one entry per
 store. Each renders as a row with a format badge (`SQLITE` / `JSON` / `JSONL` /
@@ -106,7 +105,7 @@ secrets row carries `never leaves this machine`.
 |---|---|---|
 | **Memory** | `data/memory.db`, SQLite | Distilled facts and indexed document chunks; row shows facts / doc chunks / pinned counts |
 | **Chats** | `data/chats.db`, SQLite | Every conversation; row shows chat count and total messages |
-| **Audit ledger** | `logs/audit.jsonl` | The flight recorder: turns, recalls, memory edits, grants, self-edits |
+| **Audit ledger** | `logs/audit.jsonl` | The flight recorder: turns, recalls, memory edits, grants, distillations |
 | **Performance** | `logs/performance.jsonl` plus rotated segments and `logs/rollups/` | Per-generation throughput, latency and energy, plus the hourly and daily rollups behind Vitals |
 | **Allocation decisions** | `logs/alloc.jsonl` | What was asked for, what the pool held, what was released (row appears once the file exists) |
 | **Hardware history** | `logs/hw_history/` | Minute- and hour-resolution GPU, memory and CPU samples |
@@ -244,14 +243,12 @@ page. Read it via `GET /api/hub/audit?limit=&kind=` or the Data → Logs tail.
 
     - **Append-only via `O_APPEND`**, one flat JSON line per event (atomic at
       this size on POSIX), `flock`'d against concurrent writers.
-    - **Mode `0600`**, because it contains prompts and diff paths.
+    - **Mode `0600`**, because it contains prompts.
     - **Best-effort.** A ledger failure can never break a chat turn; `record()`
       swallows its own exceptions rather than raising into the caller.
-    - **The agent's own edit tools cannot touch it.** The self-editing access
-      policy hard-denies `logs/**`, alongside `data/**`, `secrets/**`,
-      `models/**`, `.git/**`, `ava.yaml` and `connector_grants.yaml`, so no
-      governed code change can rewrite the record of what it did. See
-      [The agent](agent.md) for the rest of that policy.
+    - **No agent tool can touch it.** Ava has no file-writing tool: the repo
+      read/write loop went with governed self-editing, so nothing the agent does
+      can rewrite the record of what it did. See [The agent](agent.md).
 
 ## What retention does, and does not, reach
 

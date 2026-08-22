@@ -1,8 +1,13 @@
-"""A turn must always reach a terminal status, and a learning cycle must be single-flight.
+"""A turn must always reach a terminal status, and a distill cycle must be single-flight.
 
 Both defects here were invisible: nothing polled a stuck turn in a test, and
-nothing started two learning cycles at once. The symptom in production is a
+nothing started two background cycles at once. The symptom in production is a
 spinner that never stops and a second thread quietly polling a record forever.
+
+The cycle half of this file used to guard `learning.run_all_cycles`. Learning was
+removed; memory distillation, which rode that same lock, did not — so the guard
+moved to `distill.run_distill_cycle` with it rather than being deleted alongside
+the feature that happened to host it.
 """
 import asyncio
 import threading
@@ -10,7 +15,7 @@ import time
 import unittest
 from unittest import mock
 
-from ava_bridge import learning, state, turns
+from ava_bridge import distill, state, turns
 
 
 class TurnAlwaysTerminatesTests(unittest.TestCase):
@@ -76,43 +81,60 @@ class TurnAlwaysTerminatesTests(unittest.TestCase):
             self.assertNotIn("stale", state.turns)
 
 
-class LearningCycleIsSingleFlightTests(unittest.TestCase):
+class DistillCycleIsSingleFlightTests(unittest.TestCase):
+    """The distiller carries the same claim, for the same reason.
+
+    Distillation used to ride the learning cycle's lock. It has its own module
+    and its own scheduler now (ava_bridge/distill.py), so the single-flight
+    property had to move with it or it would have been silently dropped: the
+    cursor read at the top of run_cycle and the write at the bottom straddle a
+    45s LLM call, and two overlapping runs both process the same messages and
+    both advance it."""
+
     def test_a_second_concurrent_cycle_is_refused_not_queued(self):
-        """Two entry points exist — POST /api/learning/run and the scheduler
-        thread — and a cycle spends most of its life awaiting a 45s LLM call, so
-        overlap needs no load at all. Both runs would read the same distiller
-        cursor, process the same messages, and both advance it."""
         started = threading.Event()
         release = threading.Event()
 
-        async def slow_inner():
+        async def slow_run_cycle():
             started.set()
             await asyncio.get_running_loop().run_in_executor(None, release.wait)
-            return {"ran": True}
+            return 3
 
-        with mock.patch.object(learning, "_run_all_cycles_locked", slow_inner):
+        with mock.patch.object(distill.memory_distiller, "run_cycle", slow_run_cycle):
             out: dict = {}
 
             def first():
-                out["a"] = asyncio.run(learning.run_all_cycles())
+                out["a"] = asyncio.run(distill.run_distill_cycle())
 
             t = threading.Thread(target=first, daemon=True)
             t.start()
             self.assertTrue(started.wait(5), "the first cycle never started")
 
-            # Second caller, while the first still holds the claim.
-            second = asyncio.run(learning.run_all_cycles())
+            second = asyncio.run(distill.run_distill_cycle())
             self.assertFalse(second["ran"])
             self.assertIn("already running", second["reason"])
 
             release.set()
             t.join(10)
-            self.assertTrue(out["a"]["ran"])
+            self.assertEqual(out["a"]["memory_facts"], 3)
 
         # The claim is released, so a later cycle runs normally.
-        with mock.patch.object(learning, "_run_all_cycles_locked",
-                              lambda: asyncio.sleep(0, result={"ran": True})):
-            self.assertTrue(asyncio.run(learning.run_all_cycles())["ran"])
+        async def quick():
+            return 0
+
+        with mock.patch.object(distill.memory_distiller, "run_cycle", quick):
+            self.assertTrue(asyncio.run(distill.run_distill_cycle())["ran"])
+
+    def test_a_failing_distiller_never_raises_into_its_caller(self):
+        """The scheduler thread and an API handler both call this; an exception
+        escaping here takes out the thread and leaves memory silently dead."""
+        async def boom():
+            raise RuntimeError("router down")
+
+        with mock.patch.object(distill.memory_distiller, "run_cycle", boom):
+            out = asyncio.run(distill.run_distill_cycle())
+        self.assertTrue(out["ran"])
+        self.assertTrue(out["memory_error"])
 
 
 if __name__ == "__main__":

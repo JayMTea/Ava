@@ -29,8 +29,8 @@ describe('fixForCode — the zero-frontend-changes contract', () => {
   });
 
   it('underscores become spaces in the human-facing tip, not in the route', () => {
-    expect(fixForCode('learning_cloud_fallback_off')?.tip)
-      .toContain('learning cloud fallback');
+    expect(fixForCode('web_search_off')?.tip)
+      .toContain('web search');
   });
 
   it('returns undefined rather than a wrong link for anything unrecognised', () => {

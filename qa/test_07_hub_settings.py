@@ -16,13 +16,12 @@ def _client(bridge):
     yield
 
 
-class TestSystemAndGovernance(unittest.TestCase):
+class TestSystemSettings(unittest.TestCase):
     def test_system_snapshot(self):
         body = CLIENT.get("/api/hub/system").json()
-        for key in ("brand", "version", "code_approval", "learning_enabled",
-                    "retention_days", "retention_choices"):
+        for key in ("brand", "version", "retention_days",
+                    "retention_choices", "features"):
             self.assertIn(key, body)
-        self.assertFalse(body["learning_enabled"])   # QA env disables it
 
     def test_retention_validated_and_persisted(self):
         c = CLIENT

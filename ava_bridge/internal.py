@@ -20,9 +20,9 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
-from . import (app_perf, approvals, architecture, audit, code_agent,
-               config, config_mgmt, connectors, devices, documents, features,
-               learning_mgmt, log_mgmt, perf_mgmt, policy_mgmt, state)
+from . import (app_perf, approvals, architecture, audit, config, config_mgmt,
+               connectors, devices, documents, features, log_mgmt, perf_mgmt,
+               policy_mgmt, state)
 # NOTE the alias: `web` is shadowed by nothing here, but phone_bridge.py has
 # always referred to this module as `web_access` and the moved handlers use that
 # name. Importing it as plain `web` would leave those bodies referencing an
@@ -31,7 +31,7 @@ from . import (app_perf, approvals, architecture, audit, code_agent,
 from . import web as web_access
 from .security import constant_time_equals
 
-# The /internal/* surface. These 25 routes are the sandbox->bridge callback
+# The /internal/* surface. These 17 routes are the sandbox->bridge callback
 # boundary: every one is token-gated by `authorized()` below, and the middleware
 # (auth.auth_gate -> group_may) additionally enforces the per-route scope table
 # in ROUTE_SCOPES. Keeping the routes in the same module as the scope table and
@@ -97,9 +97,13 @@ def authorized(request: Request, scope=None) -> bool:
 # and enforced in none.
 #
 # The escalation this closes: the `content` group token belongs to the MCP server
-# that runs web_fetch — the surface prompt injection actually arrives on — and it
-# was accepted by /internal/code-change, i.e. arbitrary governed edits to Ava's
-# own source. Least privilege was written down; it just was not wired.
+# that runs web_fetch — the surface prompt injection actually arrives on — so a
+# fetched page is attacker-controlled text holding a real token. This table is
+# what stops it reaching `config` or `policies`, the control plane it has no
+# business in. It once could also reach /internal/code-change, i.e. arbitrary
+# edits to Ava's own source; that route and the capability behind it are gone
+# entirely, which is a stronger answer than a scope. Least privilege was written
+# down here long before it was wired.
 #
 # Longest prefix wins. A path with no entry is refused for derived tokens (the
 # root token still passes), so forgetting to classify a route fails CLOSED.
@@ -116,7 +120,6 @@ ROUTE_SCOPES: dict[str, str] = {
     "/internal/perf": "perf",
     "/internal/config": "config",
     "/internal/policies": "policies",
-    "/internal/code-change": "code_change",
 }
 
 try:  # the optional overlay adds its own routes (e.g. /internal/studio/*)
@@ -403,8 +406,13 @@ def internal_device_events(request: Request):
     return {"events": devices.recent(cid, limit=limit)}
 
 # ---- Architecture capability (Ava reads/updates her own SSOT diagrams+code) --
-# Same token gate. Lets Ava get the architecture manifest + drift report, render
-# the diagrams, and apply manifest edits (auto-committed). Backed by arch.py.
+# Same token gate. READ-ONLY: Ava can fetch the architecture manifest, the model,
+# a component description and a drift report — she cannot rewrite the manifest or
+# regenerate-and-commit the diagrams. The write half (`POST .../sync`, `.../update`,
+# and the `sync --commit` self-heal in arch_watch) went with self-editing: an agent
+# that auto-commits to the repo is the thing being removed, and a drift report a
+# human acts on is the useful half. Reconcile with `python agent/docs/arch.py sync`.
+# Backed by arch.py.
 @router.get("/internal/architecture")
 def internal_architecture(request: Request):
     if not authorized(request):
@@ -415,10 +423,11 @@ def internal_architecture(request: Request):
 def internal_architecture_model(request: Request):
     """The product's structure — the assembly tree, not this deployment.
 
-    Read-only on purpose. `update_architecture` exists for the manifest because a
-    manifest is machine-authored; the model's spine is hand-authored intent, and a
-    write path that validates-then-reverts would throw away someone's `why`. Ava
-    edits it the way a person does: as source, through review.
+    Read-only, like every architecture route now. The model's spine is
+    hand-authored intent — a write path that validates-then-reverts would throw
+    away someone's `why` — and since self-editing was removed the manifest has no
+    write path either. Ava reports drift; a person reconciles it as source,
+    through review.
 
     Answers with the same coded-error-as-200 convention the rest of /internal
     uses, because the sandbox helper runs `curl --fail` and swallows non-2xx
@@ -471,90 +480,6 @@ def internal_arch_check(request: Request):
     if not authorized(request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     return architecture.check_payload()
-
-@router.post("/internal/architecture/sync")
-async def internal_arch_sync(request: Request):
-    if not authorized(request):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-    try:
-        body = await request.json()
-    except Exception:  # noqa: BLE001
-        body = {}
-    commit = bool(body.get("commit", True))
-    return architecture.sync_payload(commit=commit, message=body.get("message"))
-
-@router.post("/internal/architecture/update")
-async def internal_arch_update(request: Request):
-    if not authorized(request):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-    try:
-        body = await request.json()
-    except Exception:  # noqa: BLE001
-        body = {}
-    new_yaml = body.get("yaml") or ""
-    if not new_yaml.strip():
-        return _told("yaml required (the full new manifest)", "bad_request")
-    commit = bool(body.get("commit", True))
-    return architecture.update_payload(new_yaml, message=body.get("message"), commit=commit)
-
-@router.get("/internal/learning/scripts")
-async def internal_learning_read(request: Request):
-    """Allow Ava to read current learning digest scripts (read-only access)."""
-    if not authorized(request):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-    return learning_mgmt.read_digest_scripts()
-
-@router.post("/internal/learning/update")
-async def internal_learning_update(request: Request):
-    """Allow Ava to update learning digest scripts with improved descriptions/rationales."""
-    if not authorized(request):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-    try:
-        body = await request.json()
-    except Exception:  # noqa: BLE001
-        body = {}
-    
-    script_type = body.get("script_type") or ""
-    updates = body.get("updates") or {}
-    content = body.get("content")
-    
-    if not script_type:
-        return _told("script_type required (daily, weekly, or both)", "bad_request")
-    
-    result = learning_mgmt.update_digest_scripts(script_type, updates, content)
-    if not result.get("success"):
-        result.setdefault("error_code", "refused")
-    return JSONResponse(result, status_code=200)   # see _told()
-
-@router.get("/internal/learning/state")
-async def internal_learning_state(request: Request, state_type: str = "all", limit: int = 10, patterns: bool = True):
-    """Allow Ava to read her own learning state (code/chat cycles, patterns)."""
-    if not authorized(request):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-    
-    limit = min(max(limit, 1), 100)
-    result = {}
-    
-    if state_type in ["code", "all"]:
-        with state.code_learning_state_lock:
-            cycles = state.code_learning_state.get("cycles", [])[-limit:]
-            inline_fixes = state.code_learning_state.get("inline_fixes", [])[-limit:]
-            result["code"] = {
-                "cycles": cycles,
-                "inline_fixes": inline_fixes,
-                "total_cycles": len(state.code_learning_state.get("cycles", [])),
-                "total_fixes": len(state.code_learning_state.get("inline_fixes", [])),
-            }
-    
-    if state_type in ["chat", "all"]:
-        with state.chat_learning_state_lock:
-            cycles = state.chat_learning_state.get("cycles", [])[-limit:]
-            result["chat"] = {
-                "cycles": cycles,
-                "total_cycles": len(state.chat_learning_state.get("cycles", [])),
-            }
-    
-    return JSONResponse(result)
 
 @router.get("/internal/learning/chats")
 async def internal_learning_chats(request: Request, action: str = "list", chat_id: str = None, limit: int = 50, metadata: bool = True):
@@ -617,48 +542,6 @@ async def internal_learning_chats(request: Request, action: str = "list", chat_i
     
     else:
         return _told("action must be 'list' or 'read'", "bad_request")
-
-@router.get("/internal/learning/code-turns")
-async def internal_learning_code_turns(request: Request, cycle_id: str = None, status_filter: str = "all", diffs: bool = True, reasoning: bool = True, limit: int = 10):
-    """Allow Ava to read her code editing turns and proposals for learning."""
-    if not authorized(request):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-    
-    limit = min(max(limit, 1), 100)
-    
-    with state.code_learning_state_lock:
-        cycles = state.code_learning_state.get("cycles", [])
-        if cycle_id:
-            cycles = [c for c in cycles if c.get("id") == cycle_id]
-        cycles = cycles[-limit:]
-    
-    result = []
-    for cycle in cycles:
-        proposals = cycle.get("proposals", [])
-        
-        # Filter by status if requested
-        if status_filter != "all":
-            proposals = [p for p in proposals if p.get("status") == status_filter]
-        
-        cycle_data = {
-            "id": cycle.get("id"),
-            "timestamp": cycle.get("timestamp"),
-            "proposals": proposals,
-        }
-        
-        # Strip diffs if not requested
-        if not diffs:
-            for p in cycle_data["proposals"]:
-                p.pop("diff", None)
-        
-        # Strip reasoning if not requested
-        if not reasoning:
-            for p in cycle_data["proposals"]:
-                p.pop("reasoning", None)
-        
-        result.append(cycle_data)
-    
-    return JSONResponse({"code_turns": result, "count": len(result)})
 
 @router.post("/internal/logs")
 async def internal_logs(request: Request):
@@ -727,32 +610,13 @@ async def internal_config_get(request: Request, component: str):
         result.setdefault("error_code", "refused")
     return JSONResponse(result, status_code=200)
 
-@router.post("/internal/config")
-async def internal_config_post(request: Request):
-    """Allow Ava to update configuration."""
-    if not authorized(request):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-    
-    try:
-        body = await request.json()
-    except:
-        return _told("invalid json", "bad_request")
-    
-    result = config_mgmt.update_config(
-        component=body.get("component"),
-        updates=body.get("updates", {}),
-        reason=body.get("reason", "No reason provided")
-    )
-    
-    # Always 200: `curl --fail` in the sandbox helper would swallow the
-    
-    # body, and the body IS the answer. See _told().
-    
-    if not result.get("ok"):
-    
-        result.setdefault("error_code", "refused")
-    
-    return JSONResponse(result, status_code=200)
+# There is deliberately NO `POST /internal/config`.
+#
+# `config_mgmt` is read-only. Its write path could rewrite
+# `agent/persona.txt.tmpl` — the agent's own system prompt, and precisely the
+# file the retired access policy singled out for owner approval — with no diff,
+# no commit and no review of any kind. Reading config stays: it is how Ava
+# explains her own setup when asked.
 
 @router.get("/internal/policies")
 async def internal_policies_get(request: Request):
@@ -795,48 +659,20 @@ async def internal_policy_read(request: Request, policy_name: str):
 # be able to PROPOSE a policy change, that is a feature to design against the
 # approvals gate, not a route to restore.
 
-@router.post("/internal/code-change")
-async def internal_code_change(request: Request):
-    """Hand off a code-change request to Claude (uses ANTHROPIC_API_KEY).
-
-    Ava's `code_change_request` MCP tool calls this. code_agent drives Claude
-    through the repo, then applies the access policy: safe files are written +
-    committed autonomously; protected files (auth/config/policy/deploy) are
-    parked as a pending proposal in the user's approval bucket on the Learning page;
-    secrets/binaries are refused. The Claude tool loop runs synchronously and can
-    take a while, so run it off the event loop.
-    """
-    if not authorized(request):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-
-    try:
-        body = await request.json()
-    except Exception:  # noqa: BLE001
-        return _told("invalid json", "bad_request")
-
-    request_text = (body.get("request") or "").strip()
-    context_text = (body.get("context") or "").strip()
-    files_list = body.get("files") or []
-    project = (body.get("project") or "ava").strip() or "ava"
-    actor = (body.get("actor") or "Ava").strip() or "Ava"
-    if not request_text:
-        return _told("empty request", "bad_request")
-
-    print(f"[ava-bridge] [DEBUG] /internal/code-change received: "
-          f"project={project!r} actor={actor!r} request={request_text[:80]!r} files={files_list}", flush=True)
-
-    try:
-        result = await run_in_threadpool(
-            code_agent.run_change_request,
-            request_text, context_text, files_list, "code_change_request",
-            None, project, actor,
-        )
-    except Exception as e:  # noqa: BLE001
-        return _told(f"code change failed: {e}", "code_change_failed")
-
-    if result.get("status") == "error":
-        result.setdefault("error_code", "code_change_failed")
-    return JSONResponse(result, status_code=200)   # see _told()
+# There is deliberately NO `POST /internal/code-change`, and no module behind it.
+#
+# Ava's governed self-editing — an MCP tool that handed an engineering task to
+# Claude, which then wrote files, git-committed them as Ava and restarted the
+# bridge — was removed in full: the tool, the skill, the egress policy,
+# `code_agent.py`, `coder.py`, `access_policy.py`, the `code_change` scope, and
+# the ANTHROPIC key that powered it.
+#
+# Same reasoning as the policy-write route above, one step further: the
+# capability is gone rather than gated, so the entire class of "did the gate
+# hold?" question goes with it. Restoring one piece alone — a route without the
+# scope, a tool without the policy — would be a partial re-arming that reads as
+# a bug rather than a decision, which is why tests/test_security.py pins every
+# layer of it at once rather than just the route.
 
 # Bespoke connected-app routes were removed: connected apps ride the generic
 # connector proxy (/internal/connector/<id>/* for agent tools, /apps/<id>/api/*

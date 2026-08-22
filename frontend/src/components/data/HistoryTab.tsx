@@ -23,11 +23,6 @@ function eventDetail(e: AuditEvent): string {
       bits.push(s(e.status), s(e.model), e.duration_s ? `${e.duration_s}s` : '',
         e.tools?.length ? e.tools.join(', ') : 'no tools');
       break;
-    case 'code_change':
-      bits.push(humanize(s(e.outcome)), s(e.commit),
-        e.paths?.length ? `${e.paths.length} file${e.paths.length === 1 ? '' : 's'}` : '',
-        e.approved_by ? `approved by ${e.approved_by}` : '');
-      break;
     case 'egress':
       bits.push(`${s(e.connector)}/${s(e.tool)}`, s(e.status));
       break;
@@ -58,7 +53,6 @@ function eventDetail(e: AuditEvent): string {
 const HISTORY_CATS: { id: string; label: string; kinds: string[] }[] = [
   { id: '', label: 'All', kinds: [] },
   { id: 'turn', label: 'Chats', kinds: ['turn'] },
-  { id: 'code', label: 'Self-edits', kinds: ['code_change'] },
   { id: 'memory', label: 'Memory', kinds: ['memory_recall', 'memory_distill', 'memory_edit'] },
   { id: 'perms', label: 'Permissions', kinds: ['grant', 'revoke', 'approval'] },
   { id: 'system', label: 'System', kinds: ['egress', 'data_export', 'data_maintenance'] },
@@ -117,7 +111,6 @@ export function HistoryTab() {
         title="What's in the ledger"
         items={[
           { icon: 'chats', term: 'Chats', desc: 'Every message Ava answered — the model, tools used, and how long it took.' },
-          { icon: 'code', term: 'Self-edits', desc: 'Changes the agent made to its own code, the commit, and who approved it.' },
           { icon: 'db', term: 'Memory', desc: 'Recalls folded into a reply, plus facts distilled from chats or edited by you.' },
           { icon: 'lock', term: 'Permissions', desc: 'Connector grants, revokes, and one-off approvals.' },
           { icon: 'activity', term: 'System', desc: 'Tool calls and data export / maintenance.' },

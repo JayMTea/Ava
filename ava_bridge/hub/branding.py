@@ -356,11 +356,9 @@ def save_branding(body: dict):
     # Make it true rather than hoping. `settings.save_patch` rebinds the live
     # config, which covers every `settings.brand_*()` reader — but ava_bridge/
     # config.py bound AVA_NAME/AVA_TAGLINE as module constants at import, and
-    # four RUNTIME prompt builders read those (turns.py, coder.py, code_agent.py,
-    # runtime/direct.py). Without this line the assistant would keep calling
-    # itself by the old name on the very next turn while the UI showed the new
-    # one. Same move hub/system.py makes for config.CODE_APPROVAL, for the same
-    # reason and with the same comment.
+    # the RUNTIME prompt builders read those (turns.py, runtime/direct.py).
+    # Without this line the assistant would keep calling itself by the old name
+    # on the very next turn while the UI showed the new one.
     config.AVA_NAME = brand.name()
     config.AVA_TAGLINE = brand.tagline()
 

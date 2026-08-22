@@ -17,7 +17,7 @@ failures teach people to add allowlist entries rather than fix drift.
 So this checks the three things that are exactly checkable, and says so:
   * the feature registry and the template agree, both ways,
   * every `[AVA_*]` annotation names an env var some module actually reads,
-  * the two settings whose defaults are security decisions have not drifted back.
+  * the setting whose default is a security decision has not drifted back.
 
 Style matches tests/test_diagram_sync.py: a `git ls-files` scan, no bridge, no
 network.
@@ -136,8 +136,11 @@ class EnvAnnotationTests(unittest.TestCase):
 
 
 class SecurityDefaultLockTests(unittest.TestCase):
-    """These two defaults are security decisions, not preferences. Locking them
-    here means a future edit has to argue with a test rather than slip through."""
+    """This default is a security decision, not a preference. Locking it here
+    means a future edit has to argue with a test rather than slip through.
+
+    There were two. The other was `code.approval: all` — the gate on Ava editing
+    her own source — and it went with the capability it gated."""
 
     def test_the_template_binds_loopback(self):
         body = TEMPLATE.read_text(encoding="utf-8")
@@ -147,14 +150,6 @@ class SecurityDefaultLockTests(unittest.TestCase):
             "config.example.yaml must ship a loopback bind. `ava setup` copies "
             "this file's posture, and until the owner sets a password `/setup` "
             "is necessarily reachable by anyone who can reach the port."))
-
-    def test_code_approval_defaults_to_all(self):
-        body = TEMPLATE.read_text(encoding="utf-8")
-        m = re.search(r"^\s*approval:\s*(\S+)", body, re.MULTILINE)
-        self.assertIsNotNone(m, "no code.approval in the template")
-        self.assertEqual(m.group(1), "all", (
-            "code.approval must default to `all`: every self-edit waits for the "
-            "owner. `policy` lets the agent auto-apply to most of its own repo."))
 
 
 if __name__ == "__main__":

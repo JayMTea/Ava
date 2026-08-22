@@ -1,11 +1,15 @@
-# Egress policy for Ava's configuration tools (read_config, update_config) to reach
-# the HOST's phone bridge and read/update .env, persona.txt, and learning settings.
-# The bridge listens on 127.0.0.1:8096 and exposes /internal/config via the guard
-# proxy. Calls are gated by X-Ava-Internal-Token (bearer token).
+# Egress policy for Ava's read_config tool to reach the HOST's phone bridge and
+# READ .env. The bridge listens on 127.0.0.1:8096 and exposes GET /internal/config
+# via the guard proxy. Calls are gated by X-Ava-Internal-Token (bearer token).
+#
+# GET only. The POST grant went with `update_config`: that write path could
+# rewrite the agent's own system prompt with no review, and a grant for a route
+# that no longer exists is a lie in the one file whose job is to describe what
+# Ava may reach.
 # Applied by ../install.sh via: nemoclaw my-assistant policy-add --from-file <this> --yes
 preset:
   name: ava-config
-  description: "Host phone-bridge configuration read/write for Ava's read_config / update_config tools"
+  description: "Host phone-bridge configuration READ for Ava's read_config tool"
 
 network_policies:
   ava-config:
@@ -21,7 +25,6 @@ network_policies:
           - 192.168.0.0/16
         rules:
           - allow: { method: GET, path: "/internal/config" }
-          - allow: { method: POST, path: "/internal/config" }
     binaries:
       - { path: /usr/local/bin/node }
       - { path: /usr/bin/node }

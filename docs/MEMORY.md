@@ -12,7 +12,7 @@ follows from that.
 
 | Kind | Where it comes from |
 |------|---------------------|
-| **Facts** | Distilled by the learning cycle from recent chats (local-first LLM; see below), or added by hand in the **Memory** tab ("Teach Ava") - under **Setup → Agent → Memory**. |
+| **Facts** | Distilled from recent chats by a local-first LLM (see below), or added by hand in the **Memory** tab ("Teach Ava") - under **Setup → Agent → Memory**. |
 | **Documents** | Text extracted from files you upload is chunked and indexed at upload time, so a PDF you shared last month is still findable today. |
 
 Everything lives in `$AVA_HOME/data/memory.db` (created `0600`) - SQLite
@@ -27,7 +27,7 @@ contention with the brain, nothing to download on a fresh install.
     There are exactly **two item kinds**, and the writer rejects anything else:
 
     - **`fact`** is a durable note about you, distilled from chat history by the
-      learning cycle or typed in by hand under Teach Ava.
+      distiller or typed in by hand under Teach Ava.
     - **`doc`** is a chunk of an uploaded document's extracted text, indexed at
       upload time. Chunking splits on paragraph boundaries at about **1200
       characters** and stores at most **120 chunks per file**; re-uploading the
@@ -70,13 +70,18 @@ destroys persisted data stops recording it.
 
 ## How distillation works
 
-The existing learning scheduler (`features.learning`) runs a
-**memory distiller** alongside the code/chat analysis cycles: it reads chat
-messages it hasn't seen before, asks the local brain (router; Anthropic key
-as fallback) for durable facts about *you* - preferences, projects, setup,
-recurring people - and stores at most 8 per cycle. One-off tasks and small
-talk are explicitly excluded. A cursor in the store guarantees the same
-messages are never distilled twice.
+An in-process scheduler (`ava_bridge/distill.py`, gated by `features.memory`,
+cadence `memory.distill_interval_hours`, default 24h) reads chat messages it
+hasn't seen before, asks the local brain for durable facts about *you* -
+preferences, projects, setup, recurring people - and stores at most 8 per
+cycle. One-off tasks and small talk are explicitly excluded. A cursor in the
+store guarantees the same messages are never distilled twice.
+
+**Local-only, by construction.** The prompt quotes your conversations verbatim,
+so there is no cloud fallback: if your router cannot answer, the cycle stores
+nothing and retries the same messages next time. This used to ride the Learning
+feature's scheduler and could fall back to an Anthropic key; both went when
+governed self-editing was removed.
 
 ## Controls, and where each one lives
 

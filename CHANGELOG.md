@@ -10,6 +10,50 @@ pre-release milestones from when Ava ran on one box and nothing was tagged.
 
 ### Removed
 
+- **BREAKING: governed self-editing is gone, end to end.** Ava could change her
+  own source: the `code_change_request` tool handed an engineering task to
+  Claude, which read the repo, wrote files, `git commit`ed them as
+  `Ava <ava@localhost>` and restarted the bridge — with an access policy
+  deciding per file whether that happened automatically or waited for you.
+
+  Removed together, because the capability was never one thing and restoring
+  one layer alone would be a partial re-arming that reads as a bug rather than
+  a decision: the `ava-self-coding` skill, `admin/code_change_request.mjs`, the
+  `ava-code-changes` egress policy, `POST /internal/code-change`, the
+  `code_change` scope, `code_agent.py`, `coder.py`, `access_policy.py`,
+  `code.approval` and its Setup → System governance panel, and
+  `ANTHROPIC_API_KEY` with every `CODE_*` knob. `tests/test_security.py`
+  gained `SelfEditingIsRemovedTests`, which asserts each layer separately, in
+  the same shape as the existing `PolicyMutationTests`.
+
+  **Ava now talks to no third-party model API.** The Anthropic key was the last
+  one, and the `.env.example` block documenting it is gone.
+
+- **The Learning feature is gone with it.** `learning.py`, `learning_api.py`,
+  `learning_mgmt.py`, `ava_learning_digest.py`, `ava_learning_weekly.py`, every
+  `/api/learning/*` route, the `learning` and `learning_cloud_fallback` feature
+  switches, and the **Operations → Control** segment that reviewed its
+  proposals. Operations is now a single live view.
+
+  `$AVA_HOME/logs/learning_state.json` and `logs/learning.log` are orphaned and
+  safe to delete; nothing reads them.
+
+- **Two ungoverned source writers went too.** `learning_mgmt.py` rewrote
+  `ava_learning_digest.py` and `ava_learning_weekly.py` — executable Python —
+  with no diff, no commit and no policy check, and `config_mgmt.update_config`
+  could write `agent/persona.txt.tmpl`, the agent's own system prompt, which
+  the code-change policy of the day specifically placed behind owner approval.
+  `config_mgmt` is read-only now (`.env` only), `POST /internal/config` and
+  `update_config.mjs` are gone, and `read_config`'s component enum is `["env"]`.
+
+- **The architecture path is read-only.** `update_architecture.mjs` and
+  `sync_diagrams.mjs` regenerated the manifest and diagrams and auto-committed;
+  `arch_watch` did the same on a timer, authored "Ava (auto-sync)", onto
+  whatever branch the tree was on. The write half is gone and `arch.paused`
+  went with it. Drift is still detected and alerted — reconcile it yourself
+  with `python agent/docs/arch.py sync`. `ava-architecture`'s SKILL.md was
+  rewritten to match.
+
 - **BREAKING: Ava ships no default model.** `router_app` used to synthesize a
   backend — `omni`, pointed at `http://127.0.0.1:8002/v1` serving
   `Qwen/Qwen2.5-7B-Instruct` — on any install with no `inference:` block and no
@@ -33,6 +77,26 @@ pre-release milestones from when Ava ran on one box and nothing was tagged.
     hand-written `alloc.models.omni` becomes an orphan spec with no backend
     behind it — delete it. `perf_log` history keeps its `served_by: "omni"`
     rows; new rows carry whichever backend id you chose.
+
+### Changed
+
+- **Memory distillation moved to its own module and its own switch.** It lived
+  inside `learning.py` and rode that scheduler, so the capability the README
+  leads with was gated by a flag named after a different feature — and it would
+  have died silently with the removal above. It is now `ava_bridge/distill.py`,
+  gated on `features.memory`, with cadence `memory.distill_interval_hours`
+  (default 24h, env `AVA_MEMORY_DISTILL_INTERVAL_H`) and its own single-flight
+  claim. The `memory_distill` audit event, the `distill_last_ts` cursor and the
+  8-facts-per-cycle cap are unchanged.
+
+  It also lost its cloud fallback, which is a fix rather than a regression: the
+  prompt quotes your conversations verbatim, so "the local model was busy" must
+  never quietly become "your chats went to a third party". If your router
+  cannot answer, the cycle stores nothing and retries next time.
+
+- `config.example.yaml` gained the `memory:` block it never had —
+  `distill_interval_hours`, `recall_k` and `recall_max_chars` were all read by
+  the code and documented nowhere.
 
 ### Fixed
 

@@ -33,28 +33,15 @@ _WATCHED_FILES = {"phone_bridge.py", "serve.py", "ava_router.py", "ava_cli.py"}
 # in the same change as the guard that would police it.
 #
 # The eight highest-traffic names are already promoted (chat_append alone had 23
-# references). What is left is concentrated in two relationships worth deciding
-# deliberately rather than mechanically:
-#   * code_agent -> coder (11): coder's tool-loop internals. Either coder grows a
-#     real public tool API or the two modules merge; renaming in place would just
-#     make the coupling public without making it designed.
+# references). The eleven `code_agent -> coder` entries that dominated this list
+# are gone: both modules went with governed self-editing, which is the cheapest
+# way this debt has ever been paid. What is left is one relationship:
 #   * phone_bridge -> auth/chat_store (9): mostly dissolves on its own when
 #     phone_bridge's routes are extracted into per-domain routers (audit C1).
 #
 # Shrinking this list is the work. Adding to it needs a reason in the diff.
 _ALLOW: set[str] = {
     "ava_bridge/alloc/spec.py: from ..connectors import _expand",
-    "ava_bridge/code_agent.py: from .coder import _anthropic",
-    "ava_bridge/code_agent.py: from .coder import _edits_from_staged",
-    "ava_bridge/code_agent.py: from .coder import _git",
-    "ava_bridge/code_agent.py: from .coder import _safe",
-    "ava_bridge/code_agent.py: from .coder import _stage_append",
-    "ava_bridge/code_agent.py: from .coder import _stage_delete",
-    "ava_bridge/code_agent.py: from .coder import _stage_str_replace",
-    "ava_bridge/code_agent.py: from .coder import _stage_write",
-    "ava_bridge/code_agent.py: from .coder import _tool_list_dir",
-    "ava_bridge/code_agent.py: from .coder import _tool_read_file",
-    "ava_bridge/code_agent.py: from .coder import _tool_search",
 }
 
 

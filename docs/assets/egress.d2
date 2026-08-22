@@ -11,7 +11,7 @@
 #
 # Every claim here is code-backed. If a default changes, fix this file in the
 # same PR:
-#   web_search / learning_cloud_fallback defaults  -> ava_bridge/features.py
+#   web_search default                             -> ava_bridge/features.py
 #   loopback bind + sandbox egress model           -> SECURITY.md sections 2 and 3
 #   ANTHROPIC_API_KEY as opt-in third-party egress -> SECURITY.md section 5
 #
@@ -82,9 +82,6 @@ out: "Leaves only if you switch it on" {
     class: optin
   }
   cloud: "Your prompt, to a cloud model\nonly if you pick a cloud model as the brain\nno cloud model configured by default" {
-    class: optin
-  }
-  fallback: "One learning cycle\nSetup → Optional features → Cloud fallback\noff by default" {
     class: optin
   }
   weights: "A model download\nwhen you pull one from the model store" {

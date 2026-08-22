@@ -1,17 +1,15 @@
-# Operations - live work, alerts & the Control Center
+# Operations - live work & alerts
 
 **Operations** is the page you open when you want to know what Ava is doing
-*right now*, and what she is waiting on you for. It has two segments:
-**Live**, a streaming picture of in-flight work, services, timers and alerts;
-and **Control**, where learning proposals and staged code diffs are approved,
-rejected or thrown away.
+*right now*: a streaming picture of in-flight work, services, timers and alerts.
 
 The page updates itself. A single push channel carries changes as they happen,
 and a set of polled reads fills in the slower panels. If the push channel
 drops, the polled values keep the page current on their own.
 
-The badge on the **Control** tab is the count of learning proposals still
-waiting on a decision. When it is empty, nothing is parked.
+It used to carry a second segment, **Control**, where learning proposals and
+staged code diffs were approved. Both went with governed self-editing; there is
+nothing left to park, so the segment went too.
 
 ## When the agent asks: the approvals banner
 
@@ -163,43 +161,6 @@ One more source feeds the same panel: a device connector's `notify`, `warn` or
 `critical` event is injected as a short-lived external alert (90 s by
 default), so an urgent reading gets a place in the active-alert list and not
 just a transient toast.
-
-## Control - the Control Center
-
-The **Control** segment is where proposals get acted on. Four stat tiles
-(Approval gates, Code changes, Completed, Apps), an **Awaiting your approval**
-section listing what is parked, and a grid of app cards. Ava herself is always
-present; other apps appear only while they are connected, so a project Ava was
-pointed at once can't linger in the view.
-
-Opening an app drills into its cycles. For Ava there are two tabs, **Code**
-and **Chat**, matching the two proposal streams: edits to her own source, and
-behavioural notes. Each cycle expands to the analysis behind it, and each
-proposal renders as a card with its title, description, a *Why*, and risk and
-status tags.
-
-When a proposal carries staged code changes, the card lists the files with
-`+added` / `-removed` counts and a **view diff** toggle that opens a
-**per-file unified diff viewer** - added, removed, hunk-header and context
-lines coloured - before you decide anything.
-
-**Nothing here applies itself.** A cycle *parks* proposals; the apply call is
-the only thing that writes, and the self-editing access policy still governs
-what that call is allowed to touch - sensitive paths stage for approval,
-secrets and `ava.yaml` are denied outright. That machinery is on
-[The agent](agent.md).
-
-| Action | What it does |
-|---|---|
-| **Approve & apply** (code) / **Approve** (idea) | `POST /api/learning/code/apply` or `/chat/apply`. A proposal with staged changes is written and committed through the code agent; a plain suggestion is just marked approved. |
-| **Reject** | `POST /api/learning/{code,chat}/reject` - the proposal is closed, nothing is written. |
-| **Yes / No** (after completion) | `POST /api/learning/{code,chat}/feedback` - a thumbs pair on the completed card, so approvals you regretted are on the record. |
-| **Run now** | `POST /api/learning/run` - runs a cycle immediately instead of waiting for the schedule, and reports how many proposals it added. |
-| **Refresh** | Re-reads `GET /api/learning/code/state` and `/chat/state`. |
-
-If `features.learning` is off the page says so plainly rather than promising
-proposals a disabled scheduler will never produce; the cadence is
-`learning.interval_hours` (default 24).
 
 ## How the live view actually works
 

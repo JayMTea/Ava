@@ -1,17 +1,22 @@
-# Egress policy for Ava's learning management tools (update_learning_digest, read_learning_state, etc.)
-# to reach the HOST's phone bridge and manage learning digest scripts and access learning state.
+# Egress policy for Ava's read_chats tool to reach the HOST's phone bridge and
+# READ her own conversation history for reflection.
+#
+# Narrowed from `/internal/learning/**` GET+POST when the Learning feature was
+# removed: `/internal/learning/chats` is the only route left under that prefix,
+# and read_chats the only tool that calls it. The wildcard grant it replaces was
+# also flagged by ava_security_check.check_policy_wildcards as over-broad.
 #
 # The bridge (phone_bridge.py / ava-bridge.service) listens on the host at
 # 127.0.0.1:8096; from the sandbox it's reached via the built-in host-gateway
 # alias host.openshell.internal, routed THROUGH the guard proxy as plain-HTTP
 # `rest` on port 8096. Calls are additionally gated by the X-Ava-Internal-Token
-# bearer the tools are handed at launch, and scoped to the /internal/learning/** surface.
+# bearer the tools are handed at launch, and scoped to that one route.
 #
 # Applied by ../install.sh via: nemoclaw my-assistant policy-add --from-file <this> --yes
 
 preset:
   name: ava-learning
-  description: "Host phone-bridge learning management for Ava's update_learning_digest and read_learning_state tools"
+  description: "Host phone-bridge chat-history READ for Ava's read_chats tool"
 
 network_policies:
   ava-learning:
@@ -26,8 +31,7 @@ network_policies:
           - 172.16.0.0/12
           - 192.168.0.0/16
         rules:
-          - allow: { method: GET, path: "/internal/learning/**" }
-          - allow: { method: POST, path: "/internal/learning/**" }
+          - allow: { method: GET, path: "/internal/learning/chats" }
     binaries:
       - { path: /usr/local/bin/node }
       - { path: /usr/bin/node }

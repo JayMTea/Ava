@@ -237,7 +237,7 @@ gate entirely.
 
 !!! note "The default install has no tools, no memory and no connectors"
     The container runs the tool-less assistant by default: chat works, but there is
-    no tool use, no memory recall, no connectors and no self-editing. To add the
+    no tool use, no memory recall and no connectors. To add the
     **full tool-using agent** to an install you already have, switch to the `agent`
     profile: `cp profiles/agent.env .env && docker compose up -d` (that file already
     sets the `AVA_AGENT_ENABLED` / `AVA_AGENT_RUNTIME` / `AVA_ROUTER_HOST` trio,

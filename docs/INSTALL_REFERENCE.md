@@ -388,7 +388,7 @@ overrides. **No source edits, ever.** Highlights:
 | `server.port` | web app port (default 8096); env `AVA_PORT` |
 | `inference.backends` | your model engines (vLLM / Ollama / llama.cpp / cloud) |
 | `agent.sandbox` | the agent runtime sandbox name |
-| `features.*` | `web_search`, `voice` (Setup → System → Optional features), plus `learning` and `memory`, which have their own panels |
+| `features.*` | `web_search`, `voice`, `branding`, `memory` (Setup → System → Optional features); `memory` also has its own detail panel |
 | `connectors` | the apps Ava monitors and drives |
 
 Secrets live outside `ava.yaml` and outside the repo: the admin password in

@@ -4,14 +4,14 @@ const BRIDGE = process.env.AVA_BRIDGE_URL || 'http://host.openshell.internal:809
 
 export default {
   name: 'read_config',
-  description: "Read system configuration (env, persona, learning settings)",
+  description: "Read this install's .env settings. Allowlisted keys show their value; secrets are redacted and unknown keys hidden. Read-only — there is no tool to change configuration.",
   inputSchema: {
     type: "object",
     properties: {
       component: {
         type: "string",
-        enum: ["env", "persona", "learning"],
-        description: "Configuration component to read"
+        enum: ["env"],
+        description: "Configuration component to read. Only 'env' exists."
       }
     },
     required: ["component"],

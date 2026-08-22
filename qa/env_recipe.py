@@ -29,7 +29,6 @@ def hermetic_env(home: str, llm_url: str, *,
         "AVA_PASSWORD": "",
         "AVA_AGENT_ENABLED": "0",        # DirectRuntime floor (no NemoClaw)
         "AVA_ROUTER_EMBEDDED": "false",  # no in-process inference router
-        "AVA_LEARNING": "0",             # no self-analysis cycles
         "AVA_ROUTER_CHAT": llm_url,      # DirectRuntime -> fake LLM
     }
     if port is not None:

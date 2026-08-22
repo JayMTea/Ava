@@ -77,10 +77,11 @@ will not do it either. Re-provision from **Setup → Agent** afterwards.
 
     - Nothing in `ava.yaml` is tracked (`.gitignore` covers `ava.yaml*`), so
       your persona never lands in a commit or a pull request.
-    - The template is in the approval tier of the self-editing policy
-      (`ava_bridge/access_policy.py`), so Ava cannot quietly rewrite its own
-      operational mandates - a change there waits for you regardless of your
-      `code.approval` setting.
+    - Ava cannot rewrite it. She has no file-writing tool at all — the whole
+      self-editing loop was removed — so the operational mandates in the
+      template are not something the agent can quietly relax. It used to be
+      gated by an approval tier; not having the write path is the stronger
+      version of the same guarantee.
     - `tests/test_persona_neutral.py` fails if the shipped template ever regains
       a stylistic opinion, and separately if it loses an operational one. If you
       are adding character, add it as a preset or as your own `persona.style` -

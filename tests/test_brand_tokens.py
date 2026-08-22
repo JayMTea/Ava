@@ -108,16 +108,3 @@ def test_the_brand_override_block_exists_and_touches_no_shipped_value() -> None:
                     "--accent-tint:#8ec9f0", "--accent-line:#1d4e75",
                     "--accent:#006bb3", "--accent-tint:#005a94"):
         assert shipped in css, f"a shipped token value was edited away: {shipped}"
-
-
-def test_learning_view_uses_the_one_app_palette() -> None:
-    """CLAUDE.md mandates appAccent() for anything representing a connected app.
-
-    LearningView carried a SECOND palette with its own `% 7` hash, so a connector
-    got one colour there and a different one in the rail — and its first entry
-    was a hardcoded #007acc no re-brand could reach.
-    """
-    src = (ROOT / "frontend/src/components/learning/LearningView.tsx").read_text(
-        encoding="utf-8")
-    assert "APP_COLORS" not in src, "the rogue palette is back"
-    assert "appAccent" in src

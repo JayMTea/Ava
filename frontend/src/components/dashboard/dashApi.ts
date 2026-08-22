@@ -87,10 +87,6 @@ export interface OpsSummary {
   ok: boolean;
   turns: { running: number; total: number; by_status: Record<string, number> };
   generations_24h: number;
-  learning: {
-    code: { last_cycle: string | null; cycles: number; pending: number };
-    chat: { last_cycle: string | null; cycles: number; pending: number };
-  };
   ts: number;
 }
 export interface Service { name: string; unit?: string; systemd?: string | null; probe_ok?: boolean | null; status: string }

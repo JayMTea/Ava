@@ -167,13 +167,6 @@ plainly that **the gate is open** and anyone can talk to Ava.
     [Choosing a model](../CHOOSE_A_MODEL.md) and
     [the agent runtime](../AGENT_RUNTIME.md).
 
-!!! note "The composer's Code mode toggle is not wired in this UI"
-
-    Flipping it and sending a message returns a system line pointing you at
-    the Control Center. Self-editing is real, but it is driven from
-    **Operations → Control Center**, not from the chat composer - see
-    [the agent: tools, skills & self-improvement](agent.md).
-
 ## Where to go next
 
 - [Memory & recall](../MEMORY.md) - what gets folded into a turn, why, and how

@@ -213,24 +213,10 @@ export function useChat() {
   );
 
   const send = useCallback(
-    async (text: string, codeMode: boolean) => {
+    async (text: string) => {
       const t = text.trim();
       const atts = pending.slice();
       if ((!t && !atts.length) || busyRef.current) return;
-      if (codeMode) {
-        if (!t) return;
-        push({ kind: 'user', id: uid(), text: t, atts: [] });
-        push({
-          kind: 'sys',
-          id: uid(),
-          // Do NOT send people to /legacy: that panel POSTs to /api/code/turn,
-          // which no longer exists, so following the old advice ended in a 404.
-          // Governed self-editing runs from the Control Center.
-          text: 'Code mode isn’t wired to the composer. Ava’s governed self-editing runs from Operations → Control Center, where each change waits for your approval.',
-          icon: 'code',
-        });
-        return;
-      }
       const userItemId = uid();
       push({ kind: 'user', id: userItemId, text: t, atts });
       if (t) {
@@ -486,7 +472,7 @@ export function useChat() {
 
   const removeAtt = useCallback((id: string) => setPending((p) => p.filter((a) => a.id !== id)), []);
 
-  const quickSay = useCallback((t: string) => send(t, false), [send]);
+  const quickSay = useCallback((t: string) => send(t), [send]);
 
   const refreshArtifact = useCallback(async () => {
     if (!artifact || artifact.type !== 'weather') return;

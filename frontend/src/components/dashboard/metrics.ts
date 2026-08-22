@@ -1,6 +1,6 @@
 // Plain-language explanations for every metric shown in the dashboards, so a
 // hover ⓘ can tell the user what a number actually means. One glossary, keyed by
-// a short id, reused across Vitals / Operations / Learning. Keep each entry to a
+// a short id, reused across Vitals and Operations. Keep each entry to a
 // sentence or two — this is a tooltip, not documentation.
 
 export const METRICS: Record<string, string> = {
@@ -36,16 +36,6 @@ export const METRICS: Record<string, string> = {
   modelShare:
     'Share of completions handled by each model — shows which brain is doing the work.',
 
-  // ---- Learning / Control Center ----
-  approvalGates:
-    'Changes Ava has proposed that are waiting for your approval before anything is applied.',
-  codeChanges:
-    'Proposals that modify code, as opposed to plain ideas or notes.',
-  completed:
-    'Proposals you approved and Ava has applied.',
-  apps:
-    'Apps Ava is connected to and can propose changes for. The assistant itself is always included; other apps appear only while connected.',
-
   // ---- Operations · KPI strip ----
   activeTurns:
     'Chat turns Ava is processing right now — a turn is one request/response exchange.',
@@ -53,8 +43,6 @@ export const METRICS: Record<string, string> = {
     'Everything logged to performance history in the last 24 hours — Ava\'s own completions plus every connected app\'s work.',
   servicesUp:
     'Backend services (model engine, connectors, schedulers) that are up, out of the total Ava monitors.',
-  pendingApprovals:
-    'Learning proposals waiting for your approval on the Control Center below.',
   alerts:
     'Active alerts — budget, hardware, or service issues Ava has flagged. Red means at least one is critical.',
 };

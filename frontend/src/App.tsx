@@ -193,7 +193,6 @@ export default function App() {
     try { localStorage.setItem('ava.sidebarWidth', String(navWidth)); } catch { /* storage unavailable */ }
   }, [navWidth]);
   const [text, setText] = useState('');
-  const [codeMode, setCodeMode] = useState(false);
   const [artWidth, setArtWidth] = useState('50%');
   const [refreshing, setRefreshing] = useState(false);
   const [lightbox, setLightbox] = useState<string | null>(null);
@@ -301,8 +300,8 @@ export default function App() {
   const onSend = useCallback(() => {
     const t = text;
     setText('');
-    chat.send(t, codeMode);
-  }, [text, codeMode, chat]);
+    chat.send(t);
+  }, [text, chat]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -441,8 +440,6 @@ export default function App() {
               onSend={onSend}
               onTalk={chat.talk}
               busy={chat.busy}
-              codeMode={codeMode}
-              onToggleCode={setCodeMode}
               hint={chat.hint}
               ctxTokens={chat.ctxTokens}
               ctxMax={chat.ctxMax}

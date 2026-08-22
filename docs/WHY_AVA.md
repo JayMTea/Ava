@@ -59,7 +59,7 @@ agent runs sandboxed in [NemoClaw](AGENT_RUNTIME.md), the MCP client runs
 host-side so a compromised tool server never gets a line into that sandbox, and
 the agent itself reaches exactly two policed bridge routes and nothing else.
 
-Chat, voice and governed self-editing come with it, but they are how you *use*
+Chat and voice come with it, but they are how you *use*
 the platform, not what it is for.
 
 ## Who it's for
@@ -81,7 +81,6 @@ hub for that scatter: always-on, on their **own** hardware, wired to their
   download one.
 - **Talks and listens** on-device, gated to *your* voice.
 - **Searches the web** through a SearXNG *you* run.
-- **Edits its own source**, every change awaiting your approval.
 - **Studies its own activity** and parks proposals for you.
 - **Remembers what matters**, and hands you the eraser.
 - **Installs to your phone** as a home-screen app.
@@ -129,7 +128,6 @@ Each of those is taken apart, with the endpoint or config key behind it, in
 | **No personality until you give it one.** | The shipped prompt covers only what Ava must *do*. How it talks is a blank field you fill in, so a fork sounds like *your* assistant. [Persona](PERSONA.md) |
 | **You own it.** | Self-hosted and single-tenant, on your GPU. Conversations, files and voiceprint stay on your box. Nothing reaches a third party unless you turn it on. |
 | **Your model, local by default.** | Ships a 7B model that fits a normal GPU, and swaps in one line: vLLM, Ollama, llama.cpp, LM Studio, MLX, or a cloud endpoint. [Pick a model](CHOOSE_A_MODEL.md) |
-| **It edits its own source, governed.** | Changes land as git commits, every one a revert away. By default *every* change waits for you, and secrets and models are never writable. |
 | **It learns without leaking.** | Local-first cycles analyse Ava's own activity and park proposals for your sign-off. Nothing self-applies. [Memory](MEMORY.md) |
 
 ??? note "The config keys behind those claims"
@@ -138,10 +136,8 @@ Each of those is taken apart, with the endpoint or config key behind it, in
     | Key | Default | What it means |
     |---|---|---|
     | `persona.style` | *empty* | Free text written straight into the prompt. Empty means the model's own voice, unshaped. Max 4000 characters. |
-    | `features.learning_cloud_fallback` | `false` | Learning prompts quote your chats verbatim, so sending one to Anthropic when the local model can't finish a cycle is its own decision, and it defaults to no. Registered in `ava_bridge/features.py`; env override `AVA_LEARNING_CLOUD_FALLBACK`. |
     | `features.web_search` | `false` | Web search off. Env override `AVA_WEB_SEARCH`. |
     | `features.voice` | `false` | Voice off, and it needs `requirements-voice.txt` installed. Env override `AVA_VOICE`. |
-    | `code.approval` | `all` | `all` means every self-edit waits for your approval. `policy` and `none` loosen that. `ava_bridge/access_policy.py` makes the files that write this key un-writable by the agent, so Ava cannot un-gate itself. |
     | `AVA_WEB_TOR` | `1` | Host-side fetch is fail-closed over Tor. Set `0` to opt out. |
     | `sandbox: docker` (connector manifest, `mcp:` block) | *unset* | Set it on a stdio MCP server and Ava runs it in a throwaway container: `--read-only`, a tmpfs for scratch, CPU/memory/pid caps, `no-new-privileges`, and **no host filesystem mounts**. Add `network: none` to cut its network too. The Setup GUI offers this as a one-click toggle, defaulted on when Docker is available. |
 
@@ -153,7 +149,7 @@ Each of those is taken apart, with the endpoint or config key behind it, in
 
 ## What actually leaves your machine
 
-[![What stays on your computer and what leaves only if you switch it on: chats, memories, files, voiceprint, model weights, connected-app data and secrets never cross the line; a web search, a prompt to a cloud model, one learning cycle, a model download, and reaching Ava from your phone each cross it only behind a named switch, and each of those switches is off or unset by default](assets/egress.svg)](assets/egress.svg)
+[![What stays on your computer and what leaves only if you switch it on: chats, memories, files, voiceprint, model weights, connected-app data and secrets never cross the line; a web search, a prompt to a cloud model, a model download, and reaching Ava from your phone each cross it only behind a named switch, and each of those switches is off or unset by default](assets/egress.svg)](assets/egress.svg)
 
 Nothing crosses that line unless you turn it on, and each crossing carries the
 name of the switch that opens it. [Privacy and security](../SECURITY.md) covers

@@ -54,7 +54,11 @@ def secure_opener(path: str, flags: int) -> int:
 # escalation it targets.
 #
 # The one that matters: `content` is the group whose server runs web_fetch, i.e.
-# where prompt injection actually arrives. It must never carry `code_change`.
+# where prompt injection actually arrives. It must never carry a control-plane
+# capability — `config` or `policies` — because a fetched page is attacker text.
+# It used to be `code_change` that mattered most here; that scope is gone, along
+# with every path by which the agent could edit source. See
+# tests/test_security.py::SelfEditingIsRemovedTests for why it stays gone.
 #
 # `content` no longer carries `connectors`. It used to, and the comment here said
 # why: mcp_server_content drove both the connector action bridge and the
@@ -70,8 +74,7 @@ def secure_opener(path: str, flags: int) -> int:
 # only what its remaining tools actually call. A narrowed table with the tools
 # still in mcp_server_content would have broken them instead.
 INTERNAL_SCOPE_GROUPS: dict[str, frozenset[str]] = {
-    "admin": frozenset({"logs", "perf", "config", "policies", "code_change",
-                        "model"}),
+    "admin": frozenset({"logs", "perf", "config", "policies", "model"}),
     "content": frozenset({"documents", "model", "web"}),
     # Measured, not assumed: the only routes the moved tools call are
     # /internal/devices/events (device_events.mjs) and /internal/connector/<cid>/*

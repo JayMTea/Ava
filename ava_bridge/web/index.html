@@ -22,9 +22,10 @@
   
   /* === LAYOUT STRUCTURE (NO SHIFT) ===
      - header (fixed height)
-     - #viewPort (flex:1) ← swaps between chat/learning without reflow
-     - #composer (fixed height) ← always present, toggled only when in non-chat views
-  */
+     - #viewPort (flex:1) ← the chat log
+     - #composer (fixed height)
+     There used to be a second view here (the Learning dashboard) and a nav to
+     swap between them; both went with the Learning feature. */
   header { padding:14px 16px 10px; text-align:center; border-bottom:1px solid var(--line); position:relative; flex:0 0 auto; }
   header h1 { margin:0; font-size:20px; letter-spacing:.3px; }
   header .sub { font-size:12px; color:var(--muted); margin-top:3px; }
@@ -35,7 +36,6 @@
   .view.active { display:flex !important; }
   
   #log { padding:14px; gap:10px; }
-  #learningView { padding:14px; }
   #studioView { padding:14px; }
   .bubble { max-width:82%; padding:10px 13px; border-radius:16px; font-size:16px; line-height:1.4;
             white-space:pre-wrap; word-wrap:break-word; }
@@ -128,34 +128,6 @@
   .ibtn.busy { background:#555c6b; }
   .hint { font-size:12px; color:var(--muted); min-height:15px; padding:6px 8px 0; text-align:center; }
 
-  /* Code mode: toggle + Claude model picker + proposed-diff cards. */
-  /* RESERVED SPACE (no display:none shift) — always takes space, just hidden visually */
-  #codebar { visibility:hidden; height:0; overflow:hidden; display:flex; align-items:center;
-             gap:8px; padding:0 2px; flex:0 0 auto; transition:none; }
-  #codebar.visible { visibility:visible; height:auto; padding:0 2px 8px; }
-  .codetoggle { display:inline-flex; align-items:center; gap:6px; font-size:12.5px; flex:0 0 auto;
-    color:#aab2c2; background:var(--panel); border:1px solid var(--line);
-    border-radius:999px; padding:6px 11px; cursor:pointer; }
-  .codetoggle svg { width:15px; height:15px; flex:0 0 auto; }
-  .codetoggle.on { color:#fff; background:var(--accent); border-color:var(--accent); }
-  .codemodel { font-size:12px; color:var(--txt); background:var(--panel); border:1px solid var(--line);
-    border-radius:10px; padding:6px 8px; min-width:0; flex:1 1 auto; max-width:64%; }
-  .proposal { border:1px solid var(--line); border-radius:14px; background:var(--panel);
-    margin:6px 0; overflow:hidden; }
-  .prop-head { padding:9px 12px; font-size:13px; font-weight:600; border-bottom:1px solid var(--line); }
-  .prop-file { border-bottom:1px solid var(--line); }
-  .prop-fname { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 12px; }
-  .pf-path { font-family:ui-monospace,monospace; font-size:12.5px; color:#c7cdda; word-break:break-all; }
-  .pf-stat { font-size:11px; color:var(--muted); white-space:nowrap; }
-  .pf-stat.new { color:#3fb27f; } .pf-stat.deleted { color:#e0697d; }
-  pre.diff { margin:0; padding:8px 12px; overflow-x:auto; white-space:pre;
-    font-family:ui-monospace,monospace; font-size:11.5px; line-height:1.5; max-height:340px; }
-  pre.diff .dadd { color:#7ee0a8; } pre.diff .ddel { color:#ff9bab; }
-  pre.diff .dctx { color:#8b93a5; } pre.diff .dhk { color:#7aa2ff; } pre.diff .dh { color:#5b6478; }
-  .prop-actions { display:flex; align-items:center; gap:8px; padding:10px 12px; }
-  .prop-restart { font-size:12px; color:var(--muted); display:flex; align-items:center; gap:5px; margin-right:auto; }
-  .proposal.applied { border-color:#2e5a43; } .proposal.discarded { opacity:.55; }
-
   /* Chat-history drawer (expand button top-left, like ChatGPT/Claude). */
   #menuBtn { position:absolute; left:8px; top:11px; width:38px; height:38px; border:none;
              background:transparent; color:var(--txt); font-size:21px; cursor:pointer;
@@ -189,22 +161,6 @@
   .draw-empty { color:var(--muted); font-size:13px; text-align:center; padding:26px 16px; }
 
   /* App launcher (sidebar) — Ava is the home app; other pages (Studio…) live here. */
-  .app-list { padding:8px; display:flex; flex-direction:column; gap:4px; border-bottom:1px solid var(--line); }
-  .appbtn { display:flex; align-items:center; gap:10px; padding:11px 12px; border:none; cursor:pointer;
-            background:transparent; color:var(--txt); font-size:15px; font-weight:600; border-radius:11px;
-            text-align:left; width:100%; }
-  .appbtn:active { background:var(--panel2); }
-  .appbtn.active { background:var(--accent); color:#fff; }
-  .appbtn .app-ic { display:inline-flex; flex:0 0 auto; }
-  .appbtn .app-ic svg { width:19px; height:19px; }
-  .draw-sub { padding:12px 14px 4px; font-size:12px; font-weight:600; color:var(--muted);
-              text-transform:uppercase; letter-spacing:.04em; }
-  .draw-foot { padding:10px; border-top:1px solid var(--line); }
-  #logoutBtn { width:100%; padding:11px; background:transparent; border:1px solid var(--line);
-               border-radius:11px; color:var(--muted); font-size:14px; font-weight:600; cursor:pointer;
-               display:flex; align-items:center; justify-content:center; gap:8px; }
-  #logoutBtn:active { background:var(--panel2); color:var(--txt); }
-
   /* Inline icons — every glyph is a clean, standardized line icon (currentColor). */
   .ibtn svg { width:21px; height:21px; pointer-events:none; }
   #menuBtn svg { width:22px; height:22px; pointer-events:none; }
@@ -269,81 +225,6 @@
   .st-stage-h { font-size:12px; font-weight:700; color:var(--accent); text-transform:uppercase;
                 letter-spacing:.05em; margin-bottom:8px; }
   .st-hint { font-size:12px; color:var(--muted); margin-top:6px; }
-
-  /* Learning Dashboard --- cycles + proposals */
-  .learn-tabs { display:inline-flex; gap:2px; background:var(--panel); border:1px solid var(--line);
-    border-radius:12px; padding:3px; margin-bottom:14px; align-self:flex-start; }
-  .learn-tab { border:none; background:transparent; color:var(--muted); font-size:13px; font-weight:600;
-    padding:6px 18px; border-radius:9px; cursor:pointer; }
-  .learn-tab.active { background:var(--accent); color:#fff; }
-  .learn-cards { display:flex; flex-direction:column; gap:12px; }
-  .learn-cycle { background:var(--panel); border:1px solid var(--line); border-radius:14px;
-    overflow:hidden; cursor:pointer; }
-  .learn-cycle-head { padding:12px; background:var(--panel2); border-bottom:1px solid var(--line);
-    display:flex; align-items:center; justify-content:space-between; user-select:none; }
-  .learn-cycle-head:hover { background:rgba(255,255,255,.06); }
-  .lcyc-meta { flex:1; min-width:0; }
-  .lcyc-id { font-size:12px; color:var(--muted); font-family:ui-monospace,monospace; }
-  .lcyc-time { font-size:11px; color:var(--muted); margin-top:2px; }
-  .lcyc-badge { font-size:11px; background:var(--accent); color:#fff; border-radius:4px;
-    padding:2px 7px; flex:0 0 auto; margin-left:8px; }
-  .learn-cycle-body { display:none; padding:12px; }
-  .learn-cycle.open .learn-cycle-body { display:block; }
-  .lcyc-section { margin-bottom:14px; }
-  .lcyc-section-h { font-size:12px; font-weight:700; color:var(--accent); text-transform:uppercase;
-    letter-spacing:.05em; margin-bottom:6px; }
-  .lcyc-patterns { background:var(--bg); border:1px solid var(--line); border-radius:8px;
-    padding:9px; font-size:12px; line-height:1.5; color:var(--txt); white-space:pre-wrap;
-    word-break:break-word; max-height:240px; overflow-y:auto; }
-  .learn-proposal { background:var(--bg); border:1px solid #2a3142; border-radius:10px;
-    padding:10px; margin-bottom:8px; }
-  .lp-title { font-size:13px; font-weight:600; color:var(--txt); margin-bottom:4px; }
-  .lp-desc { font-size:12px; color:#aab2c2; line-height:1.4; margin-bottom:6px; }
-  .lp-meta { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:7px; font-size:11px; color:var(--muted); }
-  .lp-tag { background:rgba(255,255,255,.06); border:1px solid #2a3142; border-radius:6px;
-    padding:2px 6px; }
-  .lp-tag.type-fix { background:rgba(63,178,127,.15); border-color:#2e5a43; }
-  .lp-tag.type-refactor { background:rgba(47,144,255,.15); border-color:#2a4a88; }
-  .lp-tag.type-feature { background:rgba(224,169,59,.15); border-color:#5a4a26; }
-  .lp-tag.risk-low { background:rgba(63,178,127,.12); }
-  .lp-tag.risk-medium { background:rgba(224,169,59,.12); }
-  .lp-tag.risk-high { background:rgba(224,54,77,.12); }
-  .lp-files { margin:6px 0 8px; border:1px solid #2a3142; border-radius:8px; overflow:hidden; }
-  .lp-files-h { font-size:11px; color:var(--muted); background:rgba(255,255,255,.03);
-    padding:5px 8px; border-bottom:1px solid #2a3142; }
-  .lp-file { padding:5px 8px; border-bottom:1px solid #222838; }
-  .lp-file:last-child { border-bottom:none; }
-  .lp-file-name { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11px;
-    color:#c7cfdd; white-space:pre; }
-  .lp-diff { margin:6px 0 2px; padding:8px; background:#0c0f16; border:1px solid #222838;
-    border-radius:6px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:10.5px;
-    line-height:1.45; color:#aab2c2; white-space:pre; overflow-x:auto; max-height:280px; }
-  .lp-actions { display:flex; gap:6px; }
-  .lp-btn { flex:1; padding:6px 10px; font-size:11px; border-radius:6px; border:1px solid #2a3142;
-    background:var(--panel2); color:var(--txt); cursor:pointer; white-space:nowrap; }
-  .lp-btn.approve { border-color:var(--accent); color:var(--accent); }
-  .lp-btn.reject { border-color:#e0697d; color:#e0697d; }
-  .lp-btn:disabled { opacity:.6; cursor:default; }
-  .lp-feedback { display:flex; gap:6px; margin-top:6px; font-size:11px; }
-  .lp-feedback-label { color:var(--muted); margin-right:4px; }
-  .lp-fbtn { padding:4px 8px; border-radius:4px; border:1px solid #2a3142;
-    background:transparent; color:var(--muted); cursor:pointer; transition:all .12s; }
-  .lp-fbtn:hover:not(:disabled){ color:#aab2c2; border-color:#3a435a; }
-  .lp-fbtn.helpful { color:#3fb27f; border-color:#2e5a43; }
-  .lp-fbtn.unhelpful { color:#d8b25a; border-color:#5a4a26; }
-  .lp-fbtn:disabled { opacity:.5; cursor:default; }
-  .learn-empty { text-align:center; color:var(--muted); font-size:13px; padding:40px 20px; }
-
-  /* Inline per-proposal apply/reject status line */
-  .lp-status { margin-top:8px; padding:7px 9px; border-radius:6px; font-size:11.5px;
-    line-height:1.4; display:flex; align-items:flex-start; gap:7px; }
-  .lp-status .lp-status-ico { flex:0 0 auto; margin-top:1px; }
-  .lp-status.working { background:#141a26; border:1px solid #2a3142; color:#9fb0c8; }
-  .lp-status.ok { background:#12241b; border:1px solid #2e5a43; color:#7fd6a6; }
-  .lp-status.err { background:#251418; border:1px solid #5a2e34; color:#ff9bab; }
-  .lp-status .lp-spin { width:11px; height:11px; border:2px solid #3a435a; border-top-color:var(--accent);
-    border-radius:50%; animation:lpspin .7s linear infinite; display:inline-block; }
-  @keyframes lpspin { to { transform:rotate(360deg); } }
 
   /* Bottom toast notifications */
   #avaToasts { position:fixed; left:50%; bottom:22px; transform:translateX(-50%);
@@ -442,10 +323,6 @@
     <div class="draw-head"><span>Ava</span>
       <button id="closeDrawer" class="ibtn" style="width:34px;height:34px;" aria-label="Close"></button>
     </div>
-    <div class="app-list">
-      <button class="appbtn active" data-view="chat"><span class="app-ic"></span><span>Ava &mdash; Assistant</span></button>
-      <button class="appbtn" data-view="learning"><span class="app-ic"></span><span>Learning</span></button>
-    </div>
     <div class="draw-sub">Chats</div>
     <button id="newChat" aria-label="New chat"></button>
     <div id="chatList"></div>
@@ -462,15 +339,8 @@
   </header>
   <div id="viewPort">
     <div id="log" class="view active"></div>
-    <div id="learningView" class="view">
-      <div id="learnCycles"></div>
-    </div>
   </div>
   <div id="composer">
-    <div id="codebar">
-      <button id="codeToggle" type="button" class="codetoggle" title="Code mode — Ava edits her own code with Claude"></button>
-      <select id="codeModel" class="codemodel" hidden aria-label="Claude model"></select>
-    </div>
     <div id="chips"></div>
     <div class="crow">
       <button id="attach" class="ibtn" title="Attach file" aria-label="Attach file"></button>
@@ -1060,7 +930,7 @@ async function openChat(id){
     history = []; renderMessages(j.messages);
     if(!(j.messages||[]).length){
       add('sys','New chat. Hold the mic to talk, type a message, or attach a file.'); }
-    showView('chat'); closeDrawer();
+    closeDrawer();
   }catch(e){}
 }
 
@@ -1070,7 +940,7 @@ async function newChat(){
     currentChatId = c.id; localStorage.setItem('ava.chat', c.id);
     history = []; log.innerHTML='';
     add('sys','New chat. Hold the mic to talk, type a message, or attach a file.');
-    showView('chat'); closeDrawer(); loadChats();
+    closeDrawer(); loadChats();
   }catch(e){}
 }
 
@@ -1179,14 +1049,6 @@ async function sendText(){
   const atts = pending.slice();
   if ((!t && !atts.length) || busy) return;
   textEl.value = ''; autoGrow();
-  if (codeMode){
-    if (!t) return;
-    addMe(t, []);
-    busy = true; statusEl.textContent='coding\u2026';
-    await runCodeTurn(t);
-    busy = false; statusEl.textContent='hold the mic to talk';
-    return;
-  }
   const meBubble = addMe(t, atts); if(t) history.push({role:'user', content:t}); history = history.slice(-12);
   pending=[]; renderChips();
   busy = true; statusEl.textContent='thinking\u2026';
@@ -1208,464 +1070,7 @@ function playWav(b64){
   try{ const a = new Audio('data:audio/wav;base64,'+b64); a.play().catch(()=>{}); }catch(e){}
 }
 
-// ===== Code mode: Ava edits her own source with Claude ======================
-let codeMode = false, codeModelsLoaded = false;
-const codeToggleEl = document.getElementById('codeToggle');
-const codeModelEl = document.getElementById('codeModel');
-codeToggleEl.innerHTML = ICONS.code + '<span>Code</span>';
-
-async function loadCodeModels(){
-  if (codeModelsLoaded) return;
-  try{
-    const r = await fetch('/api/code/models'); const j = await r.json();
-    codeModelEl.innerHTML = '';
-    (j.models||[]).forEach(m => { const o=document.createElement('option'); o.value=m; o.textContent=m; codeModelEl.appendChild(o); });
-    const saved = localStorage.getItem('ava.codemodel');
-    if (saved && (j.models||[]).includes(saved)) codeModelEl.value = saved;
-    codeModelsLoaded = true;
-    if (!j.key) addSys('Code mode needs ANTHROPIC_API_KEY — set it in the repo .env (auto-loaded) or the service environment','alert');
-  }catch(e){ addSys('Could not load Claude models: '+e.message,'alert'); }
-}
-
-function setCodeMode(on){
-  codeMode = on;
-  codeToggleEl.classList.toggle('on', on);
-  codeModelEl.hidden = !on;
-  textEl.placeholder = on ? 'Ask Ava to change her code\u2026' : 'Message Ava\u2026';
-  localStorage.setItem('ava.codemode', on ? '1' : '0');
-  if (on) loadCodeModels();
-}
-
-codeToggleEl.addEventListener('click', () => { if(!busy) setCodeMode(!codeMode); });
-codeModelEl.addEventListener('change', () => localStorage.setItem('ava.codemodel', codeModelEl.value));
-if (localStorage.getItem('ava.codemode') === '1') setCodeMode(true);
-
-async function runCodeTurn(t){
-  // /api/code/turn, /api/code/apply and /api/code/discard no longer exist —
-  // governed self-editing moved to the approval-gated Control Center, and only
-  // /api/code/models and /api/code-turns survived. This panel is a strangler-fig
-  // leftover, so it must say so rather than POST into a 404 and report
-  // "could not start". Everything below this guard is dead with it and should be
-  // deleted together with the #codebar toggle when /legacy is retired.
-  addCot('Code mode').fail(
-    'Self-editing moved to Operations → Control Center in the new UI. '
-    + 'This classic panel is no longer wired.');
-  return;
-  const cot = addCot('Ava is reading the code & planning');
-  const t0 = Date.now();
-  try{
-    const fd = new FormData(); fd.append('text', t); fd.append('model', codeModelEl.value || '');
-    const r = await fetch('/api/code/turn', { method:'POST', body: fd });
-    const j = await r.json();
-    if (!j.turn_id){ cot.fail(j.error||'could not start'); return; }
-    while (true){
-      await sleep(900);
-      let s;
-      try{ const rr = await fetch('/api/code/turn/' + j.turn_id); s = await rr.json(); }
-      catch(e){ continue; }
-      if (s.steps) cot.update(s.steps);
-      if (s.status === 'done'){
-        cot.done(Math.round((Date.now()-t0)/1000));
-        if (s.reply) add('ava', s.reply);
-        renderProposal(j.turn_id, s.edits || []);
-        return;
-      }
-      if (s.status === 'error'){ cot.fail(s.error||'failed'); return; }
-    }
-  }catch(e){ cot.fail('network error'); }
-}
-
-function colorizeDiff(diff){
-  return (diff||'').split('\n').map(l => {
-    const e = escapeHtml(l);
-    if (l.startsWith('+++') || l.startsWith('---')) return '<span class="dh">'+e+'</span>';
-    if (l.startsWith('@@')) return '<span class="dhk">'+e+'</span>';
-    if (l.startsWith('+')) return '<span class="dadd">'+e+'</span>';
-    if (l.startsWith('-')) return '<span class="ddel">'+e+'</span>';
-    return '<span class="dctx">'+e+'</span>';
-  }).join('\n');
-}
-
-function renderProposal(turnId, edits){
-  if (!edits.length){ addSys('No code changes proposed.','bot'); return; }
-  const card = document.createElement('div'); card.className = 'proposal';
-  const head = document.createElement('div'); head.className = 'prop-head';
-  head.textContent = edits.length + ' file' + (edits.length>1?'s':'') + ' to change';
-  card.appendChild(head);
-  edits.forEach(e => {
-    const fileEl = document.createElement('div'); fileEl.className = 'prop-file';
-    const fh = document.createElement('div'); fh.className = 'prop-fname';
-    fh.innerHTML = '<span class="pf-path">'+escapeHtml(e.path)+'</span>'+
-                   '<span class="pf-stat '+e.status+'">'+e.status+' +'+e.added+' \u2212'+e.removed+'</span>';
-    fileEl.appendChild(fh);
-    const pre = document.createElement('pre'); pre.className = 'diff';
-    pre.innerHTML = colorizeDiff(e.diff);
-    fileEl.appendChild(pre);
-    card.appendChild(fileEl);
-  });
-  const actions = document.createElement('div'); actions.className = 'prop-actions';
-  const rl = document.createElement('label'); rl.className = 'prop-restart';
-  const cbx = document.createElement('input'); cbx.type = 'checkbox';
-  rl.appendChild(cbx); rl.appendChild(document.createTextNode(' restart bridge'));
-  const discB = document.createElement('button'); discB.className = 'actbtn';
-  discB.innerHTML = '<span>Discard</span>';
-  const applyB = document.createElement('button'); applyB.className = 'actbtn primary';
-  applyB.innerHTML = ICONS.check + '<span>Apply</span>';
-  applyB.onclick = async () => {
-    applyB.disabled = discB.disabled = true;
-    const fd = new FormData(); fd.append('turn_id', turnId); fd.append('restart', cbx.checked?'1':'0');
-    try{
-      const r = await fetch('/api/code/apply', { method:'POST', body: fd }); const j = await r.json();
-      if (j.ok){
-        head.textContent = 'Applied \u2713 ' + (j.commit ? ('commit '+j.commit) : '') + (j.restart ? ' \u00b7 restarting\u2026' : '');
-        if (j.commit_failed) addSys('Saved, but git commit failed: '+(j.commit_error||''),'alert');
-        card.classList.add('applied'); actions.remove();
-      } else { addSys('Apply failed: '+(j.error||'unknown'),'alert'); applyB.disabled = discB.disabled = false; }
-    }catch(e){ addSys('Apply error: '+e.message,'alert'); applyB.disabled = discB.disabled = false; }
-  };
-  discB.onclick = async () => {
-    const fd = new FormData(); fd.append('turn_id', turnId);
-    try{ await fetch('/api/code/discard', { method:'POST', body: fd }); }catch(e){}
-    card.classList.add('discarded'); actions.remove(); head.textContent = 'Discarded';
-  };
-  actions.appendChild(rl); actions.appendChild(discB); actions.appendChild(applyB);
-  card.appendChild(actions);
-  log.appendChild(card); log.scrollTop = log.scrollHeight;
-}
-
-function autoGrow(){ textEl.style.height='auto'; textEl.style.height=Math.min(textEl.scrollHeight,140)+'px'; }
-
-// Press-and-hold mic (pointer events cover touch + mouse).
-btn.addEventListener('pointerdown', e => { e.preventDefault(); startRec(); });
-btn.addEventListener('pointerup',   e => { e.preventDefault(); stopRec();  });
-btn.addEventListener('pointercancel', () => stopRec());
-btn.addEventListener('pointerleave', () => { if(recording) stopRec(); });
-attachBtn.addEventListener('click', () => fileEl.click());
-fileEl.addEventListener('change', e => uploadFiles(e.target.files));
-sendBtn.addEventListener('click', sendText);
-textEl.addEventListener('input', autoGrow);
-textEl.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); sendText(); } });
-menuBtn.addEventListener('click', openDrawer);
-document.getElementById('closeDrawer').addEventListener('click', closeDrawer);
-scrim.addEventListener('click', closeDrawer);
-document.getElementById('newChat').addEventListener('click', newChat);
-
-// ===== View switching ==================================================
-const learningView = document.getElementById('learningView');
-const chatLog = document.getElementById('log');
-const composerEl = document.getElementById('composer');
-let learningLoaded = false;
-function showView(name){
-  // Update active button
-  document.querySelectorAll('.appbtn').forEach(b=>b.classList.toggle('active', b.dataset.view===name));
-  
-  // Switch active view container (no reflow)
-  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
-  const isChat = name === 'chat';
-  const isLearning = name === 'learning';
-  
-  if (isChat) document.getElementById('log').classList.add('active');
-  else if (isLearning) document.getElementById('learningView').classList.add('active');
-  
-  // Manage composer & codebar (only show on chat view)
-  composerEl.style.display = isChat ? '' : 'none';
-  statusEl.style.visibility = isChat ? '' : 'hidden';
-  setCodebarVisible(isChat);
-  
-  // Load views on first access
-  if (isLearning && !learningLoaded){ learningInit(); learningLoaded = true; }
-  else if (isLearning){ learningRefresh(); }
-}
-document.querySelectorAll('.appbtn').forEach(b=>{
-  if(b.dataset.view==='learning') b.querySelector('.app-ic').innerHTML = ICONS.sparkles;
-  else b.querySelector('.app-ic').innerHTML = ICONS.bot;
-  b.addEventListener('click', ()=>{ showView(b.dataset.view); closeDrawer(); });
-});
-
-// ===== UI Visibility Management ===================================================
-function setCodebarVisible(visible){
-  const codebar = document.getElementById('codebar');
-  if (visible){
-    codebar.classList.add('visible');
-  } else {
-    codebar.classList.remove('visible');
-  }
-}
-
-// ===== Learning Dashboard (Phase 3) ===========================================
-let learningContext = 'code'; // 'code' or 'chat'
-
-async function learningInit(){
-  learningRefresh();
-}
-
-async function learningRefresh(){
-  const wrap = document.getElementById('learnCycles');
-  wrap.innerHTML = `
-    <div class="learn-tabs">
-      <button class="learn-tab active" data-ctx="code" onclick="setLearningContext('code')">Code</button>
-      <button class="learn-tab" data-ctx="chat" onclick="setLearningContext('chat')">Chat</button>
-    </div>
-    <div id="learningContent"></div>
-  `;
-  setLearningContext('code');
-}
-
-function setLearningContext(ctx){
-  learningContext = ctx;
-  setCodebarVisible(false);  // Hide codebar when viewing learning dashboard
-  document.querySelectorAll('.learn-tab').forEach(b=>b.classList.toggle('active', b.dataset.ctx===ctx));
-  loadLearningState(ctx);
-}
-
-async function loadLearningState(ctx){
-  const content = document.getElementById('learningContent');
-  try{
-    const r = await fetch(`/api/learning/${ctx}/state`);
-    const j = await r.json();
-    if (!j.cycles || !j.cycles.length){
-      content.innerHTML = '<div class="learn-empty">No learning cycles yet. Ava will analyze her patterns and propose improvements here.</div>';
-      return;
-    }
-    content.innerHTML = '';
-    const cards = document.createElement('div');
-    cards.className = 'learn-cards';
-    j.cycles.slice(-5).reverse().forEach(cycle => {
-      const card = document.createElement('div');
-      card.className = 'learn-cycle';
-      const head = document.createElement('div');
-      head.className = 'learn-cycle-head';
-      const meta = document.createElement('div');
-      meta.className = 'lcyc-meta';
-      const id = document.createElement('div');
-      id.className = 'lcyc-id';
-      id.textContent = cycle.id;
-      const time = document.createElement('div');
-      time.className = 'lcyc-time';
-      const ts = typeof cycle.timestamp === 'number' ? cycle.timestamp*1000 : cycle.timestamp;
-      time.textContent = new Date(ts).toLocaleString();
-      meta.appendChild(id);
-      meta.appendChild(time);
-      head.appendChild(meta);
-      const badge = document.createElement('div');
-      badge.className = 'lcyc-badge';
-      badge.textContent = (cycle.proposals||[]).length + ' proposal' + ((cycle.proposals||[]).length!==1?'s':'');
-      head.appendChild(badge);
-      head.onclick = () => card.classList.toggle('open');
-      card.appendChild(head);
-      const body = document.createElement('div');
-      body.className = 'learn-cycle-body';
-      // Patterns section
-      if (cycle.patterns){
-        const patSec = document.createElement('div');
-        patSec.className = 'lcyc-section';
-        const patH = document.createElement('div');
-        patH.className = 'lcyc-section-h';
-        patH.textContent = 'Patterns';
-        patSec.appendChild(patH);
-        const patBox = document.createElement('div');
-        patBox.className = 'lcyc-patterns';
-        patBox.textContent = typeof cycle.patterns === 'string' ? cycle.patterns : JSON.stringify(cycle.patterns, null, 2);
-        patSec.appendChild(patBox);
-        body.appendChild(patSec);
-      }
-      // Proposals section
-      if (cycle.proposals && cycle.proposals.length){
-        const propSec = document.createElement('div');
-        propSec.className = 'lcyc-section';
-        const propH = document.createElement('div');
-        propH.className = 'lcyc-section-h';
-        propH.textContent = 'Proposals';
-        propSec.appendChild(propH);
-        cycle.proposals.forEach(prop => {
-          const pcard = document.createElement('div');
-          pcard.className = 'learn-proposal';
-          const title = document.createElement('div');
-          title.className = 'lp-title';
-          title.textContent = prop.title;
-          pcard.appendChild(title);
-          const desc = document.createElement('div');
-          desc.className = 'lp-desc';
-          desc.textContent = prop.description;
-          pcard.appendChild(desc);
-          const meta = document.createElement('div');
-          meta.className = 'lp-meta';
-          const typeTag = document.createElement('span');
-          typeTag.className = 'lp-tag type-' + (prop.type||'fix');
-          typeTag.textContent = (prop.type||'fix');
-          meta.appendChild(typeTag);
-          const riskTag = document.createElement('span');
-          riskTag.className = 'lp-tag risk-' + (prop.risk||'low');
-          riskTag.textContent = 'risk: ' + (prop.risk||'low');
-          meta.appendChild(riskTag);
-          if (prop.effort){
-            const effTag = document.createElement('span');
-            effTag.className = 'lp-tag';
-            effTag.textContent = 'effort: ' + prop.effort;
-            meta.appendChild(effTag);
-          }
-          const statusTag = document.createElement('span');
-          statusTag.className = 'lp-tag';
-          statusTag.textContent = prop.status || 'pending';
-          statusTag.style.color = prop.status==='approved'?'#3fb27f':(prop.status==='rejected'?'#ff9bab':'#8b93a6');
-          meta.appendChild(statusTag);
-          pcard.appendChild(meta);
-          // Code-change proposals (from Ava's code_change_request / self-fix)
-          // carry staged file changes — show the touched files + diffs so the user
-          // knows exactly what they're approving before it hits disk.
-          if (prop.paths && prop.paths.length){
-            const fwrap = document.createElement('div');
-            fwrap.className = 'lp-files';
-            const fhdr = document.createElement('div');
-            fhdr.className = 'lp-files-h';
-            fhdr.textContent = `${prop.paths.length} file(s) · +${prop.added||0}/-${prop.removed||0}`;
-            fwrap.appendChild(fhdr);
-            (prop.staged_changes || prop.paths.map(p=>({path:p}))).forEach(ch => {
-              const row = document.createElement('div');
-              row.className = 'lp-file';
-              const nm = document.createElement('span');
-              nm.className = 'lp-file-name';
-              nm.textContent = (ch.status ? ch.status[0].toUpperCase() : 'M') + '  ' + (ch.path || ch);
-              row.appendChild(nm);
-              if (ch.diff){
-                nm.style.cursor = 'pointer';
-                const pre = document.createElement('pre');
-                pre.className = 'lp-diff';
-                pre.textContent = ch.diff;
-                pre.style.display = 'none';
-                nm.onclick = () => { pre.style.display = pre.style.display==='none'?'block':'none'; };
-                row.appendChild(pre);
-              }
-              fwrap.appendChild(row);
-            });
-            pcard.appendChild(fwrap);
-          }
-          if (prop.status !== 'approved' && prop.status !== 'rejected'){
-            const acts = document.createElement('div');
-            acts.className = 'lp-actions';
-            const statusLine = document.createElement('div');
-            statusLine.className = 'lp-status';
-            statusLine.style.display = 'none';
-            const setStatus = (html, kind) => {
-              statusLine.className = 'lp-status ' + (kind || 'working');
-              statusLine.innerHTML = html;
-              statusLine.style.display = 'flex';
-            };
-            const apBtn = document.createElement('button');
-            apBtn.className = 'lp-btn approve';
-            const isCode = !!prop.staged_changes;
-            apBtn.textContent = isCode ? 'Approve & apply' : 'Approve';
-            const rejBtn = document.createElement('button');
-            rejBtn.className = 'lp-btn reject';
-            rejBtn.textContent = 'Reject';
-            apBtn.onclick = async () => {
-              apBtn.disabled = true; rejBtn.disabled = true;
-              setStatus('<span class="lp-spin"></span><span>Applying change\u2026</span>', 'working');
-              const t = avaToast('Applying change\u2026', 'info', 0);
-              try{
-                const r = await fetch(`/api/learning/${ctx}/apply?proposal_id=${encodeURIComponent(prop.id)}`, {method:'POST'});
-                let j = {}; try { j = await r.json(); } catch(_){}
-                if (!r.ok || j.error || j.ok === false){
-                  const em = j.error || j.message || ('HTTP ' + r.status);
-                  setStatus('<span class="lp-status-ico">\u26a0</span><span>Failed: ' + em + '</span>', 'err');
-                  t.update('Apply failed: ' + em, 'err', 5000);
-                  apBtn.disabled = false; rejBtn.disabled = false;
-                  return;
-                }
-                const files = (j.files || []).join(', ');
-                const base = j.message || ('Applied' + (files ? (' \u00b7 ' + files) : ''));
-                const commitNote = j.commit ? (' \u00b7 committed ' + String(j.commit).slice(0,7))
-                                            : ' \u00b7 (applied to disk, commit pending)';
-                if (j.restart){
-                  setStatus('<span class="lp-spin"></span><span>' + base + '. Waiting for the bridge to come back\u2026</span>', 'working');
-                  t.update(base + ' \u2014 bridge restarting\u2026', 'info', 0);
-                  const back = await waitForBridge();
-                  setStatus('<span class="lp-status-ico">\u2713</span><span>' + base + (back ? '' : ' (bridge slow to return \u2014 refresh to confirm)') + commitNote + '</span>', back ? 'ok' : 'err');
-                  t.update((back ? '\u2713 ' : '\u26a0 ') + base + commitNote, back ? 'ok' : 'err', 5500);
-                } else {
-                  setStatus('<span class="lp-status-ico">\u2713</span><span>' + base + commitNote + '</span>', 'ok');
-                  t.update('\u2713 ' + base + commitNote, 'ok', 5000);
-                }
-                await loadLearningState(ctx);
-              }catch(e){
-                setStatus('<span class="lp-status-ico">\u26a0</span><span>Network error: ' + (e.message || e) + '</span>', 'err');
-                t.update('Apply error: ' + (e.message || e), 'err', 5000);
-                apBtn.disabled = false; rejBtn.disabled = false;
-              }
-            };
-            acts.appendChild(apBtn);
-            rejBtn.onclick = async () => {
-              apBtn.disabled = true; rejBtn.disabled = true;
-              setStatus('<span class="lp-spin"></span><span>Rejecting\u2026</span>', 'working');
-              try{
-                const r = await fetch(`/api/learning/${ctx}/reject?proposal_id=${encodeURIComponent(prop.id)}`, {method:'POST'});
-                let j = {}; try { j = await r.json(); } catch(_){}
-                if (!r.ok || j.error || j.ok === false){
-                  const em = j.error || j.message || ('HTTP ' + r.status);
-                  setStatus('<span class="lp-status-ico">\u26a0</span><span>Reject failed: ' + em + '</span>', 'err');
-                  avaToast('Reject failed: ' + em, 'err', 4500);
-                  apBtn.disabled = false; rejBtn.disabled = false;
-                  return;
-                }
-                avaToast('Proposal rejected', 'ok', 3000);
-                await loadLearningState(ctx);
-              }catch(e){
-                setStatus('<span class="lp-status-ico">\u26a0</span><span>Network error: ' + (e.message || e) + '</span>', 'err');
-                apBtn.disabled = false; rejBtn.disabled = false;
-              }
-            };
-            acts.appendChild(rejBtn);
-            pcard.appendChild(acts);
-            pcard.appendChild(statusLine);
-          } else {
-            // Show feedback buttons for decided proposals
-            const fbac = document.createElement('div');
-            fbac.className = 'lp-feedback';
-            const flbl = document.createElement('span');
-            flbl.className = 'lp-feedback-label';
-            flbl.textContent = 'Was this helpful?';
-            fbac.appendChild(flbl);
-            const fhelpBtn = document.createElement('button');
-            fhelpBtn.className = 'lp-fbtn';
-            fhelpBtn.textContent = 'Yes';
-            fhelpBtn.title = 'Helpful';
-            fhelpBtn.onclick = async () => {
-              fhelpBtn.disabled = true;
-              try{
-                await fetch(`/api/learning/${ctx}/feedback?proposal_id=${encodeURIComponent(prop.id)}&rating=1`, {method:'POST'});
-                fhelpBtn.classList.add('helpful');
-              }catch(e){}
-            };
-            fbac.appendChild(fhelpBtn);
-            const funhelpBtn = document.createElement('button');
-            funhelpBtn.className = 'lp-fbtn';
-            funhelpBtn.textContent = 'No';
-            funhelpBtn.title = 'Not Helpful';
-            funhelpBtn.onclick = async () => {
-              funhelpBtn.disabled = true;
-              try{
-                await fetch(`/api/learning/${ctx}/feedback?proposal_id=${encodeURIComponent(prop.id)}&rating=0`, {method:'POST'});
-                funhelpBtn.classList.add('unhelpful');
-              }catch(e){}
-            };
-            fbac.appendChild(funhelpBtn);
-            pcard.appendChild(fbac);
-          }
-          propSec.appendChild(pcard);
-        });
-        body.appendChild(propSec);
-      }
-      card.appendChild(body);
-      cards.appendChild(card);
-    });
-    content.appendChild(cards);
-  }catch(e){
-    content.innerHTML = '<div class="learn-empty">Error loading learning state: '+e.message+'</div>';
-  }
-}
-
 initChats();
-setCodebarVisible(true);  // Show codebar on initial page load (chat page)
 </script>
 </body>
 </html>

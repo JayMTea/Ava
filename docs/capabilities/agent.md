@@ -1,8 +1,8 @@
-# The agent: tools, skills & self-improvement
+# The agent: tools, skills & memory
 
 On her own, Ava can talk. **The agent is what lets her act**: search the web,
-read a document you uploaded, call one of your connected apps, turn a light off,
-or propose a change to her own source code. It runs in a **sandbox**, a
+read a document you uploaded, call one of your connected apps, or turn a light
+off. It runs in a **sandbox**, a
 locked-down container with no network of its own, so every single thing it does
 has to go out through a short, enumerated list of routes on Ava's bridge.
 Nothing it can reach is implicit.
@@ -10,8 +10,7 @@ Nothing it can reach is implicit.
 [Set up the agent](../AGENT_RUNTIME.md) is the page that turns it on, in two
 clicks. **This page is what it can do once it is on, and what it is not allowed
 to do.** The short version: everything it can reach is enumerated and
-capability-scoped, and on default settings both of its self-improvement loops
-**park their output for you** instead of applying it.
+capability-scoped, and nothing it does writes to your source tree.
 
 ---
 
@@ -112,9 +111,9 @@ appears, with no code change and no registration step.
 
 Two roots are scanned, both optional to extend:
 
-1. `agent/skills/<id>/SKILL.md`, the core kit. Seven skills ship:
-   `ava-architecture`, `ava-devices`, `ava-email-read`, `ava-knowledge`,
-   `ava-self-coding`, `ava-weather`, `ava-web`.
+1. `agent/skills/<id>/SKILL.md`, the core kit. Five skills ship:
+   `ava-architecture`, `ava-devices`, `ava-knowledge`, `ava-weather`,
+   `ava-web`.
 2. `<overlay>/skills/<id>/SKILL.md`, a private overlay (`AVA_OVERLAY`, default
    `overlay/agent`), so a fork keeps its own skills out of the shared repo.
 
@@ -206,8 +205,8 @@ admin   content   connectors   productivity   system   wellness
 ```
 
 **A route-prefix scope table.** `ROUTE_SCOPES` maps each `/internal` prefix to
-the capability it needs: `/internal/code-change` needs `code_change`,
-`/internal/web` needs `web`, `/internal/policies` needs `policies`, and so on.
+the capability it needs: `/internal/web` needs `web`, `/internal/policies`
+needs `policies`, `/internal/config` needs `config`, and so on.
 **Longest prefix wins**, and a path with no entry is **refused for every derived
 token** (the root token still passes). Forgetting to classify a new route fails
 closed, and a test tells its author which entry to add.
@@ -217,7 +216,7 @@ closed, and a test tells its author which entry to add.
 
 | Group | May reach |
 |---|---|
-| `admin` | `logs`, `perf`, `config`, `policies`, **`code_change`**, `model` |
+| `admin` | `logs`, `perf`, `config`, `policies`, `model` |
 | `content` | `documents`, `model`, `web` |
 | `connectors` | `connectors` |
 | `productivity` | `learning`, `model` |
@@ -227,12 +226,16 @@ closed, and a test tells its author which entry to add.
 ??? note "The threat model: the line that is not in that table"
 
     `content` is the group whose server ships `web/web_fetch.mjs`, the surface
-    where prompt injection actually arrives, and it does **not** carry
-    `code_change`. The tool that can rewrite Ava's own source,
-    `admin/code_change_request.mjs`, lives in a different server with a
-    different token. Before this table was wired, 24 of 25 handlers passed no
-    scope at all, so a page Ava read could reach `/internal/code-change`. Least
-    privilege was written down; it just was not enforced.
+    where prompt injection actually arrives, and it carries **no control-plane
+    capability**: not `config`, not `policies`, not `logs`. A fetched page is
+    attacker-controlled text holding a real token, so what that token cannot
+    reach is the whole property. Before this table was wired, 24 of 25 handlers
+    passed no scope at all — least privilege was written down and not enforced.
+
+    The sharpest line used to be `code_change`: `content` not holding the scope
+    that let the agent rewrite Ava's own source. That scope, its route and the
+    tool behind it are gone entirely, which is a stronger answer than a table
+    entry. See `tests/test_security.py::SelfEditingIsRemovedTests`.
 
     `content` does not carry `connectors` either, and that omission is measured
     rather than assumed: the only routes the connector tools call are
@@ -302,160 +305,70 @@ the feature exists to prevent.
 
 ---
 
-## Self-improvement, loop 1: governed code changes
+## Memory distillation
 
-Ava can change her own source. She does not edit files herself. The
-`code_change_request` tool (the `admin` MCP server, per the table above) hands
-the engineering task to Claude, which reads the repo, makes the edit, and fixes
-its own errors. What lands is decided by an access policy, not by the model's
-confidence.
-
-**Three tiers, first match wins.**
-
-| Tier | What happens |
-|---|---|
-| **`denied`** | Refused outright, no matter what. Secrets, data, models, logs, media, `.git`, `.venv`, `ava.yaml`, `connector_grants.yaml` |
-| **`approval`** | Staged and parked for you, never auto-applied. The entrypoint and its auth gate, the policy engine itself, the install and run scripts, `SECURITY.md` |
-| **`auto`** | Everything else in the repo, subject to `code.approval` below |
-
-Auto-applied edits are written and **committed to git** (authored as
-`Ava <ava@localhost>`) with the request in the message, then recorded as a
-completed entry: visible, attributable, revertable. Parked edits become a
-pending proposal carrying the full staged diffs. Every outcome, including
-`blocked` and `parked_for_approval`, lands in the append-only audit ledger,
-which the learning list's 20-cycle window would otherwise lose.
-
-Edits to a registered **external** project are always approval-only, and an
-approved one lands on a review branch `ava/proposed-<id>`, **never the
-mainline**, and only after that project's own test command passes, with the
-working tree returned to its original branch afterwards. Nothing runs the change
-until you merge the branch yourself.
-
-??? note "The exact deny and approval lists"
-
-    **`denied`**, refused outright:
-
-    ```
-    .env  .env.*  *.env            secrets/  secrets/**
-    data/**                        models/**            (voiceprint, TTS weights)
-    **/.secret  **/.internal_token  **/auth_password  **/setup_claim
-    .git/**   .venv/**   run/**    bin/**  logs/**  media/**  enroll/**
-    ava.yaml                       connector_grants.yaml
-    *.pem  *.key  *.onnx  *.npy  *.ckpt  *.ort
-    ```
-
-    Three of those entries are the interesting ones, and the source states the
-    reasoning plainly. **`ava.yaml`** is denied because it holds `code.approval`:
-    writable means self-ungating. **`connector_grants.yaml`** is denied because
-    it is the connector consent ledger: writable means self-approval. `.venv/**`
-    is denied because site-packages that are writable are arbitrary code on the
-    next import.
-
-    **`approval`**, staged and parked for you: the entrypoint and its auth gate,
-    `ava_bridge/auth.py`, `config.py`, `internal.py`, `code_agent.py`,
-    `coder.py`, every file under `agent/policies/`, the install and run scripts,
-    systemd units, `SECURITY.md`, and `ava_bridge/access_policy.py` itself,
-    which the source marks *"THIS file - self-referential, must be gated."* The
-    policy engine cannot quietly rewrite the policy.
-
-    Both upper tiers extend from the environment with colon-separated globs
-    (`AVA_CODE_DENY_GLOBS`, `AVA_CODE_APPROVAL_GLOBS`).
-
-### `code.approval` picks the gate
-
-```yaml
-code:
-  approval: all     # all (default) | policy | none
-```
-
-- **`all`** is the default, and the safe one for a fork: every non-denied edit
-  is promoted into the approval bucket. Nothing applies without you.
-- **`policy`** gates only the sensitive globs above; other edits auto-commit.
-
-!!! warning "`code.approval: none` lets Ava commit to her own source without asking"
-
-    Setting `none` auto-applies every non-denied edit on a trusted single-owner
-    box. Denied paths are still denied and this switch cannot reach them, and
-    every applied edit is still committed to git and written to the audit
-    ledger, so it stays attributable and revertable. But nothing pauses for you
-    first. `all` is the default for a reason.
-
-!!! note "The Composer's Code mode toggle is not this"
-
-    The chat composer has a **Code mode** switch; it is not the path to
-    self-editing and does not drive any of the above. Governed code changes are
-    agent-driven and reviewed in the Control Center. See
-    [Chat & voice](chat.md).
-
----
-
-## Self-improvement, loop 2: local-first learning
-
-A scheduler runs periodic self-analysis. It is an in-process daemon thread, not
-a systemd timer, so it behaves identically bare metal, in Docker and on a Mac.
-The first cycle runs after one full interval, so there is no LLM call at boot.
+A scheduler mines recent chat history for durable facts about you and files them
+in long-term memory. It is an in-process daemon thread, not a systemd timer, so
+it behaves identically bare metal, in Docker and on a Mac. The first cycle runs
+after one full interval, so there is no LLM call at boot.
 
 ```yaml
 features:
-  learning: true          # master switch (default on)
-learning:
-  interval_hours: 24      # cadence; also runnable on demand
+  memory: true                 # master switch (default on)
+memory:
+  distill_interval_hours: 24   # floored at 1h
 ```
 
-One cycle runs three passes:
+Each cycle reads chat messages newer than a cursor in `memory.db`, asks the
+local router for durable facts about you — stable preferences, ongoing projects,
+your setup, people you mention recurringly — and stores at most 8. One-off
+tasks and small talk are skipped; below four unseen messages it does not call
+the model at all. The cursor advances only once a model has actually looked at
+those messages, so nothing is distilled twice and nothing is silently dropped
+when the router is down.
 
-- **Code learning** counts which files changed most, by extension, how many
-  changes applied versus errored, and the recent error strings, then proposes
-  improvements from that shape.
-- **Chat learning** reads recent turns for common topics, slow queries (over
-  3 s), errors, tool usage and capability gaps. Both passes cap at three
-  proposals per cycle.
-- **Memory distillation** extracts durable facts about *you* into long-term
-  memory. Capped at **8 facts per cycle**, skipped entirely below four unseen
-  messages, and gated by a **cursor stored in `memory.db`** so the same messages
-  are never distilled twice. The cursor advances once a model has actually read
-  those messages, even when nothing durable came out, and a `memory_distill`
-  audit event records each run. Full detail on
-  [Memory & recall](../MEMORY.md).
+**Local-only, by construction.** The prompt quotes your conversations verbatim,
+so there is deliberately no cloud fallback: if your router cannot answer, the
+cycle does nothing and the cursor stays put. Every run that stores something
+writes a `memory_distill` row to the audit ledger, and every fact is visible,
+correctable and deletable in **Setup → Agent → Memory**. See [Memory](../MEMORY.md).
 
-Every pass asks Ava's own router first. Only the last **20 cycles** are retained
-per context, which is why anything durable is mirrored into the audit ledger.
+!!! note "Ava does not edit her own code"
 
-**Nothing self-applies.** Every proposal is created `status: pending` with
-`requires_approval: true` and waits. Code proposals carry their staged changes,
-so approving one is what writes and commits it; rejecting one throws it away.
+    She could, until this was removed. `code_change_request` handed an
+    engineering task to Claude, which read the repo, wrote files, committed them
+    as `Ava <ava@localhost>` and restarted the bridge; an access policy decided
+    per file whether that happened automatically or waited for you. The tool,
+    the skill, the egress policy, the route, the scope, the three modules behind
+    it and the API key that paid for it were all removed together.
 
-Review happens in one place: **Operations → Control**, the Control Center, with
-approval gates, per-app proposal cards, per-file unified diffs, thumbs feedback
-after a decision, and a **Run now** button to trigger a cycle immediately. That
-surface is documented on [Operations](operations.md).
+    Nothing in Ava writes to the repository now. The architecture watchdog
+    reports drift instead of committing a fix for it, and `read_config` reads
+    `.env` without being able to write it. Restoring any single layer would be a
+    partial re-arming, so `tests/test_security.py::SelfEditingIsRemovedTests`
+    pins all of them at once.
 
 ---
 
 ## Honest notes
 
-**Learning is local-only unless you switch on the cloud fallback.** When Ava's
-own router cannot complete a learning or memory-distillation cycle, the cycle
-simply produces nothing. It falls back to Anthropic **only** when both
-`features.learning_cloud_fallback` is on and `ANTHROPIC_API_KEY` is set, and
-that switch (**Setup → System → Optional features → Cloud fallback for
-learning**) defaults to **off**. The reason it is a separate switch from `features.learning`
-is that these prompts are not abstract: the distiller sends a transcript of
-recent conversation (bounded, but real chat text), and the chat learner sends
-topic counts, query excerpts and error strings. Turning learning on is a
-statement about self-analysis; it is not consent to upload the material being
-analysed.
+**Distillation has no cloud fallback, on purpose.** When Ava's own router
+cannot complete a cycle, the cycle produces nothing and retries the same
+messages next time. There is no key to fall back to and no switch to turn one
+on. The prompt is not abstract — it is a bounded transcript of real chat text —
+so "the local model was busy" must never quietly become "your chats went to a
+third party".
 
-**The Anthropic key also drives governed code changes.** `code_change_request`
-returns an error without `ANTHROPIC_API_KEY`. Leaving it unset is a supported
-configuration, not a broken one: you lose loop 1 and keep everything else.
+**"Local router" means whatever you configured.** If you pointed the primary
+inference backend at a cloud endpoint, distillation's only attempt already
+leaves the box. The guarantee here is that Ava adds no *second* destination of
+its own, not that your chosen backend is local.
 
 **The Direct floor is genuinely tool-less.** No sandbox, no skills, no
 `/internal/*` callbacks, no live chain of thought. It replays recent history for
-continuity and nothing more. The learning scheduler still runs, because it is
-host-side, but with no tools there is no `code_change_request`, so loop 1 is
-inert. Set `agent.required: true` if you would rather fail loudly than run in it
-by accident.
+continuity and nothing more. The distiller still runs, because it is host-side
+and talks to the router rather than to a tool. Set `agent.required: true` if you
+would rather fail loudly than run in it by accident.
 
 **Provisioned is not the same as current.** `ava agent status` and the Skills
 panel report what is deployed *into the sandbox*, diffed by sha256 against the

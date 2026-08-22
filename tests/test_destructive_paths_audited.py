@@ -97,10 +97,6 @@ _ALLOW = {
     # These are helpers inside an operation the applier already records whole.
     # Recording each file operation would fragment one reviewable change into a
     # dozen rows that no longer add up to a diff.
-    ("ava_bridge/code_agent.py", "_apply_edits"),
-    ("ava_bridge/code_agent.py", "_apply_on_branch"),
-    ("ava_bridge/code_agent.py", "_restore"),
-    ("ava_bridge/coder.py", "apply_turn"),
 
     # --- allocator state, not owner data ------------------------------------- #
     ("ava_bridge/alloc/capacity.py", "reset_baseline"),

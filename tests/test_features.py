@@ -71,11 +71,13 @@ class PreflightContractTests(unittest.TestCase):
                       if s.get("panel", True)]
         self.assertEqual([s["key"] for s in snap], panel_keys)
         # Anything that READS the owner's conversations must be switchable from
-        # the panel the UI sends them to. `learning` and `memory` used to carry
-        # panel: False, so LearningView's "Enable it in Setup → System" pointed
-        # at a checkbox that was filtered out before it ever rendered.
+        # the panel the UI sends them to. `memory` used to carry panel: False,
+        # so MemoryPanel's "Enable it in Setup → System" pointed at a checkbox
+        # that was filtered out before it ever rendered. (`learning` and
+        # `learning_cloud_fallback` were the other two; both went with the
+        # Learning feature.)
         keys = [s["key"] for s in snap]
-        for k in ("learning", "memory", "learning_cloud_fallback"):
+        for k in ("memory",):
             self.assertIn(k, keys, f"{k} reads user conversations and must be "
                                    "togglable from Setup → System")
         for s in snap:

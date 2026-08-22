@@ -155,7 +155,7 @@ The bridge (`:8096`) is password-gated by middleware in `ava_bridge/auth.py`:
 *Egress* is anything leaving the machine. Here is the whole picture: what stays
 put, and what leaves only because you switched it on.
 
-[![What stays on your machine and what leaves only if you switch it on. Staying: your chats and history, what Ava remembers about you, your files and images, your voiceprint, the model weights, your connected apps' data, your secrets and API keys. Leaving only when switched on: a web search, your prompt to a cloud model you picked, one learning cycle, a model download, and reaching Ava from your phone. Each of those switches is off or unset by default](docs/assets/egress.svg)](docs/assets/egress.svg)
+[![What stays on your machine and what leaves only if you switch it on. Staying: your chats and history, what Ava remembers about you, your files and images, your voiceprint, the model weights, your connected apps' data, your secrets and API keys. Leaving only when switched on: a web search, your prompt to a cloud model you picked, a model download, and reaching Ava from your phone. Each of those switches is off or unset by default](docs/assets/egress.svg)](docs/assets/egress.svg)
 
 The agent cannot reach the network freely. **Every MCP tool is bound to its own
 narrow egress policy**; anything not explicitly allowed is denied by default.
@@ -176,9 +176,12 @@ generated locally by `agent/docs/arch.py` on installs with the SSOT manifest.
 
 The property that matters: the `content` group holds the token for the MCP server
 that runs `web_fetch`, which is the surface prompt injection actually arrives on.
-It cannot reach `/internal/code-change`, `/internal/config`, `/internal/policies`,
-`/internal/logs` or `/internal/perf`. `tests/test_internal_scopes.py` and
-`qa/test_10_security.py` both assert that directly.
+It cannot reach `/internal/config`, `/internal/policies`, `/internal/logs` or
+`/internal/perf`. `tests/test_internal_scopes.py` and `qa/test_10_security.py`
+both assert that directly. It also cannot reach `/internal/code-change`, because
+that route no longer exists: governed self-editing was removed in full, and
+`tests/test_security.py::SelfEditingIsRemovedTests` pins every layer of its
+absence so it cannot return one piece at a time.
 
 ??? note "How the scoped callback tokens are enforced"
 
@@ -218,20 +221,27 @@ from env first, else a generated file under `$AVA_HOME` (default the repo root;
 | `data/setup_claim` | One-time first-run claim token; deleted once setup completes |
 | `secrets/env/<NAME>` | Connector credentials, keyed by the env-var name the connector's manifest declares (saved from Setup → Connectors; never written to a manifest or `ava.yaml`) |
 
-The **code-change agent cannot read any of these**. The deny-list is enforced in
-`coder._safe()`, which every tool routes through for path resolution, so a tool
-added later inherits the gate; `search` and `list_dir` restate it because they
-walk the tree themselves.
+**No agent tool can read any of these.** There is no longer a code tool loop to
+gate: the agent's file-reading and file-writing tools were removed with
+self-editing, so the deny-list they needed went with them. What Ava can read is
+now enumerated positively — the `/internal/*` routes in §3, each scoped to a
+capability group.
 
 `.venv/`, `models/`, `media/`, `data/`, `secrets/`, `bin/piper/`, `ava.yaml`, and
 `.env` are `.gitignore`d. **Never** commit a secret; never log secret values.
 
-??? note "Post-mortem: why the deny-list moved onto reads"
+??? note "Post-mortem: the class of bug this removal retired"
 
-    `access_policy` was originally consulted only on writes, so a prompt-injected
-    agent could `read_file(".env")` - which returned `ANTHROPIC_API_KEY` - or,
-    worse, use `search("ANTHROPIC_API_KEY")`, whose own directory walk bypassed
-    the path resolver entirely and returned the key inline in the match.
+    The code agent's deny-list was originally consulted only on writes, so a
+    prompt-injected agent could `read_file(".env")` - which returned the
+    Anthropic key - or, worse, `search("ANTHROPIC_API_KEY")`, whose own
+    directory walk bypassed the path resolver entirely and returned the key
+    inline in the match. It was fixed by moving the deny-list onto reads.
+
+    It is recorded here because it is the argument for the removal rather than
+    against the fix: a tool loop with arbitrary repo read/write needs a correct
+    deny-list on every channel, forever, including channels added later. Not
+    having the loop is a smaller thing to get right.
 
 ## 5. Sensitive data handling
 
@@ -248,8 +258,8 @@ walk the tree themselves.
   scoped, token-gated `/internal/...` routes.
 - Inference defaults to a **local** engine (vLLM/Ollama/llama.cpp on-host);
   chat prompts and replies are not sent to any third-party API unless you
-  configure a cloud backend - or set `ANTHROPIC_API_KEY`, which is a separate
-  path, below.
+  configure a cloud backend. That is now the only such switch: Ava has no
+  third-party model API key of its own.
 
 !!! note "Voice gate limitations (honest scope)"
 
@@ -262,25 +272,6 @@ walk the tree themselves.
     *actions* on the voice gate alone; the web session cookie remains the
     authentication boundary.
 
-!!! warning "`ANTHROPIC_API_KEY` is an opt-in third-party egress"
-
-    It ships empty in `.env.example`. Setting it opens two paths off the host,
-    and it is distinct from configuring a cloud inference backend (§4).
-
-    | Path | What leaves | Switch |
-    |---|---|---|
-    | Governed code changes (`coder` / `code_agent`) | The prompt plus the contents of the repository files the tool loop reads, to `https://api.anthropic.com/v1/messages` (model `AVA_CODE_MODEL`, default `claude-sonnet-4-6`) | The key itself |
-    | Learning / memory-distillation cycle | Short excerpts of your chat messages, as a fallback when the local router returns nothing | `features.learning_cloud_fallback`, **off by default** |
-
-    Leave the key unset and neither can fire; leave the fallback off and the
-    cycle stays on-box even with a key set.
-
-    Two caveats. "Local router" means whatever you configured under
-    `inference:` - if you pointed the primary backend at a cloud endpoint, the
-    cycle's *first* attempt already leaves the box, key or no key. And with the
-    key set, the `access_policy` deny-list (§4) still keeps `.env`, `secrets/`,
-    and `models/` out of what the code agent can read.
-
 ## 6. Threat model (summary)
 
 | Threat | Mitigation |
@@ -289,7 +280,7 @@ walk the tree themselves.
 | Compromised / prompt-injected tool | Per-tool egress allow-list (deny by default); blast radius limited to that tool's single destination |
 | SSRF from a tool | Guard proxy rejects non-allow-listed IPs/hosts |
 | Secret leakage | `0600` files, `.gitignore`, never logged |
-| Secret exfiltration via the code agent | `access_policy` deny-list enforced on **reads** in `coder._safe()`, and restated in the two tools that walk the tree themselves |
+| Secret exfiltration via an agent file tool | There is no agent file tool. Repo read/write went with self-editing; `tests/test_security.py::SelfEditingIsRemovedTests` keeps it gone |
 | Admin takeover on first run | One-time claim token; `/setup` accepts loopback or a matching token, nothing else |
 | Session theft / lost device | Password change re-keys the session HMAC, invalidating every issued cookie (a no-op when `AVA_SECRET` pins the key - rotate that instead) |
 | A pasted connector command reading the bridge's env | Unsandboxed stdio children get a minimal env (a fixed allow-list - `PATH`, `HOME`, `LANG`, `LC_ALL`, `TMPDIR`, `TERM`, `NODE_PATH`, `NVM_DIR`, `SYSTEMROOT` - plus the manifest's declared `env:`), never `os.environ`; probes default to a Docker sandbox and fail closed without it |

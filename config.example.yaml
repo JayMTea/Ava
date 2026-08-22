@@ -328,16 +328,6 @@ agent:
   # required=false, Ava falls back to DIRECT tool-less chat so a fresh install
   # still works; set required=true to make the full runtime mandatory.
 
-# ── Self-editing: how Ava's code-change agent applies edits to its OWN repo ──
-# (secrets, models/ and .git are ALWAYS hard-denied regardless of this setting)
-code:
-  approval: all            # [AVA_CODE_APPROVAL]
-                           #   all    = every non-denied edit waits for your
-                           #            approval (safe default for a fork)
-                           #   policy = only sensitive paths (auth/config/deploy)
-                           #            are gated; other edits auto-commit to git
-                           #   none   = auto-apply all non-denied edits (trusted box)
-
 # ── Optional capabilities (default OFF so a fresh install is minimal) ────────
 features:
   voice: false             # [AVA_VOICE] push-to-talk STT/TTS
@@ -355,29 +345,22 @@ features:
                            #   an add-on. Gates the WRITE path only — an instance
                            #   whose brand was set from outside still renders it
                            #   with this off, it just cannot be edited here.
-  learning: true           # [AVA_LEARNING] periodic local-first self-analysis:
-                           #   parks code/chat improvement proposals for approval
   memory: true             # [AVA_MEMORY] long-term memory distilled from chats and
                            #   uploads, recalled when relevant, every recall audit-
                            #   logged. Turning it OFF is the kill switch for the
                            #   feature the README leads with — view/correct/delete/
                            #   export it all from Setup -> Agent -> Memory (docs/MEMORY.md).
-  learning_cloud_fallback: false
-                           # [AVA_LEARNING_CLOUD_FALLBACK] when a learning or
-                           #   memory-distillation cycle can't be completed by
-                           #   your local router, may Ava finish it with your
-                           #   ANTHROPIC_API_KEY? Those prompts embed verbatim
-                           #   User:/Ava: excerpts drawn from ALL conversations,
-                           #   so this is the one setting that decides whether
-                           #   your chats can leave the box. OFF by default, and
-                           #   separate from `learning` on purpose: enabling
-                           #   self-analysis is not consent to upload the
-                           #   material being analysed.
-
-# ── Self-analysis cadence (only used when features.learning is true) ─────────
-learning:
-  interval_hours: 24       # [AVA_LEARNING_INTERVAL_H] how often a cycle runs
-                           #   (also runnable on demand from the Learning page)
+# ── Long-term memory (only used when features.memory is true) ────────────────
+memory:
+  distill_interval_hours: 24  # [AVA_MEMORY_DISTILL_INTERVAL_H] how often Ava
+                           #   mines new chat messages for durable facts.
+                           #   Floored at 1h. Runs entirely on your local
+                           #   router — the prompt quotes your conversations,
+                           #   so it never leaves the box.
+  recall_k: 4              # [AVA_MEMORY_RECALL_K] how many stored facts may be
+                           #   folded into a chat turn as recall context
+  recall_max_chars: 2000   # [AVA_MEMORY_RECALL_MAX_CHARS] hard ceiling on that
+                           #   recall block, whatever recall_k allows
 
 # ── Connectors: the apps Ava monitors & drives (see docs/CONNECTOR_SDK.md) ───
 # connectors:
@@ -479,20 +462,16 @@ perf:
 # existing `fit:` block, and a model matching a connector picks up that
 # connector's unit and health probe. Declare below only what neither can say.
 # ---- Architecture drift watchdog -------------------------------------------
-# The watchdog re-checks the SSOT manifest on an interval and, when only the
-# generated diagrams have drifted, self-heals by running `arch.py sync --commit`
-# — an automatic commit authored "Ava (auto-sync)" onto whatever branch the
-# working tree is on.
+# The watchdog re-checks the SSOT manifest on an interval and raises an alert in
+# the Ops dashboard when the manifest and the code disagree. It REPORTS ONLY:
+# reconcile diagram drift with `python agent/docs/arch.py sync`, and structural
+# drift by editing agent/docs/architecture.yaml.
 #
-# That is right on a settled tree and wrong mid-refactor, where it can land a
-# commit in the middle of a series or interleave with someone else's edits.
-# `paused` suppresses the auto-commit only: drift is still detected and still
-# raises the alert, so a paused watchdog is quiet rather than blind.
+# It used to self-heal diagram drift with an automatic `git commit` authored
+# "Ava (auto-sync)"; that went with self-editing, and `arch.paused` — which
+# existed only to suppress it — went with it.
 #
-# Read every cycle, so it takes effect in a RUNNING bridge — no restart needed.
-# Env override: AVA_ARCH_WATCH_PAUSED=1. Interval: AVA_ARCH_WATCH_INTERVAL (s).
-arch:
-  paused: false
+# Interval: AVA_ARCH_WATCH_INTERVAL (seconds, default 1800).
 
 # ── Hardware: what Ava may assume about this box ─────────────────────────────
 #

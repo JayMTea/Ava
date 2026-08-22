@@ -134,44 +134,10 @@ SERVER_PORT = settings.get_int("server.port", 8096, env="AVA_PORT")
 PUBLIC_URL = settings.get("server.public_url", f"http://localhost:{SERVER_PORT}",
                           env="AVA_PUBLIC_URL")
 
-# ---- Code mode (Ava edits her own source via Claude) -------------------------
-# Code-mode turns run HOST-side (the repo lives here, not in the sandbox) against
-# the Anthropic Messages API, scoped to this repo (config.ROOT). Put your key in
-# the repo's .env as ANTHROPIC_API_KEY=... (chmod 600); it is auto-loaded.
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-ANTHROPIC_BASE = os.environ.get("ANTHROPIC_BASE", "https://api.anthropic.com")
-ANTHROPIC_VERSION = os.environ.get("ANTHROPIC_VERSION", "2023-06-01")
-# Fallback model list for the UI dropdown if the live /v1/models call fails.
-# Some API keys expose short aliases (claude-sonnet-4-6, …) instead of dated
-# ids; the UI prefers the live /v1/models list and falls back to these.
-CODE_MODELS_FALLBACK = [
-    "claude-sonnet-4-6",
-    "claude-opus-4-8",
-    "claude-haiku-4-5",
-]
-# Default model for autonomous code-change requests (code_agent). Sonnet is the
-# best speed/capability balance for edits; override with AVA_CODE_MODEL in .env.
-CODE_MODEL = os.environ.get("AVA_CODE_MODEL", "claude-sonnet-4-6")
-CODE_MAX_TOKENS = int(os.environ.get("AVA_CODE_MAX_TOKENS", "8192"))
-CODE_MAX_ITERS = int(os.environ.get("AVA_CODE_MAX_ITERS", "18"))
-CODE_MAX_FILE_BYTES = int(os.environ.get("AVA_CODE_MAX_FILE_BYTES", str(400 * 1024)))
-
-# Approval mode for edits to Ava's OWN repo (secrets/models/.git are hard-denied
-# regardless). "all" = every non-denied edit parks for your approval (safe
-# default so a fork never silently self-commits); "policy" = only sensitive
-# globs (auth/config/deploy) are gated, other edits auto-commit; "none" =
-# auto-apply all non-denied edits (trusted single-owner box).
-CODE_APPROVAL = settings.get(
-    "code.approval", "all", env="AVA_CODE_APPROVAL").strip().lower()
-if CODE_APPROVAL not in ("all", "policy", "none"):
-    CODE_APPROVAL = "all"
-
-# --- Self-analysis / learning cycles ---------------------------------------- #
-# Ava periodically analyzes her own code activity + chat history (local-first)
-# and parks improvement proposals for approval. See ava_bridge/learning.py.
-LEARNING_ENABLED = features.enabled("learning")
-LEARNING_INTERVAL_H = settings.get_int("learning.interval_hours", 24,
-                                       env="AVA_LEARNING_INTERVAL_H")
+# Ava talks to no third-party model API. `ANTHROPIC_API_KEY` and the CODE_*
+# knobs that lived here powered governed self-editing, which was removed in full
+# — see tests/test_security.py::SelfEditingIsRemovedTests. Inference is the local
+# router (ROUTER_* below); memory distillation is local-only by construction.
 
 # --- Personal long-term memory (governed recall) ---------------------------- #
 # SQLite FTS5 store at $AVA_HOME/data/memory.db: distilled facts about the
@@ -182,13 +148,12 @@ MEMORY_ENABLED = features.enabled("memory")
 MEMORY_RECALL_K = settings.get_int("memory.recall_k", 4, env="AVA_MEMORY_RECALL_K")
 MEMORY_RECALL_MAX_CHARS = settings.get_int("memory.recall_max_chars", 2000,
                                            env="AVA_MEMORY_RECALL_MAX_CHARS")
-
-# ---- Multi-repo code changes -------------------------------------------------
-# Ava's code-change engine normally edits her OWN repo (ROOT), auto-applying safe
-# edits. It can ALSO edit additional "connected" projects under far stricter rules
-# (approval-only, on a throw-away branch, test-gated). Those projects + their
-# connector env vars are registered by the optional overlay (see the import guard
-# after PROJECTS), so the public core names no specific app.
+# How often the in-process distiller mines new chat messages for durable facts
+# (ava_bridge/distill.py). Floored at 1h by the scheduler. This used to be
+# `learning.interval_hours`, which meant the switch for remembering was named
+# after a feature that no longer exists.
+MEMORY_DISTILL_INTERVAL_H = settings.get_int("memory.distill_interval_hours", 24,
+                                             env="AVA_MEMORY_DISTILL_INTERVAL_H")
 
 # ---- Web access (self-hosted SearXNG + host-side reader) ---------------------
 # Ava's web layer is HOST-MEDIATED: her sandbox tools only ever call the bridge's
@@ -228,33 +193,6 @@ WEB_USER_AGENT = os.environ.get(
     "AVA_WEB_USER_AGENT",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
-
-# Human operator name — shown as "Completed by <name>" when a code-change
-# proposal is applied after approval (vs "Ava" for her autonomous auto-applies).
-OPERATOR_NAME = settings.get("brand.operator", "Admin", env="AVA_OPERATOR_NAME")
-
-# Registry consumed by ava_bridge.code_agent / access_policy. `ava` keeps the
-# original self-edit behaviour; connected projects are added by the optional
-# overlay ONLY when their checkout exists — so a fresh fork gets just `ava`.
-PROJECTS = {
-    "ava": {
-        "root": ROOT,
-        "label": "Ava (self)",
-        "approval_only": False,   # safe edits auto-apply + commit
-        "branch": False,          # commit straight to the working branch
-        "test_cmd": None,
-    },
-}
-
-# Optional connected-app projects + their connector env
-# vars are registered by the gitignored overlay ONLY when their checkout exists;
-# a fork simply skips them and gets `ava`-only self-editing.
-try:
-    from overlay.ava_bridge import personal_config as _personal_config
-    _personal_config.apply(PROJECTS, ROOT)
-except Exception:  # noqa: BLE001 — no overlay (fork) or a broken overlay
-    pass
-
 
 # ---- Authentication ----------------------------------------------------------
 COOKIE_NAME = "ava_session"

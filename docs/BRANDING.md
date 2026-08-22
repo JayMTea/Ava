@@ -163,7 +163,7 @@ A pack arrives from someone who is not you, so it is the least trusted input in
 the system and is treated that way:
 
 - **Its keys are allowlisted, never merged.** A pack cannot set
-  `server.trusted_hosts`, `code.approval`, `paths.*`, or anything else outside
+  `server.trusted_hosts`, `paths.*`, or anything else outside
   `brand.*`. Merging a pack's document would make a logo file a remote-code-
   execution vector; this is the single most important rule in the format.
 - **Every image is re-validated** by the same code path a manual upload uses.

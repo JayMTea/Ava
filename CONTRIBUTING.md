@@ -195,7 +195,6 @@ arbitrary.
 | **tool** | Anything the agent can call, whether from a connector action, an MCP server, or built in (`get_weather`, `read_document`). |
 | **skill** | A `SKILL.md` telling the model *how and when* to use tools. Instructions, not capability - `agent/skills/`. |
 | **the dashboard** | Vitals + Operations. (Previously also called the "Command Center"; that name was retired for rhyming with the next row.) |
-| **Control Center** | The approval queue *inside* Operations → Control, where parked code changes and learning proposals wait for you. |
 | **turn** | One request/response cycle with the agent, tracked in `state.turns` with a live chain-of-thought. |
 | **fit memory** | The memory pool a model is sized against - VRAM on a discrete GPU, system RAM on a unified box. `ava_bridge/hwinfo.fit_memory()`. |
 

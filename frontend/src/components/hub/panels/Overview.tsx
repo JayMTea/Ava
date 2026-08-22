@@ -49,7 +49,7 @@ export function Overview({ onGo }: { onGo: (t: TabId) => void }) {
         <p className="hub-note" style={{ border: 0, padding: 0, background: 'none' }}>
           Each tab configures one piece: your <b>hardware</b> and its spend caps, the <b>agent</b>
           — its brain, persona, skills, memory and voice — the <b>connectors</b> that wire in your
-          apps, and <b>system</b> settings like self-editing governance. Changes are written to
+          apps, and <b>system</b> settings like data retention. Changes are written to
           <b> ava.yaml</b> — never to source.
         </p>
       </Panel>
@@ -67,9 +67,9 @@ export function Overview({ onGo }: { onGo: (t: TabId) => void }) {
         {card('connectors', 'panel', 'Connectors',
           <Badge tone="accent">{enabledConns} enabled</Badge>,
           'apps Ava monitors & drives')}
-        {card('system', 'sliders', 'Governance',
-          sys ? <Badge tone={sys.code_approval === 'all' ? 'ok' : sys.code_approval === 'none' ? 'warn' : 'accent'}>approval: {sys.code_approval}</Badge> : <Badge>…</Badge>,
-          'self-editing · learning · voice')}
+        {card('system', 'sliders', 'System',
+          sys ? <Badge tone="accent">{sys.features.filter((f) => f.enabled).length} on</Badge> : <Badge>…</Badge>,
+          'optional capabilities · data retention · walkthrough')}
       </div>
     </>
   );

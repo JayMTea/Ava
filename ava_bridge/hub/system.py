@@ -13,7 +13,7 @@ import os
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
-from .. import auth, config, features, settings
+from .. import auth, features, settings
 from ..version import __version__
 
 router = APIRouter()
@@ -58,7 +58,7 @@ def _staleness() -> dict:
 
 
 # --------------------------------------------------------------------------- #
-# System — brand, version, governance mode, feature flags
+# System — brand, version, feature flags
 # --------------------------------------------------------------------------- #
 @router.get("/system")
 def system():
@@ -68,9 +68,6 @@ def system():
     return {
         "brand": settings.brand_name(),
         "version": __version__,
-        "code_approval": config.CODE_APPROVAL,
-        "learning_enabled": config.LEARNING_ENABLED,
-        "learning_interval_h": config.LEARNING_INTERVAL_H,
         # Legacy per-feature booleans (existing consumers) + the registry
         # snapshot the Optional-features panel renders from — one source
         # (features.REGISTRY), so a new capability appears here automatically.
@@ -107,36 +104,12 @@ def system():
         # UI "works" but the env value wins again on the next boot. Surfacing
         # the active overrides is the only way the UI can say WHY.
         "env_overrides": {k: v for k, v in {
-            "code_approval": settings.env_override("AVA_CODE_APPROVAL"),
             "retention_days": settings.env_override("AVA_DATA_RETENTION_DAYS"),
             "voice": settings.env_override("AVA_VOICE"),
             "voice_threshold": settings.env_override("AVA_PHONE_THRESHOLD"),
             "agent_enabled": settings.env_override("AVA_AGENT_ENABLED"),
-            "learning": settings.env_override("AVA_LEARNING"),
         }.items() if v},
     }
-
-@router.post("/system/approval")
-def set_approval(mode: str):
-    """Set code.approval (all|policy|none) for Ava's self-editing agent.
-
-    Applies LIVE: code_agent reads config.CODE_APPROVAL at call time, so updating
-    it here gates the very next code-change request without a restart (the setting
-    is also persisted to ava.yaml so it survives one)."""
-    mode = (mode or "").strip().lower()
-    if mode not in ("all", "policy", "none"):
-        return JSONResponse({"ok": False, "error": "mode must be all|policy|none"},
-                            status_code=400)
-    try:
-        settings.save_patch({"code": {"approval": mode}})
-    except Exception as e:  # noqa: BLE001
-        return JSONResponse({"ok": False, "error": f"could not write ava.yaml: {e}"},
-                            status_code=500)
-    config.CODE_APPROVAL = mode  # take effect immediately, no restart
-    return {"ok": True, "restart_required": False,
-            # Honest caveat: with the env var set, this live value reverts to
-            # the env's on the next boot — the security gate silently flips.
-            "env_override": settings.env_override("AVA_CODE_APPROVAL")}
 
 @router.post("/system/retention")
 def set_retention(days: int):

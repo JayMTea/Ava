@@ -4,9 +4,6 @@ Every module imports these objects (never re-binds them) so the whole app shares
 one set of dicts/locks. `chat_store` populates `chats` from disk on import.
 """
 import threading
-import json
-import os
-from pathlib import Path
 
 # Uploaded-attachment records: id -> {filename, kind, url, chars, ocr, text}.
 attachments: dict[str, dict] = {}
@@ -19,35 +16,6 @@ chats_lock = threading.RLock()
 # Live chain-of-thought turns: id -> {id, status, steps[], reply, error}.
 turns: dict[str, dict] = {}
 turns_lock = threading.Lock()
-
-# Code-mode turns: id -> {id, status, steps[], reply, edits[], applied, error}.
-# Ava edits her own source via Claude; edits are STAGED here until approved.
-code_turns: dict[str, dict] = {}
-code_turns_lock = threading.Lock()
-
-# Recursive learning state: SEPARATE contexts for code-mode and general chat.
-# code_learning_state: {last_cycle, cycles[], inline_fixes[]} — tracks code edits, commits, proposals
-# chat_learning_state: {last_cycle, cycles[], inline_fixes[]} — tracks conversation patterns, topics
-# Each has their own proposal approval workflow (gated).
-code_learning_state: dict = {
-    "last_cycle": None,
-    "cycles": [],
-    "inline_fixes": []
-}
-code_learning_state_lock = threading.Lock()
-
-chat_learning_state: dict = {
-    "last_cycle": None,
-    "cycles": [],
-    "inline_fixes": []
-}
-chat_learning_state_lock = threading.Lock()
-
-# Serialises writes to logs/learning_state.json. Kept SEPARATE from the two
-# state locks above so save_learning_state() can be safely called by handlers
-# that already hold code_learning_state_lock or chat_learning_state_lock
-# (threading.Lock is non-reentrant — re-acquiring it here would deadlock).
-_persist_lock = threading.Lock()
 
 # Per-IP login failure tracker for the brute-force throttle.
 login_fails: dict[str, list] = {}
@@ -148,70 +116,3 @@ def release_voice_models() -> dict:
     return held
 
 
-# ===== Persistence for Learning State ========================================
-# This file is the approvals/audit record (staged diffs, who approved what) —
-# it gets the same treatment as chats.json: AVA_HOME-resolved path, atomic
-# temp+replace writes, and 0600 permissions (it contains source diffs and the
-# operator's identity).
-def _learning_state_path() -> str:
-    from . import settings
-    return os.path.join(settings.logs_dir(), "learning_state.json")
-
-
-def _secure_opener(path: str, flags: int) -> int:
-    return os.open(path, flags, 0o600)
-
-
-def save_learning_state():
-    """Persist learning state to disk (called on updates + on shutdown).
-
-    Uses a dedicated _persist_lock (NOT the two state locks) so it can be
-    called from handlers that already hold code_learning_state_lock or
-    chat_learning_state_lock without deadlocking. Atomic: a crash mid-write
-    leaves the previous file intact.
-    """
-    try:
-        path = _learning_state_path()
-        Path(os.path.dirname(path)).mkdir(parents=True, exist_ok=True)
-        with _persist_lock:
-            data = {
-                "code": code_learning_state,
-                "chat": chat_learning_state
-            }
-            tmp = path + ".tmp"
-            with open(tmp, "w", encoding="utf-8", opener=_secure_opener) as f:
-                json.dump(data, f, indent=2)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp, path)
-            os.chmod(path, 0o600)
-    except Exception as e:  # noqa: BLE001 — best-effort persistence; warns and continues
-        print(f"Warning: Could not save learning state: {e}")
-
-
-def load_learning_state():
-    """Load learning state from disk (called on startup). Falls back to the
-    legacy CWD-relative logs/learning_state.json from before the path was
-    AVA_HOME-resolved, so an upgrade never loses the approvals record."""
-    try:
-        path = _learning_state_path()
-        if not os.path.exists(path):
-            legacy = os.path.join("logs", "learning_state.json")
-            if os.path.abspath(legacy) != os.path.abspath(path) and os.path.exists(legacy):
-                path = legacy
-            else:
-                return
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        with code_learning_state_lock, chat_learning_state_lock:
-            if "code" in data:
-                code_learning_state.update(data["code"])
-            if "chat" in data:
-                chat_learning_state.update(data["chat"])
-        print("Loaded learning state from disk")
-    except Exception as e:  # noqa: BLE001 — best-effort persistence; warns and continues
-        print(f"Warning: Could not load learning state: {e}")
-
-
-# Load learning state on startup
-load_learning_state()

@@ -1,11 +1,15 @@
-"""Architecture capability — let Ava read and update her own system's SSOT.
+"""Architecture capability — let Ava READ her own system's SSOT.
 
 The architecture manifest (`agent/docs/architecture.yaml`) + generator/validator
 (`agent/docs/arch.py`) live on the host; Ava's MCP tools call back here (the same
 token-gated host-callback pattern the document tools use) to read the manifest,
-run a drift check, regenerate the diagrams, or apply an edit. `arch.py` does the
-real work (and the auto-commit); this module is a thin subprocess wrapper so the
-bridge never reimplements the pipeline.
+the model, a component description, or a drift report. This module is a thin
+subprocess wrapper so the bridge never reimplements the pipeline.
+
+Read-only. `sync_payload(commit=…)` and `update_payload()` went with self-editing:
+they let the agent regenerate the diagrams and rewrite the manifest and
+`git commit` the result. Reconciling drift is now `python agent/docs/arch.py sync`
+run by a person; `arch.py` keeps that CLI for exactly this reason.
 """
 import json
 import os
@@ -87,29 +91,3 @@ def describe_payload(name: str) -> dict:
 
 def check_payload() -> dict:
     return _json(["check"])
-
-
-def sync_payload(commit: bool = True, message: str | None = None) -> dict:
-    args = ["sync"]
-    if commit:
-        args.append("--commit")
-    if message:
-        args += ["--message", message]
-    cp = _run(args, timeout=180)
-    try:
-        return json.loads((cp.stdout or "").strip().splitlines()[-1])
-    except (json.JSONDecodeError, IndexError):
-        return {"ok": cp.returncode == 0, "output": (cp.stdout + cp.stderr).strip()[-800:]}
-
-
-def update_payload(new_yaml: str, message: str | None = None, commit: bool = True) -> dict:
-    args = ["update"]
-    if not commit:
-        args.append("--no-commit")
-    if message:
-        args += ["--message", message]
-    cp = _run(args, stdin=new_yaml, timeout=180)
-    try:
-        return json.loads((cp.stdout or "").strip().splitlines()[-1])
-    except (json.JSONDecodeError, IndexError):
-        return {"ok": cp.returncode == 0, "output": (cp.stdout + cp.stderr).strip()[-800:]}

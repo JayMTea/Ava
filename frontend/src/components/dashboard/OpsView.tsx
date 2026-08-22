@@ -2,8 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { dash } from './dashApi';
 import type { Alert, TurnRow } from './dashApi';
 import { useEventStream, useLiveResource } from '../../hooks/useLive';
-import { LearningView } from '../learning/LearningView';
-import { EmptyState, Panel, StatusPill, ago, fmtClock, fmtInt } from './layout';
+import { EmptyState, Panel, StatusPill, ago, fmtInt } from './layout';
 import { BarList, StatCard } from './charts';
 import { METRICS } from './metrics';
 
@@ -35,7 +34,6 @@ export function OpsView() {
   const [turnOv, setTurnOv] = useState<Overlay>({});
   const [liveAlerts, setLiveAlerts] = useState<Alert[] | null>(null);
   const [deviceEvents, setDeviceEvents] = useState<DevEvent[]>([]);
-  const [seg, setSeg] = useState<'live' | 'control'>('live');
   const [speakAlerts, setSpeakAlerts] = useState(() => {
     try { return localStorage.getItem('ava.speakDeviceAlerts') === '1'; } catch { return false; }
   });
@@ -74,15 +72,13 @@ export function OpsView() {
     step_count: turnOv[t.id]?.step_count ?? t.step_count,
   }));
   const running = turns.filter((t) => t.status === 'running');
-  const learn = summary.data?.learning;
-  const pending = (learn?.code.pending || 0) + (learn?.chat.pending || 0);
   const toolBars = (tools.data?.tools || []).map((t) => ({ name: t.tool.replace(/^.*__/, ''), value: t.count }));
 
   return (
     <div className="db-view">
       <div className="db-view-head">
         <h2>Operations</h2>
-        <span className="db-view-sub">Ava's live work &amp; control</span>
+        <span className="db-view-sub">Ava's live work</span>
       </div>
 
       {criticals.length > 0 && (
@@ -92,23 +88,11 @@ export function OpsView() {
         </div>
       )}
 
-      <div className="db-seg" role="tablist">
-        <button type="button" className={'db-seg-btn' + (seg === 'live' ? ' on' : '')} onClick={() => setSeg('live')}>Live</button>
-        <button type="button" className={'db-seg-btn' + (seg === 'control' ? ' on' : '')} onClick={() => setSeg('control')}>
-          Control{pending ? <span className="db-seg-badge">{pending}</span> : null}
-        </button>
-      </div>
-
-      {seg === 'control' ? (
-        <LearningView embedded />
-      ) : (
-      <>
-      <div className="db-kpis">
+      <div className="db-kpis db-kpis-4">
         <StatCard label="Active turns" value={fmtInt(summary.data?.turns.running)} tone={summary.data?.turns.running ? 'accent' : 'default'} help={METRICS.activeTurns} />
         <StatCard label="Recorded 24h" value={fmtInt(summary.data?.generations_24h)} help={METRICS.recorded24h} />
         <StatCard label="Services up" value={services.data ? `${services.data.services.length - services.data.down}/${services.data.services.length}` : '—'}
           tone={services.data?.down ? 'err' : 'ok'} help={METRICS.servicesUp} />
-        <StatCard label="Pending approvals" value={fmtInt(pending)} tone={pending ? 'warn' : 'default'} hint="learning proposals" help={METRICS.pendingApprovals} />
         <StatCard label="Alerts" value={fmtInt(alerts.length)} tone={criticals.length ? 'err' : alerts.length ? 'warn' : 'ok'} help={METRICS.alerts} />
       </div>
 
@@ -166,31 +150,21 @@ export function OpsView() {
         </Panel>
       )}
 
-      <div className="db-grid db-grid-2">
-        {/* Workflows */}
-        <Panel title="Background workflows"
-          right={<button type="button" className="db-linkbtn" onClick={() => setSeg('control')}>Review in Control →</button>}>
-          <div className="db-work">
-            <WorkRow label="Code learning" cycles={learn?.code.cycles} last={learn?.code.last_cycle} pending={learn?.code.pending} />
-            <WorkRow label="Chat learning" cycles={learn?.chat.cycles} last={learn?.chat.last_cycle} pending={learn?.chat.pending} />
+      {/* Alerts — full width: its old grid partner was the learning workflows
+          panel, and a two-column grid with one child renders half-empty. */}
+      <Panel tour="ops-alerts" title="Alerts" subtitle={`${alerts.length} active`}>
+        {alerts.length === 0 ? <EmptyState text="All clear." /> : (
+          <div className="db-alerts">
+            {alerts.map((a) => (
+              <div key={a.id} className={`db-alert sev-${a.severity}`}>
+                <span className="db-alert-sev">{a.severity}</span>
+                <span className="db-alert-msg">{a.message}</span>
+                <span className="db-alert-val">{a.metric} {a.op} {a.threshold} (now {a.value ?? '—'})</span>
+              </div>
+            ))}
           </div>
-        </Panel>
-
-        {/* Alerts */}
-        <Panel tour="ops-alerts" title="Alerts" subtitle={`${alerts.length} active`}>
-          {alerts.length === 0 ? <EmptyState text="All clear." /> : (
-            <div className="db-alerts">
-              {alerts.map((a) => (
-                <div key={a.id} className={`db-alert sev-${a.severity}`}>
-                  <span className="db-alert-sev">{a.severity}</span>
-                  <span className="db-alert-msg">{a.message}</span>
-                  <span className="db-alert-val">{a.metric} {a.op} {a.threshold} (now {a.value ?? '—'})</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </Panel>
-      </div>
+        )}
+      </Panel>
 
       <div className="db-grid db-grid-2">
         {/* Scheduled tasks */}
@@ -259,20 +233,6 @@ export function OpsView() {
       <Panel title="Tool usage" subtitle={`${tools.data?.total_calls || 0} calls tracked (session)`}>
         {toolBars.length ? <BarList data={toolBars} /> : <EmptyState text="No tool calls yet." />}
       </Panel>
-      </>
-      )}
-    </div>
-  );
-}
-
-function WorkRow({ label, cycles, last, pending }: { label: string; cycles?: number; last?: string | null; pending?: number }) {
-  return (
-    <div className="db-work-row">
-      <div className="db-work-main">
-        <div className="db-work-label">{label}</div>
-        <div className="db-work-meta">{cycles || 0} cycles · last {last ? fmtClock(Date.parse(last) / 1000) : 'never'}</div>
-      </div>
-      {pending ? <span className="db-badge db-badge-warn">{pending} pending</span> : <span className="db-badge db-badge-ok">clear</span>}
     </div>
   );
 }

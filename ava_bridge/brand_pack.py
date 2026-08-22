@@ -11,7 +11,7 @@ who is not the owner. The rules, in the order they matter:
 
 1. **The brand.yaml is key-ALLOWLISTED, never merged.** `settings.save_patch()`
    on a parsed pack document would let a logo file set
-   `server.trusted_hosts: ["*"]`, or `code.approval: none`, or point
+   `server.trusted_hosts: ["*"]`, or point
    `paths.data` at someone else's directory. That is remote code execution
    wearing a brand, and the allowlist is the single most important line here.
 2. **Every image re-runs `brand.ingest_asset()`** — the same validator, the same

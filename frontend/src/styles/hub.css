@@ -426,31 +426,6 @@
 .hist-detail { color: var(--muted); font-size: var(--fs-xs); margin-top: 3px; overflow-wrap: anywhere; }
 .hist-detail.err { color: var(--err); }
 
-/* ---- system tab: self-editing governance options (icon + title/sub + state) */
-.sys-gov { display: flex; flex-direction: column; gap: 10px; }
-.sys-gov-opt {
-  display: flex; align-items: center; gap: 12px; text-align: left; width: 100%;
-  border: 1px solid var(--inputline); border-radius: var(--r-md); padding: 13px 14px;
-  background: var(--input); color: var(--txt); cursor: pointer; font-family: inherit;
-  transition: border-color var(--dur-fast), background var(--dur-fast);
-}
-.sys-gov-opt:hover:not(:disabled) { border-color: var(--muted); }
-.sys-gov-opt:disabled { opacity: 0.6; cursor: default; }
-.sys-gov-opt.sel { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
-.sys-gov-txt { flex: 1 1 auto; min-width: 0; }
-.sys-gov-txt b { display: block; font-size: var(--fs-sm); font-weight: var(--fw-medium); }
-.sys-gov-txt small { color: var(--muted); font-size: var(--fs-xs); }
-.sys-gov-check {
-  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px;
-  color: var(--accent); font-size: var(--fs-xs); font-weight: var(--fw-medium); white-space: nowrap;
-}
-.sys-gov-check svg { width: 15px; height: 15px; }
-.sys-gov-pick {
-  flex: 0 0 auto; color: var(--muted); font-size: var(--fs-xs); white-space: nowrap;
-  opacity: 0; transition: opacity var(--dur-fast);
-}
-.sys-gov-opt:hover:not(:disabled) .sys-gov-pick { opacity: 1; }
-
 /* ---- system tab: optional-feature rows (identity glyph + toggle) ---- */
 .sys-feat {
   display: flex; align-items: center; gap: 12px;

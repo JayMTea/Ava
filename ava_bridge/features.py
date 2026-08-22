@@ -16,8 +16,10 @@ up automatically:
     System → Optional features"), so agent tools that just relay the error
     (e.g. web_search.mjs) already tell the user what to do.
 
-Feature flags that are NOT user-facing capabilities (features.learning,
-features.memory) stay out of this registry — they have their own panels.
+A capability with its own detail panel still belongs here if it reads the
+owner's data: the panel explains it, the checkbox turns it off. `features.memory`
+is the one such entry — a switch a panel names but nothing renders is worse than
+no switch at all.
 """
 from . import settings
 
@@ -81,32 +83,16 @@ REGISTRY: dict[str, dict] = {
         "default": True,
         "env": "AVA_BRANDING",
     },
-    # Both have their own detail panels, but they DO get a checkbox here: each
-    # one reads your conversations, and LearningView/MemoryPanel both tell the
-    # owner to "enable it in Setup → System" — a control that did not exist,
-    # because `panel: False` filtered them out of snapshot(). A switch the UI
-    # names and the UI does not render is worse than no switch.
-    "learning": {
-        "label": "Learning",
-        "sub": "periodic local-first self-analysis of your activity",
-        "default": True,
-        "env": "AVA_LEARNING",
-    },
+    # Memory has its own detail panel, but it DOES get a checkbox here: it reads
+    # your conversations, and MemoryPanel tells the owner to "enable it in Setup
+    # → System" — a control that did not exist, because `panel: False` filtered
+    # it out of snapshot(). A switch the UI names and the UI does not render is
+    # worse than no switch.
     "memory": {
         "label": "Memory",
         "sub": "distils durable facts from your chats; recalled when relevant",
         "default": True,
         "env": "AVA_MEMORY",
-    },
-    # Separate from `learning` on purpose — see learning._cloud_fallback_enabled.
-    # Learning prompts embed verbatim excerpts from every conversation, so
-    # sending them off-box is its own decision, defaulting to no.
-    "learning_cloud_fallback": {
-        "label": "Cloud fallback for learning",
-        "sub": "if the local model can't finish a cycle, send the prompt "
-               "(which quotes your chats) to Anthropic",
-        "default": False,
-        "env": "AVA_LEARNING_CLOUD_FALLBACK",
     },
 }
 

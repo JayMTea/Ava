@@ -136,7 +136,7 @@ ava doctor && ava up            # doctor exits non-zero if nothing can answer ye
 
 `ava verify` then checks that each advertised capability is actually *wired*:
 connector manifests in lockstep with the tools and egress policies they
-generate, learning and governance reachable, no drift against what's committed.
+generate, memory and voice reachable, no drift against what's committed.
 It exits non-zero if a hard check fails. Treat it as a wiring-and-drift check,
 not a runtime proof — an optional capability you haven't set up warns rather
 than fails. (No install step? `./bin/ava` does the same thing without touching
@@ -150,8 +150,6 @@ your environment.) Full guide: [deploy/README.md](deploy/README.md).
 - **Size your hardware, then watch it.** Ava names the model class your machine can hold before you download one, and keeps GPU, memory, throughput, cost and energy on screen while it runs.
 - **Talk to it.** On-device voice, speech in and speech out, gated to *your* voice.
 - **Search the web without being the product.** Web search goes through a SearXNG *you* run — no third party, no API key — and host-side fetch is fail-closed over Tor by default (`AVA_WEB_TOR=0` opts out), with every redirect hop re-validated against an SSRF guard. The sandboxed agent never reaches the internet directly. Note: the shipped Docker profiles do not yet provision SearXNG or Tor, so this one is opt-in setup rather than on out of the box — see [deploy/README.md](deploy/README.md).
-- **It edits its own code.** Source changes land as git commits; by default every change waits for your approval (`code.approval`).
-- **It studies itself.** Periodic local-first analysis of its own activity parks improvement proposals for your sign-off; nothing self-applies.
 - **It remembers — and you hold the eraser.** Long-term memory distilled from your chats and uploads, recalled when relevant, every recall audit-logged; view, correct, delete, or export all of it in the Hub ([docs/MEMORY.md](docs/MEMORY.md)).
 - **See everything.** A live **Vitals** dashboard: throughput, cost and energy, jobs, alerts.
 - **Set up from the browser.** A guided Setup hub: pick and download a model, wire in your apps, set budgets, toggle optional capabilities — no terminal. Two of the steps need one first: the agent runtime wants the NemoClaw CLI already installed (Ava deliberately will not run a `curl | bash` installer on your behalf), and voice in Docker needs an image built with `AVA_VOICE_DEPS=1`.
@@ -168,7 +166,7 @@ layer your apps plug *into*, and the plug is one file (see the table above).
 The assistant is yours end to end: your model (served locally by **vLLM /
 Ollama / llama.cpp / MLX**, or through a **cloud API key**), your persona, your
 skills, your memory, your egress policies, running sandboxed on hardware you
-own. Chat, voice and governed self-editing come with it — but they are how you
+own. Chat and voice come with it — but they are how you
 use the platform, not what it is for.
 
 **Being honest about what is not special:** self-hosted chat over a local model,
@@ -182,8 +180,8 @@ derivation above.
 
 Ava's dashboard is the front door: a **Vitals** tab (performance at a glance:
 tokens/sec, time-to-first-token, cost and energy, hardware), an
-**Operations** tab (live jobs, background workflows, connectors, alerts, and the
-approval-gated Control Center), and a **Data** tab — the transparency page a
+**Operations** tab (live jobs, connectors, service health, alerts), and a
+**Data** tab — the transparency page a
 cloud assistant can't give you: every store Ava keeps (memories, chats, the
 audit ledger, logs, media, even the secrets it will never display), sized and
 inventoried, with search, export (per-chat or one everything-archive), audited
@@ -208,15 +206,13 @@ the Data tab shows you exactly what's in it.
   ([docs/PERSONA.md](docs/PERSONA.md)).
 - **You own it.** Self-hosted and single-tenant, on your GPU. Your conversations,
   files, and voiceprint stay on your box by default. Nothing goes to a third
-  party unless you turn it on: a cloud inference backend, or an Anthropic key
-  for governed code changes and the cloud fallback of the learning cycle.
+  party unless you turn it on, and the only such switch is a cloud inference
+  backend. Ava ships with no third-party model API key of its own.
 - **Your model, local by default.** Ava defaults to a 7B model that fits a normal
   GPU (downloaded on first run) and swaps in one line — run vLLM, Ollama,
-  llama.cpp, or point it at a cloud endpoint. Your Anthropic key drives governed
-  code changes. It can *also* finish a learning or memory-distillation cycle the
-  local model couldn't — those prompts include chat excerpts — but that fallback
-  is **off by default** (`features.learning_cloud_fallback`), so cycles stay
-  on-box unless you say otherwise ([docs/MEMORY.md](docs/MEMORY.md)).
+  llama.cpp, or point it at a cloud endpoint. Memory distillation runs on that
+  same local router with no cloud fallback at all — its prompts quote your
+  conversations, so they never leave the box ([docs/MEMORY.md](docs/MEMORY.md)).
 - **It knows your machine.** It names the model class your hardware can hold
   before you download one, and the hardware bubble on every view says which
   model is Ava's brain and what *else* is holding model memory
@@ -224,12 +220,6 @@ the Data tab shows you exactly what's in it.
 - **It watches itself, and your apps.** A real operations dashboard: tokens/sec,
   TTFT, **cost and energy**, running jobs, alerts, and per-app service health
   and call latency. An assistant you can't observe is one you can't trust.
-- **It edits its own source, governed.** Ava generates code changes via your Anthropic
-  key and commits them to git (every change one revert away). `code.approval` picks the
-  gate: by default **every** change waits for you; secrets and models are never writable.
-  Separately, local-first learning cycles analyze its own activity and park improvement
-  proposals; review, approve, or reject them in **Operations → Control** (the
-  Control Center).
 - **The MCP boundary is real.** The MCP client runs host-side, so a compromised
   server never gets a line into the sandbox — and Ava withholds the host
   environment from a stdio server rather than handing it over, or runs it in a
@@ -240,7 +230,7 @@ the Data tab shows you exactly what's in it.
 ## Where it stands
 
 Most self-hosted stacks give you a chat UI and stop there — your apps stay
-outside it. Ava puts your apps, governed agent tools, voice, self-editing, and
+outside it. Ava puts your apps, governed agent tools, voice, and
 hardware-and-cost observability behind one dashboard. It trails the cloud giants
 on raw model IQ and polish because it is the **control layer, not the brain**:
 its job is to put *their* models (or yours) to work across *your* software,
@@ -248,8 +238,8 @@ privately.
 
 **A note on NemoClaw:** it is less a competitor than a foundation. NemoClaw is
 Ava's **default agent runtime** (sandbox, tools, egress policies, memory), and
-Ava layers private on-device voice, the connector SDK, the ops dashboard,
-and governed self-editing on top. Use NemoClaw alone if
+Ava layers private on-device voice, the connector SDK and the ops
+dashboard on top. Use NemoClaw alone if
 you want the sandboxed agent runtime to build on; use Ava if you want the
 full private assistant stack. See [docs/AGENT_RUNTIME.md](docs/AGENT_RUNTIME.md).
 

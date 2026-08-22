@@ -71,7 +71,7 @@ class TestInternalScopes(unittest.TestCase):
         that leaks the route's parameter schema (middleware gate)."""
         c = CLIENT
         for path in ("/internal/config", "/internal/policies",
-                     "/internal/learning/state"):
+                     "/internal/learning/chats"):
             r = c.get(path)
             self.assertEqual(r.status_code, 401, f"{path}: {r.status_code}")
             r = c.get(path, headers={"X-Ava-Internal-Token": "f" * 64})
@@ -123,7 +123,7 @@ class TestInternalScopes(unittest.TestCase):
         for group, path in (
             ("content", "/internal/documents"),
             ("admin", "/internal/logs"),
-            ("productivity", "/internal/learning/state"),
+            ("productivity", "/internal/learning/chats"),
             ("system", "/internal/architecture"),
         ):
             r = c.get(path, headers=helpers.internal_headers(group))

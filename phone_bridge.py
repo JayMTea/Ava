@@ -48,10 +48,10 @@ from ava_bridge.auth import (
 )
 from ava_bridge import features, internal
 from ava_bridge import memory_store
-from ava_bridge import dashboard, connectors, perf_store, devices
+from ava_bridge import connectors, perf_store, devices
 from ava_bridge import arch_watch
 from ava_bridge import hardware
-from ava_bridge import learning
+from ava_bridge import distill
 _AVA_VERSION = _ava_version()
 
 HERE = config.ROOT
@@ -174,9 +174,9 @@ def _startup():
     # Start the in-process perf-log rollup (bounds raw storage + serves cold history
     # for month-range charts). Portable — no systemd timer. See ava_bridge/perf_store.
     perf_store.start_scheduler()
-    # Start the in-process self-analysis/learning scheduler (local-first; parks
-    # improvement proposals for approval). No-op if features.learning is false.
-    learning.start_scheduler()
+    # Start the in-process memory distiller (mines chat history for durable facts
+    # about the owner). Local-only. No-op if features.memory is false.
+    distill.start_scheduler()
     # Architecture drift watchdog: periodic SSOT check between commits — heals
     # stale diagrams, alerts on structural drift. No-op without a manifest.
     arch_watch.start_scheduler()
@@ -243,12 +243,6 @@ app.include_router(_chats_router)
 # /api/stream/ops). The poll endpoints and the push channel are one contract.
 from ava_bridge.ops_api import router as _ops_router  # noqa: E402
 app.include_router(_ops_router)
-
-# Owner-facing learning review API (cookie-gated /api/learning/*). Its sandbox
-# counterpart, /internal/learning/*, lives in internal.py with the rest of the
-# token-gated surface — same feature, different trust boundary.
-from ava_bridge.learning_api import router as _learning_router  # noqa: E402
-app.include_router(_learning_router)
 
 # Sandbox->bridge callback surface (/internal/* — token-gated, scope-enforced).
 # Lives in ava_bridge/internal.py alongside the token logic and the ROUTE_SCOPES
@@ -337,15 +331,10 @@ def brand_api():
 
 
 # Dashboard routes (Vitals + Operations) moved to ava_bridge/dashboard.py and
-# ava_bridge/ops_api.py. "Command Center" was retired as a name: it rhymed with
-# the Control Center, which is a different surface (Operations -> Control).
-# All cookie-gated /api/* (browser auth); read-first wrappers over ava_bridge
-# modules.
+# ava_bridge/ops_api.py. All cookie-gated /api/* (browser auth); read-first
+# wrappers over ava_bridge modules.
 
 
-@app.get("/api/code-turns")
-async def api_code_turns(limit: int = 30):
-    return await run_in_threadpool(dashboard.code_turns_list, limit)
 
 
 @app.get("/api/apps")
@@ -866,21 +855,5 @@ def artifact_weather(location: str = "", days: int = 7):
     return art
 
 
-# ---- Code mode endpoints ----
-
-@app.get("/api/code/models")
-def code_models():
-    """Available Claude models for governed code edits.
-
-    Delegates to coder.list_models(), which queries the live /v1/models and falls
-    back to config.CODE_MODELS_FALLBACK. This route used to hardcode its own copy
-    of that same three-id list, so adding a model to the fallback updated the SPA
-    and silently left the legacy UI's dropdown a version behind.
-    """
-    from ava_bridge import coder
-    return {"models": coder.list_models()}
-
-
-# ---- Learning system endpoints (code improvement proposals + feedback) --------
 
 

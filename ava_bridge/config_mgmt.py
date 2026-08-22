@@ -1,16 +1,22 @@
-"""
-Configuration management module for Ava.
-Provides read/write access to .env, digest scripts, and persona config.
+"""Read-only configuration access for Ava.
+
+She can look at her own `.env` — allowlisted keys in full, protected keys
+redacted, everything else hidden — and say what it holds when asked.
+
+There is no write path, deliberately. This module used to have one, and its
+`CONFIG_PATHS` reached `agent/persona.txt.tmpl` (the agent's own system prompt)
+and `ava_learning_digest.py` (executable Python), writing both with no diff, no
+commit and no review — while the code-change policy of the day specifically
+placed the persona template behind owner approval. Two layers, opposite answers,
+one asset. The write path went with self-editing; see
+tests/test_security.py::SelfEditingIsRemovedTests.
 """
 
-import re
 from pathlib import Path
 from typing import Dict, Any
-from datetime import datetime
 import logging
 
 from . import config
-from .security import secure_opener
 
 logger = logging.getLogger(__name__)
 
@@ -21,11 +27,12 @@ class ConfigManager:
     # Paths to configuration files
     CONFIG_PATHS = {
         'env': Path(config.ROOT) / '.env',
-        'persona': Path(config.ROOT) / 'agent' / 'persona.txt.tmpl',
-        'learning': Path(config.ROOT) / 'ava_learning_digest.py',
     }
 
-    # Protected keys that cannot be changed
+    # Keys whose VALUE is never shown. (Nothing can be changed here at all any
+    # more — the name is historical. `ANTHROPIC_API_KEY` stays on the list even
+    # though Ava no longer uses one: an upgraded install may still have it in
+    # .env, and a redaction rule that forgets retired secrets is not a rule.)
     PROTECTED_KEYS = [
         'ANTHROPIC_API_KEY',
         'AVA_SECRET',
@@ -34,7 +41,7 @@ class ConfigManager:
         'OPENCLAW_API_KEY',
     ]
 
-    # Allowed settings that can be changed in env
+    # Keys whose value is safe to show in full on a read.
     ALLOWED_ENV_KEYS = [
         'AVA_PORT',
         'AVA_OC_INFERENCE',
@@ -51,31 +58,12 @@ class ConfigManager:
     _SENSITIVE_PATTERNS = ('TOKEN', 'SECRET', 'PASSWORD', 'APIKEY', '_KEY', 'INTERNAL')
 
     @staticmethod
-    def _validate_env_updates(updates: Dict[str, Any]) -> str | None:
-        """Validate a batch of env-var updates. Returns an error string (naming
-        the offending rule) or None if every key/value is safe to write.
-
-        Deny-by-default: only ALLOWED_ENV_KEYS are mutable; secret-looking keys
-        are always refused; values may not smuggle newlines (which would inject
-        extra .env lines)."""
-        for key, val in updates.items():
-            if any(c in str(val) for c in ('\n', '\r')):
-                return f'value for {key!r} contains newlines (rejected)'
-            up = key.upper()
-            if key in ConfigManager.PROTECTED_KEYS or any(
-                    p in up for p in ConfigManager._SENSITIVE_PATTERNS):
-                return f'{key!r} is a protected/secret key and cannot be changed'
-            if key not in ConfigManager.ALLOWED_ENV_KEYS:
-                return f'{key!r} is not in the allowlisted set of mutable env keys'
-        return None
-
-    @staticmethod
     def read_config(component: str) -> Dict[str, Any]:
         """
         Read a configuration file.
 
         Args:
-            component: 'env', 'persona', or 'learning'
+            component: 'env' (the only readable component)
 
         Returns:
             {'ok': bool, 'config': content or dict, 'path': str, 'error': str?}
@@ -125,164 +113,7 @@ class ConfigManager:
                     'note': 'Only allowlisted keys show values; others are redacted/hidden'
                 }
 
-            else:
-                # Read file as text
-                with open(path, 'r') as f:
-                    content = f.read()
-
-                return {
-                    'ok': True,
-                    'component': component,
-                    'config': content,
-                    'path': str(path)
-                }
-
         except Exception as e:  # noqa: BLE001 — surfaced to the caller as {'ok': False, 'error': …}
-            return {'ok': False, 'error': str(e)}
-
-    @staticmethod
-    def update_config(
-        component: str,
-        updates: Dict[str, Any],
-        reason: str = 'No reason provided'
-    ) -> Dict[str, Any]:
-        """
-        Update a configuration file.
-
-        Args:
-            component: 'env', 'persona', or 'learning'
-            updates: Dict of key-value pairs to update
-            reason: Reason for the change (audit trail)
-
-        Returns:
-            {'ok': bool, 'changed': int, 'error': str?, 'reason_logged': True}
-        """
-        if component not in ConfigManager.CONFIG_PATHS:
-            return {
-                'ok': False,
-                'error': f'Invalid component. Valid: {", ".join(ConfigManager.CONFIG_PATHS.keys())}'
-            }
-
-        if component in ConfigManager.PROTECTED_KEYS:
-            return {
-                'ok': False,
-                'error': f'Cannot update component: {component}'
-            }
-
-        # Security: Check for protected keys
-        for key in updates.keys():
-            if key in ConfigManager.PROTECTED_KEYS:
-                return {
-                    'ok': False,
-                    'error': f'Cannot change protected key: {key}'
-                }
-
-        path = ConfigManager.CONFIG_PATHS[component]
-
-        try:
-            if not path.exists():
-                return {'ok': False, 'error': f'Config file not found: {path}'}
-
-            # Create backup. The source may be .env — 0600 and full of secrets —
-            # so the copy is created 0600 too rather than inheriting the umask
-            # (a plain open() lands 0644 and never gets chmod'd back down).
-            backup_path = path.with_suffix(path.suffix + '.bak')
-            with open(path, 'r') as f:
-                original = f.read()
-            with open(backup_path, 'w', opener=secure_opener) as f:
-                f.write(original)
-
-            # Log the change
-            log_file = Path(config.LOGS_DIR) / 'config_changes.log'
-            log_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(log_file, 'a') as f:
-                f.write(f"\n[{datetime.now().isoformat()}] {component}: {reason}\n")
-                for key, val in updates.items():
-                    f.write(f"  {key}={val}\n")
-
-            # Update the file
-            if component == 'env':
-                # Deny-by-default validation (protected/secret/newline/allowlist).
-                env_err = ConfigManager._validate_env_updates(updates)
-                if env_err:
-                    return {'ok': False, 'error': env_err}
-                # Update .env file
-                lines = []
-                with open(path, 'r') as f:
-                    lines = f.readlines()
-
-                # Track which keys we've updated
-                updated_keys = set()
-
-                # Modify existing lines
-                new_lines = []
-                for line in lines:
-                    if not line.strip() or line.startswith('#'):
-                        new_lines.append(line)
-                        continue
-
-                    if '=' in line:
-                        key = line.split('=', 1)[0].strip()
-                        if key in updates:
-                            new_lines.append(f'{key}={updates[key]}\n')
-                            updated_keys.add(key)
-                        else:
-                            new_lines.append(line)
-                    else:
-                        new_lines.append(line)
-
-                # Add new keys not yet in file
-                for key, val in updates.items():
-                    if key not in updated_keys:
-                        new_lines.append(f'{key}={val}\n')
-                        updated_keys.add(key)
-
-                with open(path, 'w') as f:
-                    f.writelines(new_lines)
-
-                return {
-                    'ok': True,
-                    'component': component,
-                    'changed': len(updated_keys),
-                    'keys': list(updated_keys),
-                    'reason': reason,
-                    'backup': str(backup_path)
-                }
-
-            else:
-                # Text file update (persona, learning)
-                content = original
-
-                # For persona: simple text replacement
-                if component == 'persona':
-                    for key, val in updates.items():
-                        # Replace pattern like "name: Ava" with "name: {val}"
-                        pattern = rf'({key}\s*[:=]\s*).*'
-                        content = re.sub(pattern, rf'\1{val}', content)
-
-                with open(path, 'w') as f:
-                    f.write(content)
-
-                return {
-                    'ok': True,
-                    'component': component,
-                    'changed': len(updates),
-                    'reason': reason,
-                    'backup': str(backup_path)
-                }
-
-        except Exception as e:  # noqa: BLE001 — surfaced to the caller as {'ok': False, 'error': …}
-            # Restore backup on error
-            try:
-                backup_path = path.with_suffix(path.suffix + '.bak')
-                if backup_path.exists():
-                    with open(backup_path, 'r') as f:
-                        original = f.read()
-                    with open(path, 'w') as f:
-                        f.write(original)
-            except:
-                pass
-
             return {'ok': False, 'error': str(e)}
 
     @staticmethod
@@ -297,31 +128,20 @@ class ConfigManager:
             return {
                 'ok': True,
                 'component': component,
-                'allowed_keys': ConfigManager.ALLOWED_ENV_KEYS,
+                'readable_keys': ConfigManager.ALLOWED_ENV_KEYS,
                 'protected_keys': ConfigManager.PROTECTED_KEYS,
-                'note': 'Only allowed_keys can be modified. Protected keys are read-only.'
+                'note': 'Read-only. Nothing here can be changed by the agent.'
             }
 
-        else:
-            return {
-                'ok': True,
-                'component': component,
-                'note': 'Text file. Use read_config() to view current content.'
-            }
+        return {
+            'ok': False,
+            'error': f'Invalid component. Valid: {", ".join(ConfigManager.CONFIG_PATHS.keys())}'
+        }
 
 
 def read_config(component: str) -> Dict[str, Any]:
     """Read a configuration component."""
     return ConfigManager.read_config(component)
-
-
-def update_config(
-    component: str,
-    updates: Dict[str, Any],
-    reason: str = 'No reason provided'
-) -> Dict[str, Any]:
-    """Update a configuration component."""
-    return ConfigManager.update_config(component, updates, reason)
 
 
 def list_keys(component: str) -> Dict[str, Any]:

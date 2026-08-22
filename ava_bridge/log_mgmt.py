@@ -22,8 +22,6 @@ class LogManager:
         'ava-router',
         'vllm',
         'ava-snapshot',
-        'ava-learning-digest',
-        'ava-learning-weekly',
         'ava-arch-sync'
     ]
 
@@ -31,7 +29,6 @@ class LogManager:
 
     APP_LOG_PATHS = {
         'bridge': Path(config.LOGS_DIR) / 'bridge.log',
-        'learning': Path(config.LOGS_DIR) / 'learning.log',
     }
 
     # Friendly short/component names -> the real systemd unit, so callers (and the
@@ -39,7 +36,6 @@ class LogManager:
     SERVICE_ALIASES = {
         'bridge': 'ava-bridge', 'ava': 'ava-bridge',
         'router': 'ava-router',
-        'learning': 'ava-learning-digest',
     }
 
     @staticmethod
@@ -181,7 +177,7 @@ class LogManager:
         Read application log files directly.
 
         Args:
-            component: 'bridge' or 'learning'
+            component: 'bridge' (the only app log)
             lines: Number of lines to return (1-500)
             level: Filter by level string in log (DEBUG, ERROR, WARNING, etc.)
 

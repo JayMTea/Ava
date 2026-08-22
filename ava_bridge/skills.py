@@ -58,7 +58,7 @@ _CACHE: Dict[str, object] = {"ts": 0.0, "list": None, "errors": []}
 
 
 def _humanize(skill_id: str) -> str:
-    """"ava-self-coding" → "Self Coding" (drop the brand prefix, title-case)."""
+    """"ava-web" → "Web" (drop the brand prefix, title-case)."""
     name = re.sub(r"^ava[-_]", "", skill_id)
     return re.sub(r"[-_]+", " ", name).strip().title() or skill_id
 

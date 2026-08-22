@@ -19,9 +19,9 @@ that is easy to miss. Two failure modes sit on opposite sides of it:
     not fall back to putting the repo root on sys.path. A module imported by
     name but left off the list therefore works perfectly from the clone (where
     CWD covers for it) and raises ModuleNotFoundError from anywhere else. The
-    first draft of the list did this to `ava_learning_digest`, which `ava
-    verify` imports inside the command body, so the break was invisible to
-    import-time checks and to every test run from the repo root.
+    first draft of the list did this to a module `ava verify` imports inside
+    the command body, so the break was invisible to import-time checks and to
+    every test run from the repo root.
 
 So the list is checked from both ends: nothing declared that isn't real, and
 nothing imported by name that isn't declared.
@@ -107,8 +107,8 @@ def test_declared_packages_and_modules_all_exist():
 def test_every_imported_top_level_module_is_declared():
     """Anything imported by name must be installed, or it breaks off the clone.
 
-    This is the test that would have caught `ava verify` importing
-    ava_learning_digest with the module left off the allowlist.
+    This is the test that would have caught `ava verify` importing a top-level
+    module with that module left off the allowlist.
     """
     declared = set(_cfg().get("tool", {}).get("setuptools", {}).get("py-modules", []))
     candidates = {p[: -len(".py")] for p in _tracked("*.py") if "/" not in p}

@@ -20,7 +20,7 @@ from unittest.mock import patch
 # test class below ALSO patches memory_store.db_path (see _MemCase).
 os.environ["AVA_HOME"] = tempfile.mkdtemp()
 
-from ava_bridge import audit, chat_store, config, learning, memory_store
+from ava_bridge import audit, chat_store, config, distill, memory_store
 
 _TMP = tempfile.mkdtemp(prefix="ava_memtest_")
 _DB = os.path.join(_TMP, "memory.db")
@@ -163,7 +163,7 @@ class TestDistiller(_MemCase):
         self.assertEqual(chat_store.recent_messages(time.time() + 10), [])
 
     def test_parse_facts(self):
-        p = learning.MemoryDistiller._parse_facts
+        p = distill.MemoryDistiller._parse_facts
         self.assertEqual(p('noise ["a fact", "b fact"] more'), ["a fact", "b fact"])
         self.assertEqual(p("no json here"), [])
         self.assertEqual(p('[1, {"x": 2}, "keep"]'), ["keep"])
@@ -174,16 +174,15 @@ class TestDistiller(_MemCase):
         async def fake_llm(prompt, max_tokens):
             return '["Owner has a Jetson in the workshop.", "Owner likes corgis."]'
 
-        with patch.object(learning, "_complete_local", fake_llm):
-            n = asyncio.run(learning.memory_distiller.run_cycle())
+        with patch.object(distill, "_complete_local", fake_llm):
+            n = asyncio.run(distill.memory_distiller.run_cycle())
         self.assertEqual(n, 2)
         self.assertEqual(memory_store.counts()["facts"], 2)
         # Cursor advanced: second run sees nothing new, makes no LLM call.
         async def boom(prompt, max_tokens):
             raise AssertionError("should not be called")
-        with patch.object(learning, "_complete_local", boom), \
-             patch.object(learning, "_complete_anthropic", boom):
-            self.assertEqual(asyncio.run(learning.memory_distiller.run_cycle()), 0)
+        with patch.object(distill, "_complete_local", boom):
+            self.assertEqual(asyncio.run(distill.memory_distiller.run_cycle()), 0)
 
     def test_run_cycle_keeps_cursor_on_llm_failure(self):
         self._seed_chat()
@@ -191,11 +190,10 @@ class TestDistiller(_MemCase):
         async def dead(prompt, max_tokens):
             return None
 
-        with patch.object(learning, "_complete_local", dead), \
-             patch.object(learning, "_complete_anthropic", dead):
-            self.assertEqual(asyncio.run(learning.memory_distiller.run_cycle()), 0)
+        with patch.object(distill, "_complete_local", dead):
+            self.assertEqual(asyncio.run(distill.memory_distiller.run_cycle()), 0)
         # Messages were NOT consumed — a later cycle can retry them.
-        self.assertEqual(memory_store.kv_get(learning.MemoryDistiller.KV_KEY, "0"), "0")
+        self.assertEqual(memory_store.kv_get(distill.MemoryDistiller.KV_KEY, "0"), "0")
 
 
 class TestHubSurface(_MemCase):

@@ -739,9 +739,6 @@ export interface FeatureEntry {
 export interface SystemInfo {
   brand: string;
   version: string;
-  code_approval: string;
-  learning_enabled: boolean;
-  learning_interval_h: number;
   voice: boolean;
   voiceprint: boolean;
   web_search: boolean;
@@ -1127,11 +1124,6 @@ export const hub = {
 
   // System
   system: () => req<SystemInfo>('/api/hub/system'),
-  setApproval: (mode: string) =>
-    req<{ ok: boolean; error?: string; restart_required?: boolean }>(
-      `/api/hub/system/approval?mode=${encodeURIComponent(mode)}`,
-      { method: 'POST' },
-    ),
   setRetention: (days: number) =>
     req<{ ok: boolean; error?: string; restart_required?: boolean }>(
       `/api/hub/system/retention?days=${days}`,

@@ -47,13 +47,13 @@ def test_discovers_core_and_overlay(skills_env):
 
 def test_title_and_summary_are_derived(skills_env):
     skills, core, _, _ = skills_env
-    _write_skill(core, "ava-self-coding",
-                 {"name": "ava-self-coding",
-                  "description": '"How Ava fixes her own code. Use whenever the user '
-                                 'asks to change something. Trigger keywords - fix, edit."'})
+    _write_skill(core, "ava-web-search",
+                 {"name": "ava-web-search",
+                  "description": '"How Ava searches the web. Use whenever the user '
+                                 'asks about something current. Trigger keywords - search, news."'})
     s = skills.catalog(force=True)[0]
-    assert s["title"] == "Self Coding"                     # humanized, brand-stripped
-    assert s["summary"] == "How Ava fixes her own code."   # tail cut at "Use whenever"
+    assert s["title"] == "Web Search"                      # humanized, brand-stripped
+    assert s["summary"] == "How Ava searches the web."     # tail cut at "Use whenever"
     assert "Trigger keywords" not in s["summary"]
 
 

@@ -25,18 +25,6 @@ class TestVoiceAbsent(unittest.TestCase):
         self.assertIn("voice", str(r.json()).lower())
 
 
-class TestLearningDisabled(unittest.TestCase):
-    def test_learning_states_answer_cleanly(self):
-        c = CLIENT
-        for path in ("/api/learning/code/state", "/api/learning/chat/state"):
-            r = c.get(path)
-            self.assertEqual(r.status_code, 200, path)
-
-    def test_learning_run_does_not_500(self):
-        r = CLIENT.post("/api/learning/run")
-        self.assertLess(r.status_code, 500, r.text)
-
-
 class TestAgentAbsent(unittest.TestCase):
     def test_status_shows_toolless_floor_not_error(self):
         body = CLIENT.get("/api/hub/agent/status").json()

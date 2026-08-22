@@ -84,15 +84,8 @@ class RouteCoverageTests(unittest.TestCase):
 
 
 class LeastPrivilegeTests(unittest.TestCase):
-    def test_only_admin_may_change_code(self):
-        """The escalation this whole surface exists to prevent."""
-        for group in security.INTERNAL_SCOPE_GROUPS:
-            expected = group == "admin"
-            self.assertEqual(internal.group_may(group, "/internal/code-change"),
-                             expected, group)
-
     def test_the_web_group_holds_no_control_plane_capability(self):
-        forbidden = {"code_change", "config", "policies", "logs", "perf"}
+        forbidden = {"config", "policies", "logs", "perf"}
         held = set(security.INTERNAL_SCOPE_GROUPS.get("content", frozenset()))
         self.assertFalse(held & forbidden, (
             "the `content` group's server runs web_fetch, so it is the surface "

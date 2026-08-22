@@ -377,42 +377,9 @@ def turns_list(limit=50, active=False) -> dict:
     return {"ok": True, "turns": out}
 
 
-def code_turns_list(limit=30) -> dict:
-    with state.code_turns_lock:
-        ts = list(state.code_turns.values())
-    ts.sort(key=lambda t: t.get("created", 0), reverse=True)
-    out = []
-    for t in ts[:int(limit or 30)]:
-        out.append({
-            "id": t.get("id"), "status": t.get("status"),
-            "created": t.get("created"), "applied": t.get("applied"),
-            "edit_count": len(t.get("edits") or []),
-            "error": t.get("error"),
-            "summary": (t.get("reply") or "")[:180] or None,
-        })
-    return {"ok": True, "code_turns": out}
-
-
 # --------------------------------------------------------------------------- #
 # Operations — summary / schedule / services / tools / alerts
 # --------------------------------------------------------------------------- #
-def _learning_brief() -> dict:
-    def brief(sd, lock):
-        with lock:
-            cycles = sd.get("cycles") or []
-            last = sd.get("last_cycle")
-            pending = 0
-            if cycles:
-                for p in (cycles[-1].get("proposals") or []):
-                    if p.get("status") in (None, "pending"):
-                        pending += 1
-        return {"last_cycle": last, "cycles": len(cycles), "pending": pending}
-    return {
-        "code": brief(state.code_learning_state, state.code_learning_state_lock),
-        "chat": brief(state.chat_learning_state, state.chat_learning_state_lock),
-    }
-
-
 def ops_summary() -> dict:
     with state.turns_lock:
         turns = list(state.turns.values())
@@ -431,7 +398,6 @@ def ops_summary() -> dict:
         "turns": {"running": sum(1 for t in turns if t.get("status") == "running"),
                   "total": len(turns), "by_status": by_status(turns)},
         "generations_24h": gen_24h,
-        "learning": _learning_brief(),
         "ts": time.time(),
     }
 

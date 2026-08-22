@@ -700,8 +700,7 @@ def cmd_verify(_args) -> int:
     exits non-zero if any HARD check (x) fails. ● (warn) never fails the run —
     it flags an optional capability that isn't set up, not a broken claim."""
     import yaml as _yaml
-    from ava_bridge import connectors, config, access_policy, learning, policy_inventory
-    import ava_learning_digest as _dig
+    from ava_bridge import connectors, config, distill, policy_inventory
 
     print(f"\n{B}Ava verify{X}  (AVA_HOME = {settings.AVA_HOME})\n")
     fails = 0
@@ -882,39 +881,7 @@ def cmd_verify(_args) -> int:
              f"{len(stranded_state)} file(s) at the legacy code-root path — "
              "`ava agent adopt-state --write`")
 
-    # 2. Self-editing governance
-    print("\nSelf-editing governance")
-    _row(OK if config.CODE_APPROVAL in ("all", "policy", "none") else BAD,
-         "code.approval", config.CODE_APPROVAL)
-    denied_ok = (access_policy.classify(".env") == "denied"
-                 and access_policy.classify("models/voiceprint.npy") == "denied")
-    _row(OK if denied_ok else BAD, "secrets hard-denied",
-         ".env / models/** never writable" if denied_ok else "A SECRET PATH IS NOT DENIED")
-    gated_ok = access_policy.classify("ava_bridge/auth.py") == "approval"
-    _row(OK if gated_ok else WARN, "sensitive gated",
-         "auth/config -> approval" if gated_ok else "auth.py not gated?")
-    _row(OK if config.ANTHROPIC_API_KEY else WARN, "code model key",
-         "ANTHROPIC_API_KEY present" if config.ANTHROPIC_API_KEY
-         else "absent — self-edit disabled until set")
-    fails += (not denied_ok)
-
-    # 3. Learning (self-analysis)
-    print("\nLearning (self-analysis)")
-    _row(OK if config.LEARNING_ENABLED else WARN, "features.learning",
-         f"on · every {config.LEARNING_INTERVAL_H}h" if config.LEARNING_ENABLED else "off")
-    has_sched = callable(getattr(learning, "start_scheduler", None)) and \
-        callable(getattr(learning, "run_all_cycles", None))
-    _row(OK if has_sched else BAD, "cycle wiring",
-         "scheduler + run_all_cycles present" if has_sched else "MISSING")
-    html, _ = _dig.format_digest_html(
-        {"cycles": [{"id": "c", "proposals": []}],
-         "inline_fixes": [{"fix_applied": "raised timeout", "critical": False}]}, {})
-    digest_ok = "raised timeout" in html and "<li>?" not in html
-    _row(OK if digest_ok else BAD, "digest content",
-         "renders real data" if digest_ok else "placeholder '?' bug")
-    fails += (not has_sched) + (not digest_ok)
-
-    # 3b. Long-term memory (governed recall)
+    # 2. Long-term memory (governed recall)
     print("\nMemory (long-term recall)")
     if not config.MEMORY_ENABLED:
         _row(WARN, "features.memory", "off — no recall, no distillation")
@@ -923,13 +890,17 @@ def cmd_verify(_args) -> int:
         store_ok, detail = memory_store.self_check()
         _row(OK if store_ok else BAD, "store (SQLite FTS5)",
              detail if store_ok else f"BROKEN: {detail}")
-        distill_ok = callable(getattr(learning, "memory_distiller", None) and
-                              getattr(learning.memory_distiller, "run_cycle", None))
+        distill_ok = (callable(getattr(distill, "run_distill_cycle", None))
+                      and callable(getattr(distill, "start_scheduler", None))
+                      and callable(getattr(
+                          getattr(distill, "memory_distiller", None),
+                          "run_cycle", None)))
         _row(OK if distill_ok else BAD, "distiller wiring",
-             "memory_distiller in run_all_cycles" if distill_ok else "MISSING")
+             f"scheduler + run_cycle present · every {config.MEMORY_DISTILL_INTERVAL_H}h"
+             if distill_ok else "MISSING")
         fails += (not store_ok) + (not distill_ok)
 
-    # 4. Voice / biometric (optional capability)
+    # 3. Voice / biometric (optional capability)
     print("\nVoice / biometric")
     from ava_bridge import features
     voice_on = features.enabled("voice")
@@ -952,7 +923,7 @@ def cmd_verify(_args) -> int:
         except Exception as e:  # noqa: BLE001
             _row(WARN, "voice deps", f"probe failed: {e}")
 
-    # 5. Inference + health (best-effort; needs services up)
+    # 4. Inference + health (best-effort; needs services up)
     print("\nInference / health  (best-effort — needs `ava up`)")
     port = _server_port()
     _row(OK if _probe(config.ROUTER_CHAT_URL.replace("/v1/chat/completions", "/healthz")) else WARN,
@@ -2237,7 +2208,7 @@ def main() -> int:
                      help="omit the voiceprint digest — pass this before sharing")
     atp.set_defaults(func=cmd_attest)
     sub.add_parser("doctor", help="check the environment").set_defaults(func=cmd_doctor)
-    sub.add_parser("verify", help="end-to-end claim check (connectors, learning, governance, health)").set_defaults(func=cmd_verify)
+    sub.add_parser("verify", help="end-to-end claim check (connectors, memory, voice, health)").set_defaults(func=cmd_verify)
     sp = sub.add_parser("setup", help="first-run setup (dirs, secrets, password, ava.yaml)")
     sp.add_argument("--password", help="set the admin password (else one is generated)")
     sp.add_argument("--force", action="store_true", help="overwrite an existing password")

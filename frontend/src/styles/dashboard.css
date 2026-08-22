@@ -47,8 +47,11 @@
   grid-template-columns: repeat(6, 1fr);
   gap: var(--sp-3);
 }
-@media (max-width: 1100px) { .db-kpis { grid-template-columns: repeat(3, 1fr); } }
-@media (max-width: 560px) { .db-kpis { grid-template-columns: repeat(2, 1fr); } }
+/* Operations runs four tiles, Vitals six. Without this the Ops row renders
+   four-in-six and reads as a strip with a hole in it. */
+.db-kpis-4 { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 1100px) { .db-kpis, .db-kpis-4 { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 560px) { .db-kpis, .db-kpis-4 { grid-template-columns: repeat(2, 1fr); } }
 
 /* ---- panel / card ---- */
 .db-panel {
@@ -167,15 +170,6 @@
   padding: 2px 6px; border-radius: var(--r-pill); background: var(--wash-4); }
 .db-conn-meta { color: var(--muted); font-size: var(--fs-xs); margin-top: 4px; }
 
-/* ---- work rows / badges ---- */
-.db-work { display: flex; flex-direction: column; gap: 10px; }
-.db-work-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.db-work-label { color: var(--txt); font-size: var(--fs-sm); font-weight: var(--fw-medium); }
-.db-work-meta { color: var(--muted); font-size: var(--fs-xs); }
-.db-badge { font-size: var(--fs-xs); padding: 3px 9px; border-radius: var(--r-pill); }
-.db-badge-warn { background: rgba(224,169,59,.16); color: var(--warn-tint); }
-.db-badge-ok { background: rgba(63,178,127,.16); color: var(--ok-tint); }
-
 /* ---- service matrix ---- */
 .db-svc-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
 .db-svc { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--r-sm);
@@ -192,26 +186,14 @@
 /* ---- nav rail divider (between Monitor group and the rest) ---- */
 .rail-div { height: 1px; width: 24px; margin: 6px auto; background: var(--line); }
 
-/* ---- segmented control (Operations: Live | Control) ---- */
-.db-seg { display: inline-flex; gap: 2px; padding: 3px; border-radius: var(--r-pill);
-  background: var(--panel); border: 1px solid var(--line); align-self: flex-start; }
-.db-seg-btn { display: inline-flex; align-items: center; gap: 7px; border: none; cursor: pointer;
-  background: transparent; color: var(--muted); font-size: var(--fs-sm); font-weight: var(--fw-medium);
-  padding: 6px 16px; border-radius: var(--r-pill); transition: background var(--dur-fast), color var(--dur-fast); }
-.db-seg-btn:hover { color: var(--txt); }
-.db-seg-btn.on { background: var(--panel2); color: var(--txt); box-shadow: var(--shadow-1); }
-.db-seg-badge { font-size: 10px; font-weight: var(--fw-bold); min-width: 16px; height: 16px; padding: 0 4px;
-  display: inline-flex; align-items: center; justify-content: center; border-radius: var(--r-pill);
-  background: var(--warn); color: #241a05; }
-
 /* ---- compact dropdown for a panel header (the Day … 5 years range picker) ----
-   Was a .db-seg group, but six chips beside a title in a half-width panel could
+   Was a segmented-chip group, but six chips beside a title in a half-width panel could
    only fit by wrapping to a second row. No `appearance: none`: the native arrow
    and native popup are what make this keyboard- and touch-correct, and
    tokens.css sets `color-scheme` per theme so the browser paints the option
    list on-theme. Same reasoning as .hub-select — this is that control at the
    panel-header type scale, sized to its content rather than a 100%-wide form
-   field. (.db-seg above stays: Live | Control is a two-option view switch.) */
+   field. */
 .db-select {
   padding: 3px 6px;
   border-radius: var(--r-sm);
@@ -225,14 +207,3 @@
 }
 .db-select:hover { border-color: var(--muted); }
 .db-select:focus-visible { outline: none; border-color: var(--accent); }
-
-/* ---- inline text link button ---- */
-.db-linkbtn { background: none; border: none; cursor: pointer; color: var(--accent);
-  font-size: var(--fs-xs); padding: 0; }
-.db-linkbtn:hover { color: var(--accent-hover); text-decoration: underline; }
-
-/* ---- Control Center embedded inside Operations ---- */
-.learning.embedded { padding: 0; height: auto; overflow: visible; }
-.learning.embedded .lv-inner { max-width: none; margin: 0; padding: 0; }
-.learning.embedded .dash-head { margin-top: 0; }
-

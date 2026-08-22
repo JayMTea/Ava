@@ -244,12 +244,11 @@ when" is always answerable from the ledger rather than from memory.
     Revoking is deleting the entry, from Setup → Connectors → Permissions or the
     API.
 
-    That file is also on the agent's hard-deny list: the self-editing access
-    policy refuses to write `connector_grants.yaml` at all, alongside
-    `ava.yaml`, `secrets/**` and `.git/**`. The reasoning is in the source
-    comment. The grants file is the connector consent ledger, so a writable one
-    is self-approval. Ava cannot grant herself a permission you did not give
-    her. See [the agent page](agent.md) for the rest of that policy.
+    No agent tool can touch it. Ava has no file tool at all — the repo
+    read/write loop went with self-editing — so the grants file is unreachable
+    by construction rather than by a deny-list. That matters because the grants
+    file is the connector consent ledger: a writable one would be
+    self-approval. Ava cannot grant herself a permission you did not give her.
 
 ## The trust boundary
 
@@ -299,7 +298,7 @@ stating plainly rather than leaving one sentence to cover three cases.
     |---|---|
     | `http` / `sse` | **Nothing.** The bridge posts to the URL from your manifest. There is no host allow-list and no SSRF guard on this path, unlike Ava's web-search fetch, which re-validates every redirect hop. A remote MCP server is as trusted as the operator who declared it. |
     | `stdio` + `sandbox: docker` | A throwaway container: read-only rootfs, tmpfs `/tmp` and `/root`, `--cpus 1`, `--memory 512m`, `--pids-limit 256`, `no-new-privileges`, no host mounts, and only the `env:` your manifest declares. Network defaults to `bridge` (outbound is open); set `network: none` to cut it. |
-    | `stdio` (default) | A host process running as the bridge user, with your filesystem and your network. The one mitigation is that Ava passes it a **stripped environment** rather than `os.environ`, so it does not inherit `ANTHROPIC_API_KEY` or your connector credentials. Anything it legitimately needs, you declare in `env:`. |
+    | `stdio` (default) | A host process running as the bridge user, with your filesystem and your network. The one mitigation is that Ava passes it a **stripped environment** rather than `os.environ`, so it does not inherit *other* connectors' credentials or the bridge's own secrets. Anything it legitimately needs, you declare in `env:`. |
 
     `sandbox: docker` is the setting that makes "contained" true of the server
     as well as the agent. Detecting a start command **runs** that command, so

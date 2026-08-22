@@ -32,7 +32,7 @@ sandbox. That gives Ava:
 | **Tools and connectors** | Ava's tools run inside the sandbox and reach the outside world only through the bridge's token-gated `/internal/*` routes. Web search/fetch and every connector call execute host-side, so the sandbox never touches the internet or a connector's API directly. |
 | **Isolation and egress policies** | An *egress policy* is a list of the network addresses one group of tools is allowed to reach, and nothing else ([agent/policies/](../agent/policies/)). The sandbox is where that list is enforced, along with the filesystem boundary. It is what makes the connector SDK's auto-generated policies mean something. |
 | **Persistent, per-conversation memory** | One session id equals continuous memory. |
-| **Skills and self-improvement** | The `ava-*` skills and the self-coding loop. |
+| **Skills** | The `ava-*` drop-in skills, deployed into the sandbox. |
 | **Live chain-of-thought** | The UI streams the agent's real reasoning and tool steps. |
 
 **It is hardware-portable.** OpenShell creates the sandbox from a container image

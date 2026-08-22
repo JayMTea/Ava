@@ -172,7 +172,7 @@ nav:
       - Operations: docs/capabilities/operations.md
       - Your data & memory: docs/capabilities/data.md
       - Apps, devices & MCP: docs/capabilities/connectors.md
-      - "The agent: tools, skills & self-improvement": docs/capabilities/agent.md
+      - "The agent: tools, skills & memory": docs/capabilities/agent.md
       - Give it a voice of its own: docs/PERSONA.md
       - Make it look like yours: docs/BRANDING.md
   - Privacy & proof:

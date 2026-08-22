@@ -80,7 +80,7 @@ def test_the_scan_finds_the_kinds_that_are_actually_there() -> None:
     emitted = _emitted()
     if not emitted:
         return  # not a git checkout — gitfiles.tracked() already skipped
-    for kind in ("turn", "grant", "code_change", "memory_recall"):
+    for kind in ("turn", "grant", "memory_distill", "memory_recall"):
         assert kind in emitted, (
             f"the audit-kind scan no longer finds `{kind}` — `_EMIT` has drifted "
             "from how ava_bridge writes audit events, so this guard is passing "

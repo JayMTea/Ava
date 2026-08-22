@@ -138,7 +138,7 @@ every file is self-contained. The one `conftest.py` does exactly one thing
 - `qa/run.sh` — the whole-app suite (in-process app, live subprocess, fixture
   contracts, CLI, browser E2E). See [qa/README.md](../qa/README.md).
 - `ava verify` — end-to-end claim checker (generator drift, governance wiring,
-  learning/memory wiring, service probes); run by CI's smoke job.
+  memory wiring, service probes); run by CI's smoke job.
 - `ava doctor` — environment/health check for a live install.
 - CI (`.github/workflows/ci.yml`): lint → this suite → frontend-dist drift →
   CPU-only boot smoke + `ava verify` → secrets scan → docs build.

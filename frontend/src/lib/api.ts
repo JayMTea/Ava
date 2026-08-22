@@ -8,9 +8,6 @@ import type {
   ChatDetail,
   ChatSummary,
   HardwareStats,
-  LearningActionResult,
-  LearningState,
-  LearnContext,
   ModelRoute,
   TalkResponse,
   TurnStatus,
@@ -140,19 +137,3 @@ export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // Connected-app browser APIs live in the optional overlay
 // (frontend/src/overlay/lib/apps.ts) so the core shell carries no personal-app
 // calls. They import the `req` helper exported above.
-
-// ---- Learning ---------------------------------------------------------------
-export const learning = {
-  state: (ctx: LearnContext) => req<LearningState>(`/api/learning/${ctx}/state`),
-  run: () =>
-    req<{ ok: boolean; code_proposals?: number; chat_proposals?: number; chat_turns?: number; code_turns?: number }>(
-      '/api/learning/run',
-      { method: 'POST' },
-    ),
-  apply: (ctx: LearnContext, id: string) =>
-    req<LearningActionResult>(`/api/learning/${ctx}/apply?proposal_id=${encodeURIComponent(id)}`, { method: 'POST' }),
-  reject: (ctx: LearnContext, id: string) =>
-    req<LearningActionResult>(`/api/learning/${ctx}/reject?proposal_id=${encodeURIComponent(id)}`, { method: 'POST' }),
-  feedback: (ctx: LearnContext, id: string, rating: 0 | 1) =>
-    req<LearningActionResult>(`/api/learning/${ctx}/feedback?proposal_id=${encodeURIComponent(id)}&rating=${rating}`, { method: 'POST' }),
-};
