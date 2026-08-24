@@ -1,0 +1,24 @@
+{
+  "_contract": {
+    "what": "Ava's OWN run-event vocabulary — the four kinds `AgentRuntime.iter_run` yields and the chat client folds into the transcript.",
+    "why": "This vocabulary is spelled twice, in two languages, in files that never import each other: ava_bridge/runtime/base.py (and each adapter's iter_run) emits it, frontend/src/lib/chatEvents.ts consumes it. Python proved the emit, vitest proved the parse, and NOTHING proved they agree — so a fifth kind, a renamed field, or a dropped one would pass both suites and break a live turn.",
+    "how": "Both sides are tested against THIS file. tests/test_run_event_vocabulary.py holds the Python emitter to it; frontend/src/lib/chatEvents.contract.test.ts folds every sample through the real reducer. Changing the vocabulary means changing this file, which fails both suites until both sides follow.",
+    "note": "These are AVA's kinds, not the gateway's. The gateway's own wire vocabulary is captured separately in gateway-schemas.json — translating one into the other is exactly what the runtime adapter exists to do."
+  },
+  "kinds": ["step", "final", "error", "gap"],
+  "samples": [
+    {"kind": "step", "step": {"kind": "text", "text": "Looking that up."}},
+    {"kind": "step", "step": {"kind": "tool", "name": "web_search",
+                              "args": {"query": "weather"}}},
+    {"kind": "final", "text": "It is sunny.", "tools": ["web_search"]},
+    {"kind": "error", "message": "the run failed", "code": "gateway_rpc_failed"},
+    {"kind": "error", "message": "stopped", "code": "run_aborted"},
+    {"kind": "gap"}
+  ],
+  "required_fields": {
+    "step": ["step"],
+    "final": ["text"],
+    "error": ["message"],
+    "gap": []
+  }
+}
