@@ -367,6 +367,18 @@ agent:
                            #   long-lived panels to periodically re-authenticate.
 
 # ── Optional capabilities (default OFF so a fresh install is minimal) ────────
+# Skills: YOUR taxonomy, not one Ava ships.
+#
+# Categories are owner-owned and per-instance on purpose — shipped SKILL.md
+# files carry none, so a fork defines its own without editing skills it did not
+# write. Keys are a skill id or its directory name.
+# skills:
+#   categories:
+#     ava-web: Research
+#     ava-admin: Operations
+#   category_order: [Research, Operations]   # display order; anything not
+#                                            #   listed sorts after, by name.
+
 # Voice: how sure the speaker match must be before Ava answers as YOU.
 #
 # Voiceprint is ENROLLED rather than switched on (see the note under `features`),
@@ -455,6 +467,9 @@ memory:
 
 # ── Cost / energy estimate for the dashboard (optional) ─────────────────────
 cost:
+  # currency: USD            # What a money figure is DENOMINATED in. Ava does
+  #                          #   not convert rates — this only labels the number,
+  #                          #   so set it to match electricity_rate_per_kwh.
   electricity_rate_per_kwh: 0.15
   # Your GPU's typical package draw in watts. Unset by default: Ava uses your
   # platform's nominal from deploy/platforms.conf, and reports energy as NOT
@@ -539,6 +554,9 @@ hardware:
 
 alloc:
   enabled: true              # [AVA_ALLOC] off = observe nothing, govern nothing
+  # ledger_dir: <AVA_HOME>/data/alloc   # Where the allocation ledger is written.
+  #                          #   Move it only if that path is not durable; the
+  #                          #   ledger is how a lease survives a restart.
   # [AVA_ALLOC_INFER] May Ava fill in an engine's OWN "drop your weights" endpoint
   # for a backend you configured? On, you get a working Free button out of the box
   # for engines that publish one (Ollama today). Off, every lever must be declared

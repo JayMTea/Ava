@@ -154,3 +154,57 @@ class SecurityDefaultLockTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---------------------------------------------------------------------------
+# The read-but-undocumented direction.
+#
+# The header above explains why a full BIDIRECTIONAL scan was abandoned: the
+# documented-but-not-read direction needs a ~30-entry allowlist, and a guard
+# that large is one nobody maintains. This direction is different — it is now
+# down to a single, explainable exception — so it is worth holding.
+#
+# It is the direction that actually costs an adopter something: a key the code
+# honours and the template omits is a knob nobody can discover, which is exactly
+# how `voice.threshold` ended up governing whether a stranger's voice is treated
+# as the owner's while being reachable only by environment variable.
+
+#: Keys that are internal STATE, not knobs — written by Ava, never set by hand.
+NOT_KNOBS = {
+    "setup.completed": "written by the setup wizard to record that it ran; "
+                       "setting it by hand would skip onboarding, not configure "
+                       "anything",
+}
+
+_SETTINGS_READ = re.compile(
+    r"""settings\.get(?:_bool|_int|_float)?\(\s*["']([a-z][a-z0-9_.]*\.[a-z0-9_.]+)["']""")
+
+
+def _keys_the_code_reads() -> set[str]:
+    found = set()
+    for rel in _tracked("ava_bridge"):
+        if rel.endswith(".py"):
+            found |= set(_SETTINGS_READ.findall(_read(rel)))
+    return found
+
+
+def test_every_config_key_the_code_reads_is_discoverable() -> None:
+    """config.example.yaml is the only place a knob is discoverable."""
+    template = _read("config.example.yaml")
+    keys = _keys_the_code_reads()
+    assert len(keys) > 40, ("found almost no config reads — the pattern has "
+                            "drifted and this guard is passing vacuously")
+    missing = sorted(k for k in keys
+                     if k not in NOT_KNOBS
+                     and f"{k.split('.')[-1]}:" not in template)
+    assert not missing, (
+        "these keys are honoured by the code and absent from "
+        "config.example.yaml, so nobody can discover them:\n  "
+        + "\n  ".join(missing)
+        + "\n\nDocument them there, or add them to NOT_KNOBS with the reason "
+          "they are internal state rather than a setting.")
+
+
+def test_every_not_knob_states_why() -> None:
+    for key, why in NOT_KNOBS.items():
+        assert len(why) > 40, f"{key} is exempted without explaining why"
