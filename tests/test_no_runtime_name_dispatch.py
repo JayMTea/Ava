@@ -111,6 +111,77 @@ class NameDispatchTests(unittest.TestCase):
             self.assertGreater(len(why), 60,
                                f"{entry} is allowed without explaining why")
 
+class NameComparisonTests(unittest.TestCase):
+    """Comparing `rt.name` to a literal is name-dispatch wearing a disguise.
+
+    The guard above catches `runtime.nemoclaw()`. It did NOT catch
+    `rt.name != "direct"` — which is the same decision made the same way, and
+    which survived in `models.py` long enough to be found by re-reading an
+    audit rather than by the guard written to prevent it. Both forms mean "this
+    file knows the list of runtimes", which is what makes adding a fifth one an
+    edit in places that have nothing to do with it.
+
+    Ask a capability instead: `is_local()`, `supports_abort()`, `capabilities()`,
+    or simply whether the method you need is there.
+    """
+
+    def _offenders(self, rel: str, body: str) -> list[str]:
+        """Comparisons found by PARSING, not by matching text.
+
+        A regex cannot tell `rt.name == "direct"` in code from the same words
+        inside a docstring explaining why that was once a bug — and this file
+        contains exactly that prose. `ast` reads the code and nothing else.
+        """
+        import ast
+        try:
+            tree = ast.parse(body)
+        except SyntaxError:
+            return []
+        out = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Compare):
+                continue
+            left = node.left
+            if not (isinstance(left, ast.Attribute) and left.attr == "name"):
+                continue
+            for op, comp in zip(node.ops, node.comparators):
+                if not isinstance(op, (ast.Eq, ast.NotEq)):
+                    continue
+                if isinstance(comp, ast.Constant) and comp.value in NAMED:
+                    out.append(f"{rel}:{node.lineno} compares name to "
+                               f"'{comp.value}'")
+        return out
+
+    def test_no_module_compares_a_runtime_name_to_a_literal(self):
+        bad, scanned = [], 0
+        for rel in _sources():
+            try:
+                with open(os.path.join(ROOT, rel), encoding="utf-8") as f:
+                    body = f.read()
+            except FileNotFoundError:
+                self.fail(f"{rel} is tracked by git but missing from disk")
+            scanned += 1
+            bad += self._offenders(rel, body)
+        self.assertGreater(scanned, 10, "scanned almost nothing")
+        self.assertEqual(
+            bad, [],
+            "a runtime was identified by comparing its NAME. Ask what it can "
+            "DO instead — is_local(), is_floor(), capabilities(), or whether "
+            "the method you need exists:\n  " + "\n  ".join(bad))
+
+    def test_the_parse_actually_finds_this_pattern(self):
+        """Anti-vacuous: an ast walk that matches nothing would pass silently
+        forever, which is worse than the regex it replaced."""
+        got = self._offenders("x.py", 'if rt.name == "direct":\n    pass\n')
+        self.assertEqual(len(got), 1, got)
+
+    def test_the_parse_ignores_the_same_words_in_prose(self):
+        """The false positive that motivated the rewrite: phone_bridge.py's
+        docstring explains a bug BY QUOTING the comparison that caused it."""
+        src = '"""We used to gate on rt.name == \'nemoclaw\' here."""\npass\n'
+        self.assertEqual(self._offenders("x.py", src), [])
+
+
 class PunchThroughTests(unittest.TestCase):
     """Nothing outside the runtime package may reach into `rt._client`.
 

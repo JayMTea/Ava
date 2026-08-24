@@ -95,6 +95,10 @@ class DirectRuntime(AgentRuntime):
     name = "direct"
     display_name = "Direct chat"
 
+    def is_floor(self) -> bool:
+        """This adapter IS the degraded floor — that is its whole job."""
+        return True
+
     def blurb(self) -> str:
         return ("The graceful floor: Ava talks to the inference endpoint "
                 "directly. Working, but tool-less — no tools, no sandbox, no "

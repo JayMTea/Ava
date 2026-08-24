@@ -48,7 +48,10 @@ REGISTRY: dict[str, dict] = {
     # drops Ava to tool-less chat does not belong in a list of add-ons.
     "agent": {
         "label": "Agent runtime",
-        "sub": "tools, memory and skills in a NemoClaw sandbox",
+        # Deliberately not "a NemoClaw sandbox": this switch governs the agent
+        # runtime whichever one is configured, and naming the default here told
+        # a `remote` or `openclaw_gw` owner about a runtime they are not running.
+        "sub": "tools, memory and skills in the agent's sandbox",
         "default": True,
         "env": "AVA_AGENT_ENABLED",
         "config": "agent.enabled",

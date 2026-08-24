@@ -333,7 +333,7 @@ def cmd_doctor(_args) -> int:
                  f"{f' ({_origin})' if _origin else ''}")
         if err:
             _row(BAD, "active", f"direct (BLOCKED) — {err}")
-        elif rt.name == "direct":
+        elif rt.is_floor():
             _row(WARN, "active", "direct (tool-less) — full agent not present")
         else:
             _row(OK, "active", f"{rt.name} — full agent (tools + memory + CoT)")
@@ -1042,7 +1042,7 @@ def cmd_agent(args) -> int:
         _row(OK if st.get("cli") else WARN, "nemoclaw CLI", st.get("cli") or "not installed")
         _row(OK if st.get("sandbox_exists") else WARN, "sandbox",
              f"{st.get('sandbox')} " + ("(exists)" if st.get("sandbox_exists") else "(missing — run `ava agent provision`)"))
-        _row(OK if rt.name != "direct" else (BAD if err else WARN), "active",
+        _row(OK if not rt.is_floor() else (BAD if err else WARN), "active",
              rt.name + (f" — {err}" if err else ""))
         gw = st.get("gateway") if isinstance(st.get("gateway"), dict) else None
         if gw:

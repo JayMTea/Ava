@@ -348,6 +348,17 @@ class AgentRuntime(ABC):
         (approve | always | deny); translating it is the adapter's job."""
         raise GatewayUnsupported(self.name)
 
+    def is_floor(self) -> bool:
+        """Is this the DEGRADED fallback — working chat, but no tools?
+
+        Asked so surfaces can say "tool-less" without knowing the roster of
+        runtimes. `rt.name == "direct"` was the old spelling, and
+        `supports_tools` is not a substitute: a gateway runtime that has not
+        finished connecting reports no tools yet, and reporting it as the floor
+        would be wrong in the one moment the owner is watching.
+        """
+        return False
+
     def is_local(self) -> bool:
         """Does this runtime run on the SAME machine as the bridge?
 

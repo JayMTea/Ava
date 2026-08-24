@@ -160,9 +160,10 @@ def _startup():
         print(f"[ava-bridge] WARNING: AGENT RUNTIME REQUIRED BUT MISSING — {err}", flush=True)
         print("[ava-bridge]   chat turns will error until you provision it "
               "(`ava agent provision --install`).", flush=True)
-    elif rt.name == "direct":
+    elif rt.is_floor():
         print("[ava-bridge] agent runtime absent -> DIRECT (tool-less) chat. "
-              "Install NemoClaw for tools/memory/skills (`ava agent provision`).", flush=True)
+              "Install the agent runtime for tools/memory/skills "
+              "(`ava agent provision`).", flush=True)
     else:
         print(f"[ava-bridge] agent runtime: {rt.name} (full agent — tools + memory + skills).", flush=True)
     threading.Thread(target=warm_openclaw, daemon=True).start()

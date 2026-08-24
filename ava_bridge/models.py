@@ -572,7 +572,11 @@ def effective_brain() -> dict:
         # is config plus availability, with no cache to be cold.
         from . import runtime
         rt = runtime.active()
-        if rt.name != "direct":
+        # `sandbox_info` is the CAPABILITY that matters here — a runtime that
+        # can name the model its sandbox is serving. Asking `rt.name != "direct"`
+        # instead meant every new runtime had to be remembered in this file, and
+        # a runtime that could not answer still took this branch.
+        if getattr(rt, "sandbox_info", None):
             info = (getattr(rt, "sandbox_info", None)
                     and rt.sandbox_info(wait=False)) or {}
             mid = str(info.get("model") or "").strip()
@@ -589,7 +593,7 @@ def effective_brain() -> dict:
                     # The sandbox process is on this box, but IT holds the model
                     # endpoint and we do not — so residency is unobservable
                     # rather than absent, which is what `local` buys the caller.
-                    "local": rt.name != "remote"}
+                    "local": rt.is_local()}
     except Exception:  # noqa: BLE001 — the runtime is optional
         pass
 
