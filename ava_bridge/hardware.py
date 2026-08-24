@@ -264,7 +264,30 @@ def _attach_components(rows: list[dict]) -> list[dict]:
     return out
 
 
+# Script names that describe a POSITION in a project rather than the project.
+# `main.py` is what a thousand unrelated programs call their entrypoint, so it
+# names nothing and the directory holding it answers instead. Any other script
+# name is a word the owner chose and is kept as-is.
 _ENTRYPOINTS = ("main.py", "app.py", "server.py", "run.py", "__main__.py", "cli.py")
+
+# Directory names that identify nothing, wherever they turn up: a venv's own
+# bin/, a src/ wrapper, a filesystem root, or a store that holds many things.
+# None of them may become a row's name.
+_ANONYMOUS_DIRS = {
+    "bin", "src", "app", "lib", "share", "venv", ".venv", "env", ".env",
+    "usr", "local", "opt", "srv", "home", "tmp", "var", "models", "scripts",
+}
+
+# Modules that are a way to START something rather than the something. `python
+# -m uvicorn api:app` is not a program called uvicorn — the target it was
+# pointed at is the program, and that is what the row wants to be called.
+_LAUNCHER_MODULES = {
+    "uvicorn", "gunicorn", "hypercorn", "waitress", "granian", "daphne",
+    "flask", "celery", "torchrun", "accelerate", "deepspeed",
+}
+
+# A directory holding a virtualenv: `venv`, `.venv`, `env`, `.venv-tts`.
+_VENV_DIR_RE = re.compile(r"^\.?(venv|virtualenv|env)([-_.].*)?$", re.IGNORECASE)
 
 # Directory names that describe a KIND of weight rather than the thing itself,
 # so they never become a model's display name. `/models/diffusion/flux2/vae/…`
@@ -283,15 +306,82 @@ def _app_from_cmdline(cmd: str) -> str:
     Read, not guessed: `/opt/ImageGen/main.py` names ImageGen, because that is
     the directory holding the entrypoint the process was started with. No table
     of known applications — a fork running anything gets the same treatment.
+
+    Two evidence shapes, because a Python process is started one of two ways and
+    only the first was ever read. A script whose name is `main.py` says nothing
+    and defers to its folder; a script named `emu35_worker.py` IS the answer and
+    was being thrown away, leaving the row called the literal word "Model".
     """
     for tok in (cmd or "").split():
         norm = tok.replace("\\", "/")
-        base = norm.rsplit("/", 1)[-1].lower()
-        if base in _ENTRYPOINTS and "/" in norm:
+        base = norm.rsplit("/", 1)[-1]
+        low = base.lower()
+        if not low.endswith(".py"):
+            continue
+        if low in _ENTRYPOINTS:
+            if "/" not in norm:
+                continue
             parent = norm.rsplit("/", 2)[-2]
             # A venv's own bin/ or a src/ wrapper says nothing about the app.
-            if parent.lower() not in {"bin", "src", "app", ".venv", "venv"}:
+            if parent.lower() not in _ANONYMOUS_DIRS:
                 return parent
+            continue
+        # Any other script names itself. The folder above it is not better
+        # evidence — `.../atelier/emu35_worker.py` sits in a workspace folder
+        # and the script is the specific fact.
+        return base[:-3]
+    return _module_from_cmdline(cmd)
+
+
+def _module_from_cmdline(cmd: str) -> str:
+    """The program behind a `python -m …` launch, or "".
+
+    A process started this way has no script path at all, so the loop above
+    finds nothing and the row fell through to "Model" — which is how a running
+    text-to-speech engine came to be listed as an unidentified 1.8 GB process.
+    """
+    toks = (cmd or "").split()
+    for i, tok in enumerate(toks):
+        if tok != "-m" or i + 1 >= len(toks):
+            continue
+        mod = toks[i + 1]
+        if mod.split(".")[0].lower() not in _LAUNCHER_MODULES:
+            return mod
+        # A launcher names itself and nothing else. What it was POINTED at —
+        # the module half of an ASGI/WSGI target, `pkg.api:app` — is the
+        # program; fall back to the launcher only if no target was given.
+        for later in toks[i + 2:]:
+            if later.startswith("-") or ":" not in later:
+                continue
+            # The TOP-LEVEL package, not the tail: a target is conventionally
+            # `<program>.<position>:<attr>` — `svc.wsgi:application`,
+            # `api.main:app` — and the tail half is the same kind of
+            # position-word `_ENTRYPOINTS` exists to refuse.
+            target = later.split(":", 1)[0].strip().split(".")[0]
+            if target:
+                return target
+        return mod
+    return ""
+
+
+def _env_from_cmdline(cmd: str) -> str:
+    """The directory an interpreter's virtualenv was built in, or "".
+
+    The weakest evidence on the line and so the last one tried: a venv at
+    `~/models/emu35/venv` was put there by someone who called that folder
+    emu35, which beats the word "Model" on the row holding the most memory on
+    the box. Only a venv-SHAPED directory counts — without that check
+    `/usr/bin/python3` would name half the rows "usr".
+    """
+    for tok in (cmd or "").split():
+        parts = tok.replace("\\", "/").split("/")
+        if len(parts) < 4 or not parts[-1].lower().startswith("python"):
+            continue
+        if parts[-2].lower() != "bin" or not _VENV_DIR_RE.match(parts[-3]):
+            continue
+        root = parts[-4]
+        if root and root.lower() not in _ANONYMOUS_DIRS:
+            return root
     return ""
 
 
@@ -391,9 +481,15 @@ def _name_from_evidence(rows: list[dict]) -> list[dict]:
     for r in rows:
         if r.get("model_id"):
             continue
-        app = _app_from_cmdline(str(r.get("cmd") or ""))
+        cmd = str(r.get("cmd") or "")
+        app = _app_from_cmdline(cmd)
         family = _family_from_components(r.get("components") or [])
         name = " · ".join(x for x in (app, family) if x)
+        # Strictly weakest-last: the venv's folder is a fact about where the
+        # interpreter lives, not about what is running in it, so it may only
+        # answer when nothing better did.
+        if not name:
+            name = _env_from_cmdline(cmd)
         if name:
             r["model"] = name
     return rows

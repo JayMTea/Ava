@@ -1,0 +1,827 @@
+{
+  "_capture": {
+    "captured_at_note": "stamp set by hand or CI, not Date.now()",
+    "gaps": [
+      "terminal output mechanism: gateway.terminal.enabled is off on this sandbox; open/attach/input/resize/text/close params captured, but whether output arrives as an event or via terminal.text polling is unconfirmed",
+      "cron.add full shape: schedule is an object and payload is required; needs a live create with a real job to capture the row shape and schedule sub-shape"
+    ],
+    "gateway_version": "2026.7.1",
+    "protocol": 4,
+    "tool": "qa/capture_gateway.py"
+  },
+  "events": {
+    "_note": "Captured from a real streamed turn against the live gateway, 2026-08-24. State rides in the PAYLOAD, never as a topic suffix.",
+    "agent": {
+      "abort": {
+        "accepted_in": "~0.05s",
+        "ending": {
+          "aborted": true,
+          "phase": "end",
+          "status": "cancelled",
+          "stopReason": "rpc"
+        },
+        "method": "chat.abort",
+        "note": "Captured live 2026-08-24 by aborting a real run. `aborted: true` is the signal; `stopReason` is 'rpc' (the abort's transport), NOT a word meaning cancelled \u2014 do not branch on stopReason for this.",
+        "params": {
+          "runId": "optional",
+          "sessionKey": "required"
+        }
+      },
+      "end_data_fields": [
+        "phase",
+        "status",
+        "aborted",
+        "stopReason",
+        "livenessState",
+        "startedAt",
+        "endedAt"
+      ],
+      "frames_per_run": 3,
+      "lifecycle_phases": [
+        "start",
+        "finishing",
+        "end"
+      ],
+      "notes": [
+        "runId IS the idempotencyKey sent with chat.send (re-confirmed).",
+        "sessionKey comes back PREFIXED: sending 'ava:probe:x' yields 'agent:main:ava:probe:x'.",
+        "a normal run emits 3 lifecycle frames, so any subscriber that reloads on lifecycle MUST debounce or it refetches 3x per turn.",
+        "end.data.aborted is a real boolean \u2014 this is how an aborted run is distinguished from a completed one, which is what the Stop button needs to confirm its own effect."
+      ],
+      "payload_fields": [
+        "runId",
+        "sessionKey",
+        "sessionId",
+        "agentId",
+        "stream",
+        "data"
+      ],
+      "streams": [
+        "lifecycle",
+        "assistant",
+        "tool"
+      ]
+    },
+    "exec_approvals": {
+      "_note": "Captured 2026-08-24 by creating, listing, and resolving real approvals.",
+      "decisions": [
+        "allow-once",
+        "allow-always",
+        "deny"
+      ],
+      "list": {
+        "method": "exec.approval.list",
+        "request_fields": [
+          "command",
+          "cwd",
+          "nodeId",
+          "host",
+          "security",
+          "ask",
+          "warningText",
+          "commandAnalysis",
+          "allowedDecisions",
+          "agentId",
+          "sessionKey"
+        ],
+        "returns": "a bare LIST of rows (not {approvals:[]}); empty comes back as an empty object",
+        "row": [
+          "id",
+          "request",
+          "createdAtMs"
+        ]
+      },
+      "notes": [
+        "NO EVENT fires while an approval is pending \u2014 verified by subscribing during a live pending request. Approvals must be POLLED; the gateway's whole topic vocabulary is agent/chat/health/tick.",
+        "exec.approval.request BLOCKS until the approval is resolved or expires; it does not return an id, so the requester cannot report its own approval.",
+        "`command` is a STRING, not argv (at /command: must be string).",
+        "Each row carries its own allowedDecisions \u2014 render from the row, do not hardcode the three values.",
+        "exec.approvals.get (PLURAL) is the POLICY file, not the pending list: {path, exists, hash, file:{version, socket, defaults, agents}}. On this sandbox defaults and agents are both empty, so nothing ever asks."
+      ],
+      "resolve": {
+        "method": "exec.approval.resolve",
+        "params": {
+          "decision": "required, one of the row's allowedDecisions",
+          "id": "required"
+        }
+      }
+    },
+    "topics": [
+      "agent",
+      "chat",
+      "health",
+      "tick"
+    ],
+    "transcript": {
+      "_note": "chat.history shapes, captured 2026-08-24 by running real turns.",
+      "assistant_message_keys": [
+        "__openclaw",
+        "api",
+        "content",
+        "model",
+        "provider",
+        "responseId",
+        "role",
+        "stopReason",
+        "timestamp",
+        "usage"
+      ],
+      "inFlightRun": {
+        "note": "present while a run streams; `messages` still holds the PREVIOUS turn until it commits (~2-4s).",
+        "shape": {
+          "runId": "str",
+          "text": "str"
+        }
+      },
+      "notes": [
+        "NO message carries a runId. Matching a reply by runId matches nothing \u2014 the anchor is the preceding USER message's idempotencyKey.",
+        "The stored idempotencyKey is SUFFIXED by role: sending 'turn:abc' records 'turn:abc:user'. An equality test matches nothing.",
+        "content is a LIST of typed parts: [{'type':'text','text':...}]."
+      ],
+      "response_keys": [
+        "defaults",
+        "inFlightRun",
+        "messages",
+        "sessionId",
+        "sessionInfo",
+        "sessionKey",
+        "thinkingLevel"
+      ],
+      "user_message_keys": [
+        "__openclaw",
+        "content",
+        "idempotencyKey",
+        "role",
+        "timestamp"
+      ]
+    }
+  },
+  "methods": {
+    "agent.identity.get": {
+      "additionalProperties": false,
+      "allowed": [],
+      "learned": true,
+      "probe_log": [
+        "invalid agent.identity.get params: at root: unexpected property '__ava_probe__'"
+      ],
+      "required": [],
+      "types": {}
+    },
+    "agents.list": {
+      "additionalProperties": false,
+      "allowed": [],
+      "learned": true,
+      "probe_log": [
+        "invalid agents.list params: at root: unexpected property '__ava_probe__'"
+      ],
+      "required": [],
+      "types": {}
+    },
+    "chat.abort": {
+      "additionalProperties": false,
+      "allowed": [
+        "runId",
+        "sessionKey"
+      ],
+      "learned": true,
+      "probe_log": [
+        "invalid chat.abort params: must have required property 'sessionKey'",
+        "invalid chat.abort params: at root: unexpected property '__ava_probe__'"
+      ],
+      "required": [
+        "sessionKey"
+      ],
+      "types": {
+        "runId": "string",
+        "sessionKey": "string"
+      }
+    },
+    "config.get": {
+      "additionalProperties": false,
+      "allowed": [],
+      "learned": true,
+      "probe_log": [
+        "invalid config.get params: at root: unexpected property '__ava_probe__'"
+      ],
+      "required": [],
+      "types": {}
+    },
+    "cron.add": {
+      "additionalProperties": false,
+      "allowed": [
+        "agentId",
+        "enabled",
+        "name",
+        "payload",
+        "schedule",
+        "sessionTarget"
+      ],
+      "learned": false,
+      "probe_log": [
+        "schedule is an object not a cron string; payload required; needs a live create to capture fully"
+      ],
+      "required": [
+        "name",
+        "payload",
+        "schedule",
+        "sessionTarget"
+      ],
+      "types": {
+        "schedule": "object",
+        "sessionTarget": "object"
+      }
+    },
+    "cron.get": {
+      "additionalProperties": false,
+      "allowed": [
+        "id"
+      ],
+      "learned": true,
+      "probe_log": [
+        "invalid cron.get params: must have required property 'id'; must have required property 'jobId'; must match a schema in anyOf",
+        "cron job not found: x",
+        "invalid cron.get params: at root: unexpected property '__ava_probe__'; must have required property 'jobId'; at root: unexpected property 'id'; must match a schema in anyOf"
+      ],
+      "required": [
+        "id"
+      ],
+      "types": {
+        "id": "string"
+      }
+    },
+    "cron.remove": {
+      "additionalProperties": false,
+      "allowed": [
+        "id"
+      ],
+      "learned": true,
+      "probe_log": [
+        "invalid cron.remove params: must have required property 'id'; must have required property 'jobId'; must match a schema in anyOf",
+        "invalid cron.remove params: id not found",
+        "invalid cron.remove params: at root: unexpected property '__ava_probe__'; must have required property 'jobId'; at root: unexpected property 'id'; must match a schema in anyOf"
+      ],
+      "required": [
+        "id"
+      ],
+      "types": {
+        "id": "string"
+      }
+    },
+    "cron.run": {
+      "additionalProperties": false,
+      "allowed": [
+        "id"
+      ],
+      "learned": true,
+      "probe_log": [
+        "invalid cron.run params: must have required property 'id'; must have required property 'jobId'; must match a schema in anyOf",
+        "invalid cron.run params: id not found",
+        "invalid cron.run params: at root: unexpected property '__ava_probe__'; must have required property 'jobId'; at root: unexpected property 'id'; must match a schema in anyOf"
+      ],
+      "required": [
+        "id"
+      ],
+      "types": {
+        "id": "string"
+      }
+    },
+    "cron.runs": {
+      "additionalProperties": false,
+      "allowed": [
+        "id",
+        "jobId",
+        "limit"
+      ],
+      "learned": true,
+      "probe_log": [
+        "invalid cron.runs params: at root: unexpected property '__ava_probe__'"
+      ],
+      "required": [],
+      "types": {
+        "id": "string",
+        "jobId": "string",
+        "limit": "integer"
+      }
+    },
+    "cron.status": {
+      "additionalProperties": false,
+      "allowed": [],
+      "learned": true,
+      "probe_log": [
+        "invalid cron.status params: at root: unexpected property '__ava_probe__'"
+      ],
+      "required": [],
+      "types": {}
+    },
+    "cron.update": {
+      "additionalProperties": false,
+      "allowed": [
+        "enabled",
+        "id",
+        "jobId",
+        "name",
+        "patch",
+        "schedule"
+      ],
+      "learned": true,
+      "probe_log": [
+        "invalid cron.update params: must have required property 'id'; must have required property 'jobId'; must match a schema in anyOf",
+        "invalid cron.update params: must have required property 'patch'; must have required property 'jobId'; at root: unexpected property 'id'; must match a schema in anyOf",
+        "invalid cron.update params: at /patch: must be object; must have required property 'jobId'; at root: unexpected property 'id'; must match a schema in anyOf",
+        "invalid cron.update params: at root: unexpected property 'jobId'; at /patch: must be object; at root: unexpected property 'id'; must match a schema in anyOf",
+        "invalid cron.update params: at root: unexpected property 'jobId'; at /patch: must be object; at root: unexpected property 'id'; must match a schema in anyOf"
+      ],
+      "required": [
+        "id",
+        "jobId",
+        "patch"
+      ],
+      "types": {
+        "id": "string"
+      }
+    },
+    "device.pair.list": {
+      "additionalProperties": false,
+      "allowed": [],
+      "learned": true,
+      "probe_log": [
+        "invalid device.pair.list params: at root: unexpected property '__ava_probe__'"
+      ],
+      "required": [],
+      "types": {}
+    },
+    "doctor.memory.status": {
+      "additionalProperties": true,
+      "allowed": [
+        "agentId"
+      ],
+      "learned": true,
+      "probe_log": [],
+      "required": [],
+      "types": {}
+    },
+    "exec.approval.get": {
+      "additionalProperties": false,
+      "allowed": [
+        "id"
+      ],
+      "learned": true,
+      "probe_log": [
+        "invalid exec.approval.get params: must have required property 'id'",
+        "{'reason': 'APPROVAL_NOT_FOUND', 'remediation': 'Re-request the action; pending approvals are cleared after expiry or restart.'}",
+        "invalid exec.approval.get params: at root: unexpected property '__ava_probe__'"
+      ],
+      "required": [
+        "id"
+      ],
+      "types": {
+        "id": "string"
+      }
+    },
+    "exec.approval.list": {
+      "additionalProperties": true,
+      "allowed": [
+        "agentId",
+        "sessionKey"
+      ],
+      "learned": true,
+      "probe_log": [],
+      "required": [],
+      "types": {}
+    },
+    "exec.approval.resolve": {
+      "additionalProperties": false,
+      "allowed": [
+        "decision",
+        "id"
+      ],
+      "learned": true,
+      "probe_log": [
+        "invalid exec.approval.resolve params: must have required property 'id'",
+        "invalid exec.approval.resolve params: must have required property 'decision'",
+        "invalid decision",
+        "invalid exec.approval.resolve params: at root: unexpected property '__ava_probe__'"
+      ],
+      "required": [
+        "decision",
+        "id"
+      ],
+      "types": {
+        "decision": "string",
+        "id": "string"
+      }
+    },
+    "exec.approval.waitDecision": {
+      "additionalProperties": true,
+      "allowed": [
+        "approvalId",
+        "id",
+        "timeoutMs"
+      ],
+      "learned": true,
+      "probe_log": [
+        "id is required",
+        "id is required"
+      ],
+      "required": [],
+      "types": {}
+    },
+    "exec.approvals.get": {
+      "additionalProperties": false,
+      "allowed": [],
+      "learned": true,
+      "probe_log": [
+        "invalid exec.approvals.get params: at root: unexpected property '__ava_probe__'"
+      ],
+      "required": [],
+      "types": {}
+    },
+    "exec.approvals.node.get": {
+      "additionalProperties": false,
+      "allowed": [
+        "nodeId"
+      ],
+      "learned": true,
+      "probe_log": [
+        "invalid exec.approvals.node.get params: must have required property 'nodeId'",
+        "{'nodeError': {'code': 'NOT_CONNECTED', 'message': 'node not connected'}}",
+        "invalid exec.approvals.node.get params: at root: unexpected property '__ava_probe__'"
+      ],
+      "required": [
+        "nodeId"
+      ],
+      "types": {
+        "nodeId": "string"
+      }
+    },
+    "gateway.identity.get": {
+      "additionalProperties": true,
+      "allowed": [],
+      "learned": false,
+      "probe_log": [],
+      "required": [],
+      "types": {}
+    },
+    "models.authLogout": {
+      "additionalProperties": true,
+      "allowed": [
+        "provider"
+      ],
+      "learned": true,
+      "probe_log": [
+        "provider is required",
+        "provider is required"
+      ],
+      "required": [],
+      "types": {}
+    },
+    "models.authStatus": {
+      "additionalProperties": true,
+      "allowed": [
+        "provider"
+      ],
+      "learned": true,
+      "probe_log": [],
+      "required": [],
+      "types": {}
+    },
+    "node.pair.list": {
+      "additionalProperties": false,
+      "allowed": [],
+      "learned": true,
+      "probe_log": [
+        "invalid node.pair.list params: at root: unexpected property '__ava_probe__'"
+      ],
+      "required": [],
+      "types": {}
+    },
+    "sessions.abort": {
+      "additionalProperties": false,
+      "allowed": [
+        "key",
+        "runId"
+      ],
+      "learned": true,
+      "probe_log": [
+        "key required",
+        "invalid sessions.abort params: at root: unexpected property '__ava_probe__'"
+      ],
+      "required": [],
+      "types": {
+        "key": "string",
+        "runId": "string"
+      }
+    },
+    "sessions.cleanup": {
+      "additionalProperties": false,
+      "allowed": [],
+      "learned": true,
+      "probe_log": [
+        "invalid sessions.cleanup params: at root: unexpected property '__ava_probe__'"
+      ],
+      "required": [],
+      "types": {}
+    },
+    "sessions.compact": {
+      "additionalProperties": false,
+      "allowed": [
+        "key"
+      ],
+      "learned": true,
+      "probe_log": [
+        "invalid sessions.compact params: must have required property 'key'",
+        "invalid sessions.compact params: at root: unexpected property '__ava_probe__'"
+      ],
+      "required": [
+        "key"
+      ],
+      "types": {
+        "key": "string"
+      }
+    },
+    "sessions.describe": {
+      "additionalProperties": false,
+      "allowed": [
+        "key"
+      ],
+      "learned": true,
+      "probe_log": [
+        "invalid sessions.describe params: must have required property 'key'",
+        "invalid sessions.describe params: at root: unexpected property '__ava_probe__'"
+      ],
+      "required": [
+        "key"
+      ],
+      "types": {
+        "key": "string"
+      }
+    },
+    "sessions.patch": {
+      "additionalProperties": false,
+      "allowed": [
+        "archived",
+        "key",
+        "pinned"
+      ],
+      "learned": true,
+      "probe_log": [
+        "invalid sessions.patch params: must have required property 'key'",
+        "invalid sessions.patch params: at root: unexpected property '__ava_probe__'"
+      ],
+      "required": [
+        "key"
+      ],
+      "types": {
+        "archived": "boolean",
+        "key": "string"
+      }
+    },
+    "sessions.preview": {
+      "additionalProperties": false,
+      "allowed": [
+        "keys",
+        "limit"
+      ],
+      "learned": true,
+      "probe_log": [
+        "invalid sessions.preview params: must have required property 'keys'",
+        "invalid sessions.preview params: at /keys: must be array",
+        "invalid sessions.preview params: at root: unexpected property '__ava_probe__'; at /keys: must be array"
+      ],
+      "required": [
+        "keys"
+      ],
+      "types": {
+        "keys": "array"
+      }
+    },
+    "sessions.reset": {
+      "additionalProperties": false,
+      "allowed": [
+        "key",
+        "reason"
+      ],
+      "learned": true,
+      "probe_log": [
+        "invalid sessions.reset params: must have required property 'key'",
+        "invalid sessions.reset params: at root: unexpected property '__ava_probe__'"
+      ],
+      "required": [
+        "key"
+      ],
+      "types": {
+        "key": "string",
+        "reason": "string"
+      }
+    },
+    "skills.search": {
+      "additionalProperties": false,
+      "allowed": [
+        "limit",
+        "query"
+      ],
+      "learned": true,
+      "probe_log": [
+        "invalid skills.search params: at root: unexpected property '__ava_probe__'"
+      ],
+      "required": [],
+      "types": {
+        "limit": "integer",
+        "query": "string"
+      }
+    },
+    "skills.status": {
+      "additionalProperties": false,
+      "allowed": [
+        "agentId"
+      ],
+      "learned": true,
+      "probe_log": [
+        "invalid skills.status params: at root: unexpected property '__ava_probe__'"
+      ],
+      "required": [],
+      "types": {
+        "agentId": "string"
+      }
+    },
+    "terminal.attach": {
+      "additionalProperties": false,
+      "allowed": [
+        "sessionId"
+      ],
+      "learned": true,
+      "probe_log": [
+        "invalid terminal.attach params: must have required property 'sessionId'",
+        "terminal is not available",
+        "invalid terminal.attach params: at root: unexpected property '__ava_probe__'"
+      ],
+      "required": [
+        "sessionId"
+      ],
+      "types": {
+        "sessionId": "string"
+      }
+    },
+    "terminal.close": {
+      "additionalProperties": false,
+      "allowed": [
+        "sessionId"
+      ],
+      "learned": true,
+      "probe_log": [
+        "invalid terminal.close params: must have required property 'sessionId'",
+        "invalid terminal.close params: at root: unexpected property '__ava_probe__'"
+      ],
+      "required": [
+        "sessionId"
+      ],
+      "types": {
+        "sessionId": "string"
+      }
+    },
+    "terminal.input": {
+      "additionalProperties": false,
+      "allowed": [
+        "data",
+        "sessionId"
+      ],
+      "learned": true,
+      "probe_log": [
+        "invalid terminal.input params: must have required property 'sessionId'",
+        "invalid terminal.input params: must have required property 'data'",
+        "invalid terminal.input params: at root: unexpected property '__ava_probe__'"
+      ],
+      "required": [
+        "data",
+        "sessionId"
+      ],
+      "types": {
+        "data": "string",
+        "sessionId": "string"
+      }
+    },
+    "terminal.list": {
+      "additionalProperties": true,
+      "allowed": [
+        "agentId",
+        "sessionKey"
+      ],
+      "learned": true,
+      "probe_log": [],
+      "required": [],
+      "types": {}
+    },
+    "terminal.open": {
+      "additionalProperties": false,
+      "allowed": [
+        "agentId",
+        "cols",
+        "rows"
+      ],
+      "learned": true,
+      "probe_log": [
+        "invalid terminal.open params: must have required property 'cols'",
+        "invalid terminal.open params: must have required property 'rows'; at /cols: must be integer",
+        "invalid terminal.open params: at /cols: must be integer; at /rows: must be integer",
+        "invalid terminal.open params: at root: unexpected property '__ava_probe__'; at /cols: must be integer; at /rows: must be integer"
+      ],
+      "required": [
+        "cols",
+        "rows"
+      ],
+      "types": {
+        "agentId": "string",
+        "cols": "integer"
+      }
+    },
+    "terminal.resize": {
+      "additionalProperties": false,
+      "allowed": [
+        "cols",
+        "rows",
+        "sessionId"
+      ],
+      "learned": true,
+      "probe_log": [
+        "invalid terminal.resize params: must have required property 'sessionId'",
+        "invalid terminal.resize params: must have required property 'cols'",
+        "invalid terminal.resize params: must have required property 'rows'; at /cols: must be integer",
+        "invalid terminal.resize params: at /cols: must be integer; at /rows: must be integer",
+        "invalid terminal.resize params: at root: unexpected property '__ava_probe__'; at /cols: must be integer; at /rows: must be integer"
+      ],
+      "required": [
+        "cols",
+        "rows",
+        "sessionId"
+      ],
+      "types": {
+        "cols": "integer",
+        "sessionId": "string"
+      }
+    },
+    "terminal.text": {
+      "additionalProperties": false,
+      "allowed": [
+        "sessionId"
+      ],
+      "learned": true,
+      "probe_log": [
+        "invalid terminal.text params: must have required property 'sessionId'",
+        "terminal is not available",
+        "invalid terminal.text params: at root: unexpected property '__ava_probe__'"
+      ],
+      "required": [
+        "sessionId"
+      ],
+      "types": {
+        "sessionId": "string"
+      }
+    },
+    "tts.personas": {
+      "additionalProperties": true,
+      "allowed": [],
+      "learned": false,
+      "probe_log": [],
+      "required": [],
+      "types": {}
+    },
+    "tts.providers": {
+      "additionalProperties": true,
+      "allowed": [],
+      "learned": false,
+      "probe_log": [],
+      "required": [],
+      "types": {}
+    },
+    "update.status": {
+      "additionalProperties": false,
+      "allowed": [],
+      "learned": true,
+      "probe_log": [
+        "invalid update.status params: at root: unexpected property '__ava_probe__'"
+      ],
+      "required": [],
+      "types": {}
+    },
+    "usage.status": {
+      "additionalProperties": true,
+      "allowed": [],
+      "learned": false,
+      "probe_log": [],
+      "required": [],
+      "types": {}
+    },
+    "worktrees.list": {
+      "additionalProperties": true,
+      "allowed": [
+        "agentId"
+      ],
+      "learned": true,
+      "probe_log": [
+        "invalid worktrees parameters"
+      ],
+      "required": [],
+      "types": {}
+    }
+  }
+}

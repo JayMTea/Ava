@@ -916,6 +916,61 @@ class HonestNaming(unittest.TestCase):
         self.assertEqual(
             hardware._app_from_cmdline("/x/.venv/bin/python /srv/Tool/main.py"), "Tool")
 
+    # --- the two ways a process is actually started --------------------------
+    # Both observed on a live box, both landing on the literal word "Model":
+    # a worker script whose name was not in the entrypoint list, and a `-m`
+    # launch with no script path on the line at all. The row holding 95 GB and
+    # the row holding a running TTS engine were labelled identically.
+
+    def test_a_scripts_own_name_is_the_answer_when_it_has_one(self):
+        """`main.py` defers to its folder because it names nothing. Any other
+        script name is a word the owner chose, and beats both the folder above
+        it and "Model"."""
+        self.assertEqual(
+            hardware._app_from_cmdline(
+                "/o/venv/bin/python /w/atelier/gen_worker.py /w/out/job.json"),
+            "gen_worker")
+
+    def test_a_module_launch_is_read_when_there_is_no_script(self):
+        self.assertEqual(
+            hardware._app_from_cmdline("/o/venv/bin/python -m pkgname.serve --port 1"),
+            "pkgname.serve")
+
+    def test_a_launcher_names_what_it_was_pointed_at_not_itself(self):
+        """`-m uvicorn tts_api:app` is not a program called uvicorn."""
+        self.assertEqual(
+            hardware._app_from_cmdline(
+                "/o/.venv-x/bin/python -m uvicorn tts_api:app --host 127.0.0.1"),
+            "tts_api")
+        # `<program>.<position>:<attr>` — the tail is a position word, like main.py.
+        self.assertEqual(
+            hardware._app_from_cmdline("/o/venv/bin/python -m gunicorn svc.wsgi:application"),
+            "svc")
+        # A launcher with no target left to read may only name itself.
+        self.assertEqual(
+            hardware._app_from_cmdline("/o/venv/bin/python -m uvicorn --factory"),
+            "uvicorn")
+
+    def test_a_venv_folder_names_a_row_only_when_nothing_else_can(self):
+        rows = hardware._name_from_evidence([{
+            "model": "Model", "model_id": None, "components": [],
+            "cmd": "/home/u/rigs/emu35/venv/bin/python -c 'import x; x.go()'",
+        }])
+        self.assertEqual(rows[0]["model"], "emu35")
+
+    def test_a_system_interpreter_never_names_a_row(self):
+        """Without the venv-shape check `/usr/bin/python3` names rows "usr"."""
+        self.assertEqual(hardware._env_from_cmdline("/usr/bin/python3 -c pass"), "")
+        # A store that holds many things is not the name of any one of them.
+        self.assertEqual(hardware._env_from_cmdline("/home/u/models/venv/bin/python"), "")
+
+    def test_the_weakest_evidence_never_outranks_the_script(self):
+        rows = hardware._name_from_evidence([{
+            "model": "Model", "model_id": None, "components": [],
+            "cmd": "/home/u/rigs/emu35/venv/bin/python /w/atelier/gen_worker.py",
+        }])
+        self.assertEqual(rows[0]["model"], "gen_worker")
+
     def test_real_ids_keep_their_own_name(self):
         self.assertEqual(hardware._short_model_name("acme/Cool-LLM-7B-FP8"), "Cool-LLM-7B-FP8")
         self.assertEqual(hardware._short_model_name("acme-cool-llm-7b.safetensors"),

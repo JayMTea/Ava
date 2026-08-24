@@ -53,7 +53,7 @@ _ENV_DEFAULTED = re.compile(r'^\s*[A-Z_]+="\$\{(AVA_[A-Z_]+)')
 # install_env() has to pin. A new entry in install.sh is not automatically a
 # problem; it is a decision, which is why the test names it rather than guessing.
 MUST_PIN = {"AVA_OC_SANDBOX", "AVA_NEMOCLAW", "AVA_DATA_DIR",
-            "AVA_AGENT_STATE_DIR"}
+            "AVA_SECRETS_DIR", "AVA_AGENT_STATE_DIR"}
 
 # Read from the environment on BOTH sides with equivalent defaults, so no split
 # is possible: install.sh inherits whatever the bridge process was given.

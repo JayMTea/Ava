@@ -428,10 +428,59 @@ def observed(rt=None, live_probe: bool = True,
     if live_probe:
         try:
             if rt.live().get("live"):
-                out.update(_probe(rt, out, want or desired()))
+                want = want or desired()
+                # A runtime with a control plane can answer for itself, and
+                # answers BETTER: `_probe` costs up to four `exec` round-trips
+                # into a container, and a gateway runtime has no shell at all.
+                # `None` means "no view of its own".
+                #
+                # The inner try is not belt-and-braces. Sharing one with the
+                # probe below meant a runtime whose observe() raised — an older
+                # adapter without the method, a shape change upstream — silently
+                # skipped observation ENTIRELY, so every scope read `unknown`
+                # and the owner saw a blank drift board with nothing saying why.
+                # A runtime that cannot answer for itself must fall back to the
+                # probe, not disable it.
+                try:
+                    got = rt.observe(want)
+                except Exception:  # noqa: BLE001
+                    got = None
+                if got is None:
+                    out.update(_probe(rt, out, want))
+                else:
+                    _merge_observed(out, got)
         except Exception:  # noqa: BLE001 — a probe failure is `unknown`, not an error
             pass
     return out
+
+
+def _merge_observed(out: dict, got: dict) -> None:
+    """Fold a runtime's own answer in PER SCOPE, never wholesale.
+
+    `_probe` can replace `maps`/`sources` entirely because it starts from copies
+    of them, so whatever it does not learn survives. A runtime's `observe()`
+    does not see `out` at all — deliberately, since `out` is this module's
+    internal shape and the ABC should not carry it — so merging its return
+    wholesale would silently drop the registry-derived policies and the
+    manifest-derived skills that were already established above.
+
+    Merging per scope also ENFORCES the contract the ABC only describes: a scope
+    the runtime cannot answer is one it omits, and an omitted scope keeps
+    whatever was already known (often `source: "none"` → `unknown`). There is no
+    way to accidentally claim a scope by returning an empty map for it, because
+    an empty map is a claim — "we looked and it holds nothing" — and it is
+    recorded as exactly that.
+    """
+    maps = got.get("maps") or {}
+    sources = got.get("sources") or {}
+    for scope, m in maps.items():
+        if scope not in SCOPES:
+            continue
+        out["maps"][scope] = m
+        out["sources"][scope] = sources.get(scope) or "gateway"
+    extras = got.get("extras")
+    if extras:
+        out["extras"] = extras
 
 
 PERSONA_PATH = "/sandbox/.openclaw/workspace/IDENTITY.md"
@@ -633,9 +682,16 @@ def item_state(want: str, have: str | None, *, source: str, rebuilt: bool = Fals
     `source` is where `have` came from, and it is load-bearing:
         registry  — ~/.nemoclaw/sandboxes.json (authoritative, works offline)
         probe     — a live sha256sum inside the sandbox (authoritative)
+        gateway   — the agent's own control plane answering for itself; the same
+                    authority as `probe`, since it is the component that HOLDS
+                    the thing rather than a shell looking at it
         manifest  — install.sh's record; authoritative for ABSENCE only, because
                     install.sh writes a row per skill it attempted
         none      — nothing could observe this item at all
+
+    Only `none` is read semantically below, so adding a source is safe — but
+    this enumeration IS the documentation of that contract, so it has to stay
+    complete or the next reader has to go and find out by experiment.
     """
     if rebuilt:
         # The sandbox was rebuilt out from under us, so its contents are provably
@@ -649,6 +705,36 @@ def item_state(want: str, have: str | None, *, source: str, rebuilt: bool = Fals
     if have != want:
         return "stale"
     return "deployed"
+
+
+def _orphans(obs: dict, want: dict) -> dict:
+    """What is live that this checkout does not declare.
+
+    Two kinds, and the second is the reason this is a function now.
+
+    SCOPE orphans are items inside the four-state vocabulary's domain that the
+    checkout no longer names — a deleted connector's egress preset, say.
+
+    GATEWAY extras are things Ava never declared at all: plugins the owner
+    installed through the agent, cron jobs it created for itself. They belong
+    here rather than in the ladder because the ladder compares what the checkout
+    DECLARES against what is live, and an item with no desired digest can only
+    ever be extra — it can never be `stale` or `deployed`. Putting them in a
+    fifth scope would also break `pending`, which sums scopes.
+
+    `None` for any key means "we could not look", never "nothing extra".
+    """
+    out: dict = {
+        scope: _extra(obs["maps"][scope],
+                      {row["id"] for row in want[scope]},
+                      obs["sources"][scope])
+        for scope in SCOPES if scope != "persona"
+    }
+    # Built explicitly rather than by comprehension precisely because the keys
+    # are no longer a subset of SCOPES.
+    for key, rows in (obs.get("extras") or {}).items():
+        out[key] = rows
+    return out
 
 
 def _roll_up(states: list[str]) -> str:
@@ -773,12 +859,7 @@ def _state_uncached(rt=None) -> dict:
         # allowance lives in the sandbox until a rebuild; reporting it is the
         # honest thing we CAN do, and saying nothing is what let it accumulate.
         # A `None` for a scope means we could not look, never "nothing extra".
-        "orphans": {
-            scope: _extra(obs["maps"][scope],
-                          {row["id"] for row in want[scope]},
-                          obs["sources"][scope])
-            for scope in SCOPES if scope != "persona"
-        },
+        "orphans": _orphans(obs, want),
         "scopes": scopes,
         "items": items,
         "counts": total,

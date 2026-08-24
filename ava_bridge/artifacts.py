@@ -54,6 +54,40 @@ def _wmo(code):
     return WMO.get(int(code) if code is not None else -1, "Mixed conditions")
 
 
+def _weather_args_from_steps(steps: list[dict] | None) -> tuple[str | None, int]:
+    """The same answer, from the step list a streaming runtime already has.
+
+    The gateway runtime has no session file to re-read — its chain-of-thought
+    arrives as events — so a tool step carries its own `args`. Reading them here
+    keeps ONE artifact builder for both runtimes rather than a second one that
+    would have to be kept in step with this file's tool matching.
+
+    Returns (None, 7) when the steps carry nothing, which the caller treats
+    exactly as it treats an unreadable session file.
+    """
+    location, days = None, 7
+    for st in steps or []:
+        if not isinstance(st, dict) or st.get("kind") != "tool":
+            continue
+        if "weather" not in str(st.get("name") or ""):
+            continue
+        args = st.get("args")
+        if isinstance(args, str):
+            try:
+                args = json.loads(args)
+            except Exception:  # noqa: BLE001
+                args = {}
+        if isinstance(args, dict):
+            loc = args.get("location")
+            if loc and str(loc).strip():
+                location = str(loc).strip()
+            try:
+                days = int(args.get("days") or days)
+            except (TypeError, ValueError):
+                pass
+    return location, days
+
+
 def _extract_weather_args(sid: str, after: int) -> tuple[str | None, int]:
     """Read the get_weather tool-call args the agent used this turn.
 
@@ -212,13 +246,22 @@ def build_weather_artifact(location: str | None, days: int = 7) -> dict | None:
     }
 
 
-def build_turn_artifact(tools: list[str], sid: str, after: int) -> dict | None:
+def build_turn_artifact(tools: list[str], sid: str, after: int,
+                        steps: list[dict] | None = None) -> dict | None:
     """Return an artifact for a finished turn, or None.
 
     Currently supports weather. New artifact kinds slot in here by matching the
     tool name and building their own payload.
+
+    `steps` is the streaming runtime's route in: it already holds this turn's
+    tool calls WITH their arguments, so there is nothing to re-read. When it is
+    absent (the CLI runtime), the arguments come from the session file exactly
+    as before. Steps are tried first and the file is the fallback, so a runtime
+    that supplies steps never touches the sandbox.
     """
     if any("get_weather" in (t or "") for t in tools):
-        location, days = _extract_weather_args(sid, after)
+        location, days = _weather_args_from_steps(steps)
+        if location is None:
+            location, days = _extract_weather_args(sid, after)
         return build_weather_artifact(location, days)
     return None

@@ -142,6 +142,79 @@ class RequiredGateTests(unittest.TestCase):
             state.turns.pop(tid, None)
 
 
+class ServingRuntimeTests(unittest.TestCase):
+    """The runtime `gate()` returned is the runtime that serves the turn.
+
+    `agent.ask_openclaw()` hardcoded `runtime.nemoclaw().run_turn(...)`, so on
+    `agent.runtime: remote` the gate admitted RemoteRuntime and the reply then
+    came from the in-process CLI adapter — while `sbx_read`/`session_file`
+    (live chain-of-thought) *did* route through `configured()`. The reasoning
+    and the reply came from two different machines, and nothing said so.
+
+    Two guards, because the bug had two halves: a facade that pinned a runtime,
+    and a caller that used it instead of the one it had already resolved.
+    """
+
+    def test_the_turn_runs_on_the_gated_runtime(self):
+        """A behavioural check, not a scan: whatever `gate()` hands back is what
+        `_run_turn` must call, even when it is not the local NemoClaw adapter."""
+        from ava_bridge import state, turns
+
+        served: list[str] = []
+
+        # A real AgentRuntime subclass, so it inherits the seam's actual
+        # defaults (supports_push_turns() -> False) rather than a hand-written
+        # approximation of them that could drift from the ABC.
+        from ava_bridge.runtime.base import AgentRuntime
+
+        class _Fake(AgentRuntime):
+            name = "fake"
+            supports_tools = True
+            supports_cot = True
+
+            def available(self):
+                return True
+
+            def run_turn(self, text, session_id=None, history=None):
+                served.append(session_id or "")
+                return "ok", []
+
+        tid = "t-serve"
+        state.turns[tid] = {"status": "running"}
+        try:
+            with mock.patch.object(runtime, "gate", return_value=(_Fake(), None)), \
+                 mock.patch.object(turns, "_session_line_count", return_value=0), \
+                 mock.patch.object(turns, "_poll_turn_steps", lambda *a, **k: None), \
+                 mock.patch.object(turns, "_tools_from_session", return_value=[]), \
+                 mock.patch.object(turns, "_read_session_steps", return_value=[]), \
+                 mock.patch.object(turns, "which_model", return_value=None), \
+                 mock.patch.object(turns, "build_turn_artifact", return_value=None):
+                turns._run_turn(tid, "hi", "s1", "")
+            self.assertEqual(state.turns[tid]["status"], "done")
+            self.assertEqual(state.turns[tid]["reply"], "ok")
+            self.assertEqual(served, ["s1"],
+                             "the turn did not run on the runtime gate() returned")
+        finally:
+            state.turns.pop(tid, None)
+
+    def test_the_agent_facade_pins_no_runtime(self):
+        """`ava_bridge/agent.py` is a facade over the seam. It may resolve
+        `gate()`, `active()`, `configured()` or `direct()` — each of which names
+        a ROLE — but never a concrete adapter, which names a machine."""
+        import ast
+        from pathlib import Path
+
+        src = (Path(__file__).resolve().parents[1] / "ava_bridge"
+               / "agent.py").read_text(encoding="utf-8")
+        calls = {c.func.attr for c in ast.walk(ast.parse(src))
+                 if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute)
+                 and isinstance(c.func.value, ast.Name)
+                 and c.func.value.id == "runtime"}
+        self.assertNotIn("nemoclaw", calls,
+                         "agent.py resolves a concrete adapter. Use gate() / "
+                         "active() / configured() so `agent.runtime` decides.")
+
+
 class RuntimeNameTests(unittest.TestCase):
 
     def test_a_known_name_reports_no_error(self):

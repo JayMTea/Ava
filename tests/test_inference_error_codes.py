@@ -128,9 +128,41 @@ def test_the_turn_carries_the_code_to_the_ui() -> None:
         "the cot chat item cannot carry a code, so the poll has nowhere to put "
         "it even if it reads it")
 
-    hook = (fe / "hooks" / "useChat.ts").read_text(encoding="utf-8")
-    assert "code: s.error_code" in hook, (
-        "the turn poll stopped carrying error_code onto the chat item")
+    # DISCOVERED, not pinned to one filename. This assertion named
+    # `hooks/useChat.ts`, and when the poll loop was extracted into
+    # `hooks/chatDirect.ts` the guard failed — which is the good outcome, but
+    # only because the string vanished entirely. Had it moved to a file this
+    # still read, the check would have quietly started proving nothing. The
+    # sibling guard `tests/test_no_blocking_routes.py` documents this exact
+    # failure mode: "a guard with a fixed file list does not fail when code
+    # moves away from it — it just stops checking."
+    hooks = sorted((fe / "hooks").glob("*.ts"))
+    assert hooks, "frontend/src/hooks holds no modules — has the layout moved?"
+    # 2026-08-23: the finished-turn mapping moved AGAIN, out of the hooks into
+    # the shared `applyTurnRecord` (lib/chatEvents.ts), so the polled and the
+    # streamed strategy apply ONE record->items mapping instead of drifting
+    # copies — the carrier there reads `code: turn.error_code`. Keep the
+    # discovery across both layers rather than pinning the new home, for the
+    # reason the paragraph above records.
+    modules = hooks + sorted((fe / "lib").glob("*.ts"))
+    carriers = [f.name for f in modules
+                if not f.name.endswith(".test.ts")
+                and ("code: s.error_code" in f.read_text(encoding="utf-8")
+                     or "code: turn.error_code" in f.read_text(encoding="utf-8"))]
+    assert carriers, (
+        "no module under frontend/src/hooks/ or frontend/src/lib/ carries "
+        "`error_code` onto the chat item any more, so a coded turn failure "
+        "reaches the user as bare prose with no fix link. Looked in: "
+        + ", ".join(f.name for f in modules))
+
+    # The streamed path is a SECOND transport for the same failure, and it has
+    # to carry the code too — `chatEvents.applyEvent` is where it lands there.
+    events = (fe / "lib" / "chatEvents.ts")
+    if events.exists():
+        src = events.read_text(encoding="utf-8")
+        assert "code: ev.code" in src, (
+            "the streamed turn path drops the error code, so the same failure "
+            "gets a fix link on the bridge path and none on the gateway path.")
 
     cotc = (fe / "components" / "chat" / "ChainOfThought.tsx").read_text(encoding="utf-8")
     assert "fixForCode" in cotc and "FixLink" in cotc, (

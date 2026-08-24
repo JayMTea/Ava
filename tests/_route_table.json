@@ -168,6 +168,27 @@
   "APIRoute"
  ],
  [
+  "/api/gateway/reconnect",
+  [
+   "POST"
+  ],
+  "APIRoute"
+ ],
+ [
+  "/api/gateway/rpc",
+  [
+   "POST"
+  ],
+  "APIRoute"
+ ],
+ [
+  "/api/gateway/status",
+  [
+   "GET"
+  ],
+  "APIRoute"
+ ],
+ [
   "/api/ghost/discard",
   [
    "POST"
@@ -192,6 +213,20 @@
   "/api/health",
   [
    "GET"
+  ],
+  "APIRoute"
+ ],
+ [
+  "/api/hub/agent/gateway",
+  [
+   "GET"
+  ],
+  "APIRoute"
+ ],
+ [
+  "/api/hub/agent/gateway/token",
+  [
+   "POST"
   ],
   "APIRoute"
  ],
@@ -910,6 +945,13 @@
   "APIRoute"
  ],
  [
+  "/api/turn/{tid}/abort",
+  [
+   "POST"
+  ],
+  "APIRoute"
+ ],
+ [
   "/api/turns",
   [
    "GET"
@@ -933,6 +975,11 @@
    "PUT"
   ],
   "APIRoute"
+ ],
+ [
+  "/apps/{cid}/{path:path}",
+  [],
+  "APIWebSocketRoute"
  ],
  [
   "/apps/{cid}/{path:path}",
@@ -1197,5 +1244,10 @@
   "/uploads",
   [],
   "Mount"
+ ],
+ [
+  "/ws/gateway",
+  [],
+  "APIWebSocketRoute"
  ]
 ]
