@@ -223,3 +223,8 @@ alloc_drivers/
 # else. Keep planning docs outside the tree entirely.
 /docs/*_PLAN.md
 /docs/private/
+
+# The provisioning mutex (ava_bridge/runtime/deploy_lock.py). Live cross-process
+# state, created wherever `agent.state_dir` points — never source. Committing it
+# would ship one machine's lock into every clone.
+agent/.deploy.lock
