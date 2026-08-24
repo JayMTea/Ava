@@ -54,7 +54,10 @@ def test_the_generated_tool_template_interpolates_the_port() -> None:
         f"expected at least 3 BRIDGE templates (static, find_tool, call_tool), found "
         f"{len(lines)} — if a template was removed, update this floor deliberately.")
     for line in lines:
-        assert "{_bridge_port()}" in line, (
+        # The CALL, not one spelling of it. `_layout.bridge_url(_bridge_port())`
+        # resolves the port per render exactly as `{_bridge_port()}` did — this
+        # guard exists to stop the port being FROZEN, not to pin a wrapper.
+        assert "_bridge_port()" in line, (
         f"the tool template does not interpolate the port: {line.strip()!r}. My "
         "first cut used a placeholder NAME inside an f-string, which would have "
         "emitted `BRIDGE_PORT_PLACEHOLDER` into the JavaScript verbatim.")

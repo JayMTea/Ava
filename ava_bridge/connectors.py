@@ -531,7 +531,10 @@ def actions() -> List[dict]:
 
 
 # Where sandboxed agent tools reach the host bridge (OpenClaw's host alias).
-_BRIDGE_HOST = "host.openshell.internal"
+# The sandbox-side name for the host. Owned by the runtime package: it is
+# OpenShell's docker topology, not a fact about Ava.
+from .runtime import nemoclaw_layout as _layout
+from .runtime.nemoclaw_layout import BRIDGE_HOST as _BRIDGE_HOST
 # Derived, not pinned. `server.port` / AVA_PORT is documented in
 # config.example.yaml and deploy/README.md, and this literal is why using it broke
 # every agent tool silently: the generated egress policy allowed 8096 and the
@@ -938,7 +941,7 @@ def render_tool(cid: str, action: dict) -> str:
     schema = {"type": "object", "properties": props, "additionalProperties": False}
     return f"""// AUTO-GENERATED from connectors/{cid}/connector.yaml (action: {aid}).
 // Regenerate with:  ava connector tools {cid} --write
-const BRIDGE = process.env.AVA_BRIDGE_URL || 'http://host.openshell.internal:{_bridge_port()}';
+const BRIDGE = process.env.AVA_BRIDGE_URL || '{_layout.bridge_url(_bridge_port())}';
 
 export default {{
   name: '{name}',
@@ -1030,7 +1033,7 @@ def render_find_tool(cid: str) -> str:
         f"then invoke the chosen action with {cid}_call.")
     return f"""// AUTO-GENERATED from connectors/{cid}/connector.yaml (meta: find_tool).
 // Regenerate with:  ava connector tools {cid} --write
-const BRIDGE = process.env.AVA_BRIDGE_URL || 'http://host.openshell.internal:{_bridge_port()}';
+const BRIDGE = process.env.AVA_BRIDGE_URL || '{_layout.bridge_url(_bridge_port())}';
 
 export default {{
   name: '{cid}_find_tool',
@@ -1069,7 +1072,7 @@ def render_call_tool(cid: str) -> str:
         f"input schema with {cid}_find_tool first.")
     return f"""// AUTO-GENERATED from connectors/{cid}/connector.yaml (meta: call).
 // Regenerate with:  ava connector tools {cid} --write
-const BRIDGE = process.env.AVA_BRIDGE_URL || 'http://host.openshell.internal:{_bridge_port()}';
+const BRIDGE = process.env.AVA_BRIDGE_URL || '{_layout.bridge_url(_bridge_port())}';
 
 export default {{
   name: '{cid}_call',

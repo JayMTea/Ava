@@ -23,6 +23,8 @@ has different answers for a loopback bridge and for a third-party public API.
 """
 from __future__ import annotations
 
+from .runtime.nemoclaw_layout import BRIDGE_HOST as _BRIDGE_HOST
+
 import hashlib
 import os
 from dataclasses import dataclass, field, asdict
@@ -63,7 +65,7 @@ def _rel(path: str) -> str:
 # path against one of these grants the sandbox the whole internal route table;
 # against `api.open-meteo.com` it grants GET on a public weather API, where the
 # host and method are the actual boundary.
-INTERNAL_HOSTS = ("host.openshell.internal", "127.0.0.1", "localhost", "::1",
+INTERNAL_HOSTS = (_BRIDGE_HOST, "127.0.0.1", "localhost", "::1",
                   "host.docker.internal")
 
 

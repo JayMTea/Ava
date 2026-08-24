@@ -400,6 +400,46 @@ Secrets live outside `ava.yaml` and outside the repo: the admin password in
 
 ---
 
+## 9a. What actually runs, and on which port
+
+Ava is not a fleet. On bare metal it is **one process**, plus whatever the agent
+runtime brings with it:
+
+| Process | What it is | Default port | Set by |
+|---|---|---|---|
+| the bridge | `phone_bridge.py` under uvicorn — the whole app: UI, chat, voice, connectors | `127.0.0.1:8096` | `server.port` / `AVA_PORT` |
+| the inference router | started **inside** the bridge, not a second service | `127.0.0.1:8010` | `inference.router.port` |
+| the OpenShell host gateway | NemoClaw's policy plane, started by `nemoclaw onboard` | `127.0.0.1:8080` | `nemoclaw onboard` |
+| the OpenClaw gateway | the agent's control plane, only with `agent.runtime: openclaw_gw` | from the sandbox registry | `nemoclaw onboard` |
+
+Everything binds **loopback**. Reaching Ava from a phone is Tailscale's job, not
+a wider bind — see [SECURITY.md §1](../SECURITY.md).
+
+### Units
+
+The bridge itself is yours to supervise however you like; `deploy/install.sh`
+writes a user unit for it. The one unit Ava generates for you is the **host
+gateway's**, because that process has no supervisor of its own and vanishes on
+reboot — see ["Surviving reboots"](AGENT_RUNTIME.md#surviving-reboots):
+
+```bash
+ava agent install-units          # report what it would write
+ava agent install-units --write  # install it
+```
+
+Two host-level scripts ship but are **not** installed for you, because both
+touch things outside `$AVA_HOME`: `deploy/nemoclaw-boot-recover.sh` restores the
+sandbox's port forwards, and `deploy/ava-sandbox-firewall.sh` re-adds the
+`INPUT` ACCEPT rules a sandbox needs on a host that defaults to DROP.
+
+`ava doctor` reports all of it, including the gateway's phase and version, for
+whichever runtime is actually serving turns.
+
+> There is a fuller per-machine inventory in `docs/dev/COMPONENTS.md`. It is
+> **gitignored on purpose**: it maps one operator's box — their other services,
+> their ports, their paths — and would be a wrong map for anyone else. What a
+> fork needs is the table above.
+
 ## 10. Installing from a fork
 
 Installing **from a fork**, without cloning it first? Point `AVA_REPO` at your

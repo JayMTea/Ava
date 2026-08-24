@@ -51,6 +51,7 @@ import time
 from typing import Any, Callable
 
 from . import config, policy_inventory, settings, skills
+from .runtime import nemoclaw_layout as _layout
 
 # The four states, and the whole vocabulary the UI is allowed to speak. They are
 # the ones `skills.py` already used, so the Agent tab's badges keep working.
@@ -161,7 +162,7 @@ def server_name(category: str) -> str:
 
 def server_root(category: str) -> str:
     """The sandbox directory install.sh extracts this server's tarball into."""
-    return f"/sandbox/.openclaw/mcp_server_{category}"
+    return _layout.mcp_server_dir(category)
 
 
 def server_path(category: str) -> str:
@@ -483,8 +484,10 @@ def _merge_observed(out: dict, got: dict) -> None:
         out["extras"] = extras
 
 
-PERSONA_PATH = "/sandbox/.openclaw/workspace/IDENTITY.md"
-SKILLS_GLOB = "/sandbox/.openclaw/skills/*/SKILL.md"
+# The sandbox's layout is the RUNTIME package's knowledge, not this module's.
+# Re-exported under the names the rest of the tree already uses.
+PERSONA_PATH = _layout.PERSONA_PATH
+SKILLS_GLOB = _layout.SKILLS_GLOB
 
 
 def _probe(rt, out: dict, want: dict[str, list[dict]]) -> dict:
@@ -607,7 +610,7 @@ def _registered_servers(rt, want: dict[str, dict] | None = None) -> dict[str, st
 
     `None` (never `{}`) when we could not look — see `AgentRuntime.tree_digests`.
     """
-    raw = rt.read_file("/sandbox/.openclaw/openclaw.json")
+    raw = rt.read_file(_layout.CONFIG_PATH)
     if not raw:
         return None
     try:
