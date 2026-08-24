@@ -1,0 +1,18 @@
+[Unit]
+Description=Allow the OpenShell sandbox bridge to reach Ava host services
+Documentation=file:/usr/local/sbin/ava-sandbox-firewall.sh
+After=docker.service
+Requires=docker.service
+# Docker rebuilds its iptables chains when it restarts, and can recreate the
+# bridge with a new name. PartOf makes this unit restart with docker, so the
+# rules are reapplied against whatever interface exists afterwards instead of
+# pointing at one that is gone.
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/ava-sandbox-firewall.sh
+
+[Install]
+WantedBy=multi-user.target

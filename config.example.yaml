@@ -314,12 +314,22 @@ inference:
 
 # ── Agent runtime (the MCP host that gives Ava tools + memory) ──────────────
 agent:
-  runtime: nemoclaw        # [AVA_AGENT_RUNTIME] nemoclaw (default) | direct
+  runtime: nemoclaw        # [AVA_AGENT_RUNTIME] nemoclaw (default) | openclaw_gw
+                           #   | remote | direct.  `openclaw_gw` talks to the
+                           #   SAME OpenClaw over its gateway WebSocket instead
+                           #   of spawning a CLI per message — that is what makes
+                           #   sessions, cron, devices and approvals reachable,
+                           #   and what streams a turn instead of waiting for it.
   required: false          # [AVA_AGENT_REQUIRED] true = MUST have the runtime;
                            #   refuse to fall back to tool-less chat (fail loud).
   enabled: true            # [AVA_AGENT_ENABLED] false -> force the direct floor
   sandbox: my-assistant    # [AVA_OC_SANDBOX]
-  agent_id: main           # [AVA_OC_AGENT]
+  agent_id: main           # [AVA_OC_AGENT] which agent on the gateway serves
+                           #   turns. The gateway prefixes session keys with it
+                           #   (`agent:<agent_id>:<your key>`).
+  session_prefix: ava-phone # [AVA_OC_SESSION] namespaces every session key Ava
+                           #   creates. Change it if two Ava installs share one
+                           #   gateway, or they will read each other's sessions.
   # NemoClaw (github.com/NVIDIA/NemoClaw, Apache-2.0) is the default runtime — it
   # runs OpenClaw in an OpenShell sandbox and gives Ava her tools, skills,
   # sandboxed execution, egress policies and persistent memory. Set it up with
@@ -327,6 +337,30 @@ agent:
   # It's hardware-portable (sandbox from a container image). If it's absent and
   # required=false, Ava falls back to DIRECT tool-less chat so a fresh install
   # still works; set required=true to make the full runtime mandatory.
+
+  # ── OpenClaw gateway ──────────────────────────────────────────────────────
+  # OpenClaw's own control plane: JSON-RPC over a WebSocket, ~200 methods. Used
+  # by the Agent tab (sessions, activity, automations) and, when
+  # `runtime: openclaw_gw`, by the chat turn itself.
+  gateway:
+    url: ""                # [AVA_OC_GATEWAY_URL] empty = derive the port from the
+                           #   NemoClaw registry, so a `rebuild` that moves it
+                           #   keeps working. Falls back to ws://127.0.0.1:18789/
+    allow_remote: false    # [AVA_OC_GATEWAY_ALLOW_REMOTE] the token carries
+                           #   operator.admin, so a non-loopback URL is refused
+                           #   unless this is deliberately true.
+    scopes: operator.admin # [AVA_OC_GATEWAY_SCOPES]
+    connect_timeout_s: 10  # [AVA_OC_GATEWAY_CONNECT_TIMEOUT]
+    rpc_timeout_s: 30      # [AVA_OC_GATEWAY_RPC_TIMEOUT]
+    trust_unlisted_methods: false
+                           # [AVA_OC_GATEWAY_TRUST_UNLISTED] fail closed on the
+                           #   gateway's advertised method list. A gateway that
+                           #   advertises nothing gets nothing; set true only for
+                           #   a build that does not publish the list at all.
+    ws_max_lifetime_s: 0   # [AVA_OC_GATEWAY_WS_MAX_LIFETIME] 0 = unlimited. A
+                           #   socket is authorized once at the handshake and
+                           #   never re-checked, so set a number here if you want
+                           #   long-lived panels to periodically re-authenticate.
 
 # ── Optional capabilities (default OFF so a fresh install is minimal) ────────
 features:

@@ -625,6 +625,66 @@ def secret(name: str, env: str | None = None, generate: bool = False,
     return None
 
 
+def _safe_secret_name(name: str) -> str:
+    """A filename inside `secrets/`, or "" — never a path.
+
+    Dropping `/` is not enough on its own: `".."` survives a character filter
+    intact and resolves to the PARENT of the secrets directory. Leading dots go
+    too, so a caller cannot write a hidden file the Data tab's inventory would
+    not list.
+    """
+    safe = _re.sub(r"[^a-z0-9_.-]", "", (name or "").strip().lower())[:64]
+    safe = safe.lstrip(".")
+    return "" if ".." in safe else safe
+
+
+def write_secret(name: str, value: str) -> None:
+    """Persist a plain secret 0600 at ``secrets/<name>``.
+
+    The write half of `secret()`, for the secrets Ava RECEIVES rather than
+    generates — the OpenClaw gateway's operator token, and the device token the
+    gateway issues back. `secret(generate=True)` is wrong for both: a value we
+    invent cannot match what the other side will accept, and inventing one turns
+    "you have not given us a token" into "the gateway rejected our token",
+    which is a lie about which side is wrong.
+
+    Same opener discipline as `set_env_secret`: created 0600 by `os.open`
+    itself, not written at the ambient umask and chmod'ed after.
+    """
+    safe = _safe_secret_name(name)
+    if not safe or not value:
+        return
+    _private_dir(Path(secrets_dir()))
+    p = Path(secrets_dir()) / safe
+
+    def _opener(path: str, flags: int) -> int:
+        return os.open(path, flags, 0o600)
+
+    with open(p, "w", encoding="utf-8", opener=_opener) as f:
+        f.write(value.strip())
+    os.chmod(p, 0o600)      # idempotent; also corrects a pre-existing file's mode
+    _audit_secret("write", scope="secret", name=safe)
+
+
+def clear_secret(name: str) -> None:
+    """Remove a plain secret if present (best-effort).
+
+    Audited for the same reason as `clear_env_secret`: a credential can vanish
+    as a side effect of submitting an empty field, and that should not happen
+    with nothing on the record.
+    """
+    safe = _safe_secret_name(name)
+    if not safe:
+        return
+    try:
+        p = Path(secrets_dir()) / safe
+        if p.is_file():
+            p.unlink()
+            _audit_secret("delete", scope="secret", name=safe)
+    except OSError:
+        pass
+
+
 def _safe_backend_id(bid: str) -> str:
     """Filesystem-safe form of a user-supplied backend id (secrets filename)."""
     return _re.sub(r"[^a-z0-9_-]", "", (bid or "").strip().lower())[:48]

@@ -1,0 +1,37 @@
+[Unit]
+Description=OpenShell host gateway for NemoClaw — the sandbox's policy plane
+Documentation=https://www.nvidia.com/nemoclaw
+# This process has NO supervisor of its own. `nemoclaw onboard` spawns it
+# detached (src/lib/onboard/docker-driver-gateway-launch.ts), so it is
+# reparented to `systemd --user` and simply vanishes on reboot. With it gone the
+# sandbox cannot fetch its policy and exits after ~5 attempts, roughly once a
+# minute — a crash loop that looks like the sandbox is broken when in fact its
+# gateway is missing.
+#
+# `nemoclaw <name> recover` does NOT fix this; it says so itself ("this
+# sandbox-scoped command will not restart the shared host gateway"), and the
+# only caller of the launcher in the whole upstream tree is onboard.ts. So the
+# boot path needs a supervisor, not a smarter recover script.
+StartLimitIntervalSec=0
+PartOf=default.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h
+{ENVIRONMENT}
+# `After=docker.service` would be inert: this is a USER unit and docker.service
+# is a system unit. Wait for the daemon explicitly instead of burning restarts
+# against a socket that is not up yet.
+ExecStartPre=/bin/sh -c 'for i in $(seq 1 90); do docker info >/dev/null 2>&1 && exit 0; sleep 2; done; echo "docker never became ready" >&2; exit 1'
+# argv0 is LOAD-BEARING. NemoClaw decides whether a running gateway is its own
+# by matching this exact string:
+#   /^openshell-gateway\[nemoclaw=(nemoclaw(?:-\d+)?);port=(\d+)\]$/
+# (src/lib/onboard/gateway-process-target-identity.ts). systemd has no argv0
+# option, so `exec -a` is doing real work — start it with a plain argv0 and
+# nemoclaw stops recognising the process as its own gateway.
+ExecStart=/bin/bash -c 'exec -a "{ARGV0}" {EXE}'
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

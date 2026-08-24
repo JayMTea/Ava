@@ -290,12 +290,30 @@ def cmd_doctor(_args) -> int:
     try:
         from ava_bridge import runtime, config as _cfg
         rt, err = runtime.gate()
-        st = runtime.nemoclaw().status()
+        # Read the ACTIVE runtime, never a named one. This block called
+        # `runtime.nemoclaw().status()` outright, so on a box running the
+        # gateway runtime doctor reported a different runtime's facts than the
+        # one actually serving turns — and reported them as if they were the
+        # live ones. `runtime.gate()` already answers "what is serving", and
+        # every runtime's `status()` carries the same core keys, so nothing
+        # here needs to know which one it got.
+        st = rt.status()
         _row(OK if st.get("cli") else (BAD if _cfg.AGENT_REQUIRED else WARN),
              "nemoclaw", st.get("cli") or "not installed (`ava agent provision --install`)")
         _row(OK if st.get("sandbox_exists") else (BAD if _cfg.AGENT_REQUIRED else WARN),
              "sandbox", f"{st.get('sandbox')} " +
              ("(exists)" if st.get("sandbox_exists") else "(missing — `nemoclaw onboard`)"))
+        # Gateway rows appear only when the active runtime HAS a gateway, which
+        # is a fact its own status reports rather than something inferred from
+        # its name.
+        gw = st.get("gateway") if isinstance(st.get("gateway"), dict) else None
+        if gw:
+            phase = str(gw.get("phase") or "unknown")
+            why = str(gw.get("why") or "")
+            _row(OK if phase == "ready" else (BAD if _cfg.AGENT_REQUIRED else WARN),
+                 "gateway", phase + (f" — {why}" if why else ""))
+            if st.get("agent_version"):
+                _row(OK, "agent version", str(st["agent_version"]))
         # WHICH model answers a turn is one question with one answer, and this
         # is the last surface that was still working it out for itself: it read
         # the sandbox directly, so it printed a brain row when the agent runtime
@@ -552,9 +570,19 @@ def cmd_setup(args) -> int:
     settings.ensure_dirs()
     _row(OK, "directories", "created under AVA_HOME")
 
-    # signing secret (auto-generated, secure by default)
-    settings.secret("session_secret", env="AVA_SECRET", generate=True)
-    _row(OK, "session secret", "generated" if not os.environ.get("AVA_SECRET") else "from env")
+    # Signing secret (auto-generated, secure by default).
+    #
+    # This used to write `secrets/session_secret` — a 0600, credential-shaped
+    # file that NOTHING has ever read. The key that actually signs session
+    # cookies is `data/.secret`, minted by `auth._auth_secret()` on first use,
+    # so setup reported "session secret: generated" about a file with no
+    # bearing on anything, and an operator rotating it would have rotated the
+    # wrong one and found their sessions still valid. Touch the real key.
+    from ava_bridge import auth as _auth
+    _auth._auth_secret()
+    _row(OK, "session secret",
+         "from env (AVA_SECRET)" if os.environ.get("AVA_SECRET")
+         else "ready (data/.secret)")
 
     # router token (guards /which /route /fit; also /v1/* when LAN-exposed)
     settings.secret("router_token", env="AVA_ROUTER_TOKEN", generate=True)
@@ -1005,8 +1033,9 @@ def cmd_agent(args) -> int:
     from ava_bridge import runtime, config
     action = args.action or "status"
     if action == "status":
-        st = runtime.nemoclaw().status()
+        # The ACTIVE runtime's own facts — see the same fix in `doctor`.
         rt, err = runtime.gate()
+        st = rt.status()
         print(f"\n{B}Agent runtime{X}\n")
         _row(OK, "configured", config.AGENT_RUNTIME)
         _row(OK if not config.AGENT_REQUIRED else OK, "required", str(config.AGENT_REQUIRED))
@@ -1015,10 +1044,72 @@ def cmd_agent(args) -> int:
              f"{st.get('sandbox')} " + ("(exists)" if st.get("sandbox_exists") else "(missing — run `ava agent provision`)"))
         _row(OK if rt.name != "direct" else (BAD if err else WARN), "active",
              rt.name + (f" — {err}" if err else ""))
+        gw = st.get("gateway") if isinstance(st.get("gateway"), dict) else None
+        if gw:
+            _row(OK if gw.get("phase") == "ready" else WARN, "gateway",
+                 str(gw.get("phase") or "unknown")
+                 + (f" — {gw['why']}" if gw.get("why") else ""))
         if st.get("health"):
             _row(OK, "health", str(st["health"])[:120])
         print()
         return 0
+    if action == "install-units":
+        from ava_bridge import systemd_units as units
+        print(f"\n{B}Boot-survival units{X}\n")
+        if args.remove:
+            gone = 0
+            for name in units.UNITS:
+                if not units.is_managed(name):
+                    _row(WARN, name,
+                         "not installed by Ava — left alone" if units.installed(name)
+                         else "not installed")
+                    continue
+                if not args.write:
+                    _row(WARN, name, "would remove (re-run with --write)")
+                    continue
+                os.remove(os.path.join(units.UNIT_DIR, name))
+                _row(OK, name, "removed")
+                gone += 1
+            if gone:
+                units.daemon_reload()
+            print()
+            return 0
+        rc = 0
+        changed = 0
+        for name in units.UNITS:
+            p = units.plan(name)
+            act = p["action"]
+            if act == "blocked":
+                _row(BAD, name, p["reason"])
+                rc = 1
+                continue
+            if act == "unchanged":
+                _row(OK, name, "already installed and up to date")
+                continue
+            if not args.write:
+                # Report-only by default: this writes into the operator's own
+                # systemd directory, and a unit that starts a gateway is not
+                # something to install because a command was run for a look.
+                _row(WARN, name, f"would {act} — re-run with --write")
+                if act == "update" and not p.get("managed"):
+                    _row(WARN, name,
+                         "the installed copy was NOT written by Ava; --write "
+                         "would overwrite it")
+                print(f"\n{p['text']}")
+                continue
+            path = units.write(name, p["text"])
+            _row(OK, name, f"{act}d -> {path}")
+            changed += 1
+        if changed:
+            ok, err = units.daemon_reload()
+            _row(OK if ok else WARN, "daemon-reload",
+                 "done" if ok else f"run `systemctl --user daemon-reload` ({err})")
+            print("\n  Enable at boot:  systemctl --user enable --now "
+                  + " ".join(units.UNITS))
+            print("  Survive logout:  sudo loginctl enable-linger $USER")
+        print()
+        return rc
+
     if action == "adopt-state":
         # Explicit and dry-run by default, on purpose: this moves files that live
         # OUTSIDE this AVA_HOME. Wired into a boot step instead, it moved the
@@ -2226,14 +2317,19 @@ def main() -> int:
     clp.set_defaults(func=cmd_claim)
     ap = sub.add_parser("agent", help="agent runtime (NemoClaw): status / provision")
     ap.add_argument("action", nargs="?",
-                    choices=["status", "provision", "adopt-state", "prune"],
+                    choices=["status", "provision", "adopt-state", "prune",
+                             "install-units"],
                     default="status")
     ap.add_argument("--install", action="store_true",
                     help="auto `npm install -g nemoclaw` if the CLI is missing")
     # Both of these move or delete files, so both report and stop unless told
     # otherwise. `adopt-state` in particular reaches OUTSIDE this AVA_HOME.
     ap.add_argument("--write", action="store_true",
-                    help="adopt-state / prune: actually do it (default: report only)")
+                    help="adopt-state / prune / install-units: actually do it "
+                         "(default: report only)")
+    ap.add_argument("--remove", action="store_true",
+                    help="install-units: remove the units Ava installed "
+                         "(only ever those it wrote itself)")
     ap.add_argument("--only", default=None,
                     metavar="SCOPE",
                     help="deploy just part of the kit: persona, policies, "

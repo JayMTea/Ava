@@ -21,7 +21,10 @@ ROOT = Path(__file__).resolve().parent
 # the set was a list of ports someone remembered, and the one that mattered was
 # the one nobody added. If you run a second inference server, add its port.
 SENSITIVE_PORTS = {8001, 8002, 8010, 8096, 8097, 8189, 8888, 9200, 11434, 11435}
-SANDBOX_GATEWAY_PORTS = {8010, 8096, 8097, 8189}
+# 8080 is the OpenShell HOST GATEWAY (mTLS), the sandbox's policy plane. It
+# binds 127.0.0.1 and is reached from the sandbox over the docker bridge
+# gateway ip, so a private-range bind on it is expected rather than a leak.
+SANDBOX_GATEWAY_PORTS = {8010, 8080, 8096, 8097, 8189}
 
 # Ports whose whole purpose is to be publicly reachable. Everything else that is
 # wildcard-bound gets a notice, because an allowlist-of-nine model made "bound to

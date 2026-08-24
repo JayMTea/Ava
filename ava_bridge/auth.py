@@ -15,6 +15,7 @@ import time
 from urllib.parse import urlsplit
 
 from fastapi import Request
+from starlette.requests import HTTPConnection
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 
 from . import config, state
@@ -150,7 +151,14 @@ def _valid_token(tok: str) -> bool:
         return False
 
 
-def is_authed(request: Request) -> bool:
+def is_authed(request: HTTPConnection) -> bool:
+    """Does this connection carry a valid session cookie?
+
+    Annotated `HTTPConnection` rather than `Request` because a WebSocket is one
+    too, and `ava_bridge/ws_auth.py` has to ask exactly this question. A second
+    cookie verifier for sockets would be a second answer to the one question the
+    whole auth model rests on.
+    """
     return _valid_token(request.cookies.get(config.COOKIE_NAME, ""))
 
 
@@ -172,7 +180,7 @@ def _is_loopback(host: str) -> bool:
         return False
 
 
-def client_ip(request: Request) -> str:
+def client_ip(request: HTTPConnection) -> str:
     """The caller's address, honouring X-Forwarded-For ONLY from a trusted peer.
 
     One resolver for the whole app. It also fixes a live defect: the login
@@ -190,7 +198,7 @@ def client_ip(request: Request) -> str:
     return peer
 
 
-def request_is_secure(request: Request) -> bool:
+def request_is_secure(request: HTTPConnection) -> bool:
     """Did this request reach us over TLS?"""
     if request.url.scheme == "https":
         return True
@@ -202,7 +210,7 @@ def request_is_secure(request: Request) -> bool:
     return False
 
 
-def cookie_secure_for(request: Request) -> bool:
+def cookie_secure_for(request: HTTPConnection) -> bool:
     """Whether to mark the session cookie Secure for THIS request."""
     if config.COOKIE_SECURE is not None:
         return bool(config.COOKIE_SECURE)
@@ -498,7 +506,7 @@ def trusted_hosts() -> frozenset[str]:
     return frozenset(o for o in out if o)
 
 
-def host_is_trusted(request) -> tuple[bool, str]:
+def host_is_trusted(request: HTTPConnection) -> tuple[bool, str]:
     """(ok, reason). Compares the Host header's NAME, port stripped."""
     allowed = trusted_hosts()
     if "*" in allowed:

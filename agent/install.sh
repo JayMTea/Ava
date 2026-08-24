@@ -391,6 +391,55 @@ if [ ! -s "$TOKEN_FILE" ]; then
 fi
 INTERNAL_TOKEN="$(tr -d '\n' < "$TOKEN_FILE")"
 
+# --- 2b-ii. OpenClaw gateway operator token ----------------------------------
+# The bridge reaches OpenClaw's own control plane over a WebSocket when
+# `agent.runtime: openclaw_gw`, and that connection authenticates with a token
+# the GATEWAY issues — not one we invent. `settings.secret(...)` is deliberately
+# called with generate=False for exactly this reason: a self-generated value
+# fails every handshake while reporting "the gateway rejected our token", which
+# is a lie about which side is wrong.
+#
+# This script is the right place to fetch it: it already runs where the
+# nemoclaw/openclaw CLIs live, and it already writes data/.internal_token with
+# the same 0600 discipline. Best-effort — a CLI that cannot mint one leaves the
+# file absent, the gateway runtime reports `agent_token_rejected`, and the owner
+# pastes one in from Setup -> Agent. A missing token must never fail an install
+# whose actual job is deploying tools and policies.
+GW_SECRET_DIR="${AVA_SECRETS_DIR:-${AVA_HOME:-$HERE/..}/secrets}"
+GW_TOKEN_FILE="$GW_SECRET_DIR/openclaw_gateway_token"
+if [ ! -s "$GW_TOKEN_FILE" ]; then
+  _gw_tok=""
+  if [ -x "$NEMOCLAW" ]; then
+    # `gateway-token` is the dedicated command and prints the token alone:
+    #   nemoclaw <name> gateway-token   Print the sandbox agent's auth token
+    # Verified against nemoclaw v0.0.96's own help output rather than assumed.
+    _gw_tok="$(timeout 20 "$NEMOCLAW" "$SANDBOX" gateway-token --quiet 2>/dev/null \
+      | tr -d '\r\n' | head -c 512)"
+    # Fallback for a NemoClaw that predates it: `dashboard-url` prints an
+    # authenticated URL carrying the same token, which is how NemoClaw hands one
+    # to a browser. Kept because the pinned ref is bumped deliberately and an
+    # older CLI on the box should degrade rather than silently write nothing.
+    if [ -z "$_gw_tok" ]; then
+      _gw_url="$(timeout 20 "$NEMOCLAW" "$SANDBOX" dashboard-url --quiet 2>/dev/null || true)"
+      _gw_tok="$(printf '%s' "$_gw_url" | sed -n 's/.*[#?&]token=\([A-Za-z0-9._-]*\).*/\1/p' | head -n1)"
+    fi
+    # Anything that is not a bare token — an error sentence, a usage block — is
+    # discarded rather than written to a secret file where it would fail every
+    # handshake and read as the gateway's fault.
+    case "$_gw_tok" in
+      *[!A-Za-z0-9._-]* | "") _gw_tok="" ;;
+    esac
+  fi
+  if [ -n "$_gw_tok" ]; then
+    mkdir -p "$GW_SECRET_DIR"
+    ( umask 077; printf '%s' "$_gw_tok" > "$GW_TOKEN_FILE" )
+    chmod 600 "$GW_TOKEN_FILE" 2>/dev/null || true
+    _step gateway token ok "wrote secrets/openclaw_gateway_token"
+  else
+    _step gateway token skip "no gateway token available; paste one in Setup -> Agent"
+  fi
+fi
+
 # --- 2c. Discover MCP servers (core + optional overlay) ----------------------
 # A server is just an mcp_server_<category>/ dir with a _server.mjs. Core ships
 # some; the overlay can add private ones (personal apps) with no edits here.

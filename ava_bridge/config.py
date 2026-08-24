@@ -54,7 +54,8 @@ AVA_TAGLINE = settings.get("brand.tagline", "your private, self-hosted assistant
 # runtime and gives Ava her tools, skills, sandboxed execution, egress policies
 # and persistent memory. It's hardware-portable (sandbox from a container image).
 #
-#   agent.runtime  = which runtime adapter (nemoclaw | direct)
+#   agent.runtime  = which runtime adapter
+#                    (nemoclaw | openclaw_gw | remote | direct)
 #   agent.required = if true, refuse to fall back to tool-less direct chat when
 #                    the runtime is missing (fail loud instead) — the "MUST".
 #   agent.enabled  = master switch; false forces the Direct floor (explicit opt-out)
@@ -63,7 +64,14 @@ AGENT_REQUIRED = settings.get_bool("agent.required", False, env="AVA_AGENT_REQUI
 AGENT_ENABLED = settings.get_bool("agent.enabled", True, env="AVA_AGENT_ENABLED")
 OC_SANDBOX = settings.get("agent.sandbox", "my-assistant", env="AVA_OC_SANDBOX")
 OC_AGENT = settings.get("agent.agent_id", "main", env="AVA_OC_AGENT")
-OC_SESSION = os.environ.get("AVA_OC_SESSION", "ava-phone")
+# `settings.get`, not a bare `os.environ` read. Every other agent.* setting is
+# an ava.yaml key with an env override; this one was env-ONLY, so a fork could
+# not set it in config at all and Setup could not show it. The prefix is not
+# cosmetic — it namespaces every session key Ava creates on a gateway that may
+# be shared with other operators, so two installs pointed at one gateway with
+# the same prefix would read each other's sessions.
+OC_SESSION = settings.get("agent.session_prefix", "ava-phone",
+                          env="AVA_OC_SESSION")
 OC_THINKING = os.environ.get("AVA_OC_THINKING", "off")
 
 # Remote agent runtime (Docker "full agent" path): when agent.runtime is
@@ -73,6 +81,43 @@ OC_THINKING = os.environ.get("AVA_OC_THINKING", "off")
 # AGENT_TOKEN is defined next to ROUTER_TOKEN (it reuses the internal token as
 # the shared bridge<->agent bearer, and that is derived further down).
 AGENT_URL = settings.get("agent.url", "http://agent:9100", env="AVA_AGENT_URL")
+
+# ---- OpenClaw gateway (agent.runtime: openclaw_gw) --------------------------
+# The gateway is OpenClaw's own control plane: JSON-RPC 2.0 over a WebSocket,
+# ~200 methods. Reaching it replaces the one-shot `openclaw agent --json`
+# subprocess with a persistent connection that can stream a run and drive
+# sessions, cron, devices, plugins and approvals.
+#
+# URL resolution is deliberately three-tier and NOT a constant: NemoClaw records
+# the sandbox's gateway port in its own registry (surfaced as
+# `gateway_port_recorded`), and a `nemoclaw <name> rebuild` can move it. An empty
+# value here means "ask the registry", which keeps a default box working with no
+# configuration at all and keeps working after a rebuild.
+AGENT_GATEWAY_URL = settings.get("agent.gateway.url", "", env="AVA_OC_GATEWAY_URL")
+# The gateway token carries operator.admin. Sending it anywhere but loopback is a
+# deliberate act, not a default — `ava_security_check.py` classifies binds
+# precisely so "exposed to my phone" and "exposed to every network" read
+# differently, and this client should not need to be caught by it.
+AGENT_GATEWAY_ALLOW_REMOTE = settings.get_bool(
+    "agent.gateway.allow_remote", False, env="AVA_OC_GATEWAY_ALLOW_REMOTE")
+AGENT_GATEWAY_SCOPES = settings.get(
+    "agent.gateway.scopes", "operator.admin", env="AVA_OC_GATEWAY_SCOPES")
+AGENT_GATEWAY_CONNECT_TIMEOUT = settings.get_float(
+    "agent.gateway.connect_timeout_s", 10.0, env="AVA_OC_GATEWAY_CONNECT_TIMEOUT")
+AGENT_GATEWAY_RPC_TIMEOUT = settings.get_float(
+    "agent.gateway.rpc_timeout_s", 30.0, env="AVA_OC_GATEWAY_RPC_TIMEOUT")
+# Fail closed on the method list. A gateway that advertises nothing gets nothing:
+# forwarding 200 unknown methods at an operator.admin token because the handshake
+# was terse is not a degradation, it is a hole. This is the documented escape
+# hatch for a build that genuinely does not advertise `hello-ok.features.methods`.
+AGENT_GATEWAY_TRUST_UNLISTED = settings.get_bool(
+    "agent.gateway.trust_unlisted_methods", False, env="AVA_OC_GATEWAY_TRUST_UNLISTED")
+# A websocket is authorized once, at the handshake, and never re-checked — so a
+# panel left open outlives any credential TTL. That is standard behaviour rather
+# than a bug, but it should be a stated default: 0 = unlimited, or a number of
+# seconds after which the bridge closes the socket and the UI reconnects.
+AGENT_GATEWAY_WS_MAX_LIFETIME = settings.get_int(
+    "agent.gateway.ws_max_lifetime_s", 0, env="AVA_OC_GATEWAY_WS_MAX_LIFETIME")
 
 # Context-window sizing for the chat token counter. CTX_MAX is the model's usable
 # context length (override per model; the default matches the shipped model's
