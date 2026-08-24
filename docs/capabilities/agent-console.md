@@ -59,7 +59,7 @@ forever after. The status chip in the section bar covers the glance and links to
 | Upstream screen | Home in Ava |
 |---|---|
 | Models & providers | **Setup → Agent → Providers** — quota and spend are a recurring check, not a one-time model pick |
-| Secrets | **Setup → Agent → Secrets** — beside Skills, which are what consume them |
+| Secrets | **Nowhere, deliberately.** The gateway's whole secrets namespace is `reload` and `resolve` — no enumerate, no write — so a panel could never have listed or added one. Ava's own connector credentials live in **Setup → Connectors** and always did |
 | Connection / gateway status | **Setup → Agent → Runtime** |
 | Talk settings | **Setup → Agent → Voice** |
 | Diagnostics & guided fixes | `lib/fixes.ts`, which resolves a fix link from an error code **by pattern** — so a new gateway diagnostic gets a working link with no frontend change |
@@ -82,8 +82,7 @@ same address becomes a full-screen sheet that Back dismisses.
 |---|---|
 | Files, Tasks | Native |
 | Review | Native, on a hand-built editor (see below) |
-| Terminal | Native, on xterm — it rides the same socket as every other panel, so it inherits Ava's session auth, Ava's theme and the audit ledger |
-| Browser | **Embedded.** The one exception |
+| Terminal | Native, and currently **gated**: opening, input and resize are wired to the gateway's captured schema, but how a live terminal delivers OUTPUT has not been confirmed against a running one, and Ava does not ship a guess. It probes and reports — the real reason on a gateway with terminals off, and "wiring unfinished" on one with them on |
 
 A read-only **Side chat** panel used to be listed here and is retired: as
 read-only it duplicated the thread it sat beside, and the place you talk is
@@ -103,12 +102,17 @@ zero-dependency highlighter inside Review's own chunk, with a ceiling of
 **40 kB gzipped**. A number makes that decision testable;
 `tests/test_bundle_budget.py` is where it would be enforced.
 
-### Why the browser panel is the exception
+### Why there is no browser panel
 
-A browser panel is a live page with snapshots, freehand annotation and element
-inspection. Rebuilding it would cost more bundle than the entire rest of the
-console, and it is the upstream's job. Ava draws the container, the tab strip
-and the reload action; the frame supplies content only.
+There used to be one, and it was the tab's single embedded surface. It iframed
+`/apps/openclaw/browser` — a path that resolves only for a registered connector,
+and OpenClaw is deliberately not one, so it 404'd on every install that ever
+existed. Removing it also retired the `GatewayFrame`/`embedBridge` pair it was
+the only user of, so **every panel in this tab is now native**.
+
+Rebuilding a browser natively is not planned: a live page with snapshots,
+annotation and element inspection would cost more bundle than the whole rest of
+the console, and it is the upstream's job.
 
 ## What the Run Inspector will and will not tell you
 

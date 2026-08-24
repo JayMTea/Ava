@@ -99,6 +99,52 @@ gives the agent failover and perf logging for free. If you expose the router
 beyond loopback (`inference.router.host: 0.0.0.0`), also configure the bearer
 token from `$AVA_HOME/secrets/router_token`.
 
+## Enable the gateway runtime (`openclaw_gw`)
+
+Optional, and it changes nothing about which OpenClaw you are running — it is
+the **same sandbox**, reached a different way. Instead of spawning
+`openclaw agent --json` once per message, Ava holds a WebSocket to OpenClaw's
+own gateway and speaks JSON-RPC to it. That is what makes a turn *stream* rather
+than arrive all at once, and what makes sessions, automations and exec approvals
+reachable at all.
+
+You need a running sandbox first (everything above), then two settings:
+
+```yaml
+agent:
+  runtime: openclaw_gw
+```
+
+and an **operator token**, which the sandbox mints:
+
+```bash
+nemoclaw <your-sandbox> gateway-token      # prints it to stdout
+```
+
+Give it to Ava either way round — paste it into **Setup → Agent → Runtime**, or
+write it to `$AVA_HOME/secrets/openclaw_gateway_token` (mode 0600), or set
+`AVA_OC_GATEWAY_TOKEN`. Ava never generates one: it has to match a token the
+gateway will accept, and inventing one produces a guaranteed handshake failure
+reported as "the gateway rejected our token", which blames the wrong side.
+
+You do **not** normally set an address. Ava reads the forwarded port out of the
+sandbox registry, so a rebuild that moves the port is picked up on its own. Set
+`agent.gateway.url` only if you have moved the gateway somewhere Ava cannot
+infer — and note that Ava refuses to send an operator token anywhere but
+loopback unless `agent.gateway.allow_remote` is deliberately true.
+
+Check it took:
+
+```bash
+ava agent status        # active: openclaw_gw · gateway: ready
+```
+
+> **The token rotates when the sandbox is recreated.** `nemoclaw onboard`
+> re-minting the sandbox mints a new one, and the old one stops working — Ava
+> then drops to whatever `agent.runtime` can still serve, which on most installs
+> is the tool-less floor. If the Agent tab goes quiet after a rebuild, re-run
+> `gateway-token` and paste the new one.
+
 ## Surviving reboots
 
 `nemoclaw onboard` starts the **OpenShell host gateway** — the sandbox's policy

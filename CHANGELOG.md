@@ -8,7 +8,61 @@ pre-release milestones from when Ava ran on one box and nothing was tagged.
 
 ## [Unreleased]
 
+### Added
+
+- **A fourth agent runtime: `openclaw_gw`, which talks to OpenClaw over its
+  gateway instead of spawning a CLI per message.** Same sandbox `nemoclaw`
+  already manages — the difference is that a turn STREAMS as events rather than
+  being waited for, which is what makes sessions, automations and approvals
+  reachable at all. Opt in with `agent.runtime: openclaw_gw` and an operator
+  token; every other runtime is untouched, and the tool-less Direct floor is
+  still the fallback.
+
+  The protocol is **captured from a live gateway, not written from its docs**:
+  `qa/capture_gateway.py` learns each method's schema from the gateway's own
+  `INVALID_REQUEST` messages and writes `qa/fakes/gateway-schemas.json` (44
+  method schemas plus the event, transcript, abort and approval shapes, each
+  stamped with the build it came from, and an explicit list of what could not be
+  captured). The test fake is held to that file, so a wrong param shape now
+  fails in CI instead of in a browser.
+
+- **An Agent console** (`#agent`): the sessions the agent has open, what it
+  already did, and what it runs on a schedule. Three sections and deliberately
+  not fifteen — anything that outlives a session stays in the Setup page that
+  already owns it.
+
+- **Stop.** The chat composer's Send becomes Stop for exactly the window a turn
+  can be interrupted. It asks (`chat.abort`); the run's own ending still reports
+  the outcome, so there is one writer of a turn's terminal status and a turn
+  that finished a moment before the click cannot be relabelled "stopped".
+
+- **`ava agent install-units`** — the boot-survival kit, which previously
+  existed only on the maintainer's machine. `nemoclaw onboard` starts the
+  OpenShell host gateway detached with no supervisor, so it vanishes on reboot
+  and the sandbox then crash-loops fetching a policy nobody is serving. The unit
+  is CAPTURED from the running process rather than templated (its environment
+  includes a supervisor image pinned by digest, which cannot be derived) and the
+  command refuses outright when the gateway is not up. `deploy/` also gains the
+  recovery and sandbox-firewall scripts.
+
+- **Exec approvals reach the operator.** A command the agent parks for a human
+  now appears in Ava's one approvals banner beside its own connector approvals —
+  same kind of thing, one place to look.
+
 ### Removed
+
+- **The Secrets sub-tab (Setup → Agent → Secrets).** It called
+  `secrets.store.list` and `secrets.store.set`. The gateway's entire secrets
+  namespace is `secrets.reload` and `secrets.resolve` — no enumerate, no write —
+  so nothing could ever have listed or added a secret. Ava's own connector
+  credentials were never in that panel and are unaffected (Setup → Connectors).
+
+- **The Browser side panel.** It embedded `/apps/openclaw/browser`, a path that
+  resolves only for a registered connector — and OpenClaw deliberately is not
+  one, so the iframe 404'd on every install that has ever existed. Removing it
+  also retired the `GatewayFrame`/`embedBridge` pair it was the sole user of, so
+  the Agent console now has no embedded surfaces and xterm leaves the bundle
+  entirely. Old addresses degrade to the thread rather than breaking.
 
 - **BREAKING: governed self-editing is gone, end to end.** Ava could change her
   own source: the `code_change_request` tool handed an engineering task to
@@ -80,6 +134,20 @@ pre-release milestones from when Ava ran on one box and nothing was tagged.
 
 ### Changed
 
+- **`agent.session_prefix` is a real config key.** Every other `agent.*` setting
+  goes through `ava.yaml` with an env override; this one was a bare environment
+  read, so a fork could not set it in config at all. It is not cosmetic — the
+  prefix namespaces every session key Ava creates, so two installs pointed at
+  one shared gateway with the same prefix would read each other's sessions.
+  `voice.threshold`, `inference.ctx_base`, `cost.currency`, `alloc.ledger_dir`
+  and `skills.categories` are now documented in `config.example.yaml` too, with
+  a guard that fails when a key the code honours is missing from it.
+
+- **Each runtime describes itself.** Panels hardcoded "NemoClaw" in copy shown
+  for whichever runtime was configured, so a `remote` install was told about a
+  CLI on the wrong machine and a fork running its own runtime had to edit UI
+  files to stop being told about somebody else's.
+
 - **Memory distillation moved to its own module and its own switch.** It lived
   inside `learning.py` and rode that scheduler, so the capability the README
   leads with was gated by a flag named after a different feature — and it would
@@ -99,6 +167,53 @@ pre-release milestones from when Ava ran on one box and nothing was tagged.
   the code and documented nowhere.
 
 ### Fixed
+
+- **Reconcile had never once worked.** It is the reconnect story — a dropped
+  socket loses events but not the transcript, so re-reading the session recovers
+  the reply. It matched on `msg["runId"]`, and no message in a transcript
+  carries one; an assistant message is `__openclaw, api, content, model,
+  provider, responseId, role, stopReason, timestamp, usage` and that is the
+  whole list. It is now anchored on the preceding user message's
+  `idempotencyKey`, which the gateway stores SUFFIXED by role — so the first fix
+  still recovered nothing. A lost reply had been indistinguishable from a slow
+  one.
+
+- **Automations was always empty.** It read `tasks.list` (in-flight background
+  tasks) instead of the scheduler `cron.list`, which also produced a false "no
+  cron jobs" in `ava doctor`.
+
+- **The session list only refreshed on mount.** It subscribed to
+  `session.update`, a topic the gateway does not emit — and a subscription to a
+  topic nobody sends is SILENT, so the panel read as "a bit stale" rather than
+  broken. It now rides `agent` lifecycle frames, debounced, because one turn
+  emits three.
+
+- **`ava doctor` reported the wrong runtime's facts.** It called
+  `runtime.nemoclaw().status()` outright, so on a box running the gateway
+  runtime the gateway's phase and version were invisible on exactly the box
+  where they mattered. Both `doctor` and `ava agent status` now read whatever is
+  actually serving turns.
+
+- **Transport failures were recorded as refusals.** Every `GatewayError` was
+  logged as `gateway_denied`, which renders as "Agent call refused" — so a
+  dropped socket or a timeout sent the owner hunting for a permission problem
+  that did not exist. There is now a `gateway_failed` kind, and an unrecognised
+  code reads as a failure rather than asserting that something refused.
+
+- **The device-auth deny-list guarded one method of three.** It matched on
+  `config.set` only, while `config.patch` and `config.apply` reach the same
+  settings; it also refused legitimate writes because it matched on text rather
+  than on the value being set.
+
+- **`ava setup` generated a credential nothing reads.** It wrote
+  `secrets/session_secret` while the key that actually signs session cookies is
+  `data/.secret` — so it reported "session secret: generated" about a file with
+  no bearing on anything, and anyone rotating it would have rotated the wrong
+  one and found their sessions still valid.
+
+- **A Direct-floor install redialled the gateway forever.** The server sends an
+  `unconfigured` phase and closes the socket; the client collapsed it to `down`
+  and reconnected on a timer.
 
 - **A 404 from a bridge that predates the page now says so.** Setup → Agent →
   Brain reported `Couldn't load the model store. /api/hub/models/store -> 404`

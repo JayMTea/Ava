@@ -255,11 +255,16 @@ real:
   condition so the UI can say so.
 * The audit ledger is therefore the only record of what was done: every
   side-effecting call is written as `gateway_rpc` with the **method and never
-  the parameters**, because `config.set` and `secrets.store.*` carry credentials
-  and the ledger is a file the owner reads.
+  the parameters**, because `config.set` carries the entire configuration
+  document and `secrets.resolve` returns a secret's value — and the ledger is
+  a file the owner reads. (There is no `secrets.store.*`; the gateway's whole
+  secrets namespace is `reload` and `resolve`.)
 
-**The one refusal.** `config.set` will not write
-`gateway.controlUi.dangerouslyDisableDeviceAuth` or `…allowInsecureAuth`. Those
+**The one refusal.** No config write — `config.set`, `config.patch` or
+`config.apply`, all three of which reach the same settings — may turn on
+`gateway.controlUi.dangerouslyDisableDeviceAuth` or `…allowInsecureAuth`.
+The refusal is on the VALUE, not the key: writing either of them `false`, or a
+round-trip of a config that already contains one, passes. Those
 decide whether the gateway authenticates browsers at all, so a UI bug that wrote
 one would turn a transient mistake into a permanent posture change surviving
 every restart. Setup → Agent → Runtime shows the current posture read-only with

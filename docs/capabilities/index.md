@@ -25,7 +25,7 @@ every install, with no connector wired in and nothing to enable.
 | **[Vitals](vitals.md)** | How Ava is performing across every app: spend, speed, errors. Computed from her own logs, not estimated. Energy is the one exception and is labelled as an estimate. |
 | **[Operations](operations.md)** | What is running right now, what is waiting on a decision from you, and where you approve or reject anything Ava proposes. |
 | **[Data](data.md)** | Every store on disk, named, sized and path-stamped, with browse, export and delete for each one. |
-| **[Setup](connectors.md)** | Browser-based configuration in six tabs: hardware and budgets, the agent (its brain, persona, skills, memory and voice), connectors, branding and governance. |
+| **[Setup](connectors.md)** | Browser-based configuration in six tabs: an overview, hardware and budgets, the agent (its runtime, brain, providers, persona, skills, memory and voice), connectors, branding, and system governance. |
 
 [The agent](agent.md) has a reference page of its own, covering what runs
 underneath rather than what you click: its tools, its skills, its runtimes, and
