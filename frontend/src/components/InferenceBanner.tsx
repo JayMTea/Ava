@@ -8,7 +8,7 @@
 // live state and self-hides when the condition clears; nothing anywhere persists
 // a dismissal. The condition IS the dismissal — and letting a novice hide the
 // one thing explaining why the product does not respond would be a poor trade.
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { hub } from './hub/hubApi';
 import { fixForCode } from '../lib/fixes';
@@ -44,11 +44,37 @@ export default function InferenceBanner() {
   }, []);
 
   const view = bannerView(health);
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  // Publish our measured height so the shell can shift out from under us.
+  //
+  // The banner is position:fixed — it reserves no space — so without this it
+  // paints over the header and the top of every view. The height cannot be a
+  // constant: the text comes from the server and wraps to two lines under
+  // 760px, so it is observed rather than assumed. Removing the property on
+  // hide/unmount is what lets the CSS fall back to 0px, so the layout returns
+  // by itself the moment the condition clears.
+  //
+  // Runs BEFORE the early return below, because a hook cannot live after one.
+  useEffect(() => {
+    const root = document.documentElement;
+    const clear = () => root.style.removeProperty('--inf-banner-h');
+    const el = ref.current;
+    if (!view.show || !el) { clear(); return clear; }
+    const set = () => root.style.setProperty(
+      '--inf-banner-h', `${Math.ceil(el.getBoundingClientRect().height)}px`);
+    set();
+    if (typeof ResizeObserver === 'undefined') return clear;
+    const ro = new ResizeObserver(set);
+    ro.observe(el);
+    return () => { ro.disconnect(); clear(); };
+  }, [view.show, view.text, view.code]);
+
   if (!view.show) return null;
   const fix = fixForCode(view.code);
 
   return (
-    <div className={`inf-banner${view.role === 'alert' ? ' err' : ''}`} role={view.role}>
+    <div ref={ref} className={`inf-banner${view.role === 'alert' ? ' err' : ''}`} role={view.role}>
       <span className="inf-banner-text">{view.text}</span>
       {fix && <a className="inf-banner-fix" href={`#${fix.hash}`}>{fix.label} →</a>}
     </div>

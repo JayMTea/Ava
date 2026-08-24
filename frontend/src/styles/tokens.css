@@ -161,6 +161,11 @@
 
   /* ---- Layout ---- */
   --col:768px;           /* centered content column width */
+  /* Agent console geometry. Identical in both themes — they are lengths, not
+     colours — so no override block is touched. */
+  --agent-list-w: 264px;
+  --agent-rail-w: 44px;
+  --agent-side-min: 24%;
 }
 
 /* =========================================================================

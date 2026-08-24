@@ -26,6 +26,28 @@ export interface TourStep {
  *  both, because a mismatch means a walkthrough that runs and can never be
  *  recorded as seen — so it would run forever. */
 export const TOURS: Record<string, TourStep[]> = {
+  agent: [
+    {
+      target: '.agent-list',
+      title: 'The agent console',
+      body: 'You talk to the agent in Chats. This console is where you watch '
+        + 'it work: every session it has open, grouped — your own chats '
+        + 'included, under their own heading.',
+    },
+    {
+      target: '.agent-bar',
+      title: 'Three views of the same agent',
+      body: 'Sessions is what is happening now, Activity is what already '
+        + 'happened, and Automations is what runs without you. Configuration '
+        + 'lives in Setup, not here.',
+    },
+    {
+      target: '.agent-chip',
+      title: 'Whether it is actually connected',
+      body: 'This says whether Ava can reach the agent right now. Open it for '
+        + 'the settings behind it.',
+    },
+  ],
   hub: [
     {
       target: '.ov-cards',

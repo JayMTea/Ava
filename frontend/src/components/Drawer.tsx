@@ -45,6 +45,7 @@ const AVA_WORDMARK = {
 type NavItem = { id: string; label: string; icon: string; system?: boolean };
 const NAV: NavItem[] = [
   { id: 'chat', label: 'Chats', icon: 'chats' },
+  { id: 'agent', label: 'Agent', icon: 'bot' },
   { id: 'vitals', label: 'Vitals', icon: 'gauge', system: true },
   { id: 'ops', label: 'Operations', icon: 'activity', system: true },
   { id: 'data', label: 'Data', icon: 'db', system: true },
@@ -477,9 +478,9 @@ export function Drawer({
   return (
     <aside id="drawer" className={open ? 'open' : ''}>
       {/* Narrow icon rail (claude.ai style) — panel toggle on top, then new chat,
-          the Assistant, and the user's connected apps. Vitals / Operations /
-          Data / Setup live in the settings flyout at the foot — as they do in
-          the expanded panel, from the same list. */}
+          Chats, the Agent console, and the user's connected apps. Vitals /
+          Operations / Data / Setup live in the settings flyout at the foot — as
+          they do in the expanded panel, from the same list. */}
       <div className="side-rail">
         <button
           className="rail-btn rail-toggle"
@@ -499,7 +500,13 @@ export function Drawer({
           <Icon name="plus" />
         </button>
         <div className="rail-tabs">
-          {railBtn('chat', `${brand} — Assistant`, 'bot')}
+          {/* Chats wears the speech bubble and Agent wears the robot — the same
+              pairing as NAV_INLINE above. The chat button used to wear 'bot'
+              while the Agent tab was unreachable from the rail at all, so the
+              one destination whose icon promised "the agent" opened something
+              else and the actual agent console needed the expanded panel. */}
+          {railBtn('chat', `${brand} — Chats`, 'chats')}
+          {railBtn('agent', 'Agent', 'bot')}
           {/* App tabs — derived from the connector registry, below the chat icon. */}
           {userApps.map((a) => railBtn(a.id, a.label, appIcon(a), appAccent(a)))}
           {/* …and the way to get one more. Collapsed is the sidebar's default on

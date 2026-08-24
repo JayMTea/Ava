@@ -2,6 +2,7 @@ import { registerSW } from 'virtual:pwa-register';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
+import { GatewayProvider } from './hooks/useGateway';
 import { api } from './lib/api';
 import { revalidate } from './lib/brand';
 import { BrandProvider } from './lib/brandContext';
@@ -12,6 +13,7 @@ import './styles/global.css';
 import './styles/claude.css';
 import './styles/dashboard.css';
 import './styles/hub.css';
+import './styles/agent.css';
 import './styles/data.css';
 import './styles/tour.css';
 import './styles/hwbubble.css';
@@ -30,7 +32,13 @@ void revalidate(() => api.brand());
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrandProvider>
-      <App />
+      {/* Above the router on purpose: the socket must survive a view switch.
+          Mounting it inside the Agent view would re-handshake and drop every
+          subscription each time somebody looked at Vitals — and `useChat` needs
+          it from the Chats tab, which is a different view entirely. */}
+      <GatewayProvider>
+        <App />
+      </GatewayProvider>
     </BrandProvider>
   </StrictMode>,
 );

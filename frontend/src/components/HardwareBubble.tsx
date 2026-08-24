@@ -201,6 +201,16 @@ function ModelDetail({ m, pool }: { m: Row; pool: MemPool }) {
             it joins the aligned value column instead of trailing on a bullet. */}
         <dt>Found via</dt><dd>{foundVia(m.source)}</dd>
         {m.pid != null && (<><dt>PID</dt><dd>{m.pid}</dd></>)}
+        {/* The command line, and ONLY for a row nothing could identify. It is
+            the one fact that always answers "what actually is this" — the
+            backend names such a row from the same string, but a name read from
+            a script or a folder is an inference, and this is the evidence it
+            was drawn from. A row with a model id needs none of it: the id is
+            the answer, and 300 characters of flags in a ~183px column would
+            bury it. */}
+        {!identified(m) && m.cmd && (
+          <><dt>Started by</dt><dd className="hwb-cmd" title={m.cmd}>{m.cmd}</dd></>
+        )}
       </dl>
       <div className="hwb-cmp-lab">Components</div>
       {comps.length > 0 ? (

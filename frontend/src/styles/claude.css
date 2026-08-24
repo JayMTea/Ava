@@ -476,6 +476,10 @@ header .sub { display:none; }
 .send:hover:not(:disabled) { background:var(--accent-hover); }
 .send:disabled { background:var(--disabled-bg); color:var(--disabled-txt); }
 .send svg { width:18px; height:18px; }
+/* Stop reuses Send's footprint so the control does not shift under the cursor
+   mid-turn. It stays the accent colour rather than turning red: stopping your
+   own turn is a normal thing to do, not a destructive one. */
+.send.stop svg { width:15px; height:15px; }
 
 /* Artifact panel surfaces on the warm palette. */
 #artifactPanel { background:var(--panel); }
@@ -639,6 +643,38 @@ header .sub { display:none; }
 /* A missing model is a fault; a warming engine is a status. The tint says which
    without the copy having to shout. */
 .inf-banner.err { border-bottom-color: var(--err); }
+
+/* === BANNER OFFSET — nothing must ever sit UNDER the banner ================
+   `.inf-banner` is position:fixed, so nothing in normal flow reserves space for
+   it: it painted straight over the header, the drawer and the top of whatever
+   view was open.
+
+   The height is MEASURED, never hardcoded. The text is server-supplied and the
+   rule below wraps it to two lines under 760px, so the banner has no single
+   height to assume. InferenceBanner observes its own box and publishes the
+   result as `--inf-banner-h`; when the banner is hidden the property is removed
+   and every rule here falls back to 0px and does nothing.
+
+   `* { box-sizing: border-box }` (global.css) is what makes this padding shrink
+   body's 100dvh column rather than overflow the viewport by the banner height. */
+body {
+  padding-top: var(--inf-banner-h, 0px);
+  transition: padding-top .18s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  body { transition: none; }
+}
+
+/* Fixed slide-overs resolve against the VIEWPORT, so body padding does not move
+   them and each one anchored at top:0 has to be told separately — otherwise the
+   banner (z-index 60) simply covers the top of the drawer it sits above. */
+@media (max-width: 760px) {
+  #drawer,
+  #artifactPanel {
+    top: var(--inf-banner-h, 0px);
+    height: calc(100dvh - var(--inf-banner-h, 0px));
+  }
+}
 .inf-banner-text { min-width: 0; }
 .inf-banner-fix {
   color: var(--accent); text-decoration: none; font-weight: var(--fw-medium);
@@ -647,4 +683,22 @@ header .sub { display:none; }
 .inf-banner-fix:hover { text-decoration: underline; }
 @media (max-width: 760px) {
   .inf-banner { flex-wrap: wrap; justify-content: flex-start; gap: var(--sp-2); }
+}
+
+/* A thread-shape change: rewound, forked, or switched branch. Structural, so it
+   reads as a rule across the column rather than as something somebody said. */
+.thread-marker {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin: var(--sp-3) 0;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+}
+.thread-marker::before,
+.thread-marker::after {
+  content: '';
+  flex: 1 1 auto;
+  height: 1px;
+  background: var(--line);
 }

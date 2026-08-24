@@ -12,6 +12,7 @@ what leaves the box is whatever you configure elsewhere (a cloud inference
 backend, an Anthropic key for governed code changes) and nothing else.
 """
 
+import asyncio
 import base64
 import json
 import os
@@ -23,6 +24,8 @@ from fastapi.responses import (JSONResponse,
                                RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
+from starlette.websockets import WebSocket, WebSocketDisconnect
+import websockets
 
 import speaker as spk
 import voice_ava as va
@@ -50,6 +53,7 @@ from ava_bridge import features, internal
 from ava_bridge import memory_store
 from ava_bridge import connectors, perf_store, devices
 from ava_bridge import arch_watch
+from ava_bridge import ws_auth
 from ava_bridge import hardware
 from ava_bridge import distill
 _AVA_VERSION = _ava_version()
@@ -243,6 +247,17 @@ app.include_router(_chats_router)
 # /api/stream/ops). The poll endpoints and the push channel are one contract.
 from ava_bridge.ops_api import router as _ops_router  # noqa: E402
 app.include_router(_ops_router)
+
+# Agent gateway control plane: /api/gateway/* plus the /ws/gateway event relay.
+#
+# NOTE FOR ANYONE ADDING A WEBSOCKET ROUTE: `auth_gate` below is registered
+# `app.middleware("http")`, and Starlette forwards non-HTTP scopes past it
+# untouched — so a websocket route is UNGATED unless it awaits
+# `ws_auth.guard(ws)` before `accept()`. `qa/test_01_auth_surface.py` cannot see
+# these routes either (it enumerates by `methods`). `tests/test_websocket_auth.py`
+# is what enforces it.
+from ava_bridge.gateway_api import router as _gateway_router  # noqa: E402
+app.include_router(_gateway_router)
 
 # Sandbox->bridge callback surface (/internal/* — token-gated, scope-enforced).
 # Lives in ava_bridge/internal.py alongside the token logic and the ROUTE_SCOPES
@@ -611,6 +626,119 @@ async def app_ui_proxy(cid: str, path: str, request: Request):
     except Exception as e:  # noqa: BLE001
         return _unreachable_response(cid, e, request, url=url, what="app")
     return _proxy_response(r)
+
+
+@app.websocket("/apps/{cid}/{path:path}")
+async def app_ws_proxy(ws: WebSocket, cid: str, path: str):
+    """The websocket half of the app proxy, beside its two HTTP twins.
+
+    They are one contract — same path, same connector resolution, same
+    credential rule — so they live in one file. Only the transport differs, and
+    it differs enough to need its own route: the HTTP proxies are `requests`
+    calls in a threadpool with `allow_redirects=False`, and neither `requests`
+    nor `httpx` can speak WebSocket at all. A `GET` carrying `Upgrade:
+    websocket` currently matches the HTTP catch-all and is executed as an
+    ordinary `requests.get`, which never performs the handshake.
+
+    GATING: `auth_gate` is registered `app.middleware("http")` and Starlette
+    forwards non-HTTP scopes past it untouched, so this route is PUBLIC unless
+    it gates itself. `ws_auth.guard` re-runs every check `auth_gate` makes, in
+    the same order, calling the same functions. See tests/test_websocket_auth.py.
+
+    TOKEN LIFETIME, stated rather than discovered: `apps_origin.TOKEN_TTL_S` is
+    300 seconds, but a socket is authorized once at the handshake and never
+    re-checked — so a panel left open for an hour outlives its token by 55
+    minutes. That is ordinary websocket behaviour rather than a bug, and an
+    owner who wants periodic re-authentication sets
+    `agent.gateway.ws_max_lifetime_s`.
+    """
+    why = await ws_auth.guard(ws)
+    if why:
+        await ws_auth.refuse(ws, why)
+        return
+
+    meta = await run_in_threadpool(connectors.app, cid)
+    if not meta or meta.get("embed") != "iframe" or not meta.get("url"):
+        await ws_auth.refuse(ws, f"connector {cid} is not an iframe app")
+        return
+
+    upstream = _ws_url(meta["url"], path, str(ws.url.query or ""))
+    fwd = {}
+    tok = await run_in_threadpool(connectors.app_token, cid)
+    if tok:
+        # Resolved on the bridge and never handed to the browser — the same
+        # Ava-never-has-passwords rule the two HTTP proxies follow.
+        fwd["Authorization"] = "Bearer " + tok
+
+    # Offer exactly what the browser offered, and accept exactly what upstream
+    # chose. Never guess: `accept()` with no subprotocol against a browser that
+    # offered one is a silent immediate close, which reads as "the app is
+    # broken" rather than as a negotiation failure.
+    offered = list(ws.scope.get("subprotocols") or [])
+    try:
+        async with websockets.connect(
+                upstream, additional_headers=fwd or None,
+                subprotocols=offered or None,
+                open_timeout=10, ping_interval=20, ping_timeout=20,
+                close_timeout=5, max_size=None) as up:
+            await ws.accept(subprotocol=up.subprotocol)
+            await _ws_pump(ws, up)
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:  # noqa: BLE001 — an app being down is not a bridge error
+        # Refused BEFORE accept when the upstream never came up, so the browser
+        # sees a failed handshake it can retry rather than an immediate close it
+        # has to guess about.
+        await ws_auth.refuse(ws, f"{cid} websocket unreachable: {e}")
+
+
+def _ws_url(base: str, path: str, query: str) -> str:
+    """`http(s)://host/base` + path -> `ws(s)://host/base/path`."""
+    root = base.rstrip("/")
+    if root.startswith("https://"):
+        root = "wss://" + root[len("https://"):]
+    elif root.startswith("http://"):
+        root = "ws://" + root[len("http://"):]
+    url = f"{root}/{path.lstrip('/')}" if path else root + "/"
+    return f"{url}?{query}" if query else url
+
+
+async def _ws_pump(ws: WebSocket, up) -> None:
+    """Relay both directions until either end closes.
+
+    Two tasks under one `gather`, cancelled together — the same shape
+    `ava_bridge/gw_forward.py` already uses for raw TCP, so this is a house
+    pattern rather than a new idea. Text and binary are relayed as they arrive;
+    the proxy does not decode either, because an app's protocol is not Ava's
+    business.
+    """
+    async def _down() -> None:
+        async for msg in up:
+            if isinstance(msg, (bytes, bytearray)):
+                await ws.send_bytes(bytes(msg))
+            else:
+                await ws.send_text(msg)
+
+    async def _upstream() -> None:
+        while True:
+            msg = await ws.receive()
+            if msg.get("type") == "websocket.disconnect":
+                return
+            if msg.get("text") is not None:
+                await up.send(msg["text"])
+            elif msg.get("bytes") is not None:
+                await up.send(msg["bytes"])
+
+    tasks = [asyncio.create_task(_down()), asyncio.create_task(_upstream())]
+    try:
+        done, pending = await asyncio.wait(
+            tasks, return_when=asyncio.FIRST_COMPLETED)
+        for t in pending:
+            t.cancel()
+    finally:
+        for t in tasks:
+            if not t.done():
+                t.cancel()
 
 
 @app.get("/api/model")

@@ -23,6 +23,21 @@ function greeting(): string {
   return 'Good evening';
 }
 
+// A centred hairline saying the thread's SHAPE changed — rewound, forked, or
+// switched branch. One renderer for all three, because they are one visual and
+// three components would be three places to keep in step.
+//
+// `role="separator"` rather than a paragraph: it is structural, not something
+// somebody said, and a screen reader should not read it as part of the
+// conversation.
+function ThreadMarker({ text }: { text: string }) {
+  return (
+    <div className="thread-marker" role="separator" aria-label={text}>
+      <span>{text}</span>
+    </div>
+  );
+}
+
 export function ChatView({
   items,
   currentChatId,
@@ -160,6 +175,8 @@ export function ChatView({
                 return (
                   <PreviewCard key={it.id} preview={it.preview} onOpen={onOpenLightbox} onQuickSay={onQuickSay} />
                 );
+              case 'marker':
+                return <ThreadMarker key={it.id} text={it.text} />;
               default:
                 return null;
             }
