@@ -29,6 +29,33 @@ export function fixForCode(code?: string | null): FixAction | undefined {
     }[code];
     return { label: 'Open Setup → Agent', hash: 'hub/agent', tip };
   }
+  // The gateway-runtime seam codes. They match neither `_off` nor `_down` nor
+  // the connector `_(timeout|unreachable|error)` rule, so before this branch
+  // every one of them was a dead end — and `gateway_timeout`, matching that
+  // last rule by accident, actively sent the owner to Setup → Connectors to
+  // "check the address in its manifest" for a gateway that is not a connector
+  // and has no manifest. All of them lead to Setup → Agent → Runtime, the page
+  // that owns "is my agent reachable". Checked here, above the generic rules,
+  // so `gateway_timeout` never reaches the connector branch.
+  let sm = /^(agent_scope_denied|agent_token_rejected|agent_protocol_mismatch|agent_no_gateway|gateway_[a-z_]+)$/.exec(code);
+  if (sm) {
+    const tip = ({
+      agent_scope_denied: 'the gateway token is missing operator.admin — re-mint it with `nemoclaw <name> gateway-token`',
+      agent_token_rejected: 'the gateway rejected the token — it rotates when the sandbox restarts; Ava re-reads it, or paste a fresh one',
+      agent_protocol_mismatch: 'the gateway speaks a protocol this build does not — the OpenClaw and Ava versions have drifted',
+      agent_no_gateway: 'the configured runtime has no gateway control plane — select `agent.runtime: openclaw_gw`',
+      gateway_timeout: 'the gateway accepted the call but did not answer in time',
+      gateway_key_refused: 'that config key is protected — change it with the nemoclaw CLI, not from here',
+      gateway_rate_limited: 'too many calls to the gateway at once — it will clear on its own',
+      gateway_unsupported_method: 'this gateway build does not offer that method — the OpenClaw version may have moved on',
+    } as Record<string, string>)[sm[1]]
+      ?? `the agent gateway returned ${pretty(sm[1])}`;
+    return {
+      label: 'Open Setup → Agent → Runtime',
+      hash: 'hub/agent/runtime',
+      tip: `Opens Setup → Agent → Runtime — ${tip}.`,
+    };
+  }
   let m = /^(.+)_off$/.exec(code);
   if (m) {
     return {

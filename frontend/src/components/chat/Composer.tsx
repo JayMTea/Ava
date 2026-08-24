@@ -11,6 +11,11 @@ interface Props {
   onFiles: (files: FileList) => void;
   onSend: () => void;
   onTalk: (blob: Blob) => void;
+  /** Present only while the turn in flight can actually be stopped. The Send
+   *  control becomes Stop for exactly that window — a separate always-visible
+   *  button would be dead most of the time, and a Stop offered on a turn that
+   *  cannot be stopped is a promise the runtime cannot keep. */
+  onStop?: () => void;
   busy: boolean;
   hint: string;
   ctxTokens: number;
@@ -38,6 +43,7 @@ export function Composer({
   onFiles,
   onSend,
   onTalk,
+  onStop,
   busy,
   hint,
   ctxTokens,
@@ -192,9 +198,16 @@ export function Composer({
           >
             <Icon name="mic" />
           </button>
-          <button type="button" className="ibtn send" title="Send" aria-label="Send" disabled={busy} onClick={onSend}>
-            <Icon name="send" />
-          </button>
+          {busy && onStop ? (
+            <button type="button" className="ibtn send stop" title="Stop"
+                    aria-label="Stop" onClick={onStop}>
+              <Icon name="stop" />
+            </button>
+          ) : (
+            <button type="button" className="ibtn send" title="Send" aria-label="Send" disabled={busy} onClick={onSend}>
+              <Icon name="send" />
+            </button>
+          )}
         </div>
       </div>
       {/* role="status" so a mic permission failure or a transient hint is spoken

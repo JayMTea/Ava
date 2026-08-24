@@ -1,0 +1,551 @@
+/* The agent console.
+ *
+ * A SEPARATE SHEET, not an extension of hub.css. `tests/test_hub_uniformity.py`
+ * scans that file for resurrected class names and counts its `.tone-*` setters;
+ * adding a thousand unrelated selectors would make that guard's surface enormous
+ * and invite false positives on a file whose whole point is being small enough
+ * to police.
+ *
+ * Loaded AFTER global.css and hub.css (see main.tsx), so `.tone-*`, `.tile`,
+ * `.hub-btn`, `.stat-row`, `.legend` and `.db-panel` are all available to reuse
+ * — and any icon-sizing rule here wins on source order at equal specificity,
+ * which is the arrangement tests/test_icon_sizing.py depends on.
+ *
+ * NO NEW COLOUR TOKENS. Session and run status map onto the existing six tones,
+ * and that mapping lives in exactly one module (components/agent/agentView.ts),
+ * the way DRIFT_TONE lives only in provisionView.ts. Nothing here is a colour;
+ * everything new is a tone NAME.
+ */
+
+.agent {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+/* KEPT-ALIVE, NOT KEPT-VISIBLE. App.tsx never unmounts this view once visited
+   (unmounting kills the terminal PTY and the browser panel), and
+   ViewErrorBoundary's `hidden` prop hides only its own crash panel — so this
+   rule is the ONLY thing standing between "kept alive" and "painted over every
+   other tab". Without it the console rendered on top of Chats the moment the
+   user had visited #agent once, which read as a ghostly double exposure.
+   display:none keeps the React tree (and xterm's buffer) mounted while taking
+   the view out of layout and paint. */
+.agent[data-active='0'] {
+  display: none;
+}
+
+/* The section bar. `.hub-tabs` is reused verbatim rather than re-skinned — it
+ * is already a tour anchor and demo scripts match it bare. */
+.agent-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4) 0;
+  border-bottom: 1px solid var(--line);
+  flex: 0 0 auto;
+}
+
+.agent-bar .hub-tabs { border-bottom: 0; }
+
+.agent-chip {
+  text-decoration: none;
+  flex: 0 0 auto;
+  padding-bottom: var(--sp-2);
+}
+
+.agent-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+/* Every section's scroll container. Full-bleed on purpose — `.hub-inner`'s
+ * 920px cap is right for a reading column and wrong for an operator surface. */
+.agent-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--sp-4);
+}
+
+/* The CONSOLE layout, and only the console.
+ *
+ * Sessions is three columns — list, thread, side panel. Activity and
+ * Automations are lists, and giving them the same grid squeezed them into the
+ * 264px first track. The layout belongs to the section that has that shape, not
+ * to the tab. */
+.agent-console {
+  display: grid;
+  gap: var(--sp-4);
+  grid-template-columns: var(--agent-list-w) minmax(0, 1fr);
+  align-items: start;
+  min-height: 100%;
+}
+
+.agent-console > * { min-width: 0; }
+
+/* One column below the repo's single breakpoint. The console becomes a stack
+ * navigator over the SAME addresses — which is the payoff for having put the
+ * session and the panel in the URL rather than in component state. */
+@media (max-width: 760px) {
+  .agent-console { grid-template-columns: 1fr; }
+  .agent-body { padding: var(--sp-3); }
+  .agent-bar { padding: var(--sp-2) var(--sp-3) 0; }
+}
+
+/* ---- the session list ---------------------------------------------------- */
+
+.agent-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  min-width: 0;
+}
+
+.agent-list-note {
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  margin: 0;
+}
+
+.agent-rows { display: flex; flex-direction: column; gap: 2px; }
+
+.agent-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+
+.agent-row:hover { background: var(--wash-4); }
+
+/* The selected row needs to survive LIGHT mode, where `--wash-*` is a black
+ * film and a background alone is nearly invisible. The accent rail is what
+ * actually reads; the wash is the supporting half. */
+.agent-row.on {
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.agent-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.agent-row-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.agent-row-title {
+  font-size: var(--fs-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
+/* Reads `--tone` from the `.tone-*` class the row already carries — no second
+ * colour system, and nothing here maps a status to a literal. */
+.agent-row-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--tone, var(--muted));
+  flex: 0 0 auto;
+}
+
+/* ---- the thread ---------------------------------------------------------- */
+
+.agent-thread { min-width: 0; }
+
+/* The prose column is capped at the token the chat view already uses, so a wide
+ * window does not produce 900px-wide paragraphs. Reusing `--col` rather than
+ * inventing a second width is the whole reason that token exists. */
+.agent-msgs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  max-width: var(--col);
+}
+
+.agent-msg { display: flex; flex-direction: column; gap: 3px; }
+
+.agent-msg-role {
+  font-size: var(--fs-xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.agent-msg-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.agent-msg-tools { font-size: var(--fs-xs); color: var(--muted); }
+
+.agent-prs { display: inline-flex; gap: 6px; align-items: center; }
+
+/* ---- the side panel ------------------------------------------------------ */
+
+/* Three columns once a panel is open. The console grid is redeclared rather
+ * than made conditional in JS: a layout that depends on a class the router
+ * already implies is one place fewer for the two to disagree. */
+.agent-console:has(.agent-side) {
+  grid-template-columns: var(--agent-list-w) minmax(0, 1fr) minmax(0, 34%);
+}
+
+.agent-side {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.agent-side-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-2) 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.agent-side-bar .hub-subtabs { flex: 1 1 auto; border-bottom: 0; overflow-x: auto; }
+.agent-side-close { flex: 0 0 auto; margin-bottom: var(--sp-2); }
+
+.agent-side-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--sp-3);
+}
+
+.agent-thread-actions { display: inline-flex; align-items: center; gap: 6px; }
+
+/* ---- files --------------------------------------------------------------- */
+
+.agent-files { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
+
+.agent-file {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.agent-file:hover:not(:disabled) { background: var(--wash-4); }
+.agent-file:disabled { cursor: default; opacity: .75; }
+.agent-file:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.agent-file-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;          /* keep the FILENAME visible when a path is long */
+  text-align: left;
+}
+
+.agent-file-size { color: var(--muted); font-size: var(--fs-xs); flex: 0 0 auto; }
+
+/* ---- tasks --------------------------------------------------------------- */
+
+.agent-tasks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.agent-task { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); font-size: var(--fs-sm); }
+.agent-task-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---- review -------------------------------------------------------------- */
+
+.agent-review { display: flex; flex-direction: column; gap: var(--sp-2); height: 100%; min-height: 0; }
+
+.agent-review-head { display: flex; align-items: center; gap: var(--sp-2); }
+
+.agent-review-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+.agent-review-img { max-width: 100%; border-radius: var(--r-sm); }
+
+/* ---- the code area ------------------------------------------------------- */
+
+.code-area {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  background: var(--panel2);
+}
+
+.code-find {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--line);
+}
+.code-find input {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: var(--input);
+  border: 1px solid var(--inputline);
+  border-radius: var(--r-sm);
+  color: var(--txt);
+  padding: 3px 6px;
+  font: inherit;
+  font-size: var(--fs-xs);
+}
+.code-find button {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 2px 5px;
+  border-radius: var(--r-sm);
+}
+.code-find button:hover { background: var(--wash-6); color: var(--txt); }
+.code-find-count { color: var(--muted); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+
+.code-body { display: flex; min-height: 0; flex: 1 1 auto; }
+
+/* The gutter and the textarea MUST share a line-height, or the numbers drift
+   away from the code a few hundred lines down. Both inherit from here. */
+.code-body,
+.code-gutter,
+.code-text {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 1.55;
+}
+
+.code-gutter {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 6px 8px 8px;
+  color: var(--muted);
+  text-align: right;
+  user-select: none;
+  overflow: hidden;
+  border-right: 1px solid var(--line);
+  font-variant-numeric: tabular-nums;
+}
+
+.code-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 8px;
+  border: 0;
+  resize: none;
+  background: transparent;
+  color: var(--txt);
+  white-space: pre;
+  overflow: auto;
+  tab-size: 2;
+}
+.code-text:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+@media (max-width: 760px) {
+  /* The panel becomes a full-screen sheet over the same address — Back
+     dismisses it, because the panel is a URL segment rather than state. */
+  .agent-console:has(.agent-side) { grid-template-columns: 1fr; }
+  .agent-console:has(.agent-side) .agent-list,
+  .agent-console:has(.agent-side) .agent-thread { display: none; }
+}
+
+/* ---- the terminal -------------------------------------------------------- */
+
+/* Ava draws the container; xterm draws only the content. A panel whose frame
+   supplies its own furniture is the thing that reads as foreign. */
+.term-host {
+  height: 100%;
+  min-height: 220px;
+  background: var(--panel2);
+  border-radius: var(--r-sm);
+  padding: 6px;
+}
+
+.agent-term-err { display: flex; flex-direction: column; gap: var(--sp-2); }
+
+/* ---- activity ------------------------------------------------------------ */
+
+.agent-filters { display: inline-flex; align-items: center; gap: 4px; }
+
+.agent-search {
+  background: var(--input);
+  border: 1px solid var(--inputline);
+  border-radius: var(--r-sm);
+  color: var(--txt);
+  font: inherit;
+  font-size: var(--fs-xs);
+  padding: 3px 8px;
+  min-width: 8rem;
+}
+.agent-search:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.hub-btn.ghost.on { color: var(--accent); border-color: var(--accent-line); }
+
+.agent-runs,
+.agent-jobs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
+
+.agent-run,
+.agent-job {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.agent-run:hover,
+.agent-job:hover { background: var(--wash-4); }
+.agent-job.on { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
+.agent-run:focus-visible,
+.agent-job:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.agent-run-title,
+.agent-job-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--fs-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-run-when,
+.agent-job-when {
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.agent-job-cron {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+
+/* ---- decision receipts --------------------------------------------------- */
+
+.agent-receipts { list-style: none; margin: 0 0 var(--sp-3); padding: 0; display: flex; flex-direction: column; gap: 4px; }
+
+.agent-receipt {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+  padding: 5px 8px;
+  border-radius: var(--r-sm);
+  background: var(--panel2);
+}
+
+.agent-receipt-kind {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+
+.agent-receipt-detail {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- the one embedded surface -------------------------------------------- */
+
+/* Ava draws the container; the frame supplies content only. */
+.gw-frame {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  height: 100%;
+  min-height: 260px;
+}
+
+.gw-frame-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+
+.gw-frame-title { font-size: var(--fs-sm); color: var(--muted); }
+
+.gw-frame-body {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 200px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--panel2);
+}
+
+/* Hidden until it has actually loaded, so a half-painted frame never flashes
+   through — but kept MOUNTED, so a late load still flips it to ready. */
+.gw-frame[data-phase='loading'] .gw-frame-body,
+.gw-frame[data-phase='error'] .gw-frame-body { display: none; }
+
+/* Focus is the biggest tell that something is foreign: clicking into a frame
+   silently swallows every Ava shortcut. The ring is painted on the PANEL so
+   there is at least a visible reason the keyboard stopped answering. */
+.gw-frame:focus-within .gw-frame-body {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}

@@ -119,3 +119,29 @@ describe('the three codes that had nowhere to go', () => {
     expect(fix!.tip).toContain(why);
   });
 });
+
+describe('the gateway-runtime seam codes', () => {
+  // 12 codes matched neither _off nor _down nor the connector rule, so every one
+  // dead-ended — and gateway_timeout, matching the connector rule by accident,
+  // sent the owner to Connectors for a gateway that is not a connector. All lead
+  // to Setup → Agent → Runtime now, and gateway_timeout must NOT reach the
+  // connector branch.
+  it.each([
+    'agent_scope_denied', 'agent_token_rejected', 'agent_protocol_mismatch',
+    'agent_no_gateway', 'gateway_timeout', 'gateway_key_refused',
+    'gateway_rate_limited', 'gateway_unsupported_method', 'gateway_rpc_failed',
+    'gateway_cannot_deploy',
+  ])('sends %s to Setup → Agent → Runtime', (code) => {
+    const fix = fixForCode(code);
+    expect(fix).toBeDefined();
+    expect(fix!.hash).toBe('hub/agent/runtime');
+  });
+
+  it('does NOT send gateway_timeout to Connectors', () => {
+    expect(fixForCode('gateway_timeout')!.hash).not.toBe('hub/connectors');
+  });
+
+  it('leaves a real connector timeout going to Connectors', () => {
+    expect(fixForCode('my_notes_timeout')!.hash).toBe('hub/connectors');
+  });
+});

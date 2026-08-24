@@ -118,6 +118,11 @@ export const api = {
     req<{ turn_id?: string; route?: string; error?: string; error_code?: string }>(
       '/api/chat-stream', { method: 'POST', body: fd }),
   turn: (id: string) => req<TurnStatus>(`/api/turn/${id}`),
+  /** Ask the bridge to stop a running turn. Always answers 200 with a verdict:
+   *  "it just finished" is a race the owner cannot avoid, not an error. */
+  abortTurn: (id: string) =>
+    req<{ ok?: boolean; code?: string; error?: string; status?: string }>(
+      `/api/turn/${id}/abort`, { method: 'POST' }),
   weatherArtifact: (location: string, days: number) =>
     req<Artifact>(`/api/artifact/weather?location=${encodeURIComponent(location)}&days=${days}`),
 

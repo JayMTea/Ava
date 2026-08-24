@@ -20,6 +20,7 @@ import { useBrandName } from './lib/brandContext';
 // imported the charts too and no amount of lazy() could separate them.
 const VitalsView = lazy(() => import('./components/dashboard/VitalsView')
   .then((m) => ({ default: m.VitalsView })));
+const AgentView = lazy(() => import('./components/agent/AgentView'));
 const OpsView = lazy(() => import('./components/dashboard/OpsView')
   .then((m) => ({ default: m.OpsView })));
 
@@ -38,7 +39,7 @@ import type { AppEntry, Artifact, Attachment } from './lib/types';
 type View = string;
 
 // Built-in tabs that ship in the shell (always present, no connector needed).
-const BUILTIN_VIEWS = ['vitals', 'ops', 'data', 'chat', 'hub'];
+const BUILTIN_VIEWS = ['vitals', 'ops', 'data', 'chat', 'hub', 'agent'];
 
 // Sidebar resize limits. The floor is set by the panel's own contents — the head
 // row (wordmark + two icon buttons) and the "Settings & dashboards" foot row stop
@@ -156,11 +157,31 @@ export default function App() {
     if (v === view || typeof d.startViewTransition !== 'function' || reduce) { setView(v); return; }
     d.startViewTransition(() => flushSync(() => setView(v)));
   }, [view]);
+  // The Agent tab's "Reply in Chats" hand-off (agent/Thread.tsx dispatches it).
+  // ONE listener, here, because App owns both halves of the jump — the chat
+  // store and hash segment 0 — and the Agent console deliberately has no
+  // composer to answer from: Chats is the one place you talk to the agent.
+  const openChatById = chat.openChat;
+  useEffect(() => {
+    const onOpen = (e: Event) => {
+      const id = (e as CustomEvent<{ id?: string }>).detail?.id;
+      if (!id) return;
+      openChatById(id);
+      setView('chat');
+    };
+    window.addEventListener('ava:open-chat', onOpen);
+    return () => window.removeEventListener('ava:open-chat', onOpen);
+  }, [openChatById]);
   // Iframe apps a user has opened this session. Visited frames stay mounted
   // (hidden, not unmounted) so switching to chat/settings and back doesn't
   // reload the app and wipe its in-page state — typed prompts, scroll,
   // running-job progress bars. Lazy: an app loads nothing until first opened.
   const [openedApps, setOpenedApps] = useState<string[]>([]);
+  // Append-only, exactly like `openedApps`: the Agent view loads nothing until
+  // first opened, and never unloads after.
+  const [agentVisited, setAgentVisited] = useState(false);
+  useEffect(() => { if (view === 'agent') setAgentVisited(true); }, [view]);
+
   useEffect(() => {
     if (BUILTIN_VIEWS.includes(view)) return;
     setOpenedApps((prev) => (prev.includes(view) ? prev : [...prev, view]));
@@ -389,6 +410,19 @@ export default function App() {
                 <Suspense fallback={<Skeleton height={260} />}><OpsView /></Suspense>
               </ViewErrorBoundary>
             )}
+            {/* Agent follows the AppFrame pattern, not the ChatView one: it is
+                KEPT MOUNTED once visited and merely hidden. Unmounting would
+                kill the terminal's PTY and the browser panel's snapshot state —
+                the same reason iframe apps stay in the tree below. The cost is
+                that its error state no longer self-clears on tab switch, which
+                ViewErrorBoundary's epoch-keyed "Try again" already covers. */}
+            {agentVisited && (
+              <ViewErrorBoundary label="Agent" hidden={view !== 'agent'}>
+                <Suspense fallback={<Skeleton height={260} />}>
+                  <AgentView active={view === 'agent'} />
+                </Suspense>
+              </ViewErrorBoundary>
+            )}
             {view === 'data' && <ViewErrorBoundary label="Data"><DataView /></ViewErrorBoundary>}
             {view === 'hub' && <ViewErrorBoundary label="Setup"><HubView /></ViewErrorBoundary>}
             {view === 'chat' && (
@@ -439,6 +473,7 @@ export default function App() {
               onFiles={chat.uploadFiles}
               onSend={onSend}
               onTalk={chat.talk}
+              onStop={chat.canStop ? chat.stop : undefined}
               busy={chat.busy}
               hint={chat.hint}
               ctxTokens={chat.ctxTokens}

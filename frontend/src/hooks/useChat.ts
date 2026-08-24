@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api, sleep } from '../lib/api';
+import { api } from '../lib/api';
 import type { Artifact, Attachment, HistoryEntry } from '../lib/types';
 import { ChatItem, uid } from '../lib/chatItems';
+import { runPolledTurn } from './chatDirect';
+import { runStreamedTurn } from './chatGateway';
+import { useGateway } from './useGateway';
 
 // Play a base64-encoded WAV (Ava's spoken reply) without a round-trip to disk.
 function playWav(b64: string) {
@@ -42,10 +45,14 @@ export function useChat() {
   const ghostRef = useRef(false);
   const ghostIdRef = useRef<string | null>(null);
   const busyRef = useRef(false);
+  // The turn currently stoppable, or '' when there is nothing to stop. Only the
+  // streamed path sets it — see StreamDeps.onTurnStarted.
+  const [abortableTurn, setAbortableTurn] = useState('');
 
   const setBusyBoth = (v: boolean) => {
     busyRef.current = v;
     setBusy(v);
+    if (!v) setAbortableTurn('');
   };
 
   const push = useCallback((it: ChatItem) => setItems((xs) => [...xs, it]), []);
@@ -54,6 +61,10 @@ export function useChat() {
     [],
   );
   const remove = useCallback((id: string) => setItems((xs) => xs.filter((x) => x.id !== id)), []);
+  const pushHistory = useCallback((role: string, content: string) => {
+    history.current.push({ role, content } as HistoryEntry);
+    history.current = history.current.slice(-12);
+  }, []);
 
   const loadChats = useCallback(async () => {
     try {
@@ -86,113 +97,70 @@ export function useChat() {
     return c.id;
   }, [loadChats]);
 
-  // ---- one Ava turn: chain-of-thought + poll ------------------------------
+  // ---- one Ava turn --------------------------------------------------------
+  // The body moved to hooks/chatDirect.ts unchanged. It is the Direct floor's
+  // only transport and the floor is what an unprovisioned box runs on, so it
+  // was extracted rather than rewritten — see that file's header.
+  //
+  // WHICH PATH, and when it is decided.
+  //
+  // The choice is a SERVER FACT — `/api/gateway/status` says whether the
+  // configured runtime has a live gateway — and it is made once, at submit, not
+  // re-evaluated mid-turn. The two paths have different memory and different
+  // tools; swapping them under a conversation is the worst available behaviour.
+  // A gateway that drops mid-run therefore reports "reconnecting" and stays on
+  // its own path rather than silently continuing somewhere else.
+  const gw = useGateway();
+  const [streamable, setStreamable] = useState(false);
+  useEffect(() => {
+    let live = true;
+    const check = () => {
+      void fetch('/api/gateway/status', { credentials: 'same-origin' })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => { if (live) setStreamable(!!j?.configured && j?.phase === 'ready'); })
+        // A failed check means "not streamable", never "assume yes": the floor
+        // works, and guessing wrong the other way strands the turn.
+        .catch(() => { if (live) setStreamable(false); });
+    };
+    check();
+    // Provisioning can turn the gateway on; the banner already listens for this.
+    window.addEventListener('ava:agent-provisioned', check);
+    return () => {
+      live = false;
+      window.removeEventListener('ava:agent-provisioned', check);
+    };
+  }, []);
+
   const runAvaTurn = useCallback(
-    async (t: string, atts: Attachment[], cid: string, userItemId: string | null) => {
-      const cotId = uid();
-      push({
-        kind: 'cot',
-        id: cotId,
-        label: atts.length ? 'Ava is reading & thinking' : 'Ava is thinking',
-        steps: [],
-        status: 'running',
-      });
-      const t0 = Date.now();
-      const failUser = () => {
-        if (userItemId) patch(userItemId, (it) => (it.kind === 'user' ? { ...it, failed: true } : it));
-      };
-      try {
-        const fd = new FormData();
-        fd.append('text', t);
-        fd.append('history', JSON.stringify(history.current.slice(0, -1)));
-        fd.append('attachments', JSON.stringify(atts.map((a) => a.id)));
-        fd.append('chat_id', cid);
-        const start = await api.startTurn(fd);
-        if (!start.turn_id) {
-          remove(cotId);
-          push({ kind: 'sys', id: uid(), text: start.error || 'could not start', icon: 'alert', code: start.error_code });
-          failUser();
-          return;
-        }
-        // Bound the poll loop so a stuck turn can never spin forever (the old
-        // `for(;;)` would leave "Ava is thinking" up indefinitely on a hang, which
-        // read as "no response"). Show honest elapsed-time hints while we wait,
-        // and after DEADLINE_MS give up cleanly with a retryable error.
-        const DEADLINE_MS = 200_000;
-        let pollFails = 0;
-        for (;;) {
-          await sleep(750);
-          const waited = Date.now() - t0;
-          if (waited > DEADLINE_MS) {
-            patch(cotId, (it) =>
-              it.kind === 'cot'
-                ? { ...it, status: 'error', error: 'Ava took too long to respond — please try again.' }
-                : it,
-            );
-            failUser();
-            return;
-          }
-          let s;
-          try {
-            s = await api.turn(start.turn_id);
-            pollFails = 0;
-          } catch {
-            // Tolerate transient network blips, but don't poll a dead server forever.
-            if (++pollFails > 20) {
-              patch(cotId, (it) => (it.kind === 'cot' ? { ...it, status: 'error', error: 'lost connection to Ava' } : it));
-              failUser();
-              return;
-            }
-            continue;
-          }
-          if (s.steps) patch(cotId, (it) => (it.kind === 'cot' ? { ...it, steps: s.steps! } : it));
-          // Keep the user informed while a slow turn is still working.
-          if (s.status === 'running') {
-            const secs = Math.round(waited / 1000);
-            const label =
-              secs >= 45 ? `Still working… (${secs}s)` : secs >= 20 ? 'Working on it…' : atts.length ? 'Ava is reading & thinking' : 'Ava is thinking';
-            patch(cotId, (it) => (it.kind === 'cot' ? { ...it, label } : it));
-          }
-          if (s.status === 'done') {
-            const secs = Math.round((Date.now() - t0) / 1000);
-            patch(cotId, (it) => (it.kind === 'cot' ? { ...it, status: 'done', secs } : it));
-            if (typeof s.ctx_tokens === 'number') setRealCtx(s.ctx_tokens);
-            if (s.reply) {
-              push({
-                kind: 'ava',
-                id: uid(),
-                text: s.reply,
-                model: s.model,
-                toolsUsed: s.tools_used || [],
-                artifact: s.artifact ?? null,
-                srcText: t,
-                srcAtts: atts,
-              });
-              history.current.push({ role: 'assistant', content: s.reply });
-              history.current = history.current.slice(-12);
-            }
-            if (s.artifact) setArtifact(s.artifact);
-            if (s.previews?.length) s.previews.forEach((p) => push({ kind: 'preview', id: uid(), preview: p }));
-            return;
-          }
-          if (s.status === 'error' || (!s.status && s.error)) {
-            patch(cotId, (it) => (it.kind === 'cot'
-              ? { ...it, status: 'error', error: s.error || 'failed', code: s.error_code }
-              : it));
-            // The banner polls slowly; a failure here is proof something is
-            // wrong NOW, so let it re-check rather than disagreeing with the
-            // error the user is looking at for up to 20 seconds.
-            window.dispatchEvent(new Event('ava:turn-failed'));
-            failUser();
-            return;
-          }
-        }
-      } catch {
-        patch(cotId, (it) => (it.kind === 'cot' ? { ...it, status: 'error', error: 'network error' } : it));
-        failUser();
+    (t: string, atts: Attachment[], cid: string, userItemId: string | null) => {
+      // BOTH strategies submit through POST /api/chat-stream — the bridge's one
+      // turn pipeline (credentials note, memory recall, chats.db history, the
+      // audit record, and the same session key as the voice path). The choice
+      // here is only HOW the outcome reaches the screen: live over the
+      // gateway's event relay, or by polling the turn record.
+      if (streamable && gw) {
+        return runStreamedTurn(t, atts, cid, userItemId, {
+          client: gw,
+          setItems,
+          setRealCtx,
+          setArtifact,
+          history: () => history.current,
+          pushHistory,
+          onTurnStarted: setAbortableTurn,
+        });
       }
+      return runPolledTurn(t, atts, cid, userItemId, {
+        push,
+        patch,
+        remove,
+        setItems,
+        setRealCtx,
+        setArtifact,
+        history: () => history.current,
+        pushHistory,
+      });
     },
-    [push, patch, remove],
+    [push, patch, remove, pushHistory, streamable, gw],
   );
 
   // ---- submit --------------------------------------------------------------
@@ -579,6 +547,30 @@ export function useChat() {
   // Replay a stored voice reply (base64 WAV) from a message's replay button.
   const replay = useCallback((b64: string) => playWav(b64), []);
 
+  /** Ask the bridge to stop the turn in flight.
+   *
+   *  Does NOT clear `busy` or write anything into the transcript. The run's
+   *  ending arrives through the same path every other ending does — the
+   *  gateway reports it with `aborted` set, and the turn reaches its terminal
+   *  status there. Optimistically ending the turn here would leave the screen
+   *  disagreeing with the record whenever the abort did not land.
+   */
+  const stop = useCallback(async () => {
+    const tid = abortableTurn;
+    if (!tid) return;
+    setAbortableTurn('');          // one ask per turn; the button goes quiet
+    try {
+      const r = await api.abortTurn(tid);
+      if (!r?.ok && r?.error) {
+        push({ kind: 'sys', id: uid(), text: r.error, icon: 'alert',
+               code: r.code });
+      }
+    } catch {
+      /* the turn ends on its own terms either way; a failed ask is not worth
+         a second error on top of whatever the run is about to report */
+    }
+  }, [abortableTurn, push]);
+
   return {
     items,
     chats,
@@ -590,6 +582,8 @@ export function useChat() {
     artifact,
     setArtifact,
     send,
+    stop,
+    canStop: !!abortableTurn,
     retry,
     replay,
     talk,

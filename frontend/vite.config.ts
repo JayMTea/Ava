@@ -115,6 +115,11 @@ export default defineConfig({
       output: {
         manualChunks(id: string) {
           if (id.includes('node_modules/react')) return 'react';
+          // recharts is only reached through the lazy Vitals/Ops boundary, but
+          // BOTH of them reach it — without a named chunk each carries its own
+          // copy. xterm is the same story for the terminal panel.
+          if (id.includes('node_modules/recharts') || id.includes('node_modules/d3')) return 'charts';
+          if (id.includes('node_modules/@xterm')) return 'term';
         },
       },
     },
