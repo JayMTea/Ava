@@ -99,6 +99,66 @@ gives the agent failover and perf logging for free. If you expose the router
 beyond loopback (`inference.router.host: 0.0.0.0`), also configure the bearer
 token from `$AVA_HOME/secrets/router_token`.
 
+## Surviving reboots
+
+`nemoclaw onboard` starts the **OpenShell host gateway** — the sandbox's policy
+plane — and starts it **detached, with no supervisor**. That is not a bug you
+can configure away: the only thing in the upstream tree that ever launches it is
+`onboard` itself, and it spawns the process and walks away. So on the next
+reboot the gateway is simply gone, the sandbox cannot fetch its policy, and it
+exits after about five attempts — roughly once a minute, forever.
+
+That failure presents as *"the agent is broken"*. It isn't; its gateway is
+missing. `nemoclaw <name> recover` will not fix it either, and says so:
+*"this sandbox-scoped command will not restart the shared host gateway."*
+
+Ava ships the supervisor:
+
+```bash
+ava agent install-units          # report what it would write (default)
+ava agent install-units --write  # install it
+systemctl --user enable --now openshell-gateway.service
+sudo loginctl enable-linger $USER   # so user units start before you log in
+```
+
+The unit is **captured, not templated**. The gateway's environment is a dozen
+values `nemoclaw onboard` chose — database URL, docker network, TLS directory,
+`DOCKER_HOST`, and a supervisor image pinned by **digest** — none of which can
+be derived from Ava's own settings. So `install-units` reads them from the
+running process and refuses outright if the gateway is not up. *Start it, then
+capture it* is honest; a plausible-looking guess is how you end up supervising a
+subtly different gateway than the one that worked.
+
+Two details in the generated unit are load-bearing and should not be "simplified":
+
+- **`exec -a` sets argv0.** NemoClaw decides whether a running gateway is its
+  own by matching `openshell-gateway[nemoclaw=<name>;port=<port>]` exactly.
+  systemd has no argv0 option, so the `bash -c 'exec -a …'` wrapper is doing
+  real work — start it plainly and `nemoclaw` stops recognising its own gateway.
+- **The docker wait is explicit.** `After=docker.service` is inert here: this is
+  a *user* unit and `docker.service` is a *system* unit. Without the
+  `ExecStartPre` poll the gateway burns its restarts before the daemon is up.
+
+`ava agent install-units --remove` deletes only units Ava wrote (they carry a
+`# Managed by Ava` header); a unit you wrote by hand is reported and left alone.
+
+### Two more things a reboot drops
+
+Neither is installed automatically — both touch the host outside `AVA_HOME`, so
+they are yours to run:
+
+- **`deploy/nemoclaw-boot-recover.sh`** waits for the gateway and restores the
+  sandbox's port forwards.
+- **`deploy/ava-sandbox-firewall.sh`** re-adds the `INPUT` ACCEPT rules the
+  sandbox needs on a host with `-P INPUT DROP`. These rules match on
+  `-i br-<netid>`, an interface name derived from the docker **network id** — so
+  recreating the network leaves every rule matching an interface that no longer
+  exists, silently. The script asks docker for the current name on every run and
+  removes its own tagged rules first, so it is safe to re-run.
+
+Check all of it with `ava doctor`, which reports the active runtime's own facts
+— including the gateway's phase and version.
+
 ## The fallback: Direct (tool-less) chat
 
 When no runtime is present **and** `agent.required` is false (the default), Ava
@@ -109,13 +169,23 @@ destination. Force it explicitly with `agent.enabled: false` or
 `agent.runtime: direct`, and make the full runtime mandatory instead with
 `agent.required: true` ([reference](AGENT_RUNTIME_REFERENCE.md)).
 
-| | NemoClaw (full) | Direct (floor) |
-|---|:--:|:--:|
-| Tools / connectors | Yes | No |
-| Sandboxed + egress-policed | Yes | No |
-| Persistent agent memory | Yes | replayed history |
-| Live chain-of-thought | Yes | No |
-| Works with zero setup | needs provisioning | Yes |
+| | NemoClaw (CLI) | NemoClaw (gateway) | Direct (floor) |
+|---|:--:|:--:|:--:|
+| `agent.runtime` | `nemoclaw` | `openclaw_gw` | `direct` |
+| Tools / connectors | Yes | Yes | No |
+| Sandboxed + egress-policed | Yes | Yes | No |
+| Persistent agent memory | Yes | Yes | replayed history |
+| Live chain-of-thought | Yes | Yes, from real events | No |
+| Turn arrives | all at once | streamed | all at once |
+| Sessions, cron, devices, plugins | No | Yes | No |
+| Works with zero setup | needs provisioning | needs a gateway token | Yes |
+
+Both NemoClaw columns drive the **same** OpenClaw in the **same** sandbox. The
+difference is only how Ava reaches it: `nemoclaw` spawns
+`openclaw agent --json` once per message, which can carry a reply and a tool
+list and nothing else; `openclaw_gw` holds a WebSocket to OpenClaw's own
+gateway, so a turn streams and the rest of its control plane is reachable at
+all. The CLI path stays the default and is unchanged.
 
 ## Full agent in Docker (the `remote` runtime)
 

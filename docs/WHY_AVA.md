@@ -58,6 +58,9 @@ and per-tool egress policies naming exactly which addresses it may reach. The
 agent runs sandboxed in [NemoClaw](AGENT_RUNTIME.md), the MCP client runs
 host-side so a compromised tool server never gets a line into that sandbox, and
 the agent itself reaches exactly two policed bridge routes and nothing else.
+Ava's own calls into the agent's control plane cross a second policed
+boundary of their own — one cookie-gated, rate-limited, audited relay
+route, with the browser never holding a socket to the agent.
 
 Chat and voice come with it, but they are how you *use*
 the platform, not what it is for.
@@ -123,6 +126,7 @@ Each of those is taken apart, with the endpoint or config key behind it, in
 |---|---|
 | **One declaration, six surfaces.** | The table at the top of this page, every row of it derived at load time with nothing hand-maintained in Ava's core. [Connect your apps](CONNECT_YOUR_APPS.md) |
 | **The boundary is real.** | The MCP client runs host-side, so a compromised tool server never gets a line into the sandbox, and the agent reaches exactly two policed bridge routes and nothing else. [Connector SDK](CONNECTOR_SDK.md) |
+| **And it holds in both directions.** | Ava reaches the agent's control plane through one relay route — cookie-gated, rate-limited, audited by method, and refusing the settings that govern browser authentication. The browser never opens a socket to the agent. [Agent runtime reference](AGENT_RUNTIME_REFERENCE.md) |
 | **It knows what your hardware can take.** | Setup reads your chip and usable memory and names the model tier it will hold, detected live, before you download anything. [Pick a model](CHOOSE_A_MODEL.md) |
 | **It watches itself, and your apps.** | Tokens per second, time to first token (TTFT), cost and energy, jobs, alerts, and per-app service health and call latency. An assistant you can't observe is one you can't trust. |
 | **No personality until you give it one.** | The shipped prompt covers only what Ava must *do*. How it talks is a blank field you fill in, so a fork sounds like *your* assistant. [Persona](PERSONA.md) |

@@ -14,17 +14,27 @@ capability-scoped, and nothing it does writes to your source tree.
 
 ---
 
-## A pluggable seam with three real implementations
+## A pluggable seam with four real implementations
 
 `ava_bridge/runtime/` defines one `AgentRuntime` interface (`available()`,
-`run_turn()`, plus optional `exec` / `session_file` / `provision` / `status`)
-and a registry keyed by the `agent.runtime` setting. Three implementations ship:
+`run_turn()`, plus optional `exec` / `session_file` / `provision` / `status`,
+and the control-plane half — `rpc` / `subscribe` / `start_run` / `iter_run` /
+`observe`) and a registry keyed by the `agent.runtime` setting. Four
+implementations ship:
 
-| `agent.runtime` | What runs | Tools | Live CoT |
-|---|---|:--:|:--:|
-| `nemoclaw` *(default, alias `openclaw`)* | [NemoClaw](https://github.com/NVIDIA/NemoClaw) (NVIDIA, Apache-2.0) running OpenClaw inside an OpenShell sandbox, driven in-process by the bridge | Yes | Yes |
-| `remote` | The Docker split: a separate **agent** container owns the `nemoclaw` CLI and the Docker socket, and the bridge drives it over HTTP | Yes | Yes |
-| `direct` *(alias `none`)* | The explicit tool-less floor: an OpenAI-compatible call to Ava's inference router with recent history replayed for continuity | No | No |
+| `agent.runtime` | What runs | Tools | Live CoT | Streams |
+|---|---|:--:|:--:|:--:|
+| `nemoclaw` *(default, alias `openclaw`)* | [NemoClaw](https://github.com/NVIDIA/NemoClaw) (NVIDIA, Apache-2.0) running OpenClaw inside an OpenShell sandbox, driven in-process by the bridge — one `openclaw agent --json` per message | Yes | Yes | No |
+| `openclaw_gw` | The **same** OpenClaw, reached over its gateway instead: JSON-RPC 2.0 on a persistent WebSocket. A turn is started and then streamed, and the rest of the gateway's method surface (sessions, cron, devices, plugins, approvals, audit) becomes reachable at all | Yes | Yes | Yes |
+| `remote` | The Docker split: a separate **agent** container owns the `nemoclaw` CLI and the Docker socket, and the bridge drives it over HTTP | Yes | Yes | No |
+| `direct` *(alias `none`)* | The explicit tool-less floor: an OpenAI-compatible call to Ava's inference router with recent history replayed for continuity | No | No | No |
+
+!!! note "Why `openclaw` still means the CLI adapter"
+
+    The alias has meant "NemoClaw runs OpenClaw" since the registry existed, and
+    anyone who set it did so to get that. Repointing it at the gateway would
+    change behaviour under people who never asked, which is exactly what
+    `name_error()` exists to make loud. The gateway has its own name.
 
 [![The remote runtime: the bridge container, a separate agent container holding the nemoclaw CLI and Docker socket, and the sandbox it spawns](../assets/agent-remote-runtime.svg)](../assets/agent-remote-runtime.svg)
 
@@ -39,13 +49,20 @@ and a registry keyed by the `agent.runtime` setting. Three implementations ship:
     with that access. Full instructions:
     [Set up the agent](../AGENT_RUNTIME.md).
 
-Adding a fourth is a file: implement the interface in
+Adding a fifth is a file: implement the interface in
 `ava_bridge/runtime/<name>.py`, register it, select it with
 `agent.runtime: <name>`. Ava's core only ever talks to the interface.
 
+That claim was tested when `openclaw_gw` was added, and it held with one honest
+amendment: the interface itself grew. A streaming runtime needs a way to report
+progress, so the ABC gained `iter_run()` — which yields **Ava's** four event
+kinds (`step` / `final` / `error` / `gap`), never the runtime's own. That
+translation staying behind the seam is what keeps `turns.py` from learning any
+particular agent's wire format.
+
 ```yaml
 agent:
-  runtime: nemoclaw       # nemoclaw | openclaw | remote | direct | none
+  runtime: nemoclaw       # nemoclaw | openclaw | openclaw_gw | remote | direct | none
   required: false         # true -> a missing runtime is a loud error
   enabled: true           # false -> force the Direct floor
   sandbox: my-assistant

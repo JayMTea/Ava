@@ -34,17 +34,36 @@ the sidebar's search box filters the recents list by title.
 
 Everything you send - a question, a follow-up, a file - posts to the single
 endpoint **`POST /api/chat-stream`**, and every one of them becomes an agent
-turn. The handler returns `{"turn_id": …}` immediately; the client polls only
-to *paint* progress, and the bridge persists the outcome either way, so a
-browser that dies mid-turn costs you nothing.
+turn through the bridge's one pipeline: memory recall, the rolling chat
+history, the credentials and tool-awareness notes, the `chats.db` record and
+the audit line. There is no second door. The browser never starts a turn on
+the agent gateway itself, so a typed message, a voice turn and a message from
+your phone all land in the same agent session with the same context - and the
+[Agent console](agent-console.md) lists that session under *Your chats*.
+
+The handler returns `{"turn_id": …}` immediately, and the bridge persists the
+outcome whatever the browser does next, so a tab that dies mid-turn costs you
+nothing. What differs is only how progress reaches the screen, and that is
+decided once, at send, from what the server reports - never mid-turn:
+
+- **Streamed**, when the gateway runtime is live (`agent.runtime: openclaw_gw`
+  and `/api/gateway/status` reporting ready): steps and the reply arrive over
+  the bridge's `/ws/gateway` relay as the agent produces them, matched to this
+  turn by its id. The finished record is still fetched at the end, and on a
+  slow safety-net poll while the run is live, so a dropped socket completes
+  the turn instead of losing it.
+- **Polled**, otherwise: the client asks `GET /api/turn/<id>` about once a
+  second until the record says done. This is the Direct floor's only
+  transport, and it is what a fresh install runs on.
 
 ## Live chain of thought
 
 While Ava works, you watch her work. Each step appears under a collapsible
 **"Thought for *N*s · *N* steps"** header, and it is a record of what actually
-happened rather than a stream of reasoning tokens: the agent writes every step
-to its session file as it goes, and the bridge tails that file about once a
-second.
+happened rather than a stream of reasoning tokens: with the sandbox runtime
+the agent writes every step to its session file as it goes and the bridge
+tails that file about once a second; with the gateway runtime the same steps
+arrive as gateway events over the relay, live.
 
 That trajectory is **durable**. The completed step list is saved with the chat
 message, so reopening a conversation replays the reasoning above the reply

@@ -196,10 +196,27 @@ API. Nothing on this page reaches outside your machine to stay current.
     it does, the polled values still refresh the page. The stream is an
     accelerant, not a dependency.
 
-    !!! note "There are zero WebSocket endpoints in Ava"
+    !!! note "This is the only SSE stream, and the only *polling* one"
 
-        The live UI is this one SSE stream plus ordinary polling. Nothing
-        else, inbound or outbound.
+        Operations is served by one Server-Sent Events feed plus ordinary
+        polling, and that is deliberately the whole of it: a second
+        diff-then-emit stream beside this one is what
+        `tests/test_provision_job.py` refuses.
+
+        Ava does also speak **WebSocket**, in two places, and neither is a
+        second version of this:
+
+        * `/ws/gateway` relays the agent gateway's own events — ordered,
+          resumable and high-rate, which is why it is not folded in here: every
+          Operations subscriber would pay for traffic it does not render, and a
+          20 ms tool event would be batched into a second.
+        * `/apps/<id>/…` proxies an embedded app's socket through to the app.
+
+        Both gate themselves with `ava_bridge/ws_auth.py` before accepting.
+        They have to: `auth_gate` is registered as HTTP middleware, and
+        Starlette forwards non-HTTP scopes past it untouched, so a WebSocket
+        route is public unless it re-runs those checks itself.
+        `tests/test_websocket_auth.py` enforces it.
 
 ??? note "The polled reads and their cadences"
 

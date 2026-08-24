@@ -50,8 +50,39 @@ first bring-up.
 Implement [`AgentRuntime`](../ava_bridge/runtime/base.py) (`run_turn`, `exec`,
 `provision`, `status`, …) in `ava_bridge/runtime/<name>.py`, register it in
 `runtime/__init__.py`, and select it with `agent.runtime: <name>`. `RemoteRuntime`
-(the Docker full-agent path) and `DirectRuntime` are worked examples. Ava's core
-never changes; it only talks to the interface.
+(the Docker full-agent path) and `DirectRuntime` are worked examples.
+
+### What happened when that claim was tested
+
+`OpenClawGatewayRuntime` was the fourth, and "Ava's core never changes" held
+**for the call sites** and not for the interface. Worth recording honestly,
+because it is the shape a fifth runtime should expect:
+
+* No caller changed. `turns.py`, `provision.py`, `hub/agent.py` and the CLI all
+  still talk to the same names.
+* The **interface grew**, because the new runtime could do something none of the
+  first three could: report a turn's progress instead of returning it finished.
+  Adding a capability nobody had is exactly when an interface should grow.
+* Every addition defaults to a **refusal**, not to a plausible empty success —
+  `rpc_methods()` returns an empty set meaning *none*, `observe()` returns
+  `None` meaning *no view of its own*. A new adapter inherits all of it and
+  cannot accidentally claim a capability it lacks.
+  `tests/test_runtime_capability_contract.py` pins that.
+
+The members added:
+
+| Member | Answers |
+|---|---|
+| `capabilities()` | what this container/adapter supports (promoted from `RemoteRuntime`) |
+| `rpc_methods()` | what the runtime's control plane offers — empty means **none** |
+| `rpc()` / `subscribe()` | one control-plane call; an ordered, bounded event queue |
+| `supports_push_turns()` | whether `start_run()` works — `turns.py` branches on this, never on `isinstance` |
+| `start_run()` / `iter_run()` | begin a turn; then yield its progress in **Ava's** four event kinds (`step` / `final` / `error` / `gap`), never the runtime's own |
+| `observe()` | this runtime's own view of what is deployed, per scope, omitting what it cannot answer |
+
+`iter_run()` is the one worth copying. Keeping the wire format behind the seam
+is what stops the turn path learning any particular agent's event names — and a
+rename upstream then lands in one adapter instead of in `turns.py`.
 
 ---
 

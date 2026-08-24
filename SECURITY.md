@@ -220,12 +220,72 @@ from env first, else a generated file under `$AVA_HOME` (default the repo root;
 | `secrets/inference_key` | Cloud-provider API key, when a cloud backend is used |
 | `data/setup_claim` | One-time first-run claim token; deleted once setup completes |
 | `secrets/env/<NAME>` | Connector credentials, keyed by the env-var name the connector's manifest declares (saved from Setup → Connectors; never written to a manifest or `ava.yaml`) |
+| `secrets/openclaw_gateway_token` | Operator bearer for OpenClaw's gateway, used only when `agent.runtime: openclaw_gw`. **Never generated** — it must match a token the gateway will accept, and inventing one produces a guaranteed handshake failure reported as "the gateway rejected our token", which blames the wrong side. Written by `agent/install.sh` where the CLI lives, or pasted in at Setup → Agent |
+| `secrets/openclaw_client_id` | Stable per-installation id Ava presents as `instanceId` at handshake. Not a credential — it identifies, it does not authenticate — but it is listed because the gateway KEYS ITS DEVICE RECORDS ON IT: a value that changed per connect would mint a new paired device on every reconnect, so it is persisted rather than regenerated |
+| `secrets/openclaw_device_token` | Issued *by* the gateway at handshake and stored so a reconnect re-uses the pairing instead of consuming a new one |
 
 **No agent tool can read any of these.** There is no longer a code tool loop to
 gate: the agent's file-reading and file-writing tools were removed with
 self-editing, so the deny-list they needed went with them. What Ava can read is
 now enumerated positively — the `/internal/*` routes in §3, each scoped to a
 capability group.
+
+### 4a. The agent gateway (`agent.runtime: openclaw_gw`)
+
+This runtime adds a trust relationship the other three do not have, and it is
+worth stating rather than inferring.
+
+**Direction.** The sandbox→bridge boundary in §3 is unchanged: the agent still
+reaches only the enumerated `/internal/*` routes. What is new runs the other
+way — the bridge opens an **outbound** connection to OpenClaw's gateway holding
+an `operator.admin` token, and exposes it to the browser at
+`POST /api/gateway/rpc`.
+
+**What gates it.** Ava's session cookie, and nothing else. That is a deliberate
+choice rather than an oversight: the gateway's method surface is the Agent tab's
+entire reason to exist, and a second permission model over it would be a second
+answer to "is this the owner". Three consequences follow, and all three are
+real:
+
+* Anyone with Ava's password can drive the agent's full control plane,
+  including `terminal.*`.
+* With `apps.origin` **unset** (the default), an embedded connector app's
+  JavaScript is same-origin with the shell and carries the session cookie — so
+  it can reach this passthrough. `GET /api/gateway/status` reports that
+  condition so the UI can say so.
+* The audit ledger is therefore the only record of what was done: every
+  side-effecting call is written as `gateway_rpc` with the **method and never
+  the parameters**, because `config.set` and `secrets.store.*` carry credentials
+  and the ledger is a file the owner reads.
+
+**The one refusal.** `config.set` will not write
+`gateway.controlUi.dangerouslyDisableDeviceAuth` or `…allowInsecureAuth`. Those
+decide whether the gateway authenticates browsers at all, so a UI bug that wrote
+one would turn a transient mistake into a permanent posture change surviving
+every restart. Setup → Agent → Runtime shows the current posture read-only with
+the `nemoclaw` command to change it deliberately.
+
+**Refusing to leave loopback.** The token carries `operator.admin`, so a
+non-loopback gateway URL is refused unless `agent.gateway.allow_remote: true`.
+
+### 4b. WebSocket routes gate themselves
+
+`auth.auth_gate` is registered `app.middleware("http")`, and Starlette forwards
+any scope whose type is not `"http"` past it untouched. A `@app.websocket`
+route therefore has **no** Host allowlist, **no** apps-origin split, **no**
+session check and **no** audit actor unless it re-runs them itself.
+
+That was harmless while Ava had zero websocket routes. It stopped being harmless
+with `/ws/gateway` and the `/apps/<id>` socket proxy, so every websocket handler
+awaits `ava_bridge/ws_auth.py::guard` — which calls the same functions
+`auth_gate` calls, in the same order — **before** `accept()`, and refuses by
+closing without accepting so the handshake fails as a clean 403.
+
+`qa/test_01_auth_surface.py` enumerates routes by their HTTP methods, so
+websocket routes are invisible to the generated auth sweep that covers
+everything else. `tests/test_websocket_auth.py` is what stands in its place, and
+it fails both on a handler that never gates and on one that gates after
+accepting.
 
 `.venv/`, `models/`, `media/`, `data/`, `secrets/`, `bin/piper/`, `ava.yaml`, and
 `.env` are `.gitignore`d. **Never** commit a secret; never log secret values.

@@ -58,7 +58,7 @@ bridge: "Ava Bridge  (FastAPI)" {
 
 agent: "Agent runtime  (pluggable · sandboxed)" {
   class: grp
-  adapter: "AgentRuntime adapter\nNemoClaw (default) · Remote (Docker)\nDirect chat (fallback)" {
+  adapter: "AgentRuntime adapter\nNemoClaw (default) · OpenClaw gateway (WS control plane)\nRemote (Docker) · Direct chat (fallback)" {
     class: node
   }
   tools: "Tools" {
@@ -108,7 +108,7 @@ config -> bridge: "configures" {
   style.stroke: "#94a3b8"
   style.stroke-dash: 3
 }
-bridge.api -> agent.adapter: "" {
+bridge.api -> agent.adapter: "turns · control plane (policed relay)" {
   style.stroke: "#94a3b8"
 }
 bridge.api -> infer: "" {

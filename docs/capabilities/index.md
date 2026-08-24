@@ -6,21 +6,22 @@ thinking to whatever backend you point it at - vLLM, Ollama, llama.cpp, MLX,
 LM Studio, or a cloud endpoint. Nothing on this page is about model quality.
 It is about what the layer around the model does for you.
 
-The short version of that: **five built-in tabs, and then one more for every app
-you connect.** The five are Ava's own instrument panel. The rest of the sidebar
+The short version of that: **six built-in tabs, and then one more for every app
+you connect.** The six are Ava's own instrument panel. The rest of the sidebar
 is your software, and it is the half that makes this worth running - see
 [Connected apps become tabs](#connected-apps-become-tabs) below, and
 [what one manifest gives you](connectors.md#what-one-manifest-gives-you) for the
 six surfaces a single `connector.yaml` derives.
 
-## The five tabs that always ship
+## The six tabs that always ship
 
-Five built-in tabs (`BUILTIN_VIEWS` in `frontend/src/App.tsx`). They are on
+Six built-in tabs (`BUILTIN_VIEWS` in `frontend/src/App.tsx`). They are on
 every install, with no connector wired in and nothing to enable.
 
 | Tab | What it does |
 |---|---|
-| **[Chats](chat.md)** | Ask, attach a file, or speak. One place, and the server owns the turn from there. You see her reasoning as it happens and which tools she used. |
+| **[Chats](chat.md)** | Ask, attach a file, or speak. The one place you talk to the agent: every send goes through the bridge's turn pipeline, and the server owns the turn from there. You see her reasoning as it happens — streamed live when the gateway is up — and which tools she used. |
+| **[Agent](agent-console.md)** | The agent's own console: the sessions it has open, what it already did, and what it runs on a schedule. You watch and operate here, you talk in Chats — your own conversations appear under *Your chats* and link back. Present whether or not you use the gateway runtime — it simply says so when there is nothing to show. |
 | **[Vitals](vitals.md)** | How Ava is performing across every app: spend, speed, errors. Computed from her own logs, not estimated. Energy is the one exception and is labelled as an estimate. |
 | **[Operations](operations.md)** | What is running right now, what is waiting on a decision from you, and where you approve or reject anything Ava proposes. |
 | **[Data](data.md)** | Every store on disk, named, sized and path-stamped, with browse, export and delete for each one. |
@@ -37,13 +38,14 @@ is bookmarkable and the browser's back button moves between them.
 
     | Tab | Backed by |
     |---|---|
-    | Chats | `POST /api/chat-stream` |
+    | Chats | `POST /api/chat-stream`, always. Progress streams over the `/ws/gateway` relay when the gateway runtime is live, and polls `GET /api/turn/<id>` otherwise |
+    | Agent | `POST /api/gateway/rpc` plus the `/ws/gateway` event relay |
     | Vitals | `/api/perf/*`, `/api/hardware` |
     | Operations | `/api/ops/*` plus the `/api/stream/ops` SSE feed |
     | Data | `/api/data/stores` |
     | Setup | `/api/hub/*` |
 
-    Those five labels are the ones in the app's own sidebar, and they are the
+    Those six labels are the ones in the app's own sidebar, and they are the
     labels used throughout this section.
 
 ## Connected apps become tabs
