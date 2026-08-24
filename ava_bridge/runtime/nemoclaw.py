@@ -16,14 +16,10 @@ import shlex
 import subprocess
 import time
 
+from . import nemoclaw_registry, turn_perf
 from .base import AgentRuntime
 from . import deploy_lock as _deploy_lock
 from .. import config, settings
-
-try:  # perf_log lives at the repo root; best-effort only (same as router_app).
-    import perf_log
-except Exception:  # noqa: BLE001
-    perf_log = None
 
 
 def _json_docs(text: str):
@@ -116,13 +112,21 @@ def _find_key(obj, key):
 
 class NemoClawRuntime(AgentRuntime):
     name = "nemoclaw"
+    display_name = "NemoClaw"
+
+    def blurb(self) -> str:
+        return ("Gives Ava a sandbox, tools, egress policies and persistent "
+                "memory. Without it, chat still works (tool-less).")
+
+    def install_hint(self) -> str | None:
+        return ("Run `ava agent provision --install` in a terminal — it "
+                "installs the CLI, then guides `nemoclaw onboard`.")
     supports_tools = True
     supports_cot = True
 
     def __init__(self):
         self._avail_cache = {"ts": 0.0, "ok": None}
         self._info_cache = {"ts": 0.0, "info": None}
-        self._registry_cache: dict = {"ts": 0.0, "record": None}
         # Raw `nemoclaw list --json`, shared by the three probes that all shell
         # out to it. Opt-in per call site (see _list_json) — never a blanket TTL.
         self._list_cache: dict = {"ts": 0.0, "rc": 1, "out": ""}
@@ -167,11 +171,19 @@ class NemoClawRuntime(AgentRuntime):
         reproduced the documented 401-on-every-callback incident exactly one
         level up. Pinning the resolved value makes the shell agree by
         construction instead of by coincidence.
+
+        `AVA_SECRETS_DIR` joins them for the OpenClaw gateway token: install.sh
+        writes it and the bridge reads it back through `settings.secret()`,
+        which layers `paths.secrets` from ava.yaml. Unpinned, an owner who moves
+        that path gets a token written where nothing looks for it — and the
+        symptom is "the gateway rejected our token", which points at the wrong
+        side entirely.
         """
         return {**os.environ,
                 "AVA_OC_SANDBOX": self.sandbox,
                 "AVA_NEMOCLAW": self.cli,
                 "AVA_DATA_DIR": settings.data_dir(),
+                "AVA_SECRETS_DIR": settings.secrets_dir(),
                 "AVA_AGENT_STATE_DIR": settings.agent_state_dir()}
 
     # ---- availability -------------------------------------------------------
@@ -243,32 +255,14 @@ class NemoClawRuntime(AgentRuntime):
         return reply.strip(), (tools or [])
 
     def _log_turn_perf(self, seconds: float, data) -> None:
-        """One honest `llm` perf record per agent turn. Agent turns bypass the
-        inference router (the historical sole writer of llm records), so
-        without this the Vitals throughput/routing panels stay empty forever
-        on a default install while the user chats all day. Only facts we have
-        are recorded: duration, the sandbox model, and token usage when the
-        runtime reports it — nothing fabricated. Never raises into a turn."""
-        if perf_log is None:
-            return
+        """This runtime's half: find the model and the usage, then hand both to
+        the one writer (runtime/turn_perf.py) so every runtime's agent turns
+        look identical in Vitals."""
         try:
             info = self.sandbox_info(wait=False) or {}
-            model = info.get("model")
             usage = _find_key(data, "usage")
-            usage = usage if isinstance(usage, dict) else {}
-            ct = usage.get("completion_tokens") or usage.get("output_tokens")
-            pt = usage.get("prompt_tokens") or usage.get("input_tokens")
-            perf_log.log_perf(
-                "llm",
-                served_model=model,
-                served_label=(str(model).split("/")[-1] if model else "agent sandbox"),
-                gen_seconds=round(seconds, 3),
-                source="agent",
-                prompt_tokens=pt if isinstance(pt, int) else None,
-                completion_tokens=ct if isinstance(ct, int) else None,
-                tokens_per_sec=(perf_log.tok_per_sec(ct, seconds)
-                                if isinstance(ct, int) else None),
-            )
+            turn_perf.log_turn(seconds, model=info.get("model"),
+                               usage=usage if isinstance(usage, dict) else None)
         except Exception:  # noqa: BLE001 — telemetry must never break a turn
             pass
 
@@ -412,21 +406,9 @@ class NemoClawRuntime(AgentRuntime):
         30s cache. Never raises: a renamed file or a NemoClaw format change must
         degrade to `unknown`, not break the panel.
         """
-        now = time.time()
-        c = self._registry_cache
-        if now - c["ts"] < 30:
-            return c["record"]
-        record = None
-        home = os.environ.get("NEMOCLAW_HOME") or os.path.expanduser("~/.nemoclaw")
-        try:
-            with open(os.path.join(home, "sandboxes.json"), encoding="utf-8") as f:
-                data = json.load(f)
-            entry = (data.get("sandboxes") or {}).get(self.sandbox)
-            record = entry if isinstance(entry, dict) else None
-        except Exception:  # noqa: BLE001
-            record = None
-        c.update(ts=now, record=record)
-        return record
+        # The read itself lives in runtime/nemoclaw_registry.py: the gateway
+        # adapter needs the same file, and two readers of one file drift.
+        return nemoclaw_registry.registry_record(self.sandbox)
 
     def live(self) -> dict:
         """{live, reason} from `nemoclaw list --json`'s `connected` flag.

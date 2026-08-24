@@ -24,11 +24,17 @@ from .. import config
 
 class RemoteRuntime(AgentRuntime):
     name = "remote"
+    display_name = "Remote agent"
+
+    def blurb(self) -> str:
+        return ("The full agent, running on another host. The CLI and sandbox "
+                "rows describe that machine, not this one.")
     supports_tools = True
     supports_cot = True
 
     def __init__(self):
-        self._avail_cache: dict = {"ts": 0.0, "ok": None, "caps": [], "why": ""}
+        self._avail_cache: dict = {"ts": 0.0, "ok": None, "caps": [], "why": "",
+                                   "model": "", "provider": ""}
 
     # ---- plumbing -----------------------------------------------------------
     def _url(self, path: str) -> str:
@@ -44,6 +50,10 @@ class RemoteRuntime(AgentRuntime):
         return r.json()
 
     # ---- availability -------------------------------------------------------
+    def is_local(self) -> bool:
+        """The whole point of this adapter: the agent is on another host."""
+        return False
+
     def available(self) -> bool:
         """Cached ~15s health probe against the agent shim's /healthz."""
         if not config.AGENT_ENABLED:
@@ -60,6 +70,7 @@ class RemoteRuntime(AgentRuntime):
         # indistinguishable from a container that had not booted yet, forever, in
         # every surface. The two have nothing in common except the symptom.
         why = ""
+        model = provider = ""
         try:
             r = requests.get(self._url("/healthz"), headers=self._headers(), timeout=3)
             body = (r.json() or {}) if r.ok else {}
@@ -69,6 +80,14 @@ class RemoteRuntime(AgentRuntime):
             # the fail-closed default provision() wants.
             got = body.get("capabilities")
             caps = [str(c) for c in got] if isinstance(got, list) else []
+            # Rides along for the same reason capabilities does: this is the one
+            # call that already talks to the shim, and `sandbox_info` is read
+            # from the public /api/health, which must not add a round trip.
+            # A shim that does not report a model leaves these empty, and
+            # `sandbox_info` then answers None — "I do not know", which is the
+            # truth, rather than a model name we invented.
+            model = str(body.get("model") or "").strip()
+            provider = str(body.get("provider") or "").strip()
             if body.get("authed") is False:
                 # /healthz is the one route the shim leaves unauthenticated, so
                 # a wrong token used to read as a perfectly healthy agent whose
@@ -87,8 +106,30 @@ class RemoteRuntime(AgentRuntime):
         except Exception as e:  # noqa: BLE001
             ok = False
             why = f"could not reach {config.AGENT_URL}: {type(e).__name__}"
-        c.update(ts=now, ok=ok, caps=caps, why=why)
+        c.update(ts=now, ok=ok, caps=caps, why=why,
+                 model=model, provider=provider)
         return ok
+
+    def sandbox_info(self, wait: bool = True) -> dict | None:
+        """{model, provider} of the remote agent, or None when it does not say.
+
+        `models.effective_brain()` asks the ACTIVE runtime what it thinks with,
+        via `getattr(rt, "sandbox_info", None)`. Without this method that lookup
+        returned None, the model id resolved EMPTY, and every surface reading it
+        reported "No model is configured, so there is nothing to answer with"
+        while the remote agent answered turns normally.
+
+        Served from the /healthz cache `available()` already fills, so the
+        public /api/health pays no extra round trip and `wait` is unnecessary.
+        """
+        c = self._avail_cache
+        if not c.get("ts"):
+            self.available()          # nothing cached yet; one probe, ~3s bound
+            c = self._avail_cache
+        model = str(c.get("model") or "").strip()
+        if not model:
+            return None
+        return {"model": model, "provider": str(c.get("provider") or "").strip()}
 
     # ---- one turn -----------------------------------------------------------
     def run_turn(self, text: str, session_id: str | None = None,

@@ -17,8 +17,7 @@ import uuid
 import requests
 
 from . import audit, config, connectors, state, runtime
-from .agent import (ask_openclaw, which_model, sbx_read, session_file,
-                    chat_direct)
+from .agent import which_model, sbx_read, session_file, chat_direct
 from .artifacts import build_turn_artifact
 from .chat_store import chat_append, history_for
 
@@ -305,6 +304,12 @@ def _run_turn_direct(tid: str, agent_text: str, chat_id: str):
 
 
 def _run_turn(tid: str, agent_text: str, sid: str, chat_id: str):
+    """Resolve the runtime, then hand the turn to the path it can actually serve.
+
+    Two paths, and the choice is a CAPABILITY question, never an isinstance one:
+    a runtime that streams answers `supports_push_turns()`, and a fourth adapter
+    added later gets the right path without editing this function.
+    """
     rt, err = runtime.gate()
     if err:  # agent.required is on but the runtime is missing — don't fake it
         with state.turns_lock:
@@ -318,13 +323,28 @@ def _run_turn(tid: str, agent_text: str, sid: str, chat_id: str):
     if not rt.supports_tools:  # direct floor (no sandbox, no live CoT)
         _run_turn_direct(tid, agent_text, chat_id)
         return
+    if rt.supports_push_turns():
+        _run_turn_push(tid, agent_text, sid, chat_id, rt)
+        return
+    _run_turn_polled(tid, agent_text, sid, chat_id, rt)
+
+
+def _run_turn_polled(tid: str, agent_text: str, sid: str, chat_id: str, rt):
+    """The CLI path, unchanged: block on one call, tail the session file beside
+    it for live chain-of-thought."""
     after = _session_line_count(sid) + 1
     threading.Thread(target=_poll_turn_steps, args=(tid, sid, after), daemon=True).start()
     agent_text = _tooling_note(direct=False) + agent_text
     t0 = time.time()
     tools: list[str] = []
     try:
-        reply, tools = ask_openclaw(agent_text, session_id=sid)
+        # The runtime `gate()` already resolved is the one that must serve the
+        # turn. Routing through a hardcoded `runtime.nemoclaw()` here meant that
+        # under `agent.runtime: remote` the gate admitted RemoteRuntime while the
+        # reply came from the in-process CLI adapter — and `sbx_read`/
+        # `session_file` (live CoT) correctly used `configured()`, so the
+        # reasoning and the reply came from two different machines.
+        reply, tools = rt.run_turn(agent_text, session_id=sid)
     except Exception as e:  # noqa: BLE001
         m = which_model()
         # Never leave the user with a dangling question and an endless spinner.
@@ -348,17 +368,178 @@ def _run_turn(tid: str, agent_text: str, sid: str, chat_id: str):
     # the trajectory so tool chips AND the artifact panel (weather, etc.) work.
     if not tools:
         tools = _tools_from_session(sid, after)
+    # durable CoT: the definitive trajectory, re-read once the turn is over
+    _finish_turn(tid, chat_id, sid, after, reply, tools, t0,
+                 final_steps=_read_session_steps(sid, after))
+
+
+def _run_turn_push(tid: str, agent_text: str, sid: str, chat_id: str, rt):
+    """The streaming path: start the run, then let its events drive the record.
+
+    The shape is genuinely different from the polled path and that is the point.
+    There, one blocking call returns a finished reply and a second thread tails a
+    file beside it to guess at progress. Here the run announces itself
+    (`start_run` returns immediately with an id) and every step arrives as an
+    ordered event, so the chain-of-thought is a RECORD of what happened rather
+    than an inference from a file that happens to be on disk.
+
+    Three properties this path has to preserve, because the rest of the app
+    already depends on them:
+
+      * the turn always reaches a terminal status (`_run_turn_guarded` catches
+        what escapes, but a hang is not an escape),
+      * `steps` is written under `state.turns_lock` so `/api/turn/<id>` never
+        reads a half-updated list,
+      * a failure still persists a reply, because the alternative is a dangling
+        question and an endless spinner.
+    """
+    agent_text = _tooling_note(direct=False) + agent_text
+    t0 = time.time()
+    steps: list[dict] = []
+    tools: list[str] = []
+    # Subscribe BEFORE starting. A short run can finish before `start_run`'s
+    # response is even parsed, and a subscription opened afterwards would miss
+    # the terminal event entirely.
+    try:
+        sub = rt.subscribe()
+    except Exception as e:  # noqa: BLE001 — a runtime that changed its mind
+        _fail_turn(tid, chat_id, sid, 0, t0, e, tools)
+        return
+    try:
+        try:
+            handle = rt.start_run(agent_text, session_id=sid,
+                                  idempotency_key=f"turn:{tid}",
+                                  thinking=config.OC_THINKING or None)
+        except Exception as e:  # noqa: BLE001
+            _fail_turn(tid, chat_id, sid, 0, t0, e, tools)
+            return
+        # Recorded so a reconnecting client — and `ava doctor` — can say WHICH
+        # run a turn is waiting on, rather than only that it is waiting.
+        _set_turn(tid, run_id=handle.run_id, session_id=handle.session_id)
+        try:
+            reply, tools, steps = _drain_run(tid, rt, sub, handle, t0)
+        except Exception as e:  # noqa: BLE001
+            # Recover the partial tool list from the PUBLISHED record rather
+            # than from a local that the raising frame took with it. Every step
+            # seen so far is already there — `_publish_steps` put it there — and
+            # audit fidelity means the flight recorder shows the actions that
+            # really ran, not an empty list because the turn ended badly.
+            _fail_turn(tid, chat_id, sid, 0, t0, e, _tools_of_steps(_steps_so_far(tid)))
+            return
+    finally:
+        sub.close()
+    _finish_turn(tid, chat_id, sid, 0, reply, tools, t0, final_steps=steps)
+
+
+def _drain_run(tid: str, rt, sub, handle, t0: float):
+    """Read a run's progress until it ends, updating the live record as it goes.
+
+    Note what is NOT here: any knowledge of the gateway's event names or payload
+    shapes. `rt.iter_run()` yields Ava's four kinds, so this function reads the
+    same way for any streaming runtime and an upstream rename never reaches the
+    turn path.
+
+    Returns (reply, tools, steps). Raises when the run fails or the iterator
+    runs out without a final — the caller turns either into a persisted, honest
+    failure.
+    """
+    steps: list[dict] = []
+    tools: list[str] = []
+    for ev in rt.iter_run(sub, handle, timeout=config.OC_TIMEOUT):
+        kind = ev.get("kind")
+        if kind == "gap":
+            # Events were lost. Say so in the trajectory rather than silently
+            # rendering a chain with a hole in it — the owner is entitled to
+            # know the record is incomplete.
+            steps.append({"kind": "text", "text": "(some steps were not received)"})
+            _publish_steps(tid, steps)
+        elif kind == "step":
+            step = ev.get("step") or {}
+            steps.append(step)
+            if step.get("kind") == "tool" and step.get("name") not in tools:
+                tools.append(step["name"])
+            _publish_steps(tid, steps)
+        elif kind == "error":
+            raise RuntimeError(str(ev.get("message") or "the run failed"))
+        elif kind == "final":
+            return str(ev.get("text") or ""), (ev.get("tools") or tools), steps
+    raise TimeoutError(f"the agent did not finish within {config.OC_TIMEOUT}s")
+
+
+def _publish_steps(tid: str, steps: list[dict]) -> None:
+    """Hand the UI a COPY, under the lock.
+
+    The live list keeps being appended to by this thread while `/api/turn/<id>`
+    serialises whatever it finds — publishing the list itself is a mutation
+    racing a read, and the symptom would be an occasional truncated or
+    duplicated step rather than an exception.
+    """
+    with state.turns_lock:
+        if tid in state.turns:
+            state.turns[tid]["steps"] = list(steps)
+
+
+def _steps_so_far(tid: str) -> list[dict]:
+    """Whatever the live record holds right now, copied out under the lock."""
+    with state.turns_lock:
+        return list((state.turns.get(tid) or {}).get("steps") or [])
+
+
+def _tools_of_steps(steps: list[dict]) -> list[str]:
+    out: list[str] = []
+    for st in steps or []:
+        if st.get("kind") == "tool" and st.get("name") and st["name"] not in out:
+            out.append(st["name"])
+    return out
+
+
+def _fail_turn(tid: str, chat_id: str, sid: str, after: int, t0: float,
+               err: Exception, partial_tools: list[str]) -> None:
+    """A failed turn still owes the owner a reply and the ledger a line.
+
+    Same contract as the polled path's failure branch: never leave a dangling
+    question and an endless spinner, persist what happened so reopening the
+    conversation shows it, and flag it degraded so the UI can offer a retry.
+    """
+    m = which_model()
+    fallback = ("Sorry — I couldn't finish that just now (my tools timed "
+                "out or hit a snag). Please try again.")
+    if chat_id:
+        chat_append(chat_id, "assistant", fallback, model=m)
+    _set_turn(tid, status="done", reply=fallback, model=m,
+              ctx_tokens=(m or {}).get("prompt_tokens"),
+              tools_used=partial_tools, degraded=True, error=str(err),
+              error_code=getattr(err, "code", ""))
+    audit.record("turn", chat_id=chat_id, status="degraded",
+                 tools=partial_tools, error=str(err)[:300],
+                 model=(m or {}).get("id"))
+
+
+def _finish_turn(tid: str, chat_id: str, sid: str, after: int, reply: str,
+                 tools: list[str], t0: float,
+                 final_steps: list[dict] | None) -> None:
+    """Everything a finished turn owes the rest of the app, for either path.
+
+    Shared deliberately: previews, the artifact, the persisted message, the turn
+    record and the audit line are the turn's CONTRACT with the UI and the
+    ledger, not a detail of how the reply was obtained. Two copies would drift,
+    and the drift would show up as a chat that renders differently depending on
+    which runtime answered — the exact class of bug the runtime seam exists to
+    prevent.
+    """
     previews = _pickup_previews_since(t0, tools)
     artifact = None
     try:
-        artifact = build_turn_artifact(tools, sid, after)
+        # `final_steps` carries this turn's tool arguments on the streaming
+        # path, so the builder never has to reach into a sandbox that may not
+        # have a session file at all.
+        artifact = build_turn_artifact(tools, sid, after, steps=final_steps)
     except Exception:  # noqa: BLE001 — the side panel is best-effort
         artifact = None
     m = which_model()
-    final_steps = _read_session_steps(sid, after)  # durable CoT: definitive trajectory
     if chat_id:
         chat_append(chat_id, "assistant", reply, model=m, tools_used=tools,
-                     steps=final_steps)
+                    steps=final_steps)
     with state.turns_lock:
         prev_steps = state.turns.get(tid, {}).get("steps")
     _set_turn(tid, status="done", reply=reply,
@@ -389,7 +570,13 @@ def start_turn(agent_text: str, sid: str, chat_id: str) -> str:
         state.turns[tid] = {"id": tid, "status": "running", "steps": [], "reply": None,
                             "previews": [], "artifact": None, "model": None,
                             "ctx_tokens": None, "tools_used": [], "degraded": False,
-                            "error": None, "created": time.time()}
+                            "error": None, "created": time.time(),
+                            # Set by the streaming path only. Present-and-None on
+                            # every turn rather than absent on some, because
+                            # /api/turn/<id> returns this dict verbatim and a key
+                            # that comes and goes is a shape the client has to
+                            # guard instead of read.
+                            "run_id": None, "session_id": None}
     threading.Thread(target=_run_turn_guarded,
                      args=(tid, agent_text, sid, chat_id),
                      daemon=True).start()
@@ -417,3 +604,46 @@ def _run_turn_guarded(tid: str, agent_text: str, sid: str, chat_id: str) -> None
         _set_turn(tid, status="error", error=f"{type(e).__name__}: {e}",
                   error_code=getattr(e, "code", ""))
         raise
+
+
+def abort_turn(tid: str) -> dict:
+    """Ask the runtime to stop a running turn.
+
+    Returns a small verdict dict rather than raising, because every outcome
+    here is ordinary and the caller renders all of them: the turn may have
+    finished a moment ago (a race the owner cannot see coming and should not be
+    shown an error for), the runtime may not support stopping, or the ask may
+    be refused by the gateway.
+
+    What this does NOT do is write the turn's status. The run's own ending
+    arrives as an event carrying `aborted`, and the existing terminal-status
+    writer records it — see `AgentRuntime.abort_run`. Two writers racing over
+    one turn is how a completed turn gets relabelled "stopped".
+    """
+    from . import runtime
+    with state.turns_lock:
+        rec = state.turns.get(tid)
+        if rec is None:
+            return {"ok": False, "code": "turn_unknown",
+                    "error": "that turn is not on record any more"}
+        if rec.get("status") != "running":
+            # Not an error: the turn ended between the click and the request.
+            return {"ok": True, "code": "already_finished",
+                    "status": rec.get("status")}
+        sid = rec.get("session_id")
+        run_id = rec.get("run_id") or ""
+    if not sid:
+        # The polled/direct paths have no run to stop — there is no id because
+        # nothing announced itself. Say so plainly instead of pretending.
+        return {"ok": False, "code": "abort_unsupported",
+                "error": "this runtime cannot stop a turn once it has started"}
+    rt = runtime.configured()
+    if not rt.supports_abort():
+        return {"ok": False, "code": "abort_unsupported",
+                "error": "this runtime cannot stop a turn once it has started"}
+    try:
+        rt.abort_run(sid, run_id)
+    except Exception as e:  # noqa: BLE001 — every failure here is reportable
+        return {"ok": False, "code": "abort_failed", "error": str(e)}
+    # "asked", not "stopped": the ending is still the event stream's to report.
+    return {"ok": True, "code": "asked", "run_id": run_id or None}

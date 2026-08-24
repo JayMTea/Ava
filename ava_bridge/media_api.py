@@ -75,6 +75,17 @@ def turn_status(tid: str):
             return JSONResponse({"error": "unknown turn"}, status_code=404)
         return dict(t)
 
+@router.post("/api/turn/{tid}/abort")
+async def turn_abort(tid: str):
+    """Stop a running turn.
+
+    Always 200 with a verdict body: "the turn just finished" is a race the
+    owner cannot avoid and must not see as an error, and the Stop button reads
+    the body either way.
+    """
+    from . import turns
+    return await run_in_threadpool(turns.abort_turn, tid)
+
 @router.post("/api/upload")
 async def upload(files: List[UploadFile] = File(...)):
     """Accept document/image uploads, extract text, stash for the next turn."""

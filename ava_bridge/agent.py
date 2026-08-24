@@ -33,12 +33,6 @@ def run_turn(text: str, session_id: str | None = None,
     return rt.run_turn(text, session_id=session_id, history=history)
 
 
-def ask_openclaw(text: str, session_id: str | None = None) -> tuple[str, list[str]]:
-    """Run a turn specifically through the NemoClaw agent (used on the agent path,
-    where the caller has already checked runtime_available())."""
-    return runtime.nemoclaw().run_turn(text, session_id=session_id)
-
-
 def chat_direct(text: str, history: list[dict] | None = None) -> tuple[str, list[str]]:
     """Tool-less direct chat (the degraded floor)."""
     return runtime.direct().run_turn(text, history=history)

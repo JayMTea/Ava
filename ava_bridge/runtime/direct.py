@@ -93,6 +93,12 @@ def _inference_error(r) -> InferenceError:
 
 class DirectRuntime(AgentRuntime):
     name = "direct"
+    display_name = "Direct chat"
+
+    def blurb(self) -> str:
+        return ("The graceful floor: Ava talks to the inference endpoint "
+                "directly. Working, but tool-less — no tools, no sandbox, no "
+                "agent memory.")
     supports_tools = False
     supports_cot = False
 

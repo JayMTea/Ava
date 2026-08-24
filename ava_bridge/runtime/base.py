@@ -19,6 +19,29 @@ from __future__ import annotations
 import hashlib
 import shlex
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
+from dataclasses import dataclass, field
+
+from .errors import GatewayUnsupported
+
+
+@dataclass
+class RunHandle:
+    """A turn that has STARTED, on a runtime that streams it.
+
+    `run_turn()` returns a finished reply because a subprocess had no other
+    shape to offer. A gateway answers `chat.send` with an id immediately and
+    then streams — so the turn's identity and its outcome are two different
+    moments, and the type has to say so or `turns.py` has to guess.
+
+    `session_id` rides along because a reconnect reconciles by re-reading the
+    session's history, and the run id alone cannot find it.
+    """
+
+    run_id: str
+    session_id: str
+    idempotency_key: str = ""
+    extra: dict = field(default_factory=dict)
 
 
 class AgentRuntime(ABC):
@@ -209,6 +232,205 @@ class AgentRuntime(ABC):
         the routes until someone rebuilt it.
         """
         return False
+
+    # ---- control plane (ava_bridge/runtime/openclaw_gw.py) -----------------
+    # Everything below answers "what else can this runtime be asked to do",
+    # beyond serving a turn. Defaults refuse rather than pretend: a runtime with
+    # no control plane must not look like one whose gateway happened to reject
+    # the call, because those have different fixes and the owner is the one who
+    # has to tell them apart.
+
+    def capabilities(self) -> list[str]:
+        """What this runtime's own service layer supports.
+
+        Promoted from RemoteRuntime with its meaning unchanged: it answers
+        "what can this CONTAINER do". `rpc_methods()` answers "what methods does
+        the GATEWAY have". Two genuinely different questions — collapsing them
+        into one name is how a second answer to one question gets born.
+        """
+        return []
+
+    def rpc_methods(self) -> frozenset[str]:
+        """Control-plane methods this runtime will answer.
+
+        EMPTY MEANS NONE, never "everything". Every caller fails closed on an
+        unlisted method, the same way `RemoteRuntime.provision` refuses a scope
+        an older shim did not advertise. A terse handshake must not become a
+        blanket grant on a token that carries operator.admin.
+        """
+        return frozenset()
+
+    def rpc(self, method: str, params: dict | None = None, *,
+            timeout: float = 30.0, idempotency_key: str | None = None) -> dict:
+        """One control-plane call. Raises GatewayError; never returns a partial.
+
+        Synchronous by contract. Every existing caller of this ABC is a worker
+        thread or a threadpool'd `def` route, and one seam cannot be half async;
+        the async facade lives on the CLIENT (`arpc`), not here.
+        """
+        raise GatewayUnsupported(self.name)
+
+    def subscribe(self, topics: Sequence[str] | None = None, *,
+                  maxlen: int = 1000):
+        """Bounded, thread-safe, seq-ordered events.
+
+        `close()` on the result is idempotent and MUST be called — the fan-out
+        holds a strong reference until it is.
+        """
+        raise GatewayUnsupported(self.name)
+
+    def supports_push_turns(self) -> bool:
+        """True when `start_run()` works — the turn arrives as events rather
+        than as one blocking call.
+
+        `turns.py` branches on THIS, never on `isinstance`. A capability check
+        keeps a third runtime from having to be added to a type test somewhere
+        far away from itself.
+        """
+        return False
+
+    def start_run(self, text: str, *, session_id: str, idempotency_key: str,
+                  thinking: str | None = None) -> RunHandle:
+        """Begin a turn and return at once. Events carry the rest."""
+        raise GatewayUnsupported(self.name)
+
+    #: What to CALL this runtime in owner-facing copy. `name` is the config
+    #: token (`nemoclaw`, `openclaw_gw`); this is the words. Panels hardcoded
+    #: "NemoClaw", which is right for the default runtime and wrong for every
+    #: other one — and means a fork running its own runtime has to edit UI
+    #: files to stop being told about somebody else's.
+    display_name = "Agent runtime"
+
+    def blurb(self) -> str:
+        """One sentence: what having this runtime gets you."""
+        return "Runs the agent that serves your turns."
+
+    def install_hint(self) -> str | None:
+        """What to run when this runtime is configured but not present, or None
+        when there is nothing the owner can usefully do from here."""
+        return None
+
+    def control_plane(self):
+        """The live control-plane client, or None when this runtime has none.
+
+        The ONE way to ask "is there a gateway, and can I talk to it". Callers
+        reached into `rt._client` with `getattr(rt, "_client", None)` — testing
+        for a PRIVATE ATTRIBUTE's absence to decide whether a runtime has a
+        control plane. That silently answers "no gateway" for any adapter that
+        happens to name its client something else, and it couples four bridge
+        routes to one adapter's internals.
+
+        Returning the client rather than wrapping every call is deliberate: the
+        relay forwards arbitrary RPC by design, so a method-per-call facade
+        would have to grow a method per gateway feature and would defeat the
+        point of a relay.
+        """
+        return None
+
+    def identity(self) -> dict | None:
+        """Who this runtime is talking to, for an operator's own confirmation.
+
+        None when the runtime has nothing to say. Never credentials — an id and
+        a name, the things that answer "is this the box I think it is".
+        """
+        return None
+
+    def pending_approvals(self) -> list[dict]:
+        """Commands the runtime has parked for a human, in Ava's row shape.
+
+        Empty by default: a runtime with no approval mechanism has none pending,
+        which is the truthful answer and not an error.
+        """
+        return []
+
+    def resolve_approval(self, approval_id: str, decision: str) -> bool:
+        """Answer one parked approval. `decision` is Ava's vocabulary
+        (approve | always | deny); translating it is the adapter's job."""
+        raise GatewayUnsupported(self.name)
+
+    def is_local(self) -> bool:
+        """Does this runtime run on the SAME machine as the bridge?
+
+        Asked so that surfaces can stop showing CLI and sandbox rows that
+        describe a host the operator is not on. It is a property of the adapter
+        and belongs to it — the Hub used to answer it with
+        `rt is runtime.remote()`, which made the Direct floor (running inside
+        this very process) report itself as elsewhere, and which quietly
+        required editing the Hub every time a runtime was added.
+        """
+        return True
+
+    def supports_abort(self) -> bool:
+        """True when a run already in flight can be STOPPED.
+
+        Separate from `supports_push_turns()` on purpose: streaming a turn and
+        being able to interrupt one are different powers, and a runtime may
+        gain either first. `turns.py` branches on this, never on a name.
+        """
+        return False
+
+    def abort_run(self, session_id: str, run_id: str = "") -> bool:
+        """Ask the runtime to stop a run. Returns True if the ask was accepted.
+
+        NOT a promise that the run has ended, and deliberately not a writer of
+        the turn's terminal status. The run's own event stream stays the single
+        source of truth for how a turn ended — the runtime reports the ending
+        with `aborted` set, that arrives as an `error` kind like any other
+        ending, and the ONE existing terminal-status writer records it. An
+        abort that also wrote the status would race that path and could mark a
+        turn stopped that in fact completed a moment earlier.
+        """
+        raise GatewayUnsupported(self.name)
+
+    def iter_run(self, sub, handle: RunHandle, timeout: float | None = None):
+        """A started run's progress, in AVA's vocabulary rather than the
+        runtime's own.
+
+        This is the seam's most important translation. `turns.py` consumes four
+        kinds and nothing else:
+
+            {"kind": "step",  "step": {kind: thinking|text|tool, ...}}
+            {"kind": "final", "text": str, "tools": [str]}
+            {"kind": "error", "message": str, "code": str}
+            {"kind": "gap"}     events were lost; infer nothing from what arrived
+
+        Keeping the wire format on this side is what lets a rename upstream, or
+        a second streaming runtime with entirely different event names, land in
+        one adapter instead of in the turn path.
+
+        Exhausting WITHOUT a `final` is how a timeout is reported. It is not an
+        exception, because the caller is the one who knows what a partial turn
+        is worth — and it already has to handle "the run ended badly" anyway.
+        """
+        raise GatewayUnsupported(self.name)
+
+    def translate_event(self, topic: str, payload: dict) -> dict | None:
+        """One relayed gateway event → Ava's vocabulary, or None if it is not
+        turn progress.
+
+        `iter_run` keeps the wire format off the TURN path. This keeps it off
+        the BROWSER: the `/ws/gateway` relay carries the gateway's own topics
+        for panels that want them, and additionally publishes the translation
+        under `ava.run` so the chat client consumes the same four kinds
+        `turns.py` does — `step` / `final` / `error` / `gap`.
+
+        Without it the frontend would need a second copy of the event-name table
+        in TypeScript, and a rename upstream would have to be found and fixed in
+        two languages.
+        """
+        return None
+
+    def observe(self, want: dict[str, list[dict]]) -> dict | None:
+        """`{"maps": {scope: {id: sha256}}, "sources": {scope: str}}`, or None.
+
+        None means "this runtime has no view of its own" and the caller falls
+        back to probing over `exec()`. A scope this runtime cannot answer must
+        be OMITTED rather than reported empty: `provision.item_state` reads a
+        missing source as `unknown` ("we could not look") and an empty map as
+        `undeployed` ("we looked and it is gone"), and those are different
+        claims about the world.
+        """
+        return None
 
     def status(self) -> dict:
         """Rich health for `ava doctor` / the ops dashboard."""

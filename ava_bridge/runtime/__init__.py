@@ -6,24 +6,37 @@ and `direct()` return the concrete singletons for provisioning / status regardle
 of which is active.
 
 Selection order for a turn:
-  agent.enabled? -> nemoclaw.available()? -> NemoClaw, else Direct
-  agent.enabled == false                   -> Direct (explicit opt-out)
+  agent.enabled? -> configured().available()? -> that runtime, else Direct
+  agent.enabled == false                      -> Direct (explicit opt-out)
+
+Four adapters ship: `nemoclaw` (the default, drives OpenClaw through its CLI),
+`openclaw_gw` (the same OpenClaw over its gateway WebSocket, which is what makes
+sessions/cron/devices/approvals reachable), `remote` (nemoclaw in its own
+container) and `direct` (the tool-less floor).
 """
 from __future__ import annotations
 
 from .base import AgentRuntime
 from .nemoclaw import NemoClawRuntime
 from .direct import DirectRuntime
+from .openclaw_gw import OpenClawGatewayRuntime
 from .remote import RemoteRuntime
 
 _nemoclaw = NemoClawRuntime()
 _direct = DirectRuntime()
 _remote = RemoteRuntime()
+_openclaw_gw = OpenClawGatewayRuntime()
 
 # Registry so a runtime can be selected by name via config `agent.runtime`.
+#
+# `openclaw` STAYS an alias for the CLI adapter. It has meant "nemoclaw runs
+# openclaw" since this registry existed, and anyone who set it did so to get
+# that. Repointing it at the gateway would change behaviour under people who
+# never asked — which is precisely what `name_error()` exists to make loud.
 _REGISTRY: dict[str, AgentRuntime] = {
     "nemoclaw": _nemoclaw,
-    "openclaw": _nemoclaw,   # alias — nemoclaw runs openclaw
+    "openclaw": _nemoclaw,   # alias — nemoclaw runs openclaw (see above)
+    "openclaw_gw": _openclaw_gw,  # OpenClaw over its own gateway (WebSocket RPC)
     "remote": _remote,       # nemoclaw in a separate container (Docker full agent)
     "direct": _direct,
     "none": _direct,
@@ -40,6 +53,10 @@ def direct() -> DirectRuntime:
 
 def remote() -> RemoteRuntime:
     return _remote
+
+
+def openclaw_gw() -> OpenClawGatewayRuntime:
+    return _openclaw_gw
 
 
 def configured() -> AgentRuntime:

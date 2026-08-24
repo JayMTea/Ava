@@ -47,8 +47,15 @@ It runs on hardware you already own, on the model you picked, with the persona
 you wrote, the skills you gave it, and a [NemoClaw](docs/AGENT_RUNTIME.md)
 sandbox around the agent. The MCP client runs **host-side**, so a compromised
 tool server never gets a line into that sandbox; the agent reaches exactly two
-policed bridge routes (`__tools` / `__call`) and nothing else. Nothing leaves
-your machine unless you wire it out.
+policed bridge routes (`__tools` / `__call`) and nothing else.
+
+There is a second boundary, in the other direction. When Ava drives the agent's
+**control plane** — sessions, activity, automations — it does so through one
+relay route (`/api/gateway/rpc`) that is cookie-gated, rate-limited per session,
+audited by method name (never by parameters), and refuses the gateway settings
+that govern whether it authenticates browsers at all. The browser never opens a
+socket to the agent itself. Nothing leaves your machine unless you wire it
+out.
 
 <div align="center">
 
