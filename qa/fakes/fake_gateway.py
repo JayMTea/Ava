@@ -103,35 +103,80 @@ DEFAULT_SCRIPT = [
 
 # The live gateway validates params against strict JSON schemas
 # (additionalProperties: false) and answers INVALID_REQUEST for anything else.
-# Captured live against OpenClaw 2026.7.1 on 2026-08-23: chat.send takes
-# sessionKey/message (the schema refuses sessionId and text), chat.history
-# takes sessionKey (refuses sessionId; short and full 'agent:main:' keys both
-# accepted), and sessions.delete takes {key} (refuses sessionKey AND
-# sessionId). This fake used to accept any params at all, which is how an
-# invented `sessionId` passed every test here and failed in the browser —
-# reconcile never recovered a turn and ghost mode never deleted a session.
-# Mirroring the strictness makes the invented name fail HERE.
-_PARAM_SCHEMAS: dict[str, dict[str, tuple[str, ...]]] = {
+#
+# This fake used to accept ANY params, which is how an invented `sessionId`
+# passed every test here and failed in the browser — reconcile never recovered a
+# turn and ghost mode never deleted a session. Hand-writing three schemas fixed
+# those three; it left 36 other captured methods unchecked, which is the same
+# blind spot one size smaller.
+#
+# So the schemas are LOADED FROM THE CAPTURE (qa/fakes/gateway-schemas.json,
+# learned from the real gateway's own INVALID_REQUEST messages) rather than
+# written here from memory. A fake whose schemas are hand-written can only ever
+# agree with whoever wrote them last.
+SCHEMAS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "gateway-schemas.json")
+
+
+def _load_captured_schemas() -> dict[str, dict]:
+    try:
+        with open(SCHEMAS_PATH, encoding="utf-8") as f:
+            doc = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    out = {}
+    for method, sch in (doc.get("methods") or {}).items():
+        if not sch.get("learned"):
+            continue        # partial capture: refusing on it would be a guess
+        out[method] = {
+            "required": tuple(sch.get("required") or ()),
+            "allowed": tuple(sch.get("allowed") or ()),
+            "types": dict(sch.get("types") or {}),
+            "strict": not sch.get("additionalProperties", True),
+        }
+    return out
+
+
+#: Hand-written schemas for methods the capture could not learn in full, or
+#: where this fake needs to be STRICTER than the probe could prove. `chat.send`
+#: is here because its optional params matter to the turn path and a schema
+#: probe only learns what is REFUSED, not what is meaningful.
+_EXTRA_SCHEMAS: dict[str, dict] = {
     "chat.send": {"required": ("sessionKey", "message"),
                   "allowed": ("sessionKey", "message", "deliver",
-                              "timeoutMs", "idempotencyKey")},
+                              "timeoutMs", "idempotencyKey"),
+                  "types": {}, "strict": True},
     "chat.history": {"required": ("sessionKey",),
-                     "allowed": ("sessionKey", "limit")},
-    "sessions.delete": {"required": ("key",),
-                        "allowed": ("key",)},
+                     "allowed": ("sessionKey", "limit"),
+                     "types": {}, "strict": True},
+    "sessions.delete": {"required": ("key",), "allowed": ("key",),
+                        "types": {}, "strict": True},
 }
+
+_PARAM_SCHEMAS: dict[str, dict] = {**_load_captured_schemas(), **_EXTRA_SCHEMAS}
+
+_TYPE_OK = {"string": str, "integer": int, "number": (int, float),
+            "boolean": bool, "array": list, "object": dict}
 
 
 def _invalid_params(method: str, params: dict) -> str | None:
-    """The live error message, or None. Only methods this fake implements."""
+    """The live error message, or None. Only methods with a known schema."""
     schema = _PARAM_SCHEMAS.get(method)
     if schema is None:
         return None
     problems = [f"must have required property '{name}'"
-                for name in schema["required"]
-                if not isinstance(params.get(name), str)]
-    problems += [f"at root: unexpected property '{name}'"
-                 for name in params if name not in schema["allowed"]]
+                for name in schema["required"] if name not in params]
+    if schema["strict"]:
+        problems += [f"at root: unexpected property '{name}'"
+                     for name in params if name not in schema["allowed"]]
+    for name, want in schema["types"].items():
+        if name in params and want in _TYPE_OK:
+            # bool is an int in Python; the gateway does not conflate them.
+            got = params[name]
+            ok = isinstance(got, _TYPE_OK[want]) and not (
+                want in ("integer", "number") and isinstance(got, bool))
+            if not ok:
+                problems.append(f"at /{name}: must be {want}")
     if problems:
         return f"invalid {method} params: " + "; ".join(problems)
     return None
