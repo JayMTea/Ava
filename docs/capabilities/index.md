@@ -27,9 +27,11 @@ every install, with no connector wired in and nothing to enable.
 | **[Data](data.md)** | Every store on disk, named, sized and path-stamped, with browse, export and delete for each one. |
 | **[Setup](connectors.md)** | Browser-based configuration in six tabs: hardware and budgets, the agent (its brain, persona, skills, memory and voice), connectors, branding and governance. |
 
-A sixth page covers what runs underneath Chats and Operations rather than
-being a tab of its own: [the agent](agent.md) - its tools, its skills, and the
-rules governing what it may change.
+[The agent](agent.md) has a reference page of its own, covering what runs
+underneath rather than what you click: its tools, its skills, its runtimes, and
+the rules governing what it may change. It used to be described here as "a sixth
+page ... not a tab of its own" — which stopped being true when the Agent console
+became one of the six above.
 
 The active tab lives in the URL hash (`#vitals`, `#hub/system`), so every view
 is bookmarkable and the browser's back button moves between them.

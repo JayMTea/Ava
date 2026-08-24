@@ -250,6 +250,10 @@ inference:
   # chat_url: http://127.0.0.1:8010/v1/chat/completions   # [AVA_ROUTER_CHAT]
   # api_key: ""                                            # [AVA_INFERENCE_KEY]
   # ctx_max: 65536                                         # [AVA_CTX_MAX]
+  # ctx_base: 2200                                          # [AVA_CTX_BASE]
+  #   What a turn costs BEFORE your message: system prompt, tooling note,
+  #   recalled memory. Subtracted from ctx_max to size the history Ava
+  #   replays, so setting it too low silently truncates context mid-turn.
   backends:
     local:
       engine: vllm             # vllm | ollama | llamacpp | openai (generic cloud)
@@ -363,6 +367,16 @@ agent:
                            #   long-lived panels to periodically re-authenticate.
 
 # ── Optional capabilities (default OFF so a fresh install is minimal) ────────
+# Voice: how sure the speaker match must be before Ava answers as YOU.
+#
+# Voiceprint is ENROLLED rather than switched on (see the note under `features`),
+# but the confidence bar is a knob — and it was reachable only by environment
+# variable, so the one setting that governs whether a stranger's voice is
+# treated as the owner's was not discoverable in config at all.
+# voice:
+#   threshold: 0.40          # [AVA_PHONE_THRESHOLD] 0..1. Higher = stricter:
+#                            #   fewer false accepts, more "say that again".
+
 features:
   voice: false             # [AVA_VOICE] push-to-talk STT/TTS
                            # NOTE: there is deliberately no `voiceprint` flag.

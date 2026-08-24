@@ -45,6 +45,60 @@ containers), so it must be able to route to the bridge. The entrypoint maps
 that may need adjustment. Validate that a chat turn actually calls a tool after
 first bring-up.
 
+## How Ava wraps OpenClaw without forking it
+
+Ava vendors no OpenClaw source. It talks to a running OpenClaw the way any other
+operator client does — over its gateway — and the whole relationship is one
+Python file (`ava_bridge/runtime/openclaw_gw.py`) plus one TypeScript file
+(`frontend/src/lib/agentApi.ts`). A guard fails the build if a gateway method is
+called from anywhere else, so an upstream rename lands in one adapter instead of
+across the app.
+
+### Captured from life, not from docs
+
+Every dead surface this wrapper has ever shipped came from the same mistake:
+**code written from prose documentation, agreed with by a test fake built on the
+same assumption.** A fake that shares the caller's belief agrees with the
+caller. Eight invented method names, one invented event topic, a dead iframe
+route and three mechanisms that had never once worked all passed the full test
+suite before failing in a browser. Nothing but a live probe ever caught one.
+
+So the contract is captured, not written:
+
+```bash
+.venv/bin/python qa/capture_gateway.py --schemas   # learn from a live gateway
+.venv/bin/python qa/capture_gateway.py --check     # re-probe, diff, exit 3 on drift
+```
+
+It learns each method's schema from the gateway's **own `INVALID_REQUEST`
+messages** — a deliberately wrong call executes nothing and is the cheapest safe
+probe — and writes `qa/fakes/gateway-schemas.json`: 44 method schemas, the event
+vocabulary, the transcript shapes, the abort and approval shapes. Each entry is
+stamped with the build it came from, and the file records what could **not** be
+captured and why, because silence about a gap reads as "fully captured".
+
+### What holds it together
+
+| Guard | Fails when |
+|---|---|
+| `test_gateway_capture_consistency` | the fake stops agreeing with the capture, or a hand-written schema contradicts it |
+| `test_gateway_method_names` | a method or subscribed topic is named that the gateway does not have, or a gateway call appears outside the seam |
+| `test_no_runtime_name_dispatch` | code picks a runtime by name, compares `rt.name` to a literal, or reaches into `rt._client` |
+| `test_nemoclaw_layout` | vendor paths or hostnames are spelled outside the runtime package |
+| `test_run_event_vocabulary` + `chatEvents.contract.test.ts` | Ava's own run-event kinds stop matching between Python and TypeScript |
+| `qa/test_23_live_gateway_turn` | a whole turn stops working through a real bridge process |
+
+The rule this encodes, for anyone extending the wrapper: **if you cannot point
+at where a shape was captured, do not ship code that depends on it.** Add the
+probe first. The gateway will tell you what it wants — it is the only thing that
+reliably does.
+
+### After an OpenClaw upgrade
+
+Re-run the capture and read the diff. A changed schema is a real change to the
+contract, and the guards above will tell you which surfaces depend on it before
+your users do.
+
 ## Adding another runtime
 
 Implement [`AgentRuntime`](../ava_bridge/runtime/base.py) (`run_turn`, `exec`,
