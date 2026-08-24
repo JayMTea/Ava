@@ -220,6 +220,12 @@ export interface AgentStatus {
             implicit: boolean } | null;
   /** 'local' | 'remote' — which machine cli/sandbox describe. */
   location?: string;
+  /** How the runtime describes ITSELF — the words, not the config token in
+   *  `runtime`. Hardcoding "NemoClaw" in panel copy told a `remote` or
+   *  `direct` install about a runtime it is not running. */
+  display_name?: string;
+  blurb?: string;
+  install_hint?: string | null;
   url?: string;
   error?: string;
   name: string;
@@ -687,6 +693,16 @@ export interface PendingApproval {
   // JIT consent: write-tier prompts may offer "Always allow"; destructive ones may not.
   grantable?: boolean;
   access?: 'read' | 'write' | 'destructive' | 'physical';
+  /** Who is blocked on this. `connector` is one of Ava's own bridge calls;
+   *  `agent` is a command the agent's gateway parked for a human. Both are the
+   *  same kind of thing — a call waiting on a person — so they share one
+   *  banner rather than giving the operator a second place to look. */
+  source?: 'connector' | 'agent';
+  /** Which decisions THIS row accepts. Gateway rows state their own; hardcoding
+   *  the three breaks the day a build offers a different set. */
+  decisions?: ('approve' | 'always' | 'deny')[];
+  /** The gateway's own warning text about the command, when it has one. */
+  warning?: string | null;
 }
 
 // ---- Flight recorder (audit ledger) -----------------------------------------
@@ -812,6 +828,25 @@ export const hub = {
 
   // Agent
   agentStatus: () => req<AgentStatus>('/api/hub/agent/status'),
+  agentGateway: () => req<{
+    ok: boolean;
+    configured: boolean;
+    source: string;
+    url: string;
+    allow_remote: boolean;
+    device_auth: { known: boolean; change_with: string; sandbox: string };
+    /** Who the gateway says it is. `null` when the configured runtime has no
+     *  identity to report — rendered as ABSENT rows rather than "unknown"
+     *  ones, because not-applicable and not-known are different answers. */
+    identity: {
+      device_id?: string;
+      agent_id?: string;
+      agent_name?: string;
+      paired?: number | null;
+      pending?: number | null;
+      agents?: number;
+    } | null;
+  }>('/api/hub/agent/gateway'),
   agentSkills: () => req<SkillList>('/api/hub/agent/skills'),
   agentSkill: (id: string) =>
     req<{ id: string; title: string; body: string }>(`/api/hub/agent/skills/${encodeURIComponent(id)}`),

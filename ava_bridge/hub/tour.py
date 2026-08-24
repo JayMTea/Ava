@@ -34,7 +34,7 @@ _KEY = "ui.tours_seen"
 # names a page, this decides whether that is a page. Without it, a typo (or
 # anything else posting here) writes junk into ava.yaml that nothing ever reads
 # and nothing ever cleans up.
-PAGES = ("hub", "chat", "vitals", "ops", "data")
+PAGES = ("hub", "chat", "agent", "vitals", "ops", "data")
 
 
 def seen() -> list[str]:

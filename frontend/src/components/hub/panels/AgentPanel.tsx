@@ -3,6 +3,7 @@ import { MemoryPanel } from '../MemoryPanel';
 import { AgentRuntimePanel } from './AgentRuntimePanel';
 import { BrainPanel } from './BrainPanel';
 import { PersonaPanel } from './PersonaPanel';
+import { ProvidersPanel } from './ProvidersPanel';
 import { SkillsPanel } from './SkillsPanel';
 import { VoicePanel } from './VoicePanel';
 
@@ -53,6 +54,7 @@ export function AgentPanel({ onRestart, sub, onSub, badges }: {
       {sub === 'skills' && <SkillsPanel />}
       {sub === 'memory' && <MemoryPanel />}
       {sub === 'voice' && <VoicePanel onRestart={onRestart} />}
+      {sub === 'providers' && <ProvidersPanel />}
     </>
   );
 }

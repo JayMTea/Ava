@@ -30,11 +30,20 @@ def agent_status():
     # a host the operator is not on.
     rt = runtime.configured()
     st = rt.status()
-    # Which MACHINE the cli/sandbox rows describe. "not nemoclaw" was read as
-    # remote, so the Direct floor — running in this very process — reported
-    # itself as elsewhere and the panel hid the local rows it should have shown.
-    st["location"] = "remote" if rt is runtime.remote() else "local"
+    # Which MACHINE the cli/sandbox rows describe. The adapter answers this
+    # about itself (`is_local()`); this used to be `rt is runtime.remote()`,
+    # which meant adding a runtime meant editing the Hub, and which had already
+    # been wrong once — "not nemoclaw" was read as remote, so the Direct floor,
+    # running in this very process, reported itself as elsewhere.
+    st["location"] = "local" if rt.is_local() else "remote"
     st["runtime"] = config.AGENT_RUNTIME
+    # How the runtime describes ITSELF. The panel hardcoded "NemoClaw" in its
+    # subtitle and its install prompt, which is right for the default runtime
+    # and wrong for every other one — and meant a fork running its own runtime
+    # had to edit UI files to stop being told about somebody else's.
+    st["display_name"] = getattr(rt, "display_name", "Agent runtime")
+    st["blurb"] = rt.blurb()
+    st["install_hint"] = rt.install_hint()
     st["required"] = config.AGENT_REQUIRED
     st["tools"] = bool(st.get("available"))
     # Distinguish "turned off by config" from "configured but not working".
@@ -193,6 +202,88 @@ def agent_provision(scope: str = "all"):
 def agent_provision_status(since: int = 0):
     """Progress of the current (or last) run. `since` ships only new log lines."""
     return provision_job.snapshot(since=since)
+
+
+# --------------------------------------------------------------------------- #
+# OpenClaw gateway — the operator token, and the posture it cannot change
+# --------------------------------------------------------------------------- #
+_GATEWAY_SECRET = "openclaw_gateway_token"
+
+
+@router.get("/agent/gateway")
+def agent_gateway():
+    """Whether a gateway token is configured, and where it came from.
+
+    Never the value. Every other credential in Ava follows this shape — the Hub
+    is told a secret EXISTS so it can render "configured" instead of an empty
+    box, and nothing more. A read route that can return a token is a read route
+    that can leak one.
+    """
+    import os
+    source = ("env" if os.environ.get("AVA_OC_GATEWAY_TOKEN")
+              else "file" if settings.secret(_GATEWAY_SECRET) else "")
+    return {"ok": True, "configured": bool(source), "source": source,
+            "url": config.AGENT_GATEWAY_URL or "",
+            "allow_remote": config.AGENT_GATEWAY_ALLOW_REMOTE,
+            # Read-only, and deliberately surfaced. The passthrough refuses to
+            # WRITE these keys (ava_bridge/gateway_api._DENIED_CONFIG_KEYS), so
+            # without this the capability would be silently missing rather than
+            # visibly held elsewhere.
+            "device_auth": _device_auth_posture(),
+            # Who the gateway says it is, and how many devices are paired to
+            # it. The operator's own confirmation that this is the box they
+            # think it is — read through the seam, so a runtime with nothing to
+            # say answers None rather than the panel guessing.
+            "identity": _identity()}
+
+
+def _identity() -> dict | None:
+    from .. import runtime
+    try:
+        return runtime.configured().identity()
+    except Exception:  # noqa: BLE001 — a settings page must not 500 on a probe
+        return None
+
+
+def _device_auth_posture() -> dict:
+    """What the sandbox's OpenClaw config says about authenticating browsers.
+
+    Read from NemoClaw's registry rather than from the gateway, because the
+    answer matters most when the gateway is NOT reachable — that is exactly when
+    an owner is trying to work out why.
+    """
+    from ..runtime import nemoclaw_registry
+    rec = nemoclaw_registry.registry_record() or {}
+    return {"known": bool(rec),
+            "change_with": f"nemoclaw {config.OC_SANDBOX} config set",
+            "sandbox": config.OC_SANDBOX}
+
+
+@router.post("/agent/gateway/token")
+async def agent_gateway_token(request: Request):
+    """Store a token the owner minted themselves.
+
+    NOT generated. Unlike `router_token`, this secret is not ours to invent — it
+    has to match something the gateway will accept, and a generated one fails
+    every handshake while reporting "the gateway rejected our token", which is a
+    lie about which side is wrong. `agent/install.sh` writes it on the machine
+    where the CLI lives; this route is the paste-it-in path for everyone else.
+    """
+    body = await request.json() if await request.body() else {}
+    token = str((body or {}).get("token") or "").strip()
+    if not token:
+        settings.clear_secret(_GATEWAY_SECRET)
+        return {"ok": True, "configured": False, "source": ""}
+    settings.write_secret(_GATEWAY_SECRET, token)
+    # Reconnect rather than making the owner wait out the backoff curve: they
+    # just told us the reason the last attempt failed.
+    try:
+        client = runtime.configured().control_plane()
+        if client is not None:
+            client.reconnect()
+    except Exception:  # noqa: BLE001 — saving the token is the job
+        pass
+    return {"ok": True, "configured": True, "source": "file"}
 
 
 

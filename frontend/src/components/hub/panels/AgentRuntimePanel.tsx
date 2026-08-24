@@ -6,6 +6,7 @@ import { hub } from '../hubApi';
 import { ResourceError } from '../ui/ResourceState';
 import { Badge } from '../ui/Badge';
 import { StatRow } from '../ui/StatRow';
+import { GatewayCard } from './GatewayCard';
 import { DriftBoard, ProvisionRun } from './ProvisionRun';
 import { startProvision, useProvisionState } from '../../../hooks/useProvisionState';
 
@@ -40,7 +41,12 @@ export function AgentRuntimePanel() {
     <ResourceError r={stRes} label="the agent status" />
     <Panel
       title="Agent runtime"
-      subtitle="NemoClaw gives Ava a sandbox, tools, egress policies, and persistent memory. Without it, chat still works (tool-less)."
+      // The RUNTIME says what it is and what it gets you. Hardcoding "NemoClaw"
+      // told a `remote` or `direct` install about a runtime it is not running,
+      // and made a fork edit this file to stop being told about somebody
+      // else's. The fallback keeps the panel sane if status is not in yet.
+      subtitle={st?.blurb
+        || 'Gives Ava a sandbox, tools, egress policies, and persistent memory. Without it, chat still works (tool-less).'}
       right={st ? (
         st.available ? <Badge tone="ok">active</Badge>
           : st.enabled === false ? <Badge tone="muted">disabled</Badge>
@@ -99,8 +105,8 @@ export function AgentRuntimePanel() {
         </div>
       ) : st && st.location !== 'remote' && !st.cli && (
         <div className="hub-note" style={{ marginTop: 14 }}>
-          The NemoClaw CLI isn't installed. Run <b>ava agent provision --install</b> in a terminal
-          (it installs the CLI, then guides <b>nemoclaw onboard</b>), then click Re-check below.
+          The {st.display_name || 'agent runtime'} CLI isn&rsquo;t installed.
+          {st.install_hint ? ` ${st.install_hint}` : ''} Then click Re-check below.
         </div>
       )}
 
@@ -124,6 +130,7 @@ export function AgentRuntimePanel() {
 
       <ProvisionRun job={job} />
     </Panel>
+    <GatewayCard />
     </>
   );
 }

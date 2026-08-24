@@ -32,6 +32,18 @@ export const EVENT_META: Record<string, { icon: string; label: string; tone: Ton
   brand_asset_delete: { icon: 'trash', label: 'Brand asset removed', tone: 'warn' },
   brand_import: { icon: 'sliders', label: 'Branding imported', tone: 'accent' },
   brand_export: { icon: 'file', label: 'Branding exported', tone: 'muted' },
+  // The agent gateway. `gateway_rpc` is the one that matters: with a full-admin
+  // passthrough and no per-method gate, this ledger is the ONLY record of what
+  // was done through it — so it reads as an action the agent took (accent),
+  // not as background noise. It records the METHOD and never the parameters,
+  // because config.set and secrets.store.* carry credentials.
+  gateway_connect: { icon: 'plug', label: 'Agent gateway connected', tone: 'muted' },
+  gateway_disconnect: { icon: 'plug', label: 'Agent gateway lost', tone: 'warn' },
+  gateway_rpc: { icon: 'code', label: 'Agent control call', tone: 'accent' },
+  gateway_denied: { icon: 'lock', label: 'Agent call refused', tone: 'err' },
+  // A refusal and a failure are different news: 'refused' sends the owner
+  // looking for a permission problem, and a dropped socket is not one.
+  gateway_failed: { icon: 'alert', label: 'Agent call failed', tone: 'warn' },
   // The allocator's own ledger surfaces here too. Dotted keys are legal object
   // keys and the backend sends them verbatim; without these three the ledger
   // rendered "Alloc.lease expired", which is `humanize` doing its best with a

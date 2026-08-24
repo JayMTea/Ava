@@ -44,7 +44,23 @@ function ApprovalsBanner() {
           <span style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
             <span style={{ color: 'var(--accent)', display: 'inline-flex' }}><Icon name="lock" /></span>
             <span>
-              <b>Approve action?</b> {brand} wants to run <code>{p.action}</code> on <b>{p.connector}</b>
+              {p.source === 'agent' ? (
+                // The agent's own gateway parked a COMMAND. Say that plainly:
+                // "wants to run X on <connector>" would name a connector that
+                // is not involved, and the thing waiting is a shell command,
+                // not a connector action.
+                <>
+                  <b>Approve command?</b> The agent wants to run{' '}
+                  <code>{p.action}</code> in its sandbox
+                </>
+              ) : (
+                <>
+                  <b>Approve action?</b> {brand} wants to run <code>{p.action}</code> on <b>{p.connector}</b>
+                </>
+              )}
+              {p.warning && (
+                <span style={{ color: 'var(--muted)' }}> · {p.warning}</span>
+              )}
               {Object.keys(p.args).length > 0 && (
                 <span style={{ color: 'var(--muted)' }}> · {Object.entries(p.args).map(([k, v]) => `${k}=${v}`).join(', ')}</span>
               )}
@@ -57,9 +73,13 @@ function ApprovalsBanner() {
             </span>
           </span>
           <span style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-            {p.grantable && (
+            {/* A row that states its own accepted decisions wins; Ava's own
+                approvals do not state any, and keep the grantable rule. */}
+            {(p.decisions ? p.decisions.includes('always') : p.grantable) && (
               <button type="button" className="hub-btn sm" onClick={() => decide(p.id, 'always')}
-                title="Run it now and never ask again for this action — revoke anytime in the connector's settings">
+                title={p.source === 'agent'
+                  ? 'Run it now and stop asking for this command'
+                  : "Run it now and never ask again for this action — revoke anytime in the connector's settings"}>
                 <Icon name="check" />Always allow</button>
             )}
             <button type="button" className={'hub-btn sm' + (p.grantable ? ' ghost' : '')} onClick={() => decide(p.id, 'approve')}>

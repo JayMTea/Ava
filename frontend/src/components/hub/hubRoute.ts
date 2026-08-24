@@ -21,6 +21,22 @@ export const AGENT_SUBTABS = [
   { id: 'skills', label: 'Skills' },
   { id: 'memory', label: 'Memory' },
   { id: 'voice', label: 'Voice' },
+  // Relocated from the agent gateway's own Control UI rather than invented
+  // here. Both are CONFIGURATION — they outlive any one session — so they
+  // belong beside Brain and Skills, not in the Agent console. `providers` sits
+  // next to Brain because quota and spend are a recurring operator check, not a
+  // one-time model pick; `secrets` next to Skills because skills are what
+  // authenticate with them.
+  { id: 'providers', label: 'Providers' },
+  // `secrets` was RETIRED, not moved. It called `secrets.store.list` and
+  // `secrets.store.set`, neither of which exists: the gateway's whole secrets
+  // namespace is `secrets.reload` and `secrets.resolve` — reload the store
+  // from disk, and resolve a reference for a caller. There is no enumerate and
+  // no write, so nothing could have listed or added a secret. Ava's own
+  // connector credentials were never here anyway (Setup → Connectors,
+  // `secrets/env/<NAME>`), so nothing an owner can actually manage was lost.
+  // An old `#hub/agent/secrets` degrades to the default sub and the address is
+  // rewritten, so the URL bar stops advertising a tab that is gone.
 ] as const;
 
 export type AgentSubTab = (typeof AGENT_SUBTABS)[number]['id'];
