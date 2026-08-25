@@ -283,3 +283,70 @@ describe('applyTurnRecord — the authoritative record', () => {
     expect(out).toBe(items);
   });
 });
+
+describe('foldStep — a tool result folds into its start', () => {
+  it('a tool_result merges into the matching tool step by id → one card', () => {
+    let { items, ctx } = fresh();
+    items = applyEvent(items, { kind: 'step', step: { kind: 'tool', name: 'exec', id: 'c1', args: { cmd: 'render' } } }, ctx);
+    items = applyEvent(items, { kind: 'step', step: { kind: 'tool_result', name: 'exec', id: 'c1', output: '601 frames', attachments: [{ url: '/uploads/x.mp4', kind: 'video' }] } }, ctx);
+    const steps = cotOf(items).steps;
+    expect(steps.map((s) => s.kind)).toEqual(['tool']);
+    expect(steps[0].output).toBe('601 frames');
+    expect(steps[0].args).toEqual({ cmd: 'render' });
+    expect(steps[0].attachments?.[0].url).toBe('/uploads/x.mp4');
+  });
+
+  it('a result without an id folds by name into the un-resulted start', () => {
+    let { items, ctx } = fresh();
+    items = applyEvent(items, { kind: 'step', step: { kind: 'tool', name: 'exec' } }, ctx);
+    items = applyEvent(items, { kind: 'step', step: { kind: 'tool_result', name: 'exec', output: 'done' } }, ctx);
+    const steps = cotOf(items).steps;
+    expect(steps.length).toBe(1);
+    expect(steps[0].output).toBe('done');
+  });
+
+  it('an orphan result (no matching start) becomes a standalone tool card', () => {
+    let { items, ctx } = fresh();
+    items = applyEvent(items, { kind: 'step', step: { kind: 'tool_result', name: 'exec', output: 'surprise', is_error: true } }, ctx);
+    const steps = cotOf(items).steps;
+    expect(steps.map((s) => s.kind)).toEqual(['tool']);
+    expect(steps[0].output).toBe('surprise');
+    expect(steps[0].is_error).toBe(true);
+  });
+
+  it('folding is immutable — the prior array is not mutated', () => {
+    let { items, ctx } = fresh();
+    items = applyEvent(items, { kind: 'step', step: { kind: 'tool', name: 'exec', id: 'c1' } }, ctx);
+    const before = cotOf(items).steps;
+    items = applyEvent(items, { kind: 'step', step: { kind: 'tool_result', name: 'exec', id: 'c1', output: 'x' } }, ctx);
+    expect(before[0].output).toBeUndefined();       // the old array untouched
+    expect(cotOf(items).steps[0].output).toBe('x');  // the new one merged
+  });
+});
+
+describe('attachments on the assistant message', () => {
+  it('a final carries its media onto the reply bubble', () => {
+    let { items, ctx } = fresh();
+    items = applyEvent(items, { kind: 'final', text: 'Here.', attachments: [{ url: '/uploads/c.mp4', kind: 'video' }] }, ctx);
+    const ava = items.find((i) => i.kind === 'ava') as Extract<ChatItem, { kind: 'ava' }>;
+    expect(ava.attachments?.[0].url).toBe('/uploads/c.mp4');
+  });
+
+  it('a media-only final (no text) still pushes a bubble', () => {
+    let { items, ctx } = fresh();
+    items = applyEvent(items, { kind: 'final', text: '', attachments: [{ url: '/uploads/c.mp4', kind: 'video' }] }, ctx);
+    expect(items.some((i) => i.kind === 'ava')).toBe(true);
+  });
+
+  it('applyTurnRecord enriches the streamed bubble with record media', () => {
+    let { items, ctx } = (() => {
+      const cot = startCot(false, 'turn:t1') as Extract<ChatItem, { kind: 'cot' }>;
+      return { items: [cot] as ChatItem[], ctx: { ...CTX, cotId: cot.id, runId: 'turn:t1' } };
+    })();
+    items = applyEvent(items, { kind: 'final', text: 'Here.' }, ctx);
+    items = applyTurnRecord(items, { id: 't1', status: 'done', reply: 'Here.', attachments: [{ url: '/uploads/c.mp4', kind: 'video' }] }, ctx);
+    const avas = items.filter((i) => i.kind === 'ava');
+    expect(avas.length).toBe(1);  // enriched, not duplicated
+    expect((avas[0] as Extract<ChatItem, { kind: 'ava' }>).attachments?.[0].url).toBe('/uploads/c.mp4');
+  });
+});

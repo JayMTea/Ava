@@ -21,6 +21,12 @@ every MCP desktop client — but the agent's blast radius stays the two routes.
 
 Deliberately dependency-free (requests + subprocess). No streaming, resources,
 or prompts — tools only, which is what the connector SDK bridges.
+
+Every `tools/list` entry is NORMALISED on the way in (`normalise_tools`): MCP
+has no consent-tier field of its own, so a tool's Ava tier is lifted from where
+a real server can carry it — `_meta.access` (the SDK's vendor-field slot) or the
+spec's ToolAnnotations hints — to the top-level `access` that `tools_cache`
+reads. An explicit top-level `access` is never overridden.
 """
 from __future__ import annotations
 
@@ -49,6 +55,84 @@ class McpError(Exception):
 
 
 # --------------------------------------------------------------------------- #
+# Tier normalisation — MCP has no consent-tier field; find one where it hides
+# --------------------------------------------------------------------------- #
+#: Where a `tools/list` entry may carry Ava's tier when it is not top-level. The
+#: MCP SDKs serialise `Tool.meta` as `_meta`; sdk/host/ava_mcp mirrors the
+#: facade's tier there as `ava/access` (a namespaced key, the spec's advice for
+#: vendor fields), and a hand-rolled server may just write `access`. Checked in
+#: this order — the namespaced key first, because it can only mean Ava's tier,
+#: while a bare `access` under `_meta` (the spec's free-form vendor slot) may be
+#: a third-party server's unrelated notion ("public", "authenticated"). Either
+#: is lifted ONLY when it spells one of Ava's five tiers; anything else reads as
+#: "the server said nothing" and falls through to the annotations, then to
+#: absent. Lifting an unknown word would let tools_cache.update coerce it to
+#: `write`, which — for a `role: device` connector — turns the never-grantable
+#: `physical` fallback into a grantable prompt.
+_META_ACCESS_KEYS = ("ava/access", "access")
+_TIERS = frozenset({"read", "sensitive", "write", "destructive", "physical"})
+
+
+def _normalise_tool(tool):
+    """One `tools/list` entry, with its consent tier lifted to top-level `access`.
+
+    `tools_cache.update` — and so the JIT consent gate behind `<cid>_call` —
+    reads exactly one field: a top-level `access`. That is what the ava-tools/1
+    facade writes, but plain MCP has no such field, so a real MCP server's tools
+    all fell through to the manifest default (`write`) and every read started
+    asking for permission: the "hand-rolled port silently demotes every read"
+    trap docs/CONNECTOR_SDK.md §5 warns about, reproduced by any server that
+    carried the tier where MCP lets it. Three sources, in order; the first that
+    speaks wins:
+
+      1. an explicit top-level `access` — never overridden, whatever else is set;
+      2. `_meta["ava/access"]` / `_meta.access` — the SDK's vendor-field slot,
+         honoured only when it spells one of Ava's five tiers;
+      3. MCP ToolAnnotations: `readOnlyHint: true` -> `read`;
+         `destructiveHint: true` (and not read-only) -> `destructive`.
+
+    Anything else is left WITHOUT `access`, so the manifest's `dynamic_access`
+    decides. Absent means "the server said nothing", which the cache treats
+    differently from a declared tier (see tools_cache.update) — a `role: device`
+    connector's never-grantable `physical` fallback depends on that distinction.
+
+    The annotation mapping is deliberately narrow. `destructiveHint` DEFAULTS to
+    true in the MCP spec, so only the explicit `true` counts and a server that
+    merely omits it is not accused of anything; `openWorldHint` and
+    `idempotentHint` say nothing about consent and are ignored; and no hint ever
+    yields `sensitive` or `physical`, which — as with static actions — must be
+    declared, because no wire shape implies them.
+    """
+    if not isinstance(tool, dict):
+        return tool
+    explicit = tool.get("access")
+    if isinstance(explicit, str) and explicit.strip():
+        return tool
+    meta = tool.get("_meta")
+    if isinstance(meta, dict):
+        for key in _META_ACCESS_KEYS:
+            val = meta.get(key)
+            if isinstance(val, str) and val.strip().lower() in _TIERS:
+                return {**tool, "access": val.strip().lower()}
+    ann = tool.get("annotations")
+    if isinstance(ann, dict):
+        if ann.get("readOnlyHint") is True:
+            return {**tool, "access": "read"}
+        if ann.get("destructiveHint") is True:
+            return {**tool, "access": "destructive"}
+    return tool
+
+
+def normalise_tools(tools) -> list:
+    """A `tools/list` result's `tools`, each with its tier lifted to top-level
+    `access` where the server carried one (see `_normalise_tool`). Non-list
+    input yields `[]`; non-dict entries pass through untouched."""
+    if not isinstance(tools, list):
+        return []
+    return [_normalise_tool(t) for t in tools]
+
+
+# --------------------------------------------------------------------------- #
 # Sessions — one per connector id, lazily created, restart on failure
 # --------------------------------------------------------------------------- #
 _sessions: dict[str, "_Session"] = {}
@@ -57,11 +141,25 @@ _sessions_lock = threading.Lock()
 
 def _make_session(spec: dict) -> "_Session":
     t = spec["transport"]
-    if t == "stdio":
-        return _StdioSession(spec)
-    if t == "sse":
-        return _SseSession(spec)
-    return _HttpSession(spec)
+    cls = _StdioSession if t == "stdio" else _SseSession if t == "sse" else _HttpSession
+    # __new__/__init__ split on purpose. A transport constructor opens real
+    # resources BEFORE it can know the connect worked — the SSE transport a
+    # socket and a reader thread, stdio a subprocess — and a constructor that
+    # raises normally drops the half-built instance without it ever being
+    # returned: nothing can close() it afterwards, so whatever it opened leaks
+    # until process exit, once per retry. Holding the instance through __init__
+    # keeps a handle to those resources on failure; every transport's close()
+    # tolerates partially-initialized attributes for exactly this call.
+    s = cls.__new__(cls)
+    try:
+        s.__init__(spec)
+    except BaseException:
+        try:
+            s.close()
+        except Exception:  # noqa: BLE001 — best-effort teardown; the connect error wins
+            pass
+        raise
+    return s
 
 
 def _session(cid: str, spec: dict) -> "_Session":
@@ -136,7 +234,10 @@ class _Session:
                             timeout=_HTTP_TIMEOUT)
             if not res or "error" in res:
                 raise McpError(f"tools/list failed: {(res or {}).get('error')}")
-            self._tools = (res.get("result") or {}).get("tools") or []
+            # Normalised HERE, so the cached list and every caller see one
+            # shape: tools_cache.update reads a top-level `access`, and a real
+            # MCP server carries it elsewhere or not at all (see normalise_tools).
+            self._tools = normalise_tools((res.get("result") or {}).get("tools"))
             self._tools_ts = now
             return self._tools
 
@@ -237,28 +338,46 @@ class _SseSession(_Session):
         self._responses: dict = {}
         self._sse_cv = threading.Condition()
         self._dead: str | None = None
-        import requests
-        self._stream = requests.get(
-            spec["url"], headers=self._headers(accept="text/event-stream"),
-            stream=True, timeout=(_HTTP_TIMEOUT, None),  # connect timeout; stream stays open
-            allow_redirects=False)
-        if self._stream.status_code >= 400:
-            body = self._stream.text[:200]
-            self._stream.close()
-            raise McpError(f"SSE connect returned {self._stream.status_code}: {body}")
-        # Grab the raw socket NOW (urllib3 detaches the connection later):
-        # close() must shutdown() it to unblock the reader thread's read.
+        # Both exist BEFORE anything that can fail, so close() can always run
+        # against a partially-built session — every failure path below relies
+        # on that.
+        self._stream = None
+        self._sock = None
         try:
-            self._sock = self._stream.raw._fp.fp.raw._sock
-        except Exception:  # noqa: BLE001 — stack shape varies across versions
-            self._sock = None
-        threading.Thread(target=self._reader, daemon=True,
-                         name=f"mcp-sse-{spec['url'][:40]}").start()
-        with self._sse_cv:
-            self._sse_cv.wait_for(lambda: self._endpoint or self._dead,
-                                  timeout=_STDIO_START_TIMEOUT)
-            if not self._endpoint:
-                raise McpError(self._dead or "SSE server never sent its endpoint event")
+            import requests
+            self._stream = requests.get(
+                spec["url"], headers=self._headers(accept="text/event-stream"),
+                stream=True, timeout=(_HTTP_TIMEOUT, None),  # connect timeout; stream stays open
+                allow_redirects=False)
+            if self._stream.status_code >= 400:
+                raise McpError(f"SSE connect returned {self._stream.status_code}: "
+                               f"{self._stream.text[:200]}")
+            # Grab the raw socket NOW (urllib3 detaches the connection later):
+            # close() must shutdown() it to unblock the reader thread's read.
+            try:
+                self._sock = self._stream.raw._fp.fp.raw._sock
+            except Exception:  # noqa: BLE001 — stack shape varies across versions
+                self._sock = None
+            threading.Thread(target=self._reader, daemon=True,
+                             name=f"mcp-sse-{spec['url'][:40]}").start()
+            with self._sse_cv:
+                self._sse_cv.wait_for(lambda: self._endpoint or self._dead,
+                                      timeout=_STDIO_START_TIMEOUT)
+                if not self._endpoint:
+                    raise McpError(self._dead or
+                                   "SSE server never sent its endpoint event")
+        except BaseException:
+            # Tear down BEFORE re-raising. This used to raise with the stream
+            # still open, and the half-built session was simply dropped — the
+            # response socket and the daemon reader thread outlived the
+            # exception with nobody left holding a handle to close them. One
+            # socket + one thread leaked PER ATTEMPT against a server that
+            # speaks SSE but never announces its endpoint (e.g. a plain
+            # keepalive stream at the pasted URL), and the Hub retries this
+            # path on every visit. close() shuts the socket down, which pops
+            # the reader out of its blocking read so the thread exits too.
+            self.close()
+            raise
 
     def _headers(self, accept: str = "application/json") -> dict:
         h = {"Accept": accept}
@@ -326,21 +445,26 @@ class _SseSession(_Session):
         return self._dead is None
 
     def close(self) -> None:
-        self._dead = self._dead or "closed"
+        # getattr-guarded throughout: _make_session close()es a session whose
+        # __init__ may have failed before these attributes ever existed.
+        self._dead = getattr(self, "_dead", None) or "closed"
         # Shut the raw socket down FIRST: response.close() blocks on the buffer
         # lock held by the reader thread's in-flight blocking read, deadlocking
         # the caller (session reset / connector reload). shutdown() unblocks
         # that read with EOF, the reader exits, and close() is then safe.
-        if self._sock is not None:
+        sock = getattr(self, "_sock", None)
+        if sock is not None:
             try:
                 import socket as _socket
-                self._sock.shutdown(_socket.SHUT_RDWR)
+                sock.shutdown(_socket.SHUT_RDWR)
             except Exception:  # noqa: BLE001 — already closed / never connected
                 pass
-        try:
-            self._stream.close()
-        except Exception:  # noqa: BLE001
-            pass
+        stream = getattr(self, "_stream", None)
+        if stream is not None:
+            try:
+                stream.close()
+            except Exception:  # noqa: BLE001
+                pass
 
     def _rpc(self, payload: dict, timeout: int) -> dict | None:
         import requests
@@ -451,12 +575,17 @@ class _StdioSession(_Session):
         return self._proc.poll() is None
 
     def close(self) -> None:
+        # __init__ can fail before Popen ever ran (docker requested but not
+        # installed) — _make_session still close()es the half-built session.
+        proc = getattr(self, "_proc", None)
+        if proc is None:
+            return
         try:
-            self._proc.terminate()
-            self._proc.wait(timeout=5)
+            proc.terminate()
+            proc.wait(timeout=5)
         except Exception:  # noqa: BLE001
             try:
-                self._proc.kill()
+                proc.kill()
             except Exception:  # noqa: BLE001
                 pass
 

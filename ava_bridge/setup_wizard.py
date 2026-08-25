@@ -18,6 +18,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from . import brand as _brand, config, connectors, features, settings
+from .container_hosts import HOST_GATEWAYS as _container_hosts
 
 router = APIRouter()
 
@@ -236,13 +237,13 @@ def _engine_of(base_url: str, declared: str = "") -> str:
 # Hostnames that mean "this box or this compose network", so anything else is
 # remote. Compose service names have no dot, which is why the check above also
 # requires one — `http://vllm:8002/v1` must stay vLLM.
-_LOCAL_HOSTNAMES = {"127.0.0.1", "localhost", "::1", "0.0.0.0",
-                    "host.docker.internal", "host.openshell.internal",
-                    "host.containers.internal"}
+_LOCAL_HOSTNAMES = {"127.0.0.1", "localhost", "::1", "0.0.0.0", *_container_hosts}
 
-# The names a container runtime gives the MACHINE it is running on. Docker
-# Desktop publishes the first on Windows and macOS; Podman publishes the second;
-# a Linux compose file opts in with `host-gateway`.
+# The names a container runtime gives the MACHINE it is running on — one table,
+# shared with the bridge's DNS-rebinding guard (ava_bridge/container_hosts.py),
+# so the wizard and the guard cannot disagree about what a container calls its
+# host. Docker Desktop publishes the first on Windows and macOS; Podman publishes
+# the second; a Linux compose file opts in with `host-gateway`.
 #
 # Why this matters more than it looks: Ava's own wizard tells a user with no
 # engine to "install Ollama (ollama.com)", and on Windows that installs a NATIVE
@@ -250,8 +251,7 @@ _LOCAL_HOSTNAMES = {"127.0.0.1", "localhost", "::1", "0.0.0.0",
 # which the bridge container has. Ava then failed to find it, because the only
 # loopback it knew was its own. The most likely path a Windows tester takes
 # ended at "nothing answering yet" on a machine where something was answering.
-_HOST_GATEWAYS = ("host.docker.internal", "host.containers.internal",
-                  "host.openshell.internal")
+_HOST_GATEWAYS = _container_hosts
 
 
 def host_gateway() -> str | None:

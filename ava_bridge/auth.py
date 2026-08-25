@@ -19,6 +19,7 @@ from starlette.requests import HTTPConnection
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 
 from . import config, state
+from .container_hosts import HOST_GATEWAYS as _HOST_GATEWAYS
 
 
 from .security import constant_time_equals
@@ -473,8 +474,15 @@ def _is_ingest(path: str) -> bool:
 # a Host allowlist and not a cookie attribute — the browser cannot tell the
 # difference, but the server can: no legitimate client asks for Ava under a name
 # Ava does not answer to.
+# Every name a container runtime hands out for "the host" is local too
+# (container_hosts.HOST_GATEWAYS): the agent sandbox reaches this bridge by
+# one of them, and it is the address every generated agent tool defaults to.
+# This list once knew only Docker's, so every sandbox callback to /internal/*
+# was refused 421 "untrusted host" and the agent could not reach a single
+# connector, while the owner's browser worked fine — a failure only the agent
+# ever saw.
 _LOCAL_HOSTNAMES = frozenset({"localhost", "127.0.0.1", "::1", "[::1]",
-                              "0.0.0.0", "host.docker.internal"})
+                              "0.0.0.0", *_HOST_GATEWAYS})
 
 
 def trusted_hosts() -> frozenset[str]:

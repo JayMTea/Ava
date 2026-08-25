@@ -400,10 +400,16 @@ class AgentRuntime(ABC):
         This is the seam's most important translation. `turns.py` consumes four
         kinds and nothing else:
 
-            {"kind": "step",  "step": {kind: thinking|text|tool, ...}}
+            {"kind": "step",  "step": {kind: thinking|text|tool|tool_result, ...}}
             {"kind": "final", "text": str, "tools": [str]}
             {"kind": "error", "message": str, "code": str}
             {"kind": "gap"}     events were lost; infer nothing from what arrived
+
+        Both vocabularies — the four run kinds and the step kinds a `step`
+        carries — are pinned by qa/fakes/run-events.json, which the Python and
+        TypeScript guards both read. A `tool_result` step is the second half of
+        a `tool` step: `turns._fold_step` (and `chatEvents.foldStep` in the
+        client) merge it into the matching call, so a tool renders as one card.
 
         Keeping the wire format on this side is what lets a rename upstream, or
         a second streaming runtime with entirely different event names, land in

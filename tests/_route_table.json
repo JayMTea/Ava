@@ -14,6 +14,20 @@
   "APIRoute"
  ],
  [
+  "/api/apps/health",
+  [
+   "GET"
+  ],
+  "APIRoute"
+ ],
+ [
+  "/api/apps/order",
+  [
+   "POST"
+  ],
+  "APIRoute"
+ ],
+ [
   "/api/apps/{cid}/embed",
   [
    "GET"
@@ -162,6 +176,34 @@
  ],
  [
   "/api/devices",
+  [
+   "GET"
+  ],
+  "APIRoute"
+ ],
+ [
+  "/api/domains",
+  [
+   "GET"
+  ],
+  "APIRoute"
+ ],
+ [
+  "/api/domains/collect",
+  [
+   "POST"
+  ],
+  "APIRoute"
+ ],
+ [
+  "/api/domains/series/{metric_id}",
+  [
+   "GET"
+  ],
+  "APIRoute"
+ ],
+ [
+  "/api/domains/{realm}/{domain}",
   [
    "GET"
   ],
@@ -970,6 +1012,8 @@
   [
    "DELETE",
    "GET",
+   "HEAD",
+   "OPTIONS",
    "PATCH",
    "POST",
    "PUT"
@@ -986,6 +1030,8 @@
   [
    "DELETE",
    "GET",
+   "HEAD",
+   "OPTIONS",
    "PATCH",
    "POST",
    "PUT"

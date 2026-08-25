@@ -2,11 +2,11 @@
 // Rendering is driven purely by this state (no imperative DOM), which is the
 // core maintainability win of the framework migration.
 
-import type { Artifact, Attachment, CotStep, ModelInfo, Preview } from './types';
+import type { Artifact, Attachment, CotStep, MediaRef, ModelInfo, Preview } from './types';
 
 export type ChatItem =
   | { kind: 'user'; id: string; text: string; atts: Attachment[]; failed?: boolean; runId?: string; idem?: string }
-  | { kind: 'ava'; id: string; text: string; model?: ModelInfo | null; toolsUsed?: string[]; artifact?: Artifact | null; srcText: string; srcAtts: Attachment[]; audio?: string; runId?: string; streaming?: boolean }
+  | { kind: 'ava'; id: string; text: string; model?: ModelInfo | null; toolsUsed?: string[]; artifact?: Artifact | null; attachments?: MediaRef[]; srcText: string; srcAtts: Attachment[]; audio?: string; runId?: string; streaming?: boolean }
   | {
       kind: 'cot';
       id: string;

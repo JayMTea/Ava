@@ -399,6 +399,11 @@ features:
                            #   Enroll or destroy it in Setup -> Agent -> Voice
                            #   (docs/BIOMETRICS.md).
   web_search: false        # [AVA_WEB_SEARCH] self-hosted SearXNG + guarded fetch
+  domains: false           # [AVA_DOMAINS] group your connected apps into your own
+                           #   domains and collect one KPI series per domain.
+                           #   OFF by default: it reads app data on a schedule.
+                           #   The taxonomy is yours and lives in domains.yaml
+                           #   next to this file — nothing here defines it.
   branding: true           # [AVA_BRANDING] may THIS install change its own name,
                            #   colour and logo (Setup -> Branding). On by default;
                            #   re-branding what you self-host is the premise, not

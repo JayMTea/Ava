@@ -2,16 +2,7 @@
 // cookie is sent automatically. A 401 means the session expired -> bounce to
 // the server-rendered /login page.
 
-import type {
-  AppEntry,
-  Artifact,
-  ChatDetail,
-  ChatSummary,
-  HardwareStats,
-  ModelRoute,
-  TalkResponse,
-  TurnStatus,
-} from './types';
+import type { AppEntry, AppHealth, Artifact, ChatDetail, ChatSummary, DomainCell, DomainsCatalogue, HardwareStats, ModelRoute, TalkResponse, TurnStatus } from './types';
 
 function onUnauthorized() {
   window.location.href = '/login';
@@ -84,8 +75,27 @@ export const api = {
   // new app appears by dropping a connector folder — no frontend edits.
   apps: () => req<{ apps: AppEntry[] }>('/api/apps'),
 
+  // Per-app readiness for the sidebar dots. Its own call, not a field on
+  // apps(): the registry paints the nav and must stay instant, while this
+  // probes services and is polled on a slower clock.
+  appsHealth: () => req<{ apps: AppHealth[] }>('/api/apps/health', { cache: 'no-store' }),
+
+  // Persist the owner's hand-arranged sidebar order (full list, in order).
+  setAppOrder: (order: string[]) => req<{ ok: boolean; order: string[] }>(
+    '/api/apps/order',
+    { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ order }) },
+  ),
+
   // Assistant branding (name/tagline) — lets a fork re-brand without editing React.
   brand: () => req<{ name: string; tagline: string }>('/api/brand'),
+  // Domains. `enabled:false` comes back as a well-formed empty catalogue when
+  // the feature is off, so the caller renders an explanation rather than a fault.
+  domains: () => req<DomainsCatalogue>('/api/domains'),
+  domainCell: (realm: string, domain: string) =>
+    req<DomainCell>(`/api/domains/${encodeURIComponent(realm)}/${encodeURIComponent(domain)}`),
+  collectDomains: () => req<{ day: string; metrics: number; ok: number; errors: string[] }>(
+    '/api/domains/collect', { method: 'POST' }),
 
   // Live device hardware snapshot (GPU util/temp, unified memory, CPU) for the
   // floating monitor bubble.

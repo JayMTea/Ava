@@ -16,7 +16,7 @@ import uuid
 
 import requests
 
-from . import audit, config, connectors, state, runtime
+from . import audit, config, connectors, state, runtime, agent_media
 from .agent import which_model, sbx_read, session_file, chat_direct
 from .artifacts import build_turn_artifact
 from .chat_store import chat_append, history_for
@@ -395,7 +395,6 @@ def _run_turn_push(tid: str, agent_text: str, sid: str, chat_id: str, rt):
     """
     agent_text = _tooling_note(direct=False) + agent_text
     t0 = time.time()
-    steps: list[dict] = []
     tools: list[str] = []
     # Subscribe BEFORE starting. A short run can finish before `start_run`'s
     # response is even parsed, and a subscription opened afterwards would miss
@@ -417,7 +416,7 @@ def _run_turn_push(tid: str, agent_text: str, sid: str, chat_id: str, rt):
         # run a turn is waiting on, rather than only that it is waiting.
         _set_turn(tid, run_id=handle.run_id, session_id=handle.session_id)
         try:
-            reply, tools, steps = _drain_run(tid, rt, sub, handle, t0)
+            drained = _drain_run(tid, rt, sub, handle, t0)
         except Exception as e:  # noqa: BLE001
             # Recover the partial tool list from the PUBLISHED record rather
             # than from a local that the raising frame took with it. Every step
@@ -428,7 +427,9 @@ def _run_turn_push(tid: str, agent_text: str, sid: str, chat_id: str, rt):
             return
     finally:
         sub.close()
-    _finish_turn(tid, chat_id, sid, 0, reply, tools, t0, final_steps=steps)
+    _finish_turn(tid, chat_id, sid, 0, drained["reply"], drained["tools"], t0,
+                 final_steps=drained["steps"], attachments=drained["attachments"],
+                 usage_tokens=drained["usage_tokens"], rt=rt)
 
 
 def _drain_run(tid: str, rt, sub, handle, t0: float):
@@ -454,16 +455,57 @@ def _drain_run(tid: str, rt, sub, handle, t0: float):
             steps.append({"kind": "text", "text": "(some steps were not received)"})
             _publish_steps(tid, steps)
         elif kind == "step":
-            step = ev.get("step") or {}
-            steps.append(step)
-            if step.get("kind") == "tool" and step.get("name") not in tools:
-                tools.append(step["name"])
+            _fold_step(steps, ev.get("step") or {}, tools)
             _publish_steps(tid, steps)
         elif kind == "error":
             raise RuntimeError(str(ev.get("message") or "the run failed"))
         elif kind == "final":
-            return str(ev.get("text") or ""), (ev.get("tools") or tools), steps
+            return {"reply": str(ev.get("text") or ""),
+                    "tools": (ev.get("tools") or tools),
+                    "steps": steps,
+                    "attachments": list(ev.get("attachments") or []),
+                    "usage_tokens": ev.get("usage_tokens")}
     raise TimeoutError(f"the agent did not finish within {config.OC_TIMEOUT}s")
+
+
+def _fold_step(steps: list[dict], step: dict, tools: list[str]) -> None:
+    """Add one step, folding a `tool_result` into its matching `tool` call.
+
+    A tool call streams as a `tool` step (start) and, later, a `tool_result`
+    (the output). Merging the result INTO the start — by `id`, then by name —
+    is what turns "Using exec" x3 into one enriched card carrying its output and
+    any media. The identical fold runs in `chatEvents.foldStep` for the live
+    view, so the record and the stream never disagree. An orphan result (its
+    start was never seen) becomes a standalone tool card rather than vanishing.
+    """
+    if step.get("kind") == "tool_result":
+        target = _match_tool_step(steps, step)
+        if target is not None:
+            if step.get("output"):
+                target["output"] = step["output"]
+            if step.get("attachments"):
+                target["attachments"] = step["attachments"]
+            if step.get("is_error"):
+                target["is_error"] = True
+            return
+        step = {**step, "kind": "tool"}
+    steps.append(step)
+    if step.get("kind") == "tool" and step.get("name") and step["name"] not in tools:
+        tools.append(step["name"])
+
+
+def _match_tool_step(steps: list[dict], result: dict) -> dict | None:
+    cid = result.get("id")
+    if cid:
+        for s in reversed(steps):
+            if s.get("kind") == "tool" and s.get("id") == cid:
+                return s
+    name = result.get("name")
+    for s in reversed(steps):
+        if (s.get("kind") == "tool" and s.get("name") == name
+                and "output" not in s and "attachments" not in s):
+            return s
+    return None
 
 
 def _publish_steps(tid: str, steps: list[dict]) -> None:
@@ -517,15 +559,17 @@ def _fail_turn(tid: str, chat_id: str, sid: str, after: int, t0: float,
 
 def _finish_turn(tid: str, chat_id: str, sid: str, after: int, reply: str,
                  tools: list[str], t0: float,
-                 final_steps: list[dict] | None) -> None:
+                 final_steps: list[dict] | None,
+                 attachments: list[dict] | None = None,
+                 usage_tokens: int | None = None, rt=None) -> None:
     """Everything a finished turn owes the rest of the app, for either path.
 
-    Shared deliberately: previews, the artifact, the persisted message, the turn
-    record and the audit line are the turn's CONTRACT with the UI and the
-    ledger, not a detail of how the reply was obtained. Two copies would drift,
-    and the drift would show up as a chat that renders differently depending on
-    which runtime answered — the exact class of bug the runtime seam exists to
-    prevent.
+    Shared deliberately: previews, the artifact, media, the persisted message,
+    the turn record and the audit line are the turn's CONTRACT with the UI and
+    the ledger, not a detail of how the reply was obtained. Two copies would
+    drift, and the drift would show up as a chat that renders differently
+    depending on which runtime answered — the exact class of bug the runtime
+    seam exists to prevent.
     """
     previews = _pickup_previews_since(t0, tools)
     artifact = None
@@ -536,20 +580,41 @@ def _finish_turn(tid: str, chat_id: str, sid: str, after: int, reply: str,
         artifact = build_turn_artifact(tools, sid, after, steps=final_steps)
     except Exception:  # noqa: BLE001 — the side panel is best-effort
         artifact = None
+    # Resolve any media the reply or a tool produced into same-origin, seekable
+    # URLs. Best-effort and non-blocking to the reply: an unresolvable ref is
+    # dropped, never rendered as a broken player.
+    media = _resolve_turn_media(rt, attachments, final_steps)
     m = which_model()
+    # The gateway's own usage count is the honest numerator; fall back to the
+    # local router's estimate only when the gateway did not report one.
+    ctx_tokens = usage_tokens if usage_tokens else (m or {}).get("prompt_tokens")
     if chat_id:
         chat_append(chat_id, "assistant", reply, model=m, tools_used=tools,
-                    steps=final_steps)
+                    steps=final_steps, attachments=media)
     with state.turns_lock:
         prev_steps = state.turns.get(tid, {}).get("steps")
     _set_turn(tid, status="done", reply=reply,
-              previews=previews, artifact=artifact,
-              model=m, ctx_tokens=(m or {}).get("prompt_tokens"),
+              previews=previews, artifact=artifact, attachments=media or [],
+              model=m, ctx_tokens=ctx_tokens,
               tools_used=tools,
               steps=final_steps or prev_steps)
     state.interaction["ts"] = time.time()  # turn finished — reset idle baseline
     audit.record("turn", chat_id=chat_id, status="done", tools=tools,
                  model=(m or {}).get("id"), duration_s=round(time.time() - t0, 1))
+
+
+def _resolve_turn_media(rt, attachments: list[dict] | None,
+                        steps: list[dict] | None) -> list[dict] | None:
+    """Resolve reply-level media, and rewrite each tool step's own media in
+    place, to same-origin URLs. Returns the reply-level list (already bounded)."""
+    try:
+        for st in steps or []:
+            if isinstance(st, dict) and st.get("attachments"):
+                st["attachments"] = agent_media.resolve_refs(rt, st["attachments"])
+        reply_media = agent_media.resolve_refs(rt, attachments)
+        return agent_media.bound_attachments(reply_media)
+    except Exception:  # noqa: BLE001 — media never breaks a reply
+        return None
 
 
 def start_turn(agent_text: str, sid: str, chat_id: str) -> str:
@@ -568,7 +633,8 @@ def start_turn(agent_text: str, sid: str, chat_id: str) -> str:
     tid = uuid.uuid4().hex[:12]
     with state.turns_lock:
         state.turns[tid] = {"id": tid, "status": "running", "steps": [], "reply": None,
-                            "previews": [], "artifact": None, "model": None,
+                            "previews": [], "artifact": None, "attachments": [],
+                            "model": None,
                             "ctx_tokens": None, "tools_used": [], "degraded": False,
                             "error": None, "created": time.time(),
                             # Set by the streaming path only. Present-and-None on

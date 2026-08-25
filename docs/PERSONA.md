@@ -20,6 +20,13 @@ The prompt Ava starts from (`agent/persona.txt.tmpl`) contains only
   to its own built-in tools - otherwise the model concludes it has no web access
   and says so, which it has done before.
 - Its name, who it serves, and what hardware it runs on, all from your config.
+- Which of **your connected apps** it can reach and how - one line per app
+  (label, whether it is called through native `<id>_<action>` tools or the
+  `<id>_find_tool` → `<id>_call` pair, and the tool names the app reported on
+  its last discovery), plus the rule that a consent prompt means *wait for the
+  owner, never retry*. This is filled in at provision time from your connector
+  manifests (`{{APPS_BLOCK}}`); the tracked template names no app, and an
+  install with no app connectors gets no such line at all.
 
 There is nothing in there about being warm, being concise, texting like a friend,
 mirroring your slang, avoiding hedging, or having opinions. Earlier versions did

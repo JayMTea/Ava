@@ -241,17 +241,56 @@ def last_event_ts(cid: str) -> float | None:
 
 
 def _tail_jsonl(path: str, limit: int) -> List[dict]:
+    """Last `limit` parsed rows of an append-only JSONL log, in file order.
+    (A falsy `limit` keeps its legacy meaning: every row in the file.)
+
+    Reads BACKWARDS in bounded chunks rather than line-by-line from the top.
+    This runs per device on every /api/devices refresh, and the log grows to
+    MAX_BYTES (8MB by default) before rotation — parsing the whole file to hand
+    back the newest handful cost ~119ms per device per request at the ceiling,
+    all of it spent on rows the caller was about to throw away. Seeking to the
+    tail reads only what the answer needs: one 64KB window in the common case,
+    doubling (capped at the file size) for the rare log whose rows are so large
+    or so corrupt that the window holds fewer than `limit` parsable rows.
+    """
+    chunk = 64 * 1024
     rows: List[dict] = []
     try:
-        with open(path, encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    rows.append(json.loads(line))
-                except Exception:  # noqa: BLE001
-                    continue
+        with open(path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            if not limit:
+                chunk = max(size, 1)     # "give me everything": one full read
+            while True:
+                offset = max(0, size - chunk)
+                f.seek(offset)
+                lines = f.read(size - offset).split(b"\n")
+                if offset > 0:
+                    # The seek almost certainly landed mid-line, so the first
+                    # split element is a line's TAIL, not a record. (Landing
+                    # exactly on a boundary drops one whole line — harmless:
+                    # it is older than everything kept, and if it were still
+                    # needed the widening below re-reads it.)
+                    del lines[0]
+                rows = []
+                # Walk from the END and stop at `limit`, so only rows actually
+                # returned are ever JSON-decoded. Blank lines and unparsable
+                # ones — a torn trailing line mid-append, a corrupt row — are
+                # skipped exactly as the old forward reader skipped them.
+                for raw in reversed(lines):
+                    raw = raw.strip()
+                    if not raw:
+                        continue
+                    try:
+                        rows.append(json.loads(raw))
+                    except Exception:  # noqa: BLE001 — torn/corrupt line, skip
+                        continue
+                    if limit and len(rows) >= limit:
+                        break
+                if offset == 0 or (limit and len(rows) >= limit):
+                    break
+                chunk = min(chunk * 2, size)   # widen the window and retry
     except OSError:
         return []
-    return rows[-limit:] if limit else rows
+    rows.reverse()                             # back to file (chronological) order
+    return rows

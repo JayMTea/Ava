@@ -16,12 +16,37 @@ import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+
 import pytest
 
 from ava_bridge import mcp_client
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "sdk/host"))
 from ava_mcp import FacadeSource, serve_mcp
+
+# The module-level asserts below write REAL grants/tier-cache entries; without
+# isolation they land in the shared conftest AVA_HOME and the five-category
+# `connectors.orphans()` (2026-08 audit) then reports them as stale state in
+# whichever test runs next. Same isolation pattern as tests/test_grants.py.
+import pytest as _pytest
+from unittest import mock as _mock
+
+from ava_bridge import grants as _grants_mod
+from ava_bridge import tools_cache as _tools_cache_mod
+
+
+@_pytest.fixture(autouse=True)
+def _isolated_consent_stores(tmp_path):
+    with _mock.patch.object(_grants_mod, "PATH",
+                            str(tmp_path / "connector_grants.yaml")), \
+         _mock.patch.object(_tools_cache_mod, "PATH",
+                            str(tmp_path / "tools_cache.json")):
+        _grants_mod._cache.update(data=None, mtime=0.0)
+        _tools_cache_mod._cache.update(data=None, mtime=0.0)
+        yield
+        _grants_mod._cache.update(data=None, mtime=0.0)
+        _tools_cache_mod._cache.update(data=None, mtime=0.0)
+
 
 TOOLS = [
     {"name": "list_things", "description": "List the things.",

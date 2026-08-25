@@ -12,6 +12,7 @@ from zero to a running Ava with no source edits. See deploy/README.md.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import json
 import os
@@ -738,15 +739,32 @@ def cmd_verify(_args) -> int:
     pol_dir = settings.generated_policy_dir()
     tool_root = settings.connector_tools_dir()
     pol_drift, tool_drift, lockstep_gap = [], [], []
+    # A DISABLED connector keeps its generated material — orphans() calls that
+    # dormant, not orphaned — but render_egress_policy() resolves through the
+    # enabled-only load(), so a dormant policy file rendered as None here and
+    # was reported as drift. Permanently red, too, because both remedies this
+    # report names refused a disabled id. Dormant material gets its own NEUTRAL
+    # row below instead: switched off is a state the owner chose, not a broken
+    # claim.
+    disabled_ids = {m["id"] for m in connectors.catalog()
+                    if not m.get("enabled", True)}
+    dormant: set = set()
     if os.path.isdir(pol_dir):
         for name in sorted(os.listdir(pol_dir)):
             if not name.endswith(".yaml"):
+                continue
+            if name[:-5] in disabled_ids:
+                dormant.add(name[:-5])
                 continue
             pol = connectors.render_egress_policy(name[:-5])
             with open(os.path.join(pol_dir, name), encoding="utf-8") as f:
                 committed = f.read()
             if pol is None or _yaml.safe_dump(pol, sort_keys=False) != committed:
                 pol_drift.append(name)
+    # A disabled connector's rendered tools are dormant for the same reason.
+    for cid in sorted(disabled_ids):
+        if os.path.isdir(os.path.join(tool_root, cid)):
+            dormant.add(cid)
     for cid, m in {x["id"]: x for x in connectors.all()}.items():
         pol = connectors.render_egress_policy(cid) or {}
         allowed = {(r.get("allow", {}).get("method"), r.get("allow", {}).get("path"))
@@ -784,6 +802,10 @@ def cmd_verify(_args) -> int:
          f"{len(lockstep_gap)} route(s) not allow-listed" if lockstep_gap
          else "every action route allow-listed")
     fails += bool(pol_drift) + bool(tool_drift) + bool(lockstep_gap)
+    if dormant:
+        _row(OK, "dormant", f"{len(dormant)} connector(s) keep generated "
+             f"material while switched off ({', '.join(sorted(dormant))}) — "
+             "dormant (disabled), not drift; it ships again on re-enable")
 
     # Two files, one `preset.name`. `policy-add` replaces by name, so the loser's
     # rules sit on disk looking authoritative while the sandbox enforces the
@@ -894,13 +916,22 @@ def cmd_verify(_args) -> int:
     # Generated files with no connector behind them. Hard, and local: these are
     # tarred into the sandbox on the next provision, where no policy allows their
     # routes — so Ava is handed tools that deny-by-default guarantees will fail.
+    # All FIVE orphan categories, not just the original two. tools/policies
+    # are whole generated sets whose connector is gone; tool_files are stale
+    # .mjs INSIDE a live connector's dir (a renamed action's previous render) —
+    # all three are tarred into the sandbox on the next provision, where no
+    # policy allows their routes, so Ava ships phantom tools that deny-by-
+    # default guarantees will fail. grants/cache are per-id STATE whose
+    # manifest is gone: ids are reusable, so a leftover entry is silently
+    # inherited by whatever app takes the name next — standing approvals and
+    # consent tiers included.
     orphaned = connectors.orphans()
-    n_orphan = len(orphaned["tools"]) + len(orphaned["policies"])
+    n_orphan = sum(len(v) for v in orphaned.values())
+    _detail = "; ".join(f"{k}: {', '.join(v)}" for k, v in orphaned.items() if v)
     _row(BAD if n_orphan else OK, "orphaned files",
-         f"{n_orphan} generated file set(s) with no connector "
-         f"({', '.join(orphaned['tools'] + orphaned['policies'])}) — "
+         f"{n_orphan} leftover(s) with no connector behind them ({_detail}) — "
          "`ava agent prune --write`" if n_orphan
-         else "every generated file has a manifest behind it")
+         else "every generated file and per-app state has a manifest behind it")
     fails += bool(n_orphan)
 
     stranded_state = _settings.stranded_agent_state()
@@ -1134,20 +1165,35 @@ def cmd_agent(args) -> int:
     if action == "prune":
         from ava_bridge import connectors as _c
         res = _c.prune_orphans(write=args.write)
-        total = len(res["tools"]) + len(res["policies"])
+        total = sum(len(v) for v in res.values())
         if not total:
-            print(f"\n{OK} no generated files without a connector.\n")
+            print(f"\n{OK} nothing generated, granted or cached without a connector.\n")
             return 0
         verb = "removed" if args.write else "would remove"
-        print(f"\n{B}Generated material with no connector ({verb}){X}")
+        print(f"\n{B}Connector leftovers with nothing behind them ({verb}){X}")
+        mark = OK if args.write else "·"
         for cid in res["tools"]:
-            print(f"  {OK if args.write else '·'} tools     {cid}")
+            print(f"  {mark} tools      {cid}")
         for cid in res["policies"]:
-            print(f"  {OK if args.write else '·'} policy    {cid}")
+            print(f"  {mark} policy     {cid}")
+        # Stale .mjs INSIDE a live connector's dir ("cid/file.mjs"): a renamed
+        # action's previous render, still tarred into the sandbox by install.sh
+        # — a phantom tool whose route the regenerated policy refuses.
+        for rel in res.get("tool_files", []):
+            print(f"  {mark} tool file  {rel}")
+        # Per-id state whose manifest is gone. Ids are reusable, so these are
+        # inherited — silently — by the next app connected under the same name.
+        for cid in res.get("grants", []):
+            print(f"  {mark} grants     {cid}")
+        for cid in res.get("cache", []):
+            print(f"  {mark} tool tiers {cid}")
         if not args.write:
-            print("\nThese ship into the sandbox on the next provision, where no "
-                  "policy allows their routes —\nAva gets tools that are "
-                  "guaranteed to fail. Re-run with --write to remove them.\n")
+            print("\nStale tools, policies and tool files ship into the sandbox "
+                  "on the next provision,\nwhere no policy allows their routes — "
+                  "Ava gets phantom tools that are guaranteed\nto fail. Stale "
+                  "grants and cached tiers are keyed on a REUSABLE id: the next "
+                  "app\nconnected under that name silently inherits them. "
+                  "Re-run with --write to remove\nthem.\n")
         else:
             print()
         return 0
@@ -1216,10 +1262,17 @@ def _resolve_connector_ids(connectors, name):
     cheerful "0 tool(s) written — run `cd agent && ./install.sh` to deploy", which
     reads as a completed deploy step. A forker who fat-fingers a name during setup
     believed they had generated and deployed tools that were never generated.
+
+    A NAMED id resolves against catalog() — disabled included — because
+    `enabled: false` is a runtime switch, not an identity change: `ava verify`
+    sends people here to refresh a dormant connector's generated material, and a
+    remedy that refuses the very id it was suggested for is no remedy. With no
+    name, only ENABLED connectors are acted on: bulk regeneration should not
+    grow fresh dormant files for every app the owner switched off.
     """
-    known = [m["id"] for m in connectors.all()]
     if not name:
-        return known
+        return [m["id"] for m in connectors.all()]
+    known = [m["id"] for m in connectors.catalog()]
     if name not in known:
         print(f"{BAD} no such connector: {name}")
         if known:
@@ -1253,6 +1306,32 @@ def _why_no_tools(connectors, cid: str) -> str:
             "served by a built-in Ava tool instead is correct without it")
 
 
+@contextlib.contextmanager
+def _registry_with(connectors, ids):
+    """Let the enabled-only generators see named DISABLED connectors briefly.
+
+    render_egress_policy() and tool_files() resolve their manifest through
+    load(), which filters to `enabled: true` — right for the agent, wrong for
+    the generators: a disabled connector's material is dormant, not gone (see
+    connectors.orphans), and `ava verify` names these exact commands as the way
+    to refresh it. The registry offers no include-disabled render path, so this
+    seeds load()'s short-lived cache with the catalog() manifests for the
+    requested ids and force-reloads on the way out. In-memory only: nothing is
+    written, and the cache would expire on its own in seconds anyway.
+    """
+    live = {m["id"] for m in connectors.load(force=True)}
+    extra = [m for m in connectors.catalog()
+             if m["id"] in ids and m["id"] not in live]
+    if extra:
+        import time as _time
+        connectors._cache.update(ts=_time.time(), list=connectors.load() + extra)
+    try:
+        yield
+    finally:
+        if extra:
+            connectors.load(force=True)
+
+
 def cmd_connector(args) -> int:
     from ava_bridge import connectors
     if args.action == "list":
@@ -1276,8 +1355,13 @@ def cmd_connector(args) -> int:
             return 0
         for a in rows:
             extra = f"view={a['view']}" if a["embed"] == "native" else (a.get("url") or "")
+            # icon is None when the manifest declares none — the DOCUMENTED
+            # default (the frontend's appIcon() hashes the id into a stable
+            # glyph) — and None takes no width spec: `f"{None:10}"` is a
+            # TypeError, so `ava connector apps` crashed on precisely the
+            # manifest shape the docs recommend.
             print(f"  {B}{a['id']:16}{X} {a['section']:5} {a['embed']:7} "
-                  f"icon={a['icon']:10} {extra}")
+                  f"icon={(a['icon'] or '-'):10} {extra}")
         return 0
     if args.action == "new":
         if not args.name:
@@ -1333,25 +1417,26 @@ def cmd_connector(args) -> int:
         if ids is None:
             return 1
         wrote = 0
-        for cid in ids:
-            pol = connectors.render_egress_policy(cid)
-            if not pol:
-                if not args.write:
-                    print(f"# ---- {cid} ----\n"
-                          f"  (no egress policy: the manifest declares no "
-                          f"`egress:` block and nothing that derives one)")
-                continue
-            text = _yaml.safe_dump(pol, sort_keys=False)
-            if args.write:
-                outdir = settings.generated_policy_dir()
-                os.makedirs(outdir, exist_ok=True)
-                p = os.path.join(outdir, f"{cid}.yaml")
-                with open(p, "w", encoding="utf-8") as f:
-                    f.write(text)
-                print(f"{OK} wrote {p}")
-                wrote += 1
-            else:
-                print(f"# ---- {cid} ----\n{text}")
+        with _registry_with(connectors, ids):
+            for cid in ids:
+                pol = connectors.render_egress_policy(cid)
+                if not pol:
+                    if not args.write:
+                        print(f"# ---- {cid} ----\n"
+                              f"  (no egress policy: the manifest declares no "
+                              f"`egress:` block and nothing that derives one)")
+                    continue
+                text = _yaml.safe_dump(pol, sort_keys=False)
+                if args.write:
+                    outdir = settings.generated_policy_dir()
+                    os.makedirs(outdir, exist_ok=True)
+                    p = os.path.join(outdir, f"{cid}.yaml")
+                    with open(p, "w", encoding="utf-8") as f:
+                        f.write(text)
+                    print(f"{OK} wrote {p}")
+                    wrote += 1
+                else:
+                    print(f"# ---- {cid} ----\n{text}")
         if args.write:
             print(f"\n{wrote} policy file(s) in agent/policies/generated/ — "
                   f"run `cd agent && ./install.sh` to deploy into the sandbox.")
@@ -1361,27 +1446,60 @@ def cmd_connector(args) -> int:
         if ids is None:
             return 1
         wrote = 0
-        for cid in ids:
-            # tool_files decides the shape: find/call meta tools for dynamic or
-            # large static connectors, else one tool per generic-proxy action.
-            files = connectors.tool_files(cid)
-            if not files and not args.write:
-                print(f"# ---- {cid} ----\n  (no tools to generate: "
-                      f"{_why_no_tools(connectors, cid)})")
-            for t in files:
+        pruned = 0
+        with _registry_with(connectors, ids):
+            for cid in ids:
+                # tool_files decides the shape: find/call meta tools for
+                # dynamic or large static connectors, else one tool per
+                # generic-proxy action.
+                files = connectors.tool_files(cid)
+                if not files and not args.write:
+                    print(f"# ---- {cid} ----\n  (no tools to generate: "
+                          f"{_why_no_tools(connectors, cid)})")
+                for t in files:
+                    if args.write:
+                        outdir = settings.connector_tools_dir(cid)
+                        os.makedirs(outdir, exist_ok=True)
+                        p = os.path.join(outdir, t["name"])
+                        with open(p, "w", encoding="utf-8") as f:
+                            f.write(t["source"])
+                        print(f"{OK} wrote {p}")
+                        wrote += 1
+                    else:
+                        print(f"# ---- {t['name']} ----\n{t['source']}")
                 if args.write:
+                    # Stale renders go OUT with the fresh ones going in — the
+                    # same prune the Hub's generate route does. A renamed
+                    # action leaves its old .mjs beside the new one, install.sh
+                    # tars the whole dir, and the sandbox is handed a phantom
+                    # tool whose route the regenerated policy refuses.
+                    # tool_files() is the one list of what should exist.
                     outdir = settings.connector_tools_dir(cid)
-                    os.makedirs(outdir, exist_ok=True)
-                    p = os.path.join(outdir, t["name"])
-                    with open(p, "w", encoding="utf-8") as f:
-                        f.write(t["source"])
-                    print(f"{OK} wrote {p}")
-                    wrote += 1
-                else:
-                    print(f"# ---- {t['name']} ----\n{t['source']}")
+                    expected = {t["name"] for t in files}
+                    stale: list[str] = []
+                    try:
+                        for fn in sorted(os.listdir(outdir)):
+                            if fn.endswith(".mjs") and fn not in expected:
+                                os.remove(os.path.join(outdir, fn))
+                                print(f"{OK} pruned {os.path.join(outdir, fn)} "
+                                      f"(stale — no longer generated)")
+                                stale.append(f"{cid}/{fn}")
+                                pruned += 1
+                    except OSError:
+                        pass  # no tools dir yet — nothing stale to prune
+                    if stale:
+                        # Same ledger row the Hub's generate route and
+                        # prune_orphans write — a deleted file the agent could
+                        # have been handed belongs in the ledger wherever the
+                        # delete ran from.
+                        from ava_bridge import audit as _audit
+                        _audit.record("connector_prune", id=cid,
+                                      tool_files=stale,
+                                      reason="stale render removed on regenerate")
         if args.write:
-            print(f"\n{wrote} tool(s) written — run `cd agent && ./install.sh` to "
-                  f"deploy into the sandbox.")
+            extra = f", {pruned} stale file(s) pruned" if pruned else ""
+            print(f"\n{wrote} tool(s) written{extra} — run `cd agent && "
+                  f"./install.sh` to deploy into the sandbox.")
         return 0
     return 1
 

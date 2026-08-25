@@ -54,8 +54,8 @@ hand. Each connector declares its health probe, metrics source, egress policy
 and agent actions, and the dashboard, charts and agent tools all follow from it.
 
 ```bash
-ava connector new mycrm                 # scaffold $AVA_HOME/connectors/mycrm/connector.yaml
-$EDITOR "$AVA_HOME/connectors/mycrm/connector.yaml"   # see the warning below
+ava connector new mycrm                 # scaffold ${AVA_HOME:-$PWD}/connectors/mycrm/connector.yaml
+$EDITOR "${AVA_HOME:-$PWD}/connectors/mycrm/connector.yaml"   # see the warning below
 ava connector tools    mycrm --write    # generate the agent tools
 ava connector policies mycrm --write    # generate its egress policy
 (cd agent && ./install.sh)              # load them into the agent sandbox
@@ -107,7 +107,10 @@ the last three for you.)
 ## 2. The manifest
 
 ```yaml
-id: mycrm                     # unique id (defaults to the folder name)
+id: mycrm                     # OPTIONAL — the FOLDER NAME is the id. Omit this,
+                              #   or keep it equal to the folder name: a value
+                              #   that disagrees is reported in Setup and
+                              #   ignored. Ids match [a-z][a-z0-9_-]{1,31}.
 label: My CRM
 kind: app                     # core | inference | media | app
 enabled: true                 # OPTIONAL, default true — set false to switch the
@@ -237,7 +240,20 @@ Ava's session cookie is `httpOnly` + `SameSite=Lax` + host-only, so a raw
 `http://127.0.0.1:9000` iframe would receive **no** cookie. Ava proxies your app
 under its **own** origin (`/apps/<id>/`) so Ava's own cookie gates the route and
 your app's own storage (a session cookie or a `localStorage` token) persists like
-a normal same-origin visit. If your app has **no** auth of its own, you're done -
+a normal same-origin visit. Precisely, the proxy's contract with your app is:
+
+- **Cookies in**: the browser's cookies are forwarded to your app - except
+  Ava's own session cookie, which is stripped and never reaches your app.
+- **Cookies out**: your app's `Set-Cookie` is forwarded back to the browser
+  with its `Path` rewritten into `/apps/<id>/` and any `Domain` attribute
+  dropped, so the cookie stays scoped to your app's mount on Ava's origin.
+- **Redirects**: an app-internal redirect (`Location: /login`) is rewritten
+  into the mount (`/apps/<id>/login`) instead of escaping to Ava's own routes.
+- **Methods**: `HEAD` and `OPTIONS` pass through to your app like any other
+  method.
+- **Streaming**: SSE and other streaming responses stream through unbuffered.
+
+If your app has **no** auth of its own, you're done -
 Ava's gate is the only door. If it **does** have a login, see the next section.
 
 ### iframe security
@@ -322,7 +338,10 @@ fetch(withBase('/api/things'));   // -> /apps/<id>/api/things when embedded
 Everything else is handled by the proxy: your HTML is always revalidated (so a
 rebuild shows up on reload), `/apps/<id>/api/*` reaches your same-origin API
 with no manifest config, and a top-level visit to `/apps/<id>/` bounces the
-user back into Ava's shell. One more tip from the field: gate your UI build on
+user back into Ava's shell. Cookies your app sets against a hardcoded `Path`
+(`Path=/`, `Path=/login`) will appear to the browser scoped under `/apps/<id>/`,
+because the proxy rewrites `Set-Cookie` paths into the mount like everything
+else. One more tip from the field: gate your UI build on
 a typecheck (`tsc -b --noEmit && vite build`) - bundlers don't catch unbound
 identifiers, and a broken bundle inside an iframe is painful to debug.
 
@@ -541,6 +560,12 @@ deprecated HTTP+SSE transport):
 mcp:
   url: "http://127.0.0.1:9200/mcp"     # Streamable HTTP transport
   token_env: MYAPP_TOKEN                # optional bearer
+  # No `egress:` block is needed for the server itself — the agent never
+  # reaches it (see the security model below); Ava allow-lists the two bridge
+  # routes automatically. Consent tiers: Ava reads a top-level `access` on
+  # each tools/list entry, else `_meta.access` / `_meta["ava/access"]`, else
+  # the spec's ToolAnnotations (readOnlyHint -> read, destructiveHint ->
+  # destructive); anything else falls to `dynamic_access` below.
   # transport: sse                      # deprecated HTTP+SSE (MCP 2024-11-05),
   #                                     # for servers that predate Streamable
   #                                     # HTTP — inferred when the url path
@@ -644,11 +669,26 @@ tools Ava has never discovered, so once a tool has been seen the self-reported
 !!! note "Migrating a facade to MCP? Keep the tiers"
 
     An `ava-tools/1` facade reports `access` per tool; plain MCP has no such
-    field, so a hand-rolled port silently demotes every `read` to `write` and
-    the owner starts getting prompted for things that used to run silently.
-    Either carry `access` through on each `tools/list` entry (what
-    `sdk/host/ava_mcp` does - see below), or restate the tiers here as
-    `dynamic_access` patterns.
+    field, so a hand-rolled port that drops it demotes every `read` to `write`
+    and the owner starts getting prompted for things that used to run silently.
+    Ava's MCP client (`ava_bridge/mcp_client.py`) looks for the tier in every
+    place a real server can carry it, and lifts the first it finds to the
+    top-level `access` the consent gate reads:
+
+    1. a top-level `access` on the `tools/list` entry — never overridden;
+    2. `_meta.access` or `_meta["ava/access"]` — the SDKs serialise `Tool.meta`
+       as `_meta`, and it is the spec's home for vendor fields (what
+       `sdk/host/ava_mcp` mirrors - see below);
+    3. the spec's `ToolAnnotations`: `readOnlyHint: true` -> `read`,
+       `destructiveHint: true` (and not read-only) -> `destructive`. Only an
+       explicit `true` counts - `destructiveHint` defaults to true in the spec,
+       so an omitted hint accuses nobody - and no hint ever yields `sensitive`
+       or `physical`, which must be declared.
+
+    A tool carrying none of those arrives with no tier at all and the manifest's
+    `dynamic_access` decides (default `write`; `physical` on a `role: device`
+    connector). So: emit `access` (top-level or under `_meta`) from your server,
+    set the annotations, or restate the tiers here as `dynamic_access` patterns.
 
 ### Turn your own app into a real MCP server (`sdk/host/ava_mcp`)
 
@@ -772,6 +812,15 @@ From that one manifest, with nothing hand-maintained in Ava's core:
 - **Agent tools** ← `actions` (declared or discovered) or `mcp` (live from the server)
 - **Agent skills panel** ← `agent/skills/*/SKILL.md` (drop a folder → it shows in
   Setup → Agent → Skills, with its deploy state)
+- **The persona's "connected apps" block** ← every enabled `kind: app` manifest
+  that exposes tools, plus the tool names the app reported on its last
+  discovery. `agent/render_persona.py` fills `{{APPS_BLOCK}}` at provision time
+  with one line per app - its label, whether it is reached through native
+  `<id>_<action>` tools or the `<id>_find_tool` → `<id>_call` pair, and up to
+  25 tool names - so the model routes "what did I eat today" to the right app
+  without guessing. Nothing about your apps lives in the tracked template;
+  re-apply the persona (Setup → Agent, or `ava agent provision`) after
+  connecting an app so the running agent learns it is there.
 - **Agent egress policy** ← `egress` + `actions` + `mcp`
 - **Browser data-proxy** ← `ui.api`
 - **Chat quick-cards** ← `chat_pickup` (after a turn used one of your tools,
@@ -854,7 +903,7 @@ python3 examples/device-app/server.py       # serves http://127.0.0.1:8479
 
 # 2. Register it with Ava by dropping the folder into your data root
 mkdir -p "${AVA_HOME:-$PWD}/connectors"          # ava setup does not create this
-cp -r examples/device-app "$AVA_HOME/connectors/device-demo"
+cp -r examples/device-app "${AVA_HOME:-$PWD}/connectors/device-demo"
 
 # 3. Generate its agent tools + egress policy and load them into the sandbox.
 #    The first two write into the repo and need nothing installed. install.sh

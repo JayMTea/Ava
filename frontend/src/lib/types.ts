@@ -18,6 +18,138 @@ export interface AppEntry {
   has_api: boolean;
 }
 
+/* ── Domains ──────────────────────────────────────────────────────────────
+ * The wire shapes of /api/domains and /api/domains/{realm}/{domain}.
+ *
+ * `state` and `provenance` are ORTHOGONAL and both optional-by-absence:
+ * `state` says whether a number arrived, `provenance` how good the one that
+ * did is. `provenance` is null on EVERY absence — a reading that does not
+ * exist has no quality to describe, and leaving a value there is how a gap
+ * gets counted as a good measurement.
+ *
+ * No axis VALUES appear in this file. The vocabulary is the owner's and
+ * arrives at runtime in `axes`; the product defines none of it.
+ */
+export type ObsState = 'ok' | 'insufficient' | 'unavailable' | 'no_source';
+export type Provenance = 'measured' | 'derived' | 'assumed';
+
+/** One metric's latest reading. A DIMENSIONED metric carries `by_dim` and has
+ *  no single cell-level `value` — summing or picking one would be an
+ *  invention, so the card must render the breakdown instead. */
+export interface Observation {
+  metric: string;
+  unit: string | null;
+  value: number | null;
+  state: ObsState;
+  provenance: Provenance | null;
+  n: number | null;
+  lo?: number | null;
+  hi?: number | null;
+  /** Absent on a read-time ratio, which is computed rather than observed. */
+  day?: string | null;
+  why?: string;
+  dim?: string;
+  by_dim?: Record<string, {
+    value: number | null; state: ObsState;
+    provenance: Provenance | null; n: number | null; why?: string;
+  }>;
+}
+
+/** A same-unit sum. `complete` is false whenever anything was left out, and
+ *  `missing` then names it — an incomplete total cannot travel without its
+ *  gaps. There is deliberately no cross-unit total anywhere. */
+export interface Subtotal {
+  unit: string;
+  value: number | null;
+  contributors: number;
+  complete: boolean;
+  missing: { metric: string; why: string }[];
+}
+
+/** Days the COLLECTOR ran, over days it should have. Estate-wide, not
+ *  per-cell: it reads one heartbeat ledger. Never label it with a domain. */
+export interface Coverage {
+  metrics_ok?: number;
+  metrics_declared?: number;
+  days_expected: number;
+  days_collected: number;
+  missing_days: string[];
+}
+
+export interface DomainTree {
+  cadence?: string;
+  north_star?: string;
+  component?: string[];
+  influences?: string[];
+  guardrails?: string[];
+  /** Absent when the cell declares no tree at all. */
+  unresolved?: string[];
+}
+
+export interface DomainCell {
+  ok: boolean;
+  error?: string;
+  realm: string;
+  domain: string;
+  since_days: number;
+  north_star: Observation | null;
+  metrics: Observation[];
+  subtotals: Subtotal[];
+  coverage: Coverage;
+  provenance_floor: Provenance | null;
+  gaps: { metric: string; state: ObsState; why: string }[];
+  tree: DomainTree;
+}
+
+export interface DomainSurface {
+  id: string;
+  realm: string;
+  domain: string;
+  owner: string | null;
+  label: string;
+  rollup: string | null;
+  metrics: number;
+}
+
+export interface PendingGrant {
+  connector: string;
+  tool: string;
+  tier: string;
+  metrics: string[];
+}
+
+export interface DomainsCatalogue {
+  /** False only when the feature is off. A failed fetch is neither. */
+  enabled?: boolean;
+  axes: {
+    realm?: { order?: string[]; labels?: Record<string, string> };
+    domain?: { order?: string[]; labels?: Record<string, string> };
+  };
+  surfaces: DomainSurface[];
+  cells: { realm: string; domain: string }[];
+  problems: string[];
+  pending_grants: PendingGrant[];
+  coverage?: Coverage;
+}
+
+/** Sidebar readiness for one connected app — see `dashboard.apps_health`.
+ *  FACTS plus a rolled-up `health` code; the owner-facing sentences are built
+ *  in `lib/appHealth.tsx` (CLAUDE.md: the backend returns facts, the frontend
+ *  writes the copy). */
+export interface AppHealth {
+  id: string;
+  health: 'ready' | 'partial' | 'down' | 'off';
+  enabled: boolean;
+  /** null = the manifest declares no probe, which is NOT the same as "did not answer". */
+  service: 'up' | 'down' | 'unknown' | null;
+  auth_env: string | null;
+  auth_set: boolean;
+  tools_expected: number;
+  tools_deployed: boolean;
+  policy_expected: boolean;
+  policy_present: boolean;
+}
+
 export interface HistoryEntry {
   role: Role;
   content: string;
@@ -39,10 +171,26 @@ export interface ModelInfo {
   model?: string;
 }
 
+// A piece of agent/tool-produced media, resolved server-side to a same-origin,
+// seekable URL (see ava_bridge/agent_media.py). Renders as a player/thumbnail
+// on the assistant message and inside a tool-output card.
+export interface MediaRef {
+  url: string;
+  kind: 'image' | 'video' | 'audio' | 'file';
+  filename?: string;
+  mime?: string;
+}
+
 export interface CotStep {
-  kind: 'thinking' | 'text' | 'tool';
+  kind: 'thinking' | 'text' | 'tool' | 'tool_result';
   text?: string;
   name?: string;
+  // A tool call carries these once its result folds in (chatEvents.foldStep):
+  id?: string;               // toolCallId — the fold key
+  args?: unknown;            // what the tool was called with
+  output?: string;           // the tool's result text (bounded)
+  is_error?: boolean;        // the result was an error (snake, matching the wire)
+  attachments?: MediaRef[];  // media the tool produced
 }
 
 // WHOSE a model row is. The twin of ModelState: that one says whether a model is
@@ -233,6 +381,7 @@ export interface TurnStatus {
   reply?: string | null;
   previews?: Preview[];
   artifact?: Artifact | null;
+  attachments?: MediaRef[];
   model?: ModelInfo | null;
   ctx_tokens?: number | null;
   error?: string | null;
@@ -273,6 +422,7 @@ export interface ChatMessage {
   model?: ModelInfo | null;
   tools_used?: string[];
   steps?: CotStep[];
+  attachments?: MediaRef[]; // agent/tool-produced media, durable across reload
   error_code?: string; // machine-readable ("voice_off", "inference_down") — drives the fix-it link
 }
 

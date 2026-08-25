@@ -1,5 +1,5 @@
 # Example DEVICE connector. Copy this folder into your Ava data root:
-#   cp -r examples/device-app "$AVA_HOME/connectors/device-demo"
+#   cp -r examples/device-app "${AVA_HOME:-$PWD}/connectors/device-demo"
 # start the app (python examples/device-app/server.py), restart Ava, and it
 # appears in the Devices view — no edits to Ava's code. See docs/DEVICE_CONNECTORS.md.
 id: device-demo

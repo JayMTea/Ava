@@ -73,6 +73,94 @@ class GeneratedMjsParses(unittest.TestCase):
                     connectors.load = original
 
 
+def _every_generated_source() -> list:
+    """(label, source) for each generator shape: static action, find, call."""
+    original = connectors.load
+    connectors.load = lambda: [{"id": "demo", "label": "Demo"}]
+    try:
+        return [
+            ("static", connectors.render_tool(
+                "demo", {"id": "act", "description": "x", "path": "/x"})),
+            ("find", connectors.render_find_tool("demo")),
+            ("call", connectors.render_call_tool("demo")),
+        ]
+    finally:
+        connectors.load = original
+
+
+class ReachesTheBridgeThroughTheGuardProxy(unittest.TestCase):
+    """Every generated tool must call the bridge the way core tools do.
+
+    The sandbox's network guard admits outbound traffic only through its L7
+    proxy: a direct connection to the bridge is refused (curl reports 000, Node
+    reports ECONNREFUSED — measured from inside the sandbox). Core tools go
+    through `ctx.http` (`_lib.mjs`: curl with `--proxy`, `direct: false`); the
+    generated connector tools used a bare `fetch()`, which ignores the proxy —
+    so every connector call the agent ever made failed with "fetch failed",
+    while the identical request from a shell (proxy env set) succeeded. The
+    defect was invisible to every host-side test because nothing on the host
+    executes these files.
+    """
+
+    def test_no_generated_tool_uses_a_bare_fetch(self):
+        for label, src in _every_generated_source():
+            with self.subTest(shape=label):
+                self.assertNotIn("fetch(", src)
+                self.assertIn("ctx.http.", src)
+                self.assertIn("direct: false", src)
+                self.assertIn("'X-Ava-Internal-Token': ctx.internalToken", src)
+
+    @unittest.skipUnless(shutil.which("node"), "node not installed")
+    def test_generated_handlers_drive_ctx_http_with_the_bridge_route(self):
+        """Execute each handler under node with a recording ctx.http — the
+        contract the real `_lib.mjs` exposes — and check what it was asked."""
+        harness = """
+import tool from './t.mjs';
+const calls = [];
+const ctx = {
+  internalToken: 'tok',
+  http: {
+    getJson: async (url, opts) => { calls.push({m: 'GET', url, opts}); return {ok: 1}; },
+    postJson: async (url, body, opts) => { calls.push({m: 'POST', url, body, opts}); return {ok: 1}; },
+  },
+};
+const out = await tool.handler({query: 'q w', limit: 3, name: 'do_it', arguments: {a: 1}, x: 2}, ctx);
+console.log(JSON.stringify({calls, out}));
+"""
+        expect = {
+            "static": ("POST", "/internal/connector/demo/act"),
+            "find": ("GET", "/internal/connector/demo/__tools?q=q%20w&limit=3"),
+            "call": ("POST", "/internal/connector/demo/__call"),
+        }
+        for label, src in _every_generated_source():
+            with self.subTest(shape=label):
+                tmp = tempfile.mkdtemp()
+                try:
+                    with open(os.path.join(tmp, "t.mjs"), "w", encoding="utf-8") as f:
+                        f.write(src)
+                    with open(os.path.join(tmp, "run.mjs"), "w", encoding="utf-8") as f:
+                        f.write(harness)
+                    r = subprocess.run(["node", "run.mjs"], cwd=tmp,
+                                       capture_output=True, text=True)
+                    self.assertEqual(r.returncode, 0, r.stderr)
+                    import json
+                    got = json.loads(r.stdout.strip().splitlines()[-1])
+                finally:
+                    shutil.rmtree(tmp, ignore_errors=True)
+                self.assertEqual(len(got["calls"]), 1, got)
+                call = got["calls"][0]
+                method, path = expect[label]
+                self.assertEqual(call["m"], method)
+                self.assertTrue(call["url"].endswith(path), call["url"])
+                self.assertIs(call["opts"]["direct"], False)
+                self.assertEqual(call["opts"]["headers"]["X-Ava-Internal-Token"], "tok")
+                if label == "call":
+                    self.assertEqual(call["body"], {"name": "do_it", "arguments": {"a": 1}})
+                if label == "static":
+                    self.assertEqual(call["body"]["x"], 2)
+                self.assertIn('"ok": 1', got["out"])
+
+
 class DescriptionIsNotHandEscaped(unittest.TestCase):
     """Runs without node, so CI catches a regression even on a minimal image."""
 

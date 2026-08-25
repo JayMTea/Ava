@@ -66,6 +66,8 @@ def test_a_suffix_lookalike_does_not_pass() -> None:
     ("[::1]", True),
     ("[::1]:8096", True),          # the bracketed form my first cut got wrong
     ("host.docker.internal:8096", True),
+    ("host.openshell.internal:8096", True),   # the agent sandbox's name for this host
+    ("host.containers.internal:8096", True),  # Podman's
     ("", True),                    # no Host: not a browser, not the threat model
     ("evil.com", False),
     ("evil.com:8096", False),

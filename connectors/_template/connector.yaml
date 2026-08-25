@@ -1,4 +1,5 @@
-# Reference template. Copy this folder to  <id>/  and edit — or run:
+# Reference template. Copy this folder to  <id>/  and edit — the folder name
+# IS the connector id — or run:
 #   ava connector new <id>
 # (Folders starting with "_" are ignored by the loader.)
 #
@@ -6,6 +7,9 @@
 # Ava's core needs editing: the dashboard service row, perf source, agent egress
 # policy, agent tools, AND the left-rail app tile are all DERIVED from this file.
 # See docs/CONNECTOR_SDK.md for the full guide.
+# The FOLDER NAME is the connector id. Omit `id:` or keep it equal to the
+# folder name — a value that disagrees is reported in Setup and ignored.
+# Ids must match [a-z][a-z0-9_-]{1,31}.
 id: myapp
 label: My App
 kind: app                 # core | inference | media | app

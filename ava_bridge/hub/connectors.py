@@ -251,16 +251,30 @@ def list_connectors():
     errors: list = []
     for m in connectors.catalog(errors):  # includes disabled, so they can be re-enabled
         cid = m["id"]
+        # Manageability is decided OUT HERE, on inputs that cannot raise:
+        # `builtin` is what gates Edit / Disable / Remove in the panel, and the
+        # fallback row below used to hard-code it True — so the rows that
+        # FAILED to build (the broken ones) were exactly the rows stripped of
+        # every repair action, with no error shown anywhere. The owner's only
+        # exit was a terminal. Same isdir rule as _connector_row.
+        builtin = not os.path.isdir(os.path.join(user_root, cid))
         try:
-            out.append(_connector_row(m, cid, pol_dir, tool_root, user_root))
+            row = _connector_row(m, cid, pol_dir, tool_root, user_root)
         except Exception as e:  # noqa: BLE001
             # A malformed manifest must never take down THIS page: it holds the
             # manifest editor and the error list, so breaking it means the only
             # screen that could fix the connector is the one the connector broke.
             # connectors._validate is the actual fix; this is the guarantee that
-            # a field it does not yet know about cannot repeat the lockout.
-            out.append({"id": cid, "label": cid, "kind": "app", "error": str(e),
-                        "actions": 0, "enabled": False, "builtin": True})
+            # a field it does not yet know about cannot repeat the lockout. The
+            # row stays MANAGEABLE — real `builtin`, the manifest's own
+            # `enabled` — and carries the exception, so the panel can show WHY
+            # this connector is degraded right next to the actions that fix it.
+            row = {"id": cid, "label": str(m.get("label") or cid), "kind": "app",
+                   "error": str(e), "actions": 0, "mcp": False, "discover": False,
+                   "has_policy": os.path.exists(os.path.join(pol_dir, f"{cid}.yaml")),
+                   "has_tools": False, "renders_policy": False,
+                   "enabled": bool(m.get("enabled", True)), "builtin": builtin}
+        out.append(row)
     # Whether an embedded app's UI is isolated on its own browser origin. It ships
     # HERE, and not only on /api/apps, because this is the page where an owner
     # decides to give an app a sidebar tile — the moment the answer changes what
@@ -274,6 +288,18 @@ def list_connectors():
     seen = {(e.get("path"), e.get("error")) for e in errors}
     errors += [e for e in connectors.load_errors()
                if (e.get("path"), e.get("error")) not in seen]
+    # A connector can be degraded without its row-builder raising: the loader
+    # quarantined a field (or refused the whole file) and reported it through
+    # the errors list, keyed by id. Surface the first such message ON the row
+    # too, because a banner above the list and a normal-looking row below it
+    # read as two unrelated facts — and the row is where the owner clicks Edit.
+    by_id: dict = {}
+    for e in errors:
+        if e.get("id") and e.get("error") and e.get("severity") != "warning":
+            by_id.setdefault(e["id"], e["error"])
+    for row in out:
+        if not row.get("error") and by_id.get(row["id"]):
+            row["error"] = by_id[row["id"]]
     return {"connectors": out, "errors": errors,
             "apps_origin": _apps_origin.warning()}
 
@@ -632,7 +658,18 @@ async def connector_new(body: dict):
         return JSONResponse({"ok": False, "error":
                              "id must be 2-32 chars: a-z 0-9 _ - (starting with a letter)"},
                             status_code=400)
-    if any(m["id"] == cid for m in connectors.all()):
+    # "Already exists" must mean A MANIFEST FOR THIS ID EXISTS — not "one is
+    # currently enabled and parseable", which is all `connectors.all()` could
+    # see. Under that check, re-adding the id of a DISABLED connector (or of
+    # one whose YAML was mid-edit and unparsable, which the loader quarantines
+    # out of the registry entirely) silently OVERWROTE the owner's hand-written
+    # manifest — against this route's own docstring. Two checks because they
+    # cover different failures: catalog() knows every manifest that parses
+    # (disabled included), and the on-disk probe catches the ones that do not
+    # parse at all.
+    if (any(m["id"] == cid for m in connectors.catalog())
+            or os.path.exists(os.path.join(connectors.USER_DIR, cid,
+                                           "connector.yaml"))):
         return JSONResponse({"ok": False, "error": f"connector '{cid}' already exists"},
                             status_code=409)
     label = str(body.get("label") or cid.title()).strip()
@@ -772,6 +809,15 @@ async def connector_new(body: dict):
             act["access"] = acc
         if a.get("confirm"):
             act["confirm"] = True              # per-action human-in-the-loop gate
+        # The JSON-schema the probe read from the app's OpenAPI spec
+        # (_inputs_from_operation). It was built, shipped to the browser, sent
+        # back here — and then dropped on the floor, so every OpenAPI-detected
+        # action reached the manifest schema-less, and render_tool declared
+        # `{"properties": {}, "additionalProperties": false}`: a tool that
+        # REFUSES arguments. A templated path like /api/items/{id} was then
+        # fetched with the literal `{id}` still in it.
+        if isinstance(a.get("input"), dict):
+            act["input"] = a["input"]
         actions.append(act)
     if actions:
         manifest["actions"] = actions
@@ -820,6 +866,18 @@ async def connector_new(body: dict):
     except OSError as e:
         return JSONResponse({"ok": False, "error": f"could not write manifest: {e}"},
                             status_code=500)
+    # Anything a PREVIOUS holder of this id left behind must not carry over.
+    # delete_connector purges this state, but `rm -rf connectors/<id>` does
+    # not, and ids are reusable — so a manually-deleted predecessor can leave:
+    #
+    #   * standing grants, silently pre-approving actions THIS brand-new app
+    #     was never granted ("Always allow" belongs to an app, not to a name);
+    #   * cached self-reported tiers, which decide what runs without asking.
+    #
+    # Cleared before the discover seeding below, so the tiers that land in the
+    # cache are the ones this app just declared, not a merge with the old set.
+    grants.forget(cid)
+    tools_cache.forget(cid)
     warnings: list[str] = []
     # Save the pasted credential ONCE to the server-side store, keyed by the
     # env-var name the manifest references. Must precede discover seeding below so
@@ -883,6 +941,7 @@ def generate_connector(cid: str, write: int = 0):
     # static connectors, else one tool per action.
     tools = connectors.tool_files(cid)
     wrote: list[str] = []
+    pruned: list[str] = []
     if write:
         # Both trees live under AVA_HOME, not the code root: they are rendered
         # from a manifest rather than authored, and the code root is an image
@@ -902,7 +961,30 @@ def generate_connector(cid: str, write: int = 0):
             with open(tp, "w", encoding="utf-8") as f:
                 f.write(t["source"])
             wrote.append(os.path.relpath(tp, settings.AVA_HOME))
-    return {"ok": True, "policy": policy_yaml, "tools": tools, "wrote": wrote}
+        # Stale renders go OUT, not just fresh renders in. Renaming an action
+        # (or crossing the meta-tool threshold) changes the file SET, and
+        # install.sh tars this whole directory — so an old .mjs left beside the
+        # new ones ships into the sandbox as a phantom tool whose route the
+        # regenerated policy refuses. tool_files() is the one list of what
+        # should exist; any other .mjs in this connector's dir is a previous
+        # render. Reported so the route response (and the UI) can say so.
+        expected = {t["name"] for t in tools}
+        try:
+            for fn in sorted(os.listdir(tdir)):
+                if fn.endswith(".mjs") and fn not in expected:
+                    os.remove(os.path.join(tdir, fn))
+                    pruned.append(os.path.relpath(os.path.join(tdir, fn),
+                                                  settings.AVA_HOME))
+        except OSError:
+            pass  # no tools dir yet — nothing stale to prune
+        if pruned:
+            # Same ledger row prune_orphans writes, for the same reason: these
+            # are files the agent could have been handed, and a delete with no
+            # record is invisible precisely when someone asks what changed.
+            audit.record("connector_prune", id=cid, tool_files=pruned,
+                         reason="stale render removed on regenerate")
+    return {"ok": True, "policy": policy_yaml, "tools": tools, "wrote": wrote,
+            "pruned": pruned}
 
 @router.get("/connectors/{cid}/ingest-token")
 def connector_ingest_token(cid: str):
@@ -929,9 +1011,24 @@ def delete_connector(cid: str):
     Built-in connectors shipped in the repo are not removable from here."""
     if not _ID_RE.match(cid):
         return JSONResponse({"ok": False, "error": "bad id"}, status_code=400)
-    user_dir = os.path.join(settings.home("connectors"), cid)
+    # Folder-wins identity makes cid == the manifest's directory name, so the
+    # join below is already right; when the loader holds an entry for this id,
+    # its recorded source directory (`_dir`) wins — the loader's own answer to
+    # "which folder IS this connector". Trusted only when it sits inside the
+    # user root: a built-in's `_dir` points at the shipped tree, and this route
+    # must never rm -rf that. catalog(), not all(): a DISABLED connector still
+    # has a manifest, a credential and a dir to remove, and all() cannot see
+    # it. (load() never raises — bad manifests are quarantined per-field into
+    # load_errors() — so a registry holding error rows cannot 500 this lookup.)
+    entry = next((x for x in connectors.catalog() if x["id"] == cid), None)
+    user_root = settings.home("connectors")
+    user_dir = os.path.join(user_root, cid)
+    src = entry.get("_dir") if isinstance(entry, dict) else None
+    if (isinstance(src, str) and src and os.path.realpath(os.path.dirname(src))
+            == os.path.realpath(user_root)):
+        user_dir = src
     if not os.path.isdir(user_dir):
-        if any(x["id"] == cid for x in connectors.all()):
+        if entry is not None or any(x["id"] == cid for x in connectors.all()):
             return JSONResponse({"ok": False, "error":
                                  f"'{cid}' is a built-in connector and can't be deleted here"},
                                 status_code=400)
@@ -941,7 +1038,10 @@ def delete_connector(cid: str):
     # written afterwards cannot say what was there. The manifest is read here for
     # the same reason: once it is gone there is nothing left that knows which
     # env-var name held this app's credential.
-    m = next((x for x in connectors.all() if x["id"] == cid), None)
+    # catalog-first (the entry resolved above) so a DISABLED connector's
+    # credential is still cleared; the all() fallback keeps the enabled view
+    # working where only it is available.
+    m = entry or next((x for x in connectors.all() if x["id"] == cid), None)
     tdir = settings.connector_tools_dir(cid)
     pol = os.path.join(settings.generated_policy_dir(), f"{cid}.yaml")
     had_tools = os.path.isdir(tdir)
@@ -1257,11 +1357,22 @@ def set_connector_enabled(cid: str, body: dict):
                                 status_code=500)
         connectors.load(force=True)
         perf_mgmt.refresh_sources()
+        # Off means OFF for the process too: an MCP connector's stdio child
+        # (with the credential in its environment) keeps running until the
+        # session is closed. delete_connector already resets for the same
+        # reason — a server must not outlive the manifest that describes it,
+        # and a disabled manifest no longer describes a running one.
+        mcp_client.reset(cid)
         return {"ok": True, "enabled": False, "builtin": True, "stub": True}
     want = bool(body.get("enabled", True))
     m, err = _edit_manifest(path, [(("enabled",), want)])
     if err is not None:
         return err
+    if not want:
+        # Same rule as delete_connector: a live stdio MCP child keeps running —
+        # old credential and all — until the session is closed. The off switch
+        # has to mean the process, not just the flag in the manifest.
+        mcp_client.reset(cid)
     connectors.load(force=True)
     perf_mgmt.refresh_sources()
     return {"ok": True, "enabled": m["enabled"]}
@@ -1384,11 +1495,26 @@ def put_connector_manifest(cid: str, body: dict):
                                 status_code=400)
         return JSONResponse({"ok": False, "error": f"unknown connector '{cid}'"}, status_code=404)
     try:
-        with open(upath, "w", encoding="utf-8") as f:
-            f.write(text if text.endswith("\n") else text + "\n")
+        # atomic_write, not a truncating open("w"): this REPLACES the owner's
+        # whole manifest, and a crash mid-write used to leave a half-file the
+        # loader then refuses — taking the connector out of the very UI that
+        # edits it. settings.atomic_write is tmp+fsync+rename, so the old file
+        # survives any failure intact.
+        settings.atomic_write(upath, text if text.endswith("\n") else text + "\n")
     except OSError as e:
         return JSONResponse({"ok": False, "error": f"could not write: {e}"}, status_code=500)
+    # An edit may change the command, the credential name, the URL — a live
+    # stdio MCP child from the OLD manifest must not keep serving with the old
+    # environment. Same reasoning as delete_connector: a server must not
+    # outlive the manifest that described it.
+    mcp_client.reset(cid)
     connectors.load(force=True)
     perf_mgmt.refresh_sources()
-    return {"ok": True}
+    # What the loader made of the file that was just saved. This route answered
+    # a bare {"ok": true} for YAML it had ALREADY seen fail validation — the
+    # save is real (that part is true), but the person pressing Save in the
+    # manifest editor is exactly the person who needs the validation verdict.
+    # Same per-field quarantine rows list_connectors shows, filtered to this id.
+    return {"ok": True,
+            "errors": [e for e in connectors.load_errors() if e.get("id") == cid]}
 

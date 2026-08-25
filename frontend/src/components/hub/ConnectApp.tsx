@@ -24,7 +24,10 @@ import { Tile } from './ui/Tile';
 // `onConnected`; the chrome around it — a Setup panel or a modal — decides what
 // to show afterwards. That split is why the two mount points cannot drift.
 
-interface ActionDraft { id: string; method: string; path: string; description: string; confirm?: boolean; access?: string }
+// `input` rides along untouched: it is the JSON-schema the backend read from
+// the app's OpenAPI spec, and this form is just a courier for it — dropping it
+// here meant every detected tool reached the manifest argument-less.
+interface ActionDraft { id: string; method: string; path: string; description: string; confirm?: boolean; access?: string; input?: Record<string, unknown> }
 
 function ActionEditor({ actions, setAction, setActions }: {
   actions: ActionDraft[];
@@ -164,6 +167,10 @@ export function ConnectAppFields({ onCreated, onConnected }: {
             ? r.actions.map((a) => ({
                 id: a.id, method: a.method, path: a.path,
                 description: a.description || '', confirm: a.confirm, access: a.access,
+                // The probe's per-operation JSON-schema. Mapping only the six
+                // visible fields here is what used to drop it — the editor has
+                // no schema UI, but the manifest downstream needs it.
+                input: a.input,
               }))
             : [{ id: '', method: 'POST', path: '', description: '' }]);
         }

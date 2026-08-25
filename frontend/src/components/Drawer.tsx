@@ -1,17 +1,29 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import type {
   CSSProperties,
   KeyboardEvent as ReactKeyboardEvent,
   MouseEvent as ReactMouseEvent,
   RefObject,
 } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { AppEntry, ChatSummary } from '../lib/types';
-import { Icon } from '../lib/icons';
-import { AppDot, appAccent, appIcon } from '../lib/appColor';
+import { api } from '../lib/api';
+import { appAccent, appIcon } from '../lib/appColor';
+import { byId, HEALTH_LABEL, HealthDot, healthTitle } from '../lib/appHealth';
+import { applyOrder, moveTo } from '../lib/appOrder';
 import { DEFAULT_BRAND } from '../lib/brand';
 import { useBrand } from '../lib/brandContext';
-import { type Placed, type Viewport, placePanel, placeRail } from './flyoutPlace';
+import { Icon } from '../lib/icons';
+import {
+  alsoInLabel,
+  groupByRealm,
+  groupId,
+  navVisible,
+  RAIL_REALMS_OFF,
+  type RailRealms,
+  realmForApp,
+} from '../lib/realms';
+import type { AppEntry, AppHealth, ChatSummary } from '../lib/types';
+import { type Placed, placePanel, placeRail, type Viewport } from './flyoutPlace';
 import { ConnectAppDialog } from './hub/ConnectApp';
 
 // Ava's own wordmark, shipped under the SPA's static mount. Rendered only when
@@ -42,7 +54,7 @@ const AVA_WORDMARK = {
 // braces and `icon` before the closing brace, both single-quoted; no equals sign
 // in the type annotation; no `as const`; and the array closed by a bare
 // bracket-semicolon alone on its own line.
-type NavItem = { id: string; label: string; icon: string; system?: boolean };
+type NavItem = { id: string; label: string; icon: string; system?: boolean; feature?: string };
 const NAV: NavItem[] = [
   { id: 'chat', label: 'Chats', icon: 'chats' },
   { id: 'agent', label: 'Agent', icon: 'bot' },
@@ -50,6 +62,7 @@ const NAV: NavItem[] = [
   { id: 'ops', label: 'Operations', icon: 'activity', system: true },
   { id: 'data', label: 'Data', icon: 'db', system: true },
   { id: 'hub', label: 'Setup', icon: 'sliders', system: true },
+  { id: 'domains', label: 'Domains', icon: 'panel', system: true, feature: 'domains' },
 ];
 const NAV_INLINE = NAV.filter((it) => !it.system);
 const NAV_SYSTEM = NAV.filter((it) => it.system);
@@ -417,6 +430,9 @@ interface Props {
   onNewChat: () => void;
   onOpenChat: (id: string) => void;
   onDeleteChat: (id: string) => void;
+  /** Realm grouping for the app list. Defaults to OFF, so every existing caller
+   *  — and the snapshot recorded before Domains existed — renders unchanged. */
+  realms?: RailRealms;
 }
 
 export function Drawer({
@@ -431,6 +447,7 @@ export function Drawer({
   onNewChat,
   onOpenChat,
   onDeleteChat,
+  realms = RAIL_REALMS_OFF,
 }: Props) {
   // Hover tooltip for the rail icons (claude.ai style). One shared label,
   // portalled to <body> — the drawer clips overflow — and fixed at the rail's
@@ -446,6 +463,10 @@ export function Drawer({
   // one step an owner with no apps has to take first. The dialog is the shared
   // <ConnectAppFields> (hub/ConnectApp.tsx), not a sidebar-local copy.
   const [connectOpen, setConnectOpen] = useState(false);
+  // The rule itself lives in lib/realms.ts, pure and tested: these entries only
+  // exist inside a flyout that is closed until opened, so no render can reach
+  // them and the filter has to be provable somewhere else.
+  const systemNav = navVisible(NAV_SYSTEM, realms);
   const tipProps = (label: string) => ({
     onMouseEnter: (e: ReactMouseEvent<HTMLElement>) => {
       const r = e.currentTarget.getBoundingClientRect();
@@ -454,26 +475,161 @@ export function Drawer({
     onMouseLeave: () => setTip(null),
   });
 
-  const userApps = apps.filter((a) => a.section !== 'core');
+  // ---- connected-app readiness -------------------------------------------
+  // Polled on its own clock, never folded into the /api/apps fetch: the
+  // registry paints the nav and must stay instant, while this probes services.
+  // A failed poll leaves the last known health standing rather than blanking
+  // every dot to grey — a transient bridge hiccup is not "all your apps died".
+  const [health, setHealth] = useState<Record<string, AppHealth>>({});
+  useEffect(() => {
+    let live = true;
+    const load = () => {
+      void api.appsHealth()
+        .then((r) => { if (live) setHealth(byId(r.apps || [])); })
+        .catch(() => { /* keep the last reading */ });
+    };
+    load();
+    // 30s: the probe behind it is 15s-cached server-side, so anything faster
+    // just re-reads the same cache.
+    const t = window.setInterval(load, 30_000);
+    // A connect/remove changes the roster, so re-read rather than waiting out
+    // the interval with a dot for an app that is gone.
+    window.addEventListener('ava:apps-changed', load);
+    return () => {
+      live = false;
+      window.clearInterval(t);
+      window.removeEventListener('ava:apps-changed', load);
+    };
+  }, []);
+
+  // ---- hand-arranged order ------------------------------------------------
+  // Local order is OPTIMISTIC: a drag re-paints immediately and the POST
+  // confirms. `null` means "no local opinion — use whatever the server sent",
+  // which is also the state after a reload, since /api/apps already applies the
+  // saved arrangement.
+  const [order, setOrder] = useState<string[] | null>(null);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
+
+  const serverApps = apps.filter((a) => a.section !== 'core');
+  const userApps = order ? applyOrder(serverApps, order) : serverApps;
+
+  // Grouping is DERIVED, never stored. The drag arrangement writes ids only, so
+  // a drop can reorder the flat list but can never move an app into another
+  // realm — a structural guarantee rather than a guard, and it costs no code.
+  const appGroups = groupByRealm(userApps, (a) => realmForApp(realms, a.id), realms.axis);
+  const flatApps = appGroups.length === 1 && !appGroups[0].realm;
+
+  // ONE row definition, rendered from both arms so the two cannot drift. Lifted
+  // verbatim from the list below; the only change is the realm suffix on the
+  // accessible name, which is '' when grouping is off. The rail files a
+  // multi-realm app under one realm only, so this is the one channel that tells
+  // a screen-reader user the app has another home.
+  const appRow = (a: AppEntry) => {
+            const h = health[a.id];
+            return (
+              <button type="button"
+                key={a.id}
+                className={'nav-item nav-app'
+                  + (view === a.id ? ' active' : '')
+                  + (dragId === a.id ? ' dragging' : '')
+                  + (overId === a.id && dragId && dragId !== a.id ? ' dropping' : '')}
+                style={{ '--app-accent': appAccent(a) } as CSSProperties}
+                // Reorderable by POINTER and by KEYBOARD. Drag alone would
+                // put the arrangement out of reach of anyone not using a
+                // mouse — the same defect that made these rows real
+                // <button>s in the first place (see the Recents note below).
+                draggable
+                onDragStart={(e) => {
+                  setDragId(a.id);
+                  e.dataTransfer.effectAllowed = 'move';
+                  // Firefox refuses to start a drag with no payload set.
+                  e.dataTransfer.setData('text/plain', a.id);
+                }}
+                onDragEnter={() => setOverId(a.id)}
+                onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  dropOn(a.id);
+                  setDragId(null); setOverId(null);
+                }}
+                onDragEnd={() => { setDragId(null); setOverId(null); }}
+                onKeyDown={(e) => {
+                  // Alt+arrows, not bare arrows: a bare ArrowDown in a nav
+                  // list should move FOCUS, and stealing it would break the
+                  // list for everyone to serve reordering.
+                  if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+                  e.preventDefault();
+                  moveApp(a.id, e.key === 'ArrowUp' ? -1 : 1);
+                  // Focus follows the row, not the position — the element is
+                  // re-keyed to the same id, so React keeps it focused.
+                }}
+                aria-label={`${a.label} — ${h ? HEALTH_LABEL[h.health] : 'checking'}`
+                  + alsoInLabel(realms, a.id)}
+                onClick={() => onView(a.id)}
+              >
+                <Icon name={appIcon(a)} className="nav-ic" />
+                <span className="nav-app-name">{a.label}</span>
+                <HealthDot health={h?.health} title={healthTitle(a.label, h)}
+                           className="nav-app-dot" />
+              </button>
+            );
+  };
+
+  // One place that commits an arrangement, so the drag path and the keyboard
+  // path cannot drift. Saves the FULL list — see the route's note on why an
+  // arrangement beats a move instruction.
+  const commitOrder = useCallback((ids: string[]) => {
+    setOrder(ids);
+    void api.setAppOrder(ids).catch(() => { /* the local order still stands */ });
+  }, []);
+
+  const moveApp = useCallback((id: string, delta: number) => {
+    const ids = userApps.map((a) => a.id);
+    const from = ids.indexOf(id);
+    if (from < 0) return;
+    const to = from + delta;
+    if (to < 0 || to >= ids.length) return;   // already at an end
+    commitOrder(moveTo(ids, from, to));
+  }, [userApps, commitOrder]);
+
+  const dropOn = useCallback((targetId: string) => {
+    if (!dragId || dragId === targetId) return;
+    const ids = userApps.map((a) => a.id);
+    commitOrder(moveTo(ids, ids.indexOf(dragId), ids.indexOf(targetId)));
+  }, [dragId, userApps, commitOrder]);
+
   const q = query.trim().toLowerCase();
   const visibleChats = q
     ? chats.filter((c) => (c.title || 'New chat').toLowerCase().includes(q))
     : chats;
 
-  // `accent` marks connected-app tabs with the app's identity color (a small
-  // corner dot), so app destinations read as the app's, not Ava's.
-  const railBtn = (id: string, label: string, icon: string, accent?: string) => (
-    <button
-      key={id}
-      className={'rail-btn' + (view === id ? ' active' : '')}
-      aria-label={label}
-      {...tipProps(label)}
-      onClick={() => onView(id)}
-    >
-      <Icon name={icon} />
-      {accent && <AppDot accent={accent} className="rail-dot" />}
-    </button>
-  );
+  // `accent` marks connected-app tabs with the app's identity color, so app
+  // destinations read as the app's, not Ava's — on the GLYPH now rather than a
+  // corner dot, because the dot's corner is where readiness lives (see
+  // lib/appHealth.tsx). Ava's own rail buttons pass no accent and stay Ava's.
+  const railBtn = (id: string, label: string, icon: string, accent?: string) => {
+    const h = accent ? health[id] : undefined;
+    const tip = accent ? healthTitle(label, h) : label;
+    return (
+      <button
+        key={id}
+        className={'rail-btn' + (view === id ? ' active' : '') + (accent ? ' is-app' : '')}
+        aria-label={accent ? `${label} — ${h ? HEALTH_LABEL[h.health] : 'checking'}` : label}
+        // The accent rides in as a CUSTOM PROPERTY rather than an inline
+        // `color`, so the stylesheet decides which part of the row wears it —
+        // here the glyph, and in the expanded panel the glyph but never the
+        // label. Per-app data cannot be a theme token, and <Icon> stays a
+        // two-prop component.
+        style={{ '--app-accent': accent } as CSSProperties}
+        {...tipProps(tip)}
+        onClick={() => onView(id)}
+      >
+        <Icon name={icon} />
+        {accent && <HealthDot health={h?.health} className="rail-dot" />}
+      </button>
+    );
+  };
 
   return (
     <aside id="drawer" className={open ? 'open' : ''}>
@@ -527,7 +683,7 @@ export function Drawer({
         )}
         <div className="rail-spacer" />
         <div className="rail-foot">
-          <RailFlyout items={NAV_SYSTEM} view={view} onView={onView} drawerOpen={open} />
+          <RailFlyout items={systemNav} view={view} onView={onView} drawerOpen={open} />
         </div>
       </div>
 
@@ -619,18 +775,25 @@ export function Drawer({
           </button>
         </div>
         {userApps.length > 0 && (
-          <nav className="nav-list" aria-label="Apps">
-            {userApps.map((a) => (
-              <button type="button"
-                key={a.id}
-                className={'nav-item' + (view === a.id ? ' active' : '')}
-                onClick={() => onView(a.id)}
-              >
-                <Icon name={appIcon(a)} className="nav-ic" />
-                <span>{a.label}</span>
-                <AppDot accent={appAccent(a)} className="nav-app-dot" />
-              </button>
-            ))}
+          <nav className="nav-list nav-apps" aria-label="Apps">
+            {flatApps
+              ? appGroups[0].items.map(appRow)
+              : appGroups.map((g, i) => (
+                <div key={g.realm || '_'} className="nav-group"
+                     role={g.realm ? 'group' : undefined}
+                     aria-labelledby={g.realm ? groupId(i) : undefined}>
+                  {/* A .draw-sub, not an <h3>: this is the sidebar's own
+                      section-label type ("Apps", "Recents"), and a stray
+                      heading inside a nav landmark pollutes the heading
+                      outline of whatever view is open. role="group" +
+                      aria-labelledby is the right construct for a named set
+                      of controls. */}
+                  {g.realm && (
+                    <div className="draw-sub nav-realm" id={groupId(i)}>{g.label}</div>
+                  )}
+                  {g.items.map(appRow)}
+                </div>
+              ))}
           </nav>
         )}
         <div className="draw-sub">Recents</div>
@@ -690,7 +853,7 @@ export function Drawer({
             list attached. Mirrors the collapsed rail's foot flyout: same items,
             same menu, one list (NAV_SYSTEM), so the two forms cannot drift. */}
         <div className="panel-foot">
-          <PanelFlyout items={NAV_SYSTEM} view={view} onView={onView} drawerOpen={open} />
+          <PanelFlyout items={systemNav} view={view} onView={onView} drawerOpen={open} />
         </div>
       </div>
 

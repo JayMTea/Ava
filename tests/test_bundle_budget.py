@@ -34,6 +34,9 @@ BUDGET_KB = {
     "term": 120,
     # The agent console itself, minus the two heavy things above.
     "AgentView": 40,
+    # Behind lazy() — the Domains view. Feature is off by default, so most
+    # installs should never download it. Measured 3.7 kB gz at first ship.
+    "DomainsView": 20,
 }
 
 
@@ -78,7 +81,7 @@ def _entry_mentions(needle: str) -> bool:
     failure this guards against is exactly a dependency losing its name by
     being folded into another chunk.
     """
-    for path in (DIST / "assets").glob("index-*.js"):
+    for path in DIST.glob("index-*.js"):
         if needle in path.read_text(encoding="utf-8", errors="ignore"):
             return True
     return False

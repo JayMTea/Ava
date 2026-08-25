@@ -121,7 +121,7 @@ class OrphanTests(unittest.TestCase):
                          "removing an egress policy has to reach the ledger")
 
     def test_prune_with_nothing_to_do_writes_no_ledger_row(self):
-        _write_manifest(self.manifests, "kept", "id: kept\nlabel: Kept\n")
+        _write_manifest(self.manifests, "kept", "id: kept\nlabel: Kept\nactions:\n  discover:\n    base: \"http://127.0.0.1:9\"\n    list: /tools\n    call: /call\n")
         connectors.load(force=True)
         self._tool("kept")
         with mock.patch("ava_bridge.audit.record") as rec:

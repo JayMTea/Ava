@@ -143,8 +143,10 @@ export function ChatView({
                     text={it.text}
                     model={it.model}
                     toolsUsed={it.toolsUsed}
+                    attachments={it.attachments}
                     onRetry={it.srcText ? () => onRetryAva(it.srcText, it.srcAtts) : undefined}
                     onReplay={it.audio ? () => onReplay(it.audio!) : undefined}
+                    onOpen={onOpenLightbox}
                   >
                     {it.artifact && (
                       <button type="button" className="art-chip" onClick={() => onOpenArtifact(it.artifact!)}>
@@ -169,6 +171,7 @@ export function ChatView({
                     secs={it.secs}
                     error={it.error}
                     code={it.code}
+                    onOpen={onOpenLightbox}
                   />
                 );
               case 'preview':

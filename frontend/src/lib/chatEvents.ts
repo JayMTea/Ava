@@ -1,6 +1,6 @@
 import type { ChatItem } from './chatItems';
 import { uid } from './chatItems';
-import type { CotStep, TurnStatus } from './types';
+import type { CotStep, MediaRef, TurnStatus } from './types';
 
 // The streamed turn, as a PURE reducer.
 //
@@ -15,9 +15,46 @@ import type { CotStep, TurnStatus } from './types';
 /** What `AgentRuntime.iter_run` yields, as the client receives it. */
 export type RunEvent =
   | { kind: 'step'; step: CotStep }
-  | { kind: 'final'; text: string; tools?: string[] }
+  | { kind: 'final'; text: string; tools?: string[]; attachments?: MediaRef[] }
   | { kind: 'error'; message: string; code?: string }
   | { kind: 'gap' };
+
+/**
+ * Add one step, folding a `tool_result` into its matching `tool` call — the
+ * live-view twin of `turns._fold_step`. A tool call streams as a `tool` step
+ * (start) then a `tool_result` (its output); merging the result INTO the start,
+ * by id then by name, is what makes one enriched card per call instead of a
+ * duplicate "Using exec" row. Immutable: returns a new array, never mutates.
+ * An orphan result (its start was never seen) becomes a standalone tool card.
+ */
+export function foldStep(steps: CotStep[], step: CotStep): CotStep[] {
+  if (step.kind === 'tool_result') {
+    const idx = matchToolIndex(steps, step);
+    if (idx >= 0) {
+      const merged: CotStep = { ...steps[idx] };
+      if (step.output) merged.output = step.output;
+      if (step.attachments?.length) merged.attachments = step.attachments;
+      if (step.is_error) merged.is_error = true;
+      return steps.map((s, i) => (i === idx ? merged : s));
+    }
+    return [...steps, { ...step, kind: 'tool' }];
+  }
+  return [...steps, step];
+}
+
+function matchToolIndex(steps: CotStep[], result: CotStep): number {
+  if (result.id) {
+    for (let i = steps.length - 1; i >= 0; i--) {
+      if (steps[i].kind === 'tool' && steps[i].id === result.id) return i;
+    }
+  }
+  for (let i = steps.length - 1; i >= 0; i--) {
+    const s = steps[i];
+    if (s.kind === 'tool' && s.name === result.name
+        && s.output === undefined && s.attachments === undefined) return i;
+  }
+  return -1;
+}
 
 export interface RunContext {
   /** The `cot` item this run is writing into. */
@@ -60,7 +97,7 @@ export function applyEvent(items: ChatItem[], ev: RunEvent,
   if (ev.kind === 'step') {
     if (settled) return items;
     return patch(items, ctx.cotId, (it) =>
-      it.kind === 'cot' ? { ...it, steps: [...it.steps, ev.step] } : it);
+      it.kind === 'cot' ? { ...it, steps: foldStep(it.steps, ev.step) } : it);
   }
 
   if (ev.kind === 'gap') {
@@ -86,12 +123,13 @@ export function applyEvent(items: ChatItem[], ev: RunEvent,
     : 0;
   const next = patch(items, ctx.cotId, (it) =>
     it.kind === 'cot' ? { ...it, status: 'done', secs } : it);
-  if (!ev.text) return next;
+  if (!ev.text && !(ev.attachments && ev.attachments.length)) return next;
   return [...next, {
     kind: 'ava',
     id: uid(),
     text: ev.text,
     toolsUsed: ev.tools || [],
+    attachments: ev.attachments || [],
     srcText: ctx.srcText,
     srcAtts: ctx.srcAtts as never,
     runId: ctx.runId,
@@ -163,16 +201,18 @@ export function applyTurnRecord(items: ChatItem[], turn: TurnStatus,
             model: turn.model ?? it.model,
             toolsUsed: turn.tools_used ?? it.toolsUsed,
             artifact: turn.artifact ?? it.artifact ?? null,
+            attachments: turn.attachments ?? it.attachments ?? [],
           }
         : it);
-  } else if (turn.reply) {
+  } else if (turn.reply || (turn.attachments && turn.attachments.length)) {
     next = [...next, {
       kind: 'ava',
       id: uid(),
-      text: turn.reply,
+      text: turn.reply || '',
       model: turn.model ?? null,
       toolsUsed: turn.tools_used || [],
       artifact: turn.artifact ?? null,
+      attachments: turn.attachments || [],
       srcText: ctx.srcText,
       srcAtts: ctx.srcAtts as never,
       runId,

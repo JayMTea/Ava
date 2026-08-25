@@ -147,6 +147,53 @@ body { font-family:var(--font-ui); }
 .rail-btn { position:relative; }
 .rail-btn .rail-dot { position:absolute; right:6px; bottom:6px; width:6px; height:6px;
   box-shadow:0 0 0 2px var(--sidebar); }
+
+/* ---- connected-app READINESS (lib/appHealth.tsx) --------------------------
+   The sidebar's dot answers "will this work if I click it?", not "whose is
+   this?" — so identity moves to the row's GLYPH (tinted with the app's accent
+   via --app-accent) and the dot carries health. CLAUDE.md's rule that an
+   app-representing element wears the app's accent still holds; only the glyph
+   carrying it changed.
+
+   NO NEW COLOUR TOKENS: the four states map onto --ok / --warn / --err /
+   --muted, the same semantic set the dashboards use, so they stay correct in
+   both themes with nothing to re-tune. */
+.health-dot { display:inline-block; width:7px; height:7px; border-radius:50%;
+  flex:0 0 auto; background:var(--muted); }
+.health-dot.is-ready   { background:var(--ok); }
+.health-dot.is-partial { background:var(--warn); }
+.health-dot.is-down    { background:var(--err);
+  /* A failure gets a halo. At 7px a red dot and an amber one are one hue apart
+     in peripheral vision, and "down" is the state worth interrupting for. */
+  box-shadow:0 0 0 3px color-mix(in oklab, var(--err) 26%, transparent); }
+.health-dot.is-off     { background:var(--muted); opacity:.55; }
+/* Not yet polled. A hollow ring, never a filled dot: no colour has been earned
+   until the first reading lands. */
+.health-dot.is-unknown { background:transparent;
+  box-shadow:inset 0 0 0 1.5px color-mix(in oklab, var(--muted) 70%, transparent); }
+
+/* The app's identity accent, on the glyph. `.nav-ic`/.rail glyph colour is set
+   above, so these need equal-or-higher specificity and later source order —
+   both hold here. */
+.nav-item.nav-app .nav-ic,
+.rail-btn.is-app .ico > svg { color:var(--app-accent); }
+.nav-item.nav-app.active .nav-ic { color:var(--app-accent); }
+
+/* Reorderable rows. Grab cursor only on the app list — the other nav rows are
+   not draggable and must not pretend to be. */
+.nav-item.nav-app { cursor:grab; }
+.nav-item.nav-app:active { cursor:grabbing; }
+.nav-item.nav-app.dragging { opacity:.4; }
+/* The drop target, marked with a line rather than a filled block: the row is
+   where the dragged app LANDS, and a full highlight reads as "this row is
+   selected". */
+.nav-item.nav-app.dropping { box-shadow:inset 0 2px 0 0 var(--accent); }
+.nav-app-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+/* The dot carries `margin-left:auto` itself: it used to inherit its right-hand
+   position from the hover position-number that preceded it, and that number is
+   gone. */
+.nav-item.nav-app .nav-app-dot { margin-left:auto; margin-right:2px; }
+
 .toolsdrop li .app-dot, .media .cap .app-dot {
   margin-right:6px; vertical-align:middle; position:relative; top:-1px; }
 .tool-app { margin-left:6px; color:var(--muted); font-size:11px; }
@@ -702,3 +749,58 @@ body {
   height: 1px;
   background: var(--line);
 }
+
+/* ============================================================================
+   Rich chat: markdown replies, agent/tool media, and tool-output cards.
+   All token-based so both themes resolve; reuses the .md-* type styles that
+   hub.css already ships (loaded globally).
+   ========================================================================== */
+
+/* The assistant reply renders as markdown, not a raw pre-wrap string. */
+.md-reply { white-space: normal; }
+.md-reply .md { font-size: inherit; line-height: 1.6; }
+.md-reply .md-pre { white-space: pre; }
+.md-img { max-width: 100%; height: auto; border-radius: 10px; margin: 6px 0; display: block; }
+
+/* Media the reply carries (video/image/audio/file). */
+.msg-media { display: flex; flex-direction: column; gap: 10px; margin: 10px 0 2px; }
+.media-card { max-width: 480px; }
+.media-card .media-el { width: 100%; max-width: 100%; display: block;
+  border-radius: 12px; background: #000; }
+.media-card.kind-audio .media-el, .media-card .media-audio {
+  background: transparent; border-radius: 10px; }
+.media-imgbtn { border: 0; padding: 0; margin: 0; background: none; cursor: zoom-in;
+  display: block; width: 100%; }
+.media-imgbtn .media-el { cursor: zoom-in; }
+.media-file { display: inline-flex; align-items: center; gap: 8px; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--panel2);
+  color: var(--txt); text-decoration: none; }
+.media-file:hover { background: var(--wash-6); }
+.media-file svg { width: 16px; height: 16px; flex: 0 0 auto; color: var(--muted); }
+.media-cap { display: flex; align-items: center; gap: 6px; font-size: 12px;
+  color: var(--muted); margin-top: 4px; }
+.media-cap .media-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.media-cap .tool-app { font-size: 11px; }
+
+/* Tool-output card: a bare call is one row (.cstep.tool); once its result folds
+   in it becomes this collapsible card with args, output and media. */
+details.tool-card { display: block; padding: 0; white-space: normal;
+  border: 1px solid var(--line); border-left: 2px solid var(--accent);
+  border-radius: 8px; background: var(--wash-3); margin: 5px 0; overflow: hidden; }
+details.tool-card > .tool-sum { display: flex; align-items: center; gap: 6px;
+  cursor: pointer; padding: 6px 10px; list-style: none; color: var(--accent);
+  font-size: 12.5px; }
+details.tool-card > .tool-sum::-webkit-details-marker { display: none; }
+details.tool-card > .tool-sum svg { width: 14px; height: 14px; flex: 0 0 auto; }
+details.tool-card[open] > .tool-sum { border-bottom: 1px solid var(--line); }
+details.tool-card.tool-err { border-left-color: var(--err); }
+details.tool-card.tool-err > .tool-sum { color: var(--err); }
+.tool-lab { font-weight: 500; }
+.tool-body { padding: 8px 10px; display: flex; flex-direction: column; gap: 8px; }
+.tool-args, .tool-out { margin: 0; font-family: var(--font-mono); font-size: 12px;
+  line-height: 1.5; color: var(--txt); background: var(--wash-4);
+  border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px;
+  overflow-x: auto; white-space: pre; }
+.tool-args { color: var(--muted); }
+.tool-media { display: flex; flex-direction: column; gap: 8px; }
+.tool-media .media-card { max-width: 100%; }

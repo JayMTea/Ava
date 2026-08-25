@@ -28,6 +28,7 @@ the honest answer and is never counted as pending drift.
 from __future__ import annotations
 
 import hashlib
+import re
 import shutil
 import time
 import uuid
@@ -79,6 +80,16 @@ _EV_GAP = "ava.gateway.gap"
 # taken from `chat` only, and the `agent` stream contributes the material `chat`
 # does not have: tool calls and reasoning.
 _AGENT_STEP_STREAMS = ("tool", "tools", "reasoning", "thinking")
+
+# A captured tool result is bounded before it enters the trajectory: OpenClaw
+# already caps its own tool-event text (~8000 chars), and chat_store trims again
+# on persist, so this is the live ceiling on one tool card's output.
+_TOOL_OUTPUT_MAX = 4000
+# The upstream `MEDIA:` reply convention (docs.openclaw.ai/tools/media-overview):
+# a line that is exactly `MEDIA: <ref>`, optionally backtick-wrapped. Captured
+# from the 2026.7.1 Control UI parser, which accepts http(s), data:, /media/,
+# /__openclaw__/, media://, file:// and absolute/relative paths.
+_MEDIA_LINE = re.compile(r"^\s*MEDIA:\s*`?([^`\n]+?)`?\s*$", re.IGNORECASE | re.MULTILINE)
 
 
 def _classify(topic: str, payload: dict) -> str | None:
@@ -505,16 +516,23 @@ class OpenClawGatewayRuntime(AgentRuntime):
                 elif kind == "final":
                     text = _final_text(payload)
                     if text is not None:
-                        yield {"kind": "final", "text": text,
-                               "tools": tools or _tools_of(payload)}
+                        atts = _final_media(payload)
+                        # A recognised `MEDIA: <ref>` line renders as a card, so
+                        # drop it from the prose exactly as the Control UI does —
+                        # a raw sandbox path is not something to read (or speak).
+                        yield {"kind": "final", "text": _strip_media_lines(text),
+                               "tools": tools or _tools_of(payload),
+                               "attachments": atts,
+                               "usage_tokens": _usage_tokens(payload)}
                         return
                     next_reconcile = 0.0
             if time.time() >= next_reconcile:
                 done = self._reconcile(handle)
                 if done is not None:
-                    reply, hist_tools = done
+                    reply, hist_tools, atts, usage = done
                     yield {"kind": "final", "text": reply,
-                           "tools": tools or hist_tools}
+                           "tools": tools or hist_tools,
+                           "attachments": atts, "usage_tokens": usage}
                     return
                 next_reconcile = time.time() + _RECONCILE_EVERY_S
 
@@ -537,7 +555,7 @@ class OpenClawGatewayRuntime(AgentRuntime):
             f"the agent did not finish within {timeout:g}s", "gateway_timeout",
             retryable=True, detail={"runId": handle.run_id})
 
-    def _reconcile(self, handle: RunHandle) -> tuple[str, list[str]] | None:
+    def _reconcile(self, handle: RunHandle) -> tuple[str, list[str], list[dict], int | None] | None:
         """The authoritative answer: has this run's reply landed in the session?
 
         Also the reconnect story — a socket that dropped mid-run loses events but
@@ -595,7 +613,8 @@ class OpenClawGatewayRuntime(AgentRuntime):
             run = str(msg.get("runId") or "")
             if run:
                 if run == handle.run_id:
-                    return _text_of(msg), _tools_of(msg)
+                    return (_text_of(msg), _tools_of(msg),
+                            _final_media(msg), _usage_tokens(msg))
                 continue
             # 2. The anchor: is the message before it OUR user message?
             prev = msgs[i - 1] if i else None
@@ -610,7 +629,8 @@ class OpenClawGatewayRuntime(AgentRuntime):
             stored = str(prev.get("idempotencyKey") or "")
             if key and stored and (stored == key
                                    or stored.rsplit(":", 1)[0] == key):
-                return _text_of(msg), _tools_of(msg)
+                return (_text_of(msg), _tools_of(msg),
+                        _final_media(msg), _usage_tokens(msg))
         return None
 
     @staticmethod
@@ -693,7 +713,9 @@ class OpenClawGatewayRuntime(AgentRuntime):
             text = _final_text(payload)
             if text is None:
                 return None
-            return {"kind": "final", "text": text, "tools": _tools_of(payload)}
+            return {"kind": "final", "text": _strip_media_lines(text),
+                    "tools": _tools_of(payload),
+                    "attachments": _final_media(payload)}
         if kind == "gap":
             return {"kind": "gap"}
         return None
@@ -937,24 +959,52 @@ def _tools_of(payload: dict) -> list[str]:
 def _step_of(payload: dict) -> dict | None:
     """One gateway event → one chain-of-thought step in Ava's shape.
 
-    `frontend/src/lib/types.ts` defines CotStep as thinking | text | tool and
-    `ChainOfThought.tsx` renders exactly those three. A streaming runtime has
-    richer material than the polled one — tool ARGUMENTS, which the CLI path had
-    to re-parse out of the session file — so `args` rides along as an optional
-    extra that only `build_turn_artifact` reads. Extending the shape is safe;
-    inventing a fourth `kind` would not be.
+    `frontend/src/lib/types.ts` defines CotStep as thinking | text | tool |
+    tool_result. A tool call arrives as a `phase` lifecycle — start | update |
+    result — under `data`, and this collapses it to at most two steps a reader
+    cares about:
+
+        start   → {kind: "tool",        name, id?, args?}
+        update  → dropped (partial output; the result frame carries the whole)
+        result  → {kind: "tool_result", id?, name, output?, attachments?, is_error?}
+
+    The `tool_result` is FOLDED back into its matching `tool` step by id — in
+    `turns._fold_step` for the persisted record and in `chatEvents.foldStep` for
+    the live view — so what renders is one enriched tool card per call, never a
+    duplicate "Using exec" row. Emitting the two kinds and folding downstream is
+    what keeps the live relay and the record identical.
     """
     # `agent` events nest their content one level down, under `data`; `chat`
     # events carry it at the top. Look in both rather than at a guessed shape.
-    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
-    for src in (payload, data):
-        name = _tool_name(src)
-        if name:
-            step: dict = {"kind": "tool", "name": name}
-            args = src.get("args") or src.get("arguments") or src.get("input")
-            if isinstance(args, (dict, str)):
-                step["args"] = args
+    tf = _tool_frame(payload)
+    if tf is not None:
+        name = _tool_name(tf) or "tool"
+        phase = str(tf.get("phase") or "").lower()
+        call_id = _call_id(tf)
+        has_result = (tf.get("result") is not None
+                      or "isError" in tf or "is_error" in tf)
+        if phase == "result" or (phase not in ("start", "update") and has_result):
+            output, atts = _tool_result_content(tf.get("result"))
+            step: dict = {"kind": "tool_result", "name": name}
+            if call_id:
+                step["id"] = call_id
+            if output:
+                step["output"] = output
+            if atts:
+                step["attachments"] = atts
+            if tf.get("isError") or tf.get("is_error"):
+                step["is_error"] = True
             return step
+        if phase == "update":
+            return None
+        step = {"kind": "tool", "name": name}
+        if call_id:
+            step["id"] = call_id
+        args = tf.get("args") or tf.get("arguments") or tf.get("input")
+        if isinstance(args, (dict, str)):
+            step["args"] = args
+        return step
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
     for src in (payload, data):
         # `deltaText` is the chat stream's increment; `delta` the agent
         # stream's. Prefer an increment over the cumulative `text`, or every
@@ -968,6 +1018,22 @@ def _step_of(payload: dict) -> dict | None:
     return None
 
 
+def _tool_frame(payload: dict) -> dict | None:
+    """The dict that actually holds a tool call, or None.
+
+    Agent events carry it under `data`; a legacy/top-level shape carries it on
+    the payload. Whichever has a tool name wins, and every other field (phase,
+    id, result) is then read from that same dict — so a `phase` on `data` is not
+    accidentally paired with a `name` on the payload.
+    """
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    if _tool_name(data):
+        return data
+    if _tool_name(payload):
+        return payload
+    return None
+
+
 def _tool_name(payload: dict) -> str | None:
     for key in ("tool", "toolName", "tool_name", "name"):
         got = payload.get(key)
@@ -975,6 +1041,142 @@ def _tool_name(payload: dict) -> str | None:
             return got.strip()
         if isinstance(got, dict) and isinstance(got.get("name"), str):
             return got["name"].strip()
+    return None
+
+
+def _call_id(frame: dict) -> str | None:
+    for key in ("toolCallId", "tool_call_id", "callId", "call_id", "id"):
+        got = frame.get(key)
+        if isinstance(got, str) and got.strip():
+            return got.strip()
+    return None
+
+
+def _tool_result_content(result) -> tuple[str, list[dict]]:
+    """A tool result's content blocks → (bounded text, media refs).
+
+    OpenClaw strips image bytes out of tool events to `{omitted: true, bytes}`,
+    so most tool cards carry text and no playable media; a URL-bearing block
+    (a web tool, a connector) still yields a ref. Refs are RAW here — resolved
+    to same-origin, browser-fetchable URLs later by `agent_media`.
+    """
+    text_parts: list[str] = []
+    atts: list[dict] = []
+    if isinstance(result, str):
+        blocks: list = [result]
+    elif isinstance(result, list):
+        blocks = result
+    elif isinstance(result, dict):
+        blocks = result.get("content") if isinstance(result.get("content"), list) else [result]
+    else:
+        blocks = []
+    for b in blocks:
+        if isinstance(b, str):
+            text_parts.append(b)
+            continue
+        if not isinstance(b, dict):
+            continue
+        if isinstance(b.get("text"), str):
+            text_parts.append(b["text"])
+        ref = _media_ref_from_block(b)
+        if ref:
+            atts.append(ref)
+    out = "\n".join(p for p in text_parts if p and p.strip()).strip()
+    if len(out) > _TOOL_OUTPUT_MAX:
+        out = out[:_TOOL_OUTPUT_MAX] + " …[truncated]"
+    return out, atts
+
+
+def _media_ref_from_block(block: dict) -> dict | None:
+    """A content block → a raw media ref {url, mime?, filename?}, or None.
+
+    Skips a block OpenClaw omitted (bytes stripped, no fetchable location) —
+    a ref with no URL would only render a broken player.
+    """
+    if block.get("omitted"):
+        return None
+    url = None
+    for key in ("url", "mediaUrl", "uri", "source", "path", "src"):
+        got = block.get(key)
+        if isinstance(got, str) and got.strip():
+            url = got.strip()
+            break
+    if not url:
+        return None
+    ref: dict = {"url": url}
+    for key in ("mimeType", "mime", "contentType", "content_type"):
+        got = block.get(key)
+        if isinstance(got, str) and got.strip():
+            ref["mime"] = got.strip()
+            break
+    for key in ("filename", "name", "title"):
+        got = block.get(key)
+        if isinstance(got, str) and got.strip():
+            ref["filename"] = got.strip()
+            break
+    return ref
+
+
+def _final_media(payload: dict) -> list[dict]:
+    """Raw media refs a finished reply carries, from every place OpenClaw puts
+    one: `mediaUrl`/`mediaUrls` on the payload or its message, media content
+    blocks, and `MEDIA: <ref>` lines in the reply text. De-duplicated by URL,
+    order preserved."""
+    refs: list[dict] = []
+    msg = payload.get("message") if isinstance(payload.get("message"), dict) else {}
+    for holder in (payload, msg):
+        one = holder.get("mediaUrl")
+        if isinstance(one, str) and one.strip():
+            refs.append({"url": one.strip()})
+        many = holder.get("mediaUrls")
+        if isinstance(many, list):
+            refs.extend({"url": u.strip()} for u in many
+                        if isinstance(u, str) and u.strip())
+        content = holder.get("content")
+        if isinstance(content, list):
+            for b in content:
+                if isinstance(b, dict):
+                    ref = _media_ref_from_block(b)
+                    if ref:
+                        refs.append(ref)
+    text = _text_of(msg) or _text_of(payload)
+    for m in _MEDIA_LINE.finditer(text or ""):
+        one = m.group(1).strip()
+        if one:
+            refs.append({"url": one})
+    seen: set[str] = set()
+    out: list[dict] = []
+    for r in refs:
+        u = r.get("url")
+        if u and u not in seen:
+            seen.add(u)
+            out.append(r)
+    return out
+
+
+def _strip_media_lines(text: str) -> str:
+    """Drop `MEDIA: <ref>` lines from reply prose — they render as media cards,
+    not as text to read or speak."""
+    if not text:
+        return text
+    kept = [ln for ln in text.splitlines() if not _MEDIA_LINE.match(ln)]
+    return "\n".join(kept).strip()
+
+
+def _usage_tokens(payload: dict) -> int | None:
+    """The prompt/context token count a finished reply reports, if any — the
+    honest numerator for the context meter on this runtime (the CLI path had to
+    estimate chars/4). Reads the gateway's own `usage`, preferring the
+    context-filling count over the total."""
+    for holder in (payload, payload.get("message") if isinstance(payload.get("message"), dict) else {}):
+        usage = holder.get("usage")
+        if not isinstance(usage, dict):
+            continue
+        for key in ("promptTokens", "prompt_tokens", "inputTokens",
+                    "input_tokens", "contextTokens", "totalTokens", "total_tokens"):
+            got = usage.get(key)
+            if isinstance(got, (int, float)) and got > 0:
+                return int(got)
     return None
 
 

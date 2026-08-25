@@ -389,5 +389,79 @@ class ThreadSafetyTests(unittest.TestCase):
                              "a snapshot was torn or reordered")
 
 
+class ToolResultAndMediaTests(unittest.TestCase):
+    """The rich-chat contract: a tool call and its result fold into one card,
+    and reply media plus the gateway's own token count reach the record.
+
+    These use same-origin media URLs so resolution is a pure passthrough — no
+    network, no gateway, matching the house 'no bridge, no sandbox, no network'
+    rule. `agent_media` resolution of sandbox paths is covered separately.
+    """
+
+    def test_a_tool_result_folds_into_its_start_by_id(self):
+        rt = FakeStreamRuntime([
+            {"kind": "step", "step": {"kind": "tool", "name": "exec",
+                                      "id": "c1", "args": {"cmd": "render"}}},
+            {"kind": "step", "step": {"kind": "tool_result", "name": "exec",
+                                      "id": "c1", "output": "601 frames",
+                                      "attachments": [{"url": "/apps/r/out.mp4",
+                                                       "kind": "video"}]}},
+            {"kind": "final", "text": "Rendered.", "tools": ["exec"]},
+        ])
+        rec = _turn(rt)
+        tool_steps = [s for s in rec["steps"] if s["kind"] == "tool"]
+        self.assertEqual(len(tool_steps), 1, "start+result must be ONE card")
+        self.assertEqual(tool_steps[0]["output"], "601 frames")
+        self.assertEqual(tool_steps[0]["args"], {"cmd": "render"})
+        self.assertEqual(tool_steps[0]["attachments"][0]["url"], "/apps/r/out.mp4")
+        self.assertNotIn("tool_result", [s["kind"] for s in rec["steps"]])
+        self.assertEqual(rec["tools_used"], ["exec"])
+
+    def test_a_result_without_an_id_folds_by_name(self):
+        rt = FakeStreamRuntime([
+            {"kind": "step", "step": {"kind": "tool", "name": "exec"}},
+            {"kind": "step", "step": {"kind": "tool_result", "name": "exec",
+                                      "output": "done"}},
+            {"kind": "final", "text": "ok", "tools": []},
+        ])
+        rec = _turn(rt)
+        tool_steps = [s for s in rec["steps"] if s["kind"] == "tool"]
+        self.assertEqual(len(tool_steps), 1)
+        self.assertEqual(tool_steps[0]["output"], "done")
+
+    def test_an_orphan_result_becomes_a_standalone_card(self):
+        rt = FakeStreamRuntime([
+            {"kind": "step", "step": {"kind": "tool_result", "name": "exec",
+                                      "output": "surprise", "is_error": True}},
+            {"kind": "final", "text": "ok", "tools": []},
+        ])
+        rec = _turn(rt)
+        self.assertEqual([s["kind"] for s in rec["steps"]], ["tool"])
+        self.assertEqual(rec["steps"][0]["output"], "surprise")
+        self.assertTrue(rec["steps"][0]["is_error"])
+        self.assertEqual(rec["tools_used"], ["exec"])
+
+    def test_reply_media_and_usage_reach_the_record(self):
+        rt = FakeStreamRuntime([
+            {"kind": "final", "text": "Here it is.", "tools": [],
+             "attachments": [{"url": "/apps/r/clip.mp4", "kind": "video",
+                              "filename": "clip.mp4"},
+                             {"url": "/apps/r/clip.mp4"}],  # dup, must collapse
+             "usage_tokens": 18900},
+        ])
+        rec = _turn(rt)
+        self.assertEqual(len(rec["attachments"]), 1, "duplicate media collapses")
+        self.assertEqual(rec["attachments"][0]["url"], "/apps/r/clip.mp4")
+        self.assertEqual(rec["attachments"][0]["kind"], "video")
+        self.assertEqual(rec["ctx_tokens"], 18900,
+                         "the gateway's own usage count is the numerator")
+
+    def test_no_media_no_usage_leaves_the_record_clean(self):
+        rt = FakeStreamRuntime([{"kind": "final", "text": "hi", "tools": []}])
+        rec = _turn(rt)
+        self.assertEqual(rec["attachments"], [])
+        self.assertIsNone(rec["ctx_tokens"])  # which_model is mocked to None
+
+
 if __name__ == "__main__":
     unittest.main()

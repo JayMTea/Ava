@@ -355,5 +355,174 @@ class TestConnectorsIntegration(unittest.TestCase):
         self.assertEqual(len(allowed), 2)
 
 
+
+class TestTierNormalisation(unittest.TestCase):
+    """`tools/list` entries are normalised so the consent gate can read them.
+
+    `tools_cache.update` reads ONE field — a top-level `access` — and plain MCP
+    has no such field. Before this, a real MCP server's tools all fell to the
+    manifest default (`write`) and every read started asking the owner for
+    permission, however carefully the server had tagged them. These pin where a
+    tier is looked for, in what order, and — just as important — where it is NOT
+    invented.
+    """
+
+    def tearDown(self):
+        mcp_client.reset()
+
+    # -- the pure function ---------------------------------------------------
+    def test_explicit_top_level_access_is_never_overridden(self):
+        t = {"name": "x", "access": "read",
+             "_meta": {"access": "destructive"},
+             "annotations": {"destructiveHint": True}}
+        self.assertEqual(mcp_client._normalise_tool(t)["access"], "read")
+
+    def test_meta_access_is_lifted(self):
+        # The SDKs serialise `Tool.meta` as `_meta`.
+        t = {"name": "x", "_meta": {"access": "Sensitive"}}
+        out = mcp_client._normalise_tool(t)
+        self.assertEqual(out["access"], "sensitive")
+        self.assertNotIn("access", t, "normalisation must not mutate the input")
+
+    def test_namespaced_meta_key_is_lifted(self):
+        # What sdk/host/ava_mcp mirrors: the spec's vendor-field convention.
+        t = {"name": "x", "_meta": {"ava/access": "read"}}
+        self.assertEqual(mcp_client._normalise_tool(t)["access"], "read")
+
+    def test_a_meta_word_outside_the_tier_vocabulary_is_not_lifted(self):
+        # `_meta` is the spec's free-form slot: a third-party server's own
+        # "access": "public" is not a consent tier. Lifting it would make
+        # tools_cache coerce it to `write` and demote a device's `physical`
+        # fallback to a grantable prompt — so it must read as "said nothing".
+        t = {"name": "x", "_meta": {"access": "public"}}
+        self.assertNotIn("access", mcp_client._normalise_tool(t))
+
+    def test_an_invalid_meta_word_falls_through_to_the_annotations(self):
+        t = {"name": "x", "_meta": {"access": "bogus"},
+             "annotations": {"readOnlyHint": True}}
+        self.assertEqual(mcp_client._normalise_tool(t)["access"], "read")
+
+    def test_the_namespaced_meta_key_outranks_the_bare_one(self):
+        t = {"name": "x", "_meta": {"access": "read", "ava/access": "sensitive"}}
+        self.assertEqual(mcp_client._normalise_tool(t)["access"], "sensitive")
+
+    def test_meta_outranks_annotations(self):
+        t = {"name": "x", "_meta": {"access": "write"},
+             "annotations": {"readOnlyHint": True}}
+        self.assertEqual(mcp_client._normalise_tool(t)["access"], "write")
+
+    def test_read_only_hint_becomes_read(self):
+        t = {"name": "x", "annotations": {"readOnlyHint": True}}
+        self.assertEqual(mcp_client._normalise_tool(t)["access"], "read")
+
+    def test_destructive_hint_becomes_destructive_unless_read_only(self):
+        t = {"name": "x", "annotations": {"destructiveHint": True}}
+        self.assertEqual(mcp_client._normalise_tool(t)["access"], "destructive")
+        both = {"name": "x", "annotations": {"readOnlyHint": True,
+                                             "destructiveHint": True}}
+        self.assertEqual(mcp_client._normalise_tool(both)["access"], "read")
+
+    def test_no_signal_leaves_access_absent(self):
+        """Absent means "the server said nothing" — the manifest's
+        `dynamic_access` then decides, and a `role: device` connector keeps its
+        never-grantable `physical` fallback. Inventing `write` here would be the
+        silent downgrade tools_cache.update documents."""
+        for t in ({"name": "x"},
+                  {"name": "x", "_meta": {}},
+                  {"name": "x", "_meta": {"access": ""}},
+                  {"name": "x", "annotations": {}},
+                  # destructiveHint DEFAULTS to true in the spec: an explicit
+                  # false, or the other hints alone, must not accuse the tool.
+                  {"name": "x", "annotations": {"destructiveHint": False}},
+                  {"name": "x", "annotations": {"readOnlyHint": False,
+                                                "openWorldHint": True,
+                                                "idempotentHint": True}},
+                  # Only a literal True: strings and 1 are not the spec's shape.
+                  {"name": "x", "annotations": {"readOnlyHint": "true"}}):
+            with self.subTest(tool=t):
+                self.assertNotIn("access", mcp_client._normalise_tool(t))
+
+    def test_odd_shapes_pass_through(self):
+        self.assertEqual(mcp_client._normalise_tool("not a tool"), "not a tool")
+        self.assertEqual(mcp_client._normalise_tool({"name": "x", "_meta": "str"}),
+                         {"name": "x", "_meta": "str"})
+        self.assertEqual(mcp_client.normalise_tools(None), [])
+        self.assertEqual(mcp_client.normalise_tools({"tools": []}), [])
+        self.assertEqual(mcp_client.normalise_tools([1, {"name": "y"}]),
+                         [1, {"name": "y"}])
+
+    # -- through the transport and into the consent gate --------------------
+    def _spec(self):
+        return {"transport": "http", "url": "http://127.0.0.1:9999/mcp",
+                "command": None, "env": None, "token_env": None}
+
+    @staticmethod
+    def _fake_post(tools):
+        def fake_post(url, json=None, headers=None, timeout=None, **kw):
+            method = (json or {}).get("method")
+            if method == "initialize":
+                return _Resp({"jsonrpc": "2.0", "id": json["id"], "result": {}})
+            if method == "notifications/initialized":
+                return _Resp({}, status=202)
+            if method == "tools/list":
+                return _Resp({"jsonrpc": "2.0", "id": json["id"],
+                              "result": {"tools": tools}})
+            raise AssertionError(f"unexpected method {method}")
+        return fake_post
+
+    def test_list_tools_returns_normalised_entries(self):
+        tools = [
+            {"name": "explicit", "access": "sensitive",
+             "annotations": {"readOnlyHint": True}},
+            {"name": "via_meta", "_meta": {"ava/access": "read"}},
+            {"name": "via_hint", "annotations": {"destructiveHint": True}},
+            {"name": "silent"},
+        ]
+        with mock.patch("requests.post", side_effect=self._fake_post(tools)):
+            out = mcp_client.list_tools("norm1", self._spec())
+        got = {t["name"]: t.get("access") for t in out["tools"]}
+        self.assertEqual(got, {"explicit": "sensitive", "via_meta": "read",
+                               "via_hint": "destructive", "silent": None})
+        self.assertNotIn("access", out["tools"][3])
+
+    def test_discovery_writes_the_lifted_tier_into_the_consent_cache(self):
+        """The end-to-end reason this exists: a real MCP server that tags a
+        tool `_meta.access: read` must run it silently, not prompt for it. The
+        manifest is loopback so the self-report is trusted (see
+        connectors._trusts_declared_tiers)."""
+        from ava_bridge import tools_cache
+        import tempfile
+        import os
+        manifest = {"id": "mcptest", "kind": "app",
+                    "mcp": {"url": "http://127.0.0.1:9999/mcp"}}
+        tools = [{"name": "list_things", "_meta": {"access": "read"}},
+                 {"name": "wipe_things", "annotations": {"destructiveHint": True}},
+                 {"name": "untagged"}]
+        tmp = tempfile.mkdtemp()
+        try:
+            with mock.patch.object(tools_cache, "PATH",
+                                   os.path.join(tmp, "cache.json")), \
+                 mock.patch.object(connectors, "load", return_value=[manifest]), \
+                 mock.patch("requests.post", side_effect=self._fake_post(tools)):
+                tools_cache._cache.update(data=None, mtime=0.0)
+                out = connectors.discover_tools("mcptest")
+                self.assertNotIn("error", out, out)
+                self.assertEqual(tools_cache.access("mcptest", "list_things"), "read")
+                self.assertEqual(tools_cache.access("mcptest", "wipe_things"),
+                                 "destructive")
+                # Said nothing -> recorded as nothing -> the manifest decides.
+                self.assertIsNone(tools_cache.access("mcptest", "untagged"))
+                self.assertEqual(connectors.action_access("mcptest", "list_things"),
+                                 "read")
+                self.assertEqual(connectors.action_access("mcptest", "wipe_things"),
+                                 "destructive")
+                self.assertEqual(connectors.action_access("mcptest", "untagged"),
+                                 "write")
+        finally:
+            tools_cache._cache.update(data=None, mtime=0.0)
+            import shutil
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
 if __name__ == "__main__":
     unittest.main()

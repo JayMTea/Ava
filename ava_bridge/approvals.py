@@ -18,9 +18,19 @@ import uuid
 
 TIMEOUT_S = 120.0            # how long a call waits for the operator
 _MAX_PENDING = 50            # backstop against a flood of parked calls
+# After a gated call times out, an IDENTICAL call (same connector, action and
+# arguments) is refused for this long without parking a fresh prompt. The agent
+# side is not to be trusted with restraint here: a local model that reads a
+# timeout as a flaky service retried one gated write four times in a row, and
+# every retry put a new prompt in front of the owner for the same thing. One
+# unanswered prompt is a decision the owner has not made yet; a stack of them
+# is noise that trains the owner to click through. A decision (approve or deny)
+# clears the cooldown, so the owner acting on the prompt is never blocked by it.
+COOLDOWN_S = 300.0
 
 _pending: dict[str, dict] = {}
 _cv = threading.Condition()
+_cooldown: dict[tuple, float] = {}   # (cid, action, args-hash) -> when it timed out
 
 
 def _slim_args(args) -> dict:
@@ -32,6 +42,16 @@ def _slim_args(args) -> dict:
     return out
 
 
+def _cooldown_key(cid: str, action: str, args: dict | None) -> tuple:
+    import hashlib
+    import json
+    try:
+        blob = json.dumps(args or {}, sort_keys=True, default=str)
+    except Exception:  # noqa: BLE001 — unhashable oddities still get a key
+        blob = repr(args)
+    return (cid, action, hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16])
+
+
 def gate(cid: str, action: str, args: dict | None) -> str:
     """Block until the operator decides. Returns 'approved' | 'denied' |
     'timeout' | 'skip' (skip = no confirmation required)."""
@@ -39,8 +59,16 @@ def gate(cid: str, action: str, args: dict | None) -> str:
     if not connectors.needs_confirm(cid, action):
         return "skip"
 
+    key = _cooldown_key(cid, action, args)
     aid = uuid.uuid4().hex[:10]
     with _cv:
+        since = time.time() - _cooldown.get(key, 0.0)
+        if since < COOLDOWN_S:
+            # Same call, same arguments, and the owner has not answered the
+            # last prompt for it: do not stack another. Recorded so the ledger
+            # shows the repeat, not just the original.
+            audit.record("approval", connector=cid, action=action, state="cooldown")
+            return "cooldown"
         if len(_pending) >= _MAX_PENDING:
             return "denied"                 # too many parked — fail safe
         _pending[aid] = {"id": aid, "connector": cid, "action": action,
@@ -60,7 +88,13 @@ def gate(cid: str, action: str, args: dict | None) -> str:
         status = _pending[aid]["status"]
         if status == "pending":
             status = "timeout"
+            _cooldown[key] = time.time()
+        else:
+            _cooldown.pop(key, None)        # the owner decided: no cooldown to serve
         _pending.pop(aid, None)
+        # Keep the table small; entries older than the window are dead weight.
+        for k in [k for k, t in _cooldown.items() if time.time() - t > COOLDOWN_S]:
+            _cooldown.pop(k, None)
     audit.record("approval", connector=cid, action=action, state=status)
     return status
 

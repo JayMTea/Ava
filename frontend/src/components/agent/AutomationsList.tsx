@@ -41,7 +41,9 @@ export function AutomationsList({ activeId, onOpen }: {
 
   return (
     <>
-      <div className="db-kpis">
+      {/* Three tiles, so a three-track row — the default six leaves them
+          bunched in the left half under a wide console. */}
+      <div className="db-kpis db-kpis-3">
         <StatCard label="Automations" value={jobs.length} />
         <StatCard label="Active" value={active} tone={active ? 'ok' : 'default'} />
         {/* `err` only when something IS failing. A permanently red tile is a

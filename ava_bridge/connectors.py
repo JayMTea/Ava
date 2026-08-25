@@ -98,10 +98,23 @@ def _discover_spec(m: dict) -> dict | None:
 _load_errors: List[dict] = []
 
 
+# The one id shape every management surface can address: the Hub routes gate on
+# the same pattern (`_ID_RE` in hub/connectors.py) and `scaffold.valid_id`
+# enforces it at creation time. A folder outside it still LOADS — hiding the
+# app would be worse — it just cannot be managed from Setup, and the loader
+# says so instead of leaving the owner to discover it route by route.
+_FOLDER_ID_RE = _re.compile(r"^[a-z][a-z0-9_-]{1,31}$")
+
+
 def _load_dir(base: str, errors: list | None = None) -> dict:
     out: dict = {}
     if yaml is None or not os.path.isdir(base):
         return out
+
+    def _err(row: dict) -> None:
+        if errors is not None:
+            errors.append(row)
+
     for name in sorted(os.listdir(base)):
         if name.startswith(("_", ".")):
             continue
@@ -109,20 +122,49 @@ def _load_dir(base: str, errors: list | None = None) -> dict:
         if not os.path.isfile(path):
             continue
         try:
-            with open(path, encoding="utf-8") as f:
-                m = yaml.safe_load(f) or {}
-        except Exception as e:  # noqa: BLE001 — a bad manifest must not crash boot
-            if errors is not None:
-                errors.append({"id": name, "path": path, "error": str(e)})
+            try:
+                with open(path, encoding="utf-8") as f:
+                    m = yaml.safe_load(f) or {}
+            except Exception as e:  # noqa: BLE001 — a bad manifest must not crash boot
+                _err({"id": name, "path": path, "error": str(e)})
+                continue
+            if not isinstance(m, dict):  # e.g. a YAML list/scalar — not a manifest
+                _err({"id": name, "path": path,
+                      "error": "not a mapping (expected 'key: value' lines)"})
+                continue
+            # THE FOLDER NAME IS THE ID. The registry used to key on the
+            # manifest's `id:` while every Hub lifecycle route keyed on the
+            # folder — a mismatch made an app undeletable under the id the UI
+            # displayed, and deletable under its folder name with none of the
+            # grant/credential/tier cleanup that delete performs. One identity,
+            # decided here, ends the split brain. A declared `id:` that agrees
+            # is fine; one that disagrees is reported and ignored. And because
+            # the folder name is always a str, a manifest like `id: 2048` can
+            # no longer poison `out[m["id"]]` for every other connector.
+            declared = m.get("id")
+            m["id"] = name
+            if isinstance(declared, bool):
+                _err({"id": name, "path": path, "severity": "warn",
+                      "error": f"`id:` parsed as YAML boolean ({declared}) — "
+                               "quote it if you meant text; using the folder "
+                               f"name '{name}'"})
+            elif declared is not None and str(declared) != name:
+                _err({"id": name, "path": path, "severity": "error",
+                      "error": f"`id: {declared}` does not match its folder "
+                               f"'{name}' — the folder name is the id; rename "
+                               "one to match (see docs/CONNECTOR_SDK.md)"})
+            if not _FOLDER_ID_RE.match(name):
+                _err({"id": name, "path": path, "severity": "warn",
+                      "error": f"folder name '{name}' cannot be managed from "
+                               "Setup (ids must match [a-z][a-z0-9_-]{1,31}) — "
+                               "rename the folder to a lowercase slug"})
+            _validate(m, path, errors)
+            m["_dir"] = os.path.join(base, name)
+            out[name] = m
+        except Exception as e:  # noqa: BLE001 — one bad manifest may only lose itself
+            _err({"id": name, "path": path,
+                  "error": f"failed to load: {type(e).__name__}: {e}"})
             continue
-        if not isinstance(m, dict):  # e.g. a YAML list/scalar — not a manifest
-            if errors is not None:
-                errors.append({"id": name, "path": path,
-                               "error": "not a mapping (expected 'key: value' lines)"})
-            continue
-        m["id"] = m.get("id") or name
-        _validate(m, path, errors)
-        out[m["id"]] = m
     return out
 
 
@@ -224,6 +266,84 @@ def _bad_url(raw: str, url: str) -> str | None:
     return None
 
 
+_NESTED_ERR = "`%s.%s:` must be %s (got %s) — ignoring that field; see docs/CONNECTOR_SDK.md"
+
+
+def _validate_nested(m: dict, cid: str, path: str, errors: list) -> None:
+    """Type-check the NESTED fields core actually dereferences.
+
+    `_BLOCK_TYPES` stops at the top level, and every audit finding in this
+    family had the same shape: a nested value of the wrong type sails through
+    validation and detonates in whichever consumer dereferences it — `apps()`
+    sorting on `ui.order`, `render_egress_policy` iterating `egress.hosts`, the
+    Hub row builder walking `mcp.env`. Same quarantine contract as the
+    top-level checks: report, drop the FIELD (never the connector), never touch
+    the owner's file. Two shapes are coerced rather than dropped, because the
+    author's intent is unambiguous: a quoted `ui.order: "10"` and a bare-string
+    `egress.hosts: "127.0.0.1:9000"`.
+    """
+
+    def bad(block: str, key: str, want: str) -> None:
+        got = type(m[block][key]).__name__
+        errors.append({"id": cid, "path": path, "severity": "error",
+                       "error": _NESTED_ERR % (block, key, want, got)})
+        m[block].pop(key, None)
+
+    ui = m.get("ui")
+    if isinstance(ui, dict):
+        if "order" in ui and not isinstance(ui["order"], bool):
+            try:
+                ui["order"] = int(ui["order"])
+            except (TypeError, ValueError):
+                bad("ui", "order", "a number")
+        elif isinstance(ui.get("order"), bool):
+            bad("ui", "order", "a number")
+        if "api" in ui and not isinstance(ui["api"], dict):
+            bad("ui", "api", "a mapping")
+
+    eg = m.get("egress")
+    if isinstance(eg, dict):
+        for key in ("routes", "hosts"):
+            v = eg.get(key)
+            if v is None:
+                continue
+            if isinstance(v, str):
+                eg[key] = [v]  # the un-bracketed single entry — intent is clear
+            elif not isinstance(v, list):
+                bad("egress", key, "a list of strings")
+        if "host_rules" in eg and not isinstance(eg["host_rules"], dict):
+            bad("egress", "host_rules", "a mapping")
+
+    mcp = m.get("mcp")
+    if isinstance(mcp, dict):
+        if "env" in mcp and not isinstance(mcp["env"], dict):
+            shape = ("the docker-compose LIST form — use the mapping form "
+                     "`env: {NAME: value}`" if isinstance(mcp["env"], list)
+                     else "a mapping")
+            got = type(mcp["env"]).__name__
+            errors.append({"id": cid, "path": path, "severity": "error",
+                           "error": f"`mcp.env:` must be a mapping (got {got}"
+                                    f"{' — looks like ' + shape if isinstance(mcp['env'], list) else ''})"
+                                    " — ignoring that field; see docs/CONNECTOR_SDK.md"})
+            mcp.pop("env", None)
+        if "command" in mcp and not isinstance(mcp["command"], (list, str)):
+            bad("mcp", "command", "a string or list")
+        if "url" in mcp and not isinstance(mcp["url"], str):
+            bad("mcp", "url", "a string")
+
+    jobs = m.get("jobs")
+    if isinstance(jobs, dict):
+        if "labels" in jobs and not isinstance(jobs["labels"], dict):
+            bad("jobs", "labels", "a mapping")
+
+    acts = m.get("actions")
+    if isinstance(acts, dict):
+        if "static" in acts and not isinstance(acts["static"], list):
+            bad("actions", "static", "a list")
+        if "discover" in acts and not isinstance(acts["discover"], dict):
+            bad("actions", "discover", "a mapping")
+
+
 def _validate(m: dict, path: str, errors: list | None) -> None:
     """Type-check the blocks core reads, and QUARANTINE the bad ones in memory.
 
@@ -259,11 +379,22 @@ def _validate(m: dict, path: str, errors: list | None) -> None:
                                     "see docs/CONNECTOR_SDK.md"})
             m.pop(key, None)
     # Unknown top-level keys are how a typo (`egres:`) goes unnoticed forever.
+    # A key that is not even TEXT (`on:` -> True, `1:` -> int) used to crash the
+    # scan itself with AttributeError — one such key anywhere took down every
+    # registry consumer. It is quarantined like any other bad block.
     for key in list(m):
+        if not isinstance(key, str):
+            errors.append({"id": cid, "path": path, "severity": "warn",
+                           "error": f"key `{key!r}` is not text (YAML parsed it as "
+                                    f"{type(key).__name__}) — ignored. Quote it if "
+                                    "you meant a literal key."})
+            m.pop(key, None)
+            continue
         if key not in _BLOCK_TYPES and not key.startswith("x_"):
             errors.append({"id": cid, "path": path, "severity": "warn",
                            "error": f"unknown key `{key}:` — ignored. Prefix your own "
                                     "with `x_` to silence this."})
+    _validate_nested(m, cid, path, errors)
     # A misspelled consent tier is a security defect, not a cosmetic one: the
     # author asked for a gate and the value decides which. `_dynamic_access` now
     # fails closed on one, but silence here is how it stayed unnoticed — the block
@@ -658,9 +789,28 @@ def render_egress_policy(cid: str) -> dict | None:
     if not m:
         return None
     eg = m.get("egress") or {}
+    if not isinstance(eg, dict):
+        eg = {}
+    # Normalized here as well as in `_validate_nested`: this function is called
+    # with manifests from `load()`, but `ava connector policies` can reach it
+    # through paths that skipped validation, and a bare string iterated here
+    # per-CHARACTER once rendered 84 blanket allow rules from one typo.
+    _routes = eg.get("routes") or []
+    if isinstance(_routes, str):
+        _routes = [_routes]
+    if not isinstance(_routes, list):
+        _routes = []
+    _hosts = eg.get("hosts") or []
+    if isinstance(_hosts, str):
+        _hosts = [_hosts]
+    if not isinstance(_hosts, list):
+        _hosts = []
+    _host_rules = eg.get("host_rules")
+    if not isinstance(_host_rules, dict):
+        _host_rules = {}
     endpoints = []
     rules = []
-    for r in (eg.get("routes") or []):
+    for r in _routes:
         parts = str(r).split()
         method, path = (parts[0], parts[1]) if len(parts) == 2 else ("GET", str(r))
         rules.append({"allow": {"method": method.upper(), "path": path}})
@@ -698,26 +848,28 @@ def render_egress_policy(cid: str) -> dict | None:
             "enforcement": "enforce", "allowed_ips": list(_PRIVATE_IPS),
             "rules": rules,
         })
-    for h in (eg.get("hosts") or []):
+    for h in _hosts:
         host, _, port = str(h).partition(":")
         ep = {"host": host, "port": int(port) if port else _default_port(host),
               "protocol": "rest", "enforcement": "enforce"}
-        # `allowed_ips` is the SSRF allow-list: agent/policies/ava-knowledge.yaml
-        # documents that the guard rejects private host-gateway IPs unless the
-        # resolved address is explicitly allow-listed. Attaching the blanket RFC1918
-        # list to a PUBLIC host therefore pre-authorises that name to resolve into
-        # private space — the exact case the list exists to control. Only a host
-        # that is already private gets it. Compare the hand-written
-        # agent/policies/ava-weather.yaml: port 443, no allowed_ips.
-        if _is_private_host(host):
-            ep["allowed_ips"] = list(_PRIVATE_IPS)
+        # NO `allowed_ips` here, deliberately. NemoClaw's policy-add permits that
+        # key only on the bridge endpoint above (every hand-written policy in
+        # agent/policies/ carries it there and nowhere else) and REJECTS the
+        # whole preset when a user endpoint declares it — so the private-host
+        # branch that used to add it rendered policies that could never apply:
+        # `install.sh` reported "policy was NOT applied" and the connector's
+        # tools hit deny-by-default. (Found wiring an owner app whose
+        # manifest declares a loopback MCP sidecar under `egress.hosts`.) The endpoint's
+        # own host:port is already the narrow grant; the sandbox guard's
+        # private-space rules are nemoclaw's to enforce, not this renderer's to
+        # pre-authorise.
         # An endpoint with no `rules` permits every method on every path, and
         # policy_inventory._scan only harvests wildcards FROM rules — so the
         # broadest grant a manifest can express was invisible to
         # ava_security_check.check_policy_wildcards. Make it explicit and visible.
         # `egress.host_rules` narrows it; the default says out loud what a bare
         # `hosts:` entry has always meant.
-        hr = (eg.get("host_rules") or {}).get(str(h)) or (eg.get("host_rules") or {}).get(host)
+        hr = _host_rules.get(str(h)) or _host_rules.get(host)
         if hr:
             ep["rules"] = [{"allow": {"method": str(x).split()[0].upper(),
                                       "path": str(x).split()[1]}}
@@ -949,13 +1101,14 @@ export default {{
   inputSchema: {_json.dumps(schema, indent=2)},
   async handler(args, ctx) {{
     try {{
-      const r = await fetch(`${{BRIDGE}}/internal/connector/{cid}/{aid}`, {{
-        method: 'POST',
-        headers: {{ 'Content-Type': 'application/json',
-                   'X-Ava-Internal-Token': ctx.internalToken || '' }},
-        body: JSON.stringify(args || {{}}),
+      // Through the sandbox guard proxy (ctx.http = _lib.mjs curl helpers), the
+      // way every core tool reaches the bridge. Node's built-in fetch ignores
+      // the proxy and the sandbox refuses the direct connection, so the tool
+      // failed on every call while the same request from a shell worked.
+      const data = await ctx.http.postJson(`${{BRIDGE}}/internal/connector/{cid}/{aid}`, args || {{}}, {{
+        direct: false, timeout: 150,
+        headers: {{ 'X-Ava-Internal-Token': ctx.internalToken || '' }},
       }});
-      const data = await r.json();
       return typeof data === 'string' ? data : JSON.stringify(data, null, 2);
     }} catch (e) {{
       return `Error calling {name}: ${{e.message}}`;
@@ -1027,8 +1180,11 @@ def render_find_tool(cid: str) -> str:
         hint = "its tools are discovered live"
     # json.dumps escapes the whole string (see render_tool) and emits its own
     # quotes, so `label` needs no hand-escaping and the apostrophe is literal.
+    # A label that already ends in "App" ("Health App") must not render as
+    # "the Health App app's" — refer to it by the label alone in that case.
+    app_ref = label if label.lower().endswith(" app") else f"{label} app"
     desc = _json.dumps(
-        f"Search the {label} app's available actions ({hint}). "
+        f"Search the {app_ref}'s available actions ({hint}). "
         f"ALWAYS call this first with a few keywords for what you want to do, "
         f"then invoke the chosen action with {cid}_call.")
     return f"""// AUTO-GENERATED from connectors/{cid}/connector.yaml (meta: find_tool).
@@ -1050,10 +1206,12 @@ export default {{
     try {{
       const q = encodeURIComponent(args.query || '');
       const n = Number(args.limit) > 0 ? Number(args.limit) : 12;
-      const r = await fetch(`${{BRIDGE}}/internal/connector/{cid}/__tools?q=${{q}}&limit=${{n}}`, {{
+      // Through the sandbox guard proxy (ctx.http = _lib.mjs curl helpers), the
+      // way every core tool reaches the bridge — Node's built-in fetch is refused there.
+      const data = await ctx.http.getJson(`${{BRIDGE}}/internal/connector/{cid}/__tools?q=${{q}}&limit=${{n}}`, {{
+        direct: false, timeout: 30,
         headers: {{ 'X-Ava-Internal-Token': ctx.internalToken || '' }},
       }});
-      const data = await r.json();
       return JSON.stringify(data, null, 2);
     }} catch (e) {{
       return `Error calling {cid}_find_tool: ${{e.message}}`;
@@ -1088,13 +1246,15 @@ export default {{
   }},
   async handler(args, ctx) {{
     try {{
-      const r = await fetch(`${{BRIDGE}}/internal/connector/{cid}/__call`, {{
-        method: 'POST',
-        headers: {{ 'Content-Type': 'application/json',
-                   'X-Ava-Internal-Token': ctx.internalToken || '' }},
-        body: JSON.stringify({{ name: args.name, arguments: args.arguments || {{}} }}),
+      // Through the sandbox guard proxy (ctx.http = _lib.mjs curl helpers), the
+      // way every core tool reaches the bridge — Node's built-in fetch is refused there.
+      // The timeout outlasts the approvals gate (120s): a call parked for the
+      // owner's decision must come back with the verdict, not a curl timeout.
+      const data = await ctx.http.postJson(`${{BRIDGE}}/internal/connector/{cid}/__call`,
+        {{ name: args.name, arguments: args.arguments || {{}} }}, {{
+        direct: false, timeout: 150,
+        headers: {{ 'X-Ava-Internal-Token': ctx.internalToken || '' }},
       }});
-      const data = await r.json();
       return typeof data === 'string' ? data : JSON.stringify(data, null, 2);
     }} catch (e) {{
       return `Error calling {cid}_call: ${{e.message}}`;
@@ -1308,7 +1468,44 @@ def orphans() -> Dict[str, List[str]]:
                 policies.append(fn[:-5])
     except OSError:
         pass
-    return {"tools": tools, "policies": policies}
+    # Stale FILES inside a live connector's tools dir: renaming an action (or
+    # crossing the meta-tool threshold) writes the new .mjs set and leaves the
+    # old files, and install.sh tars the whole dir — the sandbox is handed
+    # phantom tools whose routes no policy allows. Expected names are derived
+    # from catalog() (a disabled connector's files are dormant, not stale).
+    stale_files: List[str] = []
+    by_id = {x["id"]: x for x in catalog()}
+    try:
+        root = settings.connector_tools_dir()
+        for cid, m in by_id.items():
+            d = os.path.join(root, cid)
+            if not os.path.isdir(d):
+                continue
+            expected = {t["name"] for t in _tool_file_names(m)}
+            for fn in sorted(os.listdir(d)):
+                if fn.endswith(".mjs") and fn not in expected:
+                    stale_files.append(f"{cid}/{fn}")
+    except OSError:
+        pass
+    # Per-connector state with no manifest behind it: standing grants and the
+    # self-reported tier cache both key on the id, and ids are reusable — a
+    # leftover entry silently pre-approves whatever app takes the name next.
+    from . import grants as _grants
+    from . import tools_cache as _tools_cache
+    stale_grants = sorted(set(_grants.known_ids()) - set(by_id))
+    stale_cache = sorted(set(_tools_cache.known_ids()) - set(by_id))
+    return {"tools": tools, "policies": policies, "tool_files": stale_files,
+            "grants": stale_grants, "cache": stale_cache}
+
+
+def _tool_file_names(m: dict) -> List[dict]:
+    """`tool_files` without rendering sources — names only, from any manifest
+    (including a disabled one, which `tool_files`'s `load()` cannot see)."""
+    cid = m["id"]
+    if _discover_spec(m) or _mcp_spec(m) or meta_static(m):
+        return [{"name": f"{cid}_find_tool.mjs"}, {"name": f"{cid}_call.mjs"}]
+    return [{"name": f"{cid}_{a['id']}.mjs"}
+            for a in _static_actions(m) if a.get("id") and a.get("path")]
 
 
 def prune_orphans(write: bool = False) -> Dict[str, List[str]]:
@@ -1322,7 +1519,8 @@ def prune_orphans(write: bool = False) -> Dict[str, List[str]]:
     found = orphans()
     if not write:
         return found
-    removed: Dict[str, List[str]] = {"tools": [], "policies": []}
+    removed: Dict[str, List[str]] = {"tools": [], "policies": [],
+                                     "tool_files": [], "grants": [], "cache": []}
     for cid in found["tools"]:
         try:
             _shutil.rmtree(os.path.join(settings.connector_tools_dir(), cid))
@@ -1335,11 +1533,27 @@ def prune_orphans(write: bool = False) -> Dict[str, List[str]]:
             removed["policies"].append(cid)
         except OSError:
             pass
-    if removed["tools"] or removed["policies"]:
+    for rel in found.get("tool_files", []):
+        try:
+            os.remove(os.path.join(settings.connector_tools_dir(), *rel.split("/", 1)))
+            removed["tool_files"].append(rel)
+        except OSError:
+            pass
+    from . import grants as _grants
+    from . import tools_cache as _tools_cache
+    for cid in found.get("grants", []):
+        if _grants.forget(cid):
+            removed["grants"].append(cid)
+    for cid in found.get("cache", []):
+        if _tools_cache.forget(cid):
+            removed["cache"].append(cid)
+    if any(removed.values()):
         # An egress policy going is a change to what the sandbox may reach, so it
         # belongs in the ledger for the same reason a connector delete does.
         audit.record("connector_prune", tools=removed["tools"],
-                     policies=removed["policies"])
+                     policies=removed["policies"],
+                     tool_files=removed["tool_files"],
+                     grants=removed["grants"], cache=removed["cache"])
     return removed
 
 
@@ -1355,6 +1569,49 @@ def tool_files(cid: str) -> List[dict]:
             for a in _static_actions(m) if a.get("id") and a.get("path")]
 
 
+def agent_surface() -> List[dict]:
+    """How the agent reaches each connected app — the persona's connected-apps
+    block (`agent/render_persona.py`, `{{APPS_BLOCK}}`) is rendered from this.
+
+    One row per ENABLED `kind: app` connector that exposes tools at all:
+
+        {"id": cid, "label": <owner-facing name>,
+         "meta": bool,          # True: reached via <id>_find_tool -> <id>_call
+                                # False: one native tool per action, <id>_<action>
+         "tools": [names],      # what the model may route to (see below)
+         "discovered": bool}    # tools come from the app's own tool list
+
+    `meta` follows `tool_files` exactly — dynamic (discover facade or `mcp:`)
+    or a static set at or above META_TOOLS_MIN — so the persona never names a
+    tool shape the sandbox does not hold. `tools` is the declared action ids
+    for a static connector, or the names the app reported on its last
+    discovery (`tools_cache`) for a dynamic one: empty until the first
+    discovery, which is honest rather than a guess, and sorted so the persona
+    digest (`provision.persona_digest`) only moves when the set does. Tier
+    and description are deliberately absent — the block is a routing index,
+    not a permissions sheet.
+    """
+    out: List[dict] = []
+    for m in load():
+        if m.get("kind") != "app":
+            continue
+        cid = m["id"]
+        static = [str(a["id"]) for a in _static_actions(m)
+                  if a.get("id") and a.get("path")]
+        dynamic = bool(_discover_spec(m) or _mcp_spec(m))
+        if not static and not dynamic:
+            continue
+        if dynamic:
+            from . import tools_cache
+            names = sorted(tools_cache.for_connector(cid))
+        else:
+            names = static
+        out.append({"id": cid, "label": _display_label(m),
+                    "meta": dynamic or meta_static(m),
+                    "tools": names, "discovered": dynamic})
+    return out
+
+
 # --- App surface (data-driven nav) ------------------------------------------
 # A connector with a `ui:` block appears in Ava's left rail. `embed` selects how
 # the shell renders it:
@@ -1362,8 +1619,71 @@ def tool_files(cid: str) -> List[dict]:
 #   iframe  — the app serves its own web UI; Ava reverse-proxies it same-origin
 #             under /apps/<id>/ so it inherits the session cookie
 #   none    — no UI; Ava renders a generic action console from the manifest actions
+def _safe_order(v) -> int:
+    """`ui.order` as an int, whatever the manifest held. `_validate_nested`
+    already coerces or quarantines it, but `apps()` renders the whole left
+    rail — one non-comparable value in a SORT key blanks every app, so the
+    consumer stays safe even if a future path skips validation."""
+    if isinstance(v, bool) or v is None:
+        return 100
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return 100
+
+
+#: Where the owner's hand-arranged sidebar order lives. A LIST of app ids in
+#: display order, held in ava.yaml next to `ui.tours_seen` — server-side for the
+#: same reason the walkthrough state is (see hub/tour.py): Ava is single-user by
+#: construction, but it is also a PWA opened from a phone as well as a desktop,
+#: and localStorage is per-browser-profile. An arrangement the owner made once
+#: has to survive the second device and a cache clear.
+#:
+#: NOT `ui.order` in each manifest. That field is the AUTHOR's default, and two
+#: things rule it out as the owner's arrangement: a built-in connector's
+#: manifest is read-only from the UI (`set_connector_appearance` refuses one
+#: outright), so half the rail could never be dragged; and one drag rewrites
+#: every app's position, which is one list, not N independent facts.
+ORDER_KEY = "ui.app_order"
+
+
+def saved_order() -> List[str]:
+    """The owner's hand-arranged app order — ids only, junk dropped.
+
+    Read at REQUEST time rather than snapshotted at import, mirroring
+    `hub/tour.seen()`: settings loads config once at import, so a cached copy
+    would need a bridge restart before a drag took effect.
+    """
+    raw = settings.get(ORDER_KEY, []) or []
+    if not isinstance(raw, list):
+        return []
+    seen, out = set(), []
+    for x in raw:
+        cid = str(x).strip()
+        # Deduped because a repeated id in the stored list would give one app two
+        # positions, and `.index()` below would silently honour the first.
+        if cid and cid not in seen:
+            seen.add(cid)
+            out.append(cid)
+    return out
+
+
+def save_order(ids: List[str]) -> List[str]:
+    """Persist the owner's arrangement. Keeps the key name in ONE place — the
+    caller passes ids, never a settings path."""
+    settings.save_patch({"ui": {ORDER_KEY.split(".", 1)[1]: list(ids)}})
+    return list(ids)
+
+
 def apps() -> List[dict]:
-    """Nav entries for connectors that declare a `ui:` block, sorted for display."""
+    """Nav entries for connectors that declare a `ui:` block, sorted for display.
+
+    Order: core section first, then the owner's saved arrangement, then the
+    manifest's `ui.order`, then the id. An app the owner has never dragged has
+    no saved position and sorts AFTER the ones they have — appended to the end
+    rather than dropped into the middle of an arrangement it was never part of.
+    """
+    order = saved_order()
     out = []
     for m in load():
         ui = m.get("ui")
@@ -1379,14 +1699,19 @@ def apps() -> List[dict]:
             # appAccent() varies the color. Passing "grid" here would defeat that.
             "icon": ui.get("icon") or None,
             "color": str(ui["color"]) if ui.get("color") else None,
-            "section": ui.get("section") or "apps",
-            "order": ui.get("order", 100),
+            "section": str(ui.get("section") or "apps"),
+            "order": _safe_order(ui.get("order")),
             "embed": embed,
             "view": ui.get("view"),
             "url": f"/apps/{m['id']}/" if embed == "iframe" else None,
             "has_api": bool(ui.get("api")),
         })
-    out.sort(key=lambda a: (0 if a["section"] == "core" else 1, a["order"], a["id"]))
+    # `len(order)` for an app with no saved position: a stable "after everything
+    # placed by hand", without special-casing the comparison.
+    out.sort(key=lambda a: (
+        0 if a["section"] == "core" else 1,
+        order.index(a["id"]) if a["id"] in order else len(order),
+        a["order"], a["id"]))
     return out
 
 

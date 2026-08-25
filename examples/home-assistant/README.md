@@ -17,7 +17,7 @@ assumption, or dependency lives in Ava core. Delete the folder to disconnect.
 
 # 2. Register the connector and point it at your HA:
 mkdir -p "${AVA_HOME:-$PWD}/connectors"          # ava setup does not create this
-cp -r examples/home-assistant "$AVA_HOME/connectors/home-assistant"
+cp -r examples/home-assistant "${AVA_HOME:-$PWD}/connectors/home-assistant"
 cat >> .env <<'EOF'
 HASS_URL=http://homeassistant.local:8123
 HASS_TOKEN=<your long-lived token>

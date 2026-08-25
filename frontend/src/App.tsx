@@ -23,23 +23,27 @@ const VitalsView = lazy(() => import('./components/dashboard/VitalsView')
 const AgentView = lazy(() => import('./components/agent/AgentView'));
 const OpsView = lazy(() => import('./components/dashboard/OpsView')
   .then((m) => ({ default: m.OpsView })));
+// Lazy: the feature is OFF by default, so the majority of installs should not
+// pay for this chunk on first paint.
+const DomainsView = lazy(() => import('./components/domains/DomainsView'));
 
 import { Skeleton } from './components/dashboard/layout';
 import { DataView } from './components/data/DataView';
 import { HardwareBubble } from './components/HardwareBubble';
 import { HubView } from './components/hub/HubView';
-import TourHost from './components/tour/TourHost';
 import InferenceBanner from './components/InferenceBanner';
+import TourHost from './components/tour/TourHost';
 import { useChat } from './hooks/useChat';
 import { api } from './lib/api';
 import { registerApps } from './lib/appColor';
+import { RAIL_REALMS_OFF, type RailRealms, railRealms } from './lib/realms';
 import type { AppEntry, Artifact, Attachment } from './lib/types';
 
 // A view id is one of the built-in tabs or an app id from /api/apps.
 type View = string;
 
 // Built-in tabs that ship in the shell (always present, no connector needed).
-const BUILTIN_VIEWS = ['vitals', 'ops', 'data', 'chat', 'hub', 'agent'];
+const BUILTIN_VIEWS = ['vitals', 'ops', 'data', 'chat', 'hub', 'agent', 'domains'];
 
 // Sidebar resize limits. The floor is set by the panel's own contents — the head
 // row (wordmark + two icon buttons) and the "Settings & dashboards" foot row stop
@@ -97,6 +101,21 @@ export default function App() {
       setApps(r.apps);
       registerApps(r.apps); // lets any component attribute tools/URLs to an app
     }).catch(() => setApps([]));
+    load();
+    window.addEventListener('ava:apps-changed', load);
+    return () => window.removeEventListener('ava:apps-changed', load);
+  }, []);
+  // Realm grouping for the rail, joined to the app list in the browser on
+  // `surface.owner === app.id`. Deliberately NOT a field on /api/apps: the
+  // module that knows the taxonomy already imports the connector registry, so
+  // teaching the registry about the taxonomy would be a cycle — and it would
+  // put a YAML parse behind the route that paints the sidebar on every boot.
+  // A failed fetch leaves the rail ungrouped and the destination visible.
+  const [realms, setRealms] = useState<RailRealms>(RAIL_REALMS_OFF);
+  useEffect(() => {
+    const load = () => api.domains()
+      .then((c) => setRealms(railRealms(c)))
+      .catch(() => setRealms(RAIL_REALMS_OFF));
     load();
     window.addEventListener('ava:apps-changed', load);
     return () => window.removeEventListener('ava:apps-changed', load);
@@ -350,6 +369,7 @@ export default function App() {
         ref={shellRef}
       >
         <Drawer
+          realms={realms}
           open={sidebarOpen}
           onToggle={() => setSidebarOpen((o) => !o)}
           apps={apps}
@@ -408,6 +428,11 @@ export default function App() {
             {view === 'ops' && (
               <ViewErrorBoundary label="Operations">
                 <Suspense fallback={<Skeleton height={260} />}><OpsView /></Suspense>
+              </ViewErrorBoundary>
+            )}
+            {view === 'domains' && (
+              <ViewErrorBoundary label="Domains">
+                <Suspense fallback={<Skeleton height={260} />}><DomainsView /></Suspense>
               </ViewErrorBoundary>
             )}
             {/* Agent follows the AppFrame pattern, not the ChatView one: it is

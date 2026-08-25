@@ -1,10 +1,12 @@
 import { useState } from 'react';
-import type { Attachment, ModelInfo } from '../../lib/types';
+import type { Attachment, MediaRef, ModelInfo } from '../../lib/types';
 import { Icon } from '../../lib/icons';
 import { fixForCode } from '../../lib/fixes';
 import { AppDot, appAccent, appForTool } from '../../lib/appColor';
 import { FixLink } from '../../lib/FixLink';
 import { useBrandName } from '../../lib/brandContext';
+import { MarkdownLite } from '../../lib/markdown';
+import { MediaCard } from './Media';
 
 async function copyText(s: string): Promise<boolean> {
   try {
@@ -76,22 +78,35 @@ export function AvaMessage({
   text,
   model,
   toolsUsed,
+  attachments,
   onRetry,
   onReplay,
+  onOpen,
   children,
 }: {
   text: string;
   model?: ModelInfo | null;
   toolsUsed?: string[];
+  attachments?: MediaRef[];
   onRetry?: () => void;
   onReplay?: () => void;
+  onOpen?: (url: string) => void;
   children?: React.ReactNode;
 }) {
   const brand = useBrandName();
   const [copied, setCopied] = useState(false);
   return (
     <div className="bubble ava">
-      {text}
+      {/* Rendered as markdown (tables, code, links, bold) rather than raw text.
+          The Copy button below still copies the ORIGINAL markdown source. */}
+      {text ? <div className="md-reply"><MarkdownLite text={text} /></div> : null}
+      {attachments && attachments.length > 0 && (
+        <div className="msg-media">
+          {attachments.map((m, i) => (
+            <MediaCard key={`${m.url}:${i}`} media={m} onOpen={onOpen} />
+          ))}
+        </div>
+      )}
       <div className="avafoot">
         {model?.label && (
           <div

@@ -112,7 +112,7 @@ just repeats what is generated.
 
     A `role: device` connector's tools are gated by just-in-time consent. The
     first call parks an approval prompt in the dashboard and the call *blocks*
-    until you approve it (or 403s with `not run — awaiting-approval timeout`
+    until you approve it (or answers `NOT RUN — this action needs the owner's approval in Ava…` with `error_code: awaiting_approval`
     after 120s).
 
     `role: device` also makes an unmatched dynamic tool default to the
@@ -233,7 +233,7 @@ event pusher); replace the faked device I/O with yours.
 #    then restart Ava (or `ava up`) — a running Ava answers 404 "has not enabled
 #    ingest" until it reloads the new manifest, so do this BEFORE the app pushes.
 mkdir -p "${AVA_HOME:-$PWD}/connectors"          # ava setup does not create this
-cp -r examples/device-app "$AVA_HOME/connectors/device-demo"
+cp -r examples/device-app "${AVA_HOME:-$PWD}/connectors/device-demo"
 
 # 2. Get this connector's inbound push token
 ava device token device-demo        # copy the token it prints

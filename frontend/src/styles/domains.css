@@ -1,0 +1,61 @@
+/* Domains — the cell index and one cell's card.
+ *
+ * Tokens only. No literal colours, no font family, and deliberately no seventh
+ * `.tone-*`: provenance is not a status, and adding a tone would be a semantic
+ * claim the six-tone system does not make. The three provenance grades are told
+ * apart by fill weight, border style and a glyph — plus the word, always.
+ */
+
+.dm-view { display: flex; flex-direction: column; gap: var(--sp-4); }
+.dm-card { display: flex; flex-direction: column; gap: var(--sp-4); }
+
+/* The index ------------------------------------------------------------- */
+.dm-cells { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--sp-2); }
+.dm-cell {
+  display: grid; grid-template-columns: 1fr auto; align-items: center;
+  gap: 2px var(--sp-2); padding: var(--sp-3);
+  border: 1px solid var(--line); border-radius: var(--r-md);
+  background: var(--panel); color: var(--txt); text-decoration: none;
+}
+.dm-cell:hover { background: var(--panel2); }
+.dm-cell .ico { grid-row: 1 / span 3; grid-column: 2; color: var(--muted); }
+.dm-cell-realm { font-size: var(--fs-xs); color: var(--muted); text-transform: uppercase; letter-spacing: var(--tracking-label); }
+.dm-cell-domain { font-size: var(--fs-md); font-weight: var(--fw-medium); }
+
+/* The hero — a figure when there is one, a sentence when there is not. Both
+   occupy the same slot, because a 48px em dash teaches "broken". */
+.dm-hero { font-size: 48px; font-weight: var(--fw-bold); line-height: 1; font-variant-numeric: tabular-nums; color: var(--txt); }
+.dm-hero-say { display: flex; gap: var(--sp-3); align-items: flex-start; }
+.dm-say { font-size: var(--fs-md); color: var(--txt); margin: 0; }
+.dm-why { font-size: var(--fs-xs); color: var(--muted); }
+.dm-meta { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; margin-top: var(--sp-2); font-size: var(--fs-xs); color: var(--muted); }
+.dm-metric { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--txt); }
+.dm-num { font-variant-numeric: tabular-nums; }
+
+/* Provenance: fill weight + border + glyph + word. Never a status hue. */
+.dm-prov { display: inline-flex; align-items: center; gap: 4px; padding: 1px 6px; border-radius: var(--r-pill); font-size: var(--fs-xs); color: var(--muted); }
+.dm-prov .ico > svg { width: 12px; height: 12px; }
+.dm-prov-measured { background: var(--wash-14); color: var(--txt); }
+.dm-prov-derived { background: var(--wash-8); }
+.dm-prov-assumed { background: transparent; border: 1px dashed var(--line); }
+
+/* Neither number is a verdict, so the meter is muted and the ratio is in words. */
+.dm-meter { height: 4px; border-radius: var(--r-pill); background: var(--wash-5); overflow: hidden; margin: var(--sp-2) 0; }
+.dm-meter > span { display: block; height: 100%; background: var(--muted); }
+
+.dm-gap { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: baseline; padding: var(--sp-2) 0; border-top: 1px solid var(--line); }
+.dm-gap:first-of-type { border-top: 0; }
+.dm-sub { padding: var(--sp-2) 0; border-top: 1px solid var(--line); }
+.dm-sub:first-of-type { border-top: 0; }
+.dm-sub-head { display: flex; justify-content: space-between; gap: var(--sp-3); font-size: var(--fs-sm); }
+.dm-dims { margin-top: var(--sp-3); }
+
+.dm-action { color: var(--accent); font-size: var(--fs-sm); text-decoration: none; }
+.dm-action:hover { text-decoration: underline; }
+
+/* Realm headings in the sidebar. `.nav-group` must restate the list's flex,
+   because inserting a wrapper otherwise makes the div the flex item and
+   collapses the 1px row gap between app rows. */
+.nav-group { display: flex; flex-direction: column; gap: 1px; }
+.nav-apps .nav-realm { padding: 10px 8px 4px 10px; }
+.nav-group:first-child .nav-realm { padding-top: 2px; }

@@ -161,18 +161,21 @@ def test_an_unknown_format_falls_back_rather_than_crashing(tmp_path) -> None:
     (tmp_path / "ava.yaml").write_text("persona:\n  format: interpretive-dance\n",
                                        encoding="utf-8")
     out = _render(_base_env(tmp_path))
-    assert "do NOT use markdown headings" in out, (
-        "an unrecognised persona.format must fall back to the chat contract, "
-        "because the chat UI renders plain text either way")
+    assert "rendered as markdown" in out, (
+        "an unrecognised persona.format must fall back to the default (markdown) "
+        "contract, because the chat UI renders markdown either way")
 
 
-def test_the_chat_format_default_matches_the_renderer(tmp_path) -> None:
-    """Not taste: frontend/src/components/chat/Message.tsx renders assistant text
-    as a bare {text} in a pre-wrap bubble, so markdown would appear literally."""
+def test_the_markdown_format_default_matches_the_renderer(tmp_path) -> None:
+    """Not taste: frontend/src/components/chat/Message.tsx now renders the reply
+    through MarkdownLite (tables, code, links, bold), so the default must permit
+    markdown rather than forbid it."""
     out = _render(_base_env(tmp_path))
-    assert "do NOT use markdown headings" in out, (
-        "the default persona dropped the no-markdown contract; a fresh install "
-        "would render literal '## Heading' in the chat bubble")
+    assert "rendered as markdown" in out, (
+        "the default persona dropped the markdown contract; a fresh install "
+        "would tell the model to avoid markdown the surface now renders")
+    assert "do NOT use markdown headings" not in out, (
+        "the default persona must not carry the old plain-text no-markdown rule")
 
 
 def test_markdown_format_lifts_the_constraint(tmp_path) -> None:

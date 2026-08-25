@@ -32,7 +32,12 @@ export type ConnectorGroup = 'devices' | 'apps' | 'tools';
  * to its owner even when it also renders a UI tile.
  */
 export function connectorGroup(c: HubConnector): ConnectorGroup {
-  if (c.kind === 'device') return 'devices';
+  // `role: device` is how a manifest declares device identity and what the
+  // backend actually ships (hub/connectors.py `role`); `kind` never takes the
+  // value 'device' from the backend (its vocabulary is core/inference/media/
+  // app), so grouping on kind alone put every device in Tools. The kind check
+  // stays as a harmless belt for hand-written manifests that used it anyway.
+  if (c.role === 'device' || c.kind === 'device') return 'devices';
   if (c.app) return 'apps';
   return 'tools';
 }

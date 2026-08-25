@@ -13,6 +13,7 @@ import './styles/global.css';
 import './styles/claude.css';
 import './styles/dashboard.css';
 import './styles/hub.css';
+import './styles/domains.css';
 import './styles/agent.css';
 import './styles/data.css';
 import './styles/tour.css';

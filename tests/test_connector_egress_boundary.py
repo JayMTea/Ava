@@ -191,13 +191,24 @@ class ProxySourceGuardTests(unittest.TestCase):
         import re
         root = pathlib.Path(__file__).resolve().parent.parent
         src = (root / "phone_bridge.py").read_text(encoding="utf-8")
-        # Each `requests.<verb>(` inside the two proxy helpers, with its args.
+        # The proxies moved from blocking `requests` in the threadpool to one
+        # shared async httpx client (2026-08 audit: an abandoned SSE stream
+        # pinned a worker thread forever; ~40 of them froze every threadpool
+        # route in the bridge). The redirect property is now carried by the
+        # CLIENT: every AsyncClient the bridge constructs must pin
+        # `follow_redirects=False`, so no per-call kwarg can be forgotten.
+        clients = re.findall(r"httpx\.AsyncClient\((?:[^()]|\([^()]*\))*\)", src)
+        self.assertTrue(clients, "no httpx.AsyncClient found — did the proxies move?")
+        missing = [c for c in clients if "follow_redirects=False" not in c]
+        self.assertEqual(missing, [], "these bridge clients follow redirects:\n"
+                                      + "\n".join(missing))
+        # And the old failure mode must not creep back: any surviving
+        # `requests.<verb>(` egress call still has to disable redirects itself.
         calls = re.findall(r"requests\.(?:request|get|post|delete|put|patch)\("
                            r"(?:[^()]|\([^()]*\))*\)", src)
-        self.assertTrue(calls, "no requests calls found — did the proxies move?")
-        missing = [c for c in calls if "allow_redirects" not in c]
-        self.assertEqual(missing, [], "these bridge egress calls follow redirects:\n"
-                                      + "\n".join(missing))
+        legacy = [c for c in calls if "allow_redirects" not in c]
+        self.assertEqual(legacy, [], "these bridge egress calls follow redirects:\n"
+                                     + "\n".join(legacy))
 
 
 if __name__ == "__main__":

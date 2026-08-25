@@ -339,6 +339,7 @@ export function useChat() {
               text: m.content || '',
               model: m.model || null,
               toolsUsed: m.tools_used || [],
+              attachments: m.attachments || [],
               srcText: lastUserText,
               srcAtts: m.atts || [],
             });

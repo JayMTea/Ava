@@ -244,6 +244,7 @@ def delete_store(sid: str) -> dict:
             "alloc": settings.logs_dir(),
             "hw_history": os.path.join(settings.logs_dir(), "hw_history"),
             "devices": os.path.join(settings.logs_dir(), "devices"),
+            "kpi": os.path.join(settings.logs_dir(), "kpi"),
             "uploads": settings.upload_dir(),
         }
         root = roots.get(sid)
@@ -334,6 +335,18 @@ def stores():
     out.append(_store("performance", "Performance", os.path.join(perf_dir, "performance.jsonl"),
                       "jsonl", size=perf_size + roll_size,
                       last_write=max(perf_mtime, roll_mtime), managed=True))
+
+    # Domain KPIs — the long-horizon series. Registered here even when the
+    # feature is off: a store the owner cannot see on the page that inventories
+    # what Ava keeps is a store they cannot decide about, and this one holds
+    # health and money readings and is retained indefinitely by design.
+    from . import kpi_store
+    ks = kpi_store.stats()
+    out.append(_store("kpi", "Domain KPIs",
+                      os.path.join(kpi_store.kpi_dir(), kpi_store.LEDGER),
+                      "jsonl", size=ks["bytes"], count=ks["rows"],
+                      last_write=ks["last_write"], metrics=ks["metrics"],
+                      first_day=ks["first_day"], last_day=ks["last_day"]))
 
     # Allocation decisions — the log an operator reads before allowing the
     # allocator to act. It grew forever and appeared on no inventory, so the one

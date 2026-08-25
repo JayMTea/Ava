@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
-from . import config, state, perf_mgmt, hardware, alerts, connectors, perf_store
+from . import config, state, perf_mgmt, hardware, alerts, connectors, perf_store, settings
 
 try:
     import yaml
@@ -606,6 +606,98 @@ def connectors_info() -> dict:
                         if isinstance(a, dict) and a.get("id")],
         })
     return {"ok": True, "connectors": items, "action_count": len(connectors.actions())}
+
+
+#: Sidebar readiness verdicts, worst-first. The sidebar dot shows ONE of these
+#: per app, so the order here is the precedence when several are true at once.
+APP_HEALTH = ("off", "down", "partial", "ready")
+
+
+def apps_health() -> dict:
+    """Is each connected app actually ready to use? One verdict per app, plus the
+    facts behind it.
+
+    The sidebar dot answers a question no existing endpoint did. `/api/apps` is
+    the registry (what exists), `/api/hub/connectors` is management (what is
+    wired), `/api/ops/connectors` is telemetry (what is answering) — and
+    "can I click this right now?" needs reachability AND wiring together. Rather
+    than a fourth opinion, this joins the two that already exist: the 15s-cached
+    probe from `ops_services()` and the same deploy-state fields
+    `hub.connectors._connector_row` reports.
+
+    FACTS AND ONE CODE, no sentences: per CLAUDE.md the owner-facing copy is the
+    frontend's job, so this returns `service`/`auth_set`/`tools_deployed`/… and a
+    rolled-up `health`, and the sidebar turns those into words. The code is here
+    rather than in the client because the rail and the expanded panel must never
+    disagree about what green means.
+
+    The four verdicts:
+
+      off      the owner switched it off. Never red — off-by-choice and crashed
+               must not look identical (the same rule `ops_services()` follows).
+      down     it declares a health probe and the probe says no. Nothing else
+               matters while the app is not answering.
+      partial  it is answering (or has nothing to answer with) but something in
+               the chain is missing — no credential, tools not deployed, egress
+               policy not generated, or a probe that could not be read.
+      ready    everything it declares is in place. An app that declares no probe
+               can still be ready: there is nothing to be down, and a
+               permanently-amber tile is one the owner stops reading.
+    """
+    smap = {s["name"]: s["status"] for s in (ops_services().get("services") or [])}
+    pol_dir = settings.generated_policy_dir()
+    tool_root = settings.connector_tools_dir()
+    items = []
+    # `catalog()`, not `all()`: a disabled app still holds its place in the
+    # sidebar, and reporting it as absent would read as "down" by omission.
+    for m in connectors.catalog():
+        if not isinstance(m.get("ui"), dict):
+            continue
+        cid = m["id"]
+        svc = m.get("service") or {}
+        # Keyed by service NAME, the same key `connectors_info` uses — the
+        # services list is built from `service.name`, not from the connector id.
+        service = smap.get(svc.get("name", m.get("label", cid))) if svc else None
+        auth = connectors.auth_env(m)
+        expected = connectors.tool_files(cid)
+        tools_deployed = all(
+            os.path.exists(os.path.join(tool_root, cid, t["name"])) for t in expected)
+        try:
+            policy_expected = connectors.render_egress_policy(cid) is not None
+        except Exception:  # noqa: BLE001
+            # A row that cannot render its policy must not take the sidebar down.
+            policy_expected = False
+        row = {
+            "id": cid,
+            "enabled": bool(m.get("enabled", True)),
+            # null = declares no probe, which is not the same as "did not answer".
+            "service": service,
+            "auth_env": auth,
+            "auth_set": settings.has_env_secret(auth) if auth else True,
+            "tools_expected": len(expected),
+            "tools_deployed": tools_deployed,
+            "policy_expected": policy_expected,
+            "policy_present": os.path.exists(os.path.join(pol_dir, f"{cid}.yaml")),
+        }
+        row["health"] = _app_verdict(row)
+        items.append(row)
+    return {"ok": True, "apps": items}
+
+
+def _app_verdict(r: dict) -> str:
+    """Roll one app's facts up into a single sidebar colour. See `apps_health`."""
+    if not r["enabled"]:
+        return "off"
+    if r["service"] == "down":
+        return "down"
+    missing = (
+        not r["auth_set"]
+        or (r["tools_expected"] and not r["tools_deployed"])
+        or (r["policy_expected"] and not r["policy_present"])
+        # "unknown" is not "up": we could not read it, so we do not claim green.
+        or r["service"] == "unknown"
+    )
+    return "partial" if missing else "ready"
 
 
 def _egress_route_count(m: dict) -> int:

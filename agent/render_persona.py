@@ -23,6 +23,15 @@ Placeholders in the template:
     {{ADULT_BLOCK}}  NSFW-allowance clause    only when persona.adult is true
                      — the single gate for adult content; skills must not carry
                      their own always-on permission.
+    {{APPS_BLOCK}}   the owner's connected apps  derived at render time from the
+                     connector manifests (ava_bridge.connectors.agent_surface)
+                     and the tool names each app reported on its last discovery
+                     (ava_bridge.tools_cache): one line per app saying how it is
+                     reached and what it offers, so the model routes "what did I
+                     eat today" to the right app instead of guessing. EMPTY when
+                     no app connector exposes tools, so a fresh fork's persona is
+                     byte-for-byte what it was before the placeholder existed.
+                     Nothing about anyone's apps is in the tracked template.
 
 With no ava.yaml the output is a clean, neutral persona: "the user", no location,
 no adult clause, and NO style — the assistant's own voice, unshaped by whoever
@@ -68,9 +77,11 @@ TEMPLATE = os.path.join(HERE, "persona.txt.tmpl")
 # surface as an opaque E2BIG at provision time, so cap the one unbounded field.
 STYLE_MAX = 4000
 
-# The answer-shape contracts. "chat" is the default because Ava's chat bubble
-# renders PLAIN TEXT — see the module docstring. Keys are the accepted values of
-# persona.format; the hub panel offers exactly these.
+# The answer-shape contracts. "markdown" is the default because Ava's chat
+# bubble now renders markdown (frontend/src/components/chat/Message.tsx renders
+# the reply through MarkdownLite — tables, code, links, bold — and shows agent
+# media as players). Keys are the accepted values of persona.format; the hub
+# panel offers exactly these. An owner who wants plain text sets "chat".
 FORMAT_BLOCKS = {
     # Strictly a statement about what the surface can DISPLAY. Nothing about
     # length, warmth, or how to open a reply belongs here — that is style, it is
@@ -88,7 +99,7 @@ FORMAT_BLOCKS = {
         "blocks and lists are all fine wherever they genuinely help."
     ),
 }
-FORMAT_DEFAULT = "chat"
+FORMAT_DEFAULT = "markdown"
 
 
 def clean_owner_text(raw, limit: int = STYLE_MAX) -> str:
@@ -110,6 +121,104 @@ def clean_owner_text(raw, limit: int = STYLE_MAX) -> str:
     if not isinstance(raw, str):
         return ""
     return raw.replace("{{", "").replace("}}", "").strip()[:limit]
+
+
+#: The connected-apps block is bounded twice: names per app, and the whole block.
+#: It travels inside the same base64'd argv positional as everything else (see
+#: STYLE_MAX), and an owner with many apps or one app with hundreds of tools must
+#: not turn provisioning into an E2BIG. 25 names is enough to route on; past
+#: that the model is told to search with the app's find_tool, which is the path
+#: it has to take anyway to learn an action's input schema.
+APPS_TOOLS_MAX = 25
+APPS_MAX = 6000
+
+
+def _app_surface() -> list:
+    """The connected apps the agent can reach, or [] when that cannot be known.
+
+    Wrapped because this runs under agent/install.sh's `set -euo pipefail`: a
+    manifest that fails to load, a missing pyyaml, or a cache file that will not
+    parse must cost the persona its apps line, never the whole provision.
+    """
+    try:
+        from ava_bridge import connectors
+        return list(connectors.agent_surface())
+    except Exception as e:  # noqa: BLE001 — see above
+        sys.stderr.write(f"[render_persona] connected-apps block skipped: {e}\n")
+        return []
+
+
+def _name(raw, limit: int = 64) -> str:
+    """A manifest label or tool name, made safe to splice (see clean_owner_text)
+    and flattened to one line — a label with a newline would break the
+    one-paragraph persona."""
+    return " ".join(clean_owner_text(raw, limit=limit).split())
+
+
+def apps_block(apps: list, user: str = "the user",
+               user_poss: str = "the user's") -> str:
+    """Render the connected-apps sentence(s) from `connectors.agent_surface()`
+    rows. Pure: no I/O, so it is unit-testable with hand-built rows.
+
+    One compact clause per app — label, connector id, HOW it is reached (native
+    `<id>_<action>` tools, or the `<id>_find_tool` -> `<id>_call` pair), and up
+    to APPS_TOOLS_MAX tool names — then one operational directive that holds for
+    every app. Nothing here is style: it is the same class of mandate as "call
+    get_weather for weather", extended to the apps the owner wired in. Returns
+    "" when there are no apps, so the placeholder vanishes without a trace.
+    """
+    entries: list[str] = []
+    omitted = 0
+    for app in apps:
+        if not isinstance(app, dict):
+            continue
+        cid = _name(app.get("id"))
+        label = _name(app.get("label")) or cid
+        if not cid:
+            continue
+        names = [n for n in (_name(t) for t in (app.get("tools") or [])) if n]
+        shown, more = names[:APPS_TOOLS_MAX], max(0, len(names) - APPS_TOOLS_MAX)
+        if app.get("meta"):
+            head = (f"{label} (connector id {cid}): search its actions with "
+                    f"{cid}_find_tool, then run one by its exact name with {cid}_call")
+            if shown:
+                tail = f"; known actions: {', '.join(shown)}"
+                if more:
+                    tail += f" (and {more} more — search for them)"
+            else:
+                tail = "; its actions are discovered live, so search first"
+            entry = head + tail + "."
+        else:
+            tools = [f"{cid}_{n}" for n in shown]
+            entry = (f"{label} (connector id {cid}): native tool calls "
+                     f"{', '.join(tools)}" if tools else
+                     f"{label} (connector id {cid}): native tools named {cid}_<action>")
+            if more:
+                entry += f" (and {more} more)"
+            entry += "."
+        # Whole-block cap, at an app boundary: a truncated tool name would be a
+        # name that does not exist, which is exactly what this block is for
+        # preventing. The count of what was cut is said out loud instead.
+        if sum(len(e) + 1 for e in entries) + len(entry) > APPS_MAX:
+            omitted += 1
+            continue
+        entries.append(entry)
+    if not entries and not omitted:
+        return ""
+    intro = (f" Connected apps: {user_poss} own apps are wired in as tools; for "
+             f"anything about them, use the app named here rather than guessing.")
+    body = " " + " ".join(entries) if entries else ""
+    if omitted:
+        body += (f" {omitted} more app(s) are connected; each has its own "
+                 f"<id>_find_tool and <id>_call tools.")
+    directive = (
+        " For a find_tool/call pair, always search first and then call the exact "
+        "name it returned with arguments matching that action's inputSchema. If a "
+        f"call answers with a consent or approval prompt, tell {user} and wait for "
+        "their decision — never retry the same call in a loop. Never fabricate or "
+        "guess app data: answer from the tool's result, and if a tool fails, say so."
+    )
+    return intro + body + directive
 
 
 #: The other four free-text identity fields. They are shorter than `style` in
@@ -167,6 +276,9 @@ def render() -> str:
 
     format_block = FORMAT_BLOCKS[fmt]
     style_block = f" Style — how {user} wants you to talk: {style}" if style else ""
+    # Derived, not configured: `_app_surface()` is [] on a fork with no apps,
+    # and apps_block([]) is "", so the placeholder leaves no trace.
+    apps = apps_block(_app_surface(), user=user, user_poss=user_poss)
 
     with open(TEMPLATE, encoding="utf-8") as f:
         text = f.read().strip()
@@ -175,6 +287,9 @@ def render() -> str:
     # has already produced, so any placeholder substituted before owner-supplied
     # free text would still be live inside it. clean_owner_text() strips brace
     # pairs as the primary defence; this ordering is the second one.
+    # {{APPS_BLOCK}} is manifest-derived text (labels, tool names) and gets the
+    # same treatment: brace-stripped by `_name`, and substituted after every
+    # block it could otherwise splice.
     return (
         text.replace("{{ASSISTANT}}", assistant)
         .replace("{{USER_POSS}}", user_poss)
@@ -183,6 +298,7 @@ def render() -> str:
         .replace("{{OWNER_FACTS}}", owner_facts)
         .replace("{{ADULT_BLOCK}}", adult_block)
         .replace("{{FORMAT_BLOCK}}", format_block)
+        .replace("{{APPS_BLOCK}}", apps)
         .replace("{{STYLE_BLOCK}}", style_block)
     )
 

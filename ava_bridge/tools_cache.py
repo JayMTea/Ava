@@ -13,6 +13,15 @@ self-reported by the app: they can only make a tool quieter, never extend its
 reach (egress policy, destructive-never-grantable, author `confirm:`, and the
 audit ledger all still apply on Ava's side).
 
+`update` reads ONE field: a top-level `access`. The ava-tools/1 facade writes
+exactly that; a real MCP server has no such field, so `mcp_client` normalises
+every `tools/list` entry before it reaches here — lifting `_meta.access` (or
+`_meta["ava/access"]`, what sdk/host/ava_mcp mirrors) and, failing that, the
+spec's ToolAnnotations (`readOnlyHint: true` -> read, `destructiveHint: true`
+-> destructive) to top-level `access`, and never touching an explicit one. A
+tool that carries none of those arrives here WITHOUT `access`, and the
+"declared nothing" branch below keeps it that way.
+
 Storage: $AVA_HOME/connector_tools_cache.json — user data, same rules as
 connector_grants.yaml (atomic writes, mtime-cached reads). Shape:
 
@@ -144,3 +153,9 @@ def forget(cid: str) -> int:
         del data[cid]
         _save(data)
     return gone
+
+
+def known_ids() -> list[str]:
+    """Every connector id this store holds state for — so `connectors.orphans()`
+    can flag entries whose manifest is gone before a reused id inherits them."""
+    return sorted(_load().keys())

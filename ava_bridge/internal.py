@@ -155,6 +155,34 @@ def group_may(group: str, path: str) -> bool:
     return capability in INTERNAL_SCOPE_GROUPS.get(group, frozenset())
 
 
+
+def _gate_message(gate: str) -> str:
+    """What the AGENT reads when the approvals gate did not let a call through.
+
+    This text is the tool result, so it is the one thing that steers what the
+    model does next. The old "not run — awaiting-approval timeout" read, to a
+    model, like a flaky service: it retried the write four times in a row (each
+    retry parking a fresh prompt for the owner) and then went looking for
+    something to "fix". The outcome has to name the owner's decision as the
+    reason and say, in the model's own terms, that retrying is the wrong move.
+    """
+    if gate == "denied":
+        return ("NOT RUN — the owner declined this action in Ava. Do not retry it "
+                "and do not try another tool to get the same effect; acknowledge "
+                "the decision and move on.")
+    if gate == "timeout":
+        return ("NOT RUN — this action needs the owner's approval in Ava, and no "
+                "decision arrived in time. This is not a service error: do not "
+                "retry, do not try another tool to get the same effect, and do not "
+                "touch config or system tools. Tell the owner it is waiting for "
+                "their approval in Ava, then stop.")
+    if gate == "cooldown":
+        return ("NOT RUN — you already asked for this exact action and the owner has "
+                "not decided yet; asking again will not change that. Do not retry. "
+                "Tell the owner it is waiting for their approval in Ava, then stop.")
+    return (f"NOT RUN — this action is waiting for the owner's approval in Ava "
+            f"({gate}). Do not retry; tell the owner it needs their approval, then stop.")
+
 def _told(message: str, code: str) -> JSONResponse:
     """A coded error the AGENT must be able to read. HTTP 200, deliberately.
 
@@ -250,6 +278,32 @@ def _timed_connector_call(fn, cid: str, tool: str, args: dict) -> tuple:
     app_perf.record_action(cid, tool, time.time() - t0, status)
     return data, status
 
+def call_for_owner(cid: str, tool: str, args: dict | None = None,
+                   *, discovered: bool = True) -> tuple:
+    """Call a connector tool on the OWNER's behalf, not the agent's.
+
+    Exists because the consent gate, the egress audit row and the perf record
+    live in the route wrappers above, not inside connectors.call_action /
+    call_discovered. A background reader that reached for those helpers directly
+    would create a whole class of outbound traffic that never appears in the
+    flight recorder — invisible egress, from the one subsystem whose entire
+    justification is honest bookkeeping.
+
+    It deliberately does NOT call approvals.gate. That helper BLOCKS until a
+    human answers, so an unattended caller would park a thread and raise a
+    prompt at whatever hour it happens to run. Callers must refuse anything
+    needing confirmation before they get here; this records what it did.
+    """
+    fn = connectors.call_discovered if discovered else connectors.call_action
+    data, status = _timed_connector_call(fn, cid, tool, args or {})
+    # `actor` is the ledger's own closed vocabulary, not a field invented here —
+    # so these rows filter alongside every other owner-initiated act instead of
+    # forming a private dialect only this subsystem understands.
+    audit.record("egress", connector=cid, tool=tool, status=status,
+                 actor="owner")
+    return data, status
+
+
 @router.api_route("/internal/connector/{cid}/{action}", methods=["POST", "GET"])
 async def internal_connector(cid: str, action: str, request: Request):
     """Generic connector-action proxy: forwards a generated tool's call to the
@@ -278,7 +332,7 @@ async def internal_connector(cid: str, action: str, request: Request):
         gate = await run_in_threadpool(approvals.gate, cid, name, body.get("arguments") or {})
         if gate not in ("skip", "approved"):
             audit.record("egress", connector=cid, tool=name, status=f"blocked:{gate}")
-            return _told(f"not run — awaiting-approval {gate}", "awaiting_approval")
+            return _told(_gate_message(gate), "awaiting_approval")
         data, status = await run_in_threadpool(
             _timed_connector_call, connectors.call_discovered, cid, name,
             body.get("arguments") or {})
@@ -299,7 +353,7 @@ async def internal_connector(cid: str, action: str, request: Request):
     gate = await run_in_threadpool(approvals.gate, cid, action, args)
     if gate not in ("skip", "approved"):
         audit.record("egress", connector=cid, tool=action, status=f"blocked:{gate}")
-        return _told(f"not run — awaiting-approval {gate}", "awaiting_approval")
+        return _told(_gate_message(gate), "awaiting_approval")
     data, status = await run_in_threadpool(
         _timed_connector_call, connectors.call_action, cid, action, args)
     audit.record("egress", connector=cid, tool=action, status=status)

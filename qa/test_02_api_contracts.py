@@ -28,6 +28,7 @@ CONTRACTS = {
     "/api/ops/connectors": ["ok", "connectors", "action_count"],
     "/api/ops/alerts": ["ok", "active", "metrics"],
     "/api/apps": ["apps"],
+    "/api/apps/health": ["ok", "apps"],
     "/api/devices": [],
     "/api/chats": ["chats"],
     "/api/hub/system": ["brand", "version", "retention_days",

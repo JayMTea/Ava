@@ -240,10 +240,19 @@
   .chatitem .ci-main { flex:1; min-width:0; }
   .chatitem .ci-title { font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .chatitem .ci-time { font-size:11px; color:var(--muted); margin-top:1px; }
-  .chatitem .del { flex:0 0 auto; width:32px; height:32px; border:none; background:transparent;
+  /* `.chatitem-wrap .del`, NOT `.chatitem .del`. The delete button is a SIBLING
+     of the row button, not a child of it — the row was un-nested when it became
+     a real <button> (a button cannot nest a button; see Drawer.tsx). The
+     selector was left behind pointing at the old shape, so every rule in here
+     — the reset, the centring, the :active flash — silently stopped matching,
+     and the glyph fell back to the UA button box: `display:inline-block` with
+     `padding:1px 6px`, which parks a 15px icon up and to the left inside its
+     26px square instead of in the middle of it. */
+  .chatitem-wrap .del { flex:0 0 auto; width:32px; height:32px; border:none; background:transparent;
                    color:var(--muted); font-size:15px; border-radius:8px; cursor:pointer;
+                   padding:0;
                    display:flex; align-items:center; justify-content:center; }
-  .chatitem .del:active { background:#3a2330; color:#ff6b81; }
+  .chatitem-wrap .del:active { background:#3a2330; color:#ff6b81; }
   .draw-empty { color:var(--muted); font-size:13px; text-align:center; padding:26px 16px; }
 
   /* App launcher (sidebar) — Ava is the home app; connector apps live here. */

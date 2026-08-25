@@ -10,11 +10,22 @@ type Node = React.ReactNode;
 
 const INLINE: { re: RegExp; render: (m: RegExpMatchArray, key: string) => Node }[] = [
   { re: /`([^`]+)`/, render: (m, k) => <code key={k} className="md-code">{m[1]}</code> },
+  // Image before link: `![alt](url)` must not be eaten by the link rule.
+  { re: /!\[([^\]]*)\]\(([^)]+)\)/, render: (m, k) => {
+      const src = safeImg(m[2]);
+      return src
+        ? <img key={k} className="md-img" src={src} alt={m[1]} loading="lazy" />
+        : <span key={k}>{m[1]}</span>;
+    } },
   { re: /\*\*([^*]+)\*\*/, render: (m, k) => <strong key={k}>{inline(m[1], k)}</strong> },
   { re: /\[([^\]]+)\]\(([^)]+)\)/, render: (m, k) => {
       const href = safeHref(m[2]);
       return href ? <a key={k} href={href} target="_blank" rel="noreferrer noopener">{m[1]}</a> : <span key={k}>{m[1]}</span>;
     } },
+  // Bare URL autolink — a plain https link in prose becomes clickable. Trailing
+  // sentence punctuation is left out of the href.
+  { re: /(https?:\/\/[^\s<]+[^\s<.,:;!?)\]])/, render: (m, k) =>
+      <a key={k} href={m[1]} target="_blank" rel="noreferrer noopener">{m[1]}</a> },
   { re: /\*([^*]+)\*/, render: (m, k) => <em key={k}>{inline(m[1], k)}</em> },
   { re: /\b_([^_]+)_\b/, render: (m, k) => <em key={k}>{inline(m[1], k)}</em> },
 ];
@@ -23,6 +34,16 @@ function safeHref(url: string): string | null {
   const u = url.trim();
   if (/^(https?:|mailto:|#|\/)/i.test(u)) return u;
   return null; // block javascript:/data: and other schemes
+}
+
+function safeImg(url: string): string | null {
+  const u = url.trim();
+  // Same-origin, https, or an inline image data URI. Agent-produced media is
+  // resolved to /uploads server-side; a stray remote image still loads because
+  // Ava serves no CSP, but javascript:/other data: are refused.
+  if (/^(https?:|\/|\.\/)/i.test(u)) return u;
+  if (/^data:image\//i.test(u)) return u;
+  return null;
 }
 
 function inline(text: string, keyPrefix: string): Node[] {

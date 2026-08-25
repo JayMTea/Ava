@@ -62,7 +62,7 @@ Then `cd agent && ./install.sh` deploys the policies into the sandbox.
 
 ## Add one
 ```bash
-ava connector new myapp     # scaffolds $AVA_HOME/connectors/myapp/connector.yaml
+ava connector new myapp     # scaffolds ${AVA_HOME:-$PWD}/connectors/myapp/connector.yaml
 ava connector list          # see everything currently loaded
 ```
 Then restart Ava (or `ava up`). Your app appears in the dashboard's **Service

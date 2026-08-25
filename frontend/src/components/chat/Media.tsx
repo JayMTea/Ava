@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Preview } from '../../lib/types';
+import type { MediaRef, Preview } from '../../lib/types';
 import { Icon } from '../../lib/icons';
 import { AppDot, appAccent, appForUrl } from '../../lib/appColor';
 
@@ -137,6 +137,57 @@ export function Lightbox({ url, onClose }: { url: string; onClose: () => void })
       <button ref={closeRef} className="lb-close" type="button" aria-label="Close" onClick={onClose}>
         <Icon name="close" />
       </button>
+    </div>
+  );
+}
+
+// Agent/tool-produced media, resolved server-side to a same-origin URL
+// (ava_bridge/agent_media.py). Renders the real element for its kind so the
+// browser gets a native player — a <video> here supports HTTP Range against
+// the /uploads mount, so it seeks. An image opens the same Lightbox as an
+// upload; a file becomes a labelled download.
+export function MediaCard({
+  media,
+  onOpen,
+}: {
+  media: MediaRef;
+  onOpen?: (url: string) => void;
+}) {
+  const { url, kind } = media;
+  const name = media.filename || decodeURIComponent(url.split('/').pop() || '') || 'file';
+  const app = appForUrl(url);
+  const label = app || media.filename ? (
+    <div className="media-cap">
+      {app && <AppDot accent={appAccent(app)} />}
+      <span className="media-name">{name}</span>
+      {app && <span className="tool-app">{app.label}</span>}
+    </div>
+  ) : null;
+  return (
+    <div className={`media-card kind-${kind}`}>
+      {kind === 'video' ? (
+        // eslint-disable-next-line jsx-a11y/media-has-caption
+        <video className="media-el" controls preload="metadata" src={url} />
+      ) : kind === 'audio' ? (
+        // eslint-disable-next-line jsx-a11y/media-has-caption
+        <audio className="media-el media-audio" controls preload="metadata" src={url} />
+      ) : kind === 'image' ? (
+        <button type="button" className="media-imgbtn" onClick={() => onOpen?.(url)}>
+          <img className="media-el" loading="lazy" src={url} alt={name} />
+        </button>
+      ) : (
+        <a
+          className="media-file"
+          href={url}
+          target="_blank"
+          rel="noreferrer noopener"
+          download={name}
+        >
+          <Icon name="file" />
+          <span>{name}</span>
+        </a>
+      )}
+      {label}
     </div>
   );
 }

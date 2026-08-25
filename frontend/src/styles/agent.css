@@ -69,7 +69,22 @@
   min-height: 0;
   overflow-y: auto;
   padding: var(--sp-4);
+  /* Vertical rhythm for the LIST sections. Activity and Automations stack a
+     `.db-kpis` row and bare `.db-panel`s, none of which carry a margin — in a
+     plain block container they met edge to edge, and since a tile and a panel
+     share `--panel2` and the same hairline, the seam read as one card
+     overlapping the next rather than as two. `.agent-console` re-declares
+     `display` below, so the three-column console keeps its own grid. */
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
 }
+
+/* Nothing in a scroll container may be squeezed to make the content fit.
+   Flex's default `shrink: 1` would compress a panel below its content and let
+   its own rows spill out the bottom — the scrollbar is what handles overflow
+   here. Inert for the console, whose children are grid items. */
+.agent-body > * { flex: 0 0 auto; }
 
 /* The CONSOLE layout, and only the console.
  *

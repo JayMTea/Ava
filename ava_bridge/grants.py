@@ -145,3 +145,9 @@ def for_connector(cid: str) -> dict:
     """{action: meta} for one connector (the settings page's grant column)."""
     with _lock:
         return dict(_load().get(cid) or {})
+
+
+def known_ids() -> list[str]:
+    """Every connector id this store holds state for — so `connectors.orphans()`
+    can flag entries whose manifest is gone before a reused id inherits them."""
+    return sorted(_load().keys())

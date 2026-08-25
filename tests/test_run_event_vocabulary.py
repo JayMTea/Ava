@@ -27,6 +27,13 @@ with open(CONTRACT, encoding="utf-8") as f:
     DOC = json.load(f)
 
 KINDS = set(DOC["kinds"])
+# The kinds a `step` event carries INSIDE it (`{"kind": "step", "step": {"kind":
+# <one of these>}}`). Read from the contract, not spelled here: this file used
+# to hold its own copy ({"text", "tool", "reasoning", "thinking"}), and when the
+# adapter grew a `tool_result` step — folded by the client all along — the copy
+# reported it as an unknown RUN kind. Two copies of one vocabulary was the bug
+# the contract file exists to prevent.
+STEP_KINDS = set(DOC.get("step_kinds") or [])
 
 
 def _emitters():
@@ -88,6 +95,32 @@ class ContractTests(unittest.TestCase):
                 self.assertIn(field, sample,
                               f"{sample['kind']} sample is missing {field}")
 
+    def test_the_contract_lists_the_step_kinds(self):
+        """Anti-vacuous for the emitter guard below: with no step kinds listed,
+        `seen -= STEP_KINDS` subtracts nothing and every step kind the backend
+        constructs would be reported as a run kind."""
+        self.assertGreaterEqual(len(STEP_KINDS), 4)
+        self.assertEqual(STEP_KINDS & KINDS, set(),
+                         "a step kind cannot also be a run kind — the client "
+                         "dispatches on the outer `kind` and would misroute it")
+
+    def test_every_step_kind_has_a_step_sample(self):
+        """A step kind with no sample is one the TS side never folds."""
+        sampled = {s["step"]["kind"] for s in DOC["samples"]
+                   if s["kind"] == "step"}
+        self.assertEqual(sampled, STEP_KINDS,
+                         "every step kind needs a `step` sample carrying it, "
+                         "and every step sample a listed kind")
+
+    def test_every_step_sample_carries_its_required_fields(self):
+        for sample in DOC["samples"]:
+            if sample["kind"] != "step":
+                continue
+            step = sample["step"]
+            for field in DOC["step_required_fields"][step["kind"]]:
+                self.assertIn(field, step,
+                              f"step sample {step['kind']} is missing {field}")
+
 
 class EmitterTests(unittest.TestCase):
 
@@ -103,10 +136,12 @@ class EmitterTests(unittest.TestCase):
                     seen.add(kind)
                     where.setdefault(kind, rel)
         # Inside the run path, a literal "kind" IS a run kind — except the cot
-        # STEP kinds ("text", "tool", "reasoning"), which ride INSIDE a step
-        # event rather than being events themselves.
-        step_kinds = {"text", "tool", "reasoning", "thinking"}
-        seen -= step_kinds
+        # STEP kinds, which ride INSIDE a step event rather than being events
+        # themselves. The contract lists those too (`step_kinds`), so a step
+        # kind the backend adds without telling the contract still fails here,
+        # as an unknown run kind — which is the right alarm, because the client
+        # will not fold it either.
+        seen -= STEP_KINDS
         self.assertTrue(seen, "found no run-event emissions at all — the parse "
                               "has drifted and this guard is vacuous")
         extra = sorted(k for k in seen if k not in KINDS)

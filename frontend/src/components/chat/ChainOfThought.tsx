@@ -3,6 +3,7 @@ import type { CotStep } from '../../lib/types';
 import { Icon } from '../../lib/icons';
 import { fixForCode } from '../../lib/fixes';
 import { FixLink } from '../../lib/FixLink';
+import { MediaCard } from './Media';
 
 interface Props {
   label: string;
@@ -14,9 +15,65 @@ interface Props {
    *  fix-it link that system messages already get — this was the last failure
    *  surface without one, and it is the one a first message lands on. */
   code?: string;
+  /** Opens an image attachment in the lightbox. */
+  onOpen?: (url: string) => void;
 }
 
-export function ChainOfThought({ label, steps, status, secs, error, code }: Props) {
+function toolLabel(name?: string): string {
+  return (name || 'tool').replace(/^.*__/, '').replace(/_/g, ' ');
+}
+
+function fmtArgs(args: unknown): string {
+  if (typeof args === 'string') return args;
+  try {
+    return JSON.stringify(args, null, 2);
+  } catch {
+    return String(args);
+  }
+}
+
+// A tool call. A bare call is one "Using <tool>" line; once its result folds in
+// (chatEvents.foldStep) it grows a collapsible "Tool output" card carrying the
+// arguments, the output text and any media the tool produced — the shape the
+// OpenClaw Control UI shows and the reason this pipeline exists.
+function ToolStep({ step, onOpen }: { step: CotStep; onOpen?: (url: string) => void }) {
+  const label = 'Using ' + toolLabel(step.name);
+  const hasMedia = !!(step.attachments && step.attachments.length);
+  const hasBody = !!(step.output || step.args != null || hasMedia);
+  if (!hasBody) {
+    return (
+      <div className="cstep tool">
+        <Icon name="image" />
+        <span>{label}</span>
+      </div>
+    );
+  }
+  return (
+    <details className={'cstep tool tool-card' + (step.is_error ? ' tool-err' : '')}>
+      <summary className="tool-sum">
+        <Icon name="image" />
+        <span className="tool-lab">{step.is_error ? 'Tool error · ' : 'Tool output · '}{toolLabel(step.name)}</span>
+      </summary>
+      <div className="tool-body">
+        {step.args != null && (
+          <pre className="tool-args"><code>{fmtArgs(step.args)}</code></pre>
+        )}
+        {step.output && (
+          <pre className="tool-out"><code>{step.output}</code></pre>
+        )}
+        {hasMedia && (
+          <div className="tool-media">
+            {step.attachments!.map((m, i) => (
+              <MediaCard key={`${m.url}:${i}`} media={m} onOpen={onOpen} />
+            ))}
+          </div>
+        )}
+      </div>
+    </details>
+  );
+}
+
+export function ChainOfThought({ label, steps, status, secs, error, code, onOpen }: Props) {
   const fix = status === 'error' ? fixForCode(code) : undefined;
   const [open, setOpen] = useState(true);
   const cls =
@@ -51,11 +108,8 @@ export function ChainOfThought({ label, steps, status, secs, error, code }: Prop
       {fix && <div className="gen-fixrow"><FixLink fix={fix} /></div>}
       <div className="cot-body">
         {steps.map((s, i) =>
-          s.kind === 'tool' ? (
-            <div className="cstep tool" key={i}>
-              <Icon name="image" />
-              <span>{'Using ' + (s.name || 'tool').replace(/^.*__/, '').replace(/_/g, ' ')}</span>
-            </div>
+          s.kind === 'tool' || s.kind === 'tool_result' ? (
+            <ToolStep key={i} step={s} onOpen={onOpen} />
           ) : s.kind === 'thinking' ? (
             <div className="cstep think" key={i}>
               {s.text}

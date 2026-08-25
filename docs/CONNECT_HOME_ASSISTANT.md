@@ -44,8 +44,8 @@ it comes alive; delete the folder and every trace is gone.
 ```bash
 # 1. Register the connector (copy the shipped template into YOUR $AVA_HOME).
 #    mkdir -p first: a fresh $AVA_HOME has no connectors/ directory yet.
-mkdir -p "$AVA_HOME/connectors"
-cp -r examples/home-assistant "$AVA_HOME/connectors/home-assistant"
+mkdir -p "${AVA_HOME:-$PWD}/connectors"
+cp -r examples/home-assistant "${AVA_HOME:-$PWD}/connectors/home-assistant"
 
 # 2. Point it at your HA. These are two lines in a FILE, not shell commands —
 #    typing them at a prompt sets nothing Ava can see. Ava reads `.env` next to

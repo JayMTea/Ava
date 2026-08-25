@@ -134,6 +134,7 @@ def chat_append(cid: str, role: str, content: str,
                  tools_used: list[str] | None = None,
                  steps: list | None = None,
                  error_code: str | None = None,
+                 attachments: list | None = None,
                  ts: float | None = None) -> None:
     """Append one message. `ts` defaults to now.
 
@@ -160,6 +161,11 @@ def chat_append(cid: str, role: str, content: str,
     trimmed = _trim_steps(steps)
     if trimmed:
         extra["steps"] = trimmed  # durable chain-of-thought (survives reload)
+    media = _trim_attachments(attachments)
+    if media:
+        # Agent/tool-produced media (video, image, audio, file) that renders on
+        # the assistant message — kept durable so it survives a reload.
+        extra["attachments"] = media
 
     with _LOCK, _db() as con:
         row = con.execute("SELECT title FROM chats WHERE id=?", (cid,)).fetchone()
@@ -297,7 +303,13 @@ def reset() -> None:
 # --------------------------------------------------------------------------- #
 def _trim_steps(steps: list | None) -> list | None:
     """Keep the reasoning trajectory durable but bounded — chats.json is loaded
-    whole into memory, so cap the count and truncate long thinking blocks."""
+    whole into memory, so cap the count and truncate long text.
+
+    A tool step now carries its OUTPUT, its arguments and any media so the "Tool
+    output" card survives a reload rather than collapsing to a bare name. Each is
+    bounded: the output like a thinking block, the args serialised and capped,
+    the media list count- and length-capped by `_trim_attachments`.
+    """
     if not steps:
         return None
     out = []
@@ -307,11 +319,47 @@ def _trim_steps(steps: list | None) -> list | None:
         st = {"kind": s.get("kind", "text")}
         if s.get("name"):
             st["name"] = str(s["name"])[:120]
+        if s.get("id"):
+            st["id"] = str(s["id"])[:120]
         tx = s.get("text")
         if tx:
             tx = str(tx)
             st["text"] = tx[:4000] + (" …[truncated]" if len(tx) > 4000 else "")
+        out_txt = s.get("output")
+        if out_txt:
+            out_txt = str(out_txt)
+            st["output"] = out_txt[:4000] + (" …[truncated]" if len(out_txt) > 4000 else "")
+        if s.get("is_error"):
+            st["is_error"] = True
+        args = s.get("args")
+        if args is not None:
+            try:
+                blob = args if isinstance(args, str) else json.dumps(args, ensure_ascii=False)
+            except (TypeError, ValueError):
+                blob = str(args)
+            st["args"] = blob[:2000] + (" …[truncated]" if len(blob) > 2000 else "")
+        media = _trim_attachments(s.get("attachments"))
+        if media:
+            st["attachments"] = media
         out.append(st)
+    return out or None
+
+
+def _trim_attachments(atts: list | None, cap: int = 8) -> list | None:
+    """A durable, bounded media list: at most `cap` entries, each with a capped
+    url/kind/filename/mime and nothing else."""
+    if not atts:
+        return None
+    out = []
+    for a in atts[:cap]:
+        if not isinstance(a, dict) or not a.get("url"):
+            continue
+        item = {"url": str(a["url"])[:2048], "kind": str(a.get("kind") or "file")}
+        if a.get("filename"):
+            item["filename"] = str(a["filename"])[:200]
+        if a.get("mime"):
+            item["mime"] = str(a["mime"])[:100]
+        out.append(item)
     return out or None
 
 def chat_summary(c: dict) -> dict:

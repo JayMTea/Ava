@@ -39,9 +39,11 @@ ALLOWED = {
     # table of container-host names, beside host.docker.internal (Docker
     # Desktop) and host.containers.internal (Podman). Importing one of the
     # three from a NemoClaw module would imply a relationship that is not
-    # there — the wizard is asking "what does any container call its host".
-    os.path.join("ava_bridge", "setup_wizard.py"):
-        "one entry in a cross-runtime table of container-host gateway names, "
+    # there — the table answers "what does any container call its host", and
+    # both its consumers (the setup wizard's engine probe and the bridge's
+    # DNS-rebinding guard in auth.py) import it from this one leaf module.
+    os.path.join("ava_bridge", "container_hosts.py"):
+        "the one cross-runtime table of container-host gateway names, "
         "not knowledge of NemoClaw's layout",
 }
 

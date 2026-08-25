@@ -61,8 +61,12 @@ from . import config, settings
 
 # Long enough to survive a slow first paint and a user switching tabs before the
 # frame loads; short enough that a token copied out of a URL is stale by the time
-# anyone reuses it. The frame re-fetches on every mount, so nothing depends on it
-# living longer.
+# anyone reuses it. Short does NOT mean a panel dies at the five-minute mark:
+# authorize() re-mints a verified token once it is past half-life and the auth
+# middleware sets the replacement as the cookie (`_renewal`), so an ACTIVE panel
+# renews itself indefinitely — only a token nobody has presented for the full
+# TTL actually expires. The frame re-fetches on every mount, so a fresh mount
+# never depends on the old token either.
 TOKEN_TTL_S = 300
 
 
@@ -117,6 +121,13 @@ def is_app_path(path: str) -> bool:
     return path == "/apps" or path.startswith("/apps/")
 
 
+def is_app_api_path(path: str) -> bool:
+    """`/apps/<cid>/api[/...]` — the browser data-proxy under an app's prefix."""
+    parts = path.split("/")
+    return len(parts) >= 4 and parts[1] == "apps" and bool(parts[2]) \
+        and parts[3] == "api"
+
+
 def refuses(request, path: str) -> str | None:
     """Why this request must be refused, or None to let it through.
 
@@ -132,6 +143,21 @@ def refuses(request, path: str) -> str | None:
     if apps_host and not is_app_path(path):
         return "this host serves connector apps only"
     if is_app_path(path) and not apps_host:
+        # One carve-out: the ui.api data-proxy. A NATIVE app view is part of
+        # Ava's own bundle, on Ava's own origin, holding Ava's session — it
+        # has no iframe, no embed token, and no way to be handed one. Its data
+        # calls go to /apps/<cid>/api/* and must keep working on the main
+        # host, where the session cookie (checked downstream in auth_gate) is
+        # the gate; refusing them here broke every native view the moment the
+        # split was turned on. This does not weaken the iframe boundary: an
+        # embedded app's JS lives on the apps origin, where a cross-origin
+        # call to the main host carries no session cookie — and on its own
+        # host the embed token stays required. The proxy refuses to serve app
+        # UI documents through this carve-out (phone_bridge.app_api_proxy
+        # blocks the no-ui.api fall-through across the split), so it admits
+        # the app's data, never its documents.
+        if is_app_api_path(path):
+            return None
         return "connector apps are served from the apps origin"
     return None
 
@@ -157,6 +183,37 @@ def verify(cid: str, token: str) -> bool:
     if exp < int(time.time()):
         return False
     return hmac.compare_digest(sig, _sign(cid, exp))
+
+
+def _renewal(cid: str, token: str) -> str | None:
+    """A replacement token when `token` is past half-life, else None.
+
+    Sliding renewal is what keeps an OPEN panel alive past TOKEN_TTL_S. The
+    TTL used to be absolute: five minutes after the frame loaded, every
+    request — an SSE reconnect, a click, an asset — got a raw 403 while the
+    panel looked perfectly healthy. Now every authorized request past
+    half-life hands back a fresh token for the middleware to set as the
+    cookie, so the clock re-arms for as long as the panel is in use, and only
+    one idle for the FULL TTL ever sees its token die. A top-level return to
+    such a dead panel re-enters through the shell (auth._shell_bounce ->
+    /#<cid> -> a freshly minted embed URL), so the owner sees a reload rather
+    than a wall of JSON. Re-minting FOR an expired token is deliberately not
+    done: an expired token is exactly as unauthenticated as no token, and
+    honouring it would make the TTL decorative.
+
+    Half-life rather than every request: a fresh token's burst of asset loads
+    should not carry a Set-Cookie per response, and renewing early buys
+    nothing — the replacement is identical in power (same cid, same TTL).
+    The security property is unchanged: tokens stay cid-bound and short-lived,
+    and a token for app A still verifies for app A alone.
+    """
+    try:
+        exp = int(str(token).split(".", 1)[0])
+    except ValueError:
+        return None
+    if exp - int(time.time()) <= TOKEN_TTL_S // 2:
+        return mint(cid)
+    return None
 
 
 def embed_url(cid: str, query: str = "") -> str | None:
@@ -190,17 +247,19 @@ def authorize(request, path: str) -> tuple[bool, str | None, str]:
     then requests relative to its own document carry no query string, so the token
     is exchanged once for a cookie scoped to THIS origin. That cookie is not an Ava
     session and grants nothing but this one app's proxy: it is the same minted
-    token, verified against the cid in the path on every request.
+    token, verified against the cid in the path on every request — and re-minted
+    on a sliding half-life (`_renewal`) so an open panel outlives TOKEN_TTL_S
+    for exactly as long as it stays in use.
     """
     cid = cid_from_path(path)
     if not cid:
         return False, None, "no connector id in path"
     from_query = request.query_params.get("t") or ""
     if from_query and verify(cid, from_query):
-        return True, from_query, ""
+        return True, _renewal(cid, from_query) or from_query, ""
     from_cookie = request.cookies.get(cookie_name(cid)) or ""
     if from_cookie and verify(cid, from_cookie):
-        return True, None, ""
+        return True, _renewal(cid, from_cookie), ""
     if from_query or from_cookie:
         return False, None, "embed token expired — reload the app in Ava"
     return False, None, "no embed token"

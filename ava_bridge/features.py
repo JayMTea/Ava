@@ -57,6 +57,17 @@ REGISTRY: dict[str, dict] = {
         "config": "agent.enabled",
         "panel": False,
     },
+    # Grouping the connected apps into the owner's own domains, and collecting a
+    # daily KPI per domain. OFF by default and deliberately so: it reads app data
+    # on a schedule, and a capability that dials the owner's health and money
+    # sources should be something they switched on, not something a version bump
+    # started doing.
+    "domains": {
+        "label": "Domains",
+        "sub": "group apps into your own domains and track a KPI per domain",
+        "default": False,
+        "env": "AVA_DOMAINS",
+    },
     "web_search": {
         "label": "Web search",
         "sub": "self-hosted SearXNG + guarded fetch",

@@ -190,6 +190,48 @@ class TurnTests(unittest.TestCase):
         tool = next(s for s in rec["steps"] if s["kind"] == "tool")
         self.assertEqual(tool["args"], {"path": "/etc/hosts"})
 
+    def test_a_tool_result_and_reply_media_survive_the_real_wire_format(self):
+        """The rich-chat seam end to end: the REAL gateway shapes — a tool
+        `phase:start`/`phase:result` pair and a `MEDIA:` reply line with a usage
+        count — must arrive as one folded tool card, a reply attachment, the
+        gateway's own token count, and prose with the MEDIA line stripped.
+
+        Same-origin media (`/apps/...`) so resolution is a pure passthrough; the
+        point here is the parse+fold+thread, not the download path."""
+        self.gw.script = [
+            {"event": "agent", "payload": {"stream": "lifecycle",
+                                           "data": {"phase": "start"}}},
+            {"event": "agent", "payload": {"stream": "tool",
+                "data": {"phase": "start", "name": "exec", "toolCallId": "c1",
+                         "args": {"cmd": "render"}}}},
+            {"event": "agent", "payload": {"stream": "tool",
+                "data": {"phase": "update", "name": "exec", "toolCallId": "c1",
+                         "partialResult": "…"}}},
+            {"event": "agent", "payload": {"stream": "tool",
+                "data": {"phase": "result", "name": "exec", "toolCallId": "c1",
+                         "isError": False,
+                         "result": {"content": [{"type": "text",
+                                                 "text": "601 frames"}]}}}},
+            {"event": "chat", "payload": {"state": "final", "stopReason": "stop",
+                "message": {"role": "assistant",
+                            "content": [{"type": "text",
+                                         "text": "Rendered.\nMEDIA: /apps/r/out.mp4"}],
+                            "usage": {"promptTokens": 18900}}}},
+        ]
+        rec = _run_a_turn(self.rt, tid="t-rich")
+        self.assertEqual(rec["status"], "done")
+        self.assertEqual(rec["reply"], "Rendered.")  # MEDIA line stripped
+        self.assertEqual(rec["tools_used"], ["exec"])
+        tool_steps = [s for s in rec["steps"] if s["kind"] == "tool"]
+        self.assertEqual(len(tool_steps), 1, "start+update+result → one card")
+        self.assertEqual(tool_steps[0]["output"], "601 frames")
+        self.assertEqual(tool_steps[0]["args"], {"cmd": "render"})
+        self.assertNotIn("tool_result", [s["kind"] for s in rec["steps"]])
+        self.assertEqual(len(rec["attachments"]), 1)
+        self.assertEqual(rec["attachments"][0]["url"], "/apps/r/out.mp4")
+        self.assertEqual(rec["attachments"][0]["kind"], "video")
+        self.assertEqual(rec["ctx_tokens"], 18900)
+
     def test_a_gap_in_the_event_sequence_is_reported_not_smoothed(self):
         """Silently rendering a chain with a hole in it tells the owner the
         record is complete when it is not."""
@@ -257,7 +299,10 @@ class RecoveryTests(unittest.TestCase):
         handle = RunHandle(run_id="turn:t-rec", session_id="ava-phone-c9",
                            idempotency_key="turn:t-rec")
         got = self.rt._reconcile(handle)
-        self.assertEqual(got, ("Recovered.", ["read_file"]))
+        # (reply, tools, media, usage_tokens) — the fallback now also recovers
+        # any reply media and the gateway's usage count; this history message
+        # carries neither.
+        self.assertEqual(got, ("Recovered.", ["read_file"], [], None))
         sent = next(c for c in self.gw.calls
                     if c["method"] == "chat.history")
         self.assertIn("sessionKey", sent["params"])

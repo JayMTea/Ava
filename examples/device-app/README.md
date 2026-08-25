@@ -20,7 +20,7 @@ stdlib Python:
 ```bash
 # 1. Register the connector (built-in id: device-demo)
 mkdir -p "${AVA_HOME:-$PWD}/connectors"          # ava setup does not create this
-cp -r examples/device-app "$AVA_HOME/connectors/device-demo"
+cp -r examples/device-app "${AVA_HOME:-$PWD}/connectors/device-demo"
 
 # 2. Get this connector's inbound push token
 ava device token device-demo        # copy the token it prints

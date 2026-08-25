@@ -363,6 +363,13 @@ export interface HubConnector {
   renders_policy: boolean;
   enabled: boolean;
   builtin?: boolean;   // shipped in the repo — read-only (no edit/disable/delete)
+  /** Device identity: `role: device` in the manifest groups the row under
+   *  Devices (shared.connectorGroup). Identity, not transport. */
+  role?: string | null;
+  /** Why this row is degraded: the row-builder failed, or the loader
+   *  quarantined part of the manifest. Absent on a healthy connector. The row
+   *  stays manageable — Edit/Remove are exactly what a broken one needs. */
+  error?: string;
   icon?: string | null;  // manifest ui.icon (null = stable auto-pick)
   color?: string | null; // manifest ui.color (null = stable auto-pick)
   auth_env?: string | null;  // env-var NAME the app authenticates with (null = no auth)
@@ -385,6 +392,9 @@ export interface GenerateResult {
   policy?: string; // rendered YAML preview
   tools?: { name: string; source: string }[];
   wrote?: string[];
+  /** Stale .mjs removed on write — a renamed action's previous render, which
+   *  would otherwise ship into the sandbox as a phantom tool. */
+  pruned?: string[];
   error?: string;
 }
 
@@ -533,7 +543,10 @@ export interface NewConnectorBody {
   ingest?: boolean;   // let the app push readings/events with its ingest token
   ui?: boolean;       // write the embedded-app ui: block (sidebar tile + iframe proxy)
   ui_url?: string;    // split-container apps: the UI lives at a different address
-  actions?: { id: string; method: string; path: string; description?: string; confirm?: boolean; access?: string }[];
+  // `input` is the JSON-schema the probe read from the app's OpenAPI spec —
+  // it must survive the round trip into the manifest, or every detected tool
+  // is generated argument-less (and a templated path keeps its literal {id}).
+  actions?: { id: string; method: string; path: string; description?: string; confirm?: boolean; access?: string; input?: Record<string, unknown> }[];
   mcp?: { url?: string; command?: string; token_env?: string; sandbox?: string };
   discover?: { base?: string; list?: string; call?: string; token_env?: string };
 }
@@ -581,8 +594,10 @@ export interface ProbeResult {
   kind?: 'mcp' | 'discover' | 'rest' | 'unknown';
   transport?: string;
   tools?: { name: string; description: string }[];
-  // Pre-filled from the app's OpenAPI/Swagger spec (a plain web app is zero-config).
-  actions?: { id: string; method: string; path: string; description?: string; confirm?: boolean; access?: string }[];
+  // Pre-filled from the app's OpenAPI/Swagger spec (a plain web app is
+  // zero-config). `input` is each operation's JSON-schema; the connect form
+  // must hand it back on create or the generated tool takes no arguments.
+  actions?: { id: string; method: string; path: string; description?: string; confirm?: boolean; access?: string; input?: Record<string, unknown> }[];
   // The app serves its own web UI — offer the embedded sidebar tile (ui.embed: iframe).
   has_ui?: boolean;
   // Self-described via /.well-known/ava.json — prefill the connect form.
@@ -922,8 +937,11 @@ export const hub = {
       }),
   getManifest: (id: string) =>
     req<ManifestResult>(`/api/hub/connectors/${encodeURIComponent(id)}/manifest`),
+  // `errors`: the save is real, but saving is not validating — these are the
+  // loader's per-field quarantine rows for this id, so the editor can say what
+  // it just made of the file instead of a bare "Saved."
   saveManifest: (id: string, yaml: string) =>
-    req<{ ok: boolean; error?: string }>(
+    req<{ ok: boolean; error?: string; errors?: ConnectorLoadError[] }>(
       `/api/hub/connectors/${encodeURIComponent(id)}/manifest`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

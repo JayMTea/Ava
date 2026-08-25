@@ -167,7 +167,16 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
     setBusy(true); setErr('');
     try {
       const r = await hub.saveManifest(c.id, editText);
-      if (r.ok) { setEditText(null); setMsg('Manifest saved.'); onChanged(); }
+      if (r.ok) {
+        setEditText(null);
+        // The file saved — that part is true — but saving is not validating:
+        // the loader may still have quarantined part of it, and the person who
+        // just pressed Save is exactly the one who needs that verdict here,
+        // not on some later reload.
+        if (r.errors?.length) setErr(`Saved, but the loader flagged: ${r.errors.map((x) => x.error).join(' · ')}`);
+        else setMsg('Manifest saved.');
+        onChanged();
+      }
       else setErr(r.error || 'could not save');
     } catch (e) { setErr((e as Error).message); }
     setBusy(false);
@@ -303,6 +312,7 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
           <div className="conn-title-row">
             <span className="conn-title">{c.label}</span>
             {c.builtin && <Badge>built-in</Badge>}
+            {c.error && <Badge tone="err">broken</Badge>}
           </div>
           <div className="conn-meta">
             {c.enabled
@@ -429,6 +439,16 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
         </div>
       )}
       {showPerms && <PermissionsSheet cid={c.id} />}
+      {/* A degraded connector says WHY on its own row. The backend keeps these
+          rows manageable on purpose (real builtin/enabled, error attached), so
+          the repair actions in the ⋯ menu — Edit manifest, Disable, Remove —
+          sit right next to the reason they're needed. */}
+      {c.error && (
+        <div className="hub-msg err" style={{ marginTop: 8 }}>
+          This connector has a problem: {c.error}
+          {!c.builtin && <> — fix it with <b>Edit manifest</b> in the ⋯ menu, or <b>Remove</b> it.</>}
+        </div>
+      )}
       {msg && <div className="hub-msg ok" style={{ marginTop: 8 }}>{msg}</div>}
       {err && <div className="hub-msg err" style={{ marginTop: 8 }}>{err}</div>}
       {token && (

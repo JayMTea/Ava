@@ -18,7 +18,6 @@ import json
 import os
 import threading
 
-import requests
 from fastapi import FastAPI, Form, UploadFile, File, Request
 from fastapi.responses import (JSONResponse,
                                RedirectResponse, Response)
@@ -185,6 +184,15 @@ def _startup():
     # Architecture drift watchdog: periodic SSOT check between commits — heals
     # stale diagrams, alerts on structural drift. No-op without a manifest.
     arch_watch.start_scheduler()
+    # Daily KPI collector for the domain layer. No-op unless features.domains is
+    # on, and it refuses any app tool above `sensitive` or needing confirmation,
+    # so enabling the flag alone never starts reading anything the owner has not
+    # separately granted.
+    try:
+        from ava_bridge import kpi_collect
+        kpi_collect.start_scheduler()
+    except Exception as e:  # noqa: BLE001 — optional subsystem; never block boot
+        print(f"[ava-bridge] domain collector unavailable: {e}", flush=True)
     # Allocation watchdog: polls each declared model's readiness, so "the service is
     # up but its model never loaded" raises an alert instead of going unnoticed —
     # that state answers its own port, so no liveness check detects it. No-op until
@@ -239,6 +247,12 @@ app.include_router(_media_router)
 # Telemetry reads (cookie-gated /api/perf/*, /api/hardware*) — what Vitals polls.
 from ava_bridge.perf_api import router as _perf_router  # noqa: E402
 app.include_router(_perf_router)
+
+# Domain grouping + the per-domain KPI series. Off unless features.domains is on;
+# the routes stay mounted either way so the Data page can still inventory the
+# store a previously-enabled instance left behind.
+from ava_bridge.domains_api import router as _domains_router  # noqa: E402
+app.include_router(_domains_router)
 
 # Chat API (cookie-gated /api/chats/*, /api/chat-stream, /api/ghost/discard).
 from ava_bridge.chats_api import router as _chats_router  # noqa: E402
@@ -369,6 +383,45 @@ async def api_apps():
     })
 
 
+@app.get("/api/apps/health")
+async def api_apps_health():
+    """Per-app readiness for the sidebar dot — see `dashboard.apps_health`.
+
+    Split from `/api/apps` rather than folded into it: the registry is what the
+    shell needs to PAINT the nav and must stay instant, while this probes
+    services (15s-cached, but still I/O) and is polled on its own clock. A nav
+    that waited on health would blank the sidebar every time an app hung."""
+    from ava_bridge import dashboard
+    return await run_in_threadpool(dashboard.apps_health)
+
+
+@app.post("/api/apps/order")
+async def api_apps_order(body: dict):
+    """Save the owner's hand-arranged sidebar order.
+
+    Takes the FULL list of app ids in display order, not a move instruction: a
+    drag produces an arrangement, and replaying "moved X above Y" against a list
+    that changed underneath (an app connected in another tab) reorders the wrong
+    thing. Unknown ids are dropped rather than rejected — an app removed in
+    another tab must not make an otherwise valid arrangement un-saveable.
+    """
+    raw = body.get("order")
+    if not isinstance(raw, list):
+        return JSONResponse({"ok": False, "error": "order must be a list of app ids"},
+                            status_code=400)
+    known = {a["id"] for a in connectors.apps() if a.get("section") != "core"}
+    seen, order = set(), []
+    for x in raw:
+        cid = str(x).strip()
+        if cid in known and cid not in seen:
+            seen.add(cid)
+            order.append(cid)
+    connectors.save_order(order)
+    # No restart_required: `connectors.apps()` reads the key at request time, so
+    # the next /api/apps already reflects this.
+    return {"ok": True, "order": order}
+
+
 @app.get("/api/apps/{cid}/embed")
 async def api_app_embed(cid: str, request: Request):
     """The URL the shell should point an app's iframe at.
@@ -434,30 +487,414 @@ async def api_devices():
 
 
 # --- Generic app surface -----------------------------------------------------
-# Two same-origin proxies serve EVERY connector that declares a `ui:` block, so
-# a third-party app renders in Ava's shell with no bespoke bridge code:
+# Two proxies serve EVERY connector that declares a `ui:` block, so a
+# third-party app renders in Ava's shell with no bespoke bridge code:
 #   /apps/<id>/api/<path>  — browser data-proxy: forwards to the app's API base
 #                            with its bearer token injected (browser never sees it)
 #   /apps/<id>/<path>      — iframe proxy: reverse-proxies the app's own web UI
-#                            same-origin, so it inherits Ava's session cookie
-# The /api/ route is declared first so it wins over the catch-all below.
-def _proxy_response(r: "requests.Response") -> Response:
-    fwd = {}
-    for hkey in ("cache-control", "etag", "last-modified", "expires"):
-        hv = r.headers.get(hkey)
-        if hv:
-            fwd[hkey] = hv
-    ctype = r.headers.get("content-type", "")
-    if "text/html" in ctype:
-        # An embedded app's HTML entry must always revalidate. Many app servers
-        # (Starlette StaticFiles included) send Last-Modified but no
-        # Cache-Control, so browsers cache the page heuristically — pinning the
-        # iframe to a stale bundle across the app's rebuilds. ETag stays, so
-        # unchanged pages are still cheap 304s; hashed assets stay long-cached.
-        fwd.pop("expires", None)
-        fwd["cache-control"] = "no-cache"
-    return Response(content=r.content, status_code=r.status_code,
-                    media_type=r.headers.get("content-type"), headers=fwd)
+#                            under Ava's roof — same-origin by default, or on the
+#                            isolated apps origin (ava_bridge/apps_origin.py)
+# The /api/ route is declared first so it wins over the catch-all below. Both
+# carry every method a web app uses, HEAD and OPTIONS included — an app that
+# preflights its own API or HEADs a download used to get Ava's 405, which reads
+# as the app being broken.
+#
+# GATING is auth_gate, registered `app.middleware("http")` above: Ava's session
+# on the main origin, a cid-bound embed token on the apps origin. The routes
+# themselves therefore assume an authorised caller.
+#
+# TRANSPORT. Both proxies are native async httpx streams on the event loop, and
+# that is load-bearing, not a style choice. They used to be blocking `requests`
+# calls under run_in_threadpool — and Starlette runs those threads with
+# abandon_on_cancel=False, so a long-lived response (SSE, a long poll, an app
+# that simply stalls) pinned a worker thread that cancellation could NEVER
+# reclaim. anyio's default limiter is 40 tokens for the whole process, shared
+# by every run_in_threadpool call site in the bridge, so ~40 abandoned streams
+# froze every threadpool route — chat, login, the dashboard — until restart.
+# Measured, not theoretical: 40 open app streams and /api/devices stopped
+# answering. Streaming natively has the opposite property: when the browser
+# goes away the response task is cancelled and the upstream connection is
+# closed with it (the StreamingResponse's background task), so an app's stream
+# costs a pooled connection, never a thread.
+#
+# `follow_redirects=False` on the shared client, for the same reason the old
+# code set allow_redirects=False on every branch: a connector is trusted to
+# ANSWER, not to re-point the bridge somewhere else. Following a redirect here
+# is an SSRF primitive — the app returns `302 Location: http://127.0.0.1:8010/…`
+# and the bridge fetches loopback on its behalf and hands the body back.
+# `web_fetch` re-validates every hop against an SSRF guard (ava_bridge/web.py);
+# this path has no guard, so it refuses hops instead. A 3xx is forwarded to the
+# browser (Location rewritten, see below), which is what a same-origin fetch
+# would see anyway.
+#
+# HEADER CONTRACT, both directions, in one place:
+#   request  -> forward the browser's headers EXCEPT hop-by-hop (RFC 9110
+#               §7.6.1 — they describe THIS connection, not the next one), Host
+#               (httpx sets the upstream's own), and Ava's own cookies: the session cookie
+#               and the apps-origin embed cookie are stripped out of Cookie,
+#               because the app is a separate trust domain and must never hold
+#               a credential for Ava. Every OTHER cookie forwards — the app's
+#               own session has to survive the hop or its login breaks.
+#   response -> forward everything EXCEPT hop-by-hop and the two framing
+#               headers (Content-Length / Transfer-Encoding — streaming
+#               re-frames), with two rewrites so the app keeps working from
+#               under /apps/<cid>/: a Location that points inside the app
+#               (root-relative, or absolute on the app's own host:port) is
+#               re-prefixed onto the proxy path, and a Set-Cookie has its Path
+#               moved under /apps/<cid>/ and any Domain dropped — a cookie
+#               scoped to the app's internal path would never come back through
+#               the proxy, and Domain names a host the browser isn't on.
+# The old response side was an ALLOWLIST of four cache headers, which silently
+# ate Content-Disposition, WWW-Authenticate, Location and every Set-Cookie an
+# app issued — a login inside an embedded app could never stick. Forward-by-
+# default with a named excludes list is the posture a reverse proxy owes the
+# thing it fronts.
+import httpx  # noqa: E402 — the proxy block below is this import's only user
+from fastapi.responses import StreamingResponse  # noqa: E402
+from starlette.background import BackgroundTask  # noqa: E402
+
+# RFC 9110 §7.6.1 hop-by-hop headers, plus `proxy-connection` (the legacy
+# Netscape spelling some stacks still emit). Relaying any of these re-states
+# OUR connection's terms as the NEXT connection's.
+_HOP_BY_HOP = frozenset({
+    "connection", "keep-alive", "te", "trailer", "transfer-encoding", "upgrade",
+    "proxy-authenticate", "proxy-authorization", "proxy-connection",
+})
+
+_app_client_obj: "httpx.AsyncClient | None" = None
+_app_client_loop = None
+
+
+def _app_client() -> "httpx.AsyncClient":
+    """The ONE AsyncClient both proxies share, created on first use.
+
+    Module-level and lazy rather than per-request or lifespan-created: a client
+    owns the connection pool, so a client per request is a TCP (and TLS)
+    handshake per request and an unbounded number of pools — and lifespan
+    creation would cost every install the object whether or not it embeds any
+    apps, while tests import this module without running the ASGI lifespan at
+    all. First use is on the event loop, which is single-threaded, so the
+    check-then-set needs no lock.
+
+    The timeout SHAPE is the fix for the thread-starvation defect above:
+      * connect=5 — a dead app must fail fast enough to render the
+        unreachable page instead of a hanging tile;
+      * read=None — an SSE / long-poll stream is SUPPOSED to sit quiet for
+        minutes, and any read ceiling here kills every quiet stream at the
+        ceiling. The idle cost is a pooled connection, reclaimed the moment
+        the browser goes away — never a thread.
+    The pool limits are the corresponding brake: embedded apps can hold at
+    most max_connections upstream sockets between them, so one app hoarding
+    streams exhausts ITS proxy, not the bridge — and pool=15 turns "the pool
+    is full" into a visible 502 instead of a silent queue.
+
+    trust_env=False: app upstreams are the owner's own addresses from a
+    manifest, and routing them through an HTTP_PROXY inherited from the
+    service environment would be silent egress nobody configured.
+    """
+    global _app_client_obj, _app_client_loop
+    loop = asyncio.get_running_loop()
+    if _app_client_obj is None or _app_client_loop is not loop:
+        # Re-created whenever the RUNNING LOOP changes, not only on first use.
+        # The pool holds sockets registered on the loop that opened them, so a
+        # keep-alive connection reused from a later loop dies with "Event loop
+        # is closed". Under uvicorn one loop lives for the whole process and
+        # this branch runs exactly once; under TestClient — which spins a
+        # fresh loop per request — it is what keeps one request's pooled
+        # upstream from poisoning the next. The superseded client cannot be
+        # aclose()d from here (its loop is gone); dropping the reference lets
+        # GC close the raw sockets.
+        _app_client_obj = httpx.AsyncClient(
+            timeout=httpx.Timeout(connect=5.0, read=None, write=None, pool=15.0),
+            limits=httpx.Limits(max_connections=64, max_keepalive_connections=20),
+            follow_redirects=False, trust_env=False)
+        _app_client_loop = loop
+    return _app_client_obj
+
+
+def _foreign_cookies(header: str, cid: str) -> str:
+    """The browser's Cookie header minus Ava's own two.
+
+    `config.COOKIE_NAME` is Ava's session — handing it to an embedded app would
+    let the app act as the owner against every /api/* route, which is the exact
+    capability the apps-origin split exists to remove. The embed cookie
+    (`apps_origin.cookie_name`) is likewise Ava's infrastructure, not the
+    app's: it authorises this proxy and is nothing an upstream should see or
+    replay. Everything else is the app's own state (its session above all) and
+    forwards untouched. Split on ';' rather than a cookie parser: a parser
+    normalises or drops values it dislikes, and a proxy has no business
+    editing cookies it is merely carrying.
+    """
+    from ava_bridge import apps_origin
+    mine = {config.COOKIE_NAME, apps_origin.cookie_name(cid)}
+    kept = []
+    for part in header.split(";"):
+        part = part.strip()
+        if part and part.split("=", 1)[0].strip() not in mine:
+            kept.append(part)
+    return "; ".join(kept)
+
+
+def _upstream_headers(request: Request, cid: str,
+                      auth_override: str | None) -> list:
+    """The header pairs to send upstream — the request half of the contract.
+
+    Works on `headers.raw` because Starlette's mapping view de-duplicates keys,
+    and HTTP/2 browsers legally split Cookie across several header lines; those
+    are merged here per RFC 6265bis before Ava's own names are stripped. The
+    Connection header may NAME additional per-hop headers, so its tokens join
+    the drop set before it is dropped itself.
+
+    Content-Length rides THROUGH, deliberately. The body streams upstream
+    byte-identical, so the browser's length is still the truth — and httpx
+    cannot derive a length from a stream, so dropping the header forces
+    chunked request framing, which plain WSGI/http.server upstreams do not
+    decode: the app would read a zero-length body from a POST that plainly
+    had one. (Transfer-Encoding is still dropped as hop-by-hop; a browser
+    that chunked its side gets re-chunked by httpx on ours.)
+
+    `auth_override` is the connector's saved credential resolved on the bridge
+    (Ava-never-has-passwords). When present it REPLACES any Authorization the
+    browser sent — the saved credential is authoritative, surviving a stale
+    token in the app's own storage. When absent the browser's own header rides
+    through with everything else: an app with a login but no stored token must
+    not be logged out by the hop.
+    """
+    drop = set(_HOP_BY_HOP) | {"host"}
+    for tok in (request.headers.get("connection") or "").split(","):
+        tok = tok.strip().lower()
+        if tok:
+            drop.add(tok)
+    if auth_override is not None:
+        drop.add("authorization")
+    out: list[tuple[bytes, bytes]] = []
+    cookies: list[str] = []
+    for k, v in request.headers.raw:
+        name = k.decode("latin-1").lower()
+        if name in drop:
+            continue
+        if name == "cookie":
+            cookies.append(v.decode("latin-1"))
+            continue
+        out.append((k, v))
+    if cookies:
+        kept = _foreign_cookies("; ".join(cookies), cid)
+        if kept:
+            out.append((b"cookie", kept.encode("latin-1")))
+    if auth_override is not None:
+        out.append((b"authorization", auth_override.encode("latin-1")))
+    return out
+
+
+def _strip_base_path(path: str, base: str) -> str:
+    """`path` with the upstream's own base path removed, always root-relative.
+
+    `base` is the connector's `ui.url`; when it carries a path component the
+    app lives under that prefix and emits it in its own redirects and cookie
+    paths. The proxy path is `/apps/<cid>` + (path relative to that prefix).
+    """
+    from urllib.parse import urlsplit
+    try:
+        up_path = (urlsplit(base).path or "").rstrip("/")
+    except ValueError:
+        up_path = ""
+    if up_path and (path == up_path or path.startswith(up_path + "/")):
+        path = path[len(up_path):] or "/"
+    return path if path.startswith("/") else "/" + path
+
+
+def _rewrite_location(loc: str, cid: str, base: str) -> str:
+    """Re-point an app-internal redirect at the proxy path.
+
+    Apps redirect as if they lived at their own root — a trailing-slash bounce
+    (`/panel` -> `/panel/`), a login flow, a framework's canonical-URL rule.
+    Forwarded verbatim, a root-relative Location walks the browser out of
+    /apps/<cid>/ onto Ava's own routes, and an absolute one onto a host:port
+    the browser may not even resolve. So: root-relative gets the proxy prefix;
+    absolute (or scheme-relative) URLs are rewritten ONLY when the authority is
+    the app's own upstream, with the upstream's base path stripped so the
+    remainder maps onto the proxy the way every other path does. Anything
+    pointing at a different host is the app's business — an OAuth hop, a docs
+    link — and passes through untouched.
+    """
+    from urllib.parse import urlsplit
+    if loc.startswith("/") and not loc.startswith("//"):
+        # An app served under its own basePath (Next.js `basePath`, a mounted
+        # sub-app) redirects with that prefix already present — forwarding
+        # `/apps/pulse` -> `/apps/pulse/apps/pulse` doubled the mount and 404'd
+        # the very first iframe load. Strip the upstream's base path first, the
+        # same way the absolute branch below has always done.
+        return f"/apps/{cid}" + _strip_base_path(loc, base)
+    try:
+        target, up = urlsplit(loc), urlsplit(base)
+    except ValueError:
+        return loc
+    if not target.netloc:
+        return loc   # relative-to-here already resolves inside the proxy path
+
+    def _hostport(u, fallback_scheme):
+        scheme = (u.scheme or fallback_scheme or "").lower()
+        port = u.port or {"http": 80, "https": 443}.get(scheme)
+        return ((u.hostname or "").lower(), port)
+
+    if _hostport(target, up.scheme) != _hostport(up, "http"):
+        return loc
+    path = target.path or "/"
+    up_path = (up.path or "").rstrip("/")
+    if up_path and path.startswith(up_path):
+        path = path[len(up_path):] or "/"
+    new = f"/apps/{cid}" + (path if path.startswith("/") else "/" + path)
+    if target.query:
+        new += "?" + target.query
+    if target.fragment:
+        new += "#" + target.fragment
+    return new
+
+
+def _rewrite_set_cookie(value: str, cid: str, base: str = "") -> str:
+    """Scope an app's cookie to its proxy prefix; keep every other attribute.
+
+    Three edits and no more. Path moves under /apps/<cid>/ (Path=/ ->
+    /apps/<cid>/, Path=/x -> /apps/<cid>/x, absent -> added) because the path
+    the app scoped it to does not exist on this origin — the browser would
+    never send the cookie back through the proxy. Domain is dropped because it
+    names the app's host, which the browser is not on; a Domain that does not
+    cover the request host makes the whole Set-Cookie rejected silently. And
+    the prefix is per-cid on purpose: it is what keeps one embedded app's
+    session from being offered to another's proxy, the same isolation
+    apps_origin.apply_cookie draws for the embed cookie. HttpOnly, Secure,
+    SameSite, Max-Age, Expires and anything future ride through verbatim —
+    they are the app's security posture, not ours to edit.
+    """
+    parts = value.split(";")
+    out = [parts[0].strip()]
+    saw_path = False
+    for attr in parts[1:]:
+        attr = attr.strip()
+        if not attr:
+            continue
+        key = attr.split("=", 1)[0].strip().lower()
+        if key == "domain":
+            continue
+        if key == "path":
+            saw_path = True
+            val = attr.split("=", 1)[1].strip() if "=" in attr else ""
+            out.append("Path=" + (f"/apps/{cid}" + _strip_base_path(val, base)
+                                  if val.startswith("/") else f"/apps/{cid}/"))
+            continue
+        out.append(attr)
+    if not saw_path:
+        out.append(f"Path=/apps/{cid}/")
+    return "; ".join(out)
+
+
+def _proxy_response(r: "httpx.Response", cid: str, base: str) -> Response:
+    """Wrap an upstream response for the browser — the response half of the
+    contract: stream the body, forward the headers, apply the two rewrites.
+
+    `aiter_raw` rather than `aiter_bytes` because Content-Encoding is
+    forwarded: the browser negotiated gzip/br with the APP, so the proxy must
+    relay the encoded bytes untouched instead of decoding what it will then
+    claim is still encoded. The background task closes the upstream response
+    when the browser-side response finishes OR is torn down by a disconnect —
+    that close is what releases the pooled connection and, mid-stream, what
+    actually hangs up on the app. Without it an abandoned SSE panel would hold
+    its upstream socket until the app noticed on its own.
+    """
+    drop = set(_HOP_BY_HOP) | {"content-length"}
+    for tok in (r.headers.get("connection") or "").split(","):
+        tok = tok.strip().lower()
+        if tok:
+            drop.add(tok)
+    html = "text/html" in r.headers.get("content-type", "")
+    headers: list[tuple[bytes, bytes]] = []
+    for k, v in r.headers.raw:
+        name = k.decode("latin-1").lower()
+        if name in drop:
+            continue
+        if html and name in ("cache-control", "expires"):
+            # An embedded app's HTML entry must always revalidate. Many app
+            # servers (Starlette StaticFiles included) send Last-Modified but
+            # no Cache-Control, so browsers cache the page heuristically —
+            # pinning the iframe to a stale bundle across the app's rebuilds.
+            # ETag stays, so unchanged pages are still cheap 304s; hashed
+            # assets stay long-cached.
+            continue
+        if name == "location":
+            v = _rewrite_location(v.decode("latin-1"), cid, base).encode("latin-1")
+        elif name == "set-cookie":
+            # Rewritten one header AT A TIME: folding Set-Cookie into a single
+            # comma-joined value corrupts it (Expires dates contain commas),
+            # so each upstream header survives as its own header here.
+            v = _rewrite_set_cookie(v.decode("latin-1"), cid, base).encode("latin-1")
+        headers.append((k.decode("latin-1").lower().encode("latin-1"), v))
+    if html:
+        headers.append((b"cache-control", b"no-cache"))
+    resp = StreamingResponse(r.aiter_raw(), status_code=r.status_code,
+                             background=BackgroundTask(r.aclose))
+    resp.raw_headers = headers
+    return resp
+
+
+def _classifiable(e: Exception) -> Exception:
+    """Give an httpx failure a chain `connectors.unreachable` can classify.
+
+    The classifier walks `__cause__`/`__context__` for the innermost real
+    OSError (connectors._errno_cause) — a shape chosen for `requests`, whose
+    chain ends AT the ConnectionRefusedError. httpx-via-anyio ends somewhere
+    else: a refused connect surfaces as a plain OSError("All connection
+    attempts failed") whose ConnectionRefusedError sits INSIDE an
+    ExceptionGroup, so the linear walk finds the aggregate first and the app
+    classifies as a generic `_error` instead of "isn't running" — losing the
+    `<cid>_down` code the frontend's fix-it link keys on
+    (tests/test_connector_unreachable.py explains why that spelling is load
+    bearing). So before handing over, find the most SPECIFIC OSError anywhere
+    in the chain — group members included — and re-link it as the direct
+    cause. Where the chain is already specific (httpx DNS misses end at a bare
+    gaierror) this re-links the same object the classifier would have found.
+    """
+    stack: list = [e]
+    seen: set[int] = set()
+    while stack and len(seen) < 50:
+        cur = stack.pop()
+        if cur is None or id(cur) in seen:
+            continue
+        seen.add(id(cur))
+        if isinstance(cur, OSError) and type(cur) is not OSError:
+            e.__cause__ = cur
+            return e
+        if isinstance(cur, BaseExceptionGroup):
+            stack.extend(cur.exceptions)
+        stack.extend((cur.__cause__, cur.__context__))
+    return e
+
+
+async def _proxy_stream(cid: str, request: Request, url: str, *, base: str,
+                        auth_override: str | None, what: str) -> Response:
+    """One hop, browser -> app, streamed in both directions.
+
+    The request body is `request.stream()` — an upload passes through without
+    ever being held whole in memory — but ONLY when the browser declared one:
+    handing httpx a stream on a bodyless GET makes it frame an empty chunked
+    body, which some app servers refuse on safe methods. The query string is
+    relayed raw rather than re-encoded, so whatever encoding the app's own
+    frontend chose survives the hop byte-for-byte.
+    """
+    q = str(request.url.query or "")
+    target = f"{url}?{q}" if q else url
+    has_body = request.headers.get("transfer-encoding") is not None or \
+        (request.headers.get("content-length") or "0") not in ("", "0")
+    client = _app_client()
+    req = client.build_request(
+        request.method, target,
+        headers=_upstream_headers(request, cid, auth_override),
+        content=request.stream() if has_body else None)
+    try:
+        r = await client.send(req, stream=True)
+    except Exception as e:  # noqa: BLE001 — an app being down is not a bridge error
+        return _unreachable_response(cid, _classifiable(e), request,
+                                     url=url, what=what)
+    return _proxy_response(r, cid, base)
 
 
 # A failed proxy hop has TWO audiences and they need different media types.
@@ -525,60 +962,50 @@ def _unreachable_response(cid: str, e: Exception, request: Request,
                     headers={"cache-control": "no-store"})
 
 
-@app.api_route("/apps/{cid}/api/{path:path}",
-               methods=["GET", "POST", "DELETE", "PATCH", "PUT"])
+# Every verb a web app uses. HEAD (a download probe) and OPTIONS (an app
+# preflighting or introspecting its own API) used to fall outside the list and
+# came back as Ava's 405 — listed explicitly because FastAPI does not add them.
+_PROXY_METHODS = ["GET", "POST", "DELETE", "PATCH", "PUT", "HEAD", "OPTIONS"]
+
+
+@app.api_route("/apps/{cid}/api/{path:path}", methods=_PROXY_METHODS)
 async def app_api_proxy(cid: str, path: str, request: Request):
     cfg = await run_in_threadpool(connectors.app_api, cid)
     if not cfg:
         # No declared ui.api (token injection / separate API base). The common
         # case is an app serving its API same-origin with its UI — so /api/*
-        # falls through to the generic UI proxy instead of 404ing.
+        # falls through to the generic UI proxy instead of 404ing. EXCEPT
+        # across the origin split: on the main host the api path is admitted
+        # (apps_origin.is_app_api_path) precisely because a declared data-proxy
+        # returns the app's DATA, and letting the fall-through serve the app's
+        # UI DOCUMENTS on Ava's own origin would reopen the same-origin hole
+        # the split exists to close.
+        from ava_bridge import apps_origin
+        if apps_origin.configured() and not apps_origin.on_apps_host(request):
+            return JSONResponse(
+                {"error": f"connector {cid} declares no browser API"},
+                status_code=404)
         return await app_ui_proxy(cid, f"api/{path}", request)
     url = f"{cfg['base']}{cfg['prefix']}/{path}"
-    params = dict(request.query_params)
-    headers = {"content-type": request.headers.get("content-type", "application/json")}
+    # The connector's saved credential is authoritative (it survives a stale
+    # token in the app's own storage): manifest ui.api token first, then the
+    # app's proxy token. Only when NEITHER is saved does the browser's own
+    # Authorization ride through with the other forwarded headers — an app
+    # with a login but no stored token, where dropping its bearer would log
+    # the user out. Resolved on the bridge, never handed to the browser
+    # (Ava-never-has-passwords).
+    auth_override = None
     if cfg["token"]:
-        headers["Authorization"] = "Bearer " + cfg["token"]
+        auth_override = "Bearer " + cfg["token"]
     else:
-        # The connector's saved credential is authoritative (it survives a stale
-        # token in the app's own storage). Only when none is saved do we forward
-        # the app's OWN session — an app with a login but no stored token, where
-        # dropping its bearer would log the user out. '' leaves it unauthenticated.
         tok = await run_in_threadpool(connectors.app_token, cid)
         if tok:
-            headers["Authorization"] = "Bearer " + tok
-        elif request.headers.get("authorization"):
-            headers["Authorization"] = request.headers["authorization"]
-    body = await request.body() if request.method in ("POST", "PATCH", "PUT") else None
-
-    # allow_redirects=False on every branch: a connector's own API is trusted to
-    # answer, not to re-point the bridge somewhere else. Following a redirect here
-    # is an SSRF primitive — the app returns `302 Location:
-    # http://127.0.0.1:8010/...` and the bridge fetches loopback on its behalf and
-    # hands the body back. `web_fetch` re-validates every hop against an SSRF guard
-    # (ava_bridge/web.py:108); this path had no guard at all, so it refuses hops
-    # instead. A 3xx is forwarded to the browser, which is what a same-origin
-    # fetch would do anyway.
-    def _do():
-        if request.method in ("POST", "PATCH", "PUT"):
-            return requests.request(request.method, url, params=params, data=body,
-                                    headers=headers, timeout=200,
-                                    allow_redirects=False)
-        if request.method == "DELETE":
-            return requests.delete(url, params=params, headers=headers, timeout=60,
-                                   allow_redirects=False)
-        return requests.get(url, params=params, headers=headers, timeout=60,
-                            allow_redirects=False)
-
-    try:
-        r = await run_in_threadpool(_do)
-    except Exception as e:  # noqa: BLE001
-        return _unreachable_response(cid, e, request, url=url, what="api")
-    return _proxy_response(r)
+            auth_override = "Bearer " + tok
+    return await _proxy_stream(cid, request, url, base=cfg["base"],
+                               auth_override=auth_override, what="api")
 
 
-@app.api_route("/apps/{cid}/{path:path}",
-               methods=["GET", "POST", "DELETE", "PATCH", "PUT"])
+@app.api_route("/apps/{cid}/{path:path}", methods=_PROXY_METHODS)
 async def app_ui_proxy(cid: str, path: str, request: Request):
     meta = await run_in_threadpool(connectors.app, cid)
     if not meta or meta.get("embed") != "iframe" or not meta.get("url"):
@@ -592,41 +1019,13 @@ async def app_ui_proxy(cid: str, path: str, request: Request):
             and request.headers.get("sec-fetch-dest") == "document":
         return RedirectResponse(f"/#{cid}")
     url = f"{meta['url'].rstrip('/')}/{path}"
-    params = dict(request.query_params)
-    body = await request.body() if request.method in ("POST", "PATCH", "PUT") else None
-    # Keep the owner signed in to an app they already connected. The connector's
-    # saved credential is authoritative and wins — so a stale token still sitting in
-    # the embedded app's storage can't cause a 401/login flash; only if none is saved
-    # do we forward the app's OWN session (an app with a login but no stored token).
-    # Resolved on the bridge, never handed to the browser (Ava-never-has-passwords).
-    fwd = {}
+    # Keep the owner signed in to an app they already connected — same
+    # credential rule as the data-proxy above, resolved on the bridge and
+    # never handed to the browser.
     tok = await run_in_threadpool(connectors.app_token, cid)
-    if tok:
-        fwd["Authorization"] = "Bearer " + tok
-    elif request.headers.get("authorization"):
-        fwd["Authorization"] = request.headers["authorization"]
-
-    # allow_redirects=False — see the note on the data-proxy above. This path is
-    # the more exposed of the two: `fwd` can carry the app's own bearer, and
-    # `requests` strips Authorization only across HOSTS, so a same-host redirect
-    # would resend the credential to an attacker-chosen path on that host.
-    def _do():
-        if request.method in ("POST", "PATCH", "PUT"):
-            ct = request.headers.get("content-type", "application/json")
-            return requests.request(request.method, url, params=params, data=body,
-                                    headers={"content-type": ct, **fwd}, timeout=180,
-                                    allow_redirects=False)
-        if request.method == "DELETE":
-            return requests.delete(url, params=params, headers=fwd or None, timeout=60,
-                                   allow_redirects=False)
-        return requests.get(url, params=params, headers=fwd or None, timeout=60,
-                            allow_redirects=False)
-
-    try:
-        r = await run_in_threadpool(_do)
-    except Exception as e:  # noqa: BLE001
-        return _unreachable_response(cid, e, request, url=url, what="app")
-    return _proxy_response(r)
+    return await _proxy_stream(cid, request, url, base=meta["url"],
+                               auth_override=("Bearer " + tok) if tok else None,
+                               what="app")
 
 
 @app.websocket("/apps/{cid}/{path:path}")
@@ -635,11 +1034,11 @@ async def app_ws_proxy(ws: WebSocket, cid: str, path: str):
 
     They are one contract — same path, same connector resolution, same
     credential rule — so they live in one file. Only the transport differs, and
-    it differs enough to need its own route: the HTTP proxies are `requests`
-    calls in a threadpool with `allow_redirects=False`, and neither `requests`
-    nor `httpx` can speak WebSocket at all. A `GET` carrying `Upgrade:
-    websocket` currently matches the HTTP catch-all and is executed as an
-    ordinary `requests.get`, which never performs the handshake.
+    it differs enough to need its own route: the HTTP proxies are streaming
+    `httpx` calls with `follow_redirects=False`, and `httpx` cannot speak
+    WebSocket at all. A `GET` carrying `Upgrade: websocket` would match the
+    HTTP catch-all and be executed as an ordinary request, which never
+    performs the handshake.
 
     GATING: `auth_gate` is registered `app.middleware("http")` and Starlette
     forwards non-HTTP scopes past it untouched, so this route is PUBLIC unless

@@ -63,10 +63,18 @@ class EgressHostRenderingTests(unittest.TestCase):
                          "a public name pre-authorised to resolve into private space "
                          "is the SSRF case allowed_ips exists to control")
 
-    def test_a_private_host_still_gets_it(self):
+    def test_a_private_host_gets_no_allowed_ips_either(self):
+        """Changed 2026-08: NemoClaw's policy-add permits `allowed_ips` only on
+        the bridge endpoint and rejects the WHOLE preset when a user endpoint
+        carries it — so the old private-host branch rendered policies that
+        could never apply (found wiring an owner app's 127.0.0.1 sidecar).
+        The endpoint's own host:port is the narrow grant; private-space rules
+        are the sandbox guard's to enforce."""
         eps = _endpoints("lo", {"id": "lo", "egress": {"hosts": ["127.0.0.1:9000"]}})
         ep = [e for e in eps if e["host"] == "127.0.0.1"][0]
-        self.assertEqual(ep["allowed_ips"], connectors._PRIVATE_IPS)
+        self.assertNotIn("allowed_ips", ep,
+                         "policy-add rejects allowed_ips on user endpoints — "
+                         "a policy carrying it never applies")
 
     def test_a_bare_host_entry_states_its_own_breadth(self):
         """It always meant 'every method, every path'. Now it says so, which is
