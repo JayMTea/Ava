@@ -43,6 +43,11 @@ AGGS = ("last", "sum", "avg", "min", "max", "ratio_of_sums")
 # A closed unit vocabulary is what makes "never total across units" checkable
 # rather than aspirational.
 UNITS = ("usd_cents", "pct", "per_100", "count", "ratio", "g", "kcal", "kg",
+         # `seconds` sits between the `ms` and `minutes` already here. Added for the
+         # infrastructure realm, where "how old is this reading" is a seconds-scale question and
+         # the source reports seconds — declaring `minutes` over a seconds value would be the
+         # silent scaling the pulse manifest warns about two files over.
+         "seconds",
          "ms", "bpm", "mmhg", "minutes", "hours", "ppm", "celsius", "score_0_100")
 
 PROVENANCE = ("measured", "derived", "assumed")
