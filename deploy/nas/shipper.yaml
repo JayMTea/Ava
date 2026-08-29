@@ -289,6 +289,47 @@ streams:
     source: {path: /src/data/memory.db}
     bronze_prefix: sqlite/memory
 
+  # ── uploaded media as content-addressed objects: declared, and OFF ───────────────────────
+  # EXAMPLE for the `file_tree` kind (datastack.shipper.file_tree), which mirrors a directory of
+  # FILES into the bucket as-is — one object per file, byte-for-byte, content type inferred from
+  # the extension, `x-amz-meta-sha256` on every object. `layout: content` keys each object by its
+  # own digest (`ava-bronze/media/<sha[:2]>/<sha><ext>`), so identical bytes have exactly one key
+  # and a file that is moved or copied is not a second copy in the bucket; the original relative
+  # path rides along in the object metadata and in meta.landing_objects.
+  #
+  # This is the supported replacement for the `mc mirror` in deploy/nas/README.md: inside the
+  # commit protocol, recorded in meta.ingest_runs / meta.watermarks / meta.landing_objects, and
+  # visible in `--describe` like every other stream.
+  #
+  # Bronze only, and the engine enforces it: a JPEG is not rows, so a `file_tree` stream may not
+  # declare a `target` at all. The object inventory a warehouse query would want already exists
+  # as meta.landing_objects — uri, content type, size, sha256, one row per object.
+  #
+  # OFF because turning it on is the operator's call, not the commit that added the kind.
+  # Before setting `enabled: true`:
+  #   1. Check the shipper's uid can read the tree. /volume1/apps/ava/media/uploads is
+  #      0755/0644 and readable by 1000:10 today; the ledgers that are NOT are listed under
+  #      "Constraints on this box" in deploy/nas/README.md.
+  #   2. `du -sh /volume1/apps/ava/media/uploads`. A first pass reads at most
+  #      `max_files_per_tick` files per tick — deliberately, because the engine polls streams in
+  #      turn on ONE thread and an unbounded first pass would stall perf/audit behind it. A large
+  #      tree simply takes several ticks, resuming from the state file each time.
+  #   3. `ava-bronze` is versioned with NO Delete: an object put here cannot be removed with the
+  #      `ava-app` credential. Size the tree before, not after.
+  - name: media_uploads
+    kind: file_tree
+    enabled: false
+    interval_seconds: 900
+    source:
+      path: /src/media/uploads
+      layout: content              # or `hive`: ava-bronze/media/dt=<file mtime>/<relative path>
+      # Editor/OS litter and half-written uploads. An incomplete file would otherwise ship as a
+      # permanent version of truncated bytes — and versioning means it stays.
+      exclude: ["**/.*", "**/*.part", "**/*.tmp", "**/Thumbs.db"]
+      max_file_bytes: 67108864     # 64 MiB; a slice is bytes in memory and this container is 256m
+      max_files_per_tick: 200
+    bronze_prefix: media
+
   # ── chat messages as warehouse ROWS: declared, and OFF ───────────────────────────────────
   # PRIVACY — owner decision (plan open question 2). Enabling this puts every chat message,
   # role and timestamp into raw_ava.chat_message where the warehouse can query it, join it and

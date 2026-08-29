@@ -89,12 +89,18 @@ both writes succeed.
 - **`chat_message` — declared, `enabled: false`.** The privacy decision (plan open question 2):
   chat rows do not become warehouse rows unless the owner turns this on. It is listed rather
   than omitted so `--describe` shows the decision.
-- **Not shipped (yet): `media/uploads`.** The plan calls for a content-addressed copy under
-  `ava-bronze/media/<sha[:2]>/<sha>.<ext>`; the shipper engine (`datastack.shipper.config.KINDS`)
-  has no file-tree stream kind, so this cannot be declared here. Until the engine grows one,
-  the equivalent is an operator command from the dev box:
-  `mc mirror --overwrite /path/to/ava/media/uploads nas/ava-bronze/media/` (not
-  content-addressed; the bucket is versioned, so overwrites are safe). Tracked as an open issue.
+- **`media_uploads` — declared, `enabled: false`.** The engine grew a `file_tree` kind
+  (`datastack.shipper.file_tree`), so `media/uploads` is now a declared stream rather than an
+  operator's `mc mirror`: one object per file, byte-for-byte, content type from the extension,
+  `x-amz-meta-sha256` on every object, keyed by content at
+  `ava-bronze/media/<sha[:2]>/<sha><ext>`. Bronze only — a JPEG is not rows, and the engine
+  refuses a `target` on this kind; the inventory is `meta.landing_objects`, one row per object.
+  It is off because turning it on is the operator's call. Before flipping `enabled: true`,
+  check the tree is readable by uid 1000 (see the constraints below), `du -sh` it, and remember
+  `ava-bronze` is versioned with **no** Delete. The first pass reads at most
+  `max_files_per_tick` (200) files per tick — the engine polls streams in turn on one thread, so
+  an unbounded first pass would stall `perf` and `audit` behind it; a large tree simply takes
+  several ticks, and the steady state afterwards is one `stat` per file.
 
 ## Constraints on this box (restated from the plan)
 

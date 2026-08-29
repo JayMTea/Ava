@@ -80,6 +80,24 @@ def test_chat_messages_are_declared_and_off() -> None:
     assert "chat_message" not in {x.name for x in cfg.enabled_streams}
 
 
+def test_uploaded_media_is_declared_off_bronze_only_and_content_addressed() -> None:
+    """`media_uploads` replaces the `mc mirror` the README used to carry.
+
+    Off because turning it on is the operator's call: `ava-bronze` is versioned with no Delete,
+    so a first pass over an unsized tree cannot be undone with the `ava-app` key.
+    """
+    cfg = shipper_config.load_config(CONFIG)
+    s = cfg.stream("media_uploads")
+    assert not s.enabled and s.kind == "file_tree"
+    # Bronze only: a JPEG is not rows, and config.py refuses a target on this kind outright.
+    assert s.target is None and s.bronze_prefix == "media"
+    assert s.source["path"] == "/src/media/uploads"
+    assert s.source["layout"] == "content", "the sha in the key is the checksum"
+    assert "**/*.part" in s.source["exclude"], "a half-written upload is a permanent version"
+    assert s.source["max_files_per_tick"] >= 1, "one thread: a first pass must not stall the tails"
+    assert "media_uploads" not in {x.name for x in cfg.enabled_streams}
+
+
 def test_the_audit_stream_is_chain_verified_and_snapshots_are_nightly() -> None:
     cfg = shipper_config.load_config(CONFIG)
     assert cfg.stream("audit").audit_chain
