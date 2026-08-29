@@ -22,6 +22,10 @@ WORKDIR /web
 COPY frontend/package*.json ./
 RUN npm ci || npm install
 COPY frontend/ ./
+# frontend/src/lib/chatEvents.contract.test.ts imports ../../../qa/fakes/run-events.json
+# and frontend/tsconfig.app.json includes all of src, so `tsc -b` needs the fixture at
+# /qa/fakes relative to WORKDIR /web or the stage fails with TS2307.
+COPY qa/fakes/run-events.json /qa/fakes/run-events.json
 RUN npm run build
 
 # ---- stage 2: python runtime ----
