@@ -1,0 +1,318 @@
+# Ava on dxp4800gt-32bc — what the ava-shipper sidecar ships, and where.
+#
+# Read by the `datastack-shipper` image (home-lab/data-stack/packages/shipper) running as the
+# `ava-shipper` service in this compose project (deploy/nas/shipper.compose.yml). The sidecar
+# reads Ava's state through a READ-ONLY bind mount of /volume1/apps/ava at /src and never writes
+# there; Ava itself gains no client, no credential and no outbound dependency — the no-push
+# stance in the README stands. perf_store.py and the in-app dashboard are untouched.
+#
+# Every JSONL segment ships AS-IS: the exact bytes, `application/x-ndjson`, sha256 in the object
+# metadata, under `ava-bronze/<prefix>/dt=<ship day>/<run_id>.jsonl`. The `columns` maps below
+# only decide which keys of each line become typed columns in `raw_ava.<table>`; the line itself
+# is the bronze record, and the warehouse pack (home-lab/data-stack/connectors/ava) declares the
+# matching raw tables. Names of credential VARIABLES only, never values (see the compose file).
+#
+# `datastack-shipper --describe --config deploy/nas/shipper.yaml` lists every stream below,
+# including the disabled one — which is the point of declaring it.
+
+app: ava
+bucket: ava-bronze
+# Must equal the warehouse pack's manifest name: the Dagster watermark sensor finds this
+# shipper's meta.watermarks rows by it (data-stack/connectors/ava/manifest.yaml `name:`).
+source_name: ava-bridge
+
+s3:
+  endpoint: https://platform-minio-1:9000     # over the external `minio_s3` network
+  access_key_env: MINIO_AVA_ACCESS_KEY        # the MinIO user `ava-app`
+  secret_key_env: MINIO_AVA_SECRET            # issued in platform/.env, copied into deploy/.env
+  verify_tls: false                           # self-signed; SAN carries the container name
+
+clickhouse:
+  host: datastack-clickhouse-1                # over the external `datastack_warehouse` network
+  port: 8443
+  secure: true
+  verify_tls: false
+  user: ava_ingestor
+  password_env: DATASTACK_CH_AVA_INGESTOR_PASSWORD   # issued in data-stack/.env
+
+state_dir: /state                             # /volume1/apps/ava-shipper (host-prep, +C)
+nightly_at: "02:15"                           # UTC: SQLite snapshots + the audit chain check
+
+streams:
+  # ── the embedded router's performance ledger ─────────────────────────────────────────────
+  # logs/performance.jsonl rotates .4->.5 … live->.1 past AVA_PERF_LOG_MAX_BYTES
+  # (ava_bridge/perf_log-style scheme; data_api.stores() counts five rotations). Segments are
+  # identified by inode, so a rotation is resumed, not re-shipped.
+  - name: perf
+    kind: jsonl_tail
+    interval_seconds: 300
+    source: {path: /src/logs/performance.jsonl, rotations: 5}
+    bronze_prefix: perf
+    target:
+      table: raw_ava.llm_generation
+      mode: columns
+      columns:
+        observed_at: {key: ts, as: epoch_seconds}
+        iso: iso
+        host: host
+        category: category
+        serving: serving
+        endpoint: endpoint
+        served_by: served_by
+        served_label: served_label
+        served_model: served_model
+        served_url: served_url
+        status: {key: status, as: int}
+        prompt_tokens: {key: prompt_tokens, as: int}
+        completion_tokens: {key: completion_tokens, as: int}
+        total_tokens: {key: total_tokens, as: int}
+        ttft_ms: {key: ttft_ms, as: float}
+        gen_seconds: {key: gen_seconds, as: float}
+        total_seconds: {key: total_seconds, as: float}
+        stream_chunks: {key: stream_chunks, as: int}
+        params: {key: params, as: json}
+
+  # ── the audit ledger: append-only, hash-chained, never pruned by the app ─────────────────
+  # logrotate (deploy/logrotate.conf) rotates it with the same .N shape. `audit_chain: true`
+  # opts it into the nightly recomputation of the sha256 chain over the BRONZE copy
+  # (datastack.shipper.audit_verify), reported to ava-bronze/meta/audit-verify/<date>.json and
+  # meta.data_quality_results as rule `audit_chain`.
+  - name: audit
+    kind: jsonl_tail
+    interval_seconds: 300
+    source: {path: /src/logs/audit.jsonl, rotations: 5}
+    bronze_prefix: audit
+    audit_chain: true
+    target:
+      table: raw_ava.turn_event
+      mode: columns
+      # The envelope every record carries plus the fields the gold marts read. Kind-specific
+      # extras (bytes, files, rows, …) stay in the bronze line, which is the record.
+      columns:
+        observed_at: {key: ts, as: epoch_seconds}
+        seq: {key: seq, as: int}
+        prev: prev
+        kind: kind
+        actor: actor
+        chat_id: {key: chat_id, as: string}
+        connector: {key: connector, as: string}
+        action: {key: action, as: string}
+        tool: {key: tool, as: string}
+        status: {key: status, as: string}
+        state: {key: state, as: string}
+        model: {key: model, as: string}
+        tools: {key: tools, as: json}
+        error: {key: error, as: string}
+        reason: {key: reason, as: string}
+        duration_s: {key: duration_s, as: float}
+
+  # ── the KPI ledger and its definitions log (ava_bridge/kpi_store.py) ─────────────────────
+  # Neither file rotates: the ledger is daily-grain and small, and every row carries the `def`
+  # hash that ties it to definitions.jsonl, so deleting an app keeps its history readable.
+  - name: kpi_ledger
+    kind: jsonl_tail
+    interval_seconds: 900
+    source: {path: /src/logs/kpi/ledger.jsonl, rotations: 0}
+    bronze_prefix: kpi/ledger
+    target:
+      table: raw_ava.kpi_daily
+      mode: columns
+      columns:
+        observed_at: {key: observed_at, as: epoch_seconds}
+        day: day
+        metric: metric
+        dim: {key: dim, as: string}
+        value: {key: value, as: float}
+        unit: {key: unit, as: string}
+        state: {key: state, as: string}
+        provenance: {key: provenance, as: string}
+        n: {key: n, as: int}
+        lo: {key: lo, as: float}
+        hi: {key: hi, as: float}
+        def_hash: def
+        src: {key: src, as: string}
+        why: {key: why, as: string}
+
+  - name: kpi_definitions
+    kind: jsonl_tail
+    interval_seconds: 900
+    source: {path: /src/logs/kpi/definitions.jsonl, rotations: 0}
+    bronze_prefix: kpi/definitions
+    target:
+      table: raw_ava.kpi_definition
+      mode: columns
+      # `as: string` throughout: a definition field may be a string, a list or a mapping
+      # (declares/decode); non-strings are JSON-dumped so the column never refuses a row.
+      columns:
+        recorded_at: {key: recorded_at, as: epoch_seconds}
+        def_hash: def
+        metric: {key: metric, as: string}
+        unit: {key: unit, as: string}
+        agg: {key: agg, as: string}
+        source: {key: source, as: string}
+        read: {key: read, as: string}
+        scale: {key: scale, as: string}
+        min_n: {key: min_n, as: string}
+        num: {key: num, as: string}
+        den: {key: den, as: string}
+        declares: {key: declares, as: json}
+        decode: {key: decode, as: json}
+        definition: {key: definition, as: string}
+
+  # ── the GPU allocator's decision log (ava_bridge/alloc/broker.py) ────────────────────────
+  # Self-rotating past AVA_ALLOC_LOG_MAX_BYTES, keeping AVA_ALLOC_LOG_KEEP (3) segments.
+  - name: alloc
+    kind: jsonl_tail
+    interval_seconds: 300
+    source: {path: /src/logs/alloc.jsonl, rotations: 3}
+    bronze_prefix: alloc
+    target:
+      table: raw_ava.alloc_decision
+      mode: columns
+      columns:
+        observed_at: {key: ts, as: epoch_seconds}
+        event: event
+        model: {key: model, as: string}
+        lease_id: {key: lease_id, as: string}
+        enforcing: {key: enforcing, as: int}
+        admit: {key: admit, as: int}
+        gated: {key: gated, as: int}
+        free_gib: {key: free_gib, as: float}
+        need_gib: {key: need_gib, as: float}
+        raw_free_gib: {key: raw_free_gib, as: float}
+        reserved_gib: {key: reserved_gib, as: float}
+        projected_gib: {key: projected_gib, as: float}
+        shortfall_gib: {key: shortfall_gib, as: float}
+        steps: {key: steps, as: json}
+        released: {key: released, as: json}
+        reason: {key: reason, as: string}
+        note: {key: note, as: string}
+        state: {key: state, as: string}
+
+  # ── hardware history (ava_bridge/hardware.py): two tiers, two tables ─────────────────────
+  # These files do not rotate; they are PRUNED in place (rows past the retention window are
+  # dropped and the file rewritten via os.replace). A rewrite changes the inode, so the shipper
+  # sees a new segment and re-ships the surviving rows; silver's ReplacingMergeTree collapses
+  # the copies. Bounded by the tier sizes (1m rows kept <= 90 d, 1h rows per data.retention).
+  - name: hw_1m
+    kind: jsonl_tail
+    interval_seconds: 600
+    source: {path: /src/logs/hw_history/hw_1m.jsonl, rotations: 0}
+    bronze_prefix: hw/1m
+    target:
+      table: raw_ava.hw_sample
+      mode: columns
+      columns:
+        observed_at: {key: ts, as: epoch_seconds}
+        gpu_util: {key: gpu_util, as: float}
+        gpu_temp: {key: gpu_temp, as: float}
+        gpu_power: {key: gpu_power, as: float}
+        mem_used_pct: {key: mem_used_pct, as: float}
+        mem_used_gb: {key: mem_used_gb, as: float}
+        cpu: {key: cpu, as: float}
+
+  - name: hw_1h
+    kind: jsonl_tail
+    interval_seconds: 3600
+    source: {path: /src/logs/hw_history/hw_1h.jsonl, rotations: 0}
+    bronze_prefix: hw/1h
+    target:
+      table: raw_ava.hw_sample_1h
+      mode: columns
+      columns:
+        observed_at: {key: ts, as: epoch_seconds}
+        gpu_util: {key: gpu_util, as: float}
+        gpu_temp: {key: gpu_temp, as: float}
+        gpu_power: {key: gpu_power, as: float}
+        mem_used_pct: {key: mem_used_pct, as: float}
+        mem_used_gb: {key: mem_used_gb, as: float}
+        cpu: {key: cpu, as: float}
+
+  # ── device events: one rotated stream per connected app (ava_bridge/devices.py) ──────────
+  # jsonl_tail takes one path, not a glob, so there is one stream per connector id that is
+  # connected on this box (/volume1/apps/ava/connectors/<id>/). A file that does not exist yet
+  # is simply nothing to ship. Adding a connector means adding a stream here.
+  - name: devices_arqaid
+    kind: jsonl_tail
+    interval_seconds: 300
+    source: {path: /src/logs/devices/arqaid.jsonl, rotations: 5}
+    bronze_prefix: devices/arqaid
+    target: &device_target
+      table: raw_ava.device_event
+      mode: columns
+      columns:
+        observed_at: {key: ts, as: epoch_seconds}
+        cid: cid
+        type: type
+        name: name
+        value: {key: value, as: string}       # numeric or free text at source; silver casts
+        unit: {key: unit, as: string}
+        message: {key: message, as: string}
+        severity: {key: severity, as: string}
+        notify: {key: notify, as: int}
+
+  - name: devices_pulse
+    kind: jsonl_tail
+    interval_seconds: 300
+    source: {path: /src/logs/devices/pulse.jsonl, rotations: 5}
+    bronze_prefix: devices/pulse
+    target: *device_target
+
+  - name: devices_infra
+    kind: jsonl_tail
+    interval_seconds: 300
+    source: {path: /src/logs/devices/infra.jsonl, rotations: 5}
+    bronze_prefix: devices/infra
+    target: *device_target
+
+  - name: devices_persona_studio
+    kind: jsonl_tail
+    interval_seconds: 300
+    source: {path: /src/logs/devices/persona-studio.jsonl, rotations: 5}
+    bronze_prefix: devices/persona-studio
+    target: *device_target
+
+  # ── nightly SQLite snapshots: copy + checkpoint + quick_check, never the live WAL file ────
+  # Bronze only (no target): a checkpointed database is the backup, and its tables are not a
+  # raw layer. chats.db holds the conversation corpus — see the disabled stream below for the
+  # row-level decision; the snapshot is the owner's own backup of their own chats, in their own
+  # bucket, behind the ava-app credential, and is what a restore is made from.
+  - name: chats_db
+    kind: sqlite_snapshot
+    interval_seconds: 86400
+    source: {path: /src/data/chats.db}
+    bronze_prefix: sqlite/chats
+
+  - name: memory_db
+    kind: sqlite_snapshot
+    interval_seconds: 86400
+    source: {path: /src/data/memory.db}
+    bronze_prefix: sqlite/memory
+
+  # ── chat messages as warehouse ROWS: declared, and OFF ───────────────────────────────────
+  # PRIVACY — owner decision (plan open question 2). Enabling this puts every chat message,
+  # role and timestamp into raw_ava.chat_message where the warehouse can query it, join it and
+  # archive it to Parquet. The default is that the corpus stays in Ava (and in the nightly
+  # snapshot above, which is a backup, not a table). It is declared rather than omitted so the
+  # decision is visible in `--describe` instead of being a missing line. To turn it on: set
+  # `enabled: true`, add a `chat_message` asset to the warehouse pack's manifest so the raw table
+  # exists, and record the decision in the plan.
+  - name: chat_message
+    kind: sqlite_poll
+    enabled: false
+    interval_seconds: 900
+    source:
+      path: /src/data/chats.db
+      query: "SELECT id AS _rowid, chat_id, role, content, ts, extra FROM messages WHERE id > :watermark ORDER BY id"
+      cursor: _rowid
+    bronze_prefix: chats/messages
+    target:
+      table: raw_ava.chat_message
+      mode: columns
+      columns:
+        message_id: {key: _rowid, as: int}
+        chat_id: chat_id
+        role: role
+        content: content
+        observed_at: {key: ts, as: epoch_seconds}
+        extra: {key: extra, as: string}

@@ -1,0 +1,81 @@
+# deploy/nas/shipper.compose.yml -- the ava-shipper sidecar, as a compose FRAGMENT.
+#
+# Not merged automatically: the NAS overlay (docker-compose.override.yml, which lives only on
+# the NAS beside docker-compose.yml) is picked up by name, this file is not. It is added
+# explicitly, and only on the NAS:
+#
+#   cd /volume1/stacks/ava/src/deploy
+#   docker compose -f docker-compose.yml -f docker-compose.override.yml \
+#                  -f nas/shipper.compose.yml up -d
+#
+# Relative paths below resolve against the PROJECT directory (the first -f file's directory,
+# deploy/), which is why the config mount reads ./nas/shipper.yaml. See deploy/nas/README.md.
+#
+# The service adds ONE container to the `ava` project. It holds exactly two credentials — the
+# `ava-app` bucket key and the `ava_ingestor` warehouse password — reads Ava's state read-only,
+# and publishes nothing. It joins the two platform networks by name and does NOT join
+# ava_default or ingress: it has no reason to reach Ava or be reached by Caddy.
+
+networks:
+  # Both created by other stacks (data-stack's warehouse compose and platform's MinIO stack).
+  # external:true so a `down` here can never delete them.
+  datastack_warehouse:
+    external: true
+    name: datastack_warehouse
+  minio_s3:
+    external: true
+    name: minio_s3
+
+services:
+  ava-shipper:
+    # Built on the NAS from the home-lab checkout, pinned to the shipper package version:
+    #   docker build -f data-stack/deployment/docker/shipper.Dockerfile -t datastack-shipper:0.1.0 data-stack
+    image: datastack-shipper:0.1.0
+    restart: unless-stopped
+    # 1000:10 is the NAS operator uid/gid, the owner of /volume1/apps/ava-shipper (host-prep).
+    # NOTE (open issue in deploy/nas/README.md): the ava container runs as root today, so
+    # logs/audit.jsonl, data/*.db and logs/kpi/ are 0600 root-owned on the host and unreadable
+    # to this uid until Ava's own overlay runs it as 1000:10 (or the files are chmod'd).
+    user: "1000:10"
+    # No env_file: Ava's deploy/.env holds AVA_PASSWORD and the backend key, none of which this
+    # process may see. The three values it needs are interpolated from that .env by compose and
+    # passed by NAME here; `:?` makes a missing one a hard `up` failure, not a silent 401.
+    environment:
+      MINIO_AVA_ACCESS_KEY: ${MINIO_AVA_ACCESS_KEY:-ava-app}
+      MINIO_AVA_SECRET: ${MINIO_AVA_SECRET:?copy MINIO_AVA_SECRET from platform/.env into deploy/.env}
+      DATASTACK_CH_AVA_INGESTOR_PASSWORD: ${DATASTACK_CH_AVA_INGESTOR_PASSWORD:?copy DATASTACK_CH_AVA_INGESTOR_PASSWORD from data-stack/.env into deploy/.env}
+      SHIPPER_LOG_LEVEL: ${AVA_SHIPPER_LOG_LEVEL:-info}
+    volumes:
+      # Ava's whole state dir (AVA_HOME on the NAS), READ-ONLY. The shipper opens files for
+      # reading only and never creates -shm/-wal beside a database (it snapshots to /state).
+      - /volume1/apps/ava:/src:ro
+      # Its own watermarks + scratch. host-prep creates it, chattr +C, owned 1000:10.
+      - /volume1/apps/ava-shipper:/state
+      - ./nas/shipper.yaml:/etc/shipper/shipper.yaml:ro
+    networks:
+      - datastack_warehouse
+      - minio_s3
+    security_opt:
+      - no-new-privileges:true
+    # House policy: every container carries an explicit cpus + memory ceiling. memswap_limit ==
+    # memory so the overflow cannot land in zram.
+    memswap_limit: 256m
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256m
+    healthcheck:
+      # Reads the state files; non-zero once any enabled stream has failed 3 ticks in a row.
+      # Freshness is not measured here — meta.watermarks and the warehouse_watermark_age alert
+      # are the data's own account of it.
+      test: ["CMD", "datastack-shipper", "--health", "--config", "/etc/shipper/shipper.yaml"]
+      interval: 5m
+      timeout: 30s
+      retries: 3
+      start_period: 2m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
