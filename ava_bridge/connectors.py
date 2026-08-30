@@ -555,7 +555,7 @@ def chat_pickups() -> List[dict]:
 
 def job_sources() -> List[dict]:
     """Live-job polling specs for connectors declaring a ``jobs:`` block —
-    lets the ops dashboard attribute GPU spikes to named tasks. Manifest form:
+    lets the hardware bubble attribute GPU memory to named tasks. Manifest form:
 
         jobs:
           path: "/api/jobs"          # GET base_url + path

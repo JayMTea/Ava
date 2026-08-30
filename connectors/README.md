@@ -66,5 +66,5 @@ ava connector new myapp     # scaffolds ${AVA_HOME:-$PWD}/connectors/myapp/conne
 ava connector list          # see everything currently loaded
 ```
 Then restart Ava (or `ava up`). Your app appears in the dashboard's **Service
-health matrix** automatically, and any `perf.path` you set feeds the **Vitals**
+health dot** automatically, and any `perf.path` you set feeds the **perf log**
 charts.

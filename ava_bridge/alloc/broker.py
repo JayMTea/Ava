@@ -1100,7 +1100,7 @@ def _record(event: str, model_id: str, lid: str, pl: "policy.Plan",
 # Bounded, non-destructive rotation — the same shape perf_log.py uses, for the
 # same reason: this file grew forever. It is small (a few hundred bytes per
 # decision) but it is append-only on a box that makes a decision per render, and
-# nothing ever trimmed it or listed it on the Data page.
+# nothing ever trimmed it or inventoried it.
 LOG_MAX_BYTES = int(os.environ.get("AVA_ALLOC_LOG_MAX_BYTES", str(8 * 1024 * 1024)))
 LOG_KEEP = int(os.environ.get("AVA_ALLOC_LOG_KEEP", "3"))
 

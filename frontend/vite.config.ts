@@ -115,10 +115,11 @@ export default defineConfig({
       output: {
         manualChunks(id: string) {
           if (id.includes('node_modules/react')) return 'react';
-          // recharts is only reached through the lazy Vitals/Ops boundary, but
-          // BOTH of them reach it — without a named chunk each carries its own
-          // copy. xterm is the same story for the terminal panel.
-          if (id.includes('node_modules/recharts') || id.includes('node_modules/d3')) return 'charts';
+          // xterm is only reached through the lazy terminal-panel boundary; a
+          // named chunk keeps it from being copied into whatever reaches it.
+          // (`charts` lived here too, for recharts behind the lazy Vitals/Ops
+          // boundary. Both views are gone and recharts is no longer a
+          // dependency.)
           if (id.includes('node_modules/@xterm')) return 'term';
         },
       },

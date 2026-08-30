@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Icon } from '../../lib/icons';
 import { RowMenu, type MenuAction } from '../../lib/RowMenu';
-import { EmptyState, Panel } from '../dashboard/layout';
+import { EmptyState, Panel } from '../ui/layout';
 import { useAction, useResource } from './hooks';
 import { HubMessage } from './ui/HubMessage';
 import { Legend } from './ui/Legend';

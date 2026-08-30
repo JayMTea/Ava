@@ -59,7 +59,7 @@ class TestTurns(unittest.TestCase):
         turn = helpers.wait_turn(c, tid)
         self.assertEqual(turn["status"], "done", turn)
         self.assertIn("QA model", turn["reply"])
-        # The turn also appears in the Operations feed.
+        # The turn also appears in the live turn feed the Agent console reads.
         feed = c.get("/api/turns").json()["turns"]
         self.assertIn(tid, [t["id"] for t in feed])
 

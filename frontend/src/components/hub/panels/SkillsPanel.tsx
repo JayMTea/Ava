@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Icon } from '../../../lib/icons';
 import { AppDot, appAccent, appById, appForTool, appsForTools } from '../../../lib/appColor';
 import { MarkdownLite } from '../../../lib/markdown';
-import { EmptyState, Panel } from '../../dashboard/layout';
+import { EmptyState, Panel } from '../../ui/layout';
 import { hub } from '../hubApi';
 import type { Skill, SkillList } from '../hubApi';
 import { Badge } from '../ui/Badge';

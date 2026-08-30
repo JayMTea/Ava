@@ -1,5 +1,8 @@
 /* =========================================================================
-   Ava dashboard styles (Vitals + Operations).
+   Shared panel / stat / table primitives (components/ui/layout.tsx).
+   Named for the Vitals and Operations dashboards these were written for; both
+   views are gone and the Setup hub, the Agent console and Domains are what use
+   them now.
    Uses only tokens.css variables so it stays on-theme (VS Code blue).
    ========================================================================= */
 
@@ -11,15 +14,10 @@
   flex-direction: column;
   gap: var(--sp-4);
 }
-/* ---- info tooltip (hover ⓘ explaining a metric) ---- */
-.info-tip {
-  display: inline-flex; align-items: center; justify-content: center;
-  vertical-align: middle; margin-left: 5px; padding: 0; border: none;
-  background: none; color: var(--muted); cursor: help; opacity: 0.6;
-  transition: opacity var(--dur-fast), color var(--dur-fast);
-}
-.info-tip:hover, .info-tip:focus-visible { opacity: 1; color: var(--accent); outline: none; }
-.info-tip svg { width: 13px; height: 13px; }
+/* ---- hover popover ---- */
+/* The .info-tip trigger went with the metric glossary it explained. The popover
+   itself stays: lib/FixLink.tsx portals one to <body> for a coded failure. */
+
 .info-pop {
   position: fixed; z-index: var(--z-toast); transform: translate(-50%, calc(-100% - 9px));
   max-width: 260px; width: max-content; padding: 8px 11px;
@@ -35,27 +33,20 @@
 
 .db-view-head { display: flex; align-items: baseline; gap: var(--sp-3); }
 .db-view-head h2 { margin: 0; font-size: 22px; font-weight: var(--fw-bold); color: var(--txt); }
-.db-view-sub { color: var(--muted); font-size: var(--fs-sm); }
 
-/* ---- grids ---- */
-.db-grid { display: grid; gap: var(--sp-4); }
-.db-grid-2 { grid-template-columns: 1fr 1fr; }
-@media (max-width: 900px) { .db-grid-2 { grid-template-columns: 1fr; } }
-
+/* ---- KPI row ---- */
+/* The track count belongs to the ROW, not to the default: a row rendered
+   N-in-six reads as a strip with a hole in it. `.db-kpis` carries no track
+   count of its own for that reason — the modifier states it. Six- and
+   four-tile rows went with the Vitals and Operations views; the agent
+   console's Automations row is the remaining caller. */
 .db-kpis {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
   gap: var(--sp-3);
 }
-/* Vitals runs six tiles, Operations four, the agent console's Automations row
-   three. Without these the short rows render N-in-six and read as a strip with
-   a hole in it — tiles squeezed into the left of the grid, dead space to the
-   right. The track count belongs to the ROW, not to the default. */
-.db-kpis-4 { grid-template-columns: repeat(4, 1fr); }
 .db-kpis-3 { grid-template-columns: repeat(3, 1fr); }
-@media (max-width: 1100px) { .db-kpis, .db-kpis-4 { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 560px) {
-  .db-kpis, .db-kpis-4, .db-kpis-3 { grid-template-columns: repeat(2, 1fr); }
+  .db-kpis-3 { grid-template-columns: repeat(2, 1fr); }
 }
 
 /* ---- panel / card ---- */
@@ -78,7 +69,7 @@
    needs its own centring. */
 .db-panel-right { color: var(--muted); font-size: var(--fs-xs);
   display: flex; align-items: center; gap: var(--sp-2); }
-.db-panel-right-note { color: var(--muted); font-size: var(--fs-xs); }
+
 .db-panel-body { padding: var(--sp-4); }
 
 /* ---- stat card ---- */
@@ -99,62 +90,19 @@
 .db-stat.tone-ok .db-stat-value { color: var(--ok); }
 .db-stat.tone-warn .db-stat-value { color: var(--warn); }
 .db-stat.tone-err .db-stat-value { color: var(--err); }
-.db-spark { margin-top: 6px; }
 
 /* ---- gauges ---- */
-.db-gauges { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--sp-3); }
-@media (max-width: 700px) { .db-gauges { grid-template-columns: repeat(2, 1fr); } }
-.db-gauge { text-align: center; }
-.db-gauge-val { font-size: 20px; font-weight: var(--fw-bold); margin-top: -8px; }
-.db-gauge-val span { font-size: var(--fs-sm); color: var(--muted); margin-left: 1px; }
-.db-gauge-label { color: var(--muted); font-size: var(--fs-xs); }
 
 /* ---- donut ---- */
-.db-donut { display: grid; grid-template-columns: 1.4fr 1fr; align-items: center; gap: var(--sp-3); }
-.db-donut-legend { display: flex; flex-direction: column; gap: 6px; }
-.db-legend-row { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); }
-.db-legend-dot { width: 10px; height: 10px; border-radius: 3px; flex: none; }
-.db-legend-name { color: var(--txt); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.db-legend-val { color: var(--muted); font-variant-numeric: tabular-nums; }
 
 /* ---- pills / dots ---- */
-.db-pill {
-  display: inline-flex; align-items: center; gap: 6px;
-  font-size: var(--fs-xs); padding: 2px 8px; border-radius: var(--r-pill);
-  background: var(--wash-5); color: var(--txt); text-transform: capitalize;
-}
-.db-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
-.pill-ok .db-dot { background: var(--ok); box-shadow: 0 0 0 2px rgba(63,178,127,.18); }
-.pill-err .db-dot { background: var(--err); box-shadow: 0 0 0 2px rgba(224,54,77,.18); }
-.pill-warn .db-dot { background: var(--warn); box-shadow: 0 0 0 2px rgba(224,169,59,.18); }
-.pill-muted .db-dot { background: var(--muted); }
 
 /* ---- banners / alerts ---- */
 .db-banner { padding: var(--sp-3) var(--sp-4); border-radius: var(--r-md); font-size: var(--fs-sm); }
-.db-banner-crit { background: rgba(224,54,77,.12); border: 1px solid rgba(224,54,77,.4); color: var(--err-tint); }
+
 .db-banner-note { background: var(--wash-4); border: 1px solid var(--line); color: var(--txt); }
-.db-alerts { display: flex; flex-direction: column; gap: 8px; }
-.db-alert { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px;
-  padding: 8px 10px; border-radius: var(--r-sm); background: var(--wash-3); border: 1px solid var(--line); }
-.db-alert-sev { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; padding: 2px 7px; border-radius: var(--r-pill); }
-.db-alert.sev-critical .db-alert-sev { background: rgba(224,54,77,.18); color: var(--err-tint); }
-.db-alert.sev-warn .db-alert-sev { background: rgba(224,169,59,.18); color: var(--warn-tint); }
-.db-alert-msg { color: var(--txt); font-size: var(--fs-sm); }
-.db-alert-val { color: var(--muted); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
 
 /* ---- live feed ---- */
-.db-live-dot { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: var(--fs-xs); }
-.db-live-dot i { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); animation: dbpulse 1.6s ease-in-out infinite; }
-@keyframes dbpulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
-.db-feed { display: flex; flex-direction: column; gap: 10px; }
-.db-feed-row { display: flex; align-items: center; gap: 10px; }
-.db-feed-badge { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; padding: 3px 7px; border-radius: var(--r-sm); flex: none; }
-.badge-turn { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
-.badge-crit { background: rgba(126,166,201,.18); color: var(--info); }
-.db-feed-main { flex: 1; min-width: 0; }
-.db-feed-title { color: var(--txt); font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.db-feed-meta { color: var(--muted); font-size: var(--fs-xs); }
-.db-feed-pct { color: var(--muted); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; flex: none; }
 
 /* ---- tables ---- */
 .db-table-wrap { overflow-x: auto; }
@@ -163,25 +111,10 @@
   text-transform: uppercase; letter-spacing: .4px; padding: 6px 10px; border-bottom: 1px solid var(--line); }
 .db-table td { padding: 8px 10px; border-bottom: 1px solid var(--line); color: var(--txt); }
 .db-table tr:last-child td { border-bottom: none; }
-.db-dim { color: var(--muted); }
-.db-task { color: var(--txt); font-size: var(--fs-sm); }
-.db-task-unit { font-size: var(--fs-xs); margin-top: 1px; }
 
 /* ---- connectors ---- */
-.db-conn-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
-.db-conn { padding: 10px 12px; border-radius: var(--r-sm); background: var(--wash-3); border: 1px solid var(--line); }
-.db-conn-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.db-conn-name { color: var(--txt); font-size: var(--fs-sm); font-weight: var(--fw-medium); }
-.db-conn-kind { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .4px;
-  padding: 2px 6px; border-radius: var(--r-pill); background: var(--wash-4); }
-.db-conn-meta { color: var(--muted); font-size: var(--fs-xs); margin-top: 4px; }
 
 /* ---- service matrix ---- */
-.db-svc-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
-.db-svc { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--r-sm);
-  background: var(--wash-3); border: 1px solid var(--line); }
-.db-svc-name { color: var(--txt); font-size: var(--fs-sm); }
-.db-svc-down { border-color: rgba(224,54,77,.4); }
 
 /* ---- empty / skeleton ---- */
 .db-empty { color: var(--muted); font-size: var(--fs-sm); text-align: center; padding: 28px 10px; }
@@ -200,16 +133,4 @@
    list on-theme. Same reasoning as .hub-select — this is that control at the
    panel-header type scale, sized to its content rather than a 100%-wide form
    field. */
-.db-select {
-  padding: 3px 6px;
-  border-radius: var(--r-sm);
-  border: 1px solid var(--inputline);
-  background: var(--input);
-  color: var(--txt);
-  font-size: var(--fs-xs);
-  font-family: inherit;
-  cursor: pointer;
-  transition: border-color var(--dur-fast);
-}
-.db-select:hover { border-color: var(--muted); }
-.db-select:focus-visible { outline: none; border-color: var(--accent); }
+

@@ -71,24 +71,24 @@ export const MOVED_TABS: Record<string, AgentSubTab> = {
 /** Retired tabs whose content merged into another top-level Setup tab. */
 export const MERGED_TABS: Record<string, TabId> = {
   budgets: 'hardware',
+  // History was the audit-ledger browser. It left Setup for the Data page, and
+  // came back here when that page was removed — System is where the governance
+  // controls over the ledger (retention) live. There is no ledger browser any
+  // more, so this lands on the nearest surface rather than nowhere.
+  history: 'system',
 };
 
-/**
- * Retired tabs that moved to a different VIEW entirely. Resolving these is not
- * HubView's job — it can only report them, because changing segment 0 belongs
- * to App.tsx's router. Callers assign `location.hash` and let it pick them up.
- */
-export const RELOCATED_TABS: Record<string, string> = {
-  history: 'data/history',
-};
+// There is no RELOCATED_TABS any more. It held retired Setup addresses that had
+// moved to a different VIEW — only ever `history -> data/history` — which
+// HubView could report but not resolve, because segment 0 belongs to App.tsx.
+// The Data view is gone and no Setup address points outside Setup today. If one
+// ever does again, that table and `HubRoute.leaveTo` are what to bring back.
 
 export interface HubRoute {
   tab: TabId;
   sub: AgentSubTab;
   /** What the hash SHOULD read for this route, without the leading '#'. */
   canonical: string;
-  /** Set when the address belongs to another view; the caller navigates there. */
-  leaveTo?: string;
   /**
    * The address is not Setup's at all (`#vitals`, `#data/history`, an app id).
    *
@@ -125,11 +125,6 @@ export function parseHubHash(hash: string, tabIds: readonly string[]): HubRoute 
   }
 
   const seg = parts[1] ?? '';
-
-  const gone = RELOCATED_TABS[seg];
-  if (gone) {
-    return { tab: 'overview', sub: DEFAULT_SUB, canonical: 'hub', leaveTo: gone };
-  }
 
   const moved = MOVED_TABS[seg];
   if (moved) {

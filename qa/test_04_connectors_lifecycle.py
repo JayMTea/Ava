@@ -1,6 +1,6 @@
 """The full connector lifecycle a real user drives from the Hub, against a
 real (fake) app: probe → create → visible everywhere → tools discovered →
-actions proxied (with JIT consent) → perf recorded into Vitals → disable →
+actions proxied (with JIT consent) → perf recorded and readable → disable →
 delete → HISTORY SURVIVES → reconnect resumes it.
 """
 import os
@@ -57,14 +57,15 @@ class TestConnectorLifecycle(unittest.TestCase):
     def test_03_appears_everywhere_immediately(self):
         helpers.refresh_connectors()
         c = CLIENT
-        ops = c.get("/api/ops/connectors").json()["connectors"]
-        row = next((x for x in ops if x["id"] == CID), None)
-        self.assertIsNotNone(row, f"{CID} not in ops connectors")
-        self.assertTrue(row["has_perf"])
-        self.assertEqual(row["perf_app"], CID)
-        # Vitals perf sources know it without any restart.
-        summary = c.get("/api/perf/summary").json()
-        self.assertIn(CID, summary["apps"])
+        apps = c.get("/api/apps/health").json()["apps"]
+        row = next((x for x in apps if x["id"] == CID), None)
+        self.assertIsNotNone(row, f"{CID} not in /api/apps/health")
+        self.assertIn("health", row)
+        # The perf source is registered without any restart — this is what the
+        # agent's read_performance tool reads.
+        perf = c.post("/internal/perf", headers=helpers.internal_headers(),
+                      json={"summary": True}).json()
+        self.assertIn(CID, perf.get("apps", []), perf)
         # Hub management list has it too.
         hub = c.get("/api/hub/connectors").json()
         self.assertIn(CID, str(hub))
@@ -76,12 +77,14 @@ class TestConnectorLifecycle(unittest.TestCase):
         self.assertEqual(r.status_code, 200, r.text)
         self.assertTrue(r.json().get("pong"))
         self.assertTrue(any(x["path"].startswith("/api/ping") for x in FAKE_APP.calls))
-        # The bridge observed the call into the app's perf log (Vitals data).
+        # The bridge observed the call into the app's perf log.
         perf_file = os.path.join(QA_HOME, "logs", "apps", CID, "performance.jsonl")
         self.assertTrue(os.path.isfile(perf_file), perf_file)
-        summary = c.get(f"/api/perf/summary?app={CID}").json()
+        summary = c.post("/internal/perf", headers=helpers.internal_headers(),
+                         json={"app": CID, "summary": True}).json()
         self.assertTrue(summary["ok"], summary)
-        self.assertGreaterEqual(summary["summary"].get("actions", {}).get("count", 0), 1)
+        self.assertGreaterEqual(
+            summary["summary"].get("actions", {}).get("count", 0), 1)
 
     def test_05_write_action_parks_for_approval(self):
         """approvals.gate BLOCKS the call until the operator decides, so the
@@ -200,12 +203,12 @@ class TestConnectorLifecycle(unittest.TestCase):
         c = CLIENT
         c.post(f"/api/hub/connectors/{CID}/enabled", json={"enabled": False})
         helpers.refresh_connectors()
-        ops = c.get("/api/ops/connectors").json()["connectors"]
-        self.assertNotIn(CID, [x["id"] for x in ops])
+        apps = c.get("/api/apps/health").json()["apps"]
+        self.assertNotIn(CID, [x["id"] for x in apps])
         c.post(f"/api/hub/connectors/{CID}/enabled", json={"enabled": True})
         helpers.refresh_connectors()
-        ops = c.get("/api/ops/connectors").json()["connectors"]
-        self.assertIn(CID, [x["id"] for x in ops])
+        apps = c.get("/api/apps/health").json()["apps"]
+        self.assertIn(CID, [x["id"] for x in apps])
 
     def test_09_delete_keeps_history_reconnect_resumes(self):
         c = CLIENT
@@ -225,12 +228,14 @@ class TestConnectorLifecycle(unittest.TestCase):
         self.assertFalse(os.path.exists(tools), f"tools survived delete: {tools}")
         self.assertFalse(os.path.exists(policy), f"policy survived delete: {policy}")
         self.assertNotIn(CID, [x["id"] for x in
-                               c.get("/api/ops/connectors").json()["connectors"]])
-        # THE history guarantee: the perf log outlives the connector, and
-        # Vitals still reads it (remembered in the source ledger).
+                               c.get("/api/apps/health").json()["apps"]])
+        # THE history guarantee: the perf log outlives the connector, and it is
+        # still readable (remembered in the source ledger).
         self.assertTrue(os.path.isfile(perf_file), "history deleted with connector!")
-        summary = c.get("/api/perf/summary").json()
-        self.assertIn(CID, summary["apps"], "removed app vanished from Vitals")
+        summary = c.post("/internal/perf", headers=helpers.internal_headers(),
+                         json={"summary": True}).json()
+        self.assertIn(CID, summary.get("apps", []),
+                      "removed app vanished from the perf sources")
 
         # Reconnect under the same id -> same file, history resumes.
         r = c.post("/api/hub/connectors/new", json={
@@ -248,7 +253,8 @@ class TestConnectorLifecycle(unittest.TestCase):
         g = c.get(f"/api/hub/connectors/{CID}/grants").json()
         self.assertFalse([a for a in g["actions"] if a.get("granted")],
                          "a reconnected app inherited the deleted one's grants")
-        s = c.get(f"/api/perf/summary?app={CID}").json()
+        s = c.post("/internal/perf", headers=helpers.internal_headers(),
+                   json={"app": CID, "summary": True}).json()
         self.assertGreaterEqual(s["summary"].get("actions", {}).get("count", 0), 1,
                                 "pre-delete history did not resume after reconnect")
 

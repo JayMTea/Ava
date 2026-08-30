@@ -17,7 +17,7 @@ them, guessing from whatever you paste into a chat box.
 
 </div>
 
-## One manifest, six surfaces
+## One manifest, four surfaces
 
 **This is the part that is not available anywhere else.** Drop a folder with a
 `connector.yaml` into your data root and Ava derives, at load time, from that one
@@ -26,17 +26,16 @@ declaration:
 | Surface | What it is |
 |---|---|
 | **A tab in the sidebar** | Your app's own web UI, reverse-proxied same-origin under `/apps/<id>/` so it inherits your session cookie and the current theme. No second login. |
-| **A health row** | On Operations → Service health, from `service.probe`. Name the feature flag governing the service and a dead probe reads *off* rather than *down*. |
-| **A live perf source** | Charted on Vitals from `perf.path` — and if your app never writes a `performance.jsonl`, the bridge writes one *for* it: every proxied call timed with its latency and HTTP status, self-registering, so a brand-new app appears in Vitals on its first call with no restart. |
+| **A health dot** | Beside that tab, from `service.probe`. Name the feature flag governing the service and a dead probe reads *off* rather than *down* — off-by-choice and crashed never look the same. |
+| **A live perf source** | From `perf.path` — and if your app never writes a `performance.jsonl`, the bridge writes one *for* it: every proxied call timed with its latency and HTTP status, self-registering, so a brand-new app is recorded on its first call with no restart. The agent reads these back with its `read_performance` tool. |
 | **Agent tools** | Declared statically, discovered live from an `ava-tools/1` facade, or read off your app's MCP server. Generated as `.mjs` into the sandbox for you. |
 | **An egress policy** | The allow-list of exactly which addresses the agent's sandbox may reach on this app's behalf, namespaced `ava-<id>`, rendered from the same file. Anything not on it is refused. |
-| **Cost and energy attribution** | Per-app call count and energy on the Connected apps tile, so you can see which of the things you built is the expensive one. |
 
 Plenty of tools are MCP clients. A whole category of MCP gateways does policy.
-Every self-hosted chat UI does tools. **Deriving the UI surface, the
-observability and the network policy from one declaration is the thing Ava does
-that they do not** — and none of it is hand-maintained in Ava's core, so adding
-your app needs no fork, no rebuild and no pull request against this repo.
+Every self-hosted chat UI does tools. **Deriving the UI surface, the health
+signal and the network policy from one declaration is the thing Ava does that
+they do not** — and none of it is hand-maintained in Ava's core, so adding your
+app needs no fork, no rebuild and no pull request against this repo.
 
 Full reference: [Apps, devices & MCP](docs/capabilities/connectors.md) and the
 [Connector SDK](docs/CONNECTOR_SDK.md).
@@ -70,11 +69,10 @@ out.
 Running your own AI means living inside your own memory budget, so Ava starts
 there. It reads your chip and usable memory and names the size class of model
 your machine can actually hold — *before* you download one
-([Pick a model](docs/CHOOSE_A_MODEL.md)) — then keeps throughput, time-to-first-token,
-cost, energy, GPU and every connected app's health on screen while it works
-([Vitals](docs/capabilities/vitals.md)). The hardware bubble on every view names
-which model is Ava's brain, and lists everything *else* on the machine holding
-model memory under a heading that says whose it is.
+([Pick a model](docs/CHOOSE_A_MODEL.md)). The hardware bubble on every view
+keeps GPU, memory, disk and CPU on screen while it works, names which model is
+Ava's brain, and lists everything *else* on the machine holding model memory
+under a heading that says whose it is.
 
 Where a claim about *your* hardware is unverified, it says so rather than
 rounding up. The installer prints your platform's **verification tier** before it
@@ -151,14 +149,12 @@ your environment.) Full guide: [deploy/README.md](deploy/README.md).
 
 ## What it does
 
-- **Centralize the apps you already built** — the six derived surfaces above, one manifest each. This is the reason to run Ava rather than a chat UI.
+- **Centralize the apps you already built** — the four derived surfaces above, one manifest each. This is the reason to run Ava rather than a chat UI.
 - **Answer across them.** Point Ava at any MCP server and its tools are discovered live, so a question about your training log, your ledger and your house is one question instead of three tabs, and every reply names the calls it actually made.
-- **Be your apps' ops console, not just your AI's.** Spend, speed, errors and service health per connected app, computed from Ava's own logs rather than estimated.
-- **Size your hardware, then watch it.** Ava names the model class your machine can hold before you download one, and keeps GPU, memory, throughput, cost and energy on screen while it runs.
+- **Size your hardware, then watch it.** Ava names the model class your machine can hold before you download one, and the hardware bubble keeps GPU, memory, disk and CPU on screen while it runs.
 - **Talk to it.** On-device voice, speech in and speech out, gated to *your* voice.
 - **Search the web without being the product.** Web search goes through a SearXNG *you* run — no third party, no API key — and host-side fetch is fail-closed over Tor by default (`AVA_WEB_TOR=0` opts out), with every redirect hop re-validated against an SSRF guard. The sandboxed agent never reaches the internet directly. Note: the shipped Docker profiles do not yet provision SearXNG or Tor, so this one is opt-in setup rather than on out of the box — see [deploy/README.md](deploy/README.md).
 - **It remembers — and you hold the eraser.** Long-term memory distilled from your chats and uploads, recalled when relevant, every recall audit-logged; view, correct, delete, or export all of it in the Hub ([docs/MEMORY.md](docs/MEMORY.md)).
-- **See everything.** A live **Vitals** dashboard: throughput, cost and energy, jobs, alerts.
 - **Set up from the browser.** A guided Setup hub: pick and download a model, wire in your apps, set budgets, toggle optional capabilities — no terminal. Two of the steps need one first: the agent runtime wants the NemoClaw CLI already installed (Ava deliberately will not run a `curl | bash` installer on your behalf), and voice in Docker needs an image built with `AVA_VOICE_DEPS=1`.
 - **Take it with you.** The web app installs to your phone's home screen as a PWA ([docs/MOBILE.md](docs/MOBILE.md)).
 - **Private by default.** Runs on your hardware; nothing leaves unless you say so.
@@ -183,29 +179,33 @@ Assistant and a whole category of MCP gateways. Ava does all four because a
 platform needs them, not because they are a reason to pick it. The reason is the
 derivation above.
 
-## Vitals, Operations, and Data
+## What it writes down
 
-Ava's dashboard is the front door: a **Vitals** tab (performance at a glance:
-tokens/sec, time-to-first-token, cost and energy, hardware), an
-**Operations** tab (live jobs, connectors, service health, alerts), and a
-**Data** tab — the transparency page a
-cloud assistant can't give you: every store Ava keeps (memories, chats, the
-audit ledger, logs, media, even the secrets it will never display), sized and
-inventoried, with search, export (per-chat or one everything-archive), audited
-deletes, and database maintenance. Your whole Ava is one folder (`AVA_HOME`);
-the Data tab shows you exactly what's in it.
+Your whole Ava is one folder (`AVA_HOME`): memories, chats, the audit ledger,
+performance records, hardware history, media and the secrets it will never
+display. Nothing is hidden from you and nothing leaves it unless you switch
+something on.
+
+`ava attest` inventories every one of those stores — each with its size and its
+resolved path — as one artifact of a reproducible evidence bundle you can verify
+offline ([docs/EVIDENCE.md](docs/EVIDENCE.md)). Every generation appends one
+record to `logs/performance.jsonl` (what ran, which backend answered, tokens,
+tokens/sec, time-to-first-token), and the agent reads them back in chat with its
+own `read_performance` tool. Retention is set in **Setup → System**; what Ava
+remembers is edited and erased in **Setup → Agent → Memory**
+([docs/MEMORY.md](docs/MEMORY.md)).
 
 ## Why Ava?
 
-- **One declaration, six surfaces.** UI, observability *and* network policy from
+- **One declaration, four surfaces.** UI, health signal *and* network policy from
   the same manifest. MCP clients give you tools. MCP gateways give you policy.
   Deriving all three from one file, with nothing hand-maintained in Ava's core,
   is the claim worth checking against anything else you are considering
   ([docs/CONNECT_YOUR_APPS.md](docs/CONNECT_YOUR_APPS.md)).
-- **The AI hub is the ops console for your software.** Per-app call counts,
-  latency, service health and energy attribution, so the layer that drives your
-  apps is also the layer that tells you how they are doing. Most assistants have
-  no concept of "your app's health" at all.
+- **Your apps' health is Ava's business.** A connector declares one probe and
+  its tab carries a live health dot, with off-by-choice and crashed never
+  looking the same. Most assistants have no concept of "your app's health" at
+  all.
 - **It has no personality until you give it one.** The prompt Ava ships with
   covers only what it must *do* — call its tools rather than answer around
   them. How it talks is a blank field you fill in, so a fork sounds like

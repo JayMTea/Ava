@@ -52,7 +52,7 @@ role: device                 # NOT cosmetic: groups it in Ava's Devices view AND
                              # makes unmatched dynamic tools default to the
                              # never-grantable `physical` tier (CONNECTOR_SDK §5)
 
-service:                     # optional — Ops dashboard health row
+service:                     # optional — the sidebar health dot
   name: Greenhouse
   probe: "http://127.0.0.1:9001/health"
 

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { markProvisionDirty } from '../../../hooks/useProvisionState';
 import { applyBrand, checkAccentLocal, getBrand, restoreBrand, setBrand } from '../../../lib/brand';
 import { Icon } from '../../../lib/icons';
-import { Panel } from '../../dashboard/layout';
+import { Panel } from '../../ui/layout';
 import { useAction, useResource } from '../hooks';
 import { hub } from '../hubApi';
 import { Badge } from '../ui/Badge';

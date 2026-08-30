@@ -274,8 +274,8 @@ def test_setup_routing_has_no_unreachable_redirects() -> None:
     """A retired Setup address must not also be a live tab.
 
     hubRoute.ts keeps `#hub/persona`, `#hub/budgets` and friends working after
-    Persona/Voice/Memory became Agent sub-tabs, Budgets merged into Hardware and
-    History moved to Data. Those tables are consulted BEFORE the tab lookup, so
+    Persona/Voice/Memory became Agent sub-tabs, and Budgets and History merged
+    into Hardware and System. Those tables are consulted BEFORE the tab lookup, so
     an entry that names a live tab silently shadows it — the tab becomes
     unreachable and the redirect reads as working. Cheap to assert, invisible in
     review.
@@ -287,7 +287,10 @@ def test_setup_routing_has_no_unreachable_redirects() -> None:
     assert tab_ids, "could not parse TabId out of hub/shared.ts"
 
     offenders = []
-    for table in ("MOVED_TABS", "MERGED_TABS", "RELOCATED_TABS"):
+    # RELOCATED_TABS is deliberately absent: it held Setup addresses that had
+    # moved to another VIEW, only ever `history -> data/history`, and the Data
+    # view is gone. If one is ever needed again, add the table back here too.
+    for table in ("MOVED_TABS", "MERGED_TABS"):
         body = re.search(rf"{table}[^=]*= \{{(.*?)\}};", route, re.S)
         assert body, f"hubRoute.ts no longer defines {table}"
         for key in re.findall(r"(\w+):", body.group(1)):

@@ -271,7 +271,7 @@ def extract_payload(file_id: str, max_chars: int) -> dict | None:
 
 def _timed_connector_call(fn, cid: str, tool: str, args: dict) -> tuple:
     """Run one connector call and record its latency/status in the app's
-    bridge-owned perf log — this is how a Hub-connected app shows up in Vitals
+    bridge-owned perf log — this is how a Hub-connected app is recorded
     without writing its own performance.jsonl."""
     t0 = time.time()
     data, status = fn(cid, tool, args)

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { agentApi, type AutomationJob } from '../../lib/agentApi';
 import { useGateway } from '../../hooks/useGateway';
-import { EmptyState } from '../dashboard/layout';
+import { EmptyState } from '../ui/layout';
 import { Badge } from '../hub/ui/Badge';
 
 // What the agent is doing in the background for this session.

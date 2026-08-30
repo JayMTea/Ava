@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { agentApi } from '../../../lib/agentApi';
 import { useGateway, useGatewayStatus } from '../../../hooks/useGateway';
-import { EmptyState, Panel } from '../../dashboard/layout';
+import { EmptyState, Panel } from '../../ui/layout';
 import { Badge } from '../ui/Badge';
 import { Legend } from '../ui/Legend';
 import { StatRow } from '../ui/StatRow';

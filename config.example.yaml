@@ -482,7 +482,7 @@ cost:
   # lets Ava convert energy into currency — a dollar figure reads as settled, so
   # it is withheld unless the wattage was sampled or you declared it.
   # nominal_gpu_watts: 180
-  # Caps for the Vitals budget meters, editable from Setup → Cost. Unset (or
+  # Spend and energy caps, editable from Setup → Cost. Unset (or
   # null) means no cap and a dormant meter — not a cap of zero. `daily_kwh` is
   # withheld from the UI on a platform with no defensible wattage, for the same
   # reason as above: a meter that divides by a cap it cannot measure prints NaN.
@@ -531,7 +531,7 @@ perf:
 # connector's unit and health probe. Declare below only what neither can say.
 # ---- Architecture drift watchdog -------------------------------------------
 # The watchdog re-checks the SSOT manifest on an interval and raises an alert in
-# the Ops dashboard when the manifest and the code disagree. It REPORTS ONLY:
+# a drift report when the manifest and the code disagree. It REPORTS ONLY:
 # reconcile diagram drift with `python agent/docs/arch.py sync`, and structural
 # drift by editing agent/docs/architecture.yaml.
 #

@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { dash } from './dashboard/dashApi';
 import { Icon } from '../lib/icons';
 import { appAccent } from '../lib/appColor';
 import { useBrandName } from '../lib/brandContext';
@@ -14,12 +13,12 @@ export function ActionConsole({ id, label }: { id: string; label: string }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    dash
-      .connectors()
-      .then((r) => {
-        const row = r.connectors.find((c) => c.id === id);
-        setActions(row?.actions ?? []);
-      })
+    fetch(`/api/apps/${encodeURIComponent(id)}/actions`, {
+      credentials: 'same-origin',
+      cache: 'no-store',
+    })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`${r.status}`))))
+      .then((r: { actions?: string[] }) => setActions(r.actions ?? []))
       .catch((e) => setError(String(e)));
   }, [id]);
 

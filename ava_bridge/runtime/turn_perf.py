@@ -2,12 +2,12 @@
 runtime that serves one.
 
 Agent turns bypass the inference router, which is the historical sole writer of
-`llm` records. Without this, Vitals' throughput and routing panels stay empty
+`llm` records. Without this, the throughput and routing figures stay empty
 forever on a default install while the owner chats all day.
 
 It lives here rather than on an adapter because there are now two runtimes that
 serve turns (the CLI one and the gateway one) and a third that proxies to the
-first. Two copies of "what an agent turn looks like in Vitals" would drift, and
+first. Two copies of "what an agent turn looks like in the perf log" would drift, and
 the drift would be invisible: the panels would keep rendering, just with two
 different ideas of what `source="agent"` means.
 

@@ -1,31 +1,24 @@
-"""Data API — cookie-gated `/api/data/*` routes behind the Data page.
+"""Store inventory — a library module, no longer an HTTP surface.
 
-A read-only inventory of everything Ava persists under $AVA_HOME, so the owner
-can see exactly what exists, how big it is, and when it was last written.
-Browsing and editing reuse the existing governed surfaces (/api/hub/memory*,
-/api/chats*); this module never returns file *contents*. Secrets are listed as
-counts only — held, never shown, never exported.
+A read-only inventory of everything Ava persists under $AVA_HOME: what exists,
+how big it is, and when it was last written. This module never returns file
+*contents*, and secrets are listed as counts only — held, never shown, never
+exported.
 
-Mounted into the bridge, so `auth_gate` covers these automatically (not in
-auth._PUBLIC_PATHS — no middleware change).
+The `/api/data/*` routes this used to serve went with the Data page. What is
+left is called in-process: `stores()` is the `stores` artifact of the
+`ava-attest/1` evidence bundle (`attest.py:collect_stores`), and `delete_store`
+and `prune_media` remain the audited implementations of erasure and media
+retention. Anything re-exposing these over HTTP must re-establish its own
+auth gating — there is no router here to inherit it from.
 """
 from __future__ import annotations
 
-import io
-import json
 import os
-import re
-import sqlite3
 import time
-import zipfile
-from collections import deque
 
-from fastapi import APIRouter
-from fastapi.responses import JSONResponse, PlainTextResponse, Response
+from . import audit, chat_store, settings
 
-from . import audit, chat_store, devices, settings
-
-router = APIRouter(prefix="/api/data")
 
 # Line-count files up to this size; beyond it report bytes only rather than
 # stall the inventory on a pathological log.
@@ -231,10 +224,10 @@ def delete_store(sid: str) -> dict:
 
     if sid == "memory":
         from . import memory_store
-        receipt["rows"] = memory_store.delete_all(reason="Data page: empty store")
+        receipt["rows"] = memory_store.delete_all(reason="empty store")
     elif sid == "chats":
         from . import chat_store
-        receipt["rows"] = chat_store.delete_all(reason="Data page: empty store")
+        receipt["rows"] = chat_store.delete_all(reason="empty store")
     else:
         roots = {
             # Same resolution stores() uses, so the delete and the
@@ -280,17 +273,6 @@ def delete_store(sid: str) -> dict:
                  path=receipt.get("path", ""))
     return receipt
 
-
-@router.delete("/stores/{sid}")
-def delete_store_ep(sid: str):
-    """Empty one store. Refuses `audit`, `secrets` and `models` with a reason."""
-    res = delete_store(sid)
-    if res.get("ok"):
-        return res
-    return JSONResponse(res, status_code=403 if res.get("refused") else 400)
-
-
-@router.get("/stores")
 def stores():
     """Everything Ava keeps on disk, one entry per store (facts, no contents)."""
     data_dir = settings.data_dir()
@@ -364,7 +346,7 @@ def stores():
                           count=_line_count(alloc_path, alloc_size),
                           last_write=alloc_mtime, managed=True))
 
-    # Hardware history — minute/hour telemetry tiers behind the Vitals charts.
+    # Hardware history — the minute/hour telemetry tiers the sampler writes.
     hw_dir = os.path.join(logs_dir, "hw_history")
     size, files, mtime = _tree_stats(hw_dir)
     out.append(_store("hw_history", "Hardware history", hw_dir, "jsonl",
@@ -384,7 +366,7 @@ def stores():
 
     # Media — chat uploads (binary blobs).
     # managed=True now that prune_media() applies data.retention_days here —
-    # the flag tells the Data page this store has automatic retention.
+    # the flag says this store has automatic retention.
     up_dir = settings.upload_dir()
     size, files, mtime = _tree_stats(up_dir)
     out.append(_store("uploads", "Uploads", up_dir, "files", size=size,
@@ -460,126 +442,11 @@ def stores():
             "retention_days": settings.data_retention_days(),
             "stores": out}
 
-
-# --------------------------------------------------------------------------- #
-# Chats — summaries with on-disk weight, plus per-chat export.
-# Deletion stays on the existing DELETE /api/chats/{cid} (now audit-logged).
-# --------------------------------------------------------------------------- #
-@router.get("/chats")
-def chats_summary():
-    """Every conversation with its message count and JSON weight, newest first."""
-    return {"chats": chat_store.usage()}
-
-
-def _export_name(title: str, ext: str) -> str:
-    slug = re.sub(r"[^a-zA-Z0-9]+", "-", title or "chat").strip("-").lower()[:48] or "chat"
-    return f"ava-chat-{slug}.{ext}"
-
-
-def _chat_markdown(c: dict) -> str:
-    lines = [f"# {c.get('title') or 'New chat'}", ""]
-    for m in c.get("messages") or []:
-        who = "You" if m.get("role") == "user" else "Ava"
-        when = ""
-        if m.get("ts"):
-            when = time.strftime(" · %Y-%m-%d %H:%M", time.localtime(m["ts"]))
-        lines.append(f"**{who}**{when}")
-        lines.append("")
-        if m.get("content"):
-            lines.append(str(m["content"]))
-        for a in m.get("atts") or []:
-            lines.append(f"- attachment: {a.get('filename', '?')}")
-        lines.append("")
-    return "\n".join(lines)
-
-
-@router.get("/chats/{cid}/export")
-def chat_export(cid: str, format: str = "json"):
-    """One conversation as a download — JSON (verbatim) or Markdown (readable)."""
-    # Deep-copied inside the store's lock so rendering works from a stable
-    # picture rather than a conversation another request may be appending to.
-    c = chat_store.snapshot(cid)
-    if not c:
-        return JSONResponse({"error": "unknown chat"}, status_code=404)
-    title = c.get("title") or "New chat"
-    if format == "md":
-        return PlainTextResponse(
-            _chat_markdown(c), media_type="text/markdown",
-            headers={"Content-Disposition": f'attachment; filename="{_export_name(title, "md")}"'})
-    return JSONResponse(
-        c, headers={"Content-Disposition": f'attachment; filename="{_export_name(title, "json")}"'})
-
-
-# --------------------------------------------------------------------------- #
-# Log tails — newest-first reads of the append-only stores. Names are a fixed
-# whitelist; there is no arbitrary-path read here.
-# --------------------------------------------------------------------------- #
-def _tail_jsonl(path: str, n: int) -> list[dict]:
-    """Last n parsed records of a JSONL file, newest first (bad lines skipped)."""
-    rows: deque[dict] = deque(maxlen=n)
-    try:
-        with open(path, encoding="utf-8", errors="replace") as f:
-            for line in f:
-                try:
-                    rows.append(json.loads(line))
-                except ValueError:
-                    continue
-    except OSError:
-        return []
-    return list(rows)[::-1]
-
-
-@router.get("/logs/{name}/tail")
-def log_tail(name: str, n: int = 100, kind: str = ""):
-    """Recent events from one log store: audit | performance | devices."""
-    n = max(1, min(int(n), 500))
-    if name == "audit":
-        return {"events": audit.tail(n, kind=kind or None)}
-    if name == "performance":
-        perf_dir = os.environ.get("AVA_PERF_LOG_DIR", settings.logs_dir())
-        rows = _tail_jsonl(os.path.join(perf_dir, "performance.jsonl"), n)
-        if kind:
-            rows = [r for r in rows if r.get("category") == kind]
-        return {"events": rows}
-    if name == "devices":
-        # devices.recent already merges the per-connector JSONL files newest-first.
-        return {"events": devices.recent(None, limit=n)}
-    return JSONResponse({"error": "unknown log (audit|performance|devices)"},
-                        status_code=404)
-
-
 # --------------------------------------------------------------------------- #
 # Maintenance — memory.db health plus the everything-archive. Retention stays
 # on POST /api/hub/system/retention (settings.save_patch, restart to apply).
 # --------------------------------------------------------------------------- #
 _INTEGRITY_KV = "data_page.integrity_last"
-
-
-def _db_stats() -> dict:
-    from . import memory_store
-    path = memory_store.db_path()
-    size, _mtime = _file_stats(path)
-    reclaimable = 0
-    try:
-        con = sqlite3.connect(path, timeout=5)
-        try:
-            page = con.execute("PRAGMA page_size").fetchone()[0]
-            free = con.execute("PRAGMA freelist_count").fetchone()[0]
-            reclaimable = int(page) * int(free)
-        finally:
-            con.close()
-    except sqlite3.Error:
-        pass
-    last = None
-    raw = memory_store.kv_get(_INTEGRITY_KV)
-    if raw:
-        try:
-            last = json.loads(raw)
-        except ValueError:
-            last = None
-    return {"path": _rel(path), "bytes": size,
-            "reclaimable": reclaimable, "last_check": last}
-
 
 def prune_media(retention_days: int | None = None, *, dry_run: bool = False) -> dict:
     """Delete uploaded media older than `data.retention_days`.
@@ -614,88 +481,3 @@ def prune_media(retention_days: int | None = None, *, dry_run: bool = False) -> 
                 # the sweep; skip it rather than aborting the whole prune.
                 continue
     return out
-
-
-@router.get("/maintenance")
-def maintenance():
-    return {"db": _db_stats(),
-            "retention": {"days": settings.data_retention_days(),
-                          "choices": list(settings.DATA_RETENTION_CHOICES)},
-            "media_reclaimable": prune_media(dry_run=True)}
-
-
-@router.post("/maintenance/prune-media")
-def maintenance_prune_media():
-    """Apply `data.retention_days` to uploaded media."""
-    res = prune_media()
-    audit.record("data_maintenance", action="prune_media",
-                 removed=res["removed"], bytes=res["bytes"], days=res["days"])
-    return {"ok": True, **res}
-
-
-@router.post("/maintenance/integrity")
-def maintenance_integrity():
-    """PRAGMA integrity_check on memory.db; the result is kept for the panel."""
-    from . import memory_store
-    path = memory_store.db_path()
-    try:
-        con = sqlite3.connect(path, timeout=30)
-        try:
-            rows = [str(r[0]) for r in con.execute("PRAGMA integrity_check")]
-        finally:
-            con.close()
-    except sqlite3.Error as e:
-        rows = [str(e)]
-    ok = rows == ["ok"]
-    result = {"ts": time.time(), "ok": ok,
-              "detail": "ok" if ok else "; ".join(rows)[:500]}
-    memory_store.kv_set(_INTEGRITY_KV, json.dumps(result))
-    audit.record("data_maintenance", action="integrity_check", ok=ok)
-    return {"ok": ok, "result": result, "db": _db_stats()}
-
-
-@router.post("/maintenance/vacuum")
-def maintenance_vacuum():
-    """VACUUM memory.db — returns bytes before/after so the win is visible."""
-    from . import memory_store
-    path = memory_store.db_path()
-    before, _m = _file_stats(path)
-    try:
-        # Plain autocommit connection: VACUUM cannot run inside a transaction.
-        con = sqlite3.connect(path, timeout=30)
-        try:
-            con.execute("VACUUM")
-        finally:
-            con.close()
-    except sqlite3.Error as e:
-        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
-    after, _m = _file_stats(path)
-    audit.record("data_maintenance", action="vacuum", before=before, after=after)
-    return {"ok": True, "before": before, "after": after, "db": _db_stats()}
-
-
-@router.get("/export")
-def export_archive():
-    """Everything readable, one .zip: memories, chats, the audit ledger, and
-    ava.yaml. Secrets/keys are never included; media stays on disk (a full
-    backup is a copy of $AVA_HOME)."""
-    from . import memory_store
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr("memory.json",
-                   json.dumps(memory_store.export_all(), ensure_ascii=False, indent=2))
-        z.writestr("chats.json", chat_store.export_json())
-        for arc, path in (("audit.jsonl", os.path.join(settings.logs_dir(), "audit.jsonl")),
-                          ("ava.yaml", str(settings.CONFIG_PATH))):
-            if os.path.isfile(path):
-                z.write(path, arc)
-        z.writestr("manifest.json", json.dumps({
-            "exported": time.time(),
-            "contents": ["memory.json", "chats.json", "audit.jsonl", "ava.yaml"],
-            "note": ("Secrets and keys are never exported. Media is not bundled — "
-                     "for a full backup, copy the AVA_HOME folder."),
-        }, indent=2))
-    data = buf.getvalue()
-    audit.record("data_export", target="archive", bytes=len(data))
-    return Response(content=data, media_type="application/zip",
-                    headers={"Content-Disposition": 'attachment; filename="ava-export.zip"'})

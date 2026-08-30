@@ -51,6 +51,32 @@ pre-release milestones from when Ava ran on one box and nothing was tagged.
 
 ### Removed
 
+- **The Vitals, Operations and Data pages**, and with them `/api/perf/*`,
+  `/api/ops/*` (including `/api/stream/ops`, the app's only SSE stream) and
+  `/api/data/*` — 22 routes. The sidebar's built-in tabs are now Chats, Agent
+  and Setup, plus Domains when `features.domains` is on. `recharts` is no
+  longer a dependency, which removes a 415 kB chunk and roughly halves the
+  shipped JavaScript.
+
+  **Nothing that PRODUCED those numbers was removed.** `perf_log.py` still
+  writes one record per generation, the hardware sampler and its `hw_1m` /
+  `hw_1h` tiers still run, and the audit, allocator, KPI and device ledgers are
+  untouched — they have consumers that were never the pages:
+
+  - the agent's own `read_performance` tool still answers "how fast is Ava
+    generating?" in chat, through `/internal/perf`;
+  - `ava attest` still inventories every store on disk (`data_api.stores()` is
+    now a library function rather than a route);
+  - the floating hardware bubble still reads `/api/hardware` on every view;
+  - a connector's `service.probe` still drives the per-app health dot in the
+    sidebar, via `dashboard.apps_health`.
+
+  The manifest's derived surfaces drop from six to four: the health row is now
+  the sidebar dot, the perf source is read by the agent rather than charted,
+  and the per-app cost and energy tile has no successor. `ActionConsole` reads
+  the new `GET /api/apps/{cid}/actions` instead of the ops connector payload,
+  and every `<app>_down` fix-it link in chat now points at Setup → Connectors.
+
 - **The Secrets sub-tab (Setup → Agent → Secrets).** It called
   `secrets.store.list` and `secrets.store.set`. The gateway's entire secrets
   namespace is `secrets.reload` and `secrets.resolve` — no enumerate, no write —

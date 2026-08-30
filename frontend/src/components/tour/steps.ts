@@ -4,13 +4,8 @@
 // rather than "she", no emoji and no hype. One or two sentences per step — this
 // is orientation, not documentation.
 //
-// The rule that matters most: this file does NOT explain what a metric means.
-// frontend/src/components/dashboard/metrics.ts is the one glossary, reused by
-// every ⓘ across Vitals, Operations and Learning, and docs/capabilities/vitals.md
-// makes that single-source-ness an explicit promise. So the Vitals step teaches
-// the ⓘ affordance instead of restating it — the user leaves knowing where every
-// future answer lives, and there is no second copy to drift.
-// tests/test_tour_steps.py fails if a step body duplicates a glossary string.
+// This file orients; it does not document. Keep step bodies to what the user
+// needs in order to act on the page they are looking at.
 
 export interface TourStep {
   /** CSS selector for the element to spotlight. Missing is normal, not an error
@@ -89,63 +84,6 @@ export const TOURS: Record<string, TourStep[]> = {
     },
   ],
 
-  vitals: [
-    {
-      target: '.db-kpis',
-      title: 'How hard this machine is working',
-      body: 'These update live while Ava runs. Hover the ⓘ beside any number to '
-        + 'see exactly what it measures.',
-    },
-    {
-      target: '[data-tour="vitals-budget"]',
-      title: 'Spend and energy',
-      body: 'Measured against caps you set in Setup. Caps only raise alerts — '
-        + 'nothing is ever blocked mid-answer.',
-    },
-    {
-      target: '[data-tour="vitals-apps"]',
-      title: 'Per-app cost',
-      body: 'Every app you connect shows up here on its own, with what it cost to '
-        + 'run.',
-    },
-  ],
-
-  ops: [
-    {
-      target: '[data-tour="ops-live"]',
-      title: 'What is happening now',
-      body: 'In-flight answers, streaming as they run. Empty is the normal '
-        + 'state.',
-    },
-    {
-      target: '[data-tour="ops-alerts"]',
-      title: 'Things worth knowing',
-      body: 'Budget, hardware and service problems Ava has flagged.',
-    },
-    {
-      target: '[data-tour="ops-health"]',
-      title: 'Is each piece answering',
-      body: 'The first place to look when something feels broken — it shows which '
-        + 'service stopped responding.',
-    },
-  ],
-
-  data: [
-    {
-      // The page's own tab bar, not a filter strip inside a panel. Spotlight
-      // takes the FIRST match, so a bare `.hub-tabs` used to work by DOM-order
-      // luck; the child combinator says which one is meant.
-      target: '.hub-inner > .hub-tabs',
-      title: 'Everything Ava has kept',
-      body: 'What it remembers, your conversations, and the logs behind these '
-        + 'dashboards.',
-    },
-    {
-      title: 'It is yours to delete',
-      body: 'Any of it can be removed from here. It lives on this machine and '
-        + 'nowhere else.',
-    },
-  ],
 };
 
 /** Page ids with a walkthrough, in the order a first-run user meets them. */

@@ -1391,7 +1391,7 @@ def cmd_connector(args) -> int:
         #     and `ava connector policies` printed NOTHING, with no error.
         #   * its perf path pointed inside $AVA_HOME/connectors/<id>/, which the
         #     reference template explicitly warns against because removing the
-        #     connector then destroys its Vitals history.
+        #     connector then destroys its perf history.
         # One source of truth makes that divergence structurally impossible.
         src = os.path.join(settings.CODE_ROOT, "connectors", "_template",
                            "connector.yaml")
@@ -1514,7 +1514,7 @@ kind: app
 role: device              # groups it in Ava's Devices view
 enabled: true
 
-service:                  # optional health probe -> Ops dashboard
+service:                  # optional health probe -> the sidebar health dot
   name: NAME
   # probe: "http://127.0.0.1:PORT/health"
 

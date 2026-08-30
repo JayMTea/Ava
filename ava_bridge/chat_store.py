@@ -250,14 +250,14 @@ def summaries() -> list[dict]:
 
 
 def counts() -> tuple[int, int]:
-    """(conversations, total messages) — for the Data page's store inventory."""
+    """(conversations, total messages) — for the store inventory."""
     with _db() as con:
         return (con.execute("SELECT COUNT(*) n FROM chats").fetchone()["n"],
                 con.execute("SELECT COUNT(*) n FROM messages").fetchone()["n"])
 
 
 def usage() -> list[dict]:
-    """Per-conversation size accounting for the Data page, newest first.
+    """Per-conversation size accounting, newest first.
 
     `bytes` is the conversation's own JSON weight, which stays meaningful now
     that the corpus is no longer one file whose size could be divided up.

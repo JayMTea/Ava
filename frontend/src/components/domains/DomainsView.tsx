@@ -10,7 +10,7 @@ import { api } from '../../lib/api';
 import { Icon } from '../../lib/icons';
 import { realmLabel as labelOf, railRealms } from '../../lib/realms';
 import type { DomainsCatalogue } from '../../lib/types';
-import { Panel } from '../dashboard/layout';
+import { Panel } from '../ui/layout';
 import { useResource } from '../hub/hooks';
 import { Badge } from '../hub/ui/Badge';
 import { ResourceState } from '../hub/ui/ResourceState';

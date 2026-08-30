@@ -28,6 +28,13 @@
   "APIRoute"
  ],
  [
+  "/api/apps/{cid}/actions",
+  [
+   "GET"
+  ],
+  "APIRoute"
+ ],
+ [
   "/api/apps/{cid}/embed",
   [
    "GET"
@@ -105,76 +112,6 @@
   "APIRoute"
  ],
  [
-  "/api/data/chats",
-  [
-   "GET"
-  ],
-  "APIRoute"
- ],
- [
-  "/api/data/chats/{cid}/export",
-  [
-   "GET"
-  ],
-  "APIRoute"
- ],
- [
-  "/api/data/export",
-  [
-   "GET"
-  ],
-  "APIRoute"
- ],
- [
-  "/api/data/logs/{name}/tail",
-  [
-   "GET"
-  ],
-  "APIRoute"
- ],
- [
-  "/api/data/maintenance",
-  [
-   "GET"
-  ],
-  "APIRoute"
- ],
- [
-  "/api/data/maintenance/integrity",
-  [
-   "POST"
-  ],
-  "APIRoute"
- ],
- [
-  "/api/data/maintenance/prune-media",
-  [
-   "POST"
-  ],
-  "APIRoute"
- ],
- [
-  "/api/data/maintenance/vacuum",
-  [
-   "POST"
-  ],
-  "APIRoute"
- ],
- [
-  "/api/data/stores",
-  [
-   "GET"
-  ],
-  "APIRoute"
- ],
- [
-  "/api/data/stores/{sid}",
-  [
-   "DELETE"
-  ],
-  "APIRoute"
- ],
- [
   "/api/devices",
   [
    "GET"
@@ -239,13 +176,6 @@
  ],
  [
   "/api/hardware",
-  [
-   "GET"
-  ],
-  "APIRoute"
- ],
- [
-  "/api/hardware/history",
   [
    "GET"
   ],
@@ -847,76 +777,6 @@
   "APIRoute"
  ],
  [
-  "/api/ops/alerts",
-  [
-   "GET"
-  ],
-  "APIRoute"
- ],
- [
-  "/api/ops/connectors",
-  [
-   "GET"
-  ],
-  "APIRoute"
- ],
- [
-  "/api/ops/schedule",
-  [
-   "GET"
-  ],
-  "APIRoute"
- ],
- [
-  "/api/ops/services",
-  [
-   "GET"
-  ],
-  "APIRoute"
- ],
- [
-  "/api/ops/summary",
-  [
-   "GET"
-  ],
-  "APIRoute"
- ],
- [
-  "/api/ops/tools",
-  [
-   "GET"
-  ],
-  "APIRoute"
- ],
- [
-  "/api/perf/cost",
-  [
-   "GET"
-  ],
-  "APIRoute"
- ],
- [
-  "/api/perf/recent",
-  [
-   "GET"
-  ],
-  "APIRoute"
- ],
- [
-  "/api/perf/series",
-  [
-   "GET"
-  ],
-  "APIRoute"
- ],
- [
-  "/api/perf/summary",
-  [
-   "GET"
-  ],
-  "APIRoute"
- ],
- [
   "/api/setup/backends",
   [
    "GET"
@@ -955,13 +815,6 @@
   "/api/setup/save",
   [
    "POST"
-  ],
-  "APIRoute"
- ],
- [
-  "/api/stream/ops",
-  [
-   "GET"
   ],
   "APIRoute"
  ],

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Icon } from '../../lib/icons';
-import { Panel } from '../dashboard/layout';
+import { Panel } from '../ui/layout';
 import { hub } from './hubApi';
 import { attachToProvisionJob } from '../../hooks/useProvisionState';
 import type { DeviceEvent, NewConnectorBody, ProbeResult } from './hubApi';

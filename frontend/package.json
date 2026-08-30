@@ -27,8 +27,7 @@
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8",
-    "recharts": "^3.10.1"
+    "react-dom": "^19.2.8"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.6",

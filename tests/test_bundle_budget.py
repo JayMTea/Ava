@@ -5,8 +5,7 @@ runtime dependencies since the framework migration (xterm, for the terminal).
 "keep an eye on the bundle" is not a check; a committed per-chunk ceiling is.
 
 Why per-chunk and not a total: the whole point of the lazy boundaries is that a
-chat-only session never downloads the charts, and a session that never opens a
-terminal never downloads xterm. A total would go green by moving weight into a
+session that never opens a terminal never downloads xterm. A total would go green by moving weight into a
 chunk everybody loads, which is the opposite of the thing being protected.
 
 Skips cleanly when `frontend/dist` has not been built — a Python-only checkout
@@ -27,9 +26,6 @@ BUDGET_KB = {
     # Everything a first paint needs. The one that matters most.
     "index": 120,
     "react": 70,
-    # Behind lazy() — Vitals and Ops. Named so they share ONE recharts copy
-    # instead of carrying one each.
-    "charts": 140,
     # Behind lazy() — the terminal panel only.
     "term": 120,
     # The agent console itself, minus the two heavy things above.
@@ -98,13 +94,16 @@ def test_the_heavy_dependencies_stay_out_of_the_entry_chunk() -> None:
     it, and nothing else would say so.
     """
     got = _chunks()
-    # `charts` must always split: something the entry chunk reaches imports it.
-    assert "charts" in got, (
-        "there is no separate `charts` chunk any more, so its weight has "
-        "folded into something the entry chunk loads. Check "
-        "frontend/vite.config.ts's manualChunks.")
+    # recharts was removed with the Vitals and Operations views, so there is no
+    # `charts` chunk to split any more. What must never happen is a charting
+    # library coming back WITHOUT a boundary, so this asserts about the entry
+    # chunk rather than about a chunk existing.
+    assert not _entry_mentions("recharts"), (
+        "recharts is in the entry chunk. It was dropped as a dependency with "
+        "the dashboard views; if a chart is wanted again it needs its own "
+        "lazy boundary and a manualChunks entry in frontend/vite.config.ts.")
 
-    # `term` is the OTHER shape of correct. xterm is only pulled in by
+    # `term` is the SAME shape of correct. xterm is only pulled in by
     # frontend/src/lib/Terminal.tsx, and TerminalPanel currently gates instead
     # of rendering it (the gateway's terminal OUTPUT mechanism is uncaptured),
     # so nothing imports it and vite emits no chunk at all. Absent-entirely is

@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import { Icon } from '../../../lib/icons';
 import { api } from '../../../lib/api';
-import { EmptyState, Panel } from '../../dashboard/layout';
+import { EmptyState, Panel } from '../../ui/layout';
 import { useResource } from '../hooks';
 import { hub } from '../hubApi';
 import { ResourceError } from '../ui/ResourceState';

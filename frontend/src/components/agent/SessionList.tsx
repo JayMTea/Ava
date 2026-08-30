@@ -1,4 +1,4 @@
-import { EmptyState } from '../dashboard/layout';
+import { EmptyState } from '../ui/layout';
 import type { ConsoleGroup } from './agentView';
 import { SessionRow } from './SessionRow';
 

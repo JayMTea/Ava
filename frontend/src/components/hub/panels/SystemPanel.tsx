@@ -1,4 +1,4 @@
-import { EmptyState, Panel } from '../../dashboard/layout';
+import { EmptyState, Panel } from '../../ui/layout';
 import { ResourceError } from '../ui/ResourceState';
 import { useAction, useResource } from '../hooks';
 import { hub } from '../hubApi';

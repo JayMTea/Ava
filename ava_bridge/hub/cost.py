@@ -14,7 +14,7 @@ router = APIRouter()
 @router.get("/cost")
 def cost_get():
     """Current electricity rate, currency, and spend/energy budgets + live
-    daily totals (for the Setup hub Budgets editor + the Vitals budget bar)."""
+    daily totals (for the Setup hub Budgets editor)."""
     settings_ = dashboard.cost_settings()
     day = dashboard.perf_cost("1d")
     settings_["daily_spend_usd"] = day["spend_usd"]

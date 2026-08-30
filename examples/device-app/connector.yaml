@@ -7,7 +7,7 @@ label: Device Demo
 kind: app
 role: device                 # groups it under Ava's Devices view
 
-# Health probe -> Ops dashboard service matrix.
+# Health probe -> the app's sidebar health dot.
 service:
   name: Device Demo
   probe: "http://127.0.0.1:8479/health"

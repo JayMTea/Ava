@@ -52,17 +52,17 @@ def test_a_fresh_install_has_seen_nothing(client) -> None:
 
 
 def test_finishing_one_page_does_not_consume_the_others(client) -> None:
-    """The whole reason this is a list. Marking Data seen because someone
+    """The whole reason this is a list. Marking Chats seen because someone
     finished Setup would spend a walkthrough they never saw."""
-    client.post("/api/hub/tour/seen", params={"page": "vitals"})
-    assert client.get("/api/hub/tour").json()["seen"] == ["vitals"]
+    client.post("/api/hub/tour/seen", params={"page": "chat"})
+    assert client.get("/api/hub/tour").json()["seen"] == ["chat"]
 
 
 def test_marking_seen_twice_is_not_an_error(client) -> None:
-    client.post("/api/hub/tour/seen", params={"page": "ops"})
-    r = client.post("/api/hub/tour/seen", params={"page": "ops"})
+    client.post("/api/hub/tour/seen", params={"page": "agent"})
+    r = client.post("/api/hub/tour/seen", params={"page": "agent"})
     assert r.status_code == 200
-    assert r.json()["seen"] == ["ops"]
+    assert r.json()["seen"] == ["agent"]
 
 
 def test_an_unknown_page_is_refused_and_writes_nothing(client) -> None:
@@ -87,8 +87,8 @@ def test_a_write_is_visible_without_a_restart(client) -> None:
     config.py constant would need a bridge restart before a dismissal took
     effect — and "I clicked Skip and it came back" is the one bug this route
     cannot afford. seen() must read through settings at request time."""
-    client.post("/api/hub/tour/seen", params={"page": "data"})
-    assert "data" in tour.seen()
+    client.post("/api/hub/tour/seen", params={"page": "agent"})
+    assert "agent" in tour.seen()
 
 
 def test_garbage_in_the_config_does_not_crash_the_route(client, monkeypatch) -> None:

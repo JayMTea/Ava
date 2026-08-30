@@ -28,8 +28,8 @@ def _targets() -> list[str]:
 
     This was a hardcoded three-entry list. Then phone_bridge.py was split into
     per-concern APIRouters, and each extraction silently moved routes OUT of the
-    guard's scope: internal.py, learning_api.py, ops_api.py, chats_api.py and
-    perf_api.py were all invisible to it while it kept reporting green. A guard
+    guard's scope: internal.py, learning_api.py, chats_api.py and perf_api.py
+    were all invisible to it while it kept reporting green. A guard
     with a fixed file list does not fail when code moves away from it — it just
     stops checking, which is the worst failure mode a guard has.
 

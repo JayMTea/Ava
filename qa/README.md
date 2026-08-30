@@ -28,7 +28,7 @@ suite owns its process. `pytest tests/` remains the fast unit suite.
 | 2 — live process | `test_20`–`test_22` | `serve.py` as a subprocess: cold boot, two instances coexisting, restart persistence (chats/memory/settings/session cookie), real-socket SSE + static/PWA serving |
 | contracts | `test_30_fixture_contract.py` | demo/ fixtures never drift from the real API shapes |
 | CLI | `test_40_cli.py` | `ava setup/doctor/version/connector/device` in isolated homes |
-| 3 — browser E2E | `e2e/*.spec.ts` via `e2e/run_e2e.py` | real Chromium against the real bridge: first-run setup, login→chat→reply, Vitals/Ops/Data rendering live data, connect-an-app appearing in Vitals |
+| 3 — browser E2E | `e2e/*.spec.ts` via `e2e/run_e2e.py` | real Chromium against the real bridge: first-run setup, login→chat→reply, connect-an-app appearing in the sidebar |
 
 Deliberately not exercised live (their *degradation* paths are tested instead):
 real GPU inference, Anthropic-billed code-agent calls, NemoClaw provisioning,

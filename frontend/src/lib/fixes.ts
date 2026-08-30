@@ -65,10 +65,10 @@ export function fixForCode(code?: string | null): FixAction | undefined {
     };
   }
   // The engine is up and simply does not hold the configured model — the most
-  // likely first-run failure, and the one place Operations is the wrong answer:
-  // nothing is down, so there is nothing there to restart. Checked BEFORE the
-  // `_down` pattern, which `model_unknown` does not match anyway but which a
-  // future `model_..._down` code would.
+  // likely first-run failure, and the one place a connector's address is the
+  // wrong answer: nothing is down, so there is nothing there to restart.
+  // Checked BEFORE the `_down` pattern, which `model_unknown` does not match
+  // anyway but which a future `model_..._down` code would.
   if (code === 'model_unknown') {
     return {
       label: 'Pick a model in Setup',
@@ -84,17 +84,15 @@ export function fixForCode(code?: string | null): FixAction | undefined {
   m = /^(.+)_down$/.exec(code);
   if (m) {
     return {
-      label: 'Check it on Operations',
-      hash: 'ops',
-      tip: `Opens Operations — the ${pretty(m[1])} service looks down; its status and controls live there.`,
+      label: 'Check it in Setup',
+      hash: 'hub/connectors',
+      tip: `Opens Setup → Connectors — the ${pretty(m[1])} service looks down; its address and controls live there.`,
     };
   }
-  // The other three codes `connectors.unreachable()` emits. Only `_down` was
-  // resolved here, so a connected app that timed out, failed DNS, or errored in
-  // any other way gave the owner an accurate message with nowhere to go — which
-  // reads as a dead end rather than a fixable problem. Each of these is about
-  // ONE app's address, so they all lead to that app's row in Setup, not to
-  // Operations: nothing of Ava's is down.
+  // The other three codes `connectors.unreachable()` emits. Each of these is
+  // about ONE app's address, so they all lead to that app's row in Setup — the
+  // same destination `_down` now uses, since the Operations page it used to
+  // point at is gone.
   m = /^(.+)_(timeout|unreachable|error)$/.exec(code);
   if (m) {
     const app = pretty(m[1]);

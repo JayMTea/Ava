@@ -15,12 +15,10 @@ const PASSWORD = process.env.AVA_E2E_PASSWORD || 'testpass123';
 /** Land on the app, let its hash effect settle, then click through to the tab. */
 async function openBranding(page: any) {
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
-  // Wait on the sidebar head, not on a destination name. This used to wait for
-  // "Vitals", which worked only because Vitals was an inline nav row and the app
-  // lands on #hub with the sidebar open — the string was nowhere else on the
-  // Setup view. Vitals now lives behind the panel-foot flyout, so that sentinel
-  // would never resolve. The head is rendered by the same first React pass and
-  // says nothing about which view won.
+  // Wait on the sidebar head, not on a destination name. A nav label is a bad
+  // sentinel: the system entries live behind the panel-foot flyout, so waiting
+  // on one never resolves. The head is rendered by the same first React pass
+  // and says nothing about which view won.
   await page.waitForSelector('.panel-head', { timeout: 15_000 });
   await page.evaluate(() => { window.location.hash = 'hub'; });
   await page.waitForSelector('.hub-tabs button:has-text("Branding")', { timeout: 15_000 });
@@ -43,8 +41,8 @@ async function main() {
   // ---- the tab exists -----------------------------------------------------
   // NOT `goto(BASE + '/#hub/branding')`. App.tsx reflects its view into the hash
   // on mount (`if (viewFromHash() !== view) window.location.hash = view`), which
-  // races a goto that differs only by hash and rewrites it to `#vitals`. Land on
-  // the app, let it settle, then click — which is what a person does anyway.
+  // races a goto that differs only by hash and rewrites it to the landing view.
+  // Land on the app, let it settle, then click — what a person does anyway.
   await openBranding(page);
   ok('Setup → Branding renders');
 

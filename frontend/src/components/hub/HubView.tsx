@@ -165,9 +165,6 @@ export function HubView() {
       // instant before App.tsx swaps the view, and this listener fires on that
       // same event — so touching the hash here would drag them straight back.
       if (r.foreign) return;
-      // A tab that moved to another VIEW (History -> Data) is not ours to
-      // resolve — segment 0 belongs to App.tsx. Hand it over and stop.
-      if (r.leaveTo) { window.location.replace(`#${r.leaveTo}`); return; }
       setRoute(r);
       // A retired address (#hub/persona) or a junk sub-tab resolves to a
       // DIFFERENT url than the one in the bar. Rewrite with replaceState, never

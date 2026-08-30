@@ -842,7 +842,7 @@ async def connector_new(body: dict):
         manifest["ingest"] = {"enabled": True}
 
     # Every Hub-created connector gets a perf source by default, so it shows in
-    # Vitals from its first proxied call (app_perf.py writes here). The path is
+    # its first proxied call (app_perf.py writes here). The path is
     # OUTSIDE $AVA_HOME/connectors/<id> on purpose: deleting the connector keeps
     # its history, and re-adding the same id resumes it. Apps that keep their own
     # SDK perf log can point `perf.path` elsewhere by editing the manifest.
@@ -896,7 +896,7 @@ async def connector_new(body: dict):
                             f"not be saved: {e}. Add it again from the connector's "
                             f"⋯ menu.")
     connectors.load(force=True)   # pick it up without a restart
-    perf_mgmt.refresh_sources()   # …and let Vitals see its perf source now
+    perf_mgmt.refresh_sources()   # …and register its perf source now
 
     # What the loader made of what we just wrote. This route answered `ok: true`
     # for a manifest it had ALREADY seen fail validation: it called load(), threw

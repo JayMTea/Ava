@@ -13,7 +13,7 @@
  */
 import { Icon } from '../../lib/icons';
 import type { DomainCell, DomainSurface, PendingGrant, Provenance } from '../../lib/types';
-import { fmtNum, Panel } from '../dashboard/layout';
+import { fmtNum, Panel } from '../ui/layout';
 import { Badge } from '../hub/ui/Badge';
 import { Tile } from '../hub/ui/Tile';
 import {

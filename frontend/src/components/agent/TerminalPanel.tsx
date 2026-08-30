@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { agentApi } from '../../lib/agentApi';
 import { useGateway } from '../../hooks/useGateway';
-import { EmptyState } from '../dashboard/layout';
+import { EmptyState } from '../ui/layout';
 
 // A terminal, or an honest account of why there isn't one.
 //

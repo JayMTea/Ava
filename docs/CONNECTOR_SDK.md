@@ -2,7 +2,7 @@
 
 Add your own app to Ava by dropping in a folder, with **no edits to Ava's
 code**. A connector gives your app a left-rail tile, an embedded (or native) UI,
-a health row on the Ops dashboard, a performance source, live agent tools, and
+a health dot in the sidebar, a performance source, live agent tools, and
 an auto-generated egress policy (an allow-list of the exact network destinations
 Ava's agent may reach on your app's behalf) - all derived from one
 `connector.yaml`.
@@ -155,7 +155,7 @@ perf:                         # OPTIONAL — a performance.jsonl source for the 
   path: "${AVA_LOGS}/apps/mycrm/performance.jsonl"
   # Hub-created connectors get exactly this block by default, and the bridge
   # records every proxied action call there (latency + status) — so a new app
-  # shows in Vitals from its first call with no code changes. Keep the path
+  # is recorded from its first call with no code changes. Keep the path
   # OUTSIDE $AVA_HOME/connectors/<id>: history then survives disconnect and
   # resumes when the same id is re-added. If your app writes its own SDK
   # perf log (tokens/sec, render times), point `path` at that file instead.
@@ -807,7 +807,7 @@ keeps the shipped skills taxonomy-free.
 From that one manifest, with nothing hand-maintained in Ava's core:
 
 - **Left-rail tile + embedded/native UI** ← `ui`
-- **Ops dashboard health row** ← `service.probe`
+- **Sidebar health dot** ← `service.probe`
 - **Dashboard performance source** ← `perf`
 - **Agent tools** ← `actions` (declared or discovered) or `mcp` (live from the server)
 - **Agent skills panel** ← `agent/skills/*/SKILL.md` (drop a folder → it shows in

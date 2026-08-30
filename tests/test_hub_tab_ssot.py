@@ -7,7 +7,7 @@ them against each other:
   * `frontend/src/components/hub/shared.ts`    declares the `TabId` union that
     `hubRoute.ts` validates every address against
   * `frontend/src/components/hub/hubRoute.ts`  keeps retired addresses alive in
-    MOVED_TABS / MERGED_TABS / RELOCATED_TABS
+    MOVED_TABS / MERGED_TABS
 
 When TABS and TabId diverge, a tab either renders but cannot be addressed, or is
 addressable and renders nothing. And `shared.ts` already states the redirect
@@ -32,7 +32,6 @@ from gitfiles import ROOT, require_git, tracked
 HUBVIEW = "frontend/src/components/hub/HubView.tsx"
 SHARED = "frontend/src/components/hub/shared.ts"
 HUBROUTE = "frontend/src/components/hub/hubRoute.ts"
-APP = "frontend/src/App.tsx"
 HUB_API = "ava_bridge/hub_api.py"
 
 
@@ -87,13 +86,6 @@ def _redirect_table(name: str) -> dict[str, str]:
     return found
 
 
-def _builtin_views() -> set[str]:
-    body = _block(_read(APP), r"const BUILTIN_VIEWS\s*=\s*\[(.*?)\]", "BUILTIN_VIEWS in " + APP)
-    found = set(re.findall(r"'([^']+)'", body))
-    assert found, f"BUILTIN_VIEWS in {APP} parsed to zero entries"
-    return found
-
-
 def _hub_api_panels() -> tuple[set[str], set[str]]:
     """(imported, included) panel module names, read with ast rather than regex.
 
@@ -134,8 +126,7 @@ def test_hubview_tabs_match_the_tabid_union() -> None:
 def test_no_retired_address_collides_with_a_live_tab() -> None:
     union = _tab_id_union()
     retired = {**_redirect_table("MOVED_TABS"),
-               **_redirect_table("MERGED_TABS"),
-               **_redirect_table("RELOCATED_TABS")}
+               **_redirect_table("MERGED_TABS")}
     collisions = sorted(set(retired) & union)
     assert not collisions, (
         f"these retired addresses are also live Setup tabs: {collisions}\n"
@@ -147,7 +138,7 @@ def test_no_retired_address_collides_with_a_live_tab() -> None:
 
 
 def test_every_retired_address_points_somewhere_real() -> None:
-    union, subs, views = _tab_id_union(), _agent_subtabs(), _builtin_views()
+    union, subs = _tab_id_union(), _agent_subtabs()
     bad: list[str] = []
     for key, dest in _redirect_table("MERGED_TABS").items():
         if dest not in union:
@@ -155,9 +146,6 @@ def test_every_retired_address_points_somewhere_real() -> None:
     for key, dest in _redirect_table("MOVED_TABS").items():
         if dest not in subs:
             bad.append(f"MOVED_TABS[{key!r}] -> {dest!r}, which is not an AGENT_SUBTABS id")
-    for key, dest in _redirect_table("RELOCATED_TABS").items():
-        if dest.split("/")[0] not in views:
-            bad.append(f"RELOCATED_TABS[{key!r}] -> {dest!r}, whose view segment is not in BUILTIN_VIEWS")
     assert not bad, (
         "these retired Setup addresses redirect to somewhere that no longer exists:\n  "
         + "\n  ".join(bad)
