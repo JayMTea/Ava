@@ -3,7 +3,7 @@
 // error — it just quietly shows Overview, which reads as "the feature is gone".
 import { describe, expect, it } from 'vitest';
 import {
-  AGENT_SUBTABS, DEFAULT_SUB, MERGED_TABS, MOVED_TABS, RELOCATED_TABS,
+  AGENT_SUBTABS, DEFAULT_SUB, MERGED_TABS, MOVED_TABS,
   hubHash, parseHubHash,
 } from './hubRoute';
 import type { TabId } from './shared';
@@ -87,21 +87,14 @@ describe('parseHubHash — retired addresses', () => {
     expect(parse('#hub/budgets')).toMatchObject({ tab: 'hardware', canonical: 'hub/hardware' });
   });
 
-  it('reports a relocated tab instead of resolving it — segment 0 is App.tsx’s', () => {
-    expect(parse('#hub/history').leaveTo).toBe('data/history');
-  });
-
-  it('leaves `leaveTo` unset for every address that stays inside Setup', () => {
-    for (const h of ['#hub', '#hub/agent', '#hub/agent/voice', '#hub/persona', '#hub/budgets']) {
-      expect(parse(h).leaveTo).toBeUndefined();
-    }
+  it('sends the retired History address to the tab that governs the ledger', () => {
+    expect(parse('#hub/history')).toMatchObject({ tab: 'system', canonical: 'hub/system' });
   });
 
   // A redirect keyed on a live tab is unreachable: the tab wins and the entry
   // is dead code that reads as working. Cheap to assert, impossible to spot.
   it('never shadows a live tab with a redirect', () => {
-    for (const key of [...Object.keys(MOVED_TABS), ...Object.keys(MERGED_TABS),
-      ...Object.keys(RELOCATED_TABS)]) {
+    for (const key of [...Object.keys(MOVED_TABS), ...Object.keys(MERGED_TABS)]) {
       expect(TAB_IDS).not.toContain(key);
     }
   });

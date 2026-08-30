@@ -19,7 +19,7 @@ Connectors, or delete the manifest folder, and every trace is gone.
   can never be silenced with "Always allow."** A lock cannot become a
   one-tap-then-silent action.
 - **On the record** - every request, approval, denial, and call is written to
-  the audit ledger (Data → History).
+  the audit ledger (`${AVA_LOGS}/audit.jsonl`).
 - **Sandboxed reach** - Ava's agent never talks to HA directly. The bridge
   speaks MCP server-side; the agent reaches only the two policed bridge routes
   its egress policy allow-lists.
@@ -76,7 +76,7 @@ bug; a registered, configured connector shows its probe URL there.
 Home Assistant's row now comes alive in Setup → Connectors (under **Tools** - a
 `role: device` connector is listed by the Devices registry that `ava device list`
 and `GET /api/devices` read, but the Setup grouping keys off `kind:`), with a
-health row on Operations → Service health. Ask Ava something only your house
+health dot beside its tab in the sidebar. Ask Ava something only your house
 knows.
 
 !!! note "An unconfigured connector reaches nothing"
@@ -142,7 +142,7 @@ author `confirm:` always sticks. The permission sheet for the connector
   Streamable HTTP endpoint you can change your copy's `mcp.url` to it (check your
   HA release notes for the path - Ava doesn't care which it is).
 - **Ava describes stale state** - `GetLiveContext` reads live; check the HA
-  health row on the Ops dashboard (probe = your `HASS_URL`).
+  health dot in the sidebar (probe = your `HASS_URL`).
 
 ## Scope, honestly
 

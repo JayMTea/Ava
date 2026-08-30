@@ -257,7 +257,7 @@ class NemoClawRuntime(AgentRuntime):
     def _log_turn_perf(self, seconds: float, data) -> None:
         """This runtime's half: find the model and the usage, then hand both to
         the one writer (runtime/turn_perf.py) so every runtime's agent turns
-        look identical in Vitals."""
+        look identical in the perf log."""
         try:
             info = self.sandbox_info(wait=False) or {}
             usage = _find_key(data, "usage")

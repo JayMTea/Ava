@@ -22,15 +22,7 @@ PAIRS = {
     "brand.json": "/api/brand",
     "apps.json": "/api/apps",
     "hardware.json": "/api/hardware",
-    "perf-summary.json": "/api/perf/summary",
-    "perf-cost.json": "/api/perf/cost",
     "budget.json": "/api/hub/cost",
-    "ops-summary.json": "/api/ops/summary",
-    "services.json": "/api/ops/services",
-    "schedule.json": "/api/ops/schedule",
-    "tools.json": "/api/ops/tools",
-    "alerts.json": "/api/ops/alerts",
-    "connectors.json": "/api/ops/connectors",
     "turns.json": "/api/turns",
     "chats.json": "/api/chats",
     "hub-system.json": "/api/hub/system",
@@ -42,12 +34,9 @@ PAIRS = {
     "hub-agent-status.json": "/api/hub/agent/status",
     "hub-backends.json": "/api/setup/backends",  # mock.ts serves it there
     "hub-models.json": "/api/hub/models",
-    # Added when the Data page and the memory/skills panels landed; the
-    # net had not been extended with them, so seven fixtures sat outside
-    # it. Endpoints taken from mock.ts's own route table, not guessed.
-    "data-stores.json": "/api/data/stores",
-    "data-chats.json": "/api/data/chats",
-    "data-maintenance.json": "/api/data/maintenance",
+    # Added when the memory/skills panels landed; the net had not been
+    # extended with them. Endpoints taken from mock.ts's own route table,
+    # not guessed.
     "hub-memory.json": "/api/hub/memory",
     "hub-skills.json": "/api/hub/agent/skills",
     # Added when Setup → Agent split into sub-panels and Persona got its own
@@ -139,4 +128,9 @@ class TestFixtureContract(unittest.TestCase):
         unaccounted = actual - set(PAIRS) - demo_only
         self.assertFalse(
             unaccounted,
-            f"new fixtures need a PAIRS mapping or demo_only entry: {unaccounted}")
+            f"these fixtures map to nothing: {unaccounted}. A NEW one needs a "
+            "PAIRS mapping or a demo_only entry. A fixture for a route that no "
+            "longer exists should be DELETED — the Vitals, Operations and Data "
+            "pages were removed along with /api/perf/*, /api/ops/* and "
+            "/api/data/*, so perf-*, ops-*, services/schedule/tools/alerts/"
+            "connectors and data-* fixtures are stale.")

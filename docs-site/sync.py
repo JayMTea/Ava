@@ -58,9 +58,6 @@ CURATED: dict[str, str] = {
     # Capabilities section (nav order: overview first, then one page per area).
     "docs/capabilities/index.md": "docs/capabilities/index.md",
     "docs/capabilities/chat.md": "docs/capabilities/chat.md",
-    "docs/capabilities/vitals.md": "docs/capabilities/vitals.md",
-    "docs/capabilities/operations.md": "docs/capabilities/operations.md",
-    "docs/capabilities/data.md": "docs/capabilities/data.md",
     "docs/capabilities/connectors.md": "docs/capabilities/connectors.md",
     "docs/capabilities/agent.md": "docs/capabilities/agent.md",
     "docs/AGENT_RUNTIME.md": "docs/AGENT_RUNTIME.md",
@@ -133,21 +130,15 @@ ASSETS: dict[str, str] = {
     "docs/assets/architecture.svg": "docs/assets/architecture.svg",
     "docs/assets/agent-remote-runtime.svg": "docs/assets/agent-remote-runtime.svg",
     # "What leaves your machine" — the owner-facing privacy picture, on the
-    # Why Ava? page, docs/capabilities/data.md and SECURITY.md. The privacy
-    # claim was argued in 454 words of prose on three pages and drawn nowhere.
+    # Why Ava? page and SECURITY.md. The privacy claim was argued in prose and
+    # drawn nowhere.
     "docs/assets/egress.svg": "docs/assets/egress.svg",
     # Detail CROPS, from demo/manifests/docs-crops.yaml. The docs column caps
     # media at 44rem, so a 1920px full-page capture lands at ~704px and small UI
     # becomes unreadable: each of these is the one element a page was arguing
     # about in prose while showing it at 0.37x, or not at all.
     "docs/assets/chat-tools-used.png": "docs/assets/chat-tools-used.png",
-    "docs/assets/data-secrets.png": "docs/assets/data-secrets.png",
     "docs/assets/approvals-banner.png": "docs/assets/approvals-banner.png",
-    # The expanded hardware bubble, on docs/capabilities/vitals.md. That section
-    # argues the brain-visibility invariant in four paragraphs and carried a
-    # TODO where the picture belongs, so the surface that proves it had never
-    # been published. Scene `hardware-bubble` in demo/manifests/docs-crops.yaml.
-    "docs/assets/hardware-bubble.png": "docs/assets/hardware-bubble.png",
     # ASSETS is an explicit allow-list, so a new image referenced from a page is
     # a 404 on the site until it is named here.
     "docs/assets/install-1-terminal.png": "docs/assets/install-1-terminal.png",

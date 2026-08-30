@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { agentApi, type FileEntry } from '../../lib/agentApi';
 import { useGateway } from '../../hooks/useGateway';
-import { EmptyState } from '../dashboard/layout';
+import { EmptyState } from '../ui/layout';
 import { Tile } from '../hub/ui/Tile';
 
 // The files this session has touched.

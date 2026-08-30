@@ -1,5 +1,5 @@
 """The walkthrough's page ids must agree across three files that cannot see
-each other, and its copy must not fork the metric glossary.
+each other.
 
 The id agreement is not cosmetic. A page the frontend tours but the backend
 rejects can never be recorded as seen — so it would run on every single visit,
@@ -17,9 +17,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 SRC = ROOT / "frontend" / "src"
 STEPS = SRC / "components" / "tour" / "steps.ts"
 APP = SRC / "App.tsx"
-METRICS = SRC / "components" / "dashboard" / "metrics.ts"
 OVERVIEW = SRC / "components" / "hub" / "panels" / "Overview.tsx"
-VITALS = SRC / "components" / "dashboard" / "VitalsView.tsx"
 BACKEND = ROOT / "ava_bridge" / "hub" / "tour.py"
 
 
@@ -68,8 +66,8 @@ def test_the_landing_page_is_setup() -> None:
     for call in ("getItem('ava.view')", "setItem('ava.view'"):
         assert call not in app, (
             f"localStorage {call} is back. It made the first visit's default a "
-            "sticky preference the user never chose, which is how landing on "
-            "Vitals became permanent for anyone who opened the app once.")
+            "sticky preference the user never chose, so whichever tab they "
+            "happened to land on once became permanent.")
 
 
 def test_every_data_tour_anchor_a_step_points_at_exists() -> None:
@@ -82,43 +80,10 @@ def test_every_data_tour_anchor_a_step_points_at_exists() -> None:
     # The Setup cards build their anchor from the tab id: data-tour={`hub-${t}`}.
     anchors |= {f"hub-{t}" for t in
                 re.findall(r"card\('(\w+)'", OVERVIEW.read_text(encoding="utf-8"))}
-    # <Panel tour="x"> forwards to data-tour on the section (dashboard/layout.tsx).
+    # <Panel tour="x"> forwards to data-tour on the section (ui/layout.tsx).
     anchors |= set(re.findall(r'\btour="([\w-]+)"', _frontend_sources()))
     for target in re.findall(r'\[data-tour="([\w-]+)"\]', STEPS.read_text(encoding="utf-8")):
         assert target in anchors, (
             f"a walkthrough step points at [data-tour={target!r}], which nothing "
             "in frontend/src renders. The step will still show, just with nothing "
             "highlighted — add the anchor back or repoint the step.")
-
-
-def test_the_vitals_budget_panel_is_not_hidden_until_a_cap_is_set() -> None:
-    """The bug this exists for: the panel used to render only once a cap was
-    configured, and a cap is unset by default (dashboard.py reads it with a bare
-    .get, and nothing seeds one at install). So the one user the walkthrough is
-    built for — a brand new one — was the one user guaranteed to reach the
-    "Spend and energy" step with the panel absent and nothing highlighted.
-    The budgets panel already learned this (hub/panels/BudgetsPanel.tsx: "Unlike the
-    old bar it ALWAYS renders"); Vitals must not drift back."""
-    body = VITALS.read_text(encoding="utf-8")
-    panel = body.rindex("<Panel", 0, body.index('tour="vitals-budget"'))
-    guard = body.rindex("{budget.data", 0, panel)
-    assert body[guard:panel].strip() == "{budget.data && (", (
-        "the Vitals budget panel is gated on something beyond /api/budget having "
-        "answered. If that gate is a configured cap, a fresh install sees no "
-        "spend or energy at all and the walkthrough highlights nothing.")
-
-
-def test_the_walkthrough_does_not_fork_the_metric_glossary() -> None:
-    """metrics.ts is the one place a metric is explained, reused by every ⓘ and
-    promised as single-source in docs/capabilities/vitals.md. The Vitals step
-    teaches the ⓘ affordance instead of restating it; a second copy here would
-    drift and there would be no way to tell which was right."""
-    glossary = re.findall(r"'((?:[^'\\]|\\.){40,})'", METRICS.read_text(encoding="utf-8"))
-    steps = STEPS.read_text(encoding="utf-8")
-    for entry in glossary:
-        sentence = entry.split(".")[0].strip()
-        if len(sentence) < 40:
-            continue
-        assert sentence not in steps, (
-            f"a walkthrough step restates the glossary: {sentence[:60]!r}. Point "
-            "at the ⓘ instead — one explanation, one place.")

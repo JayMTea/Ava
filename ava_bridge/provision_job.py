@@ -14,7 +14,7 @@ callers need it — the hub routes, `ava_cli.py`, and the agent-runtime shim.
 
 **Why a private slot and not the /api/stream/ops SSE**, which would have been
 free: that channel carries turn, hardware, device and alert deltas, all of which
-a browser subscribes to for the Operations page. A provisioning run is neither —
+a browser subscribes to for a live page. A provisioning run is neither —
 it belongs to whoever started it, it is single-slot by construction, and its
 output lines are shell chatter that no dashboard should diff at 1 Hz.
 """

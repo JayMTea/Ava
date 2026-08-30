@@ -192,7 +192,7 @@ def coverage(since_days: int = 30) -> dict:
 
 
 def stats() -> dict:
-    """Facts for the Data page inventory — never contents."""
+    """Facts for the store inventory — never contents."""
     out = {"rows": 0, "bytes": 0, "metrics": 0, "first_day": None,
            "last_day": None, "last_write": None}
     rows = _read(LEDGER)

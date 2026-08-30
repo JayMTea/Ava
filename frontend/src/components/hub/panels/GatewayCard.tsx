@@ -1,7 +1,7 @@
 import { hub } from '../hubApi';
 import { useResource } from '../hooks';
 import { useGatewayStatus } from '../../../hooks/useGateway';
-import { Panel } from '../../dashboard/layout';
+import { Panel } from '../../ui/layout';
 import { Badge } from '../ui/Badge';
 import { ResourceError } from '../ui/ResourceState';
 import { StatRow } from '../ui/StatRow';

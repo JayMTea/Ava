@@ -450,5 +450,5 @@ class AgentRuntime(ABC):
         return None
 
     def status(self) -> dict:
-        """Rich health for `ava doctor` / the ops dashboard."""
+        """Rich health for `ava doctor`."""
         return {"name": self.name, "available": self.available()}

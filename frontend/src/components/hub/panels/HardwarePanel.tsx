@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Icon } from '../../../lib/icons';
-import { EmptyState, Panel } from '../../dashboard/layout';
+import { EmptyState, Panel } from '../../ui/layout';
 import { useAction, useResource } from '../hooks';
 import { hub, type EngineLocality, type HardwareInfo } from '../hubApi';
 import { HubMessage } from '../ui/HubMessage';

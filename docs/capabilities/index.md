@@ -1,40 +1,50 @@
 # Capabilities
 
 Ava is not a model. It is the **control layer** around one: it owns the
-conversation, the dashboards, your data and the connectors, and delegates the
-thinking to whatever backend you point it at - vLLM, Ollama, llama.cpp, MLX,
-LM Studio, or a cloud endpoint. Nothing on this page is about model quality.
-It is about what the layer around the model does for you.
+conversation, your data and the connectors, and delegates the thinking to
+whatever backend you point it at - vLLM, Ollama, llama.cpp, MLX, LM Studio, or
+a cloud endpoint. Nothing on this page is about model quality. It is about what
+the layer around the model does for you.
 
-The short version of that: **six built-in tabs, and then one more for every app
-you connect.** The six are Ava's own instrument panel. The rest of the sidebar
-is your software, and it is the half that makes this worth running - see
+The short version of that: **three built-in tabs, and then one more for every
+app you connect.** The three are Ava's own shell. The rest of the sidebar is
+your software, and it is the half that makes this worth running - see
 [Connected apps become tabs](#connected-apps-become-tabs) below, and
 [what one manifest gives you](connectors.md#what-one-manifest-gives-you) for the
-six surfaces a single `connector.yaml` derives.
+surfaces a single `connector.yaml` derives.
 
-## The six tabs that always ship
+## The tabs that always ship
 
-Six built-in tabs (`BUILTIN_VIEWS` in `frontend/src/App.tsx`). They are on
-every install, with no connector wired in and nothing to enable.
+Three built-in tabs (`BUILTIN_VIEWS` in `frontend/src/App.tsx`). They are on
+every install, with no connector wired in and nothing to enable. A fourth,
+**Domains**, is built in but off by default (`features.domains`).
 
 | Tab | What it does |
 |---|---|
 | **[Chats](chat.md)** | Ask, attach a file, or speak. The one place you talk to the agent: every send goes through the bridge's turn pipeline, and the server owns the turn from there. You see her reasoning as it happens — streamed live when the gateway is up — and which tools she used. |
 | **[Agent](agent-console.md)** | The agent's own console: the sessions it has open, what it already did, and what it runs on a schedule. You watch and operate here, you talk in Chats — your own conversations appear under *Your chats* and link back. Present whether or not you use the gateway runtime — it simply says so when there is nothing to show. |
-| **[Vitals](vitals.md)** | How Ava is performing across every app: spend, speed, errors. Computed from her own logs, not estimated. Energy is the one exception and is labelled as an estimate. |
-| **[Operations](operations.md)** | What is running right now, what is waiting on a decision from you, and where you approve or reject anything Ava proposes. |
-| **[Data](data.md)** | Every store on disk, named, sized and path-stamped, with browse, export and delete for each one. |
 | **[Setup](connectors.md)** | Browser-based configuration in six tabs: an overview, hardware and budgets, the agent (its runtime, brain, providers, persona, skills, memory and voice), connectors, branding, and system governance. |
 
 [The agent](agent.md) has a reference page of its own, covering what runs
 underneath rather than what you click: its tools, its skills, its runtimes, and
-the rules governing what it may change. It used to be described here as "a sixth
-page ... not a tab of its own" — which stopped being true when the Agent console
-became one of the six above.
+the rules governing what it may change.
 
-The active tab lives in the URL hash (`#vitals`, `#hub/system`), so every view
+The active tab lives in the URL hash (`#agent`, `#hub/system`), so every view
 is bookmarkable and the browser's back button moves between them.
+
+!!! note "Vitals, Operations and Data were removed"
+
+    Three further tabs shipped until recently: **Vitals** (tokens/sec, TTFT,
+    spend and energy), **Operations** (live turns, service health, alerts) and
+    **Data** (the on-disk store inventory, with export and audited deletes).
+    They were removed along with their `/api/perf/*`, `/api/ops/*` and
+    `/api/data/*` routes.
+
+    What produced their numbers is untouched, because it is not only theirs:
+    `perf_log.py` still writes one record per generation, the hardware sampler
+    still runs, and the audit ledger still records every governed action. The
+    agent's own `read_performance` tool still answers "how fast is Ava
+    generating?" in chat, and `ava attest` still inventories every store.
 
 ??? note "The endpoint behind each tab"
 
@@ -42,12 +52,9 @@ is bookmarkable and the browser's back button moves between them.
     |---|---|
     | Chats | `POST /api/chat-stream`, always. Progress streams over the `/ws/gateway` relay when the gateway runtime is live, and polls `GET /api/turn/<id>` otherwise |
     | Agent | `POST /api/gateway/rpc` plus the `/ws/gateway` event relay |
-    | Vitals | `/api/perf/*`, `/api/hardware` |
-    | Operations | `/api/ops/*` plus the `/api/stream/ops` SSE feed |
-    | Data | `/api/data/stores` |
     | Setup | `/api/hub/*` |
 
-    Those six labels are the ones in the app's own sidebar, and they are the
+    Those labels are the ones in the app's own sidebar, and they are the
     labels used throughout this section.
 
 ## Connected apps become tabs
@@ -153,8 +160,10 @@ On a default bare-metal install `AVA_HOME` is the code root itself, so a fresh
 clone keeps the single-user `./data ./logs ./media` layout; the compose stack
 mounts `./ava-data` instead.
 
-[Data, memory & privacy](data.md) walks every store, what retention reaches,
-and - just as important - the three stores it deliberately does not.
+`ava attest` inventories every one of those stores, with its size and its
+resolved path - see [Proving it](../EVIDENCE.md). Retention is set in
+**Setup → System**; [Memory & recall](../MEMORY.md) covers what Ava remembers
+and how to correct or delete it.
 
 ## Where to go next
 

@@ -7,10 +7,11 @@
 // that silently resolves to the wrong thing. The decision moves here and vitest
 // covers every form.
 //
-// NOT an extension of `hooks/useHashTab.ts`. That file says of itself that it is
-// "the simple case: one segment, no legacy map", and it is right: Agent needs up
-// to four segments, two of which are OPAQUE SERVER IDS. Widening it would make
-// the Data page pay for Agent's complexity.
+// Deliberately its own parser rather than a generalised one. Agent needs up to
+// four segments, two of which are OPAQUE SERVER IDS; the shared hash-tab helper
+// this used to contrast with handled the simple case (one segment, no legacy
+// map) and went with the Data page. Widening a shared helper to cover Agent
+// would have made every other view pay for Agent's complexity.
 
 export const AGENT_SECTIONS = [
   { id: 'sessions', label: 'Sessions' },

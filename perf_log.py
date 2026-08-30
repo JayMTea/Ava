@@ -55,7 +55,7 @@ def _default_log_dir() -> str:
     this module is stdlib-only by design (see the docstring above) and must not
     import ava_bridge. Anchoring on __file__ alone wrote the perf history into
     the code root: on Docker that is the ephemeral container layer (/app) while
-    the bridge reads the mounted volume ($AVA_HOME/logs), so the Data page's
+    the bridge reads the mounted volume ($AVA_HOME/logs), so the inventory's
     Performance store showed 0 bytes forever.
 
     Residual gap, deliberate: a `paths.logs` set ONLY in ava.yaml is invisible

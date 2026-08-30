@@ -57,7 +57,7 @@ body:
     attributes:
       label: Relevant logs
       description: >
-        From the Data tab, or `docker compose logs ava`. Scan for anything you do
+        From `logs/` under AVA_HOME, or `docker compose logs ava`. Scan for anything you do
         not want public before pasting — tokens are redacted in the app's own
         views but not necessarily in raw logs.
       render: text

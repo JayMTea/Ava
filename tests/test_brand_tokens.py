@@ -31,11 +31,6 @@ _ALLOW = {
     # file that declares the value.
     "frontend/src/styles/tokens.css":
         "the design-token SSOT — the one place the accent is declared",
-    # getComputedStyle fallbacks, used only if a token is missing entirely (e.g.
-    # a chart rendered before the stylesheet loads). Documented as fallbacks in
-    # the file itself; they are not a second palette.
-    "frontend/src/components/dashboard/chartTheme.ts":
-        "documented getComputedStyle() fallbacks, not declarations",
     # This guard names the value it is looking for.
     "tests/test_brand_tokens.py": "the guard itself",
     # These assert the shipped default is preserved, which requires naming it.

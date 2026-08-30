@@ -60,10 +60,6 @@ class TestPathTraversal(unittest.TestCase):
         r = CLIENT.get("/apps/not-a-connector/api/x")
         self.assertIn(r.status_code, (404, 502))
 
-    def test_data_log_tail_name_is_allowlisted(self):
-        r = CLIENT.get("/api/data/logs/..%2F..%2Fetc%2Fpasswd/tail")
-        self.assertIn(r.status_code, (400, 404))
-
 
 class TestInternalScopes(unittest.TestCase):
     def test_internal_gate_precedes_validation(self):

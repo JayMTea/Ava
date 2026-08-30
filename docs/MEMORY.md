@@ -1,8 +1,8 @@
 # Long-term memory - the reference
 
 **This is the deep reference: the store, the recall path, the audit records, and
-every configuration key.** For what memory does for you and how to use the
-Memory panel, start at [Your data](capabilities/data.md).
+every configuration key.** The Memory panel itself lives in the app at
+**Setup → Agent → Memory**.
 
 Memory you cannot inspect is a liability, so Ava's is a plain SQLite file on your
 disk with an audit trail for every time it influences a reply. Everything below
@@ -48,7 +48,7 @@ stale; prefer the user's current message on conflict.]
 ```
 
 Every recall that reaches a turn is written to the audit ledger
-(`memory_recall` events - Data → History → Memory), so you can always answer
+(`memory_recall` events in `${AVA_LOGS}/audit.jsonl`), so you can always answer
 "why did she say that?" Manual edits (`memory_edit`) and distillation runs
 (`memory_distill`) are logged the same way.
 
@@ -85,8 +85,7 @@ governed self-editing was removed.
 
 ## Controls, and where each one lives
 
-Walked through for the reader in [Your data](capabilities/data.md); here as a
-map from action to surface.
+A map from action to surface.
 
 | Action | Surface | Note |
 |---|---|---|
@@ -95,9 +94,8 @@ map from action to surface.
 | Edit a fact; pin it to rank first | same panel | Logged as `memory_edit` |
 | Forget an item | same panel | A whole upload's chunks go one at a time |
 | Export the store as JSON | same panel | |
-| Export everything (chats, ledger, settings, memory) | Data → Maintenance → Export archive | `GET /api/data/export` |
-| See `memory.db` size and counts | Data → Overview | |
-| Integrity check, or compact (VACUUM) | Data → Maintenance | Both land in the audit ledger |
+| See `memory.db` size, path and last write | `ava attest` | One of four artifacts in the evidence bundle |
+| Back up or move everything | Copy `AVA_HOME` | One folder holds memory, chats, settings and keys |
 
 ## Configuration (`ava.yaml`)
 
@@ -128,6 +126,6 @@ stays on disk and browsable until you delete `$AVA_HOME/data/memory.db`.
 
 ---
 
-**Where to next:** [Your data](capabilities/data.md) for the panel itself, or
-[Privacy and proof](../SECURITY.md) for what memory is and is not allowed to
-leave with.
+**Where to next:** [Privacy and proof](../SECURITY.md) for what memory is and
+is not allowed to leave with, or [Proving it](EVIDENCE.md) for the store
+inventory `ava attest` writes.

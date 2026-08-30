@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { agentApi, type AutomationJob } from '../../lib/agentApi';
 import { useGateway } from '../../hooks/useGateway';
-import { ago, EmptyState, Panel } from '../dashboard/layout';
-import { StatCard } from '../dashboard/charts';
+import { ago, EmptyState, Panel, StatCard } from '../ui/layout';
 import { Badge } from '../hub/ui/Badge';
 
 // What the agent does when you are not watching.

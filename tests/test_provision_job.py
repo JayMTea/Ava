@@ -259,11 +259,16 @@ class VerifyVetoTests(unittest.TestCase):
 
 
 class SseSurfaceTests(unittest.TestCase):
-    def test_there_is_still_exactly_one_sse_endpoint(self):
-        """/api/stream/ops stays the single streaming surface. The provision job
-        is polled instead — deliberately, because that channel carries the turn,
-        hardware, device and alert deltas a browser subscribes to for Operations,
-        and a run that belongs to whoever started it is none of those."""
+    def test_the_bridge_serves_no_sse_endpoint(self):
+        """The provision job is polled, not streamed.
+
+        This used to assert that `/api/stream/ops` was the ONE streaming
+        surface: a second diff-then-emit channel beside it would have been a
+        second thing to keep correct, and a run that belongs to whoever started
+        it is not the kind of state a browser subscribes to. That stream went
+        with the Operations page, so the count is now zero — and the rule it
+        encoded still holds. Adding one back is a deliberate act that should
+        fail here first."""
         import pathlib
         import subprocess
         root = pathlib.Path(__file__).resolve().parents[1]
@@ -276,7 +281,7 @@ class SseSurfaceTests(unittest.TestCase):
             src = (root / p).read_text(encoding="utf-8", errors="ignore")
             if "StreamingResponse" in src and "text/event-stream" in src:
                 hits.append(p)
-        self.assertEqual(hits, ["ava_bridge/ops_api.py"],
+        self.assertEqual(hits, [],
                          f"the set of SSE endpoints changed: {hits}")
 
 

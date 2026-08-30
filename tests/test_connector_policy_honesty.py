@@ -340,15 +340,20 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class OpsTelemetryHonestyTests(unittest.TestCase):
-    """The Ops row must count what the sandbox is GRANTED, not what the manifest
-    literally spells.
+class ConnectorTelemetryHonestyTests(unittest.TestCase):
+    """Reported egress and actions must reflect what the sandbox is GRANTED,
+    not what the manifest literally spells.
 
     `egress_routes` summed the manifest's own `routes` + `hosts`, so every
     discover/MCP connector reported 0 — the shape with the MOST egress, since
     `render_egress_policy` auto-allows `__tools`/`__call` for it. And `actions`
     read `m["actions"]` directly, which is legally a list OR a dict
     (`static:` / `discover:`), so every dict-form manifest reported none.
+
+    These were the Operations page's connector rows. That page is gone;
+    `_egress_route_count` now feeds the sidebar's per-app health verdict and
+    `connectors.actions()` feeds `GET /api/apps/{cid}/actions`, so both bugs
+    are still reachable and both guards still apply.
     """
 
     def test_a_dynamic_connector_does_not_report_zero_egress(self):
@@ -362,16 +367,12 @@ class OpsTelemetryHonestyTests(unittest.TestCase):
                                  "reported no egress at all")
 
     def test_dict_form_actions_are_counted(self):
-        from ava_bridge import dashboard
-
         m = {"id": "acme", "label": "Acme",
              "actions": {"static": [{"id": "read_notes", "path": "/notes"}]}}
-        with mock.patch.object(connectors, "all", return_value=[m]), \
-             mock.patch.object(dashboard, "_egress_route_count", return_value=0), \
-             mock.patch.object(dashboard.state, "turns_lock", __import__("threading").Lock()):
-            rows = dashboard.connectors_info()["connectors"]
-        row = next(r for r in rows if r["id"] == "acme")
-        self.assertEqual(row["actions"], ["read_notes"],
+        with mock.patch.object(connectors, "load", return_value=[m]):
+            acts = [a["id"] for a in connectors.actions()
+                    if a.get("connector") == "acme"]
+        self.assertEqual(acts, ["read_notes"],
                          "a `static:`-form actions block read as empty")
 
     def test_a_render_failure_falls_back_rather_than_breaking_the_page(self):

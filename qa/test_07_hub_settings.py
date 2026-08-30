@@ -42,9 +42,9 @@ class TestSystemSettings(unittest.TestCase):
         self.assertEqual(body["budgets"]["daily_usd"], 5)
         self.assertEqual(body["budgets"]["daily_kwh"], 2)
         self.assertIn("daily_spend_usd", body)
-        # Alert metrics pick the budgets up (the Vitals budget bar's source).
-        metrics = c.get("/api/ops/alerts").json()["metrics"]
-        self.assertIn("budget_daily_pct", metrics)
+        # The alert-metric layer picks the budgets up.
+        from ava_bridge import dashboard
+        self.assertIn("budget_daily_pct", dashboard.build_alert_metrics())
         # Clearing a budget really clears it.
         c.post("/api/hub/cost", json={"budgets": {"daily_usd": None,
                                                   "monthly_usd": None,

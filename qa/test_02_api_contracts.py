@@ -1,7 +1,7 @@
 """Authed sweep of the read-only API surface: every GET endpoint the frontend
 polls must answer 200 with the keys the SPA actually destructures (taken from
-frontend/src/components/dashboard/dashApi.ts and the view components). This is
-the drift net: a renamed/removed field fails here before it 500s a view.
+the view components themselves). This is the drift net: a renamed/removed field
+fails here before it 500s a view.
 """
 import unittest
 
@@ -14,19 +14,8 @@ CONTRACTS = {
     "/api/health": ["ok"],
     "/api/brand": ["name"],
     "/api/hardware": [],
-    "/api/hardware/history": ["samples"],
     "/api/model": ["mode", "backends", "agent_model"],
-    "/api/perf/summary": ["ok", "apps", "sources_present"],
-    "/api/perf/series?metric=tokens_per_sec": ["ok", "series", "points"],
-    "/api/perf/recent": ["ok", "recent"],
-    "/api/perf/cost": ["ok", "spend_usd", "energy_kwh", "power_measured", "by"],
     "/api/turns": ["ok", "turns"],
-    "/api/ops/summary": ["ok", "turns", "generations_24h"],
-    "/api/ops/schedule": ["ok", "timers"],
-    "/api/ops/services": ["ok", "services", "down"],
-    "/api/ops/tools": ["ok", "tools", "total_calls"],
-    "/api/ops/connectors": ["ok", "connectors", "action_count"],
-    "/api/ops/alerts": ["ok", "active", "metrics"],
     "/api/apps": ["apps"],
     "/api/apps/health": ["ok", "apps"],
     "/api/devices": [],
@@ -49,9 +38,6 @@ CONTRACTS = {
     "/api/hub/voice/status": [],
     "/api/hub/memory": [],
     "/api/hub/memory/export": [],
-    "/api/data/stores": [],
-    "/api/data/chats": [],
-    "/api/data/maintenance": [],
     "/api/setup/hardware": ["tier"],
     # Was ["vllm", "ollama", "router"] — two hardcoded loopback probes, which
     # inside the Docker image meant the CONTAINER's loopback, where the compose
@@ -60,11 +46,9 @@ CONTRACTS = {
     "/api/setup/connectors": ["connectors"],
 }
 
-# Vitals "Connected apps" panel contract (added 2026-07): each connector row
-# must carry these keys or the panel regresses silently.
-CONNECTOR_ROW_KEYS = {"id", "label", "kind", "has_service", "has_perf",
-                      "perf_app", "perf_present", "status", "egress_routes",
-                      "actions"}
+# The sidebar's per-app health row contract: each app must carry these keys or
+# the nav dot regresses silently.
+APP_HEALTH_ROW_KEYS = {"id", "health"}
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -94,11 +78,11 @@ class TestApiContracts(unittest.TestCase):
                     failures.append(f"GET {path} missing keys: {missing}")
         self.assertEqual(failures, [], "\n" + "\n".join(failures))
 
-    def test_ops_connector_rows_carry_vitals_fields(self):
-        rows = CLIENT.get("/api/ops/connectors").json()["connectors"]
-        self.assertTrue(rows, "no connectors registered at all?")
+    def test_app_health_rows_carry_the_sidebar_dot_fields(self):
+        rows = CLIENT.get("/api/apps/health").json()["apps"]
+        self.assertTrue(rows, "no apps registered at all?")
         for row in rows:
-            missing = CONNECTOR_ROW_KEYS - set(row)
+            missing = APP_HEALTH_ROW_KEYS - set(row)
             self.assertFalse(missing, f"{row.get('id')}: missing {missing}")
 
     def test_agent_skill_rows_carry_ui_fields(self):
@@ -147,16 +131,7 @@ class TestApiContracts(unittest.TestCase):
         self.assertNotIn("\n---\n", d["body"][:5], "frontmatter leaked into the body")
         self.assertEqual(CLIENT.get("/api/hub/agent/skills/no-such-skill").status_code, 404)
 
-    def test_perf_summary_shape_matches_frontend_types(self):
-        body = CLIENT.get("/api/perf/summary").json()
-        self.assertTrue(body["ok"])
-        self.assertIsInstance(body["apps"], list)
-        self.assertIsInstance(body["sources_present"], dict)
-        # summary present (may be sparse on a fresh home, but the key exists)
-        self.assertIn("summary", body)
-        self.assertIn("records", body["summary"])
-
     def test_unknown_paths_are_404_not_500(self):
         c = CLIENT
-        for path in ("/api/definitely-not-a-route", "/api/perf/nope"):
+        for path in ("/api/definitely-not-a-route", "/api/ops/summary"):
             self.assertEqual(c.get(path).status_code, 404, path)

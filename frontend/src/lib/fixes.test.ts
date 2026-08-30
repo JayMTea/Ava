@@ -19,13 +19,13 @@ describe('fixForCode — the zero-frontend-changes contract', () => {
     expect(off?.tip).toContain('holographic telepresence');
 
     const down = fixForCode('holographic_telepresence_down');
-    expect(down?.hash).toBe('ops');
+    expect(down?.hash).toBe('hub/connectors');
     expect(down?.tip).toContain('holographic telepresence');
   });
 
-  it('sends _off to Setup and _down to Operations', () => {
+  it('sends _off to Setup → System and _down to Setup → Connectors', () => {
     expect(fixForCode('voice_off')?.hash).toBe('hub/system');
-    expect(fixForCode('voice_down')?.hash).toBe('ops');
+    expect(fixForCode('voice_down')?.hash).toBe('hub/connectors');
   });
 
   it('underscores become spaces in the human-facing tip, not in the route', () => {
@@ -81,8 +81,9 @@ describe('the three codes that had nowhere to go', () => {
   // `connectors.unreachable()` emits four codes; only `_down` resolved here, so
   // a connected app that timed out or failed DNS gave the owner an accurate
   // message and no destination — which reads as a dead end, not a fixable
-  // problem. All three are about ONE app's address, so they lead to that app's
-  // row in Setup rather than to Operations: nothing of Ava's is down.
+  // problem. All four are about ONE app's address, so they lead to that app's
+  // row in Setup — which is also where `_down` goes now that the Operations
+  // page it used to point at is gone.
   it.each(['timeout', 'unreachable', 'error'])('resolves _%s to the app row', (kind) => {
     const fix = fixForCode(`my_notes_${kind}`);
     expect(fix).toBeDefined();
@@ -90,8 +91,8 @@ describe('the three codes that had nowhere to go', () => {
     expect(fix!.tip).toContain('my notes');
   });
 
-  it('still sends a down service to Operations', () => {
-    expect(fixForCode('web_search_down')!.hash).toBe('ops');
+  it('sends a down service to the same app row', () => {
+    expect(fixForCode('web_search_down')!.hash).toBe('hub/connectors');
   });
 
   it('does not hijack a code that merely ends in one of those words', () => {

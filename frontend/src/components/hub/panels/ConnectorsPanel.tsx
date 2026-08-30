@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Icon } from '../../../lib/icons';
 import { RowMenu, type MenuAction } from '../../../lib/RowMenu';
 import { ACCENT_SLOTS, APP_ICONS, appAccent, appIcon } from '../../../lib/appColor';
-import { EmptyState, Panel } from '../../dashboard/layout';
+import { EmptyState, Panel } from '../../ui/layout';
 import { NewConnectorForm } from '../ConnectApp';
 import { useResource } from '../hooks';
 import { connectorGroup, isExternalApp, type ConnectorGroup } from '../shared';

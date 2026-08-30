@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { agentApi } from '../../lib/agentApi';
 import { useGateway } from '../../hooks/useGateway';
-import { ago, EmptyState, Panel } from '../dashboard/layout';
+import { ago, EmptyState, Panel } from '../ui/layout';
 import { Badge } from '../hub/ui/Badge';
 import { groupRunsByDay, runTone, type RunRow } from './agentView';
 

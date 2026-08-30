@@ -526,7 +526,7 @@ def delete_all(*, reason: str = "") -> int:
     """Erase EVERY memory item. Returns the row count removed.
 
     Separate from `delete_source`/`delete_item` because it is the whole-store
-    erasure the Data page offers, and it records a count rather than per-item
+    erasure `data_api.delete_store` performs, and it records a count rather than per-item
     digests: hashing every row of a store the owner is deliberately emptying would
     put the entire memory corpus's fingerprints in the ledger, which is a privacy
     regression dressed as an audit improvement.

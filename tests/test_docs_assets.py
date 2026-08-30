@@ -1,10 +1,9 @@
 """An image a published page shows must actually ship with it.
 
 MEASURED, not assumed. `mkdocs build --strict` fails on a broken internal LINK,
-so it is easy to believe it covers images too. It does not: staging
-docs/capabilities/vitals.md with its `![...](../assets/hardware-bubble.png)`
-while the asset was absent from sync.py's ASSETS allow-list built clean and
-exited 0. The page shipped with a broken image icon where the figure goes.
+so it is easy to believe it covers images too. It does not: staging a page whose
+`![...](../assets/x.png)` was absent from sync.py's ASSETS allow-list built clean
+and exited 0. The page shipped with a broken image icon where the figure goes.
 
 Three layers each decline to own the question, which is why it stays green:
 

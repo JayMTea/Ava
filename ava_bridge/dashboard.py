@@ -1,21 +1,29 @@
-"""Dashboard aggregation layer for Ava's dashboard (Vitals + Operations).
+"""Aggregation layer over the perf, hardware and connector modules.
 
-Read-first, cookie-gated `/api/*` data assembled from existing modules
-(`perf_mgmt`, `state`, `hardware`, `alerts`) + systemd, so the browser can render
-charts/tables/live-feeds without the sandbox internal token. Nothing here writes.
+Read-first data assembled from existing modules (`perf_mgmt`, `state`,
+`hardware`, `connectors`, `perf_store`) + systemd. Nothing here writes.
 
-Sections: perf (summary/series/recent/cost) · work (turns/code) ·
-ops (summary/schedule/services/tools/alerts) · SSE snapshot builder.
+Most of this module served the Vitals and Operations pages and went with them.
+What is left has callers elsewhere, and each one is the reason its section
+survives:
+
+  * cost — `perf_cost` / `cost_settings` / `invalidate_cost_cache` back
+    Setup → Budgets through `hub/cost.py`.
+  * services — `ops_services` and `_probe` resolve each connector's declared
+    probe and unit. `apps_health` turns that into the sidebar's per-app dot,
+    which is the `service.probe` surface a connector manifest derives.
+  * turns — `turns_list` backs `/api/turns` for the Agent console.
+  * alert metrics — `build_alert_metrics` assembles the flat metric set the
+    watchdogs' rules are evaluated against.
 """
 import os
 import time
-from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional
 
 import requests
 
-from . import config, state, perf_mgmt, hardware, alerts, connectors, perf_store, settings
+from . import config, state, perf_mgmt, hardware, connectors, perf_store, settings
 
 try:
     import yaml
@@ -78,65 +86,6 @@ def _all_rows(app=None, category=None, since=None) -> List[dict]:
             rows.append(r)
     rows.sort(key=lambda r: r.get("ts") or 0)
     return rows
-
-
-# --------------------------------------------------------------------------- #
-# Performance
-# --------------------------------------------------------------------------- #
-def perf_summary(app=None, category=None, since=None) -> dict:
-    return perf_mgmt.read_performance(app=app, category=category, since=since,
-                                      limit=1, summary=True)
-
-
-def perf_series(metric="tokens_per_sec", bucket="1h", since="24h",
-                app=None, category=None) -> dict:
-    """Time-bucketed series for charts, split by model label. Stitched: the recent
-    (hot) tail comes from raw JSONL; anything older than the hot window comes from
-    pre-aggregated rollups (perf_store), so month-range charts stay fast. A single
-    boundary bucket may reflect only its hot portion (hot wins on key collision) —
-    negligible for a trend line."""
-    now = time.time()
-    step = int(_parse_dur(bucket, 3600))
-    since_ts = now - _parse_dur(since, 86400)
-    cutoff = perf_store.cold_boundary(now)
-    is_sum = metric in ("tokens", "completion_tokens")
-    raw_field = "completion_tokens" if is_sum else metric
-
-    # Cold range [since_ts, cutoff) from rollups (skipped when the window is all-hot).
-    by_t: Dict[int, Dict[str, float]] = {}
-    if since_ts < cutoff:
-        cold = perf_store.cold_series(metric, step, since_ts, cutoff, app, category)
-        for pt in cold["points"]:
-            t = pt["t"]
-            by_t[t] = {k: v for k, v in pt.items() if k != "t"}
-
-    # Hot tail [max(cutoff, since_ts), now) from raw — grouped like the cold side.
-    hot_lo = max(cutoff, since_ts)
-    hot: Dict[int, Dict[str, list]] = {}
-    for r in _all_rows(app, category, None):
-        ts = r.get("ts") or 0
-        if ts < hot_lo:
-            continue
-        val = r.get(raw_field)
-        if not isinstance(val, (int, float)):
-            continue
-        bts = int(ts // step * step)
-        skey = str(r.get("served_label") or r.get("model") or r.get("app") or "all")
-        hot.setdefault(bts, {}).setdefault(skey, []).append(val)
-    for bts, labels in hot.items():
-        dst = by_t.setdefault(bts, {})
-        for skey, vals in labels.items():  # hot wins on collision (fresher, raw)
-            dst[skey] = round(sum(vals) if is_sum else sum(vals) / len(vals), 2)
-
-    points = [{"t": t, **vals} for t, vals in sorted(by_t.items())]
-    series = sorted({s for vals in by_t.values() for s in vals})
-    return {"ok": True, "metric": metric, "bucket": step,
-            "series": series, "points": points}
-
-
-def perf_recent(limit=50, app=None, category=None) -> dict:
-    rows = _all_rows(app, category, None)
-    return {"ok": True, "recent": rows[-int(limit or 50):]}
 
 
 # --------------------------------------------------------------------------- #
@@ -377,32 +326,15 @@ def turns_list(limit=50, active=False) -> dict:
     return {"ok": True, "turns": out}
 
 
-# --------------------------------------------------------------------------- #
-# Operations — summary / schedule / services / tools / alerts
-# --------------------------------------------------------------------------- #
-def ops_summary() -> dict:
-    with state.turns_lock:
-        turns = list(state.turns.values())
-
-    def by_status(items):
-        c: Counter = Counter()
-        for it in items:
-            c[it.get("status") or "?"] += 1
-        return dict(c)
-
-    # Cached: this endpoint is polled every 6s per open tab, and a full raw
-    # scan across every app's file on each poll doesn't scale with app count.
-    gen_24h = _cached("gen24_count", 15, lambda: len(_all_rows(None, None, "1d")))
-    return {
-        "ok": True,
-        "turns": {"running": sum(1 for t in turns if t.get("status") == "running"),
-                  "total": len(turns), "by_status": by_status(turns)},
-        "generations_24h": gen_24h,
-        "ts": time.time(),
-    }
-
-
+# Fallback service list if the connector registry is empty. Normally the
+# dashboard derives services from connectors.services() (see connectors.py).
+# Core-only fallback (no app-specific entries): every app/model/media service
+# declares its own `service.probe` in connectors/<id>/connector.yaml and the
+# registry provides the rest, so a fresh fork shows only Ava's core services.
 def _systemctl(args: List[str], timeout: int = 5) -> str:
+    """`systemctl --user` for the service-health probe. Kept when the Operations
+    page went: `ops_services()` still resolves each connector's declared unit,
+    and the sidebar app-health dot reads that through `apps_health()`."""
     import subprocess
     try:
         r = subprocess.run(["systemctl", *args], capture_output=True,
@@ -412,88 +344,6 @@ def _systemctl(args: List[str], timeout: int = 5) -> str:
         return ""
 
 
-def ops_schedule() -> dict:
-    def load():
-        import json as _json
-        raw = _systemctl(["--user", "list-timers", "--all", "-o", "json"])
-        timers = []
-        try:
-            data = _json.loads(raw) if raw else []
-        except Exception:  # noqa: BLE001 — older systemd has no -o json
-            data = []
-        now = time.time()
-        for t in data:
-            unit = t.get("unit")
-            nxt = _to_secs(t.get("next"))
-            last = _to_secs(t.get("last"))
-            timers.append({
-                "unit": unit,
-                "activates": t.get("activates"),
-                "description": _unit_description(t.get("activates") or unit),
-                "next_time": _fmt_abs(nxt),
-                "next_rel": _humanize(nxt - now) if nxt else None,
-                "last_time": _fmt_abs(last),
-                "last_rel": _humanize(now - last) if last else None,
-            })
-        timers.sort(key=lambda x: x.get("next_time") or "~")
-        return {"ok": True, "timers": timers}
-    return _cached("schedule", 30, load)
-
-
-def _to_secs(usec) -> Optional[float]:
-    """systemd realtime microseconds -> epoch seconds (0/None -> None)."""
-    try:
-        u = float(usec)
-    except (TypeError, ValueError):
-        return None
-    if u <= 0:
-        return None
-    return u / 1e6 if u > 1e14 else u
-
-
-def _fmt_abs(secs) -> Optional[str]:
-    """Epoch seconds -> local (host TZ) 'Jul 05, 03:15'."""
-    if not secs:
-        return None
-    try:
-        return time.strftime("%b %d, %H:%M", time.localtime(secs))
-    except Exception:  # noqa: BLE001
-        return None
-
-
-def _humanize(seconds) -> Optional[str]:
-    """A signed second delta -> human 'in 3h 20m' magnitude like '3h 20m'."""
-    try:
-        s = int(abs(seconds))
-    except (TypeError, ValueError):
-        return None
-    if s < 60:
-        return f"{s}s"
-    m, s = divmod(s, 60)
-    if m < 60:
-        return f"{m}m"
-    h, m = divmod(m, 60)
-    if h < 24:
-        return f"{h}h {m}m" if m else f"{h}h"
-    d, h = divmod(h, 24)
-    return f"{d}d {h}h" if h else f"{d}d"
-
-
-def _unit_description(unit: Optional[str]) -> Optional[str]:
-    """Human Description= of a systemd unit (cached), so tasks read plainly."""
-    if not unit:
-        return None
-    return _cached(f"desc:{unit}", 300, lambda: (
-        _systemctl(["--user", "show", unit, "-p", "Description", "--value"]).strip()
-        or unit))
-
-
-
-# Fallback service list if the connector registry is empty. Normally the
-# dashboard derives services from connectors.services() (see connectors.py).
-# Core-only fallback (no app-specific entries): every app/model/media service
-# declares its own `service.probe` in connectors/<id>/connector.yaml and the
-# registry provides the rest, so a fresh fork shows only Ava's core services.
 MONITORED_SERVICES = [
     {"name": "Bridge", "unit": "ava-bridge.service",
      "probe": "http://127.0.0.1:8096/api/health"},
@@ -564,48 +414,6 @@ def ops_services() -> dict:
         return {"ok": True, "services": out,
                 "down": sum(1 for x in out if x["status"] == "down")}
     return _cached("services", 15, load)
-
-
-def connectors_info() -> dict:
-    """The dashboard **telemetry** view of connectors (Ops Connectors panel):
-    enabled connectors only (`connectors.all()`), with health / perf / egress-count
-    fields for monitoring. Distinct from the Hub's `/api/hub/connectors`
-    (`hub_api.list_connectors`), the **management** view that also lists disabled
-    connectors and their edit/deploy state. Two audiences, two shapes — see the
-    note on `list_connectors`."""
-    # Live health by service name (15s-cached probe results) so the Vitals apps
-    # panel can show up/down without a second frontend call.
-    smap = {s["name"]: s["status"] for s in (ops_services().get("services") or [])}
-    srcs = perf_mgmt.sources()
-    items = []
-    for m in connectors.all():
-        svc = m.get("service") or {}
-        perf_app = str((m.get("perf") or {}).get("app") or m["id"])
-        items.append({
-            "id": m["id"],
-            "label": m.get("label", m["id"]),
-            "kind": m.get("kind", "app"),
-            "has_service": bool(svc),
-            "has_perf": bool(m.get("perf")),
-            # the app-key its perf records aggregate under (Vitals "by app")
-            "perf_app": perf_app,
-            # true once any of its perf files exist on disk — "reporting yet?"
-            "perf_present": any(os.path.isfile(p) for p in srcs.get(perf_app, [])),
-            "status": smap.get(svc.get("name", m.get("label", m["id"]))) if svc else None,
-            # What the sandbox will actually be allowed, not what the manifest
-            # literally spells. `render_egress_policy` auto-allows a route per
-            # generic-proxy action and a `__tools`/`__call` pair for a dynamic or
-            # MCP connector — so counting only the literal `routes`+`hosts`
-            # reported 0 for every discover/MCP app, which is precisely the shape
-            # with the most egress.
-            "egress_routes": _egress_route_count(m),
-            # `_static_actions`, not `m["actions"]`: the block is legally a LIST
-            # or a DICT (`static:` / `discover:`), and reading it directly
-            # reported `actions: []` for every dict-form manifest.
-            "actions": [a.get("id") for a in connectors._static_actions(m)
-                        if isinstance(a, dict) and a.get("id")],
-        })
-    return {"ok": True, "connectors": items, "action_count": len(connectors.actions())}
 
 
 #: Sidebar readiness verdicts, worst-first. The sidebar dot shows ONE of these
@@ -719,18 +527,6 @@ def _egress_route_count(m: dict) -> int:
         return len(eg.get("routes") or []) + len(eg.get("hosts") or [])
 
 
-def ops_tools(limit=15) -> dict:
-    c: Counter = Counter()
-    with state.turns_lock:
-        turns = list(state.turns.values())
-    for t in turns:
-        for tool in (t.get("tools_used") or []):
-            c[tool] += 1
-    return {"ok": True,
-            "tools": [{"tool": k, "count": v} for k, v in c.most_common(int(limit or 15))],
-            "total_calls": sum(c.values())}
-
-
 # --------------------------------------------------------------------------- #
 # Alerts
 # --------------------------------------------------------------------------- #
@@ -835,21 +631,3 @@ def build_alert_metrics() -> dict:
     m["idle_burn_tokens_10m"] = idle_tokens
     return m
 
-
-def ops_alerts() -> dict:
-    metrics = build_alert_metrics()
-    res = alerts.evaluate(metrics)
-    return {"ok": True, "active": res["active"], "metrics": metrics}
-
-
-# --------------------------------------------------------------------------- #
-# SSE snapshot — diffed each tick by the stream producer
-# --------------------------------------------------------------------------- #
-def live_snapshot() -> dict:
-    """Compact state used by the SSE producer to diff + emit live events."""
-    with state.turns_lock:
-        turns = {t.get("id"): {"status": t.get("status"),
-                               "step_count": len(t.get("steps") or []),
-                               "tools": len(t.get("tools_used") or [])}
-                 for t in state.turns.values()}
-    return {"turns": turns, "hw": hardware.latest_sample()}

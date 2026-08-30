@@ -35,16 +35,15 @@ stops it. The step-by-step lives elsewhere.
 Every surface below is derived from the manifest at load time. None of it is
 hand-maintained anywhere in Ava's core.
 
-- **A health row** on [Operations](operations.md) → Service health, from
-  `service.probe`. Name the `features.*` flag that governs the service
-  (`service.feature: voice`) and a dead probe reads *off* rather than *down*.
-- **A perf source** charted on [Vitals](vitals.md), from `perf.path`. If your
-  app never writes a `performance.jsonl`, the bridge writes one for it: every
-  proxied connector call is timed into `${AVA_LOGS}/apps/<id>/performance.jsonl`
-  with its latency and HTTP status, and that file registers itself, so a
-  brand-new app appears in Vitals on its first call with no restart.
-- **A dashboard tile** in the Connected apps grid, with per-app call count and
-  energy attribution.
+- **A health dot** beside the app's tab in the sidebar, from `service.probe`.
+  Name the `features.*` flag that governs the service (`service.feature: voice`)
+  and a dead probe reads *off* rather than *down*.
+- **A perf source**, from `perf.path`. If your app never writes a
+  `performance.jsonl`, the bridge writes one for it: every proxied connector
+  call is timed into `${AVA_LOGS}/apps/<id>/performance.jsonl` with its latency
+  and HTTP status, and that file registers itself, so a brand-new app is
+  recorded on its first call with no restart. The agent reads them back with
+  its `read_performance` tool.
 - **A same-origin tab in the sidebar**, from a `ui:` block with `embed: iframe`.
   Ava reverse-proxies the app under `/apps/<id>/` so it inherits your session
   cookie. No second login, no third-party cookies.
@@ -68,7 +67,7 @@ bearer token server-side (`ui.api`) so the browser never sees it.
 
     | Connector | What it contributes | Agent tools |
     |---|---|:--:|
-    | `bridge` | Health row for Ava's own web app, plus the `ava` perf source every Vitals chart reads. | none |
+    | `bridge` | Health probe for Ava's own web app, plus the `ava` perf source. | none |
     | `local-llm` | Health probe for the OpenAI-compatible inference server. | none |
     | `router` | Health probe for the inference router (`/healthz`). | none |
 
@@ -283,8 +282,8 @@ Every call through that route is recorded twice: as an `egress` audit event with
 the connector, the tool and the outcome (the HTTP status when it ran, or
 `blocked:denied` / `blocked:timeout` when the approvals gate refused it), and as
 latency and status in that app's perf log. Refused calls are on the record too,
-which is the half most systems drop. Read the ledger under **Data → History**,
-or export it from [Data](data.md) → Maintenance.
+which is the half most systems drop. The ledger is `${AVA_LOGS}/audit.jsonl`,
+and `ava attest` reports its size and path.
 
 ### What contains the server, per transport
 
@@ -343,11 +342,9 @@ curl -X POST http://127.0.0.1:8096/api/connectors/greenhouse/events \
 ```
 
 Every accepted event is appended to `${AVA_LOGS}/devices/<id>.jsonl`, enters a
-500-entry in-process ring that feeds the `device.event` frame on the
-`GET /api/stream/ops` live stream so it appears on Operations immediately, and
-if it is `notify`, `warn` or `critical`, is raised as an alert. Read events back
-from Operations → Device events, `GET /api/devices`, `ava device events <id>`,
-or the agent's own `device_events` tool.
+500-entry in-process ring, and if it is `notify`, `warn` or `critical`, is
+raised as an alert. Read events back from `GET /api/devices`,
+`ava device events <id>`, or the agent's own `device_events` tool.
 
 ??? note "The ingest contract: guards, status codes and accepted fields"
 
@@ -377,8 +374,7 @@ or the agent's own `device_events` tool.
 
     The device log uses the same bounded rotation the perf log uses, under an
     advisory lock, and is best-effort, so a full disk never fails your app's
-    push. Operations has a per-browser **Speak alerts** toggle that reads
-    `notify` events aloud.
+    push.
 
     The full walkthrough, including a runnable example app in about 150 lines,
     is in [Device connectors](../DEVICE_CONNECTORS.md).

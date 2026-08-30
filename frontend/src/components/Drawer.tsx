@@ -48,7 +48,7 @@ const AVA_WORDMARK = {
 //
 // KEEP THIS ONE LITERAL, AND KEEP ITS SHAPE. tests/test_icon_ssot.py parses this
 // declaration out of the file and asserts every icon name exists in
-// lib/icons.tsx. The rail flyout used to carry a second, inline copy of the four
+// lib/icons.tsx. The rail flyout used to carry a second, inline copy of the
 // system entries, which that guard could never see — a typo there rendered an
 // empty slot and failed nothing. What the guard needs: `id` first inside the
 // braces and `icon` before the closing brace, both single-quoted; no equals sign
@@ -58,9 +58,6 @@ type NavItem = { id: string; label: string; icon: string; system?: boolean; feat
 const NAV: NavItem[] = [
   { id: 'chat', label: 'Chats', icon: 'chats' },
   { id: 'agent', label: 'Agent', icon: 'bot' },
-  { id: 'vitals', label: 'Vitals', icon: 'gauge', system: true },
-  { id: 'ops', label: 'Operations', icon: 'activity', system: true },
-  { id: 'data', label: 'Data', icon: 'db', system: true },
   { id: 'hub', label: 'Setup', icon: 'sliders', system: true },
   { id: 'domains', label: 'Domains', icon: 'panel', system: true, feature: 'domains' },
 ];
@@ -108,13 +105,13 @@ function BrandWord({ name }: { name: string }) {
 // the part that was missing.
 //
 // THE KEYBOARD IS NOT OPTIONAL. A portal renders at the END of <body>, so Tab
-// from the trigger does not enter the menu. Those four destinations used to be
+// from the trigger does not enter the menu. Those destinations used to be
 // plain tabbable <button>s in the panel's nav list; moving them behind a
-// keyboard-dead pop-up would make Vitals / Operations / Data / Setup unreachable
+// keyboard-dead pop-up would make Setup / Domains unreachable
 // by keyboard in BOTH sidebar forms. That is WCAG 2.1.1 Level A, and it is the
 // same defect the Recents rows below carry a comment about. The rail flyout has
 // shipped with this gap since it was written, and only got away with it because
-// the same four rows were still inline in the expanded panel — which is the
+// the same rows were still inline in the expanded panel — which is the
 // escape hatch this change removes. The hook closes it for both.
 //
 // No first-letter typeahead: optional in WAI-ARIA, and there are four items.
@@ -634,9 +631,9 @@ export function Drawer({
   return (
     <aside id="drawer" className={open ? 'open' : ''}>
       {/* Narrow icon rail (claude.ai style) — panel toggle on top, then new chat,
-          Chats, the Agent console, and the user's connected apps. Vitals /
-          Operations / Data / Setup live in the settings flyout at the foot — as
-          they do in the expanded panel, from the same list. */}
+          Chats, the Agent console, and the user's connected apps. Setup and
+          Domains live in the settings flyout at the foot — as they do in the
+          expanded panel, from the same list. */}
       <div className="side-rail">
         <button
           className="rail-btn rail-toggle"

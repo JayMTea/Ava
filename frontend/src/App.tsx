@@ -12,23 +12,12 @@ import { Header } from './components/Header';
 import { ViewErrorBoundary } from './components/ViewErrorBoundary';
 import { useBrandName } from './lib/brandContext';
 
-// Lazy: these two are the ONLY views that draw charts, so they are the only ones
-// that pull recharts (~9.6 MB installed). Imported eagerly they landed in the main
-// chunk, so a chat-only session downloaded a charting library it never rendered.
-// This pays off only because dashboard/charts.tsx was split out of the shared
-// layout barrel — while Panel and recharts lived in one module, every Setup panel
-// imported the charts too and no amount of lazy() could separate them.
-const VitalsView = lazy(() => import('./components/dashboard/VitalsView')
-  .then((m) => ({ default: m.VitalsView })));
 const AgentView = lazy(() => import('./components/agent/AgentView'));
-const OpsView = lazy(() => import('./components/dashboard/OpsView')
-  .then((m) => ({ default: m.OpsView })));
 // Lazy: the feature is OFF by default, so the majority of installs should not
 // pay for this chunk on first paint.
 const DomainsView = lazy(() => import('./components/domains/DomainsView'));
 
-import { Skeleton } from './components/dashboard/layout';
-import { DataView } from './components/data/DataView';
+import { Skeleton } from './components/ui/layout';
 import { HardwareBubble } from './components/HardwareBubble';
 import { HubView } from './components/hub/HubView';
 import InferenceBanner from './components/InferenceBanner';
@@ -43,7 +32,7 @@ import type { AppEntry, Artifact, Attachment } from './lib/types';
 type View = string;
 
 // Built-in tabs that ship in the shell (always present, no connector needed).
-const BUILTIN_VIEWS = ['vitals', 'ops', 'data', 'chat', 'hub', 'agent', 'domains'];
+const BUILTIN_VIEWS = ['chat', 'hub', 'agent', 'domains'];
 
 // Sidebar resize limits. The floor is set by the panel's own contents — the head
 // row (wordmark + two icon buttons) and the "Settings & dashboards" foot row stop
@@ -128,17 +117,15 @@ export default function App() {
   const brand = useBrandName();
   // Active tab: the URL hash (bookmark/back-button), else Setup.
   //
-  // Landing on Setup is deliberate and is NOT a fallback to be "fixed" back to
-  // vitals. A user arriving with no hash has almost always just installed, and
-  // Vitals is a wall of tokens/sec and kWh — the least explicable screen in the
-  // product to someone who has never seen it. Setup is where the walkthrough
-  // starts and where everything is named.
+  // Landing on Setup is deliberate. A user arriving with no hash has almost
+  // always just installed, and Setup is where the walkthrough starts and where
+  // everything is named.
   //
-  // The old chain read localStorage['ava.view'] in the middle here, which had a
-  // second effect worth knowing about: the first visit's default was written
-  // back immediately, so 'vitals' became a sticky preference the user had never
-  // chosen. That key is gone entirely — nothing else consumed it, and leaving
-  // the write behind would invite the read back.
+  // The old chain read localStorage['ava.view'] in the middle here, and the
+  // first visit's default was written back immediately, so the landing tab
+  // became a sticky preference the user had never chosen. That key is gone
+  // entirely — nothing else consumed it, and leaving the write behind would
+  // invite the read back.
   const [view, setView] = useState<View>(() => viewFromHash() || 'hub');
   // Reflect the view in the URL hash so Back/forward and bookmarks work. The
   // FIRST stamp replaces rather than pushes: a bare `/` is where the setup
@@ -420,16 +407,6 @@ export default function App() {
           <div id="viewPort">
             {/* Suspense INSIDE the boundary: a chunk that fails to load is a view
                 error the boundary should own, not a blank screen. */}
-            {view === 'vitals' && (
-              <ViewErrorBoundary label="Vitals">
-                <Suspense fallback={<Skeleton height={260} />}><VitalsView /></Suspense>
-              </ViewErrorBoundary>
-            )}
-            {view === 'ops' && (
-              <ViewErrorBoundary label="Operations">
-                <Suspense fallback={<Skeleton height={260} />}><OpsView /></Suspense>
-              </ViewErrorBoundary>
-            )}
             {view === 'domains' && (
               <ViewErrorBoundary label="Domains">
                 <Suspense fallback={<Skeleton height={260} />}><DomainsView /></Suspense>
@@ -448,7 +425,6 @@ export default function App() {
                 </Suspense>
               </ViewErrorBoundary>
             )}
-            {view === 'data' && <ViewErrorBoundary label="Data"><DataView /></ViewErrorBoundary>}
             {view === 'hub' && <ViewErrorBoundary label="Setup"><HubView /></ViewErrorBoundary>}
             {view === 'chat' && (
               <ViewErrorBoundary label="Chat">

@@ -24,15 +24,14 @@ with nothing hand-maintained in its core:
 | Surface | What it is |
 |---|---|
 | **A tab in the sidebar** | Your app's own web UI, reverse-proxied same-origin under `/apps/<id>/` so it inherits your session cookie and the current theme. No second login, no third-party cookies. |
-| **A health row** | On [Operations](capabilities/operations.md) → Service health, from `service.probe`. Name the feature flag governing the service and a dead probe reads *off* rather than *down*. |
-| **A live perf source** | Charted on [Vitals](capabilities/vitals.md). If your app never writes a `performance.jsonl`, the bridge writes one *for* it: every proxied call timed with its latency and status, self-registering, so a brand-new app appears on its first call with no restart. |
+| **A health dot** | Beside that tab, from `service.probe`. Name the feature flag governing the service and a dead probe reads *off* rather than *down*. |
+| **A live perf source** | From `perf.path`. If your app never writes a `performance.jsonl`, the bridge writes one *for* it: every proxied call timed with its latency and status, self-registering, so a brand-new app is recorded on its first call with no restart. The agent reads them back with its `read_performance` tool. |
 | **Agent tools** | Declared in the manifest, discovered live from an `ava-tools/1` facade, or read off your app's own MCP server. Generated into the sandbox for you. |
 | **An egress policy** | The allow-list of exactly which addresses the agent's sandbox may reach on this app's behalf, namespaced `ava-<id>`, rendered from the same file. Anything not on it is refused. |
-| **Cost and energy, per app** | Call count and energy attribution on the Connected apps tile, so you can see which of the things you built is the expensive one. |
 
 Plenty of tools are MCP clients. A whole category of MCP gateways does policy.
-Every self-hosted chat UI does tools. **Deriving the UI surface, the
-observability and the network policy from one declaration is the thing Ava does
+Every self-hosted chat UI does tools. **Deriving the UI surface, the health
+signal and the network policy from one declaration is the thing Ava does
 that they do not.**
 
 The walkthrough is [Connect your apps](CONNECT_YOUR_APPS.md); the field-by-field
@@ -75,7 +74,7 @@ hub for that scatter: always-on, on their **own** hardware, wired to their
 
 ## What it does
 
-- **Derives six surfaces from one manifest**, per the table above.
+- **Derives four surfaces from one manifest**, per the table above.
 - **Answers across your apps** through the tools they advertise, behind a
   policed boundary, naming the calls it made.
 - **Doubles as your apps' ops console**: per-app spend, speed, errors and
@@ -124,7 +123,7 @@ Each of those is taken apart, with the endpoint or config key behind it, in
 
 | Claim | What backs it |
 |---|---|
-| **One declaration, six surfaces.** | The table at the top of this page, every row of it derived at load time with nothing hand-maintained in Ava's core. [Connect your apps](CONNECT_YOUR_APPS.md) |
+| **One declaration, four surfaces.** | The table at the top of this page, every row of it derived at load time with nothing hand-maintained in Ava's core. [Connect your apps](CONNECT_YOUR_APPS.md) |
 | **The boundary is real.** | The MCP client runs host-side, so a compromised tool server never gets a line into the sandbox, and the agent reaches exactly two policed bridge routes and nothing else. [Connector SDK](CONNECTOR_SDK.md) |
 | **And it holds in both directions.** | Ava reaches the agent's control plane through one relay route — cookie-gated, rate-limited, audited by method, and refusing the settings that govern browser authentication. The browser never opens a socket to the agent. [Agent runtime reference](AGENT_RUNTIME_REFERENCE.md) |
 | **It knows what your hardware can take.** | Setup reads your chip and usable memory and names the model tier it will hold, detected live, before you download anything. [Pick a model](CHOOSE_A_MODEL.md) |

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { agentApi } from '../../lib/agentApi';
 import { CodeArea } from '../../lib/CodeArea';
 import { useGateway } from '../../hooks/useGateway';
-import { EmptyState } from '../dashboard/layout';
+import { EmptyState } from '../ui/layout';
 import { FilesPanel } from './FilesPanel';
 import { Badge } from '../hub/ui/Badge';
 

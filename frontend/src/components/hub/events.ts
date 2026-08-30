@@ -16,8 +16,6 @@ export const EVENT_META: Record<string, { icon: string; label: string; tone: Ton
   revoke: { icon: 'lock', label: 'Permission revoked', tone: 'err' },
   approval: { icon: 'check', label: 'Approval', tone: 'warn' },
   chat_delete: { icon: 'trash', label: 'Chat deleted', tone: 'err' },
-  data_export: { icon: 'file', label: 'Data export', tone: 'muted' },
-  data_maintenance: { icon: 'db', label: 'Data maintenance', tone: 'muted' },
   data_delete: { icon: 'trash', label: 'Data deleted', tone: 'err' },
   model_delete: { icon: 'trash', label: 'Model deleted', tone: 'err' },
   brain_swap: { icon: 'sparkles', label: 'Brain swapped', tone: 'accent' },

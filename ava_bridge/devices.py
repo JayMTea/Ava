@@ -15,7 +15,7 @@ A connector that declares ``ingest: {enabled: true}`` may POST to
   * **pushed to an in-process ring buffer** with a monotonic sequence so the ops
     SSE stream can surface it live (``event: device.event``) to the dashboard, and
   * for ``notify``/``warn``/``critical`` events, **raised as a short-lived alert**
-    via :func:`ava_bridge.alerts.push_external` so it also lands in the alerts UI.
+    via :func:`ava_bridge.alerts.push_external`.
 
 Read-only, single-user, in-process — consistent with the rest of the bridge.
 """

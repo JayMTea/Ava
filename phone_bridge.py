@@ -229,10 +229,6 @@ app.include_router(_wizard_router)
 from ava_bridge.hub_api import router as _hub_router  # noqa: E402
 app.include_router(_hub_router)
 
-# Data page API (cookie-gated /api/data/* — the on-disk store inventory).
-from ava_bridge.data_api import router as _data_router  # noqa: E402
-app.include_router(_data_router)
-
 # Browser-facing pages: login, first-run setup, logout, password change, the
 # SPA shell and the PWA assets. Registered first so the shell is in place before
 # the API routers.
@@ -244,24 +240,20 @@ app.include_router(_pages.router)
 from ava_bridge.media_api import router as _media_router  # noqa: E402
 app.include_router(_media_router)
 
-# Telemetry reads (cookie-gated /api/perf/*, /api/hardware*) — what Vitals polls.
+# The live hardware snapshot (cookie-gated /api/hardware) — what the floating
+# hardware monitor polls on every view.
 from ava_bridge.perf_api import router as _perf_router  # noqa: E402
 app.include_router(_perf_router)
 
 # Domain grouping + the per-domain KPI series. Off unless features.domains is on;
-# the routes stay mounted either way so the Data page can still inventory the
-# store a previously-enabled instance left behind.
+# the routes stay mounted either way so a previously-enabled instance's store is
+# still readable.
 from ava_bridge.domains_api import router as _domains_router  # noqa: E402
 app.include_router(_domains_router)
 
 # Chat API (cookie-gated /api/chats/*, /api/chat-stream, /api/ghost/discard).
 from ava_bridge.chats_api import router as _chats_router  # noqa: E402
 app.include_router(_chats_router)
-
-# Operations API + the live SSE ops stream (cookie-gated /api/ops/*,
-# /api/stream/ops). The poll endpoints and the push channel are one contract.
-from ava_bridge.ops_api import router as _ops_router  # noqa: E402
-app.include_router(_ops_router)
 
 # Agent gateway control plane: /api/gateway/* plus the /ws/gateway event relay.
 #
@@ -360,11 +352,8 @@ def brand_api():
     return {**brand.payload(), "version": _AVA_VERSION}
 
 
-# Dashboard routes (Vitals + Operations) moved to ava_bridge/dashboard.py and
-# ava_bridge/ops_api.py. All cookie-gated /api/* (browser auth); read-first
-# wrappers over ava_bridge modules.
-
-
+# The app registry the sidebar renders. Cookie-gated /api/* (browser auth);
+# read-first wrappers over ava_bridge modules.
 
 
 @app.get("/api/apps")
@@ -420,6 +409,22 @@ async def api_apps_order(body: dict):
     # No restart_required: `connectors.apps()` reads the key at request time, so
     # the next /api/apps already reflects this.
     return {"ok": True, "order": order}
+
+
+@app.get("/api/apps/{cid}/actions")
+async def api_app_actions(cid: str):
+    """The agent actions one connector exposes, for the `ui.embed: none` console.
+
+    Split from `/api/apps` because the nav does not need it and must stay
+    instant. This replaces the read `ActionConsole` used to make against
+    `/api/ops/connectors`, which carried live probe results, perf-file presence
+    and egress counts the console never rendered — and which went with the
+    Operations page.
+    """
+    if not connectors.app(cid):
+        return JSONResponse({"error": f"unknown app '{cid}'"}, status_code=404)
+    acts = await run_in_threadpool(connectors.actions)
+    return {"ok": True, "actions": [a["id"] for a in acts if a.get("connector") == cid]}
 
 
 @app.get("/api/apps/{cid}/embed")

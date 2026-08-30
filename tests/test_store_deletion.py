@@ -1,14 +1,15 @@
 """Emptying a store: what it removes, what it refuses, and what it must not touch.
 
-The README markets this page's "audited deletes" and there was no DELETE endpoint
-for any store at all — emptying one meant `rm` by hand under `AVA_HOME`, with no
-record and a real chance of bricking the install.
+`data_api.delete_store` is the audited erasure path. It had no browser surface
+until the Data page, and none again since that page was removed — but it is
+still the one implementation, still audited, and still the thing that must never
+delete the wrong tree.
 
 Two properties carry the weight here:
 
   * **Three stores refuse, each with a store-specific reason.** A refusal that
     cannot say why is indistinguishable from an oversight, and the reasons are not
-    interchangeable: the ledger records the deletions *this page performs*,
+    interchangeable: the ledger records the deletions this path performs,
     `secrets` holds the credentials that let you log in at all, and the voiceprint
     has a dedicated path that also resets its derived threshold and evicts the
     process's cached copy.
@@ -170,34 +171,6 @@ def test_every_store_declares_whether_it_can_be_deleted() -> None:
             assert got["error"] == s["delete_refused_reason"], (
                 f"{s['id']}: the inventory's reason and the API's refusal differ — "
                 "two copies of the same message that can drift")
-
-
-# ---- the UI cannot offer what the API refuses -------------------------------- #
-def test_the_panel_gates_its_delete_button_on_the_API_flag() -> None:
-    """A static scan, because the alternative is a browser test for one boolean.
-
-    The backend carries the policy (`deletable` + `delete_refused_reason`) so that
-    the panel never has to know which stores are protected. That only holds while
-    the button is actually gated on the flag — remove the gate and the UI happily
-    offers an Empty button that the API answers with a 403, which reads to the
-    owner as a broken product rather than as a deliberate refusal.
-    """
-    from tests import gitfiles
-
-    gitfiles.require_git()
-    rel = "frontend/src/components/data/DataView.tsx"
-    assert rel in gitfiles.tracked(rel), f"{rel} is not tracked — did it move?"
-    src = (gitfiles.ROOT / rel).read_text(encoding="utf-8")
-    assert "s.deletable" in src, (
-        "DataView no longer reads `deletable`, so the Empty button is not gated "
-        "on the API's policy. Gate it: `{s.deletable ? <button…> : <badge>}`.")
-    assert "delete_refused_reason" in src, (
-        "the refusal reason is no longer shown, so a protected store looks "
-        "arbitrarily disabled. Surface it as the title/tooltip.")
-    body = src.split("function StoreRow", 1)[-1].split("\nfunction ", 1)[0]
-    assert "s.deletable" in body, (
-        "the `deletable` check left StoreRow — the button and its gate must sit "
-        "together, or a later edit moves one without the other.")
 
 
 def test_the_file_removal_helper_has_exactly_one_auditing_caller() -> None:

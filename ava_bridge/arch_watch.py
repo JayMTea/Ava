@@ -5,7 +5,7 @@ a commit — a service unit removed, a policy file hand-edited, a diagram edited
 without re-rendering — would otherwise sit unnoticed until the next commit.
 
 This scheduler runs `agent/docs/arch.py check --json` on an interval and raises
-a persistent alert in the Ops dashboard via alerts.push_external. It distinguishes
+a persistent alert via alerts.push_external. It distinguishes
 diagram drift (derived artifacts, reconciled with `python agent/docs/arch.py
 sync`) from structural drift (manifest vs code, a real edit), because those are
 different jobs for whoever reads the alert.

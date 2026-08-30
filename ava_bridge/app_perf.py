@@ -11,7 +11,7 @@ bridge's own log root:
 That location is deliberate: it is OUTSIDE $AVA_HOME/connectors/<cid>, so
 deleting a connector in the Hub does not delete its history, and re-adding the
 same id resumes the same file. Each write registers the file in perf_mgmt's
-source ledger, so Vitals picks a brand-new app up on its first call with no
+source ledger, so a brand-new app is picked up on its first call with no
 restart and no manifest `perf:` block.
 
 Record shape (same envelope as perf_log.py; category "action"):
@@ -112,7 +112,7 @@ def record_action(cid: str, action: str, seconds: float, status) -> None:
                     fcntl.flock(f.fileno(), fcntl.LOCK_UN)
                 except OSError:
                     pass
-        # First write for a connector makes its log visible to Vitals at once
+        # First write for a connector registers its log at once
         # (in-memory guard keeps the steady state to a pure append).
         if cid not in _registered:
             perf_mgmt.register_source(cid, path)

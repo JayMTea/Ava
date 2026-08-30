@@ -1,5 +1,5 @@
 // E2E: connect a real (fake) app through the live API, then confirm the UI
-// reflects it — the app appears in Vitals "Connected apps" with live status.
+// reflects it — the app appears in the sidebar with a live health dot.
 import { chromium } from 'playwright';
 
 const BRIDGE = process.env.BRIDGE_URL!;
@@ -39,12 +39,11 @@ function check(name: string, ok: boolean, extra = '') {
   check('probe answered', result.probe === 200, String(result.probe));
   check('connector created', result.created === 200, String(result.created));
 
-  // The app shows up in Vitals' Connected apps — live registry, no restart.
-  await page.evaluate(() => { location.hash = 'vitals'; });
+  // The app shows up in the sidebar — live registry, no restart.
   const card = page.getByText('QA E2E App', { exact: false }).first();
   let ok = true;
   await card.waitFor({ timeout: 30000 }).catch(() => { ok = false; });
-  check('new app visible in Connected apps panel', ok);
+  check('new app visible in the sidebar', ok);
 
   await browser.close();
 })().catch((e) => { console.error(e); process.exit(1); });

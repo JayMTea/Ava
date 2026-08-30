@@ -27,7 +27,7 @@ service:
 # perf:
 #   app: myapp
 #   path: "${AVA_LOGS}/apps/myapp/performance.jsonl"
-#   # keep this OUTSIDE $AVA_HOME/connectors/<id> so Vitals history survives
+#   # keep this OUTSIDE $AVA_HOME/connectors/<id> so perf history survives
 #   # removing the connector (re-adding the same id resumes it)
 
 # --- Left-rail app surface (optional) ---------------------------------------
@@ -88,7 +88,7 @@ service:
 #   fields: { title: title, url: url, seed: seed }   # card fields <- row fields
 
 # --- Live jobs (optional) -----------------------------------------------------
-# Lets Ava's ops dashboard attribute GPU spikes to named tasks your app runs.
+# Lets Ava attribute GPU memory in the hardware bubble to named tasks your app runs.
 # jobs:
 #   path: "/api/jobs"              # GET base_url + path; rows carry kind/stage/progress
 #   params: { active: 1 }

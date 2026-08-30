@@ -47,9 +47,9 @@ def _sane_tps(recs: List[dict]) -> List[float]:
 # from two inputs merged together:
 #
 #   1. the connector registry (`connectors.perf_sources()`) — so a connector
-#      added/removed in the Hub changes Vitals immediately, no restart; and
+#      added/removed in the Hub changes the perf sources immediately, no restart; and
 #   2. an on-disk ledger of every source ever seen — so removing a connector
-#      does NOT erase its history from Vitals, and re-adding it under the same
+#      does NOT erase its history, and re-adding it under the same
 #      id resumes the same history (the rollup store keeps absorbing/pruning
 #      remembered files too, so no window of records is ever silently lost).
 #

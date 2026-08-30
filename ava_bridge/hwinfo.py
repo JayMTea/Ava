@@ -791,7 +791,7 @@ def gpus() -> list[GpuInfo]:
     floor: a box with a readable GPU should never report `[]` just because we
     lack a rich provider for it. `[]` used to mean both "no accelerator" and
     "an accelerator we don't have code for", which blanked the dashboard bubble
-    and all four Vitals gauges on hardware that was working fine.
+    and every hardware-bubble reading on hardware that was working fine.
     """
     pid = platform_id()
     if pid in ("linux-nvidia", "windows-nvidia"):

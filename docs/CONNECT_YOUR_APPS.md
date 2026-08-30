@@ -18,7 +18,7 @@ also gets its own tile in Ava's sidebar.
 Connecting an app wires it into everything Ava does: its tools become things you
 can ask for in plain language, each behind an auto-generated security policy. If
 it serves a web UI or a health endpoint, it also gets a tile in the left rail and
-a row on Operations → Service health. Connect two, and a question that spans both
+a health dot beside its tab. Connect two, and a question that spans both
 of them is one question rather than two tabs.
 
 There are two ways to do it. Most people should use the first one; the second is
@@ -221,11 +221,11 @@ From one connection, with no edits to Ava's code:
 
 | You get | Where it shows up |
 |---|---|
-| A health row (whenever you gave a health check URL) | Operations → Service health |
-| Live agent tools | chat ("create a note…"), tool chips, Operations → Tool usage |
+| A health dot (whenever you gave a health check URL) | Beside the app's tab in the sidebar |
+| Live agent tools | chat ("create a note…") and the tool chips under each reply |
 | An egress security policy | the agent can reach this app's routes and nothing else |
 | Approval gates on anything but a `read` | a one-tap prompt before the action runs |
-| A full audit trail | Data → History (request, approval, denial, call) |
+| A full audit trail | `${AVA_LOGS}/audit.jsonl` (request, approval, denial, call) |
 | A left-rail tile (embedded UI) - *when the app has a web UI you pointed Ava at* | the app's own page inside Ava |
 
 ## The developer way: CLI and manifest
