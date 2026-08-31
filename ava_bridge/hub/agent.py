@@ -304,6 +304,66 @@ def _released_by_owner(model_id: str | None) -> bool:
         return False
 
 
+def _agent_runtime_is_live() -> bool:
+    """Is the active runtime actually answering right now?
+
+    Gates the "could not name its model" diagnosis below, and it is not
+    optional. `capabilities()` comes back EMPTY from a shim that cannot be
+    reached, and empty is indistinguishable from "this container is too old to
+    advertise anything" — so without this gate a STOPPED agent gets told to
+    rebuild itself, which is a true-sounding sentence about the wrong problem.
+    Liveness is observed, never inferred: the same rule the agent block further
+    down already follows.
+
+    False when the probe itself fails, on purpose. The caller then falls through
+    to that block, which reports `agent_down` carrying the probe's own reason —
+    strictly more useful than anything this function could guess.
+    """
+    try:
+        return bool(runtime.active().live().get("live"))
+    except Exception:  # noqa: BLE001 — a health route must never fail on a read
+        return False
+
+
+def _unnamed_agent_brain_detail() -> str:
+    """Why the active runtime could not name its model, in the owner's terms.
+
+    Only reached for a runtime already observed LIVE (see
+    `_agent_runtime_is_live`), so an empty capability list here really does mean
+    "this container is too old to advertise one" rather than "nobody answered".
+
+    Two causes, one symptom, and they are fixed on different machines — so
+    reporting them with a single sentence sends half of the owners who hit this
+    to the wrong host. `health.model` in the runtime's advertised capabilities
+    is what separates them:
+
+      advertised -> the runtime looked and the sandbox has no model onboarded;
+                    fix it with `nemoclaw onboard` where the runtime runs.
+      absent     -> the agent container predates the field on /healthz and
+                    cannot answer at all; rebuild it.
+
+    Capabilities come from the cache /healthz already fills, so this costs no
+    extra round trip, and any failure degrades to the vaguer sentence rather
+    than raising inside a health route.
+    """
+    generic = ("The agent runtime owns the brain but did not report which model "
+               "it is running, so Ava cannot name it.")
+    try:
+        rt = runtime.active()
+        caps = rt.capabilities()
+        elsewhere = not rt.is_local()
+    except Exception:  # noqa: BLE001 — a diagnosis must never break the route
+        return generic
+    if "health.model" in caps:
+        return (generic + " It reports no model onboarded — choose one with "
+                "`nemoclaw onboard` on the machine that runs the agent.")
+    if elsewhere:
+        return (generic + " Its agent container predates the model field on "
+                "/healthz, so it cannot answer: rebuild and restart the agent "
+                "runtime on that host.")
+    return generic
+
+
 @router.get("/agent/inference")
 def agent_inference():
     """Can Ava actually answer right now?
@@ -342,13 +402,35 @@ def agent_inference():
     brain = _models.effective_brain()
     model = str(brain.get("model_id") or "").strip()
     engine = str(brain.get("engine") or "").strip()
-    if not model:
+    if not model and brain.get("source") == "agent" and _agent_runtime_is_live():
+        # The runtime owns the brain, is observably answering, and STILL could
+        # not name it. That is a different fault from "nothing is configured",
+        # and the generic sentence below is actively wrong advice for it: the
+        # model was already chosen, by `nemoclaw onboard`, so sending the owner
+        # to Setup to pick one asks them to change a setting that is correct.
+        #
+        # Not hypothetical. The agent shim's /healthz carried no `model`, so
+        # RemoteRuntime.sandbox_info() answered None, the resolver returned
+        # source="agent" with an empty id, and every surface reported a
+        # configuration problem for what was purely a reporting one.
+        #
+        # The CODE stays `model_unknown`: frontend/src/lib/fixes.ts routes on the
+        # pattern, and Setup -> Agent remains the right destination because that
+        # is where the runtime is managed. Only the sentence changes, because
+        # only the cause did.
+        return {"ok": False, "code": "model_unknown", "model": "",
+                "engine": engine, "detail": _unnamed_agent_brain_detail()}
+    if not model and brain.get("source") != "agent":
         # Distinguishing this from "engine down" matters: nothing is broken to
         # restart, a value is simply missing, and Operations is the wrong place
         # to send someone.
         return {"ok": False, "code": "model_unknown", "model": "", "engine": "",
                 "detail": "No model is configured, so there is nothing to answer "
                           "with. Choose one in Setup -> Agent."}
+    # A brain-less agent runtime that is NOT live falls through deliberately.
+    # The block below reports `agent_down`, which names the thing the owner has
+    # to fix; "it could not name its model" is true of a stopped container and
+    # tells them nothing about why. Ordering IS the diagnosis here.
 
     # BEFORE the sandbox short-circuit, because it applies either way and that
     # branch answers `ok: True` with no probe at all — so a brain the owner freed

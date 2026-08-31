@@ -36,6 +36,38 @@ the `agent` container's entrypoint:
 4. Runs `agent/install.sh`.
 5. Serves the runtime shim on `:9100` (auth-gated, never published).
 
+### What `/healthz` carries, and why it is more than a health check
+
+`/healthz` is the one route the shim's auth middleware skips, and the one the
+bridge already polls every 15s. So it is where anything the bridge needs
+*cheaply and often* rides along, rather than earning a route of its own:
+
+| Field | Read by | Meaning |
+|---|---|---|
+| `ready` | `RemoteRuntime.available()` | the sandbox exists and the CLI resolves |
+| `authed` | `available()` | present only when a token was offered; `false` means the two containers disagree on `AVA_AGENT_TOKEN` |
+| `capabilities` | `capabilities()` | what this container supports; the bridge **fails closed** on anything not listed |
+| `model` / `provider` | `sandbox_info()` → `models.effective_brain()` | which model the sandbox is running |
+
+`model` and `provider` come from the NemoClaw registry
+(`~/.nemoclaw/sandboxes.json`), not from `nemoclaw list --json` — a health probe
+must not shell out, and the cached-CLI path answers `None` to its first caller,
+which would make the brain appear only on the second poll.
+
+The keys are **omitted, never blanked**, when the registry cannot answer, and
+`health.model` in `capabilities` is what separates the two silences: advertised
+means the shim looked and the sandbox has no model onboarded; absent means the
+container predates the field and cannot answer at all. Those are fixed on
+different machines, so Setup reports them as different sentences.
+
+This table is a contract across two files, and it was broken once in exactly the
+way a table prevents: `RemoteRuntime.available()` read `model` and `provider`
+that `healthz()` never sent, so every `remote` install resolved an empty brain
+and told its owner no model was configured while the sandbox answered turns.
+`tests/test_remote_brain_contract.py` now holds both halves at once — it drives
+the real shim app with a real `RemoteRuntime` and fails if the bridge reads a
+field the shim does not send.
+
 ### Networking note (host-dependent)
 
 The sandbox is created on the *host* Docker daemon (a sibling of the compose

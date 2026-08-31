@@ -196,3 +196,102 @@ def test_a_runtime_that_cannot_be_probed_is_not_reported_healthy(client) -> None
          mock.patch.object(runtime, "active", lambda: _Broken()):
         r = client.get("/api/hub/agent/inference").json()
     assert r["ok"] is False and r["code"] == "agent_down"
+
+
+# --------------------------------------------------------------------------- #
+# The runtime owns the brain and could not NAME it.
+#
+# A distinct fault from "nothing is configured", reached through the same empty
+# model id, and the generic sentence is wrong advice for it: the model was
+# chosen by `nemoclaw onboard`, so Setup is not where it gets fixed. Observed
+# for real — the agent shim's /healthz sent no `model`, so sandbox_info()
+# answered None and every surface called a reporting fault a config one.
+# --------------------------------------------------------------------------- #
+def _unnamed_agent_brain() -> dict:
+    """What the resolver returns when the runtime owns the brain but cannot name
+    it: source is `agent`, and the id is empty."""
+    return {"source": "agent", "backend_id": "", "engine": "compatible-endpoint",
+            "model_id": "", "label": "", "base_url": "", "api_key": "",
+            "local": False, "implicit": False}
+
+
+class _LiveAgent:
+    """A runtime that is observably answering, with a chosen capability set."""
+
+    name = "remote"
+
+    def __init__(self, caps, local=False):
+        self._caps, self._local = caps, local
+
+    def live(self):
+        return {"live": True, "reason": ""}
+
+    def capabilities(self):
+        return list(self._caps)
+
+    def is_local(self):
+        return self._local
+
+
+def test_a_runtime_that_reports_no_model_is_not_called_unconfigured(client) -> None:
+    """It advertises `health.model`, so it LOOKED — the sandbox genuinely has
+    none onboarded. Sending this owner to Setup asks them to change a setting
+    that is already correct."""
+    from ava_bridge import runtime
+
+    with mock.patch.object(models, "effective_brain", _unnamed_agent_brain), \
+         mock.patch.object(runtime, "active", lambda: _LiveAgent(["health.model"])):
+        r = client.get("/api/hub/agent/inference").json()
+    assert r["ok"] is False
+    assert r["code"] == "model_unknown", "fixes.ts routes on this pattern"
+    assert "onboard" in r["detail"], (
+        "the fix is `nemoclaw onboard` on the runtime's host, and the diagnosis "
+        "has to say so")
+    assert "No model is configured" not in r["detail"], (
+        "the generic sentence blames the config for a runtime's silence")
+
+
+def test_an_agent_too_old_to_answer_is_told_to_rebuild(client) -> None:
+    """No `health.model` in its capabilities means the container predates the
+    field and cannot answer at all — a different machine and a different fix
+    from the case above, which is the entire reason the flag exists."""
+    from ava_bridge import runtime
+
+    with mock.patch.object(models, "effective_brain", _unnamed_agent_brain), \
+         mock.patch.object(runtime, "active", lambda: _LiveAgent([], local=False)):
+        r = client.get("/api/hub/agent/inference").json()
+    assert r["code"] == "model_unknown"
+    assert "rebuild" in r["detail"], (
+        "an agent container that cannot report its model needs rebuilding, and "
+        "nothing else the owner could do here will help")
+
+
+def test_a_stopped_agent_with_no_model_is_reported_down_not_unnamed(client) -> None:
+    """ORDERING IS THE DIAGNOSIS. An unreachable shim advertises no
+    capabilities, and an empty capability list is indistinguishable from "too
+    old to advertise one" — so an unguarded check tells the owner of a STOPPED
+    container to rebuild it. `agent_down`, carrying the probe's own reason, is
+    the answer that names what they have to fix.
+    """
+    from ava_bridge import runtime
+
+    class _Stopped:
+        name = "remote"
+
+        def live(self):
+            return {"live": False, "reason": "could not reach http://agent:9100"}
+
+        def capabilities(self):
+            return []          # nobody answered, so nothing was advertised
+
+        def is_local(self):
+            return False
+
+    with mock.patch.object(models, "effective_brain", _unnamed_agent_brain), \
+         mock.patch.object(runtime, "active", lambda: _Stopped()):
+        r = client.get("/api/hub/agent/inference").json()
+    assert r["code"] == "agent_down", (
+        "a stopped agent was diagnosed as one that cannot name its model — true "
+        "of a stopped container, and useless to whoever has to restart it")
+    assert "agent:9100" in r["detail"], (
+        "the probe's own reason is the useful half — it names what to restart")

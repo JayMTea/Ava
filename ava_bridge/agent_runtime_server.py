@@ -21,7 +21,7 @@ from fastapi.responses import JSONResponse
 
 from . import config
 from . import provision as provision_mod
-from .runtime import nemoclaw
+from .runtime import nemoclaw, nemoclaw_registry
 
 app = FastAPI(title="ava-agent-runtime")
 
@@ -35,7 +35,21 @@ _rt = nemoclaw()
 # What this container can do, advertised on /healthz so the bridge's
 # RemoteRuntime can refuse to ask for something an older build would silently
 # mishandle. Additive only: dropping an entry is a breaking change.
-CAPABILITIES = ["provision.scope", "provision.assert", "provision.connector"]
+#
+# `health.model` says this shim can NAME the model its sandbox is running, on
+# /healthz. It is what lets the bridge tell two states apart that otherwise
+# arrive identically — as an absent `model` key — and that have completely
+# different fixes:
+#
+#   advertised, model present  -> the brain is that model
+#   advertised, model absent   -> the sandbox genuinely has no model onboarded
+#   NOT advertised             -> this agent container predates the field and
+#                                 cannot answer; rebuild it
+#
+# Without the flag the bridge can only say "no model", which is the sentence
+# that sent an owner to Setup to choose a model that was already chosen.
+CAPABILITIES = ["provision.scope", "provision.assert", "provision.connector",
+                "health.model"]
 
 
 @app.middleware("http")
@@ -45,6 +59,61 @@ async def _auth(request: Request, call_next):
         if not (config.AGENT_TOKEN and hmac.compare_digest(tok, config.AGENT_TOKEN)):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
     return await call_next(request)
+
+
+def _brain_fields() -> dict:
+    """`{model, provider}` for the sandbox this shim drives, or `{}`.
+
+    THE HALF OF A CONTRACT THAT WAS NEVER BUILT. `RemoteRuntime.available()`
+    reads `model` and `provider` straight off this response into the cache that
+    `sandbox_info()` serves, and `models.effective_brain()` calls `sandbox_info`
+    to answer "what is Ava thinking with". This route never sent either key, so
+    on every `remote` install the model id resolved EMPTY and /api/health, the
+    chat header, Setup -> Agent and the hardware panel all announced "No model
+    is configured, so there is nothing to answer with" — while the sandbox held
+    a correctly onboarded model. Neither side was wrong on its own. Nothing
+    tested the pair, which is what tests/test_remote_brain_contract.py now does.
+
+    Read from the NemoClaw REGISTRY, not from `_rt.sandbox_info()`, and that
+    choice is the reason this is a helper instead of one more line in `healthz`:
+
+      * `NemoClawRuntime.sandbox_info(wait=True)` shells out to `nemoclaw list
+        --json` on a 15s timeout. The bridge polls /healthz every 15s and the
+        PUBLIC /api/health sits behind it, so a shell-out here is a health probe
+        that can outlive the request that asked for it.
+      * `sandbox_info(wait=False)` serves a 120s cache and refreshes in a
+        background thread, so the FIRST caller after a restart gets None. That
+        is the same "empty is self-correcting" assumption that turned out to be
+        permanent on openclaw_gw, and it would make the brain appear only on the
+        second probe — an install that names itself on a delay, intermittently.
+      * `nemoclaw_registry.registry_record()` reads ~/.nemoclaw/sandboxes.json
+        directly behind a 30s cache. It is the source `openclaw_gw.sandbox_info`
+        already trusts for exactly this question, it costs a stat, and it is
+        correct on the very first call.
+
+    Returns `{}` rather than `{"model": ""}` when the registry cannot answer, so
+    "we could not look" never hardens into the claim that the sandbox has no
+    model. `available()` treats an absent key and an empty string identically,
+    but they are different sentences to whoever reads this response next, and
+    `health.model` in CAPABILITIES is what tells them apart.
+
+    Never raises. A health probe that can fail is not a health probe.
+    """
+    try:
+        rec = nemoclaw_registry.registry_record(config.OC_SANDBOX) or {}
+        model = str(rec.get("model") or "").strip()
+        provider = str(rec.get("provider") or "").strip()
+    except Exception:  # noqa: BLE001 — health must never fail on a probe
+        return {}
+    out = {}
+    if model:
+        out["model"] = model
+    # Only alongside a model. `effective_brain` uses provider as the ENGINE it
+    # displays, and a provider with no model to attach it to is a label for
+    # nothing — it would render an engine name beside a blank brain.
+    if model and provider:
+        out["provider"] = provider
+    return out
 
 
 @app.get("/healthz")
@@ -61,6 +130,13 @@ def healthz(request: Request):
     # Only present when a token was actually offered, so an anonymous prober
     # learns nothing it could not learn by making a request and reading the 401.
     body = {"ok": True, "ready": _rt.available(), "capabilities": CAPABILITIES}
+    # `model`/`provider` ride along on the probe the bridge already makes every
+    # 15s. That is what keeps `RemoteRuntime.sandbox_info()` free and lets the
+    # public /api/health name the brain without paying a second round trip —
+    # the same reason `capabilities` is carried here rather than on its own
+    # route. Merged rather than inlined so an unanswerable registry contributes
+    # no keys at all instead of empty ones.
+    body.update(_brain_fields())
     tok = request.headers.get("x-ava-agent-token", "")
     if tok:
         body["authed"] = bool(config.AGENT_TOKEN
