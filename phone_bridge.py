@@ -726,7 +726,7 @@ def _rewrite_location(loc: str, cid: str, base: str) -> str:
     if loc.startswith("/") and not loc.startswith("//"):
         # An app served under its own basePath (Next.js `basePath`, a mounted
         # sub-app) redirects with that prefix already present — forwarding
-        # `/apps/pulse` -> `/apps/pulse/apps/pulse` doubled the mount and 404'd
+        # `/apps/healthapp` -> `/apps/healthapp/apps/healthapp` doubled the mount and 404'd
         # the very first iframe load. Strip the upstream's base path first, the
         # same way the absolute branch below has always done.
         return f"/apps/{cid}" + _strip_base_path(loc, base)

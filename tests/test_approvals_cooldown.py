@@ -23,17 +23,17 @@ def _gated(monkeypatch, timeout=0.05, cooldown=300.0):
 
 def test_a_repeat_after_timeout_is_refused_without_parking(monkeypatch):
     _gated(monkeypatch)
-    assert approvals.gate("pulse", "log_weight", {"weight_kg": 80}) == "timeout"
+    assert approvals.gate("healthapp", "log_weight", {"weight_kg": 80}) == "timeout"
     t0 = time.time()
-    assert approvals.gate("pulse", "log_weight", {"weight_kg": 80}) == "cooldown"
+    assert approvals.gate("healthapp", "log_weight", {"weight_kg": 80}) == "cooldown"
     assert time.time() - t0 < 0.05, "a cooled-down call must not wait on the operator"
     assert approvals.pending() == []
 
 
 def test_different_arguments_are_a_different_ask(monkeypatch):
     _gated(monkeypatch)
-    assert approvals.gate("pulse", "log_weight", {"weight_kg": 80}) == "timeout"
-    assert approvals.gate("pulse", "log_weight", {"weight_kg": 81}) == "timeout"
+    assert approvals.gate("healthapp", "log_weight", {"weight_kg": 80}) == "timeout"
+    assert approvals.gate("healthapp", "log_weight", {"weight_kg": 81}) == "timeout"
 
 
 def test_the_cooldown_expires(monkeypatch):
@@ -45,13 +45,13 @@ def test_the_cooldown_expires(monkeypatch):
 
 def test_a_decision_clears_the_cooldown(monkeypatch):
     _gated(monkeypatch, timeout=2.0)
-    approvals.gate("pulse", "log_weight", {"weight_kg": 80})          # times out -> cooldown armed
+    approvals.gate("healthapp", "log_weight", {"weight_kg": 80})          # times out -> cooldown armed
     # The owner now answers a fresh prompt for the same call: it must be parked,
     # and once decided the cooldown must be gone.
     approvals._cooldown.clear()
     result = {}
     def run():
-        result["gate"] = approvals.gate("pulse", "log_weight", {"weight_kg": 80})
+        result["gate"] = approvals.gate("healthapp", "log_weight", {"weight_kg": 80})
     t = threading.Thread(target=run)
     t.start()
     for _ in range(100):

@@ -148,10 +148,10 @@ ALLOC_LINE = {
 }
 KPI_ROW = {"day": "2026-08-28", "metric": "steps", "dim": "watch", "value": 8123, "unit": "count",
            "state": "ok", "provenance": "pull", "n": 1, "lo": None, "hi": None, "def": "1a2b3c4d",
-           "src": "pulse", "observed_at": 1787950000.0}
+           "src": "healthapp", "observed_at": 1787950000.0}
 DEF_ROW = {"def": "1a2b3c4d", "metric": "steps", "recorded_at": 1787940000.0, "unit": "count",
-           "agg": "sum", "source": "pulse", "declares": {"unit": "count"}, "definition": "steps/day"}
-DEVICE_LINE = {"ts": 1787950001.0, "cid": "pulse", "type": "reading", "name": "hr", "value": 61.0,
+           "agg": "sum", "source": "healthapp", "declares": {"unit": "count"}, "definition": "steps/day"}
+DEVICE_LINE = {"ts": 1787950001.0, "cid": "healthapp", "type": "reading", "name": "hr", "value": 61.0,
                "unit": "bpm"}
 
 
@@ -163,7 +163,7 @@ def _audit_lines() -> list[str]:
     prev = ""
     for seq, kind in enumerate(("turn", "egress", "approval"), start=1):
         evt = {"ts": 1787950000.0 + seq, "seq": seq, "prev": prev, "kind": kind, "actor": "owner",
-               "chat_id": "c1", "status": "done", "tools": ["weather"], "connector": "pulse"}
+               "chat_id": "c1", "status": "done", "tools": ["weather"], "connector": "healthapp"}
         line = json.dumps(evt, ensure_ascii=False)
         lines.append(line)
         prev = hashlib.sha256(line.encode("utf-8")).hexdigest()
@@ -188,7 +188,7 @@ def test_every_ledger_stream_ships_and_inserts_typed_rows(cfg) -> None:
     _write(src / "logs/alloc.jsonl", ALLOC_LINE)
     _write(src / "logs/hw_history/hw_1m.jsonl", HW_LINE)
     _write(src / "logs/hw_history/hw_1h.jsonl", HW_LINE)
-    _write(src / "logs/devices/pulse.jsonl", DEVICE_LINE)
+    _write(src / "logs/devices/healthapp.jsonl", DEVICE_LINE)
 
     landing = shipper_testing.FakeLanding(bucket="ava-bronze")
     warehouse = shipper_testing.FakeWarehouse()
@@ -233,7 +233,7 @@ def test_every_ledger_stream_ships_and_inserts_typed_rows(cfg) -> None:
 
     cols, rows = by_table["raw_ava.device_event"]
     row = dict(zip(cols, rows[0], strict=True))
-    assert row["cid"] == "pulse" and row["value"] == "61.0"
+    assert row["cid"] == "healthapp" and row["value"] == "61.0"
 
     # Bronze: the exact bytes, under the stream's prefix, as x-ndjson.
     keys = sorted(landing.objects)

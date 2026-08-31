@@ -251,11 +251,11 @@ streams:
         severity: {key: severity, as: string}
         notify: {key: notify, as: int}
 
-  - name: devices_pulse
+  - name: devices_healthapp
     kind: jsonl_tail
     interval_seconds: 300
-    source: {path: /src/logs/devices/pulse.jsonl, rotations: 5}
-    bronze_prefix: devices/pulse
+    source: {path: /src/logs/devices/healthapp.jsonl, rotations: 5}
+    bronze_prefix: devices/healthapp
     target: *device_target
 
   - name: devices_infra

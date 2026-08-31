@@ -46,7 +46,7 @@ UNITS = ("usd_cents", "pct", "per_100", "count", "ratio", "g", "kcal", "kg",
          # `seconds` sits between the `ms` and `minutes` already here. Added for the
          # infrastructure realm, where "how old is this reading" is a seconds-scale question and
          # the source reports seconds — declaring `minutes` over a seconds value would be the
-         # silent scaling the pulse manifest warns about two files over.
+         # silent scaling the healthapp manifest warns about two files over.
          "seconds",
          "ms", "bpm", "mmhg", "minutes", "hours", "ppm", "celsius", "score_0_100")
 

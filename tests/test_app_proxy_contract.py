@@ -568,29 +568,29 @@ if __name__ == "__main__":
 class BasePathRewriteTests(unittest.TestCase):
     """An app served under its own basePath (Next.js `basePath`) redirects and
     scopes cookies WITH that prefix; the proxy must strip it before adding the
-    mount, or the mount doubles (`/apps/pulse/apps/pulse`) and the first iframe
+    mount, or the mount doubles (`/apps/healthapp/apps/healthapp`) and the first iframe
     load 404s."""
 
-    BASE = "http://127.0.0.1:3000/apps/pulse"
+    BASE = "http://127.0.0.1:3000/apps/healthapp"
 
     def test_root_relative_location_strips_the_upstream_base_path(self):
         import phone_bridge as pb
-        self.assertEqual(pb._rewrite_location("/apps/pulse/login", "pulse", self.BASE),
-                         "/apps/pulse/login")
-        self.assertEqual(pb._rewrite_location("/apps/pulse", "pulse", self.BASE),
-                         "/apps/pulse/")
+        self.assertEqual(pb._rewrite_location("/apps/healthapp/login", "healthapp", self.BASE),
+                         "/apps/healthapp/login")
+        self.assertEqual(pb._rewrite_location("/apps/healthapp", "healthapp", self.BASE),
+                         "/apps/healthapp/")
         # a path OUTSIDE the base is still mounted (the app really walked out)
-        self.assertEqual(pb._rewrite_location("/other", "pulse", self.BASE),
-                         "/apps/pulse/other")
+        self.assertEqual(pb._rewrite_location("/other", "healthapp", self.BASE),
+                         "/apps/healthapp/other")
         # no base path -> unchanged behaviour
         self.assertEqual(pb._rewrite_location("/login", "senses", "http://127.0.0.1:8081"),
                          "/apps/senses/login")
 
     def test_set_cookie_path_strips_the_upstream_base_path(self):
         import phone_bridge as pb
-        self.assertIn("Path=/apps/pulse/",
-                      pb._rewrite_set_cookie("s=1; Path=/apps/pulse; HttpOnly", "pulse", self.BASE))
-        self.assertIn("Path=/apps/pulse/x",
-                      pb._rewrite_set_cookie("s=1; Path=/apps/pulse/x", "pulse", self.BASE))
-        self.assertIn("Path=/apps/pulse/",
-                      pb._rewrite_set_cookie("s=1; Path=/", "pulse", self.BASE))
+        self.assertIn("Path=/apps/healthapp/",
+                      pb._rewrite_set_cookie("s=1; Path=/apps/healthapp; HttpOnly", "healthapp", self.BASE))
+        self.assertIn("Path=/apps/healthapp/x",
+                      pb._rewrite_set_cookie("s=1; Path=/apps/healthapp/x", "healthapp", self.BASE))
+        self.assertIn("Path=/apps/healthapp/",
+                      pb._rewrite_set_cookie("s=1; Path=/", "healthapp", self.BASE))
