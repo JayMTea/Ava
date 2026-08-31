@@ -131,7 +131,7 @@ describe('the gateway-runtime seam codes', () => {
     'agent_scope_denied', 'agent_token_rejected', 'agent_protocol_mismatch',
     'agent_no_gateway', 'gateway_timeout', 'gateway_key_refused',
     'gateway_rate_limited', 'gateway_unsupported_method', 'gateway_rpc_failed',
-    'gateway_cannot_deploy',
+    'gateway_cannot_deploy', 'gateway_proxy_unsupported',
   ])('sends %s to Setup → Agent → Runtime', (code) => {
     const fix = fixForCode(code);
     expect(fix).toBeDefined();

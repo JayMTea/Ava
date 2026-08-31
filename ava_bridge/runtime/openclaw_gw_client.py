@@ -111,7 +111,7 @@ class EventSubscription:
     reference until it is.
     """
 
-    def __init__(self, fanout: "_Fanout", key: int, topics: frozenset[str] | None,
+    def __init__(self, fanout: "Fanout", key: int, topics: frozenset[str] | None,
                  maxlen: int):
         self._fanout = fanout
         self._key = key
@@ -156,7 +156,7 @@ class AsyncEventSubscription(EventSubscription):
     undefined behaviour that shows up as a hang rather than an error.
     """
 
-    def __init__(self, fanout: "_Fanout", key: int, topics: frozenset[str] | None,
+    def __init__(self, fanout: "Fanout", key: int, topics: frozenset[str] | None,
                  maxlen: int, loop: asyncio.AbstractEventLoop):
         super().__init__(fanout, key, topics, maxlen)
         self._loop = loop
@@ -189,7 +189,7 @@ class AsyncEventSubscription(EventSubscription):
             pass
 
 
-class _Fanout:
+class Fanout:
     """Topic-filtered delivery to every live subscriber, in `seq` order."""
 
     def __init__(self):
@@ -260,7 +260,7 @@ class OpenClawGatewayClient:
         self._pending: dict[str, asyncio.Future] = {}
         self._epoch = ""
         self._counter = itertools.count(1)
-        self._fanout = _Fanout()
+        self._fanout = Fanout()
 
         self._phase = "down"
         self._since = time.time()

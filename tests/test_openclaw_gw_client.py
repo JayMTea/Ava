@@ -266,7 +266,7 @@ class FanoutTests(unittest.TestCase):
     def test_a_sequence_gap_is_announced_rather_than_smoothed(self):
         """Buffering or reordering a gap is how a UI ends up rendering a turn
         that never finished. Say so and let each consumer refetch."""
-        f = gw._Fanout()
+        f = gw.Fanout()
         sub = gw.EventSubscription(f, f.next_key(), None, 10)
         f.add(sub)
         f.dispatch({"event": "run.step", "seq": 1, "payload": {}})
@@ -281,7 +281,7 @@ class FanoutTests(unittest.TestCase):
         self.assertEqual(topics, ["run.step", "ava.gateway.gap", "run.step"])
 
     def test_a_new_socket_is_a_new_sequence(self):
-        f = gw._Fanout()
+        f = gw.Fanout()
         sub = gw.EventSubscription(f, f.next_key(), None, 10)
         f.add(sub)
         f.dispatch({"event": "a", "seq": 9, "payload": {}})
@@ -297,7 +297,7 @@ class FanoutTests(unittest.TestCase):
                          "seq 1 after a reconnect is not a gap")
 
     def test_topic_filters_are_honoured(self):
-        f = gw._Fanout()
+        f = gw.Fanout()
         want = gw.EventSubscription(f, f.next_key(), frozenset({"run.step"}), 10)
         every = gw.EventSubscription(f, f.next_key(), None, 10)
         f.add(want)
@@ -310,7 +310,7 @@ class FanoutTests(unittest.TestCase):
         self.assertIsNotNone(every.get(timeout=0))
 
     def test_a_slow_consumer_loses_history_never_the_present(self):
-        f = gw._Fanout()
+        f = gw.Fanout()
         sub = gw.EventSubscription(f, f.next_key(), None, 2)
         f.add(sub)
         for i in range(5):
@@ -320,7 +320,7 @@ class FanoutTests(unittest.TestCase):
         self.assertEqual(sub.dropped, 3, "and the consumer must be TOLD it lost some")
 
     def test_close_is_idempotent_and_releases_the_reference(self):
-        f = gw._Fanout()
+        f = gw.Fanout()
         sub = gw.EventSubscription(f, f.next_key(), None, 4)
         f.add(sub)
         sub.close()

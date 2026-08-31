@@ -33,7 +33,6 @@ The single exception to "no extra gate" is `_DENIED_CONFIG_KEYS` below.
 """
 from __future__ import annotations
 
-import json
 import re
 import time
 
@@ -42,6 +41,7 @@ from fastapi.responses import JSONResponse
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from . import audit, config, runtime, ws_auth
+from .runtime import gateway_policy
 from .runtime.errors import GatewayError
 
 router = APIRouter()
@@ -58,24 +58,15 @@ _TIMEOUT_MIN, _TIMEOUT_MAX = 1.0, 120.0
 # for the turn path along with everything else.
 _RATE, _BURST = 30.0, 60.0
 
-# ---------------------------------------------------------------------------
-# The one deny-list, and why it exists.
-#
-# `config.set` can reach the gateway's own device-authentication settings. A UI
-# bug that writes one of these converts a transient mistake into a PERMANENT
-# posture change that survives every restart, on the setting that decides
-# whether the gateway authenticates browsers at all.
-#
-# Two entries, the reason in the code, the same shape as `_OURS` in
-# `provision.retire_policies`. This is technically an "extra gate" and was an
-# explicit decision rather than a default. Setup → Agent → Runtime shows the
-# current posture read-only, with the `nemoclaw` command to change it, so the
-# capability is visible rather than silently missing.
-# ---------------------------------------------------------------------------
-_DENIED_CONFIG_KEYS = (
-    "gateway.controlUi.dangerouslyDisableDeviceAuth",
-    "gateway.controlUi.allowInsecureAuth",
-)
+# The deny-list lives in `runtime/gateway_policy.py` now, because the shim's
+# `/gateway/rpc` is a SECOND independent door to the same `config.set`. Two
+# doors need the same lock, and a copy-pasted predicate is one that drifts.
+# Re-exported under the private names because tests/test_gateway_api.py reaches
+# both by name, and downstream readers expect them here.
+_DENIED_CONFIG_KEYS = gateway_policy.DENIED_CONFIG_KEYS
+_CONFIG_WRITES = gateway_policy.CONFIG_WRITES
+_asserts_key = gateway_policy.asserts_key
+_denied_config_write = gateway_policy.denied_config_write
 
 _buckets: dict[str, list] = {}
 
@@ -90,58 +81,6 @@ def _rate_ok(key: str) -> bool:
     _buckets[key] = [tokens - 1.0, now]
     return True
 
-
-# config.set, config.patch and config.apply ALL take one param, `raw`, holding
-# the ENTIRE openclaw.json as a string (verified live 2026-08-24). Three
-# consequences the old substring check got wrong:
-#   1. It gated only `config.set`, so patch/apply were two ungated routes to the
-#      same keys.
-#   2. It matched `repr(params)` as a substring, so on a real whole-config write
-#      it FALSE-NEGATIVED — the dotted string never appears in the JSON that
-#      nests it {"gateway":{"controlUi":{...}}} — and simultaneously
-#      FALSE-POSITIVED on this box, where the strings occur verbatim inside an
-#      unrelated doctor-suppression block, refusing every legitimate write.
-# So: parse `raw`, walk the dotted path (and tolerate a flattened dotted key at
-# any dict level), refuse only when a denied key is actually ASSERTED (set truthy
-# — the dangerous direction), so writing it false or a round-trip that leaves it
-# alone still passes.
-_CONFIG_WRITES = ("config.set", "config.patch", "config.apply")
-
-
-def _asserts_key(doc, dotted: str) -> bool:
-    """True if `doc` SETS the dotted key to a truthy value — nested or flattened.
-
-    Value-aware on purpose: both denied keys are "dangerously disable" booleans,
-    so the posture change the deny-list exists to prevent is setting them TRUE.
-    Writing them false, or omitting them, is the safe direction and passes — which
-    is also what lets an owner round-trip a whole config (fetch, edit an unrelated
-    key, write back) without being blocked, as long as they are not asserting the
-    dangerous flag.
-    """
-    if not isinstance(doc, dict):
-        return False
-    if dotted in doc:
-        return bool(doc[dotted])
-    head, _, rest = dotted.partition(".")
-    if rest and head in doc and _asserts_key(doc[head], rest):
-        return True
-    return any(_asserts_key(v, dotted) for v in doc.values() if isinstance(v, dict))
-
-
-def _denied_config_write(method: str, params: dict) -> str | None:
-    if method not in _CONFIG_WRITES:
-        return None
-    raw = params.get("raw")
-    if not isinstance(raw, str):
-        return None          # not the live shape; the gateway validates it
-    try:
-        doc = json.loads(raw)
-    except ValueError:
-        return None          # malformed raw is the gateway's to refuse, not ours
-    for key in _DENIED_CONFIG_KEYS:
-        if _asserts_key(doc, key):
-            return key
-    return None
 
 
 def _fail(code: str, message: str, **extra) -> JSONResponse:
@@ -284,8 +223,17 @@ async def gateway_status():
             # (captured live). A client comparing the two forms without knowing
             # the agent id cannot tell that they name the same session.
             "agent_id": config.OC_AGENT,
-            "token": {"configured": bool(_token_source()),
-                      "source": _token_source()},
+            # PREFER THE RELAYED BLOCK, and note it sits AFTER `**st` — which is
+            # exactly why a pre-check on `st` did nothing: this literal wins.
+            # `_token_source()` reads THIS host's env and secrets dir, and on a
+            # two-host install the gateway credential lives only on the agent
+            # host by design. So the local read is always empty, and GatewayCard
+            # rendered "Without a token the gateway runtime cannot connect" beside
+            # a Connection row saying connected. A proxying runtime relays the
+            # answer from the machine that actually holds it.
+            "token": (st["token"] if isinstance(st.get("token"), dict)
+                      else {"configured": bool(_token_source()),
+                            "source": _token_source()}),
             "apps_origin": apps_origin.warning()}
 
 

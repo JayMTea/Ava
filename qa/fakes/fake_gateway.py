@@ -358,6 +358,6 @@ class FakeGateway:
         """Advance the sequence WITHOUT sending, so the next event reads as a gap.
 
         The client must announce it rather than smoothing it over — see
-        `_Fanout.dispatch`.
+        `Fanout.dispatch`.
         """
         self._seq += n

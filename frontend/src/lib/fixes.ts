@@ -48,6 +48,11 @@ export function fixForCode(code?: string | null): FixAction | undefined {
       gateway_key_refused: 'that config key is protected — change it with the nemoclaw CLI, not from here',
       gateway_rate_limited: 'too many calls to the gateway at once — it will clear on its own',
       gateway_unsupported_method: 'this gateway build does not offer that method — the OpenClaw version may have moved on',
+      // Deliberately NOT worded like `agent_no_gateway`. That copy says to
+      // select `agent.runtime: openclaw_gw`, which on a two-host install is
+      // both the wrong instruction and the wrong machine: the runtime is
+      // correct, and the container that has to change is on the agent host.
+      gateway_proxy_unsupported: 'the agent container does not proxy the gateway — rebuild and restart it on the agent host',
     } as Record<string, string>)[sm[1]]
       ?? `the agent gateway returned ${pretty(sm[1])}`;
     return {

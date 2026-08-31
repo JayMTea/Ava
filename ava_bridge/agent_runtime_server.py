@@ -12,16 +12,18 @@ Run:  uvicorn ava_bridge.agent_runtime_server:app --host 0.0.0.0 --port 9100
 """
 from __future__ import annotations
 
-import hmac
 import os
 import re
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 
 from . import config
 from . import provision as provision_mod
-from .runtime import nemoclaw, nemoclaw_registry
+from .runtime import gateway_policy, nemoclaw, nemoclaw_registry, openclaw_gw_client
+from .runtime.errors import GatewayError
+from .security import constant_time_equals
 
 app = FastAPI(title="ava-agent-runtime")
 
@@ -48,15 +50,52 @@ _rt = nemoclaw()
 #
 # Without the flag the bridge can only say "no model", which is the sentence
 # that sent an owner to Setup to choose a model that was already chosen.
+#
+# `gateway.proxy` says this container relays the OpenClaw gateway control plane
+# over /gateway/rpc, /gateway/status and /gateway/reconnect. It is the
+# CONTAINER's vocabulary — the same namespace as provision.* — and deliberately
+# NOT `gateway.rpc`, which is AgentRuntime.capabilities()'s word for a claim
+# about an ADAPTER. RemoteRuntime.capabilities() returns this list verbatim, so
+# reusing the adapter's name here would silently re-partition
+# tests/test_runtime_capability_contract.py on the result of a network probe.
+# Two names, two questions.
+#
+# Not conditional on the gateway token existing: /healthz is unauthenticated, so
+# a conditional entry would tell an anonymous prober whether this agent is
+# credentialed.
 CAPABILITIES = ["provision.scope", "provision.assert", "provision.connector",
-                "health.model"]
+                "health.model",
+                "gateway.proxy"]
+
+# The gateway client for this process. Construction dials nothing — the socket
+# is opened lazily on the first call — so importing this module stays free.
+#
+# THIS is the security win of the whole design: the client runs HERE, where
+# `_default_url()` resolves to ws://127.0.0.1:<dashboardPort>/ and
+# `_refuse_remote` classifies it `loopback`, so the operator.admin token never
+# leaves this host at `agent.gateway.allow_remote`'s safe False default. The
+# tempting alternative — pointing the bridge's own client at this machine's
+# tailnet address — is precisely what that guard exists to stop.
+_gw = openclaw_gw_client.client()
+
+# Same shape and the same reason as gateway_api's: dotted lowerCamel and nothing
+# else, checked again at this door because this is a second network boundary.
+_GW_METHOD_RE = re.compile(r"^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)*$")
+_GW_METHOD_MAX = 64
+_GW_TIMEOUT_MIN, _GW_TIMEOUT_MAX = 1.0, 120.0
 
 
 @app.middleware("http")
 async def _auth(request: Request, call_next):
     if request.url.path != "/healthz":
         tok = request.headers.get("x-ava-agent-token", "")
-        if not (config.AGENT_TOKEN and hmac.compare_digest(tok, config.AGENT_TOKEN)):
+        # `constant_time_equals`, not `hmac.compare_digest`. Starlette decodes
+        # headers latin-1, and compare_digest raises TypeError on a non-ASCII
+        # str — raised inside BaseHTTPMiddleware that is a 500 handed to an
+        # UNAUTHENTICATED caller. ava_bridge/security.py exists for exactly this
+        # class of bug and records having found it on /login and /internal. It
+        # matters more here now: this door fronts an operator.admin control plane.
+        if not (config.AGENT_TOKEN and constant_time_equals(tok, config.AGENT_TOKEN)):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
     return await call_next(request)
 
@@ -140,7 +179,7 @@ def healthz(request: Request):
     tok = request.headers.get("x-ava-agent-token", "")
     if tok:
         body["authed"] = bool(config.AGENT_TOKEN
-                              and hmac.compare_digest(tok, config.AGENT_TOKEN))
+                              and constant_time_equals(tok, config.AGENT_TOKEN))
     return body
 
 
@@ -242,6 +281,153 @@ async def registry_record():
     socket and that registry all live out here.
     """
     return {"record": _rt.registry_record()}
+
+
+# --------------------------------------------------------------------------- #
+# The gateway control plane, relayed.
+#
+# WHY THE CLIENT LIVES HERE AND NOT ON THE BRIDGE. OpenClaw's gateway is bound to
+# THIS host's loopback, and `openclaw_gw_client._refuse_remote` refuses to send an
+# operator.admin token anywhere but loopback unless `agent.gateway.allow_remote`
+# is set. Running the real client in this container keeps `_url_class()` at
+# "loopback", so that refusal stays intact at its safe default and the token never
+# crosses a network. Pointing the bridge's client at this machine's tailnet
+# address instead is exactly what the guard exists to stop — and it would also
+# break token rotation, because the only recovery path shells out to `nemoclaw`,
+# which exists in this image and never in the bridge's.
+#
+# NOTHING HERE MAY SET agent.gateway.allow_remote.
+#
+# Authentication is free: `_auth` above rejects every path but /healthz, so these
+# three routes are already behind the shared bearer with no new code. That is
+# also why the event stream, when it lands, must be HTTP and not a websocket —
+# Starlette forwards non-http scopes past BaseHTTPMiddleware untouched.
+# --------------------------------------------------------------------------- #
+def _gw_token_source() -> str:
+    """Where the gateway token came from — never the token itself."""
+    from . import settings
+    if os.environ.get("AVA_OC_GATEWAY_TOKEN"):
+        return "env"
+    return "file" if settings.secret("openclaw_gateway_token") else ""
+
+
+def _gw_snapshot() -> dict:
+    """The gateway's own nine status keys, plus what only this host can answer.
+
+    The three extra keys exist because the bridge's copies of them describe the
+    WRONG MACHINE: `agent.gateway.url`, `allow_remote` and the operator token all
+    live here by design, so Setup -> Agent would otherwise render "Operator token:
+    not set" beside a Connection row saying connected.
+    """
+    # `start()` first, and it is idempotent. The client dials lazily — the
+    # reference `status()` is a pure read that never connects — so without this
+    # the supervisor is only started by the first RPC. The bridge polls status
+    # long before anything calls a method, and it would poll a socket nobody had
+    # opened: `phase: "down"` with an EMPTY `why`, forever, on a gateway that is
+    # up. Making the health poll also the thing that keeps the socket alive is
+    # what lets the connection recover on its own.
+    _gw.start()
+    st = _gw.status()
+    st["token"] = {"configured": bool(_gw_token_source()),
+                   "source": _gw_token_source()}
+    st["allow_remote"] = bool(config.AGENT_GATEWAY_ALLOW_REMOTE)
+    st["url"] = st.get("url") or ""
+    return st
+
+
+@app.get("/gateway/status")
+async def gateway_status():
+    """What the control plane is doing, as THIS host sees it.
+
+    Read from the client's in-memory snapshot — never a socket round trip. The
+    bridge polls this, and `RemoteGatewayClient.status()` is called synchronously
+    on the bridge's event loop from a route that has no try/except, so anything
+    slow or throwing here becomes an accepted-then-dropped websocket over there.
+    """
+    return await run_in_threadpool(_gw_snapshot)
+
+
+@app.post("/gateway/rpc")
+async def gateway_rpc(request: Request):
+    """One control-plane call, relayed to the gateway on this host's loopback.
+
+    Coded failures ride as HTTP 200 bodies carrying all six `as_body()` keys.
+    That is not a style choice: the bridge rebuilds a `GatewayError` from this
+    body, and `gateway_api._audit_error` classifies refusal-vs-failure ENTIRELY
+    from `error_code`, while the browser's fix links route on it. A bodyless 500
+    loses `gw_code` and `detail` — the exact pair `tests/test_gateway_api.py`
+    asserts survives all the way to the panel. Real status codes stay reserved
+    for failures of THIS door: a malformed body, a bad method name.
+    """
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001 — a malformed body is the caller's fault
+        body = None
+    if not isinstance(body, dict):
+        return JSONResponse({"error": "expected a JSON object"}, status_code=400)
+
+    method = str(body.get("method") or "")
+    if not method or len(method) > _GW_METHOD_MAX or not _GW_METHOD_RE.match(method):
+        return JSONResponse({"error": "malformed method name",
+                             "error_code": "bad_method"}, status_code=400)
+
+    # `body.get("params") or {}` would turn a list, 0 or "" into {} and forward a
+    # malformed call as if nothing were wrong. Allow absent-or-object, nothing else.
+    params = body.get("params")
+    if params is None:
+        params = {}
+    if not isinstance(params, dict):
+        return JSONResponse({"error": "params must be an object"}, status_code=400)
+
+    try:
+        timeout = float(body.get("timeout") or _GW_TIMEOUT_MAX)
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "timeout must be a number"}, status_code=400)
+    # Clamped on BOTH sides. The bridge clamps to protect its own worker; this
+    # clamps to protect a worker on this host, which a caller holding the shared
+    # bearer could otherwise pin for as long as it liked.
+    timeout = max(_GW_TIMEOUT_MIN, min(_GW_TIMEOUT_MAX, timeout))
+
+    # The deny-list is enforced here as well as on the bridge, because this route
+    # is a SECOND, independent door to `config.set` for anything holding the
+    # shared bearer — on the keys that decide whether the gateway authenticates
+    # browsers at all. Same module both sides, so the two cannot drift.
+    denied = gateway_policy.denied_config_write(method, params)
+    if denied is not None:
+        return JSONResponse(
+            {"ok": False, "error_code": "gateway_key_refused",
+             "message": (f"`{denied}` governs whether the gateway authenticates "
+                         f"browsers at all, so it is not writable from here. "
+                         f"Change it with the nemoclaw CLI if you mean to."),
+             "key": denied})
+
+    key = body.get("idempotency_key")
+    try:
+        payload = await run_in_threadpool(
+            lambda: _gw.rpc(method, params, timeout=timeout,
+                            idempotency_key=key if key else None))
+    except GatewayError as e:
+        return JSONResponse(e.as_body())
+    except Exception as e:  # noqa: BLE001 — never a bodyless 500 across this hop
+        return JSONResponse(GatewayError(
+            f"the gateway client failed: {type(e).__name__}",
+            "gateway_rpc_failed").as_body())
+    return {"ok": True, "payload": payload}
+
+
+@app.post("/gateway/reconnect")
+async def gateway_reconnect():
+    """Drop the socket and let the supervisor redial immediately.
+
+    Answers ok unconditionally, like the bridge route that calls it: the owner
+    asked to try again, and "we have asked it to" is the honest report — whether
+    the redial then succeeds is what the status phase is for.
+    """
+    try:
+        await run_in_threadpool(_gw.reconnect)
+    except Exception:  # noqa: BLE001 — a failed nudge is not worth a 500
+        pass
+    return {"ok": True}
 
 
 def main() -> int:

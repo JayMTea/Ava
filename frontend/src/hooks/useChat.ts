@@ -117,7 +117,15 @@ export function useChat() {
     const check = () => {
       void fetch('/api/gateway/status', { credentials: 'same-origin' })
         .then((r) => (r.ok ? r.json() : null))
-        .then((j) => { if (live) setStreamable(!!j?.configured && j?.phase === 'ready'); })
+        // `events !== false`, not `=== true`. A control plane can be `ready`
+        // for request/response RPC and still carry NO event stream — that is
+        // exactly the `remote` proxy's first slice. Streaming a turn into a
+        // runtime with no frames shows "Still working..." with no
+        // chain-of-thought and lands the reply on the 5s reconcile, which is
+        // strictly worse than the polled floor it replaced. `!== false` so a
+        // runtime that never sends the key (openclaw_gw) keeps working.
+        .then((j) => { if (live) setStreamable(!!j?.configured && j?.phase === 'ready'
+                                               && j?.events !== false); })
         // A failed check means "not streamable", never "assume yes": the floor
         // works, and guessing wrong the other way strands the turn.
         .catch(() => { if (live) setStreamable(false); });

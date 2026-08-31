@@ -36,6 +36,36 @@ from ava_bridge.runtime.errors import GatewayError, GatewayUnsupported
 RUNTIMES = sorted({id(r): r for r in runtime._REGISTRY.values()}.values(),
                   key=lambda r: r.name)
 
+# NO NETWORK. This must be started before the partition below, because
+# `RemoteRuntime.capabilities()` and `.status()` are live HTTP probes of an agent
+# shim on another machine. Without the pin, the partition — and every assertion
+# keyed off it — was a fact about whether a service somewhere else happened to
+# answer during collection: CI got one parametrisation and a maintainer on the
+# tailnet got the opposite, from the same source tree. The file's own docstring
+# has always claimed "no network"; this is what makes that true.
+# STARTED IN setUpModule, NOT AT IMPORT. A `mock.patch(...).start()` at module
+# scope runs during pytest COLLECTION and stays live until this module's
+# teardown — which is to say, across every test file that sorts between them.
+# It did: it replaced `requests` for `tests/test_remote_gateway_proxy.py` too and
+# failed a test there that passes alone. Module-scope patches are collection-time
+# global state; keep them inside the fixture that owns them.
+_NO_SHIM = mock.patch("ava_bridge.runtime.remote.requests",
+                      **{"get.side_effect": OSError("no network in this file"),
+                         "post.side_effect": OSError("no network in this file")})
+
+
+def setUpModule():
+    _NO_SHIM.start()
+    for rt in RUNTIMES:
+        cache = getattr(rt, "_avail_cache", None)
+        if isinstance(cache, dict):
+            cache.update(ts=0.0, ok=None, caps=[])
+
+
+def tearDownModule():
+    _NO_SHIM.stop()
+
+
 # The split that matters, and it is NOT "is it connected right now".
 #
 # `GatewayUnsupported` means "this runtime has no control plane" — a permanent
@@ -44,11 +74,79 @@ RUNTIMES = sorted({id(r): r for r in runtime._REGISTRY.values()}.values(),
 # (choose a different runtime vs start the gateway), which is the whole reason
 # errors.py keeps them as two types, so the guard has to test them separately or
 # it quietly permits one to be reported as the other.
-HAS_CONTROL_PLANE = [r for r in RUNTIMES if "gateway.rpc" in r.capabilities()]
-NO_CONTROL_PLANE = [r for r in RUNTIMES if "gateway.rpc" not in r.capabilities()]
+#
+# THE PARTITION IS `control_plane()`, NOT `capabilities()`, and the difference is
+# the whole reason `remote` exists. `capabilities()` answers "what does the far
+# side offer RIGHT NOW", which for a cross-host adapter is a fact about someone
+# else's uptime; `control_plane()` answers "does this adapter have a control
+# plane at all", which is the permanent fact `GatewayUnsupported` is about.
+# Keying the refusal contract on the transient one meant a runtime was obliged to
+# claim it had no control plane whenever its agent host was briefly unreachable —
+# and "choose a different runtime" is the wrong fix for a container that needs
+# rebuilding, on a machine the owner has not been told about.
+HAS_CONTROL_PLANE = [r for r in RUNTIMES if r.control_plane() is not None]
+NO_CONTROL_PLANE = [r for r in RUNTIMES if r.control_plane() is None]
+
+# The third state the binary split does not model: an adapter that HAS a control
+# plane whose usefulness depends on a host somewhere else. `direct`/`nemoclaw`
+# never have one; `openclaw_gw` always does, even when its socket is down;
+# `remote` has one that can be present, absent or merely unreachable — three
+# outcomes with three different fixes on two different machines. Such a runtime
+# must still REFUSE rather than bluff, and it must refuse with a code that names
+# the real fix instead of borrowing `agent_no_gateway`'s.
+def conditional_control_plane():
+    """Computed lazily, INSIDE a test, because `capabilities()` is a live probe
+    for `remote` and must run under the `setUpModule` pin."""
+    return [r for r in HAS_CONTROL_PLANE if "gateway.rpc" not in r.capabilities()]
 
 
 class ContractTests(unittest.TestCase):
+
+    def test_a_conditional_control_plane_refuses_without_bluffing(self):
+        """`remote` proxies the gateway through an agent container on another
+        host. When that container cannot proxy — too old, unreachable, or its
+        token rejected — the adapter must still REFUSE, and it must NOT reuse
+        `agent_no_gateway`: that code's copy tells the owner to select
+        `agent.runtime: openclaw_gw`, which on a two-host install is both the
+        wrong instruction and the wrong machine. The honest answer names the
+        agent host and says to rebuild the container there.
+        """
+        for rt in conditional_control_plane():
+            with self.subTest(runtime=rt.name):
+                with self.assertRaises(GatewayError) as ctx:
+                    rt.rpc("system.info")
+                self.assertNotIsInstance(
+                    ctx.exception, GatewayUnsupported,
+                    "a runtime whose control plane is merely unreachable "
+                    "reported having none at all")
+                self.assertTrue(ctx.exception.code)
+                self.assertNotEqual(ctx.exception.code, "agent_no_gateway")
+                self.assertTrue(str(ctx.exception),
+                                "the refusal carries no owner-facing sentence")
+
+    def test_a_conditional_control_plane_still_hands_back_a_subscription(self):
+        """Same rule as a disconnected gateway: empty, but not dead. A queue that
+        can never yield is indistinguishable from a quiet agent."""
+        for rt in conditional_control_plane():
+            with self.subTest(runtime=rt.name):
+                sub = rt.subscribe(["run.step"])
+                try:
+                    self.assertIsNone(sub.get(timeout=0))
+                finally:
+                    sub.close()
+
+    def test_the_partition_is_not_a_network_probe(self):
+        """The pin at the top of this file is load-bearing, not hygiene: without
+        it this file asserted opposite contracts on CI and on a maintainer's box.
+        If `remote` ever lands in NO_CONTROL_PLANE again, the refusal tests below
+        will demand `GatewayUnsupported` from an adapter that legitimately has a
+        control plane, and the failure will look like a bug in the adapter."""
+        names = {r.name for r in HAS_CONTROL_PLANE}
+        self.assertIn("remote", names,
+                      "`remote` has a control plane whether or not its agent "
+                      "host answers — the partition must not depend on a probe")
+        self.assertTrue(conditional_control_plane(),
+                        "nothing exercises the conditional contract")
 
     def test_the_registry_is_not_empty(self):
         """A vacuous pass is the failure mode every guard in this repo watches

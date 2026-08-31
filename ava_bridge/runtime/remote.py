@@ -19,6 +19,7 @@ import time
 import requests
 
 from .base import AgentRuntime
+from .errors import GatewayUnsupported
 from .. import config
 
 
@@ -35,6 +36,11 @@ class RemoteRuntime(AgentRuntime):
     def __init__(self):
         self._avail_cache: dict = {"ts": 0.0, "ok": None, "caps": [], "why": "",
                                    "model": "", "provider": ""}
+        # Memoised, never constructed at import: `runtime.configured()` hands back
+        # a module-level singleton, and the RPC path and /ws/gateway's fan-out
+        # must share ONE client or a subscriber registered on one would never see
+        # events dispatched into the other.
+        self._cp = None
 
     # ---- plumbing -----------------------------------------------------------
     def _url(self, path: str) -> str:
@@ -177,9 +183,74 @@ class RemoteRuntime(AgentRuntime):
         Carried on /healthz, which available() already polls every 15s — so this
         costs no extra round trip — and which is the one route the shim's auth
         middleware skips, so it works independently of token setup.
+
+        The shim answers in the CONTAINER's vocabulary (`gateway.proxy`);
+        `AgentRuntime.capabilities()` speaks the ADAPTER's (`gateway.rpc`).
+        Translate rather than conflate — two names for two questions — so that
+        adding a route to the shim can never silently re-partition
+        `tests/test_runtime_capability_contract.py` on a network probe.
         """
         self.available()  # refreshes the shared cache
-        return list(self._avail_cache.get("caps") or [])
+        caps = list(self._avail_cache.get("caps") or [])
+        if "gateway.proxy" in caps:
+            caps.append("gateway.rpc")
+        if "gateway.proxy.events" in caps:
+            caps.append("gateway.events")
+        return caps
+
+    # ---- control plane ------------------------------------------------------
+    def control_plane(self):
+        """The gateway client, or None when the agent is switched off.
+
+        MUST NOT PROBE. Four `async def` routes call this, and
+        `capabilities()` is a live 3s `requests.get` on a cold cache — calling it
+        here would put that stall on the event loop inside `/api/gateway/status`.
+        Hand back the client unconditionally and let IT report `phase: "down"`
+        with `why_code: "gateway_proxy_unsupported"` once its own poller learns
+        the truth.
+
+        Returning a client rather than None on a shim that cannot proxy is also
+        what keeps the browser retrying: `gatewayClient.ts` stops redialling
+        forever once it sees `unconfigured`, so an owner who then fixes the agent
+        container would have to reload the page. `configured: true, phase: down`
+        keeps it on its backoff and lets the fix land by itself.
+        """
+        if not config.AGENT_ENABLED:
+            return None
+        if self._cp is None:
+            from . import remote_gateway
+            self._cp = remote_gateway.RemoteGatewayClient()
+        return self._cp
+
+    def rpc_methods(self) -> frozenset[str]:
+        cp = self.control_plane()
+        return cp.methods() if cp is not None else frozenset()
+
+    def rpc(self, method: str, params: dict | None = None, *,
+            timeout: float = 30.0, idempotency_key: str | None = None) -> dict:
+        cp = self.control_plane()
+        if cp is None:
+            raise GatewayUnsupported(self.name)
+        return cp.rpc(method, params, timeout=timeout,
+                      idempotency_key=idempotency_key)
+
+    def subscribe(self, topics=None, *, maxlen: int = 1000):
+        cp = self.control_plane()
+        if cp is None:
+            raise GatewayUnsupported(self.name)
+        return cp.subscribe(topics, maxlen=maxlen)
+
+    def translate_event(self, topic: str, payload):
+        """Delegate to the gateway runtime's table — never a second copy.
+
+        `openclaw_gw` is the single home for gateway vocabulary (a guard and the
+        runtime reference both say so), and its implementation is pure: it reads
+        no client state. A copy here would be a table that drifts on the next
+        upstream rename, and the symptom would be chat losing its live
+        chain-of-thought with nothing erroring.
+        """
+        from .openclaw_gw import OpenClawGatewayRuntime
+        return OpenClawGatewayRuntime.translate_event(self, topic, payload)
 
     def provision(self, auto_install: bool = False, scope: str = "all",
                   on_line=None, connector: str | None = None) -> dict:
