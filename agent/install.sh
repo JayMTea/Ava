@@ -384,12 +384,35 @@ echo "[ava] proxy=$PROXY"
 # root, which is only correct when AVA_HOME is unset — on Docker the bridge reads
 # /data/data while this wrote /app/data, so every /internal/* callback 401'd.
 TOKEN_FILE="${AVA_DATA_DIR:-${AVA_HOME:-$HERE/..}/data}/.internal_token"
-if [ ! -s "$TOKEN_FILE" ]; then
-  mkdir -p "$(dirname "$TOKEN_FILE")"
-  ( umask 077; openssl rand -hex 32 > "$TOKEN_FILE" )
-  echo "[ava] generated data/.internal_token"
+# AVA_INTERNAL_TOKEN WINS, exactly as it does in the bridge's own resolution
+# (ava_bridge/config.py `_internal_token()`: env, then the file, then generate).
+# The two must agree or the derived tokens below are validated against a secret
+# nobody holds.
+#
+# This exists for the TWO-HOST deployment. config.py notes that "both containers
+# mount /data, so the internal token is the same on both sides" — true of a
+# single-host compose, false when the bridge and the agent runtime are on
+# different machines with their own volumes. There this script would reach the
+# `[ ! -s ]` branch, mint its OWN root with `openssl rand`, and hand every MCP
+# server a token derived from it. The servers then start perfectly and every
+# `/internal/*` callback 401s — a failure quieter than a server that will not
+# start at all, because nothing logs it but the tool call that returns nothing.
+#
+# With this, the root secret is declarable next to AVA_AGENT_TOKEN and
+# AVA_ROUTER_TOKEN, which the same deployments already have to pin for the same
+# reason. Without it, a copied file is the only thing holding the two hosts
+# together and a recreated volume silently breaks every tool.
+if [ -n "${AVA_INTERNAL_TOKEN:-}" ]; then
+  INTERNAL_TOKEN="$AVA_INTERNAL_TOKEN"
+  echo "[ava] internal token: AVA_INTERNAL_TOKEN (env)"
+else
+  if [ ! -s "$TOKEN_FILE" ]; then
+    mkdir -p "$(dirname "$TOKEN_FILE")"
+    ( umask 077; openssl rand -hex 32 > "$TOKEN_FILE" )
+    echo "[ava] generated data/.internal_token"
+  fi
+  INTERNAL_TOKEN="$(tr -d '\n' < "$TOKEN_FILE")"
 fi
-INTERNAL_TOKEN="$(tr -d '\n' < "$TOKEN_FILE")"
 
 # --- 2b-ii. OpenClaw gateway operator token ----------------------------------
 # The bridge reaches OpenClaw's own control plane over a WebSocket when
@@ -413,8 +436,25 @@ if [ ! -s "$GW_TOKEN_FILE" ]; then
     # `gateway-token` is the dedicated command and prints the token alone:
     #   nemoclaw <name> gateway-token   Print the sandbox agent's auth token
     # Verified against nemoclaw v0.0.96's own help output rather than assumed.
+    # `|| true` is LOAD-BEARING, and its absence cost every Ava tool on a
+    # two-host install. This block is documented three lines up as best-effort,
+    # but the script runs under `set -euo pipefail` (line 38): with `pipefail`
+    # the pipeline takes nemoclaw's non-zero status, and a command substitution
+    # in an assignment propagates it, so `set -e` killed install.sh HERE —
+    # before §2c discovered a single MCP server and before §3 deployed one.
+    #
+    # Observed on the DGX Spark, where `gateway-token` exits 1 with "Could not
+    # retrieve the gateway auth token". The five `ava-*` MCP servers therefore
+    # kept whatever a NemoClaw migration had left in their argv — the literal
+    # string `[STRIPPED_BY_MIGRATION]` — and every one of them failed to start,
+    # every 30 minutes, while `install.sh` reported only a generic "issues" and
+    # the agent quietly served zero Ava tools.
+    #
+    # The `dashboard-url` fallback below already had its guard, which is what
+    # made the missing one here so easy to miss. Best-effort has to be spelled
+    # out in the shell, not just in the comment.
     _gw_tok="$(timeout 20 "$NEMOCLAW" "$SANDBOX" gateway-token --quiet 2>/dev/null \
-      | tr -d '\r\n' | head -c 512)"
+      | tr -d '\r\n' | head -c 512 || true)"
     # Fallback for a NemoClaw that predates it: `dashboard-url` prints an
     # authenticated URL carrying the same token, which is how NemoClaw hands one
     # to a browser. Kept because the pinned ref is bumped deliberately and an

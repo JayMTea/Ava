@@ -1,0 +1,64 @@
+[Unit]
+Description=NemoClaw dashboard port-forward — 127.0.0.1:{PORT} -> sandbox "{SANDBOX}"
+Documentation=https://www.nvidia.com/nemoclaw
+# WHAT THIS OWNS. OpenClaw's gateway — its JSON-RPC control plane and Control UI
+# — is reachable only through a port-forward into the sandbox. `nemoclaw
+# <name> recover` and `nemoclaw connect` both establish it by spawning
+#   ssh -o ProxyCommand='openshell ssh-proxy ...' -N -L 127.0.0.1:{PORT}:...
+# DETACHED, so it is reparented to init and nothing supervises it. It carries
+# `ExitOnForwardFailure=yes` and a ServerAlive probe, so when the link drops the
+# ssh exits — and the port simply never comes back.
+#
+# Observed on a real box: an orphaned ssh (PPID 1) held the port for two days
+# while `nemoclaw-recover.service` — the ONLY thing meant to restore it — sat in
+# `failed (Result: timeout)`. That unit is `Type=oneshot`: even when it succeeds
+# it restores the forward once, at boot, and then exits. A boot-time restorer is
+# not a supervisor, which is exactly why the ssh was an orphan.
+#
+# So this unit runs the forward in the FOREGROUND and lets systemd own it. Every
+# consumer of the gateway — Ava's `openclaw_gw` runtime, the Control UI, the
+# agent shim's control-plane proxy — depends on this port being there.
+#
+# `Wants=`, not `Requires=`. The forward genuinely cannot work without the host
+# gateway, but `Requires=` on a unit the operator has not installed makes THIS
+# unit unloadable, turning a missing dependency into a confusing hard failure.
+# The ExecStartPre below does the real gating, by observation rather than by
+# declaration.
+Wants=openshell-gateway.service
+After=openshell-gateway.service
+StartLimitIntervalSec=0
+PartOf=default.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h
+Environment=OPENSHELL_GATEWAY={GATEWAY}
+# Wait for the host gateway's TCP listener. The forward is minted THROUGH that
+# gateway, so starting before it is up burns restarts against a socket that does
+# not exist yet. `After=` alone does not wait for readiness, only for ordering.
+#
+# `/bin/bash`, NOT `/bin/sh`. `/dev/tcp/host/port` is a BASH-ISM — bash fakes
+# that path internally and dash, which is /bin/sh on Debian and Ubuntu, has no
+# such feature and simply reports "No such file or directory". The probe then
+# never succeeds, the unit sits in `activating (start-pre)` for the full 90
+# iterations and the start job times out — while the gateway is listening on
+# that exact port the whole time. Observed on the DGX Spark, where it took the
+# forward down. `nemoclaw-boot-recover.sh` gets away with the same construct
+# only because it carries `#!/usr/bin/env bash`.
+ExecStartPre=/bin/bash -c 'for i in $(seq 1 90); do (exec 3<>/dev/tcp/127.0.0.1/{GATEWAY_PORT}) 2>/dev/null && exit 0; sleep 2; done; echo "the OpenShell gateway never came up on 127.0.0.1:{GATEWAY_PORT}" >&2; exit 1'
+# `forward start` is NOT idempotent against a forward OpenShell still tracks, and
+# a stale entry — or an orphan from a previous `nemoclaw recover` — makes it fail
+# with the port already bound. Clearing first is what makes a restart reliable.
+# Leading `-` so a no-op stop (the normal case) cannot fail the unit.
+ExecStartPre=-{OPENSHELL} forward stop {PORT} {SANDBOX} -g {GATEWAY}
+# NO `-d/--background`. That flag is the whole bug this unit exists to fix: it
+# returns immediately and leaves an unsupervised child. In the foreground the
+# forward IS the main process, so systemd sees it die and Restart= brings it
+# back — and the gateway-minted session token is re-issued on every restart
+# rather than being frozen into a command line that goes stale.
+ExecStart={OPENSHELL} forward start {PORT} {SANDBOX} -g {GATEWAY}
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

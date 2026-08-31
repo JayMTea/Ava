@@ -140,7 +140,97 @@ def render_gateway_unit() -> str:
     return MANAGED_TAG + "\n" + body
 
 
-UNITS = {"openshell-gateway.service": render_gateway_unit}
+#: Where the OpenShell CLI is looked for when PATH cannot be trusted. A systemd
+#: user service does not inherit the login shell's PATH, so `shutil.which` alone
+#: finds nothing on exactly the boxes this unit is for.
+OPENSHELL_CANDIDATES = ("~/.local/bin/openshell", "~/.npm-global/bin/openshell",
+                        "/usr/local/bin/openshell", "/usr/bin/openshell")
+
+
+def openshell_bin() -> str | None:
+    """The absolute path to the OpenShell CLI, or None.
+
+    Absolute on purpose: this value is written into `ExecStart=`, and systemd
+    refuses a relative one. Resolving it HERE — where a login PATH still exists —
+    is what lets the unit run in an environment that has none.
+    """
+    import shutil
+    for cand in OPENSHELL_CANDIDATES:
+        path = os.path.expanduser(cand)
+        if os.path.isfile(path) and os.access(path, os.X_OK):
+            return path
+    found = shutil.which("openshell")
+    return os.path.abspath(found) if found else None
+
+
+def render_dashboard_forward_unit() -> str:
+    """The unit text for the sandbox's dashboard port-forward.
+
+    Unlike the gateway unit above, nothing here is captured from a running
+    process, because nothing here has to be: every value is a FACT NemoClaw
+    already records in its own registry (`~/.nemoclaw/sandboxes.json`), which is
+    the same source `nemoclaw_registry` serves to the rest of Ava. Reading it
+    rather than a live process is what lets this unit be written while the
+    forward is DOWN — which is the state an operator is in when they need it.
+
+    The refusal discipline is the module's, though: every input is checked and a
+    missing one raises rather than being defaulted. A forward pointed at the
+    wrong port silently shadows the real one.
+    """
+    from . import config
+    from .runtime import nemoclaw_registry
+
+    sandbox = (config.OC_SANDBOX or "").strip()
+    if not sandbox:
+        raise CaptureError(
+            "no sandbox is configured (agent.sandbox / AVA_OC_SANDBOX), so "
+            "there is nothing to forward to.")
+    rec = nemoclaw_registry.registry_record(sandbox)
+    if rec is None:
+        raise CaptureError(
+            f"NemoClaw's registry has no entry for sandbox {sandbox!r}, so the "
+            "dashboard port and gateway name cannot be read. Onboard the "
+            "sandbox first — a forward to a guessed port is worse than none.")
+    port = nemoclaw_registry.openclaw_gateway_port(sandbox)
+    if not port:
+        raise CaptureError(
+            f"sandbox {sandbox!r} records no dashboardPort, so OpenClaw's "
+            "gateway has no forward to supervise. This is `dashboardPort` and "
+            "emphatically not `gatewayPort` — see nemoclaw_registry.")
+    gateway = str(rec.get("gatewayName") or "").strip()
+    if not gateway:
+        raise CaptureError(
+            f"sandbox {sandbox!r} records no gatewayName, and `openshell "
+            "forward` resolves the sandbox through its gateway. Refusing to "
+            "guess which gateway owns it.")
+    # The HOST gateway's own port, which the ExecStartPre waits on. Falls back to
+    # OpenShell's documented default only when the registry is silent, because
+    # this one is a readiness probe rather than a destination: getting it wrong
+    # delays the start, it does not point the forward somewhere wrong.
+    gateway_port = nemoclaw_registry.openshell_gateway_port(sandbox) or 8080
+    openshell = openshell_bin()
+    if not openshell:
+        raise CaptureError(
+            "the `openshell` CLI is not on this box (looked in "
+            + ", ".join(OPENSHELL_CANDIDATES) + " and PATH), so there is "
+            "nothing for ExecStart to run.")
+
+    with open(os.path.join(TEMPLATES, "nemoclaw-dashboard-forward.service.tmpl"),
+              encoding="utf-8") as f:
+        tmpl = f.read()
+    body = (tmpl
+            .replace("{PORT}", str(port))
+            .replace("{SANDBOX}", sandbox)
+            .replace("{GATEWAY_PORT}", str(gateway_port))
+            .replace("{GATEWAY}", gateway)
+            .replace("{OPENSHELL}", _portable(openshell)))
+    return MANAGED_TAG + "\n" + body
+
+
+#: Order matters only for the operator reading the output: the gateway is the
+#: thing the forward waits on, so it is listed first.
+UNITS = {"openshell-gateway.service": render_gateway_unit,
+         "nemoclaw-dashboard-forward.service": render_dashboard_forward_unit}
 
 
 def installed(name: str) -> str | None:
