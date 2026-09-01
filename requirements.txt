@@ -25,7 +25,7 @@
 #     same probe on 1.2.1, including which paths 404 (agent/voice/governance
 #     have no bare GET, on both versions).
 fastapi==0.136.3
-uvicorn[standard]==0.52.0
+uvicorn[standard]==0.52.4
 starlette==1.3.1
 # The agent runtime talks to the OpenClaw gateway over a WebSocket
 # (ava_bridge/runtime/openclaw_gw_client.py), and the /apps/<id> websocket proxy
@@ -35,7 +35,7 @@ starlette==1.3.1
 # clone while working fine on the maintainer's box. uvicorn's extra is an
 # implementation detail of the SERVER; Ava now imports the library directly, so
 # it declares it directly.
-websockets==16.0
+websockets==17.1
 requests==2.34.2
 # [socks] is load-bearing, not cosmetic: web search/fetch default to Tor
 # (config.WEB_TOR_SOCKS = socks5h://127.0.0.1:9050) and httpx only gains a SOCKS
@@ -46,8 +46,8 @@ requests==2.34.2
 httpx[socks]==0.28.1
 PyYAML==6.0.3
 python-multipart==0.0.32
-numpy==2.5.1
-anthropic==0.120.2
+numpy==2.5.2
+anthropic==1.2.0
 # Hardware abstraction layer (ava_bridge/hwinfo.py): psutil reads system/unified
 # memory + CPU natively across macOS/Linux/Windows. nvidia-ml-py (NVML) is the
 # native NVIDIA telemetry API; it's import-guarded and simply inactive on non-
@@ -75,4 +75,4 @@ trafilatura==2.2.0
 # No `[cli]` extra: that was a 0.x thing. Since 1.0 the `hf` console script
 # ships in the base package, and asking for a nonexistent extra only earns a
 # pip warning.
-huggingface_hub==1.26.0
+huggingface_hub==1.29.0
