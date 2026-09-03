@@ -539,6 +539,20 @@
   "APIRoute"
  ],
  [
+  "/api/hub/hardware/source",
+  [
+   "GET"
+  ],
+  "APIRoute"
+ ],
+ [
+  "/api/hub/hardware/source",
+  [
+   "POST"
+  ],
+  "APIRoute"
+ ],
+ [
   "/api/hub/memory",
   [
    "GET"

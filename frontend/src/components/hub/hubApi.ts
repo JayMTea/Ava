@@ -3,6 +3,7 @@
 // `req` helper so auth + error handling match the rest of the app.
 import { req } from '../../lib/api';
 import type { ModelFit } from '../../lib/modelFit';
+import type { HardwareSource } from '../../lib/types';
 
 // ---- Models / inference -----------------------------------------------------
 /** GET /api/setup/hardware — see setup_wizard.api_hardware.
@@ -49,6 +50,8 @@ export interface HardwareInfo {
   /** Stated meaningfully MORE than the box measured: the tier goes up, the model
    *  does not fit, the kernel kills it on first load. */
   overstated: boolean;
+  /** Whose machine the reading is. Absent from a bridge older than the field. */
+  machine?: HardwareSource;
 }
 
 /** GET/POST /api/hub/hardware/pool — the stated pool, and whether it is ours to set. */
@@ -60,6 +63,31 @@ export interface StatedPool {
   min_gb: number;
   max_gb: number;
 }
+
+/** GET/POST /api/hub/hardware/source — where the hardware is, and whether the
+ *  exporters there answer (see ava_bridge/hub/hardware.py source_get). */
+export interface RemoteHardware {
+  label: string;
+  node_url: string;
+  gpu_url: string;
+  disk_mount: string;
+  configured: boolean;
+  enabled: boolean;
+  feature_key: string;
+  /** Per field, the env var shadowing it ("" = none). */
+  env: Record<'node_url' | 'gpu_url' | 'disk_mount' | 'label', string>;
+  editable: boolean;
+  state: 'unconfigured' | 'off' | 'ok' | 'down';
+  reachable: boolean;
+  error_code: string;
+  error: string;
+  node_error: string;
+  gpu_error: string;
+  resolved_label: string;
+  gpu_name: string | null;
+  mem_total_gb: number | null;
+}
+export type RemoteHardwareForm = Pick<RemoteHardware, 'label' | 'node_url' | 'gpu_url' | 'disk_mount'>;
 /** One declared model in the allocation report: what it holds, and what may be done.
  *
  * Every field is a FACT or a machine token — no sentence the backend wrote for a
@@ -815,6 +843,15 @@ export const hub = {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ gb }),
+      }),
+  // Where the hardware is: the exporters of the machine that runs the models.
+  hardwareSource: () => req<RemoteHardware>('/api/hub/hardware/source', { cache: 'no-store' }),
+  setHardwareSource: (form: RemoteHardwareForm) =>
+    req<{ ok: boolean; error?: string; field?: string; source?: RemoteHardware }>(
+      '/api/hub/hardware/source', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
       }),
 
   // Freeing model memory. Every mutation is POST, never GET: the session cookie is

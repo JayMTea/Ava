@@ -229,6 +229,21 @@ export type ModelState =
   | 'remote'     // runs somewhere else, so not in this box's memory
   | 'unknown';   // residency genuinely unobservable
 
+/** WHOSE hardware a snapshot describes (ava_bridge/hwexporters.describe).
+ *  `local` is the box the bridge runs on; `exporters` is another machine read
+ *  through its node_exporter / GPU exporter. `error_code` carries the feature
+ *  registry's regular codes: `remote_hardware_down` (configured, switched on,
+ *  not answering — and nothing has been substituted for it, so the meters are
+ *  blank) or, on a LOCAL reading, `remote_hardware_off` (a remote machine is
+ *  configured but the switch is off). */
+export interface HardwareSource {
+  kind: 'local' | 'exporters';
+  label: string;
+  reachable: boolean;
+  error_code: string;
+  error: string;
+}
+
 export interface HardwareStats {
   gpu: {
     name: string | null;
@@ -330,6 +345,9 @@ export interface HardwareStats {
       in_memory?: boolean | null;
     }>;
   }>;
+  // Absent from a bridge older than this field; the monitor then reads as
+  // "this machine", which is what such a bridge measures.
+  machine?: HardwareSource;
   ts: number;
 }
 

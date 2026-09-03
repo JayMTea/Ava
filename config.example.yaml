@@ -415,6 +415,10 @@ features:
                            #   logged. Turning it OFF is the kill switch for the
                            #   feature the README leads with — view/correct/delete/
                            #   export it all from Setup -> Agent -> Memory (docs/MEMORY.md).
+  remote_hardware: false   # [AVA_REMOTE_HARDWARE] report the hardware of ANOTHER
+                           #   machine — the one with the GPU — through the
+                           #   exporters it runs. Addresses under `hardware.exporters`
+                           #   below; edit them in Setup -> Hardware.
 # ── Long-term memory (only used when features.memory is true) ────────────────
 memory:
   distill_interval_hours: 24  # [AVA_MEMORY_DISTILL_INTERVAL_H] how often Ava
@@ -556,6 +560,23 @@ perf:
 # Change it any time in Setup → Hardware; blank restores the measured reading.
 hardware:
   fit_memory_gb:           # [AVA_FIT_MEM_GB] blank = use what Ava measures
+  # Where the hardware IS, when it is not this box. The bridge on a NAS or a
+  # mini PC and the models on a GPU workstation is a common shape, and every
+  # reading Ava takes describes the box it runs on — so the floating monitor
+  # showed the NAS and the model-fit tier was sized from the NAS's RAM. Point
+  # Ava at the exporters on the GPU machine instead (features.remote_hardware
+  # above is the switch): node_exporter for memory, CPU and disk; NVIDIA's
+  # dcgm-exporter (or nvidia_gpu_exporter) for the GPU. Read live and direct,
+  # not through Prometheus. When they do not answer every reading is blank and
+  # the monitor says so — it never falls back to this box's numbers.
+  exporters:
+    label:                 # [AVA_HARDWARE_LABEL] what to call that machine
+                           #   (blank = its own hostname, from node_exporter)
+    node_url:              # [AVA_NODE_EXPORTER_URL] e.g. http://gpu-box:9100/metrics
+    gpu_url:               # [AVA_GPU_EXPORTER_URL]  e.g. http://gpu-box:9400/metrics
+    disk_mount: /          # [AVA_EXPORTER_DISK_MOUNT] the mount (or directory)
+                           #   on that machine holding the model weights
+    timeout_s: 1.5         # per exporter, per poll
 
 alloc:
   enabled: true              # [AVA_ALLOC] off = observe nothing, govern nothing

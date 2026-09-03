@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import { api } from '../lib/api';
+import { FixLink } from '../lib/FixLink';
+import { fixForCode } from '../lib/fixes';
 import { ProgressBar } from '../lib/ProgressBar';
 import { stateCopy } from '../lib/modelState';
 import type { HardwareStats } from '../lib/types';
@@ -350,6 +352,16 @@ export function HardwareBubble() {
   const disk = stats?.disk;
   const cpu = stats?.cpu;
   const models = stats?.models || [];
+  // Whose machine the readings are. The wording is the frontend's (CLAUDE.md);
+  // the backend sends the kind, the label and the registry's code.
+  const src = stats?.machine;
+  const srcFix = fixForCode(src?.error_code);
+  const srcNote = !src ? ''
+    : src.kind === 'exporters' && !src.reachable
+      ? `Not answering — ${src.error}.`
+      : src.kind === 'local' && src.error_code === 'remote_hardware_off'
+        ? 'This machine. The remote machine you set up is switched off.'
+        : '';
   // The backend already sorts the brain first; being explicit here means the
   // panel opens on what Ava thinks with even if that ever changes.
   const brain = models.find((m) => m.role_key === 'brain') || null;
@@ -394,7 +406,21 @@ export function HardwareBubble() {
           <div className="hwb-head">
             <ChipGlyph />
             <span>{gpu?.name || 'Compute'}</span>
+            {src?.kind === 'exporters' && (
+              <span className="hwb-host" title="Read from that machine's exporters">· {src.label}</span>
+            )}
           </div>
+          {/* Whose machine this is, when it is worth a line. The backend never
+              swaps in this box's numbers for a remote one that is not answering
+              — the meters go blank instead — so this is the one line that
+              explains the blanks, and it carries the fix-it link the registry
+              gives every capability (lib/fixes.ts). */}
+          {srcNote && (
+            <div className={'hwb-src' + (src && !src.reachable ? ' tone-err' : '')}>
+              {srcNote}
+              {srcFix && <> <FixLink fix={srcFix} /></>}
+            </div>
+          )}
           <div className="hwb-cols">
             {/* Left column: the machine. */}
             <div className="hwb-col">

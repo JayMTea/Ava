@@ -108,6 +108,19 @@ REGISTRY: dict[str, dict] = {
         "default": True,
         "env": "AVA_MEMORY",
     },
+    # Reading the hardware of ANOTHER machine — the one with the GPU — through
+    # the Prometheus exporters it already runs, instead of the box the bridge
+    # happens to be on. The addresses live under `hardware.exporters` and are
+    # edited in Setup → Hardware; this is the switch, and it keeps the one home
+    # every switch has. Off by default: the addresses are the owner's to state,
+    # and a switch with nothing behind it reads as local either way
+    # (ava_bridge/hwexporters.py).
+    "remote_hardware": {
+        "label": "Remote hardware",
+        "sub": "read GPU, memory, CPU and disk from another machine's exporters",
+        "default": False,
+        "env": "AVA_REMOTE_HARDWARE",
+    },
 }
 
 

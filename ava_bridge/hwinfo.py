@@ -223,11 +223,36 @@ def reset_cache() -> None:
     global _platform_id
     _platform_id = None
     _fit_cache.update(ts=0.0, info=None)
+    try:
+        from . import hwexporters
+        hwexporters.reset_cache()
+    except Exception:  # noqa: BLE001 — an optional reader that is absent has no cache
+        pass
 
 
 def _which(name: str) -> str | None:
     from shutil import which
     return which(name)
+
+
+# --- another machine's hardware ---------------------------------------------- #
+def remote_source():
+    """`(hwexporters, reading)` when the owner has pointed Ava at another
+    machine's exporters and switched that on, else None.
+
+    Consulted at the top of every public reader below, so the fit router, the
+    allocation governor, Setup and the monitor all describe the SAME box — the
+    one the models run on — with one switch. "On but not answering" still
+    returns a reading (an empty one): the whole point is that this host's own
+    numbers are the wrong machine's, so they must never be the fallback.
+    Lazy import: this module stays importable standalone.
+    """
+    try:
+        from . import hwexporters
+        r = hwexporters.reading()
+    except Exception:  # noqa: BLE001 — a broken optional reader reads as local
+        return None
+    return (hwexporters, r) if hwexporters.active(r) else None
 
 
 # --- system memory (unified/system RAM pool) --------------------------------- #
@@ -237,6 +262,9 @@ def system_mem() -> MemInfo:
     This is the whole-box RAM the dashboard shows and, on unified-memory
     hardware (Spark, Apple Silicon), also the model fit-limiting resource.
     """
+    remote = remote_source()
+    if remote is not None:
+        return remote[0].system_mem(remote[1])
     if _psutil is not None:
         try:
             vm = _psutil.virtual_memory()
@@ -292,6 +320,13 @@ _PROBE_MEASURED = "measured"    # a reader returned real numbers
 _PROBE_NA = "na"                # a reader RAN and the device said N/A
 _PROBE_UNREADABLE = "unreadable"  # a card exists but nothing could read it
 _PROBE_NONE = "none"            # no accelerator at all
+# The same four, public. A status is a contract two modules speak — this one
+# and the remote-exporters reader (hwexporters.py) that must answer in the same
+# vocabulary — and tests/test_module_boundaries.py is right that a name cannot
+# be private and shared at once. The underscored spellings stay for the callers
+# that already use them.
+PROBE_MEASURED, PROBE_NA, PROBE_UNREADABLE, PROBE_NONE = (
+    _PROBE_MEASURED, _PROBE_NA, _PROBE_UNREADABLE, _PROBE_NONE)
 
 
 def vram_probe() -> tuple[MemInfo, str]:
@@ -300,6 +335,9 @@ def vram_probe() -> tuple[MemInfo, str]:
     `status` is the load-bearing half: it is what lets `fit_pool()` refuse to
     pass system RAM off as an accelerator pool.
     """
+    remote = remote_source()
+    if remote is not None:
+        return remote[0].vram_probe(remote[1])
     nv = _nvml()
     if nv is not None:
         try:
@@ -689,7 +727,12 @@ def fit_pool() -> PoolInfo:
         # NOT an accelerator pool — the distinction the old code could not make.
         kind, accel = "system", False
 
-    capped, cap_kind = _pool_cap(sysm.total_gb if kind != "vram" else None)
+    if remote_source() is not None:
+        # A remote box is read whole, through exporters on the host itself: no
+        # container limit or VM slice of OURS applies to it.
+        capped, cap_kind = False, None
+    else:
+        capped, cap_kind = _pool_cap(sysm.total_gb if kind != "vram" else None)
     # An operator-stated pool replaces the SIZE and nothing else. The kind, the
     # accelerator, and whether this container is capped are all still measured —
     # stating "32 GB" says how much, not what, and certainly not that the cgroup
@@ -778,7 +821,10 @@ def fit_memory() -> MemInfo:
     # applied to the FIT number rather than inside `system_mem()` on purpose —
     # the dashboard's whole-box reading is a different question from "what may
     # this container use", and only the latter may gate a model recommendation.
-    info = _apply_cgroup_cap(info)
+    # …and only for THIS process. A remote box's pool is the remote box's; the
+    # ceiling on the bridge's own container says nothing about it.
+    if remote_source() is None:
+        info = _apply_cgroup_cap(info)
     _fit_cache.update(ts=now, info=info)
     return info
 
@@ -793,6 +839,9 @@ def gpus() -> list[GpuInfo]:
     "an accelerator we don't have code for", which blanked the dashboard bubble
     and every hardware-bubble reading on hardware that was working fine.
     """
+    remote = remote_source()
+    if remote is not None:
+        return remote[0].gpus(remote[1])
     pid = platform_id()
     if pid in ("linux-nvidia", "windows-nvidia"):
         got = _nvidia_gpus()
@@ -1029,8 +1078,19 @@ def snapshot() -> dict:
     """Everything the HAL knows, for /fit, the dashboard, and `ava doctor`."""
     fm = fit_memory()
     sm = system_mem()
+    try:
+        from . import hwexporters
+        machine = hwexporters.describe()
+    except Exception:  # noqa: BLE001 — the caption must never break the snapshot
+        machine = {"kind": "local", "label": "", "reachable": True,
+                   "error_code": "", "error": ""}
     return {
         "platform": platform_id(),
+        # WHOSE box the readings below describe — this one, or another read
+        # through its exporters (ava_bridge/hwexporters.py). `platform` stays
+        # this process's own class either way: it names which local providers
+        # exist, which is a fact about the bridge, not about the box reported.
+        "machine": machine,
         "fit_memory": {"free_gb": _r(fm.free_gb), "total_gb": _r(fm.total_gb),
                        "source": fm.source},
         "system_memory": {"free_gb": _r(sm.free_gb), "total_gb": _r(sm.total_gb),

@@ -36,7 +36,7 @@ from collections import deque
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
-from .. import audit, auth, hwinfo, settings
+from .. import audit, auth, features, hwexporters, hwinfo, settings
 
 router = APIRouter()
 
@@ -102,6 +102,116 @@ async def pool_set(request: Request):
     # the old one for another three seconds — which reads as the save not working.
     hwinfo.reset_cache()
     return {"ok": True, "stated_gb": gb, "restart_required": False}
+
+
+# --------------------------------------------------------------------------- #
+# Where the hardware IS.
+#
+# The bridge on one box and the models on another is a common shape (a NAS and
+# a GPU workstation), and every reader in hwinfo.py describes the box the
+# process is on. `hardware.exporters` names the other machine's node_exporter
+# and GPU exporter; `features.remote_hardware` is the switch. The switch keeps
+# the one home every switch has (Setup -> System -> Optional features) and this
+# form links to it rather than growing a second one. See ava_bridge/hwexporters.py.
+#
+# `restart_required` is False for the same engineered reason as the pool above:
+# the addresses are read per fetch and both caches are dropped on save.
+# --------------------------------------------------------------------------- #
+_SOURCE_FIELDS = (("node_url", hwexporters.NODE_URL_ENV),
+                  ("gpu_url", hwexporters.GPU_URL_ENV),
+                  ("disk_mount", hwexporters.MOUNT_ENV),
+                  ("label", hwexporters.LABEL_ENV))
+
+
+@router.get("/hardware/source")
+def source_get():
+    """The addresses, the switch, and whether the exporters answer right now."""
+    cfg = hwexporters.config()
+    env = {k: settings.env_override(e) or "" for k, e in _SOURCE_FIELDS}
+    r = hwexporters.reading()
+    d = hwexporters.describe(r)
+    gpu_name = mem_total = None
+    if r.state in ("ok", "down"):
+        cards = hwexporters.gpus(r)
+        gpu_name = cards[0].name if cards else None
+        m = hwexporters.system_mem(r)
+        mem_total = round(m.total_gb, 1) if m.total_gb else None
+    return {
+        "label": cfg["label"], "node_url": cfg["node_url"],
+        "gpu_url": cfg["gpu_url"], "disk_mount": cfg["disk_mount"],
+        "configured": hwexporters.configured(),
+        "enabled": features.enabled(hwexporters.KEY),
+        "feature_key": hwexporters.KEY,
+        # Per field: the env var shadowing it, or "". A form must not write a
+        # value the process would go on ignoring - same rule as the pool above.
+        "env": env,
+        "editable": not any(env.values()),
+        # The live verdict, in the registry's vocabulary.
+        "state": r.state, "reachable": d["reachable"],
+        "error_code": d["error_code"], "error": d["error"],
+        "node_error": r.node_error, "gpu_error": r.gpu_error,
+        "resolved_label": d["label"],
+        # A taste of the reading, so "it answered" is visible as numbers.
+        "gpu_name": gpu_name, "mem_total_gb": mem_total,
+    }
+
+
+@router.post("/hardware/source")
+async def source_set(request: Request):
+    """Set or clear the exporter addresses. Empty strings clear."""
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": "invalid json"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"ok": False, "error": "expected an object"},
+                            status_code=400)
+
+    shadowed = [e for _k, e in _SOURCE_FIELDS if settings.env_override(e)]
+    if shadowed:
+        return JSONResponse(
+            {"ok": False, "error": f"{', '.join(shadowed)} set in this "
+                                   "environment and take precedence — change "
+                                   "them there, or unset them to manage this here"},
+            status_code=409)
+
+    patch: dict = {}
+    for key, _env in _SOURCE_FIELDS:
+        raw = body.get(key, "")
+        if raw is None:
+            raw = ""
+        if not isinstance(raw, str):
+            return JSONResponse({"ok": False, "field": key, "error": "must be text"},
+                                status_code=400)
+        val = raw.strip()
+        if key in ("node_url", "gpu_url"):
+            why = hwexporters.validate_url(val)
+            if why:
+                return JSONResponse({"ok": False, "field": key, "error": why},
+                                    status_code=400)
+        elif key == "disk_mount":
+            if val and not val.startswith("/"):
+                return JSONResponse(
+                    {"ok": False, "field": key,
+                     "error": "must be an absolute path on that machine"},
+                    status_code=400)
+            val = val or "/"
+        elif key == "label" and len(val) > 60:
+            return JSONResponse({"ok": False, "field": key,
+                                 "error": "keep the name under 60 characters"},
+                                status_code=400)
+        patch[key] = val
+
+    try:
+        settings.save_patch({"hardware": {"exporters": patch}})
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": f"could not write ava.yaml: {e}"},
+                            status_code=500)
+    # Both caches, or the owner saves an address and watches the old reading
+    # for another few seconds - which reads as the save not working.
+    hwexporters.reset_cache()
+    hwinfo.reset_cache()
+    return {"ok": True, "restart_required": False, "source": source_get()}
 
 
 # --------------------------------------------------------------------------- #

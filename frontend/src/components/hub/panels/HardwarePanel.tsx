@@ -1,10 +1,14 @@
 import { useEffect, useState } from 'react';
+import type { ChangeEvent } from 'react';
+import { FixLink } from '../../../lib/FixLink';
+import { fixForCode } from '../../../lib/fixes';
 import { Icon } from '../../../lib/icons';
 import { EmptyState, Panel } from '../../ui/layout';
 import { useAction, useResource } from '../hooks';
-import { hub, type EngineLocality, type HardwareInfo } from '../hubApi';
+import { hub, type EngineLocality, type HardwareInfo, type RemoteHardwareForm } from '../hubApi';
 import { HubMessage } from '../ui/HubMessage';
 import { ResourceState } from '../ui/ResourceState';
+import { StatRow } from '../ui/StatRow';
 import { Tile } from '../ui/Tile';
 import { BudgetsPanel } from './BudgetsPanel';
 
@@ -66,11 +70,17 @@ export function HardwarePanel() {
   // engine_label must degrade to the raw key, never to "undefined ·".
   const engineName = engine ? (engine.engine_label || engine.engine) : '';
   const elsewhere = !!engine && engine.locality === 'host' && !!beRes.data?.in_container;
+  // The reading is ANOTHER machine's, read through its exporters ("Where the
+  // hardware is", below). Then it is where the models run, and the container
+  // caveats further down do not apply — they are about this box.
+  const remote = hwRes.data?.machine?.kind === 'exporters' ? hwRes.data.machine : null;
 
   return (
     <>
     <Panel title="Your hardware"
-      subtitle={elsewhere
+      subtitle={remote
+        ? `Measured on ${remote.label} through its exporters — the machine your models run on. It sets the recommended model tier.`
+        : elsewhere
         ? "What Ava can see from inside its container — which is not where your models run. See below."
         : "Detected automatically — it sets the recommended model tier. Pick and download the model itself under Agent → Brain."}>
       <ResourceState r={hwRes} label="your hardware"
@@ -95,6 +105,12 @@ export function HardwarePanel() {
           </div>
           <dl className="hub-kv" style={{ marginTop: 16 }}>
             <dt>Compute</dt><dd>{computeLabel(hw)}</dd>
+            {remote && (
+              <>
+                <dt>Measured on</dt>
+                <dd>{remote.label} · through its exporters{!remote.reachable && ' · not answering'}</dd>
+              </>
+            )}
             <dt>{hw.stated ? 'Memory (you set this)' : 'Usable memory'}</dt>
             <dd>{hw.fit_gb != null ? `${hw.fit_gb} GB · ${hw.source || 'detected'}` : '—'}
               {hw.stated && hw.measured_gb != null && (
@@ -120,6 +136,18 @@ export function HardwarePanel() {
               reports what it can see and declines to recommend a size from it. Whatever
               that engine already holds is what will run; pick from it under
               <b> Agent → Brain</b>.
+            </div>
+          )}
+
+          {/* Blank rather than borrowed: when the remote box is silent the
+              readings above are empty, never this machine's. Say why here,
+              and point at the form below rather than a fix-it link — it is
+              on this same page. */}
+          {remote && !remote.reachable && (
+            <div className="hub-note" style={{ marginTop: 14 }}>
+              <b>{remote.label} is not answering</b> — {remote.error}. The readings
+              above are blank rather than this machine's. Check the addresses under
+              “Where the hardware is” below.
             </div>
           )}
 
@@ -200,11 +228,148 @@ export function HardwarePanel() {
     </Panel>
 
     <div className="hub-section" />
+    <RemoteHardwarePanel onSaved={() => { hwRes.reload(); }} />
+
+    <div className="hub-section" />
     <StatedPoolPanel onSaved={() => { hwRes.reload(); }} />
 
     <div className="hub-section" />
     <BudgetsPanel />
     </>
+  );
+}
+
+// Where the hardware IS. Ava reads the box it runs on unless told otherwise,
+// and the common other shape — the bridge on a NAS, the models on a GPU
+// workstation — put the NAS's memory in the monitor and sized the tier from
+// it. The addresses live here; the SWITCH lives with every other capability
+// under Setup → System → Optional features (one home per surface), and this
+// panel links to it rather than growing a second one.
+//
+// No RestartBanner, for the same reason as the stated pool below: the
+// addresses are read per fetch and the caches are dropped on save, so it is
+// live. Copy is the frontend's (CLAUDE.md); the backend sends the state, the
+// per-exporter error and the registry's code.
+function RemoteHardwarePanel({ onSaved }: { onSaved: () => void }) {
+  const res = useResource(() => hub.hardwareSource());
+  const { data: s, reload } = res;
+  const blank: RemoteHardwareForm = { label: '', node_url: '', gpu_url: '', disk_mount: '' };
+  const [form, setForm] = useState<RemoteHardwareForm>(blank);
+  const { busy, message, run } = useAction();
+
+  useEffect(() => {
+    if (s) setForm({ label: s.label, node_url: s.node_url, gpu_url: s.gpu_url, disk_mount: s.disk_mount });
+  }, [s]);
+
+  const field = (k: keyof RemoteHardwareForm) => ({
+    value: form[k],
+    onChange: (e: ChangeEvent<HTMLInputElement>) =>
+      setForm((f) => ({ ...f, [k]: e.target.value })),
+  });
+  const commit = (body: RemoteHardwareForm, ok: string) => run(async () => {
+    const r = await hub.setHardwareSource(body);
+    if (r.error) return r.error;
+    reload();
+    onSaved();          // the reading above now describes a different machine
+  }, ok);
+
+  return (
+    <Panel title="Where the hardware is"
+      subtitle="Ava reports the machine it runs on unless you point it at the exporters of the machine that runs your models.">
+      <ResourceState r={res} label="the hardware source"
+        empty={<EmptyState text="Loading…" />}>
+        {(src) => {
+          // `_off` takes the generic rule in lib/fixes.ts: the switch is in
+          // Setup → System, which is exactly where that rule sends people.
+          const offFix = src.configured && !src.enabled
+            ? fixForCode(`${src.feature_key}_off`) : undefined;
+          const envVars = Object.values(src.env).filter(Boolean).join(', ');
+          return (
+          <>
+            {src.configured && (
+              <div className="stat-rows" style={{ marginBottom: 14 }}>
+                <StatRow label="Reading"
+                  tone={!src.enabled ? 'warn' : src.reachable ? 'ok' : 'err'}
+                  value={src.enabled
+                    ? `${src.resolved_label} · through its exporters`
+                    : 'this machine — remote hardware is switched off'} />
+                {src.enabled && src.node_url && (
+                  <StatRow label="node_exporter" tone={src.node_error ? 'err' : 'ok'}
+                    value={src.node_error || (src.mem_total_gb != null
+                      ? `answering · ${src.mem_total_gb} GB memory` : 'answering')} />
+                )}
+                {src.enabled && src.gpu_url && (
+                  <StatRow label="GPU exporter" tone={src.gpu_error ? 'err' : 'ok'}
+                    value={src.gpu_error || (src.gpu_name
+                      ? `answering · ${src.gpu_name}` : 'answering')} />
+                )}
+              </div>
+            )}
+            {offFix && (
+              <div className="hub-note" style={{ marginBottom: 14 }}>
+                <b>Remote hardware is switched off</b>, so Ava is still reporting this
+                machine. The switch lives with the other optional capabilities.
+                {' '}<FixLink fix={offFix} />
+              </div>
+            )}
+            {!src.editable ? (
+              // An env var beats ava.yaml, so a form that wrote config here would
+              // change addresses the process goes on ignoring. Say where they live.
+              <div className="hub-note">
+                <b>Set by <code>{envVars}</code> in this environment</b>, which takes
+                precedence over <code>ava.yaml</code>. Change it where it is set — in
+                {' '}<code>deploy/.env</code> or your compose file — then restart Ava.
+                Unset it to manage this here.
+              </div>
+            ) : (
+              <>
+                <div className="hub-field" style={{ maxWidth: 480 }}>
+                  <label>Machine name</label>
+                  <input className="hub-input" placeholder="blank = its own hostname"
+                    {...field('label')} />
+                </div>
+                <div className="hub-field" style={{ maxWidth: 480 }}>
+                  <label>node_exporter address — memory, CPU, disk</label>
+                  <input className="hub-input" placeholder="http://gpu-box:9100/metrics"
+                    inputMode="url" {...field('node_url')} />
+                </div>
+                <div className="hub-field" style={{ maxWidth: 480 }}>
+                  <label>GPU exporter address — dcgm-exporter or nvidia_gpu_exporter</label>
+                  <input className="hub-input" placeholder="http://gpu-box:9400/metrics"
+                    inputMode="url" {...field('gpu_url')} />
+                </div>
+                <div className="hub-field" style={{ maxWidth: 480 }}>
+                  <label>Where the model weights live on that machine</label>
+                  <input className="hub-input" placeholder="/" {...field('disk_mount')} />
+                </div>
+                <div className="hub-btn-row">
+                  <button type="button" className="hub-btn" disabled={busy}
+                    onClick={() => commit(form, 'Saved — in effect now.')}>
+                    <Icon name="check" />{busy ? 'Saving…' : 'Save'}
+                  </button>
+                  {src.configured && (
+                    <button type="button" className="hub-btn ghost" disabled={busy}
+                      onClick={() => { setForm(blank); commit(blank, 'Back to this machine.'); }}>
+                      Read this machine
+                    </button>
+                  )}
+                </div>
+                <HubMessage message={message} />
+              </>
+            )}
+            <div className="hub-note" style={{ marginTop: 14 }}>
+              Memory, CPU and disk come from <b>node_exporter</b>; utilisation,
+              temperature, power and video memory from the <b>GPU exporter</b>. Either
+              alone is fine. Ava reads them directly, so the numbers are live and the
+              monitor keeps working when your metrics stack is down. When they do not
+              answer the readings go blank and the monitor says so — Ava never shows
+              this machine's numbers in their place.
+            </div>
+          </>
+          );
+        }}
+      </ResourceState>
+    </Panel>
   );
 }
 

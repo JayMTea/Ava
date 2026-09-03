@@ -86,6 +86,16 @@ export function fixForCode(code?: string | null): FixAction | undefined {
   // so every destination here would be a dead end — `#hub/hardware` shows the
   // memory pool but not the button, and an empty hash navigates to the top. The
   // instruction belongs in the banner's own text instead; see inferenceView.ts.
+  // Remote hardware's addresses live in Setup → Hardware, not in Connectors:
+  // the exporters Ava reads another machine through are not an app. Its `_off`
+  // still takes the generic rule below, because the switch IS in Setup → System.
+  if (code === 'remote_hardware_down') {
+    return {
+      label: 'Open Setup → Hardware',
+      hash: 'hub/hardware',
+      tip: 'Opens Setup → Hardware — the exporters on the machine Ava reports on are not answering; their addresses live there.',
+    };
+  }
   m = /^(.+)_down$/.exec(code);
   if (m) {
     return {

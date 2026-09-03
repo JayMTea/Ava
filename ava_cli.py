@@ -160,7 +160,19 @@ def cmd_doctor(_args) -> int:
     except Exception as e:  # noqa: BLE001 — never let the matrix break doctor
         _row(WARN, "Platform", f"unreadable ({e})")
     try:
-        from ava_bridge import hardware
+        from ava_bridge import hardware, hwexporters
+        # WHOSE box the rows below describe. A bridge on a NAS reading a GPU
+        # workstation's exporters should say so here, and say when those
+        # exporters are not answering — the rows would otherwise be a wall of
+        # dashes with no cause.
+        src = hwexporters.describe()
+        if src["kind"] == "exporters":
+            _row(OK if src["reachable"] else BAD, "Source",
+                 f"{src['label']} via its exporters"
+                 + ("" if src["reachable"] else f" — {src['error']}"))
+        elif src["error_code"]:
+            _row(WARN, "Source", "this machine — a remote machine is configured "
+                                 "but features.remote_hardware is off")
         g = hardware._gpu()
         if g.get("name"):
             _row(OK, "GPU", f"{g['name']} · {g.get('temp','?')}°C · {g.get('power','?')}W")
