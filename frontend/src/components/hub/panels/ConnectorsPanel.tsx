@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Icon } from '../../../lib/icons';
+import { TRANSPORT_HINT, TRANSPORT_LABEL } from '../../../lib/agentSurface';
 import { RowMenu, type MenuAction } from '../../../lib/RowMenu';
 import { ACCENT_SLOTS, APP_ICONS, appAccent, appIcon } from '../../../lib/appColor';
 import { EmptyState, Panel } from '../../ui/layout';
@@ -24,17 +25,12 @@ import { Tile } from '../ui/Tile';
 // step. This panel stays the home of everything you do to an app *after*
 // connecting it.
 
-// How a connector's tools reach Ava, rendered verbatim from the backend's
-// `transport` field (ava_bridge/connectors.py transport()). The UI must never
-// re-derive this: the previous badge showed "MCP" for anything with tools at all,
-// so a plain-REST app and a real MCP server looked identical. Identity decides the
-// section (shared.connectorGroup); this is a separate axis shown in the meta line.
-const TRANSPORT_LABEL: Record<string, string> = {
-  mcp: 'MCP',
-  discover: 'tool facade',
-  rest: 'REST',
-  none: '',
-};
+// TRANSPORT_LABEL / TRANSPORT_HINT moved to lib/agentSurface: the ActionConsole
+// shows the same field, and one protocol name the owner reads in two places must
+// not be able to disagree with itself. Still rendered verbatim from the backend's
+// `transport` -- this UI does not re-derive it. Identity decides the section
+// (shared.connectorGroup); this is a separate axis shown in the meta line.
+
 // Sections are identity, not protocol: a device that speaks MCP is still a
 // device. Order runs most-concrete to least.
 const GROUP_ORDER: ConnectorGroup[] = ['devices', 'apps', 'tools'];
@@ -44,12 +40,6 @@ const GROUP_TITLES: Record<ConnectorGroup, string> = {
   tools: 'Tools',
 };
 
-const TRANSPORT_HINT: Record<string, string> = {
-  mcp: 'A real Model Context Protocol server — Ava speaks MCP to it.',
-  discover: "Ava's own ava-tools/1 HTTP facade — MCP-shaped, but not MCP.",
-  rest: "Statically declared actions proxied to the app's REST API.",
-  none: 'No agent surface — UI-only, or a push-only device.',
-};
 function PermissionsSheet({ cid }: { cid: string }) {
   const [acts, setActs] = useState<GrantAction[] | null>(null);
   const [err, setErr] = useState('');

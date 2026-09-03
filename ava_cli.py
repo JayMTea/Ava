@@ -1299,6 +1299,18 @@ def _why_no_tools(connectors, cid: str) -> str:
     if not acts:
         return ("the manifest declares no `actions:` — nothing to generate. "
                 "Health probes and egress still work")
+    # A dynamic row (discover facade or `mcp:` server) has no `path:` to be
+    # missing, so the sentence below would send the reader hunting for a
+    # manifest field that shape never carries. Unreachable as it stands --
+    # `tool_files` renders find/call meta tools for exactly the connectors
+    # `actions()` marks dynamic, so the caller's `if not files` guard fires
+    # first -- but `actions()` only started returning these rows in the same
+    # change as this branch, and a message that is correct only by accident of
+    # its caller is one refactor away from being wrong.
+    if any(a.get("dynamic") for a in acts):
+        return ("its tools are discovered from the app at run time, so nothing "
+                "is generated per action: `<id>_find_tool` and `<id>_call` are "
+                "the whole surface")
     named = ", ".join(a["id"] for a in acts if a.get("id")) or "unnamed"
     return (f"its {len(acts)} action(s) ({named}) declare no `path:`, so they "
             "are not generic-proxy actions. A generated tool calls "

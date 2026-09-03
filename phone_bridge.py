@@ -412,7 +412,7 @@ async def api_apps_order(body: dict):
 
 
 @app.get("/api/apps/{cid}/actions")
-async def api_app_actions(cid: str):
+async def api_app_actions(cid: str, live: bool = True):
     """The agent actions one connector exposes, for the `ui.embed: none` console.
 
     Split from `/api/apps` because the nav does not need it and must stay
@@ -420,11 +420,30 @@ async def api_app_actions(cid: str):
     `/api/ops/connectors`, which carried live probe results, perf-file presence
     and egress counts the console never rendered — and which went with the
     Operations page.
+
+    For a DYNAMIC connector (a real `mcp:` server, or the ava-tools/1 facade)
+    this asks the app, because the manifest holds one synthetic bridge row and
+    the owner needs the tool names. That is a network hop, so it goes to the
+    threadpool like every other blocking call here — and it never fails the
+    request: an unreachable app falls back to the last list it served, with
+    `source` and `error` saying so. `?live=0` takes the cached path alone.
+
+    Cookie-gated like every other /api route (it is not in auth._PUBLIC_PATHS),
+    so the tool names of the owner's apps are not readable by anyone who can
+    reach the port.
+
+    `actions` stays a flat list of names for anything still reading that shape;
+    `tools` carries the description and the tier the console renders.
     """
     if not connectors.app(cid):
         return JSONResponse({"error": f"unknown app '{cid}'"}, status_code=404)
-    acts = await run_in_threadpool(connectors.actions)
-    return {"ok": True, "actions": [a["id"] for a in acts if a.get("connector") == cid]}
+    surface = await run_in_threadpool(connectors.app_actions, cid, live)
+    return {"ok": True,
+            "actions": [t["name"] for t in surface["tools"]],
+            "tools": surface["tools"],
+            "transport": surface["transport"],
+            "source": surface["source"],
+            "error": surface["error"]}
 
 
 @app.get("/api/apps/{cid}/embed")

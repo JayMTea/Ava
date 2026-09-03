@@ -645,8 +645,20 @@ def owns() -> List[dict]:
 def actions() -> List[dict]:
     """All agent actions declared by connectors (id + description + connector).
 
-    Includes statically-declared actions and, for connectors with a dynamic
-    ``discover`` spec, a single synthetic ``<id>`` discovery bridge action.
+    Includes statically-declared actions and, for a connector whose tools are
+    resolved at run time, a single synthetic ``<id>`` discovery bridge action.
+
+    BOTH dynamic shapes count, not just the facade. This function predates
+    ``mcp:`` support and went on testing ``_discover_spec`` alone, while every
+    other reader of the same distinction -- transport(), render_egress_policy(),
+    tool_files(), agent_surface() -- was taught the pair. So an MCP-only
+    connector reported no actions at all, even though the generated policy
+    granted it __tools/__call and the agent called its tools perfectly well.
+
+    Where that showed: ``GET /api/apps/{cid}/actions``, whose ActionConsole is
+    the ENTIRE tile for an ``ui.embed: none`` app. A working 25-tool MCP app
+    rendered "This app declares no agent actions." -- the one shape of app for
+    which the console is the only thing the owner ever sees.
     """
     out = []
     for m in load():
@@ -654,7 +666,7 @@ def actions() -> List[dict]:
             if a.get("id"):
                 out.append({"connector": m["id"], "id": a["id"],
                             "description": a.get("description", "")})
-        if _discover_spec(m):
+        if _discover_spec(m) or _mcp_spec(m):
             out.append({"connector": m["id"], "id": m["id"],
                         "description": f"Dynamic tools discovered from the {m.get('label', m['id'])} app",
                         "dynamic": True})
@@ -1618,7 +1630,10 @@ def agent_surface() -> List[dict]:
 #   native  — a first-party React view compiled into the bundle (view= registry key)
 #   iframe  — the app serves its own web UI; Ava reverse-proxies it same-origin
 #             under /apps/<id>/ so it inherits the session cookie
-#   none    — no UI; Ava renders a generic action console from the manifest actions
+#   none    — no UI; Ava renders an action console instead (ActionConsole.tsx,
+#             fed by app_actions() — the app's RESOLVED tool list, not the
+#             manifest's, because for a dynamic connector the manifest holds one
+#             synthetic bridge row and that is not a usable answer)
 def _safe_order(v) -> int:
     """`ui.order` as an int, whatever the manifest held. `_validate_nested`
     already coerces or quarantines it, but `apps()` renders the whole left
@@ -1994,6 +2009,104 @@ def discover_tools(cid: str, query: str = "", limit: int = 0) -> dict:
         return _filter_tools(_remember(body), query, limit)
     except Exception as e:  # noqa: BLE001
         return unreachable(cid, e, url=base, what="discovery")
+
+
+def app_actions(cid: str, live: bool = True) -> dict:
+    """One connector's agent surface RESOLVED rather than declared -- what
+    ``GET /api/apps/{cid}/actions`` renders in the ActionConsole.
+
+    ``actions()`` answers a different question: what the manifest spells. For a
+    dynamic connector that is one synthetic bridge row, which tells the owner
+    nothing about what the app can actually do -- and for an ``ui.embed: none``
+    app the console is the whole tile, so "nothing" is the entire product.
+
+    ``source`` is why the list looks the way it does, so an empty one is never
+    ambiguous:
+
+        live      the app answered just now -- MCP ``tools/list``, or the
+                  ava-tools/1 facade's ``/tools``
+        cache     it did not; this is the last discovery that succeeded
+                  (``tools_cache``), and ``error`` says why the live one failed
+        declared  the manifest's own static actions; no network involved
+        none      nothing to show -- and ``error`` separates "declares no agent
+                  surface" from "could not ask", which are the owner's problem
+                  and the app's problem respectively
+
+    A reachable app that lists zero tools is ``live`` with an empty list, NOT
+    ``none``: "it answered and has none" and "it never answered" send someone to
+    different places, and collapsing them is the bug this whole function exists
+    to stop repeating.
+
+    Each row carries the tier Ava will ACTUALLY enforce (``action_access``,
+    which lays the manifest's ``dynamic_access`` patterns over the app's own
+    self-report) and whether it asks first (``needs_confirm``) -- never the raw
+    claim. A console showing the self-report would promise ``read`` for a tool
+    Ava is going to prompt on, which is the one lie a permissions surface must
+    not tell.
+
+    A failed discovery is DATA here, never an exception -- including one raised
+    rather than returned. The console is the only view of an app whose UI does
+    not exist, so a 500 leaves the owner with a blank panel and no way to tell
+    blank from broken, which is the exact confusion this function exists to end.
+    """
+    m = {x["id"]: x for x in load()}.get(cid) or {}
+    if not m:
+        return {"connector": cid, "label": cid, "transport": "none",
+                "source": "none", "tools": [],
+                "error": f"unknown connector '{cid}'"}
+
+    def _row(name: str, description: str) -> dict:
+        # 500 chars is a bound on a field a THIRD PARTY writes: an app's tool
+        # descriptions arrive over the wire and this response renders in the
+        # owner's browser. The console clamps visually; this clamps the payload.
+        return {"name": name, "description": (description or "")[:500],
+                "access": action_access(cid, name),
+                "confirm": needs_confirm(cid, name)}
+
+    kind = transport(m)
+    error: str | None = None
+    source = "declared"
+    rows: List[dict] = []
+
+    if kind in ("mcp", "discover"):
+        try:
+            res = discover_tools(cid) if live else {}
+        except Exception as e:  # noqa: BLE001 -- see the docstring; a raise here
+            # is a bug in a transport, and the owner's console is not the place
+            # to find out about it. It degrades to the cached list like any
+            # other failure to reach the app, and says so.
+            res = {"error": f"{cid} discovery raised: {type(e).__name__}: {e}"}
+        tools = res.get("tools") if isinstance(res, dict) else None
+        if isinstance(tools, list) and not res.get("error"):
+            source = "live"
+            rows = [_row(str(t.get("name") or ""), str(t.get("description") or ""))
+                    for t in tools if isinstance(t, dict) and t.get("name")]
+        else:
+            error = (res.get("error") if isinstance(res, dict) else None) or (
+                None if live else "live discovery not attempted (live=0)")
+            # The write-through cache the consent gate already reads. Showing the
+            # last known list beats showing nothing: the owner asked what this
+            # app can do, and "here is what it could do an hour ago, and here is
+            # why I cannot ask right now" answers that. `stale` is carried by
+            # `source`, so nothing has to infer it from the error being set.
+            from . import tools_cache
+            cached = tools_cache.for_connector(cid)
+            source = "cache" if cached else "none"
+            rows = [_row(n, str((v or {}).get("description") or ""))
+                    for n, v in sorted(cached.items())]
+    elif kind == "rest":
+        # Every declared action carrying an id -- INCLUDING those with no
+        # `path:`, which a built-in Ava tool serves instead of the generic
+        # proxy. `_static_tool_schemas` drops those; they are still things the
+        # agent can do, so a surface that omits them under-reports the app.
+        rows = [_row(str(a["id"]), str(a.get("description") or ""))
+                for a in _static_actions(m) if a.get("id")]
+    else:
+        source = "none"
+        error = "this connector declares no agent surface"
+
+    return {"connector": cid, "label": _display_label(m), "transport": kind,
+            "source": source, "tools": rows, "error": error}
 
 
 def call_discovered(cid: str, name: str, args: dict | None) -> tuple:

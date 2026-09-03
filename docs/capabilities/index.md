@@ -77,7 +77,11 @@ reads as Ava's own.
       under `/apps/<id>/` so it inherits the session cookie and the current
       theme.
     - **`embed: none`** - no UI of its own, so Ava renders a read-only console
-      of the agent actions the app exposes.
+      of the agent actions the app exposes. When the connector's tools are
+      discovered at run time (`mcp:` or `actions.discover`), that list is
+      fetched from the app as the tile opens: it is what the app actually
+      serves, with the tier Ava will enforce for each tool, and it degrades to
+      the last known list — labelled as such — when the app is unreachable.
     - **`embed: native`** - a React view compiled into the bundle. The core
       shell ships none of these; a connector selecting a view that is not
       bundled gets a plain "not bundled" placeholder instead of a broken tab.

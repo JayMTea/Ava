@@ -77,11 +77,36 @@
                              justify-content:center; border-radius:10px; background:var(--panel2); }
   .action-console .ac-title { font-size:16px; font-weight:600; }
   .action-console .ac-sub { font-size:13px; color:var(--muted); margin-top:2px; }
+  .action-console .ac-meta { font-size:12.5px; color:var(--muted); margin:0 0 12px; }
+  .action-console .ac-warn { display:flex; align-items:flex-start; gap:8px; padding:9px 12px;
+                             margin:0 0 12px; max-width:720px; font-size:12.5px; line-height:1.45;
+                             color:var(--warn); border-radius:10px; overflow-wrap:anywhere;
+                             border:1px solid color-mix(in srgb, var(--warn) 40%, transparent); }
   .action-console .ac-list { list-style:none; padding:0; margin:0; display:flex;
-                             flex-direction:column; gap:8px; max-width:560px; }
-  .action-console .ac-item { display:flex; align-items:center; gap:10px; padding:10px 12px;
+                             flex-direction:column; gap:8px; max-width:720px; }
+  /* flex-start, not center: a row is a name line plus an optional description
+     now, and centring floats the leading icon against a two-line body. */
+  .action-console .ac-item { display:flex; align-items:flex-start; gap:10px; padding:10px 12px;
                              background:var(--panel2); border:1px solid var(--line); border-radius:10px; }
   .action-console .ac-item code { font-size:13px; }
+  .action-console .ac-body { flex:1; min-width:0; }
+  .action-console .ac-name { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .action-console .ac-desc { font-size:12.5px; color:var(--muted); margin-top:4px;
+                             line-height:1.45; overflow-wrap:anywhere; }
+  /* Tiers reuse the --muted/--info/--warn/--err tokens rather than introducing
+     their own. A permission tier IS a status, and claude.css's four-state rule
+     (no new colour tokens for status) applies to it like anything else. */
+  .action-console .ac-tier { font-size:11px; padding:1px 7px; border-radius:999px;
+                             border:1px solid var(--line); color:var(--muted); white-space:nowrap; }
+  .action-console .ac-tier-sensitive { color:var(--info);
+                             border-color:color-mix(in srgb, var(--info) 40%, transparent); }
+  .action-console .ac-tier-write { color:var(--warn);
+                             border-color:color-mix(in srgb, var(--warn) 40%, transparent); }
+  .action-console .ac-tier-destructive,
+  .action-console .ac-tier-physical { color:var(--err);
+                             border-color:color-mix(in srgb, var(--err) 40%, transparent); }
+  .action-console .ac-asks { display:inline-flex; align-items:center; gap:4px;
+                             font-size:11px; color:var(--muted); white-space:nowrap; }
   .bubble { max-width:82%; padding:10px 13px; border-radius:16px; font-size:16px; line-height:1.4;
             white-space:pre-wrap; word-wrap:break-word; }
   .me  { align-self:flex-end; background:var(--accent); color:#fff; border-bottom-right-radius:5px; }

@@ -232,7 +232,7 @@ the app body:
 |---|---|---|
 | **`iframe`** | **Third-party apps** (the common case) | Ava reverse-proxies your app's web UI **same-origin** under `/apps/<id>/` and shows it in an `<iframe>`. Same-origin means Ava's session cookie already gates the route, and if your app has its **own** login you make it seamless with one small step - see *Single sign-on* below. Ava's theme is passed as `?theme=light\|dark`. |
 | **`native`** | First-party React views | Renders `NATIVE_VIEWS[view]`, provided by an optional gitignored overlay (`frontend/src/overlay/views/*`). Reserved for apps bundled into the frontend. |
-| **`none`** | Apps with tools but no UI | Ava renders a generic **action console** listing the app's agent actions. |
+| **`none`** | Apps with tools but no UI | Ava renders an **action console**. For a static connector that is the actions your manifest declares; for an `mcp:` or `actions.discover` connector Ava **asks your app** for its tool list when the tile opens, so the console shows what you actually serve rather than what the manifest spells. Each row carries the access tier Ava will enforce and whether it stops to ask the owner first. If your app cannot be reached, the console shows the last list it served and says why — it never renders an empty panel that looks like "this app does nothing". |
 
 ### Why same-origin matters
 

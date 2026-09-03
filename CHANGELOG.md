@@ -194,6 +194,27 @@ pre-release milestones from when Ava ran on one box and nothing was tagged.
 
 ### Fixed
 
+- **An app with `ui.embed: none` and a real `mcp:` server showed an empty
+  console.** `connectors.actions()` knew two connector shapes — statically
+  declared `actions:` and the `actions.discover` facade — and never learned the
+  third. An MCP-only connector therefore reported no actions at all, while
+  `transport()` called it `mcp`, `render_egress_policy()` granted it
+  `__tools`/`__call` and the agent called its tools perfectly well. Five readers
+  of one distinction; one of them was never taught the pair. It could only
+  surface in one place and it did: the console is the ENTIRE tile for an app
+  that ships no UI, so a healthy 25-tool app rendered "This app declares no
+  agent actions." and read as misconfigured.
+
+  The console no longer renders the manifest at all. `GET
+  /api/apps/{cid}/actions` asks the app what it serves and reports where the
+  answer came from, so an empty list is never ambiguous: an app that answered
+  with nothing reads differently from one that could not be reached, and an
+  unreachable app falls back to the list it served last — labelled stale, with
+  the reason — rather than to silence. Each row carries the tier Ava will
+  ENFORCE and whether it stops to ask, never the app's own claim; a surface that
+  echoed a self-reported `read` for a tool Ava is going to prompt on would be
+  telling the one lie a permissions view must not tell.
+
 - **Reconcile had never once worked.** It is the reconnect story — a dropped
   socket loses events but not the transcript, so re-reading the session recovers
   the reply. It matched on `msg["runId"]`, and no message in a transcript
