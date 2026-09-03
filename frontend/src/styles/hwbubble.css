@@ -43,6 +43,12 @@
   margin-bottom: 10px;
   font-weight: 700;
 }
+/* Whose machine the panel describes, when it is not this one: the remote box's
+   name beside its GPU, and — the one line that explains blank meters — "not
+   answering" with its fix-it link. Tone comes from the shared .tone-* system. */
+.hwb-host { color: var(--muted); font-weight: 500; }
+.hwb-src { color: var(--muted); font-size: 12px; line-height: 1.4; margin: -4px 0 10px; }
+.hwb-src.tone-err { color: var(--tone); }
 
 /* The split is the one the panel already drew with its own dividers: the
    machine on the left (GPU, memory, disk, CPU, temp), the models on the right

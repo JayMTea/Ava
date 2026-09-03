@@ -10,6 +10,20 @@ pre-release milestones from when Ava ran on one box and nothing was tagged.
 
 ### Added
 
+- **The hardware monitor can report another machine.** The bridge on a NAS and
+  the models on a GPU workstation is a common shape, and every reading Ava
+  took described the box it ran on — so the floating monitor showed the NAS's
+  memory and a CPU with no GPU behind it, and the model-fit tier was sized from
+  the NAS's RAM. `hardware.exporters` now names the GPU machine's node_exporter
+  and GPU exporter (NVIDIA dcgm-exporter or nvidia_gpu_exporter), read live and
+  direct rather than through Prometheus, and one registry switch
+  (`features.remote_hardware`) makes the monitor, Setup → Hardware, the fit
+  router, the allocation governor and `ava doctor` all follow that box. When
+  the exporters do not answer the meters go blank and the monitor says so with
+  a fix-it link — it never substitutes the bridge's own numbers, which is the
+  silent form of the bug this ends. Addresses are edited in Setup → Hardware
+  ("Where the hardware is"); no restart.
+
 - **A fourth agent runtime: `openclaw_gw`, which talks to OpenClaw over its
   gateway instead of spawning a CLI per message.** Same sandbox `nemoclaw`
   already manages — the difference is that a turn STREAMS as events rather than

@@ -975,8 +975,14 @@ def _backend_state(b: dict, reachable: bool, served: list[str],
 
 
 def _loaded_models() -> list[dict]:
-    procs = _gpu_model_processes()
-    rows = procs if procs else _docker_model_containers()
+    # Process and container inventory describes THIS box. When the hardware
+    # being reported is another machine's, a GPU process here or a container
+    # here would be filed as living in the remote box's memory — so the rows
+    # come from the configured backends alone, which are probed over the
+    # network and are the same wherever the bridge runs.
+    remote = hwinfo.remote_source() is not None
+    procs = [] if remote else _gpu_model_processes()
+    rows = procs if procs else ([] if remote else _docker_model_containers())
 
     # Cross-check each configured backend: the row serving it gets tagged (and
     # takes the config's display label), engines invisible to process telemetry
@@ -1293,6 +1299,11 @@ def _mem() -> dict:
 
 def _cpu(interval: float = 0.2):
     """CPU utilisation %. psutil (cross-platform) with a /proc/stat fallback."""
+    remote = hwinfo.remote_source()
+    if remote is not None:
+        # node_exporter's counters differenced between two polls — the same
+        # arithmetic as the /proc/stat fallback below, over a longer window.
+        return remote[1].cpu_util
     if _psutil is not None:
         try:
             return round(_psutil.cpu_percent(interval=interval))
@@ -1390,6 +1401,12 @@ def _disk(path: str | None = None) -> dict:
     AVA_HOME is both the honest mount and the useful one: models, weights and
     every byte of state land under it, so it is the filesystem a pull fills.
     """
+    remote = hwinfo.remote_source()
+    if remote is not None and path is None:
+        # The remote box's own volume, named in `hardware.exporters.disk_mount`:
+        # the filesystem a pull fills THERE, which is the only one that answers
+        # "can I pull this model" when the models live there.
+        return remote[0].disk(remote[1])
     if path is None:
         try:
             from . import settings
@@ -1515,7 +1532,20 @@ def stats() -> dict:
     return {"gpu": _gpu(), "mem": _mem(), "disk": _disk(),
             "cpu": {"util": _cpu()}, "models": models,
             "jobs": _active_jobs(),
+            # WHOSE hardware this is. The monitor names the machine and, when
+            # the exporters it reads are not answering, says so with the
+            # registry's regular code instead of showing another box's numbers.
+            "machine": _machine(),
             "ts": time.time()}
+
+
+def _machine() -> dict:
+    try:
+        from . import hwexporters
+        return hwexporters.describe()
+    except Exception:  # noqa: BLE001 — the snapshot must never fail on its caption
+        return {"kind": "local", "label": "", "reachable": True,
+                "error_code": "", "error": ""}
 
 
 # --- lightweight time-series sampler (ring buffer) for the dashboard ---------

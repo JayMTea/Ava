@@ -145,7 +145,19 @@ def api_hardware():
     # which is truthy — and this explanation was therefore suppressed on exactly
     # the machines that needed it. deploy/README.md promises "the panel says so
     # rather than implying a driver fault"; this is what keeps that true.
-    if not out["accel_measurable"] and not out["note_code"]:
+    # WHOSE hardware the reading is (ava_bridge/hwexporters.py). Decided before
+    # the container note, because that note is about THIS container's view of
+    # THIS machine — and is simply not the situation when the reading is another
+    # box's exporters: a GPU exporter that is not answering there is not "Docker
+    # did not grant the card here".
+    try:
+        from . import hwexporters
+        out["machine"] = hwexporters.describe()
+    except Exception:  # noqa: BLE001
+        out["machine"] = {"kind": "local", "label": "", "reachable": True,
+                          "error_code": "", "error": ""}
+    if (not out["accel_measurable"] and not out["note_code"]
+            and out["machine"]["kind"] != "exporters"):
         try:
             from .auth import in_container
             if in_container():

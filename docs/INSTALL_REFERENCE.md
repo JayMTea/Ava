@@ -260,6 +260,48 @@ than shipped because a `devices:` reservation makes compose **refuse to start at
 all** on a host without the NVIDIA container runtime - which is every `cpu` and
 `cloud` install, and every Mac.
 
+### Reading the hardware of another machine
+
+The bridge on one box and the models on another is a common shape - a NAS or a
+mini PC running Ava, a GPU workstation running the engine. Every reading Ava
+takes describes the box it runs on, so on that shape the floating monitor showed
+the NAS and the model tier was sized from the NAS's RAM. Point Ava at the
+exporters on the GPU machine instead:
+
+| Where | Value |
+|---|---|
+| **Setup → Hardware** | "Where the hardware is" - the addresses, and whether they answer. No restart. |
+| **Setup → System → Optional features** | the **Remote hardware** switch (`features.remote_hardware`) |
+| `ava.yaml` | `hardware.exporters.node_url`, `.gpu_url`, `.disk_mount`, `.label` |
+| Environment | `AVA_REMOTE_HARDWARE=1`, `AVA_NODE_EXPORTER_URL`, `AVA_GPU_EXPORTER_URL`, `AVA_EXPORTER_DISK_MOUNT`, `AVA_HARDWARE_LABEL` (each wins over `ava.yaml`, so Setup shows it read-only) |
+
+What it reads, and from what:
+
+| Reading | Exporter | Metrics |
+|---|---|---|
+| Memory | [node_exporter](https://github.com/prometheus/node_exporter) | `node_memory_MemTotal_bytes`, `node_memory_MemAvailable_bytes` |
+| CPU | node_exporter | `node_cpu_seconds_total`, differenced between two polls |
+| Disk | node_exporter | `node_filesystem_*` for the mount holding the weights (`disk_mount`; a directory under it also works) |
+| GPU | NVIDIA [dcgm-exporter](https://github.com/NVIDIA/dcgm-exporter) or [nvidia_gpu_exporter](https://github.com/utkuozdemir/nvidia_gpu_exporter) | utilisation, temperature, power, framebuffer |
+
+Ava reads the `/metrics` pages directly, not through Prometheus: the numbers are
+live rather than a scrape interval old, and the monitor keeps working when the
+metrics stack is down. Either exporter alone is a valid setup. On a
+unified-memory part (GB10, Grace) DCGM exports no framebuffer fields, and Ava
+reports the system pool as the GPU's - exactly as it does locally.
+
+**When they do not answer, Ava says so.** The monitor shows blank meters and a
+"not answering" line that links here, `ava doctor` prints a `Source` row, and the
+snapshot carries `remote_hardware_down`. It never falls back to the bridge's own
+machine - that substitution, silent, is the bug this exists to end. With the
+switch off Ava reads the bridge's own machine again, and notes that a remote one
+is configured.
+
+The model rows in the monitor are unaffected: they come from probing the
+configured backends over the network, which is the same wherever the bridge
+runs. Process and container inventory - which describes the bridge's own box -
+is skipped, since nothing on it holds the remote machine's memory.
+
 ---
 
 ## 6. Pointing Ava at an engine on the host machine

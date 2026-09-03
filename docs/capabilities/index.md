@@ -132,6 +132,7 @@ code gates on.
 |--------|---------|---------------|
 | `features.web_search` | off | A self-hosted SearXNG, plus the guarded fetch path |
 | `features.voice` | off | `requirements-voice.txt` installed (and a voiceprint, to gate who Ava listens to) |
+| `features.remote_hardware` | off | node_exporter and a GPU exporter on the machine that runs your models, when that is not the box Ava is on; addresses in Setup → Hardware ([install reference](../INSTALL_REFERENCE.md#reading-the-hardware-of-another-machine)) |
 
 A capability you chose not to enable never surfaces as a mysterious outage.
 
