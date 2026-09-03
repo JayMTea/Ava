@@ -32,6 +32,11 @@ function greeting(): string {
 // conversation.
 function ThreadMarker({ text }: { text: string }) {
   return (
+    // `aria-valuenow` is required of the FOCUSABLE separator — a splitter the
+    // reader can drag to resize two panes. This is a static, unfocusable
+    // divider carrying a label, so there is no value to report and inventing
+    // one would be the lie the attribute exists to prevent.
+    // biome-ignore lint/a11y/useAriaPropsForRole: a static divider, not a splitter
     <div className="thread-marker" role="separator" aria-label={text}>
       <span>{text}</span>
     </div>

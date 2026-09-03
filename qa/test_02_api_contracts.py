@@ -8,6 +8,7 @@ import unittest
 import pytest
 
 from qa import helpers
+from qa.conftest import FAKE_APP
 
 # endpoint -> keys that must exist in the JSON response
 CONTRACTS = {
@@ -79,11 +80,30 @@ class TestApiContracts(unittest.TestCase):
         self.assertEqual(failures, [], "\n" + "\n".join(failures))
 
     def test_app_health_rows_carry_the_sidebar_dot_fields(self):
-        rows = CLIENT.get("/api/apps/health").json()["apps"]
-        self.assertTrue(rows, "no apps registered at all?")
-        for row in rows:
-            missing = APP_HEALTH_ROW_KEYS - set(row)
-            self.assertFalse(missing, f"{row.get('id')}: missing {missing}")
+        # This needs a row to inspect, and a hermetic Ava has none: a sidebar row
+        # exists only for a connector declaring `ui:`, no shipped connector
+        # declares one, and an app tile is opt-in at create time. Asserting
+        # against the empty list proved nothing about the row SHAPE this test
+        # exists to pin, so it makes one row and takes it away again.
+        cid = "qacontract"
+        r = CLIENT.post("/api/hub/connectors/new", json={
+            "id": cid, "label": "QA Contract App", "kind": "app",
+            "base_url": FAKE_APP.url, "probe": FAKE_APP.url + "/health",
+            "ui": True,
+        })
+        self.assertEqual(r.status_code, 200, r.text)
+        try:
+            helpers.refresh_connectors()
+            rows = CLIENT.get("/api/apps/health").json()["apps"]
+            self.assertTrue(rows, "the app just created is missing from the rail")
+            for row in rows:
+                missing = APP_HEALTH_ROW_KEYS - set(row)
+                self.assertFalse(missing, f"{row.get('id')}: missing {missing}")
+        finally:
+            # Restored so the endpoint sweep below sees the surface it expects,
+            # and so a later module inherits no app it did not create.
+            CLIENT.post(f"/api/hub/connectors/{cid}/delete")
+            helpers.refresh_connectors()
 
     def test_agent_skill_rows_carry_ui_fields(self):
         # The Agent-tab Skills panel reads these per-skill fields; missing any

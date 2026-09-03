@@ -31,6 +31,10 @@ function check(name: string, ok: boolean, extra = '') {
       body: JSON.stringify({
         id: 'qae2eapp', label: 'QA E2E App', kind: 'app',
         base_url: appUrl, probe: appUrl + '/health',
+        // `ui: true` is what asks for the sidebar tile this spec then waits
+        // for: the manifest gets a `ui:` block only when the create requests a
+        // web UI, and the rail renders nothing without one.
+        ui: true,
         actions: [{ id: 'ping', method: 'GET', path: '/api/ping', access: 'read' }],
       }),
     });

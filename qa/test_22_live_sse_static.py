@@ -1,9 +1,14 @@
-"""Tier 2 — real-socket serving: the SPA shell + PWA assets, static mounts,
-and the SSE stream over an actual TCP connection (TestClient can't prove
-streaming framing; this does).
+"""Tier 2 — real-socket serving: the SPA shell, the PWA assets and the static
+mounts over an actual TCP connection, which TestClient cannot prove.
+
+This module also held `TestLiveSse`, against `/api/stream/ops`. That route left
+with `ava_bridge/ops_api.py` when the Vitals, Operations and Data dashboards
+were removed; the commit that deleted them updated eight other qa files and
+missed this one, so two tests went on asserting 200 from a route that answers
+404. Chat streaming is a different endpoint (`/api/chat-stream`) and is covered
+by qa/test_03_chat_turns.py, so nothing moved here — the surface is gone.
 """
 import http.client
-import json
 import unittest
 import urllib.parse
 
@@ -67,52 +72,3 @@ class TestStaticServing(unittest.TestCase):
         r = _get("/uploads/qa_static.txt")
         self.assertEqual(r.status, 200)
         self.assertEqual(r.body, b"qa-bytes")
-
-
-class TestLiveSse(unittest.TestCase):
-    def test_stream_emits_events_over_tcp(self):
-        conn = http.client.HTTPConnection("127.0.0.1", PROC.port, timeout=20)
-        conn.request("GET", "/api/stream/ops", headers={"Cookie": COOKIE})
-        r = conn.getresponse()
-        self.assertEqual(r.status, 200)
-        self.assertIn("text/event-stream", r.getheader("content-type", ""))
-        # Read a bounded chunk: the primer (alert.state) and/or first ticks.
-        buf = b""
-        try:
-            while b"event:" not in buf and len(buf) < 65536:
-                chunk = r.read1(4096)
-                if not chunk:
-                    break
-                buf += chunk
-        finally:
-            conn.close()
-        self.assertIn(b"event:", buf, f"no SSE events in first bytes: {buf[:200]}")
-
-    def test_turn_update_reaches_the_stream(self):
-        FAKE_LLM.reply = "SSE-observed reply."
-        # Open the stream FIRST, then fire a turn, then expect turn.update.
-        conn = http.client.HTTPConnection("127.0.0.1", PROC.port, timeout=30)
-        conn.request("GET", "/api/stream/ops", headers={"Cookie": COOKIE})
-        stream = conn.getresponse()
-        assert stream.status == 200
-
-        c2 = http.client.HTTPConnection("127.0.0.1", PROC.port, timeout=30)
-        c2.request("POST", "/api/chat-stream",
-                   urllib.parse.urlencode({"text": "sse test"}).encode(),
-                   {"Content-Type": "application/x-www-form-urlencoded",
-                    "Cookie": COOKIE})
-        r2 = c2.getresponse()
-        tid = json.loads(r2.read())["turn_id"]
-        c2.close()
-
-        buf = b""
-        try:
-            while b"turn.update" not in buf and len(buf) < 262144:
-                chunk = stream.read1(4096)
-                if not chunk:
-                    break
-                buf += chunk
-        finally:
-            conn.close()
-        self.assertIn(b"turn.update", buf)
-        self.assertIn(tid.encode(), buf, "our turn id never appeared on the stream")

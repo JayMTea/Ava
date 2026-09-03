@@ -36,6 +36,14 @@ class TestConnectorLifecycle(unittest.TestCase):
             "id": CID, "label": "QA App", "kind": "app",
             "base_url": FAKE_APP.url,
             "probe": FAKE_APP.url + "/health",
+            # A sidebar TILE is opt-in: `connector_new` writes the `ui:` block
+            # only when the create asks for a web UI, and `apps()` /
+            # `apps_health()` both skip a manifest without one. This story
+            # asserts the app "appears everywhere" two tests down, so it has to
+            # ask for the surface it then looks for. Connecting a tool-only app
+            # (no `ui`) is a different, equally valid shape — test_11 covers the
+            # rail, and `ui.embed: none` apps get the action console instead.
+            "ui": True,
             "actions": [
                 {"id": "ping", "method": "GET", "path": "/api/ping",
                  "description": "read something", "access": "read"},
@@ -126,7 +134,11 @@ class TestConnectorLifecycle(unittest.TestCase):
         self.assertEqual(result["r"].status_code, 200, result["r"].text)
         body = result["r"].json()
         self.assertEqual(body["error_code"], "awaiting_approval")
-        self.assertIn("denied", body["error"])
+        # The MESSAGE has to name the owner's decision and tell the model not to
+        # go around it — that is `_gate_message`'s whole subject, and the reason
+        # this is not a bare code. "denied" is the gate token, not the sentence.
+        self.assertIn("declined", body["error"])
+        self.assertIn("Do not retry", body["error"])
         self.assertFalse(any(x["path"].startswith("/api/echo") for x in FAKE_APP.calls),
                          "the app was called despite the denial")
 
@@ -200,15 +212,42 @@ class TestConnectorLifecycle(unittest.TestCase):
         self.assertIn(f"/internal/connector/{CID}/", pol)
 
     def test_08_disable_hides_enable_restores(self):
+        """Disabled leaves the NAV and stays in the health list, reading `off`.
+
+        Two lists, two answers, and the difference is the point. `/api/apps` is
+        the registry the rail paints, built from `load()`, which keeps only
+        enabled manifests — so disabling HIDES the app. `apps_health` is built
+        from `catalog()` on purpose (see its comment): dropping the row there
+        would report off-by-choice as absent, and absent paints the same as an
+        app that crashed. `off` is never red.
+
+        This used to assert the row vanished from BOTH, which is the conflation
+        `_app_verdict`'s four verdicts exist to prevent.
+        """
         c = CLIENT
+
+        def health_row():
+            rows = c.get("/api/apps/health").json()["apps"]
+            return next((x for x in rows if x["id"] == CID), None)
+
+        def in_nav():
+            return CID in [a["id"] for a in c.get("/api/apps").json()["apps"]]
+
         c.post(f"/api/hub/connectors/{CID}/enabled", json={"enabled": False})
         helpers.refresh_connectors()
-        apps = c.get("/api/apps/health").json()["apps"]
-        self.assertNotIn(CID, [x["id"] for x in apps])
+        self.assertFalse(in_nav(), "a disabled app is still painted in the rail")
+        off = health_row()
+        self.assertIsNotNone(off, "a disabled app vanished from the health list")
+        self.assertFalse(off["enabled"])
+        self.assertEqual(off["health"], "off")
+
         c.post(f"/api/hub/connectors/{CID}/enabled", json={"enabled": True})
         helpers.refresh_connectors()
-        apps = c.get("/api/apps/health").json()["apps"]
-        self.assertIn(CID, [x["id"] for x in apps])
+        self.assertTrue(in_nav(), "re-enabling did not restore the rail entry")
+        back = health_row()
+        self.assertIsNotNone(back)
+        self.assertTrue(back["enabled"])
+        self.assertNotEqual(back["health"], "off")
 
     def test_09_delete_keeps_history_reconnect_resumes(self):
         c = CLIENT

@@ -114,7 +114,7 @@ function toAutomationJob(r: RawCronJob): AutomationJob {
     : (r.schedule?.cron || r.schedule?.expr || r.cron || '');
   // Polarity is a guess until captured: prefer an explicit positive `enabled`,
   // else invert a negative flag, else default enabled.
-  const enabled = r.enabled ?? (r.disabled === true || r.paused === true ? false : true);
+  const enabled = r.enabled ?? !(r.disabled === true || r.paused === true);
   return {
     id: String(r.id || r.jobId || ''),
     name: String(r.name || r.id || r.jobId || ''),
