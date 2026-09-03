@@ -38,6 +38,12 @@ function check(name: string, ok: boolean, extra = '') {
         actions: [{ id: 'ping', method: 'GET', path: '/api/ping', access: 'read' }],
       }),
     });
+    // The Hub's connect form dispatches this on success, and App.tsx re-fetches
+    // /api/apps on it — that event is what redraws the rail without a reload.
+    // This spec stands in for the form (it drives the API directly), so it has
+    // to do what the form does: create alone leaves the rail painted from the
+    // list it fetched at boot, and the tile would only appear on the next load.
+    if (created.ok) window.dispatchEvent(new Event('ava:apps-changed'));
     return { probe: probe.status, created: created.status };
   }, FAKE_APP);
   check('probe answered', result.probe === 200, String(result.probe));
