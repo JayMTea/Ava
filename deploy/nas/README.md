@@ -15,7 +15,7 @@ dependency; `perf_store.py` and the in-app dashboard are untouched.
 The warehouse side — the `raw_ava` table definitions, the silver/gold SQL — is the connector
 pack at `home-lab/data-stack/connectors/ava/`. The two are a handshake: every `target.table`
 here is an asset there, and `source_name: ava-bridge` here is the pack's manifest name, which is
-how the Dagster watermark sensor on the Spark finds these rows.
+how the Dagster watermark sensor on the compute node finds these rows.
 
 ## How the operator merges it
 
@@ -105,8 +105,9 @@ both writes succeed.
 ## Constraints on this box (restated from the plan)
 
 - No `install.sh`; the `.env` is hand-written with LF endings.
-- `AVA_MODEL` is verbatim `nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4`;
-  `AVA_BACKEND_URL=http://100.120.254.9:8002/v1` (the Spark, over the tailnet).
+- `AVA_MODEL` and `AVA_BACKEND_URL` are written into that `.env` by hand: this box
+  serves a ~30B-class model from a GPU node reached over the tailnet, not from a
+  compose service on this one.
 - The shipper's uid is `1000:10`. The `ava` container runs as root today, so
   `logs/audit.jsonl`, `data/chats.db`, `data/memory.db` and (once it exists) `logs/kpi/` are
   `0600 root` on the host and the shipper cannot read them: those streams will report

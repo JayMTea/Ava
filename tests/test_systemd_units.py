@@ -254,7 +254,13 @@ class ForwardTemplateTests(unittest.TestCase):
 class ForwardRenderTests(unittest.TestCase):
 
     def _patches(self, record=_RECORD, port=18789, gw_port=8080,
-                 sandbox="my-assistant", binary="/home/x/.local/bin/openshell"):
+                 sandbox="my-assistant",
+                 # DERIVED, never written down. A literal home path in a fixture is
+                 # indistinguishable from the maintainer's own to
+                 # tests/test_no_owner_identity.py, and resolving it is what the
+                 # sibling test below already does. It also means every render here
+                 # exercises the same %h substitution the real unit gets.
+                 binary=os.path.join(os.path.expanduser("~"), ".local/bin/openshell")):
         from ava_bridge import config
         from ava_bridge.runtime import nemoclaw_registry as reg
         return [

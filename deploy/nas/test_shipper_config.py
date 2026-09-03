@@ -131,9 +131,9 @@ def test_the_compose_fragment_mounts_this_config_and_declares_the_networks() -> 
 PERF_LINE = {
     "ts": 1787956883.196, "iso": "2026-08-28T22:41:23", "host": "fbbc5ad0e1d9",
     "category": "llm", "serving": "openai", "endpoint": "chat/completions",
-    "served_by": "backend", "served_label": "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4",
-    "served_model": "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4",
-    "served_url": "http://100.120.254.9:8002/v1", "status": 200, "prompt_tokens": 28,
+    "served_by": "backend", "served_label": "acme/Example-Model-8B",
+    "served_model": "acme/Example-Model-8B",
+    "served_url": "http://gpu-node.internal:8002/v1", "status": 200, "prompt_tokens": 28,
     "completion_tokens": 104, "total_tokens": 132, "ttft_ms": 2559.2, "gen_seconds": 0.001,
     "total_seconds": 2.56, "stream_chunks": 1, "params": {"max_tokens": 800, "stream": False},
 }
