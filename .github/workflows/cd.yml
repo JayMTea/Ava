@@ -78,8 +78,6 @@ jobs:
     env:
       # The repo tree lives at .../ava/src; compose runs from its deploy/ dir.
       STACK_DIR: ${{ vars.NAS_STACK_DIR || '/volume1/stacks/ava/src' }}
-      IMAGE: ava/bridge:latest
-      IMAGE_AGENT: ava/agent-runtime:latest
       # Both halves are needed: head_sha is empty on a manual dispatch.
       DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
       DEPLOY_REF: ${{ github.event.workflow_run.head_branch || github.ref_name }}
@@ -198,7 +196,9 @@ jobs:
             --exclude '.github/' \
             --exclude 'deploy/.env' \
             --exclude 'deploy/.env.*' \
-            --exclude 'deploy/docker-compose.override.yml' \
+            --exclude 'deploy/docker-compose.override.yml*' \
+            --exclude 'deploy/*.bak*' \
+            --exclude 'deploy/*.pre-*' \
             --exclude 'deploy/ava-data/' \
             --exclude '/data/' \
             --exclude '/logs/' \
@@ -215,20 +215,37 @@ jobs:
             "${extra[@]}" \
             ./ "$STACK_DIR/"
 
-      # The images carry one tag that never changes (`ava/bridge:latest`), so the
-      # build below overwrites the only copy of what is currently serving. Rolling
-      # back needs the previous image to still have a name; this gives it one.
+      # The image tag is FIXED in deploy/.env (AVA_IMAGE=ava/bridge:0.1.0-nas1 on
+      # this box, not `latest`), so the build below overwrites the only copy of
+      # what is currently serving. Rolling back needs the previous image to still
+      # have a name; this gives it one.
+      #
+      # Asked of compose rather than hardcoded, and that is not fussiness: a
+      # hardcoded `ava/bridge:latest` inspects an image this NAS does not have,
+      # takes the not-on-this-box branch, and reports success while saving
+      # nothing — the rollback the summary prints would then restore a tag that
+      # was never written. `config --images` also honours COMPOSE_PROFILES, so it
+      # lists what this install actually runs (one service, under `cloud`)
+      # rather than every service in the file.
       - name: Tag the running images as previous
+        working-directory: ${{ env.STACK_DIR }}/deploy
         run: |
           set -euo pipefail
-          for img in "$IMAGE" "$IMAGE_AGENT"; do
+          kept=''
+          # Only this project's own build namespace. Upstream images (ollama,
+          # vllm) are pulled and never rebuilt here, so a `:previous` tag on one
+          # would be noise that outlives the profile that created it.
+          while read -r img; do
+            case "$img" in ava/*) ;; *) continue ;; esac
             if docker image inspect "$img" >/dev/null 2>&1; then
               docker tag "$img" "${img%:*}:previous"
               echo "  ${img%:*}:previous -> $(docker image inspect --format '{{.Id}}' "$img" | cut -c8-19)"
+              kept="${kept:+$kept }${img}"
             else
               echo "  $img is not on this NAS yet — nothing to keep"
             fi
-          done
+          done < <(docker compose config --images)
+          echo "KEPT_IMAGES=$kept" >> "$GITHUB_ENV"
 
       # AVA_VERSION / AVA_REVISION are build ARGS in docker-compose.yml, which
       # the Dockerfile bakes into the image as ENV. Exporting them here is what
@@ -318,10 +335,17 @@ jobs:
             echo "| stack | \`$STACK_DIR\` |"
             echo "| /api/health | ${HEALTH:-unreached} |"
             echo
-            echo "Rollback — retag and roll, no rebuild:"
-            echo '```bash'
-            echo "cd $STACK_DIR/deploy"
-            echo "docker tag ${IMAGE%:*}:previous $IMAGE"
-            echo "docker compose up -d          # never 'down'"
-            echo '```'
+            if [ -n "${KEPT_IMAGES:-}" ]; then
+              echo "Rollback — retag and roll, no rebuild:"
+              echo '```bash'
+              echo "cd $STACK_DIR/deploy"
+              for img in $KEPT_IMAGES; do
+                echo "docker tag ${img%:*}:previous $img"
+              done
+              echo "docker compose up -d          # never 'down'"
+              echo '```'
+            else
+              echo "No previous image was kept — nothing to roll back to, which
+            means this was the first deploy onto this box."
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
