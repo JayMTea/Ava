@@ -1,0 +1,318 @@
+name: CD
+
+# Ava — CD. This is the file that touches the NAS.
+#
+#   ci.yml green on master ──▶ this workflow ──▶ rsync, build, `up -d`, verify
+#
+# Same shape as analytics-suite and health-app, deliberately: one lab, one way of
+# doing this. release.yml is unaffected — a `v*` tag still cuts a signed public
+# image for everyone else. This is how THIS box moves.
+#
+# CHAINED BY `workflow_run`, NOT BY `needs:`. A `needs:` dependency only exists
+# between jobs in one file; across files the only ordering primitive is this
+# trigger, which fires when CI COMPLETES — green or red — so the `if:` on the job
+# is what actually enforces "gates passed". Delete that line and a red build
+# deploys. Three things about `workflow_run` that are not obvious:
+#
+#  1. `workflows: [CI]` names ci.yml by its `name:` field, not its filename.
+#     Rename that workflow and this silently stops firing, with both files green
+#     and nothing in the UI to say why.
+#  2. `github.sha` here is the DEFAULT BRANCH HEAD, not the commit CI ran on.
+#     That is `github.event.workflow_run.head_sha`, which is why the checkout
+#     names a ref explicitly. Take the default and a deploy triggered by an older
+#     run ships whatever master is now.
+#  3. GitHub reads this file from the DEFAULT BRANCH only. Edits on a branch do
+#     nothing until they land on master, and the very push that ADDS this file
+#     will not trigger it. Run it once from the Actions tab; every push after
+#     behaves.
+#
+# The runner is on the NAS itself, labelled `nas`. That is a constraint, not a
+# preference: GitHub's hosted runners are cloud VMs that cannot reach a home
+# network or /volume1. A runner registered to THIS repo is required — a runner is
+# repo-scoped, so health-app's does not serve Ava. One-time install, same as the
+# others: register into /volume1/apps/ava-runner with labels `self-hosted,nas`,
+# as a user in the `docker` group.
+#
+# Repo variables:
+#   NAS_DEPLOY = true    kill switch; deploy is SKIPPED unless exactly "true".
+#                        Unset means every run stops at the gate — that is the
+#                        first thing to check if pushes go green and nothing moves.
+#   NAS_STACK_DIR        optional override of /volume1/stacks/ava/src
+#
+# /volume1/stacks/ava/src/deploy/.env and docker-compose.override.yml are written
+# by hand on the NAS and are NEVER in the repo. Neither is Ava's state. See the
+# excludes on the rsync step — they are load-bearing, not tidiness.
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [master]
+  # The manual path — a re-deploy or a rollback. It SKIPS THE GATES: nothing
+  # checks this ref before it reaches the NAS, which is the operator taking the
+  # same responsibility they take at an SSH prompt. The summary says so on every
+  # run that used it.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Not keyed on the ref: there is one NAS, and two deploys must never interleave
+  # on it. `cancel-in-progress: false` queues rather than abandoning a half-rolled
+  # stack — a killed `docker compose up` is the state this exists to prevent.
+  group: deploy-nas
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: deploy to NAS
+    # The whole point of the workflow_run chain. `completed` includes failure,
+    # cancellation and skip; only success may reach the NAS.
+    if: >-
+      (github.event_name == 'workflow_dispatch' ||
+       github.event.workflow_run.conclusion == 'success') &&
+      vars.NAS_DEPLOY == 'true'
+    runs-on: [self-hosted, nas]
+    timeout-minutes: 90
+    env:
+      # The repo tree lives at .../ava/src; compose runs from its deploy/ dir.
+      STACK_DIR: ${{ vars.NAS_STACK_DIR || '/volume1/stacks/ava/src' }}
+      IMAGE: ava/bridge:latest
+      IMAGE_AGENT: ava/agent-runtime:latest
+      # Both halves are needed: head_sha is empty on a manual dispatch.
+      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      DEPLOY_REF: ${{ github.event.workflow_run.head_branch || github.ref_name }}
+    steps:
+      - name: What is being deployed, and on whose authority
+        run: |
+          set -euo pipefail
+          echo "commit:  $DEPLOY_SHA"
+          echo "ref:     $DEPLOY_REF"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "trigger: manual dispatch — THE GATES DID NOT RUN FOR THIS DEPLOY"
+            echo "GATES=not run (manual dispatch)" >> "$GITHUB_ENV"
+            echo "::warning::Manual deploy: nothing verified this commit. Push to master to deploy through the gates."
+            if [ "$DEPLOY_REF" != "master" ]; then
+              echo "::warning::Deploying $DEPLOY_REF, which is not master. The NAS will be running a branch."
+            fi
+          else
+            echo "trigger: CI run ${{ github.event.workflow_run.id }} (${{ github.event.workflow_run.conclusion }})"
+            echo "GATES=passed" >> "$GITHUB_ENV"
+          fi
+
+      # THE REF IS EXPLICIT — see footgun 2 in the header. Without it this checks
+      # out the default branch head, which on a workflow_run is whatever master is
+      # NOW rather than the commit whose gates went green.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Preflight — the NAS, the stack directory, the env file
+        run: |
+          set -euo pipefail
+          for bin in docker rsync; do
+            command -v "$bin" >/dev/null 2>&1 || {
+              echo "::error::$bin is not on the runner PATH"; exit 1; }
+          done
+          docker compose version >/dev/null 2>&1 || {
+            echo "::error::docker compose v2 is not available to the runner user (is it in the docker group?)"; exit 1; }
+          test -d "$STACK_DIR" || {
+            echo "::error::$STACK_DIR does not exist. The FIRST install is by hand (deploy/README.md); this job rolls a stack that already exists."; exit 1; }
+          test -f "$STACK_DIR/deploy/.env" || {
+            echo "::error::no deploy/.env in $STACK_DIR — it is hand-written on the NAS and never synced from git."; exit 1; }
+          # A password that only exists in the environment cannot be changed from
+          # inside the product (pages.py:change_password answers 409), and the
+          # bridge would come up with whatever this file says regardless of what
+          # the owner set. Worth a warning, not a failure: it is a legitimate
+          # choice, just one that surprises people later.
+          if grep -qE '^AVA_PASSWORD=.+' "$STACK_DIR/deploy/.env"; then
+            echo "::warning::deploy/.env pins AVA_PASSWORD, so the in-app password change is refused (409). Clear it to manage the password from Setup."
+          fi
+
+      # Compose reads COMPOSE_FILE from the project directory's .env, and an
+      # explicit `-f` set OVERRIDES it. On this NAS that variable is how the
+      # shipper fragment (nas/shipper.compose.yml) stays in the project — see
+      # deploy/nas/README.md. Hard-coding a pair here would quietly drop that
+      # service, and the next `up -d` would leave it orphaned.
+      - name: Resolve the compose file set
+        run: |
+          set -euo pipefail
+          if grep -qE '^COMPOSE_FILE=' "$STACK_DIR/deploy/.env"; then
+            echo "from deploy/.env: $(grep -E '^COMPOSE_FILE=' "$STACK_DIR/deploy/.env")"
+          else
+            # No COMPOSE_FILE: compose still merges docker-compose.override.yml by
+            # name on its own, so the NAS overlay is applied either way.
+            echo "no COMPOSE_FILE in deploy/.env — compose will use docker-compose.yml + docker-compose.override.yml"
+          fi
+
+      # THE EXCLUDES ARE THE SAFETY PROPERTY OF THIS WHOLE FILE. READ BEFORE EDITING.
+      #
+      # `data/`, `logs/`, `media/uploads/` and `models/` are gitignored, but each
+      # holds a tracked `.gitkeep`. So a checkout contains those directories with
+      # ONE file in them, and `--delete` would faithfully make the NAS match:
+      # every chat, the SQLite store, the HMAC signing secret in data/.secret, the
+      # admin password in data/auth_password, the enrolled voiceprint and every
+      # downloaded model weight, deleted to match an empty directory. That is not
+      # a bad deploy, it is an unrecoverable one — .secret alone signs every
+      # session cookie, and secrets/ is where the env files live.
+      #
+      # An --exclude protects the receiver's copy from `--delete` as well as from
+      # the transfer, which is the mechanism relied on here. Excluding a directory
+      # also excludes its .gitkeep, which is the intended effect: those files exist
+      # so a fresh CLONE has the directories, and the NAS is not a fresh clone.
+      #
+      # `--delete` itself is not a flourish. Stale files inside frontend/ and
+      # ava_bridge/ get baked into the image, and a deleted module that lingers is
+      # a module Python will still happily import.
+      - name: Sync the tree into the stack directory
+        run: |
+          set -euo pipefail
+          # AVA_HOME may point INSIDE the tree (the compose default is
+          # ./ava-data, relative to deploy/). Nothing in git shadows that path, so
+          # --delete would not touch it — but it is one edit away from being
+          # inside a directory that IS synced, and finding that out costs the
+          # install. Name it explicitly instead.
+          # A quoted value is legal in an env file and Ava's own docs write
+          # these unquoted, so strip both quote characters rather than trust
+          # the convention. The tr argument is double-quoted so the single
+          # quote inside it needs no escaping of its own.
+          home="$(sed -n 's/^AVA_HOME=//p' "$STACK_DIR/deploy/.env" | tail -1 | tr -d "\"' ")"
+          echo "AVA_HOME on this NAS: ${home:-<unset, compose default ./ava-data>}"
+          extra=()
+          case "${home:-./ava-data}" in
+            /*) : ;;                                    # absolute: outside the tree
+            *)  extra+=(--exclude "deploy/${home#./}/") ;;
+          esac
+          rsync -a --delete \
+            --exclude '.git/' \
+            --exclude '.github/' \
+            --exclude 'deploy/.env' \
+            --exclude 'deploy/.env.*' \
+            --exclude 'deploy/docker-compose.override.yml' \
+            --exclude 'deploy/ava-data/' \
+            --exclude '/data/' \
+            --exclude '/logs/' \
+            --exclude '/secrets/' \
+            --exclude '/models/' \
+            --exclude '/media/' \
+            --exclude '/enroll/*.wav' \
+            --exclude '/enroll/*.m4a' \
+            --exclude 'node_modules/' \
+            --exclude '.venv/' \
+            --exclude '__pycache__/' \
+            --exclude '.pytest_cache/' \
+            --exclude '.ruff_cache/' \
+            "${extra[@]}" \
+            ./ "$STACK_DIR/"
+
+      # The images carry one tag that never changes (`ava/bridge:latest`), so the
+      # build below overwrites the only copy of what is currently serving. Rolling
+      # back needs the previous image to still have a name; this gives it one.
+      - name: Tag the running images as previous
+        run: |
+          set -euo pipefail
+          for img in "$IMAGE" "$IMAGE_AGENT"; do
+            if docker image inspect "$img" >/dev/null 2>&1; then
+              docker tag "$img" "${img%:*}:previous"
+              echo "  ${img%:*}:previous -> $(docker image inspect --format '{{.Id}}' "$img" | cut -c8-19)"
+            else
+              echo "  $img is not on this NAS yet — nothing to keep"
+            fi
+          done
+
+      # AVA_VERSION / AVA_REVISION are build ARGS in docker-compose.yml, which
+      # the Dockerfile bakes into the image as ENV. Exporting them here is what
+      # makes the deployed build self-identifying: without it the NAS builds
+      # every commit as the bare VERSION file with no revision at all, and the
+      # verify step below would have nothing to compare against.
+      - name: Build the images
+        working-directory: ${{ env.STACK_DIR }}/deploy
+        env:
+          AVA_REVISION: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          set -euo pipefail
+          AVA_VERSION="$(tr -dc '0-9.' < "$STACK_DIR/VERSION")+nas.${DEPLOY_SHA:0:7}"
+          export AVA_VERSION
+          echo "building $AVA_VERSION ($AVA_REVISION)"
+          docker compose build
+
+      # `up -d`, and NEVER `--remove-orphans`. The shipper (ava-shipper) is added
+      # by nas/shipper.compose.yml, which is only in the project when deploy/.env
+      # names it in COMPOSE_FILE — and on any run where it is not, --remove-orphans
+      # would delete that container as an orphan. Nothing here should be able to
+      # remove a service it cannot see.
+      #
+      # `--wait` is meaningful because deploy/Dockerfile carries a HEALTHCHECK
+      # that curls /api/health; without one, --wait would only prove "started".
+      # Named service, not the whole project: ollama/vllm pull multi-GB weights on
+      # first start and are not what this deploy changed.
+      - name: Roll the stack
+        working-directory: ${{ env.STACK_DIR }}/deploy
+        run: |
+          set -euo pipefail
+          docker compose up -d
+          docker compose up -d --wait --wait-timeout 300 ava || {
+            echo "::error::the bridge did not come up healthy — last 80 lines"
+            docker compose logs --tail=80 ava
+            exit 1
+          }
+
+      # Two different questions, and passing the first says nothing about the second.
+      #
+      # /api/health proves the bridge is SERVING — it is the public, pre-auth
+      # endpoint the container's own HEALTHCHECK uses, so this is the same reading
+      # --wait just took, through the app rather than the daemon.
+      #
+      # AVA_REVISION proves it is serving THIS COMMIT. The env var is baked into
+      # the image at build time, so reading it back out of the running container
+      # is what catches the failure mode that looks exactly like success: a build
+      # that silently reused a cached layer, or containers that were never
+      # recreated. `printenv`, not /api/health — that endpoint reports `version`
+      # and deliberately publishes nothing else pre-auth, and widening a public
+      # endpoint to suit a deploy check would be the wrong trade.
+      - name: Verify the bridge is serving, and serving this commit
+        working-directory: ${{ env.STACK_DIR }}/deploy
+        run: |
+          set -euo pipefail
+          cid="$(docker compose ps -q ava)"
+          test -n "$cid" || { echo "::error::the ava service has no container"; exit 1; }
+          docker exec "$cid" curl -fsS http://127.0.0.1:8096/api/health
+          echo
+          echo "HEALTH=ok" >> "$GITHUB_ENV"
+          rev="$(docker exec "$cid" printenv AVA_REVISION 2>/dev/null || true)"
+          if [ -z "$rev" ]; then
+            echo "::warning::the container reports no AVA_REVISION — cannot confirm which commit is serving."
+          elif [ "$rev" = "$DEPLOY_SHA" ]; then
+            echo "serving ${rev:0:12} — the commit this run deployed"
+          else
+            echo "::error::the container was built from ${rev:0:12}, but this run deployed ${DEPLOY_SHA:0:12}. The stack did not restart into the new image."
+            exit 1
+          fi
+
+      # The previous-previous image is untagged by now (`:previous` moved off it
+      # this run) and nothing references it. Two builds per push fills a NAS.
+      - name: Prune dangling images
+        if: always()
+        run: docker image prune -f
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Ava → NAS"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| commit | \`${DEPLOY_SHA:0:7}\` on \`$DEPLOY_REF\` |"
+            echo "| gates | ${GATES:-unknown} |"
+            echo "| stack | \`$STACK_DIR\` |"
+            echo "| /api/health | ${HEALTH:-unreached} |"
+            echo
+            echo "Rollback — retag and roll, no rebuild:"
+            echo '```bash'
+            echo "cd $STACK_DIR/deploy"
+            echo "docker tag ${IMAGE%:*}:previous $IMAGE"
+            echo "docker compose up -d          # never 'down'"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
