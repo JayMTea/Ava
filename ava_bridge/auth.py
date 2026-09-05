@@ -152,6 +152,34 @@ def _valid_token(tok: str) -> bool:
         return False
 
 
+# Fraction of SESSION_TTL a cookie may burn through before an authenticated
+# request re-issues it. Below this, the expiry set at login never moves: a phone
+# used every single day is still signed out on day 31, and there is no way for
+# the owner to read that as anything but "Ava keeps asking for my password".
+# Renewing on use turns SESSION_TTL into an INACTIVITY window, which is what a
+# session timeout means everywhere else. Half, not "every request", so an idle
+# tab polling /api/* does not rewrite Set-Cookie on every response.
+SESSION_RENEW_AFTER = 0.5
+
+
+def needs_renewal(request: HTTPConnection) -> bool:
+    """Is this request's session valid, but past halfway through its life?
+
+    Reads `exp` back out of the cookie rather than tracking issue time server
+    side, because there is no server-side session store to track it in — the
+    token's own expiry stamp is the only record of when it was minted, and
+    _valid_token() has already proved that stamp is signed by us.
+    """
+    tok = request.cookies.get(config.COOKIE_NAME, "")
+    if not _valid_token(tok):
+        return False
+    try:
+        exp = int(tok.split(".", 1)[0])
+    except ValueError:
+        return False   # unreachable past _valid_token; fail closed, never 500
+    return (exp - time.time()) < config.SESSION_TTL * (1 - SESSION_RENEW_AFTER)
+
+
 def is_authed(request: HTTPConnection) -> bool:
     """Does this connection carry a valid session cookie?
 
@@ -658,14 +686,23 @@ async def auth_gate(request: Request, call_next):
             _audit.reset_actor(_tok)
     # The device-event ingest endpoint bypasses the cookie gate the same way:
     # callers are apps, not browsers, with their own per-connector bearer check.
-    if path in _PUBLIC_PATHS or _is_ingest(path) or is_authed(request):
+    _authed = is_authed(request)
+    if path in _PUBLIC_PATHS or _is_ingest(path) or _authed:
         # A cookie-authenticated request is the OWNER; a public path or a device
         # ingest is neither owner nor agent, so it stays unattributed rather than
         # being labelled with a plausible guess.
         from . import audit as _audit
-        _tok = _audit.set_actor("owner" if is_authed(request) else "unknown")
+        _tok = _audit.set_actor("owner" if _authed else "unknown")
+        # Slide the session forward on use. NOT on a public path: /logout's whole
+        # job is to clear this cookie, and re-setting it on the way out would make
+        # signing out impossible — /login and /setup mint their own besides.
+        _renew = (_authed and path not in _PUBLIC_PATHS
+                  and needs_renewal(request))
         try:
-            return await call_next(request)
+            _resp = await call_next(request)
+            if _renew:
+                set_session_cookie(_resp, request)
+            return _resp
         finally:
             _audit.reset_actor(_tok)
     if any(path == p or path.startswith(p + "/") for p in API_PREFIXES):

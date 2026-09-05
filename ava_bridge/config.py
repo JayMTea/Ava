@@ -241,7 +241,31 @@ WEB_USER_AGENT = os.environ.get(
 
 # ---- Authentication ----------------------------------------------------------
 COOKIE_NAME = "ava_session"
-SESSION_TTL = int(os.environ.get("AVA_SESSION_TTL_DAYS", "30")) * 86400
+
+
+def _resolve_session_ttl() -> int:
+    """auth.session_ttl_days -> seconds. How long a session survives WITHOUT USE.
+
+    Env-only before this, which meant the one knob an owner reaches for when the
+    phone keeps asking for the password was the one auth setting with no ava.yaml
+    key — unreachable on the Docker install without editing compose. Same
+    resolution order as auth.cookie_secure: ava.yaml, overridden by the env var.
+
+    A junk or non-positive value falls back to the default rather than raising:
+    this runs at import, so a typo here would otherwise be a bridge that will not
+    start, and "cannot boot" is a far worse answer than "used the default".
+    """
+    raw = settings.get("auth.session_ttl_days", 30, env="AVA_SESSION_TTL_DAYS")
+    try:
+        days = int(str(raw).strip())
+    except (TypeError, ValueError):
+        return 30 * 86400
+    return days * 86400 if days > 0 else 30 * 86400
+
+
+# Sessions slide forward on use (auth.needs_renewal), so this is an inactivity
+# window, not a hard cap from the moment you signed in.
+SESSION_TTL = _resolve_session_ttl()
 
 
 def _resolve_cookie_secure() -> bool | None:

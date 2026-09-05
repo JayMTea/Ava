@@ -81,6 +81,34 @@ If you set `true` and then browse over plain HTTP, the browser drops the cookie
 and every login bounces back to the sign-in screen with no error - that looks
 exactly like a wrong password. `auto` exists to avoid that.
 
+## Staying signed in
+
+You should type the password once per device, not once per launch.
+
+**The session slides forward on use.** Every authenticated request re-issues the
+cookie once it is past halfway through its life, so `auth.session_ttl_days`
+(default 30) is an **inactivity** window - a phone you open daily never reaches
+it. Before this, the expiry was stamped at sign-in and never moved, so a
+daily-driver phone was still signed out on day 31.
+
+```yaml
+auth:
+  session_ttl_days: 30   # days WITHOUT USE before you sign in again
+```
+
+**Let the phone hold the password.** The sign-in form is a standard password
+form (`autocomplete="current-password"` with a hidden account field), so iOS
+offers to save it to iCloud Keychain the first time and fills it with Face ID
+after that. If you dismissed that offer once, iOS stops asking: add it by hand
+in **Settings -> Passwords -> +**, using your Ava URL as the site.
+
+**One origin, or one cookie per origin.** A cookie belongs to the exact host you
+signed in at, so `http://192.168.1.50:8096` at home and
+`https://spark.tail1234.ts.net` away are two separate sessions, and moving
+between them looks exactly like being logged out. Install the home-screen app
+from the URL that works from *everywhere* - with `tailscale serve` that is the
+tailnet name, on the LAN as well as off it.
+
 ## What is (and isn't) cached offline
 
 The service worker precaches only the **app shell** - the HTML, JS, CSS and

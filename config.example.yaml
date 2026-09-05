@@ -99,7 +99,7 @@ auth:
   # NOTE: there is no `mode` key. One was documented here for a while and read
   # nowhere, so setting `mode: none` to skip the login wall for local dev did
   # nothing and said nothing — the password gate is not optional. The only auth
-  # key the code resolves is `cookie_secure` below.
+  # keys the code resolves are `cookie_secure` and `session_ttl_days` below.
   # The password + signing secret are NOT stored here — they live in
   # $AVA_HOME/secrets/ (auto-generated on first run) or env AVA_PASSWORD / AVA_SECRET.
   #
@@ -111,6 +111,13 @@ auth:
   # anywhere, which is indistinguishable from a wrong password. Set `true` only
   # if you terminate TLS somewhere Ava cannot see.
   cookie_secure: auto
+  #
+  # How long a sign-in lasts WITHOUT USE, in days.  [AVA_SESSION_TTL_DAYS]
+  # The session slides forward on every authenticated request, so this is an
+  # inactivity window, not a countdown from the moment you signed in — an app
+  # you open daily never reaches it. Raise it if you keep a phone signed in and
+  # use it rarely; lower it if the device might be lost.
+  session_ttl_days: 30
 
 paths:                     # all default under AVA_HOME; override only if needed
   data: null              # [AVA_DATA_DIR]

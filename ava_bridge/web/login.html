@@ -30,13 +30,23 @@
  button:hover{background:var(--accent-hover)} button:active{transform:translateY(1px)}
  .msg{color:#e58a6f;font-size:13px;text-align:center;min-height:18px;margin-bottom:8px}
 </style></head><body>
- <form class="card" method="post" action="/login" autocomplete="off">
+ <form class="card" method="post" action="/login">
   <div class="logo" aria-hidden="true">
    __BRAND_MARK__
   </div>
   <h1>__BRAND__</h1>
   <p class="sub">Enter your password to continue</p>
   <div class="msg"><!--MSG--></div>
+  <!-- iCloud Keychain (and every other password manager) keys a saved
+       credential on an ACCOUNT, and will not reliably offer to save — or to
+       autofill with Face ID — from a form that has only a password in it. This
+       is that account field: constant, because Ava has exactly one owner, and
+       hidden because there is nothing for anyone to choose. `login_post` takes
+       `password` alone and ignores it. The form itself no longer says
+       autocomplete="off", which was the other half of the problem: it told the
+       browser not to save the very field below it marked current-password. -->
+  <input type="text" name="username" value="owner" autocomplete="username"
+    hidden readonly tabindex="-1" aria-hidden="true">
   <input type="password" name="password" placeholder="Password" autofocus
     autocapitalize="off" autocomplete="current-password">
   <button type="submit">Sign in</button>

@@ -61,6 +61,53 @@ class TokenTests(unittest.TestCase):
             self.assertFalse(auth._valid_token(bad))
 
 
+class RenewalTests(unittest.TestCase):
+    """A session that is used must not expire on a fixed clock from login.
+
+    Without renewal the cookie's expiry is stamped once and never moves, so a
+    phone used every day is signed out on day SESSION_TTL regardless — which the
+    owner experiences as "it keeps asking for my password" and has no way to
+    distinguish from a bug.
+    """
+
+    def setUp(self):
+        self._sec = mock.patch.object(auth, "_AUTH_SECRET", b"unit-test-secret")
+        self._sec.start()
+
+    def tearDown(self):
+        self._sec.stop()
+
+    @staticmethod
+    def _req(tok):
+        """A stand-in for the one thing needs_renewal() reads off a request."""
+        return mock.Mock(cookies={config.COOKIE_NAME: tok} if tok is not None else {})
+
+    def _token_expiring_in(self, seconds):
+        exp = str(int(time.time()) + seconds)
+        sid = "unit-test-sid"
+        return f"{exp}.{sid}.{auth._sign(f'{exp}.{sid}')}"
+
+    def test_fresh_session_is_not_renewed(self):
+        # Just issued: most of its life is ahead of it, so no Set-Cookie churn
+        # on every request an idle tab makes.
+        self.assertFalse(auth.needs_renewal(self._req(auth._make_token())))
+
+    def test_past_halfway_is_renewed(self):
+        tok = self._token_expiring_in(int(config.SESSION_TTL * 0.4))
+        self.assertTrue(auth.needs_renewal(self._req(tok)))
+
+    def test_expired_or_absent_is_not_renewed(self):
+        # Renewal must never resurrect a dead session — that would turn the
+        # expiry into a formality. Both go back through _valid_token().
+        self.assertFalse(auth.needs_renewal(self._req(self._token_expiring_in(-10))))
+        self.assertFalse(auth.needs_renewal(self._req(None)))
+
+    def test_forged_token_is_not_renewed(self):
+        tok = self._token_expiring_in(int(config.SESSION_TTL * 0.4))
+        exp, sid, _sig = tok.split(".")
+        self.assertFalse(auth.needs_renewal(self._req(f"{exp}.{sid}.deadbeef")))
+
+
 class GateTests(unittest.TestCase):
     def setUp(self):
         self._patchers = [
