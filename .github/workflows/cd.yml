@@ -121,6 +121,15 @@ jobs:
             echo "::error::$STACK_DIR does not exist. The FIRST install is by hand (deploy/README.md); this job rolls a stack that already exists."; exit 1; }
           test -f "$STACK_DIR/deploy/.env" || {
             echo "::error::no deploy/.env in $STACK_DIR — it is hand-written on the NAS and never synced from git."; exit 1; }
+          test -r "$STACK_DIR/deploy/.env" || {
+            echo "::error::$STACK_DIR/deploy/.env exists but this runner cannot read it (it is 0600). Hand the stack over: sudo chown -R \"\$(id -un)\":users $STACK_DIR"; exit 1; }
+          # The rsync below runs --delete against STACK_DIR. A runner installed
+          # inside it would be deleting itself mid-job, which is the one
+          # failure here with no clean recovery — so refuse before touching
+          # anything rather than diagnose it afterwards.
+          case "$GITHUB_WORKSPACE/" in
+            "$STACK_DIR"/*) echo "::error::this runner's workspace ($GITHUB_WORKSPACE) is inside $STACK_DIR, which the deploy rsyncs --delete. Reinstall the runner elsewhere (/volume1/apps/ava-runner)."; exit 1 ;;
+          esac
           # A password that only exists in the environment cannot be changed from
           # inside the product (pages.py:change_password answers 409), and the
           # bridge would come up with whatever this file says regardless of what
