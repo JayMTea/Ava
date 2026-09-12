@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { getTheme } from '../lib/theme';
+import { connectAppTheme, sendAppTheme } from '../lib/embedTheme';
 
 // Renders a third-party app's own web UI inside Ava's shell. The app is served
 // SAME-ORIGIN via the bridge's /apps/<id>/ reverse-proxy, so it inherits Ava's
@@ -21,10 +22,6 @@ export function AppFrame({ id, label, active = true }: { id: string; label: stri
     return () => clearTimeout(t);
   }, [id]);
 
-  // v= busts HTML cached before the proxy sent Cache-Control: no-cache on app
-  // pages — those poisoned entries pin the iframe to a stale bundle and are
-  // never revalidated. Bump only if the embed contract changes again.
-
   // The bridge decides where this frame loads from. With `apps.origin` configured
   // it returns an absolute URL on a second hostname carrying a short-lived,
   // cid-bound token — the app is then cross-origin with Ava and its JS gets no
@@ -37,6 +34,7 @@ export function AppFrame({ id, label, active = true }: { id: string; label: stri
   useEffect(() => {
     let live = true;
     setSrc(null);
+    // v= busts HTML cached before the proxy sent Cache-Control: no-cache.
     const query = `theme=${getTheme()}&embedded=1&v=1`;
     fetch(`/api/apps/${encodeURIComponent(id)}/embed?${query}`, { credentials: 'same-origin' })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
@@ -50,30 +48,12 @@ export function AppFrame({ id, label, active = true }: { id: string; label: stri
   // Keep open apps in sync without reloading their frames and losing local state.
   // The initial URL covers first paint; the request/reply covers delayed hydration.
   const sendTheme = () => {
-    if (!src) return;
-    ref.current?.contentWindow?.postMessage(
-      { type: 'ava:theme', theme: getTheme() },
-      new URL(src, window.location.href).origin,
-    );
+    const frame = ref.current?.contentWindow;
+    if (src && frame) sendAppTheme(frame, new URL(src, window.location.href).origin);
   };
   useEffect(() => {
-    if (!src) return;
-    const origin = new URL(src, window.location.href).origin;
-    const send = () => ref.current?.contentWindow?.postMessage(
-      { type: 'ava:theme', theme: getTheme() }, origin,
-    );
-    const onRequest = (event: MessageEvent) => {
-      if (event.source === ref.current?.contentWindow && event.origin === origin
-        && event.data?.type === 'ava:theme-request') send();
-    };
-    const observer = new MutationObserver(send);
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
-    window.addEventListener('message', onRequest);
-    send();
-    return () => {
-      observer.disconnect();
-      window.removeEventListener('message', onRequest);
-    };
+    const frame = ref.current?.contentWindow;
+    if (src && frame) return connectAppTheme(frame, new URL(src, window.location.href).origin);
   }, [src]);
 
   return (
