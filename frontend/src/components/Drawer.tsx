@@ -64,6 +64,27 @@ const NAV: NavItem[] = [
 const NAV_INLINE = NAV.filter((it) => !it.system);
 const NAV_SYSTEM = NAV.filter((it) => it.system);
 
+// ── A destination is a LINK ─────────────────────────────────────────────────
+// Every sidebar entry that stands for a view is an <a href="#view">, never a
+// <button>: App.tsx already keeps the active tab in hash segment 0, so each one
+// HAS an address — and a browser only offers "Open link in new tab", Ctrl/Cmd-click
+// and middle-click on something that carries an href. As buttons these rows
+// looked like links and went somewhere addressable, while silently swallowing
+// every one of those gestures. Actions (new chat, connect an app, collapse the
+// panel) stay buttons: they go nowhere.
+//
+// An ORDINARY click is still handled here, so the SPA keeps its view transition
+// and never reloads. A MODIFIED click is handed to the browser untouched, which
+// is the entire point of the href.
+const viewHref = (id: string) => `#${id}`;
+
+const navClick = (id: string, onView: (v: string) => void) =>
+  (e: ReactMouseEvent) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+    e.preventDefault();
+    onView(id);
+  };
+
 /** The sidebar head: a wordmark image when there is one to show, else the name
  *  as text — which is what this always did before the slot had a default.
  *
@@ -525,8 +546,9 @@ export function Drawer({
   const appRow = (a: AppEntry) => {
             const h = health[a.id];
             return (
-              <button type="button"
+              <a
                 key={a.id}
+                href={viewHref(a.id)}
                 className={'nav-item nav-app'
                   + (view === a.id ? ' active' : '')
                   + (dragId === a.id ? ' dragging' : '')
@@ -535,10 +557,16 @@ export function Drawer({
                 // Reorderable by POINTER and by KEYBOARD. Drag alone would
                 // put the arrangement out of reach of anyone not using a
                 // mouse — the same defect that made these rows real
-                // <button>s in the first place (see the Recents note below).
+                // controls in the first place (see the Recents note below).
                 draggable
                 onDragStart={(e) => {
                   setDragId(a.id);
+                  // A link drags itself by default, so the payload arrives
+                  // pre-loaded with this row's href: drop it on a tab strip or
+                  // another window and the browser navigates instead of doing
+                  // nothing. Clear it first — this drag means "reorder", and it
+                  // is meaningless outside the list.
+                  e.dataTransfer.clearData();
                   e.dataTransfer.effectAllowed = 'move';
                   // Firefox refuses to start a drag with no payload set.
                   e.dataTransfer.setData('text/plain', a.id);
@@ -561,15 +589,16 @@ export function Drawer({
                   // Focus follows the row, not the position — the element is
                   // re-keyed to the same id, so React keeps it focused.
                 }}
+                aria-current={view === a.id ? 'page' : undefined}
                 aria-label={`${a.label} — ${h ? HEALTH_LABEL[h.health] : 'checking'}`
                   + alsoInLabel(realms, a.id)}
-                onClick={() => onView(a.id)}
+                onClick={navClick(a.id, onView)}
               >
                 <Icon name={appIcon(a)} className="nav-ic" />
                 <span className="nav-app-name">{a.label}</span>
                 <HealthDot health={h?.health} title={healthTitle(a.label, h)}
                            className="nav-app-dot" />
-              </button>
+              </a>
             );
   };
 
@@ -609,9 +638,11 @@ export function Drawer({
     const h = accent ? health[id] : undefined;
     const tip = accent ? healthTitle(label, h) : label;
     return (
-      <button
+      <a
         key={id}
+        href={viewHref(id)}
         className={'rail-btn' + (view === id ? ' active' : '') + (accent ? ' is-app' : '')}
+        aria-current={view === id ? 'page' : undefined}
         aria-label={accent ? `${label} — ${h ? HEALTH_LABEL[h.health] : 'checking'}` : label}
         // The accent rides in as a CUSTOM PROPERTY rather than an inline
         // `color`, so the stylesheet decides which part of the row wears it —
@@ -620,11 +651,11 @@ export function Drawer({
         // two-prop component.
         style={{ '--app-accent': accent } as CSSProperties}
         {...tipProps(tip)}
-        onClick={() => onView(id)}
+        onClick={navClick(id, onView)}
       >
         <Icon name={icon} />
         {accent && <HealthDot health={h?.health} className="rail-dot" />}
-      </button>
+      </a>
     );
   };
 
@@ -732,14 +763,16 @@ export function Drawer({
             they are behind the flyout pinned at the foot of this panel. */}
         <nav className="nav-list" aria-label="Primary">
           {NAV_INLINE.map((it) => (
-            <button type="button"
+            <a
               key={it.id}
+              href={viewHref(it.id)}
               className={'nav-item' + (view === it.id ? ' active' : '')}
-              onClick={() => onView(it.id)}
+              aria-current={view === it.id ? 'page' : undefined}
+              onClick={navClick(it.id, onView)}
             >
               <Icon name={it.icon} className="nav-ic" />
               <span>{it.label}</span>
-            </button>
+            </a>
           ))}
         </nav>
 

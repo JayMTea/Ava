@@ -61,7 +61,11 @@ body { font-family:var(--font-ui); }
 .rail-foot { margin:0; padding:0; display:flex; flex-direction:column; align-items:center; gap:6px; }
 .rail-btn { width:40px; height:40px; border-radius:11px; border:none; cursor:pointer;
   display:flex; align-items:center; justify-content:center; background:transparent;
-  color:var(--muted); transition:background .12s, color .12s; }
+  color:var(--muted); transition:background .12s, color .12s;
+  /* The tabs are real links (Drawer.tsx: a destination has an address, so it
+     gets an href and with it the browser's open-in-new-tab menu). Everything
+     below strips what an <a> brings and a <button> did not. */
+  text-decoration:none; -webkit-tap-highlight-color:transparent; }
 .rail-btn:hover { background:var(--wash-7); color:var(--txt); }
 .rail-btn.active { background:var(--wash-10); color:var(--txt); }
 .rail-btn svg { width:20px; height:20px; }
@@ -132,7 +136,9 @@ body { font-family:var(--font-ui); }
 .nav-list { display:flex; flex-direction:column; gap:1px; padding:0 8px; }
 .nav-item { display:flex; align-items:center; gap:11px; margin:0; padding:7px 9px;
   border:none; border-radius:8px; background:transparent; color:var(--txt); cursor:pointer;
-  font:inherit; font-size:14px; text-align:left; transition:background .12s; }
+  font:inherit; font-size:14px; text-align:left; transition:background .12s;
+  /* Same as .rail-btn: the rows that go somewhere are <a href="#view">. */
+  text-decoration:none; -webkit-tap-highlight-color:transparent; }
 .nav-item:hover { background:var(--wash-5); }
 .nav-item.active { background:var(--wash-8); }
 .nav-ic { display:flex; flex:0 0 auto; color:var(--muted); }

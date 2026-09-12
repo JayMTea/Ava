@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { getTheme } from '../lib/theme';
 
 // Renders a third-party app's own web UI inside Ava's shell. The app is served
 // SAME-ORIGIN via the bridge's /apps/<id>/ reverse-proxy, so it inherits Ava's
@@ -20,12 +21,9 @@ export function AppFrame({ id, label, active = true }: { id: string; label: stri
     return () => clearTimeout(t);
   }, [id]);
 
-  const theme = document.documentElement.dataset.theme
-    || (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
   // v= busts HTML cached before the proxy sent Cache-Control: no-cache on app
   // pages — those poisoned entries pin the iframe to a stale bundle and are
   // never revalidated. Bump only if the embed contract changes again.
-  const query = `theme=${theme}&embedded=1&v=1`;
 
   // The bridge decides where this frame loads from. With `apps.origin` configured
   // it returns an absolute URL on a second hostname carrying a short-lived,
@@ -39,6 +37,7 @@ export function AppFrame({ id, label, active = true }: { id: string; label: stri
   useEffect(() => {
     let live = true;
     setSrc(null);
+    const query = `theme=${getTheme()}&embedded=1&v=1`;
     fetch(`/api/apps/${encodeURIComponent(id)}/embed?${query}`, { credentials: 'same-origin' })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
       .then((j) => { if (live) setSrc(j.url); })
@@ -46,7 +45,36 @@ export function AppFrame({ id, label, active = true }: { id: string; label: stri
       // renders, rather than showing an empty frame.
       .catch(() => { if (live) setSrc(`/apps/${encodeURIComponent(id)}/?${query}`); });
     return () => { live = false; };
-  }, [id, query]);
+  }, [id]);
+
+  // Keep open apps in sync without reloading their frames and losing local state.
+  // The initial URL covers first paint; the request/reply covers delayed hydration.
+  const sendTheme = () => {
+    if (!src) return;
+    ref.current?.contentWindow?.postMessage(
+      { type: 'ava:theme', theme: getTheme() },
+      new URL(src, window.location.href).origin,
+    );
+  };
+  useEffect(() => {
+    if (!src) return;
+    const origin = new URL(src, window.location.href).origin;
+    const send = () => ref.current?.contentWindow?.postMessage(
+      { type: 'ava:theme', theme: getTheme() }, origin,
+    );
+    const onRequest = (event: MessageEvent) => {
+      if (event.source === ref.current?.contentWindow && event.origin === origin
+        && event.data?.type === 'ava:theme-request') send();
+    };
+    const observer = new MutationObserver(send);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    window.addEventListener('message', onRequest);
+    send();
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('message', onRequest);
+    };
+  }, [src]);
 
   return (
     <div className="appframe" style={active ? undefined : { display: 'none' }}>
@@ -74,7 +102,7 @@ export function AppFrame({ id, label, active = true }: { id: string; label: stri
           // claim was aspirational for a long time: the bridge shipped
           // `apps_origin.warning()` on /api/apps and nothing anywhere read it.
           sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-downloads"
-          onLoad={() => setState('ready')}
+          onLoad={() => { setState('ready'); sendTheme(); }}
         />
       )}
     </div>
