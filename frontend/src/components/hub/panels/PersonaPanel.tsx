@@ -5,10 +5,9 @@ import { ResourceError } from '../ui/ResourceState';
 import { useAction, useResource } from '../hooks';
 import { hub } from '../hubApi';
 import { Badge } from '../ui/Badge';
-import { DriftBadge } from '../ui/DriftBadge';
 import { HubMessage } from '../ui/HubMessage';
 import { Legend } from '../ui/Legend';
-import { markProvisionDirty, startProvision, useProvisionState } from '../../../hooks/useProvisionState';
+import { markProvisionDirty } from '../../../hooks/useProvisionState';
 
 // Persona — how Ava talks. Blank on a fresh install, on purpose: the shipped
 // prompt template carries only operational directives, so nothing about this
@@ -38,10 +37,8 @@ export function PersonaPanel() {
     };
   });
   const { data: p, reload } = pRes;
-  const { state: prov } = useProvisionState();
   const [style, setStyle] = useState('');
   const [format, setFormat] = useState('chat');
-  const [applying, setApplying] = useState(false);
   const { busy, message, run } = useAction();
 
   // Seed from the server, and re-seed after a save. Nothing is sent until the
@@ -56,7 +53,9 @@ export function PersonaPanel() {
     const r = await hub.savePersona({ style, format });
     if (r.error) return r.error;
     reload();
-    // The bar picks it up from here — no navigation instruction, no homework.
+    // Not a pending flag anything renders — it only tells the next drift read to
+    // bypass the bridge's 30s cache, so opening Runtime straight after a save
+    // reports the save rather than the snapshot taken just before it.
     markProvisionDirty('persona');
   }, 'Saved.');
 
@@ -64,8 +63,6 @@ export function PersonaPanel() {
   const overrides = p?.env_overrides ?? {};
   const overridden = Object.keys(overrides);
   const isSet = (p?.style ?? '').trim() !== '';
-  const personaState = prov?.scopes?.persona?.state;
-  const personaStale = personaState === 'stale' || personaState === 'undeployed';
 
   return (
     <>
@@ -122,10 +119,12 @@ export function PersonaPanel() {
             <div className="hub-field">
               <label>
                 Ava's voice, in your words
-                {/* Two badges answering two different questions: is there a
-                    value at all, and is the value the one Ava is running. */}
+                {/* "Is the value the one Ava is running" used to be a second
+                    badge here. Answering it means computing drift, and drift has
+                    one home now — a badge on this panel could only show what
+                    some earlier visit to Runtime happened to cache, which is a
+                    number that lies. */}
                 {!isSet && <> <Badge tone="muted">not set</Badge></>}
-                {personaState && <> <DriftBadge state={personaState} /></>}
               </label>
               <textarea
                 className="hub-input"
@@ -167,27 +166,18 @@ export function PersonaPanel() {
               </button>
             </div>
             <HubMessage message={message} />
-            {/* The actual fix for "I saved it and nothing changed": the answer is
-                here, next to the button that caused it, instead of a navigation
-                instruction in a message the next action wipes. */}
-            {personaStale && (
-              <div className="hub-note with-icon">
-                <Icon name="info" />
-                <span>
-                  Saved, but Ava is still using the previous version.{' '}
-                  <button
-                    type="button" className="hub-btn ghost sm" disabled={applying}
-                    onClick={async () => {
-                      setApplying(true);
-                      await startProvision('persona');
-                      setApplying(false);
-                    }}
-                  >
-                    {applying ? 'Applying…' : 'Apply now'}
-                  </button>
-                </span>
-              </div>
-            )}
+            {/* Still the answer to "I saved it and nothing changed", and still
+                next to the button that causes it — but stated once, as a fact
+                about how saving works, rather than as a conditional nag that
+                needed a drift poll running behind Setup to know when to appear.
+                A link that says where it goes, per CLAUDE.md. */}
+            <div className="hub-note with-icon">
+              <Icon name="info" />
+              <span>
+                Saved to your config. Ava starts using it after the next{' '}
+                <b>Apply</b> in Setup → Agent → Runtime.
+              </span>
+            </div>
           </>
         ) : <EmptyState text="Loading…" />}
       </Panel>

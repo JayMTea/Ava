@@ -44,10 +44,11 @@ export type AgentSubTab = (typeof AGENT_SUBTABS)[number]['id'];
 /**
  * Runtime is the default on purpose, not by alphabet.
  *
- * `#hub/agent` already means "go apply your changes" to PendingChangesBar, and
- * the drift board is what answers "is my agent actually live". Making anything
- * else the landing would silently change what every existing bare `#hub/agent`
- * link does.
+ * `#hub/agent` has always meant "go apply your changes", and the drift board is
+ * what answers "is my agent actually live". It means that more literally now:
+ * with the pending-changes banner gone, this sub-tab is the ONLY place drift is
+ * computed and the only Apply button. Making anything else the landing would
+ * silently change what every existing bare `#hub/agent` link does.
  */
 export const DEFAULT_SUB: AgentSubTab = 'runtime';
 

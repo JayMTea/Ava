@@ -192,8 +192,14 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
         // means a proxy or tailnet hop timing out no longer looks like a failed
         // deploy.
         setMsg(r.detail || 'Deploying into the agent sandbox…');
-        await attachToProvisionJob();
-        setMsg('Deployed into the agent sandbox.');
+        // Report what the run actually did. "Deployed" used to be unconditional,
+        // which was survivable while a drift poll ran behind Setup to correct it
+        // a few seconds later; nothing polls now, so an overstatement here is the
+        // owner's final word on the subject.
+        const j = await attachToProvisionJob();
+        setMsg(j?.status === 'done' ? 'Deployed into the agent sandbox.'
+          : j?.status === 'error' ? (j.detail || 'the deploy did not finish — see Setup → Agent → Runtime')
+          : 'Still applying — watch it in Setup → Agent → Runtime.');
       } else {
         setMsg(r.detail || 'Done.');
       }
@@ -237,8 +243,8 @@ function ConnectorRow({ c, onChanged }: { c: HubConnector; onChanged: () => void
         // Delete withdraws the app's egress policy and removes its generated
         // tools, so what this checkout declares no longer matches what the
         // sandbox holds — until an Apply, Ava still carries tools for an app
-        // that is gone. Drift is a server fact, but the hint is what stops the
-        // bar from waiting out the 10s poll before saying so.
+        // that is gone. Drift is a server fact; this only marks that the next
+        // read of it must bypass the bridge's 30s cache.
         markProvisionDirty('servers');
         markProvisionDirty('policies');
       } else setErr(r.error || 'could not remove');

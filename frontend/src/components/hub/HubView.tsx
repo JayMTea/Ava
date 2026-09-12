@@ -13,9 +13,6 @@ import { SystemPanel } from './panels/SystemPanel';
 import { ConnectorsPanel } from './panels/ConnectorsPanel';
 import { hub } from './hubApi';
 import type { PendingApproval } from './hubApi';
-import { PendingChangesBar } from './PendingChangesBar';
-import { agentSubPending, tabPending } from './provisionView';
-import { useProvisionState } from '../../hooks/useProvisionState';
 import { ViewErrorBoundary } from '../ViewErrorBoundary';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -189,15 +186,11 @@ export function HubView() {
   // deliberately silent: the banner simply omits the command rather than
   // becoming an error the user cannot act on.
   const { data: sys } = useResource(() => hub.system());
-  // A tab badge counts only what THAT tab owns, so one edit does not light up
-  // two tabs and read as two changes. Persona now lives inside Agent, so it
-  // rolls up into the Agent badge and reappears split across the sub-tab bar —
-  // the two must agree, and provisionView.test.ts asserts the sum. Suppressed
-  // while a run is in flight: counts ticking down mid-deploy just flicker.
-  const { state: prov, job: provJob } = useProvisionState();
-  const running = provJob?.status === 'running';
-  const tabBadges = running ? {} : tabPending(prov);
-  const subBadges = running ? {} : agentSubPending(prov);
+  // Setup deliberately says NOTHING here about what has or has not reached the
+  // agent. There used to be a banner across the top and a count pill on every
+  // tab, fed by a drift poll that ran for as long as Setup was open. Whether a
+  // save is live is a question with one home now — Setup → Agent → Runtime —
+  // and it is answered when the owner goes and asks it.
 
   return (
     <div className="hub view-scroll">
@@ -215,29 +208,20 @@ export function HubView() {
         </div>
 
         {/* Order is deliberate: an approval blocks a live, in-flight agent call
-            with a human waiting on it. Pending changes block nothing. */}
+            with a human waiting on it. A restart the owner must run is next. */}
         <ApprovalsBanner />
-        <PendingChangesBar onGo={setTab} />
         <RestartBanner show={restart} docker={sys?.docker} />
 
         <div className="hub-tabs">
-          {TABS.map((t) => {
-            const n = tabBadges[t.id] ?? 0;
-            return (
-              <button
-                type="button" key={t.id}
-                className={'hub-tab' + (tab === t.id ? ' active' : '')}
-                aria-label={n > 0
-                  ? `${t.label} — ${n} change${n === 1 ? '' : 's'} waiting to reach Ava`
-                  : undefined}
-                onClick={() => setTab(t.id)}
-              >
-                <Icon name={t.icon} />{t.label}
-                {/* The pill is decoration; the meaning is in the aria-label. */}
-                {n > 0 && <span className="hub-tab-badge" aria-hidden="true">{n}</span>}
-              </button>
-            );
-          })}
+          {TABS.map((t) => (
+            <button
+              type="button" key={t.id}
+              className={'hub-tab' + (tab === t.id ? ' active' : '')}
+              onClick={() => setTab(t.id)}
+            >
+              <Icon name={t.icon} />{t.label}
+            </button>
+          ))}
         </div>
 
         {/* One boundary PER TAB, not one around the view.
@@ -255,7 +239,7 @@ export function HubView() {
           {tab === 'overview' && <Overview onGo={setTab} />}
           {tab === 'hardware' && <HardwarePanel />}
           {tab === 'agent' && (
-            <AgentPanel onRestart={notifyRestart} sub={sub} onSub={setSub} badges={subBadges} />
+            <AgentPanel onRestart={notifyRestart} sub={sub} onSub={setSub} />
           )}
           {tab === 'connectors' && <ConnectorsPanel />}
           {tab === 'branding' && <BrandingPanel />}

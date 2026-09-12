@@ -1,19 +1,27 @@
-// One shared view of "what has my saved config actually reached Ava".
+// One shared view of "what has my saved config actually reached Ava" — read when
+// the owner asks for it, never on a clock.
 //
-// There is deliberately NO client-owned pending set. Drift is a server fact: a
-// set maintained here would lie after a reload, lie in a second tab, lie when the
-// owner edits agent/skills/foo/SKILL.md on disk, and lie when somebody provisions
-// from the CLI. So this is one polled resource plus a short-lived optimistic
-// hint, shared by every consumer.
+// Drift is still a server fact. A pending set maintained here would lie after a
+// reload, lie in a second tab, lie when the owner edits
+// agent/skills/foo/SKILL.md on disk, and lie when somebody provisions from the
+// CLI — so none is kept. What changed is the cadence: this module used to poll
+// /provision/state every 10s for as long as Setup was open (30s elsewhere) and
+// again on every tab focus, to keep a banner current that nobody had asked for.
+// That is not a free read — computing drift can cost up to four `exec`
+// round-trips into the sandbox (ava_bridge/provision.py). Now exactly one
+// surface asks: Setup → Agent → Runtime, on mount and on Re-check.
 //
-// A module-scope cache with a subscriber set rather than a Context provider: this
-// codebase has no providers, the shell is prop-drilled, and the affordance has to
-// be visible from both inside and outside #hub. This is the smallest thing that
-// satisfies that, and its logic lives in pure exported functions so vitest can
-// cover it without a render harness.
+// The job poll DOES still tick, and deliberately: it follows a run the owner
+// started, for as long as that run lasts. That is a progress bar, not a watch.
+//
+// A module-scope store with a subscriber set rather than a Context provider:
+// this codebase has no providers and the shell is prop-drilled. The job loop is
+// shared, so the Runtime panel and a connector Deploy follow ONE run instead of
+// polling the same job twice a second between them.
 import { useEffect, useState } from 'react';
 import { hub } from '../components/hub/hubApi';
 import type { ProvisionJob, ProvisionScope, ProvisionState } from '../components/hub/hubApi';
+import { mergeJob } from '../components/hub/provisionView';
 
 type Snapshot = {
   state: ProvisionState | null;
@@ -25,15 +33,15 @@ type Snapshot = {
 let snap: Snapshot = { state: null, job: null, error: '', loading: true };
 const subs = new Set<() => void>();
 
-// Domains the owner just saved, unioned into the server snapshot until the
-// server itself agrees. Without this there is a window right after Save where
-// the bar says "nothing pending" — the exact moment the feature is meant to
-// speak. Same overlay-over-polled-snapshot idiom as the ops dashboard.
-const dirtyHints = new Set<ProvisionScope>();
-const cleanStreak = new Map<ProvisionScope, number>();
+// Domains the owner saved since the last drift read. This is NOT an optimistic
+// pending set — it is one bit of routing: the next read must bypass the bridge's
+// 30s drift cache, or a Save followed straight away by opening Runtime can be
+// answered from a snapshot computed before the save.
+const savedSinceLastRead = new Set<ProvisionScope>();
 
-let timer = 0;
-let pollingJob = false;
+let jobLoop: Promise<void> | null = null;
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function emit() {
   for (const fn of subs) fn();
@@ -44,112 +52,88 @@ function set(patch: Partial<Snapshot>) {
   emit();
 }
 
-/** Union the optimistic hints into a server snapshot. Exported for test. */
-export function applyDirtyHint(
-  state: ProvisionState | null,
-  hints: Set<ProvisionScope>,
-): ProvisionState | null {
-  if (!state || !hints.size) return state;
-  const scopes = { ...state.scopes };
-  let extra = 0;
-  for (const scope of hints) {
-    const cur = scopes[scope];
-    if (!cur || cur.pending > 0) continue;   // server already agrees
-    scopes[scope] = { ...cur, pending: 1, state: 'stale' };
-    extra += 1;
-  }
-  if (!extra) return state;
-  return {
-    ...state,
-    scopes,
-    pending: state.pending + extra,
-    scopes_to_provision: [...new Set([...state.scopes_to_provision, ...hints])],
-  };
-}
-
-function reconcileHints(state: ProvisionState | null) {
-  if (!state) return;
-  for (const scope of [...dirtyHints]) {
-    const pending = state.scopes?.[scope]?.pending ?? 0;
-    if (pending > 0) {
-      // The server sees it too; the hint has done its job.
-      dirtyHints.delete(scope);
-      cleanStreak.delete(scope);
-      continue;
-    }
-    // Two consecutive clean reads means the save was a genuine no-op (re-saving
-    // identical text), so stop claiming otherwise.
-    const n = (cleanStreak.get(scope) ?? 0) + 1;
-    cleanStreak.set(scope, n);
-    if (n >= 2) {
-      dirtyHints.delete(scope);
-      cleanStreak.delete(scope);
-    }
-  }
-}
-
+/** Read drift from the bridge. The ONLY thing that computes it. */
 export async function refreshProvisionState(): Promise<void> {
+  const force = savedSinceLastRead.size > 0;
+  savedSinceLastRead.clear();
   try {
-    const state = await hub.provisionState();
-    reconcileHints(state);
+    const state = await hub.provisionState(force);
     set({ state, error: '', loading: false });
   } catch (e) {
     // A failed fetch NEVER clears the last good snapshot: drift is sticky, so the
-    // last known count is probably still true. Only claims about *now* get
-    // suppressed, which barView() handles.
+    // last known count is probably still true.
     set({ error: (e as Error).message, loading: false });
   }
 }
 
+/** "I just saved something the sandbox holds." Records nothing the UI reads — it
+ *  only makes the next drift read bypass the server's cache. */
 export function markProvisionDirty(scope: ProvisionScope): void {
-  dirtyHints.add(scope);
-  cleanStreak.delete(scope);
-  emit();
-  void refreshProvisionState();
+  savedSinceLastRead.add(scope);
 }
 
-/** Follow a provisioning run that something ELSE started, and resolve when it
- *  ends.
- *
- *  The connector Deploy button starts the same single-slot job rather than
- *  shelling `install.sh` a second time beside it, so it needs to wait on that
- *  run without owning it. Everything the bar and the run view already render
- *  keeps working, because it is the same job. */
-export async function attachToProvisionJob(): Promise<ProvisionJob | null> {
-  const first = await hub.provisionJob(0).catch(() => null);
-  if (first) set({ job: first });
-  void pollJob();
-  for (;;) {
-    const job = await hub.provisionJob(snap.job?.seq ?? 0).catch(() => null);
-    if (!job || job.status !== 'running') {
-      await refreshProvisionState();
-      return job;
-    }
-    await new Promise((r) => setTimeout(r, 1000));
+/** Everything the drift view needs, in one call: the current facts, plus any run
+ *  already in flight (started in another tab, by a connector Deploy, or before an
+ *  F5 — the job is server-side, so it is picked up mid-flight). */
+export async function openDriftView(): Promise<void> {
+  await refreshProvisionState();
+  const j = await hub.provisionJob(0).catch(() => null);
+  if (j?.status === 'running') {
+    set({ job: j });
+    void pollJob();
   }
 }
 
-async function pollJob() {
-  if (pollingJob) return;
-  pollingJob = true;
-  try {
-    for (;;) {
-      const job = await hub.provisionJob(snap.job?.seq ?? 0).catch(() => null);
-      if (!job) break;
-      set({ job });
-      if (job.status !== 'running') {
-        await refreshProvisionState();
-        // The sandbox model can change across a provision, and the header's
-        // model chip is fetched once on mount. Broadcast so it can re-read —
-        // the existing `ava:apps-changed` / `ava:theme` idiom, which keeps
-        // useChat from importing hub code.
-        window.dispatchEvent(new Event('ava:agent-provisioned'));
-        break;
-      }
-      await new Promise((r) => setTimeout(r, 1000));
+/** Follow a provisioning run and resolve when it ends.
+ *
+ *  The connector Deploy button starts the same single-slot job rather than
+ *  shelling `install.sh` a second time beside it, so it needs to wait on that run
+ *  without owning it. It joins the shared loop below rather than opening a second
+ *  one against the same job. */
+export async function attachToProvisionJob(): Promise<ProvisionJob | null> {
+  const first = await hub.provisionJob(0).catch(() => null);
+  if (first) set({ job: first });
+  await pollJob();
+  return snap.job;
+}
+
+/** One loop per run, however many callers are watching. */
+function pollJob(): Promise<void> {
+  if (!jobLoop) jobLoop = runJobLoop().finally(() => { jobLoop = null; });
+  return jobLoop;
+}
+
+async function runJobLoop(): Promise<void> {
+  let misses = 0;
+  for (;;) {
+    const job = await hub.provisionJob(snap.job?.seq ?? 0).catch(() => null);
+    if (!job) {
+      // A dropped frame is not a finished run. Treating it as one used to pin the
+      // view at "running" forever; with no background poll left to correct that,
+      // it would hide the Apply button for the life of the page.
+      if (++misses < 5) { await sleep(2000); continue; }
+      set({
+        job: null,
+        error: 'Lost contact with Ava while applying. The run is still going on the '
+             + 'bridge — reopen Setup → Agent → Runtime to see how it finished.',
+      });
+      return;
     }
-  } finally {
-    pollingJob = false;
+    misses = 0;
+    // Merge, never replace: the bridge slices the log by cursor, so each frame
+    // carries only what is new. Replacing would leave "Show log" showing the last
+    // second of install.sh and nothing before it.
+    set({ job: mergeJob(snap.job, job) });
+    if (job.status !== 'running') {
+      await refreshProvisionState();
+      // The sandbox model can change across a provision, and the header's model
+      // chip is fetched once on mount. Broadcast so it can re-read — the existing
+      // `ava:apps-changed` / `ava:theme` idiom, which keeps useChat from importing
+      // hub code.
+      window.dispatchEvent(new Event('ava:agent-provisioned'));
+      return;
+    }
+    await sleep(1000);
   }
 }
 
@@ -165,61 +149,38 @@ export async function startProvision(
       void pollJob();
       return { ok: true };
     }
-    // Tier 3: a bridge that still answers synchronously. Nothing streams, but
-    // the result is real — refresh and let the drift report speak.
+    // Tier 3: a bridge that still answers synchronously. Nothing streams, but the
+    // result is real — refresh and let the drift report speak.
     await refreshProvisionState();
     return { ok: !!r.ok, error: r.error };
   } catch (e) {
+    // Someone else holds the single slot (a connector Deploy, the CLI, another
+    // tab). Attach to their run rather than reporting a conflict: with one Apply
+    // button left, "already running" is not something the owner can act on.
+    if ((e as { code?: string }).code === 'provision_running') {
+      void pollJob();
+      return { ok: true };
+    }
     return { ok: false, error: (e as Error).message };
   }
 }
 
-function schedule() {
-  window.clearTimeout(timer);
-  // Drift is sticky; 3s polling would be theatre. Suspended entirely while a job
-  // runs — the job poll is the authority then, and refetching drift mid-run makes
-  // the count flicker.
-  const inHub = location.hash.startsWith('#hub');
-  const ms = snap.job?.status === 'running' ? 30_000 : inHub ? 10_000 : 30_000;
-  timer = window.setTimeout(async () => {
-    if (!document.hidden && snap.job?.status !== 'running') await refreshProvisionState();
-    schedule();
-  }, ms);
-}
-
-function startPolling() {
-  void refreshProvisionState();
-  // A run may already be in flight from another tab or a page reload; the job is
-  // server-side, so the view reappears mid-flight rather than being lost.
-  void hub.provisionJob(0).then((j) => {
-    if (j?.status === 'running') { set({ job: j }); void pollJob(); }
-  }).catch(() => {});
-  schedule();
-  document.addEventListener('visibilitychange', onVis);
-}
-
-function onVis() {
-  if (!document.hidden) void refreshProvisionState();
-}
-
-function stopPolling() {
-  window.clearTimeout(timer);
-  document.removeEventListener('visibilitychange', onVis);
-}
-
-export function useProvisionState() {
+/** Subscribe to the shared snapshot.
+ *
+ *  `refreshOnMount` is what makes a surface an OWNER of drift rather than a reader
+ *  of it, and exactly one surface passes it: Setup → Agent → Runtime. Every other
+ *  place that mounted this hook was a reason to keep a timer alive. */
+export function useProvisionState(opts?: { refreshOnMount?: boolean }) {
   const [, force] = useState(0);
+  const refreshOnMount = !!opts?.refreshOnMount;
   useEffect(() => {
     const fn = () => force((n) => n + 1);
     subs.add(fn);
-    if (subs.size === 1) startPolling();
-    return () => {
-      subs.delete(fn);
-      if (subs.size === 0) stopPolling();
-    };
-  }, []);
+    if (refreshOnMount) void openDriftView();
+    return () => { subs.delete(fn); };
+  }, [refreshOnMount]);
   return {
-    state: applyDirtyHint(snap.state, dirtyHints),
+    state: snap.state,
     job: snap.job,
     error: snap.error,
     loading: snap.loading,
@@ -230,12 +191,5 @@ export function useProvisionState() {
 /** Test seam: reset module state between cases. */
 export function __resetForTests() {
   snap = { state: null, job: null, error: '', loading: true };
-  dirtyHints.clear();
-  cleanStreak.clear();
+  savedSinceLastRead.clear();
 }
-
-/** Test seam: drive the hint reconciliation without a network. */
-export function __hints() {
-  return dirtyHints;
-}
-export { reconcileHints as __reconcileHints };

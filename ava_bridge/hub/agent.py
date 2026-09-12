@@ -157,11 +157,21 @@ async def agent_skill_set_category(skill_id: str, request: Request):
 def agent_provision_state(force: int = 0):
     """What the sandbox is actually running vs what this checkout declares.
 
-    A sync `def` so FastAPI runs it in a threadpool, and it reads only files —
-    the NemoClaw registry, the policy/skill/server trees, the rendered persona.
-    It never execs into the sandbox, so it is safe to poll and it still answers
-    correctly when the container is stopped (which is precisely when the owner
-    most wants to know what is live).
+    A sync `def` so FastAPI runs it in a threadpool. Much of the answer is files
+    — the NemoClaw registry, the policy/skill/server trees, the rendered persona
+    — which is why it still answers correctly with the container stopped, the
+    state the owner is in precisely when they most want to know what is live.
+
+    NOT free, and this docstring used to say the opposite. When the sandbox IS
+    live, persona and tool servers need a live digest: a runtime with no view of
+    its own falls back to `provision._probe`, which is up to four `exec`
+    round-trips into the container (provision.py). A 30s single-flight cache
+    absorbs bursts, and `force=1` deliberately steps around it.
+
+    So this is not an endpoint to poll, and nothing polls it: the SPA asks when
+    the owner opens Setup → Agent → Runtime, and again when they press Re-check.
+    It used to be read every 10s for as long as Setup was open, to feed a banner
+    that no longer exists.
     """
     return provision.state(force=bool(force))
 

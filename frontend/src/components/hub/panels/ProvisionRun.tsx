@@ -117,9 +117,9 @@ function Elapsed({ from, to }: { from: number | null; to: number | null }) {
 }
 
 /**
- * What the sandbox is actually running, per domain — the "Review" destination
- * the pending-changes bar links to. Built from StatRow, so no new primitives and
- * no new CSS.
+ * What the sandbox is actually running, per domain. This used to be the "Review"
+ * destination a banner linked to; it is now the whole answer, shown where the
+ * owner comes to ask. Built from StatRow, so no new primitives and no new CSS.
  */
 export function DriftBoard({ state }: { state: ProvisionState | null }) {
   if (!state || !state.enabled) return null;

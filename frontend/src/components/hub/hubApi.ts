@@ -945,8 +945,13 @@ export const hub = {
       error?: string; error_code?: string;
     }>(`/api/hub/agent/provision?scope=${scope}`, { method: 'POST' }),
 
-  provisionState: () =>
-    req<ProvisionState>('/api/hub/agent/provision/state', { cache: 'no-store' }),
+  // Asked only when the owner opens Setup → Agent → Runtime — it is not a cheap
+  // read (up to four `exec` round-trips into the sandbox behind a 30s cache), and
+  // nothing polls it. `force` skips that cache, which is what a save needs: the
+  // cached answer may predate it.
+  provisionState: (force = false) =>
+    req<ProvisionState>(`/api/hub/agent/provision/state${force ? '?force=1' : ''}`,
+      { cache: 'no-store' }),
 
   provisionJob: (since = 0) =>
     req<ProvisionJob>(`/api/hub/agent/provision/status?since=${since}`,

@@ -225,8 +225,9 @@ export function BrandingPanel() {
     // reach the agent, so they are done the moment the save returns.
     //
     // Two apply verbs, never conflated (CLAUDE.md): this is "apply to the agent",
-    // so it marks the persona scope dirty and lets PendingChangesBar say so —
-    // it does NOT call onRestart(), because the backend really does return
+    // so it marks the persona scope as saved — which only tells the next drift
+    // read in Setup → Agent → Runtime to bypass the bridge cache. It does NOT
+    // call onRestart(), because the backend really does return
     // restart_required: false and there is nothing to restart.
     const nameChanged = b.name !== name;
     return save(

@@ -883,19 +883,6 @@ def _liveness(rt) -> tuple[bool, str]:
     return bool(info.get("live")), str(info.get("reason") or "")
 
 
-def summary(rt=None, force: bool = False) -> dict:
-    """The rollup the pending-changes bar consumes."""
-    st = state(rt, force=force)
-    return {
-        "pending": st["pending"],
-        "state": st["state"],
-        "scopes": {k: {"pending": v["pending"], "state": v["state"]}
-                   for k, v in st["scopes"].items()},
-        "sandbox_live": st["sandbox"]["live"],
-        "scopes_to_provision": st["scopes_to_provision"],
-    }
-
-
 def apply_skill_states(catalog: list[dict], rt=None) -> list[dict]:
     """Return a COPY of `skills.catalog()` with each row's `deployed` replaced by
     the provision-derived state.

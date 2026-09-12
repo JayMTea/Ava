@@ -8,18 +8,21 @@ import { Badge } from '../ui/Badge';
 import { StatRow } from '../ui/StatRow';
 import { GatewayCard } from './GatewayCard';
 import { DriftBoard, ProvisionRun } from './ProvisionRun';
-import { startProvision, useProvisionState } from '../../../hooks/useProvisionState';
+import { refreshProvisionState, startProvision, useProvisionState } from '../../../hooks/useProvisionState';
 
 // Setup -> Agent -> Runtime: is the agent actually live, what has drifted, and
-// the one button that applies it. This is the DEFAULT Agent sub-tab, because
-// `#hub/agent` already means "go apply my changes" to PendingChangesBar.
+// the one button that applies it. This is the DEFAULT Agent sub-tab, and it is
+// now the ONE place drift is computed — opening it asks the bridge, and nothing
+// else does. Nothing runs on a clock: there is no banner and no tab pill to keep
+// current, so a drift read happens when the owner comes here to look, and when
+// they press Re-check.
 
 export function AgentRuntimePanel() {
   const stRes = useResource(() => hub.agentStatus());
   const { data: st, reload: load } = stRes;
   const [busy, setBusy] = useState(false);
   const [detail, setDetail] = useState('');
-  const { state: prov, job } = useProvisionState();
+  const { state: prov, job, error: provErr } = useProvisionState({ refreshOnMount: true });
 
   // The run is server-side now, so it survives a page reload and a second tab —
   // and the button stops being the only feedback. It used to block for up to ten
@@ -31,6 +34,16 @@ export function AgentRuntimePanel() {
     if (!r.ok && r.error) setDetail(r.error);
     setBusy(false);
     load();
+  }, [load]);
+
+  // The owner's manual refresh, and the only one there is. With the poll gone,
+  // drift created elsewhere — `ava agent provision`, a SKILL.md edited on disk,
+  // another tab's Apply — shows up when this runs, not before.
+  const recheck = useCallback(async () => {
+    setBusy(true); setDetail('');
+    await refreshProvisionState();
+    load();
+    setBusy(false);
   }, [load]);
 
   const running = job?.status === 'running';
@@ -118,15 +131,22 @@ export function AgentRuntimePanel() {
           one button was doing two jobs. */}
       {!running && (
         <div className="hub-btn-row">
-          <button type="button" className="hub-btn" onClick={provision} disabled={busy}>
+          {/* Two buttons in one, and the distinction matters more now that this
+              is the only drift surface: with something pending it applies, with
+              nothing pending it RE-READS rather than pointlessly re-running
+              install.sh. */}
+          <button type="button" className="hub-btn"
+                  onClick={pending ? provision : recheck} disabled={busy}>
             <Icon name={pending ? 'check' : 'refresh'} />
-            {busy ? 'Applying…'
+            {busy ? (pending ? 'Applying…' : 'Checking…')
               : pending ? `Apply ${pending} change${pending === 1 ? '' : 's'}`
               : 'Re-check agent'}
           </button>
         </div>
       )}
-      {detail && <div className="hub-msg" style={{ color: 'var(--muted)' }}>{detail}</div>}
+      {(detail || provErr) && (
+        <div className="hub-msg" style={{ color: 'var(--muted)' }}>{detail || provErr}</div>
+      )}
 
       <ProvisionRun job={job} />
     </Panel>

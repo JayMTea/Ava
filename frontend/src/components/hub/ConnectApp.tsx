@@ -555,8 +555,13 @@ function ApplyToAgent({ cid, name }: { cid: string; name: string }) {
       if (!r.ok) setErr(r.error || r.detail || 'could not apply it to the agent');
       else if (r.running) {
         setMsg('Applying…');
-        await attachToProvisionJob();
-        setMsg(`Ava has ${name}'s tools now.`);
+        // This dialog opens from the sidebar, so it can run with no Setup on
+        // screen at all — its own line is the entire feedback, and nothing comes
+        // along later to correct it. Say only what the run reported.
+        const j = await attachToProvisionJob();
+        if (j?.status === 'done') setMsg(`Ava has ${name}'s tools now.`);
+        else if (j?.status === 'error') setErr(j.detail || 'the run did not finish');
+        else setMsg('Still applying — you can watch it in Setup → Agent → Runtime.');
       } else setMsg(r.detail || 'Done.');
     } catch (e) { setErr((e as Error).message); }
     setBusy(false);

@@ -74,8 +74,9 @@ Any user-facing optional capability lives in `ava_bridge/features.py`:
 - **Two apply verbs, never conflated.** *Restart Ava* = an `ava.yaml` value the
   bridge reads at boot → `RestartBanner`, driven by `restart_required` on a
   `hub.*` mutation. *Apply to the agent* = persona / skills / policies / tool
-  servers, which live in the NemoClaw sandbox → `PendingChangesBar`, driven by
-  the `deployed | stale | undeployed | unknown` vocabulary from
+  servers, which live in the NemoClaw sandbox → the **Apply** button in
+  Setup → Agent → Runtime, driven by the
+  `deployed | stale | undeployed | unknown` vocabulary from
   `ava_bridge/provision.py`. A mutation calls `onRestart()` **only if the
   response actually set `restart_required`**; it calls
   `markProvisionDirty(scope)` when it changed something the sandbox holds.
@@ -86,6 +87,16 @@ Any user-facing optional capability lives in `ava_bridge/features.py`:
   second tab, an edit made on disk, and a provision run from the CLI.
   `unknown` means "we could not look inside the sandbox", not "it is missing",
   and never counts as pending.
+- **Drift is read on demand, never on a clock.** Setup → Agent → Runtime is the
+  one surface that asks for it — on open, and on *Re-check agent*. Computing it
+  can cost four `exec` round-trips into the sandbox, so nothing polls
+  `/provision/state` and no other panel subscribes to `useProvisionState`; a
+  second subscriber either shows a number nobody refreshed or brings the timer
+  back to keep it honest. `markProvisionDirty(scope)` is not a pending flag any
+  UI renders — it only makes the next read bypass the bridge's 30s cache.
+  `tests/test_hub_uniformity.py::test_drift_is_computed_only_when_the_owner_asks`
+  enforces both halves. The job poll is the exception and is not drift: it
+  follows a run the owner started, for as long as that run lasts.
 - Python: `ruff check`, tests with `python -m pytest tests/ -q`.
 - Convention guards follow the `tests/test_diagram_sync.py` style: static
   scans over `git ls-files` that run anywhere, failing with instructions.

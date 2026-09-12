@@ -8,8 +8,9 @@ import { Badge } from './Badge';
  * phrasings; a panel that invents a fifth is inventing a second product.
  *
  * The badge states a FACT. The instruction ("apply it") lives in exactly one
- * place — PendingChangesBar — because six rows each telling you to re-provision
- * is six copies of one call to action, and none of them is where the button is.
+ * place — Setup → Agent → Runtime, next to the button — because six rows each
+ * telling you to re-provision is six copies of one call to action, and none of
+ * them is where the button is.
  *
  * This replaced a local `skillDeployBadge` in AgentPanel whose copy read
  * "edited · re-provision" / "not deployed · re-provision" / "provision to load".

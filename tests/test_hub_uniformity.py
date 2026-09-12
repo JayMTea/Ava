@@ -212,7 +212,7 @@ def test_one_provisioning_vocabulary() -> None:
     When the persona and egress policies grew the same states, three panels each
     telling the owner to re-provision would have been three copies of one call to
     action — none of them next to the button. The badge states a fact; the
-    instruction lives in PendingChangesBar, once.
+    instruction lives in Setup -> Agent -> Runtime, next to the button, once.
     """
     src = (ROOT / "frontend/src/components/hub/provisionView.ts").read_text()
     assert "DRIFT_LABEL" in src, "the drift vocabulary moved out of provisionView.ts"
@@ -247,8 +247,9 @@ def test_the_two_apply_verbs_stay_separate() -> None:
         "restart — the prompt is rebuilt when changes reach the agent. Use "
         "markProvisionDirty('persona').")
     assert "markProvisionDirty" in persona, (
-        "PersonaPanel no longer signals that the persona is waiting to reach Ava, "
-        "so the pending-changes bar cannot appear after a save.")
+        "PersonaPanel no longer signals that it saved something the sandbox "
+        "holds, so the next drift read can be answered from a cache taken "
+        "before the save.")
 
 
 def test_provision_run_degrades_honestly_on_a_remote_runtime() -> None:
@@ -262,12 +263,43 @@ def test_provision_run_degrades_honestly_on_a_remote_runtime() -> None:
         "the remote-runtime explanation is gone.")
 
 
-def test_the_tab_badge_has_a_consumer() -> None:
-    """`.hub-tab-badge` sat in hub.css with zero consumers for months. Guard
-    against a half-revert quietly restoring that state."""
-    hub_view = (ROOT / "frontend/src/components/hub/HubView.tsx").read_text()
-    assert "hub-tab-badge" in hub_view, (
-        "nothing renders .hub-tab-badge, so per-tab pending counts are dead CSS.")
+def test_drift_is_computed_only_when_the_owner_asks() -> None:
+    """Nothing checks what has reached the agent on a clock.
+
+    Setup used to carry a pending-changes banner and a count pill on every tab,
+    kept current by a /provision/state poll every 10s for as long as Setup was
+    open (30s elsewhere), plus a refetch on every tab focus. That read is not
+    free — when the sandbox is live it can cost four `exec` round-trips into the
+    container (ava_bridge/provision.py) — and nobody had asked for it.
+
+    Drift is still a server fact and still survives a reload, a second tab, an
+    edit made on disk and a CLI run. It is simply not fetched until an owner
+    opens Setup -> Agent -> Runtime, which is the one surface that owns it.
+
+    The job poll is a different thing and is deliberately not guarded here: it
+    follows a run the owner started, for as long as that run lasts.
+    """
+    hook = (ROOT / "frontend/src/hooks/useProvisionState.ts").read_text()
+    for marker in ("visibilitychange", "function schedule(", "startPolling"):
+        assert marker not in hook, (
+            f"the provision-state poll is back ({marker!r} in useProvisionState.ts). "
+            "Drift is read when the owner opens Setup -> Agent -> Runtime, not on "
+            "a clock — see the module header.")
+
+    # set(): the two globs overlap, so a panel in the HUB root matches twice.
+    owners = sorted(
+        {f.name for f in _tracked(f"{HUB}/*.tsx") + _tracked(f"{HUB}/**/*.tsx")
+         if "useProvisionState(" in f.read_text()}
+    )
+    assert owners == ["AgentRuntimePanel.tsx"], (
+        "drift has exactly one home. These Setup surfaces subscribe to it: "
+        f"{owners} — a second one either shows a number nobody refreshed or "
+        "brings the poll back to keep it honest.")
+
+    runtime = (ROOT / "frontend/src/components/hub/panels/AgentRuntimePanel.tsx").read_text()
+    assert "refreshOnMount" in runtime, (
+        "Setup -> Agent -> Runtime no longer asks for a drift read when it opens, "
+        "so it renders whatever a previous visit left cached.")
 
 
 def test_setup_routing_has_no_unreachable_redirects() -> None:
