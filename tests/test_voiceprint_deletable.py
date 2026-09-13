@@ -39,6 +39,8 @@ def split_paths(tmp_path, monkeypatch):
     legacy.parent.mkdir(parents=True)
     monkeypatch.setattr(spk, "VOICEPRINT", str(live))
     monkeypatch.setattr(spk, "_LEGACY_VOICEPRINT", str(legacy))
+    # These cases describe an operator explicitly adopting the legacy layout.
+    monkeypatch.setattr(spk, "_legacy_enabled", lambda: True)
     assert str(live) != str(legacy), "the fixture failed to split the paths"
     return live, legacy
 

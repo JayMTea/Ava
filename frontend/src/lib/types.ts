@@ -400,15 +400,16 @@ export interface AnalyticsArtifactReference {
 
 export interface AnalysisRow {
   label: string;
-  state: string;
-  puma: string;
+  state?: string;
+  puma?: string;
   value: number | null;
-  moe_90: number | null;
-  sample_records: number;
+  moe_90?: number | null;
+  sample_records?: number;
 }
 
 export interface RecordedAnalyticsArtifactPayload {
-  schema_version: 'ava-artifact/1';
+  schema_version: 'ava-artifact/1' | 'ava-artifact/3';
+  mode?: 'snapshot';
   reference: AnalyticsArtifactReference;
   chat_id?: string | null;
   visualization?: { format: 'svg'; result_id: string; content: string };
@@ -421,13 +422,15 @@ export interface RecordedAnalyticsArtifactPayload {
     unit: string;
     row_count: number;
     rows: AnalysisRow[];
-    filters: { release: string; record_type: string; geography_level: string; states: string[] };
+    filters?: { release: string; record_type: string; geography_level: string; states: string[] };
+    dimension_label?: string;
+    scope_label?: string;
     method: string;
-    metric_id: string;
-    metric_version: string;
+    metric_id?: string;
+    metric_version?: string;
     limitations: string[];
     citations: { title: string; url: string }[];
-    sources: { dataset_id: string; url: string; source_sha256: string; silver_sha256: string; published_object: string }[];
+    sources: { title?: string; dataset_id?: string; url: string; source_sha256?: string; silver_sha256?: string; published_object?: string }[];
   };
 }
 
@@ -449,7 +452,17 @@ export interface SupersetArtifactPayload {
   visualization: { format: 'superset'; path: string };
 }
 
-export type AnalyticsArtifactPayload = RecordedAnalyticsArtifactPayload | SupersetArtifactPayload;
+export interface AppArtifactPayload {
+  schema_version: 'ava-artifact/3';
+  reference: AnalyticsArtifactReference;
+  chat_id?: string | null;
+  app_url?: string | null;
+  mode: 'live';
+  chart: { citations: { title: string; url: string }[] };
+  visualization: { format: 'app'; path: string };
+}
+
+export type AnalyticsArtifactPayload = RecordedAnalyticsArtifactPayload | SupersetArtifactPayload | AppArtifactPayload;
 
 export type Artifact = WeatherArtifactData | AnalyticsArtifactReference;
 

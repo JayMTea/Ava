@@ -106,7 +106,7 @@ _load_errors: List[dict] = []
 _FOLDER_ID_RE = _re.compile(r"^[a-z][a-z0-9_-]{1,31}$")
 
 
-def _load_dir(base: str, errors: list | None = None) -> dict:
+def _load_dir(base: str, errors: list | None = None, allowed: set | None = None) -> dict:
     out: dict = {}
     if yaml is None or not os.path.isdir(base):
         return out
@@ -116,6 +116,8 @@ def _load_dir(base: str, errors: list | None = None) -> dict:
             errors.append(row)
 
     for name in sorted(os.listdir(base)):
+        if allowed is not None and name not in allowed:
+            continue
         if name.startswith(("_", ".")):
             continue
         path = os.path.join(base, name, "connector.yaml")
@@ -433,7 +435,17 @@ def _validate(m: dict, path: str, errors: list | None) -> None:
 
 def _merge_all(errors: list | None = None) -> dict:
     merged: dict = {}
-    merged.update(_load_dir(BUILTIN_DIR, errors))
+    allowed = None
+    # An instance may use the product's shipped connectors, never another
+    # owner's untracked connector folders in the shared source tree.
+    if os.path.realpath(USER_DIR) != os.path.realpath(BUILTIN_DIR):
+        index = os.path.join(BUILTIN_DIR, "builtins.json")
+        if os.path.isfile(index):
+            with open(index, encoding="utf-8") as source:
+                allowed = set(_json.load(source))
+        elif os.path.realpath(BUILTIN_DIR) == os.path.realpath(settings.CODE_ROOT / "connectors"):
+            allowed = set()  # a missing product index must not expose private apps
+    merged.update(_load_dir(BUILTIN_DIR, errors, allowed=allowed))
     if os.path.realpath(USER_DIR) != os.path.realpath(BUILTIN_DIR):
         merged.update(_load_dir(USER_DIR, errors))  # user overrides built-in by id
     return merged

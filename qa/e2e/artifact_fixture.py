@@ -52,9 +52,22 @@ def seed() -> dict:
     chat_store.chat_append(second["id"], "user", "A separate conversation.")
     third = chat_store.chat_new("Chart supplied by Analytics")
     chat_store.chat_append(third["id"], "assistant", "Your recorded chart.", artifact=recorded)
+    generic_id = str(uuid.uuid4())
+    generic = {"schema_version": "ava-artifact/3", "id": generic_id,
+               "type": "analytics", "mode": "snapshot", "title": "Revenue by department",
+               "chart_type": "bar", "result": {
+                   "schema_version": "analysis-result/2", "id": generic_id, "mode": "snapshot",
+                   "title": "Revenue by department", "created_at": "2026-09-13T12:00:00Z",
+                   "unit": "USD", "dimension_label": "Department", "method": "Net revenue",
+                   "columns": [{"name": "label"}, {"name": "value"}], "row_count": 2,
+                   "rows": [{"label": "Returns", "value": -12.5}, {"label": "Sales", "value": 25.75}],
+                   "sources": [], "citations": [], "limitations": []}}
+    portable = data_artifacts.capture("qa-analytics", {"_meta": {"ava/artifact": generic}})["structuredContent"]["artifact"]
+    fourth = chat_store.chat_new("Application-neutral result")
+    chat_store.chat_append(fourth["id"], "assistant", "Your department revenue.", artifact=portable)
     return {"QA_CHART_CHAT": first["id"], "QA_OTHER_CHAT": second["id"],
             "QA_IMAGE_CHAT": third["id"], "QA_CHART_ID": legacy["id"],
-            "QA_IMAGE_ID": recorded["id"]}
+            "QA_IMAGE_ID": recorded["id"], "QA_GENERIC_CHAT": fourth["id"]}
 
 
 if __name__ == "__main__":

@@ -295,7 +295,7 @@ def test_every_ollama_profile_has_its_own_service_and_shares_the_model_cache() -
     compose = _compose()
     services = compose.get("services") or {}
     ollamas = {n: s for n, s in services.items()
-               if str(s.get("image", "")).startswith("ollama/ollama")}
+               if str(s.get("image", "")).split(":-", 1)[-1].removesuffix("}").startswith("ollama/ollama")}
     assert len(ollamas) >= 2, (
         "expected at least the shared `ollama` service and one accelerated "
         f"variant, found {sorted(ollamas)}")

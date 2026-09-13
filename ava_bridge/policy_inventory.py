@@ -41,7 +41,7 @@ POLICY_DIR = os.path.join(ROOT, "agent", "policies")
 # directory and this is byte-for-byte the old path.
 GENERATED_DIR = settings.generated_policy_dir()
 # The private-overlay policies (gitignored first-party apps). Absent on a fork.
-OVERLAY_DIR = os.path.join(ROOT, "overlay", "agent", "policies")
+OVERLAY_DIR = os.path.join(settings.overlay_dir(), "policies")
 
 
 def _rel(path: str) -> str:

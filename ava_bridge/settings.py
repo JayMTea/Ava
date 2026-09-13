@@ -2,8 +2,8 @@
 
 Layered resolution (highest wins):
     1. environment variables      (e.g. AVA_PORT)
-       (a `.env` file at the repo root or $AVA_HOME is auto-loaded into the
-        environment at import — values already present in the real environment
+       ($AVA_HOME/.env is loaded at import; the checkout .env is loaded only
+        for the default checkout home or AVA_LOAD_REPO_ENV=1 — values already present in the real environment
         always win, so systemd EnvironmentFile=/compose `environment:` keep
         priority)
     2. $AVA_HOME/ava.yaml          (the user's config file)
@@ -74,16 +74,17 @@ def _load_dotenv(path: Path) -> None:
         os.environ.setdefault(key, value)
 
 
-# The repo .env loads first (it may define AVA_HOME itself), then AVA_HOME is
-# resolved, then $AVA_HOME/.env (if different) fills any remaining gaps.
-_load_dotenv(CODE_ROOT / ".env")
+# An explicitly selected instance must not inherit the checkout's environment.
+# Keep the original bootstrap when no home is selected. The compatibility flag
+# is for an operator explicitly adopting a legacy checkout configuration.
+if not os.environ.get("AVA_HOME") or os.environ.get("AVA_LOAD_REPO_ENV") == "1":
+    _load_dotenv(CODE_ROOT / ".env")
 
 # Where *data* lives. Override with AVA_HOME; defaults to the code root so the
 # original single-user layout (./data ./logs ./media) is unchanged.
 AVA_HOME = Path(os.environ.get("AVA_HOME", str(CODE_ROOT))).expanduser()
 
-if AVA_HOME.resolve() != CODE_ROOT.resolve():
-    _load_dotenv(AVA_HOME / ".env")
+_load_dotenv(AVA_HOME / ".env")
 
 CONFIG_PATH = AVA_HOME / "ava.yaml"
 
@@ -404,6 +405,11 @@ def persona_format() -> str:
 def home(*parts: str) -> str:
     p = AVA_HOME.joinpath(*parts)
     return str(p)
+
+
+def overlay_dir() -> str:
+    """Private agent extensions belong to the selected instance."""
+    return str(get("extensions.agent_dir", home("overlay", "agent"), env="AVA_OVERLAY"))
 
 
 # The generated trees, relative to an agent root. Kept as one list so the

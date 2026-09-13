@@ -275,11 +275,8 @@ app.include_router(internal.router)
 app.include_router(_data_artifact_router)
 
 # Mount the optional overlay personal-app routes now that `app` exists.
-try:
-    from overlay.ava_bridge import personal_routes as _personal_routes
-    _personal_routes.register(app)
-except Exception:  # noqa: BLE001 — no overlay (fork) or a broken overlay: core still boots
-    pass
+from ava_bridge import extensions as _extensions  # noqa: E402
+_extensions.mount(app)
 
 
 def _resolved_model() -> str:

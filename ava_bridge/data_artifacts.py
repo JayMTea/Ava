@@ -8,7 +8,6 @@ import csv
 import contextlib
 import io
 import json
-import math
 import os
 import re
 import sqlite3
@@ -16,8 +15,6 @@ import time
 import uuid
 import zipfile
 import xml.etree.ElementTree as ET
-from datetime import datetime
-from urllib.parse import parse_qs, urlsplit
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse, Response
@@ -31,12 +28,30 @@ RECEIPT_PATTERN = re.compile(r'"ava_artifact_id"\s*:\s*"([a-f0-9-]{36})"')
 
 @contextlib.contextmanager
 def _db():
-    path = settings.home("data", "analytics-artifacts.db")
+    path = db_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
+    descriptor = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
+    os.close(descriptor)
+    os.chmod(path, 0o600)
     connection = sqlite3.connect(path, timeout=10)
+    version = connection.execute("PRAGMA user_version").fetchone()[0]
+    if version > 1:
+        connection.close()
+        raise ValueError("Artifact database was written by a newer Ava version")
+    connection.execute("PRAGMA secure_delete=ON")
     connection.execute("CREATE TABLE IF NOT EXISTS artifact "
                        "(id TEXT PRIMARY KEY, connector TEXT NOT NULL, created REAL NOT NULL, "
                        "reference TEXT NOT NULL, payload TEXT NOT NULL)")
+    if version == 0:
+        connection.execute("PRAGMA user_version=1")
+    days = settings.get_int("data.artifact_retention_days", 0)
+    if days > 0:
+        removed = connection.execute("DELETE FROM artifact WHERE created < ?",
+                                     (time.time() - days * 86400,)).rowcount
+        connection.commit()
+        if removed:
+            from . import audit
+            audit.record("data_delete", store="artifacts", rows=removed, reason="retention")
     try:
         with connection:
             yield connection
@@ -44,103 +59,37 @@ def _db():
         connection.close()
 
 
-def _validate(artifact: dict) -> None:
-    if artifact.get('schema_version') == 'ava-artifact/2':
-        _validate_superset(artifact)
-        return
-    if artifact.get("schema_version") != "ava-artifact/1" or artifact.get("type") != "analytics":
-        raise ValueError("Unsupported artifact contract")
-    result = artifact.get("result")
-    if not isinstance(result, dict) or result.get("schema_version") != "analysis-result/1":
-        raise ValueError("Artifact has no recorded analytical result")
-    if str(uuid.UUID(str(result.get("id")))) != artifact.get("result_id"):
-        raise ValueError("Artifact and result identities differ")
-    if artifact.get("mode") != "snapshot" or result.get("mode") != "snapshot":
-        raise ValueError("Only recorded snapshots can use the analytical renderer")
-    if artifact.get("chart_type", "bar") not in ("bar", "table"):
-        raise ValueError("Unsupported chart type")
-    for key in ("title", "created_at", "unit", "method", "metric_id", "metric_version"):
-        if not isinstance(result.get(key), str) or len(result[key]) > 65536:
-            raise ValueError("Invalid analytical description")
-    datetime.fromisoformat(result["created_at"])
-    filters = result.get("filters")
-    if not isinstance(filters, dict) or not all(isinstance(filters.get(key), str) for key in (
-        "release", "record_type", "geography_level",
-    )) or not isinstance(filters.get("states"), list):
-        raise ValueError("Invalid analytical scope")
-    for key, fields in (("sources", ("dataset_id", "url", "source_sha256", "silver_sha256", "published_object")),
-                        ("citations", ("title", "url")), ("columns", ("name",))):
-        entries = result.get(key)
-        if not isinstance(entries, list) or len(entries) > 10000 or any(
-            not isinstance(entry, dict) or not all(isinstance(entry.get(field), str) for field in fields)
-            for entry in entries
-        ):
-            raise ValueError("Invalid analytical evidence")
-    if not isinstance(result.get("limitations"), list) or not all(
-        isinstance(item, str) for item in result["limitations"]
-    ):
-        raise ValueError("Invalid analytical limitations")
-    rows = result.get("rows")
-    if not isinstance(rows, list) or len(rows) > 5000 or result.get("row_count") != len(rows):
-        raise ValueError("Invalid artifact row count")
-    for row in rows:
-        if not isinstance(row, dict) or not isinstance(row.get("label"), str):
-            raise ValueError("Invalid analytical row")
-        for key in ("value", "moe_90", "sample_records"):
-            value = row.get(key)
-            if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float))
-                                      or not math.isfinite(value)):
-                raise ValueError("Invalid analytical value")
-    if len(json.dumps(artifact, ensure_ascii=False, allow_nan=False).encode()) > MAX_BYTES:
-        raise ValueError("Artifact exceeds the snapshot budget")
-    visualization = artifact.get("visualization")
-    if visualization is not None:
-        _validate_visualization(visualization, artifact["result_id"])
+def db_path() -> str:
+    return os.path.join(settings.data_dir(), "analytics-artifacts.db")
 
 
-def _validate_superset(artifact: dict) -> None:
-    """A native chart runs only within its configured connector's app boundary."""
-    if artifact.get('type') != 'analytics' or artifact.get('mode') != 'live':
-        raise ValueError('Invalid native chart contract')
-    uuid.UUID(str(artifact.get('id')))
-    chart, visual = artifact.get('chart'), artifact.get('visualization')
-    if not isinstance(chart, dict) or not isinstance(visual, dict) or visual.get('format') != 'superset':
-        raise ValueError('Invalid Superset chart')
-    if type(chart.get('id')) is not int or chart['id'] <= 0:
-        raise ValueError('Invalid saved chart ID')
-    if not isinstance(artifact.get('title'), str) or not 1 <= len(artifact['title']) <= 1000:
-        raise ValueError('Invalid chart title')
-    chart_type = artifact.get('chart_type')
-    if not isinstance(chart_type, str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,100}', chart_type):
-        raise ValueError('Invalid Superset chart type')
-    if chart.get('chart_type') != chart_type:
-        raise ValueError('Chart types differ')
-    path = visual.get('path')
-    if not isinstance(path, str) or len(path) > 64000:
-        raise ValueError('Invalid chart destination')
-    url = urlsplit(path)
-    params = parse_qs(url.query, keep_blank_values=True)
-    if (url.scheme or url.netloc or url.fragment or url.path != '/superset/superset/explore/'
-            or set(params) != {'slice_id', 'standalone', 'form_data'}
-            or any(len(values) != 1 for values in params.values())
-            or params['slice_id'] != [str(chart['id'])] or params['standalone'] != ['1']):
-        raise ValueError('Invalid chart destination')
-    form = json.loads(params['form_data'][0])
-    if (not isinstance(form, dict) or set(form) != {'slice_id', 'adhoc_filters'}
-            or form['slice_id'] != chart['id'] or not isinstance(form['adhoc_filters'], list)
-            or form['adhoc_filters'] != chart.get('filters')):
-        raise ValueError('Chart destination and saved scope differ')
-    citations = chart.get('citations')
-    if not isinstance(citations, list) or len(citations) > 100 or any(
-        not isinstance(item, dict) or not all(isinstance(item.get(k), str) for k in ('title', 'url'))
-        for item in citations
-    ):
-        raise ValueError('Invalid chart citations')
-    if len(json.dumps(artifact, ensure_ascii=False, allow_nan=False).encode()) > MAX_BYTES:
-        raise ValueError('Artifact exceeds the snapshot budget')
+def delete_all() -> int:
+    with _db() as connection:
+        count = connection.execute("DELETE FROM artifact").rowcount
+    from . import audit
+    audit.record("data_delete", store="artifacts", rows=count, reason="owner")
+    return count
 
 
-def _validate_visualization(visualization, result_id: str) -> None:
+def inventory() -> dict:
+    path = db_path()
+    if not os.path.isfile(path):
+        return {"path": path, "bytes": 0, "rows": 0, "last_write": 0}
+    # Inventory is read-only; it neither creates a database nor prunes history.
+    from pathlib import Path
+    from contextlib import closing
+    with closing(sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True)) as connection:
+        rows = connection.execute("SELECT count(*) FROM artifact").fetchone()[0]
+    return {"path": path, "bytes": os.path.getsize(path), "rows": rows,
+            "last_write": os.path.getmtime(path)}
+
+
+def _validate(artifact: dict, cid: str = "") -> None:
+    from .artifact_contracts import validate
+    validate(artifact, cid)
+
+
+def validate_visualization(visualization, result_id: str) -> None:
     """Only inert SVG drawings bound to this recorded result can be served as images."""
     if (not isinstance(visualization, dict) or visualization.get("format") != "svg"
             or visualization.get("result_id") != result_id):
@@ -179,7 +128,7 @@ def capture(cid: str, data):
     artifact = metadata["ava/artifact"]
     reference = None
     if features.preflight("data_artifacts") is None:
-        _validate(artifact)
+        _validate(artifact, cid)
         ident = str(uuid.uuid4())
         reference = {"type": "analytics", "id": ident, "ava_artifact_id": ident,
                      "result_id": artifact.get('result_id', artifact.get('id')),
@@ -194,6 +143,7 @@ def capture(cid: str, data):
                                 json.dumps(artifact, ensure_ascii=False, allow_nan=False)))
     result.pop("artifact", None)
     result.pop("visualization", None)
+    result.pop("ava_artifact_id", None)
     if reference:
         result = {"ava_artifact_id": reference["id"], "artifact": reference, **result}
     return {"structuredContent": result, "content": [{"type": "text", "text": json.dumps(result)}],
@@ -256,7 +206,7 @@ def get_chart(ident: str):
     visualization = artifact.get("visualization")
     if visualization is None or visualization.get('format') != 'svg':
         raise HTTPException(status_code=404, detail="No chart image recorded")
-    _validate_visualization(visualization, artifact["result_id"])
+    validate_visualization(visualization, artifact.get("result_id", artifact.get("id")))
     return Response(visualization["content"], media_type="image/svg+xml", headers={
         "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
         "Content-Security-Policy": "default-src 'none'; sandbox",
@@ -266,10 +216,10 @@ def get_chart(ident: str):
 @router.get("/api/artifact/analytics/{ident}/export")
 def export_artifact(ident: str):
     artifact = _authorized_artifact(ident)
-    if artifact.get('schema_version') == 'ava-artifact/2':
+    if artifact.get('mode') == 'live':
         # The saved chart definition is reproducible; live query rows are not a snapshot.
         return JSONResponse(artifact, headers={'Cache-Control': 'no-store',
-                            'Content-Disposition': 'attachment; filename="superset-chart.json"'})
+                            'Content-Disposition': 'attachment; filename="live-chart.json"'})
     result = artifact["result"]
     content = io.StringIO(newline="")
     columns = [column["name"] for column in result["columns"]]

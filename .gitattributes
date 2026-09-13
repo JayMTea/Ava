@@ -1,3 +1,7 @@
+# Keep source hashes, generated diagrams and export bundles identical on every
+# checkout. Native Windows launchers retain CRLF through the overrides below.
+* text=auto eol=lf
+
 # Shell scripts MUST check out with LF, on every platform.
 #
 # Git for Windows defaults to core.autocrlf=true, which rewrites every text file

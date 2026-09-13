@@ -455,3 +455,26 @@ set it as the `agent` service's `image:` in `deploy/docker-compose.override.yml`
     to be cut with `git tag -s`, but the workflow only warns on an unsigned tag
     rather than blocking the release - so verify the tag signature yourself if
     that matters to you. See [docs/RELEASING.md](docs/RELEASING.md).
+
+## Independent instances and runtime extensions
+
+New file-backed passwords are stored as salted PBKDF2-SHA256 verifiers with
+600,000 iterations. Existing plaintext files and environment-pinned passwords
+continue to authenticate; change the password in Setup to write a verifier.
+Existing session signing keys are preserved until the usual password-change
+revocation. `secrets/runtime_service_token` (or `AVA_RUNTIME_TOKEN`) authenticates
+the configured external runtime. It is supplied by the operator, never generated
+as if Ava could authorize itself to another service.
+
+An explicit `AVA_HOME` does not load the source checkout's environment or private
+connectors. Instance extensions are trusted executable code with bridge privileges.
+For independently hosted or untrusted applications, use connector manifests and
+an isolated app origin. A stdio connector without a configured container boundary
+runs with the bridge user's permissions. A remote runtime owns its own sandbox;
+Ava only advertises the capabilities that runtime reports. Deployment still has
+one owner with one shared login, not a multi-tenant authorization boundary.
+
+Instance backup ZIPs include credentials, conversations, uploaded files and voice
+enrollment. Treat them as confidential; they are owner-readable and unencrypted.
+The restore command checks paths and checksums, and only restores to a new home.
+Checksums detect corruption; they do not authenticate an untrusted archive.

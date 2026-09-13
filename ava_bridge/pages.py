@@ -30,11 +30,10 @@ from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
 
 from . import auth, brand, config, settings
 from .auth import (claim_read_cmd, claim_windows_note, clear_claim, client_ip,
-                   current_password, is_authed, login_locked, login_record,
+                   is_authed, login_locked, login_record,
                    may_claim, rotate_secret, set_password,
                    set_session_cookie)
 from .config import COOKIE_NAME
-from .security import constant_time_equals
 
 # ---- Web templates (externalised to ava_bridge/web/*.html) -------------------
 with open(os.path.join(config.WEB_DIR, "index.html"), encoding="utf-8") as _f:
@@ -143,8 +142,7 @@ def login_post(request: Request, password: str = Form("")):
         return HTMLResponse(
             _render(LOGIN_TMPL, "Too many attempts &mdash; wait a minute."),
             status_code=429)
-    pw = current_password()
-    if pw and constant_time_equals(password, pw):
+    if auth.verify_password(password):
         login_record(ip, ok=True)
         resp = RedirectResponse("/", status_code=303)
         set_session_cookie(resp, request)
@@ -250,7 +248,7 @@ async def change_password(request: Request):
             {"ok": False, "error": "New password must be at least 8 characters."},
             status_code=400)
     # Constant-time, not ==, so a wrong guess costs the same time as a right one.
-    if not constant_time_equals(current, current_password()):
+    if not auth.verify_password(current):
         return JSONResponse({"ok": False, "error": "Current password is incorrect."},
                             status_code=403)
     if os.environ.get("AVA_PASSWORD"):

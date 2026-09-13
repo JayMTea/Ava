@@ -43,6 +43,40 @@ frontend/dist
 **/.ava.yaml.*
 **/*.bak
 **/ava-data
+**/ava-data-*
+
+# Instance extensions, branding, metadata and private authoring material.
+/overlay
+/frontend/src/overlay
+/branding
+/brand
+/alloc_drivers
+/extensions
+/runtime_adapters
+/backups
+/run
+/domains.yaml*
+/connector_grants.yaml
+/connector_tools_cache.json
+/.claude
+/DEV_NOTES.md
+/docs/dev
+/docs/private
+/demo
+/agent/docs/architecture.yaml*
+/agent/docs/model
+/agent/docs/model.py
+/agent/docs/explorer
+/agent/docs/diagrams/model
+/agent/docs/diagrams/system.*
+/agent/docs/diagrams/network.*
+/agent/docs/diagrams/policy.*
+/ava_bridge/model
+/docs/assets/model
+/docs/ARCHITECTURE_MODEL.md
+**/.pytest_cache
+**/.ruff_cache
+**/*.egg-info
 
 # --- runtime trees, ROOT-ANCHORED on purpose (see the note above) -------------
 /data
@@ -71,6 +105,7 @@ searxng
 # built-in is a deliberate `!connectors/<id>` line — tests/test_no_private_apps_
 # shipped.py fails if this block stops covering the untracked directories.
 connectors/*
+!connectors/builtins.json
 !connectors/README.md
 !connectors/_template
 !connectors/bridge

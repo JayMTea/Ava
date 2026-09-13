@@ -610,9 +610,8 @@ def cmd_setup(args) -> int:
     else:
         pw = args.password or __import__("secrets").token_urlsafe(12)
         try:
-            with open(pw_path, "w", encoding="utf-8") as f:
-                f.write(pw)
-            os.chmod(pw_path, 0o600)
+            from ava_bridge import auth
+            auth.set_password(pw)
         except OSError as e:
             print(f"{BAD} could not write password: {e}")
             return 1
@@ -2432,6 +2431,13 @@ def main() -> int:
         pass
     p = argparse.ArgumentParser(prog="ava", description="Ava control CLI")
     sub = p.add_subparsers(dest="cmd")
+    from ava_bridge import instance
+    ip = sub.add_parser("instance", help="inventory, backup, or restore an isolated instance")
+    ip.add_argument("action", choices=["inspect", "backup", "restore", "adopt-voiceprint", "adopt-artifacts"])
+    ip.add_argument("--output", help="new private backup archive")
+    ip.add_argument("--source", help="backup archive to restore")
+    ip.add_argument("--target", help="new directory for the restored instance")
+    ip.set_defaults(func=instance.command)
     atp = sub.add_parser("attest", help="evidence bundle: what this box can show, "
                                        "and what it cannot")
     atp.add_argument("--json", action="store_true")

@@ -43,6 +43,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 # reason it is here. A ratchet, in the style of tests/test_module_boundaries.py:
 # an entry without a reason is how an allow-list becomes a permanent hole.
 ALLOWED = {
+    "ava_bridge/runtime/service.py":
+        "reports cached service model facts through the adapter seam consumed by the resolver",
     "ava_bridge/models.py":
         "effective_brain() + serving_truth() ARE the two answers",
     "ava_bridge/router_app.py":

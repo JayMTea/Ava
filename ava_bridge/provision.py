@@ -139,7 +139,7 @@ def _server_dirs() -> dict[str, str]:
     Same discovery rule as install.sh §2c, including the overlay.
     """
     out: dict[str, str] = {}
-    overlay = os.environ.get("AVA_OVERLAY") or os.path.join(config.ROOT, "overlay", "agent")
+    overlay = settings.overlay_dir()
     for base in (os.path.join(config.ROOT, "agent"), overlay):
         if not os.path.isdir(base):
             continue
@@ -300,6 +300,10 @@ def server_sources(category: str, primary: str | None = None) -> list[str]:
 # --------------------------------------------------------------------------- #
 def desired() -> dict[str, list[dict]]:
     """What this checkout says the sandbox should be running."""
+    from . import runtime
+    adapter = runtime.configured()
+    if getattr(adapter, "provisioning_layout", "nemoclaw") != "nemoclaw":
+        return adapter.desired_state()
     out: dict[str, list[dict]] = {"persona": [], "policies": [], "servers": [], "skills": []}
 
     try:
@@ -393,6 +397,15 @@ def observed(rt=None, live_probe: bool = True,
     """
     from . import runtime as _runtime
     rt = rt or _runtime.configured()
+
+    if getattr(rt, "provisioning_layout", "nemoclaw") != "nemoclaw":
+        out = {"record": None, "maps": {s: None for s in SCOPES},
+               "sources": {s: "none" for s in SCOPES}}
+        if live_probe and rt.live().get("live"):
+            got = rt.observe(want or rt.desired_state())
+            if got is not None:
+                _merge_observed(out, got)
+        return out
 
     record = None
     try:

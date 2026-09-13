@@ -32,7 +32,8 @@ class TestCliSetupAndDoctor(unittest.TestCase):
                             f"{rel} missing after `ava setup`")
         pw = open(os.path.join(HOME, "data", "auth_password"),
                   encoding="utf-8").read().strip()
-        self.assertEqual(pw, "qa-cli-password-1")
+        self.assertTrue(pw.startswith("ava-pbkdf2-sha256$"))
+        self.assertNotIn("qa-cli-password-1", pw)
 
     def test_02_doctor_runs_clean_enough(self):
         r = _run("doctor")

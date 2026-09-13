@@ -10,6 +10,7 @@ on:
     tags: ["v*"]
 
 permissions:
+  actions: read    # verify CI for the released commit
   contents: write   # create the GitHub Release, read the signed tag
   packages: write   # push the image to ghcr.io
   id-token: write   # cosign keyless signing via the GitHub OIDC provider
@@ -22,8 +23,20 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Resolve and verify the release commit
+        id: commit
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Require successful CI for the released commit
+        uses: actions/github-script@v8
+        env:
+          VERIFIED_SHA: ${{ steps.commit.outputs.sha }}
+        with:
+          script: |
+            const gate = require('./deploy/scripts/require_ci.js');
+            await gate({github, context, core, sha: process.env.VERIFIED_SHA});
+
       # Container references must be lowercase; the owner may be mixed-case
-      # (e.g. JayMTea). Resolve it once and reuse it as $IMAGE / ${{ env.IMAGE }}.
+      # (for example, MixedCaseOwner). Resolve it once and reuse it as $IMAGE / ${{ env.IMAGE }}.
       - name: Resolve lowercase image name
         run: |
           owner="$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
@@ -41,6 +54,12 @@ jobs:
       - name: Resolve version (strip leading v)
         id: ver
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare public source context
+        id: context
+        run: |
+          python3 deploy/scripts/build_context.py --output "$RUNNER_TEMP/ava-public-context"
+          echo "path=$RUNNER_TEMP/ava-public-context" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
@@ -73,7 +92,7 @@ jobs:
         id: build
         uses: docker/build-push-action@v7
         with:
-          context: .
+          context: ${{ steps.context.outputs.path }}
           file: deploy/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
@@ -104,7 +123,7 @@ jobs:
         id: build_agent
         uses: docker/build-push-action@v7
         with:
-          context: .
+          context: ${{ steps.context.outputs.path }}
           file: deploy/agent.Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
@@ -127,7 +146,7 @@ jobs:
       - name: Source SBOM (Syft, CycloneDX)
         uses: anchore/sbom-action@v0
         with:
-          path: .
+          path: ${{ steps.context.outputs.path }}
           format: cyclonedx-json
           output-file: ava-sbom.cyclonedx.json
 

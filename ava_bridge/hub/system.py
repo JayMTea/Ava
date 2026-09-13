@@ -62,11 +62,12 @@ def _staleness() -> dict:
 # --------------------------------------------------------------------------- #
 @router.get("/system")
 def system():
-    voiceprint = any(
-        os.path.exists(os.path.join(base, "models", "voiceprint.npy"))
-        for base in (settings.AVA_HOME, settings.CODE_ROOT))
+    from .. import extensions
+    import speaker
+    voiceprint = any(os.path.exists(path) for path in speaker.voiceprint_paths())
     return {
         "brand": settings.brand_name(),
+        "extensions": extensions.status(),
         "version": __version__,
         # Legacy per-feature booleans (existing consumers) + the registry
         # snapshot the Optional-features panel renders from — one source

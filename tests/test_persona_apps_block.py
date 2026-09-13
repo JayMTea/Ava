@@ -312,7 +312,7 @@ class RenderedPersonaTests(unittest.TestCase):
         self.assertNotIn("{{", out)
         self.assertIn("get_weather", out)
         # Byte-for-byte: the placeholder leaves no stray space behind.
-        self.assertIn("if a tool of yours can do it, do it. Formatting:", out)
+        self.assertIn("without inventing results. Formatting:", out)
 
     def test_a_registry_failure_costs_the_apps_line_not_the_provision(self):
         """agent/install.sh runs the render under `set -euo pipefail`."""

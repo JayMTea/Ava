@@ -100,13 +100,13 @@ class ChangePasswordEndpointTests(unittest.TestCase):
         r = self.c.post("/api/auth/password",
                         json={"current": "wrong", "new": "brand-new-pass"})
         self.assertEqual(r.status_code, 403)
-        self.assertEqual(auth.current_password(), "original-password")
+        self.assertTrue(auth.verify_password("original-password"))
 
     def test_short_new_password_is_refused(self):
         r = self.c.post("/api/auth/password",
                         json={"current": "original-password", "new": "short"})
         self.assertEqual(r.status_code, 400)
-        self.assertEqual(auth.current_password(), "original-password")
+        self.assertTrue(auth.verify_password("original-password"))
 
     def test_change_succeeds_and_revokes_other_sessions(self):
         # A second device, logged in before the change.
@@ -119,7 +119,7 @@ class ChangePasswordEndpointTests(unittest.TestCase):
                         json={"current": "original-password", "new": "a-new-password"})
         self.assertEqual(r.status_code, 200, r.text)
         self.assertTrue(r.json()["revoked_other_sessions"])
-        self.assertEqual(auth.current_password(), "a-new-password")
+        self.assertTrue(auth.verify_password("a-new-password"))
 
         # The other device's cookie no longer validates on a gated route.
         self.assertEqual(other.get("/api/chats", follow_redirects=False).status_code, 401)

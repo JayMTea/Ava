@@ -33,8 +33,6 @@ brand:                     # make it yours — Setup → Branding writes this bl
   wordmark: ""            # [AVA_BRAND_WORDMARK]   wide lockup (sidebar head);
                           #   blank = `name` as text, which is today's look
   wordmark_light: ""      # [AVA_BRAND_WORDMARK_LIGHT]
-  icon: ""                # [AVA_BRAND_ICON]       ≥512px square source for the
-                          #   favicon, PWA icons and home-screen tile
 
   # Show the brand on the sign-in / first-run pages, which anyone who can reach
   # the port can see. false = those pages render Ava's shipped default (not a
@@ -52,13 +50,13 @@ owner:                     # who the assistant serves (drives the persona + tool
 
 persona:                   # assistant character (agent/persona.txt.tmpl is rendered from this)
   # The template ships ONLY operational directives (tool-calling mandates, the
-  # network-notice correction). How the assistant TALKS is yours, and blank by
+  # runtime-aware network guidance). How the assistant TALKS is yours, and blank by
   # default — a fork inherits nobody's personality.
   # Set it here or in Setup -> Agent -> Persona. Takes effect on the next agent provision.
   style: ""               # [AVA_PERSONA_STYLE]   your assistant's voice, in your words
                           #   blank = the model's own voice, unshaped
                           #   e.g. "dry, understated, never gushes" (max 4000 chars)
-  format: chat            # [AVA_PERSONA_FORMAT]  answer shape
+  format: markdown        # [AVA_PERSONA_FORMAT]  answer shape
                           #   chat     = plain text, no markdown (matches Ava's own
                           #              chat UI, which renders replies as plain text)
                           #   markdown = allow headings/tables/code blocks, for
@@ -325,6 +323,13 @@ inference:
 
 # ── Agent runtime (the MCP host that gives Ava tools + memory) ──────────────
 agent:
+  # Any compatible external agent and sandbox; select runtime: service to use.
+  service:
+    url: ""                 # [AVA_RUNTIME_URL] base URL, HTTPS off loopback
+    allow_http: false       # [AVA_RUNTIME_ALLOW_HTTP] trusted private networks only
+    timeout_s: 120
+    desired: {}             # optional persona/policies/servers/skills resource lists
+
   runtime: nemoclaw        # [AVA_AGENT_RUNTIME] nemoclaw (default) | openclaw_gw
                            #   | remote | direct.  `openclaw_gw` talks to the
                            #   SAME OpenClaw over its gateway WebSocket instead
@@ -513,6 +518,7 @@ cost:
 # knob, editable from Setup → System. It bounds BOTH perf rollups and hardware
 # history, so "nothing older than this" holds everywhere the dashboards read.
 data:
+  artifact_retention_days: 0  # 0 retains charts indefinitely; positive values prune on store access
   retention_days: 183      # [AVA_DATA_RETENTION_DAYS] ~6 months. 0 = keep forever.
 
 perf:
@@ -715,3 +721,12 @@ alloc:
   #       # the checkpoint is False forever — which reads as `degraded` and
   #       # raises a CRITICAL alert about a healthy model.
   #       model: their-alias
+
+# Instance-owned trusted code. Prefer connector manifests for app integrations.
+extensions:
+  enabled: []               # IDs under $AVA_HOME/extensions/<id>/extension.yaml
+  agent_dir: null           # [AVA_OVERLAY] default $AVA_HOME/overlay/agent
+  legacy_routes: false      # [AVA_LEGACY_ROUTES] intentional checkout compatibility
+
+voice:
+  legacy_enrollment: false  # [AVA_LEGACY_VOICEPRINT] explicit shared legacy enrollment only

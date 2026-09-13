@@ -41,7 +41,7 @@ SANDBOX="${AVA_OC_SANDBOX:-my-assistant}"
 NEMOCLAW="${AVA_NEMOCLAW:-$HOME/.local/bin/nemoclaw}"
 # Optional gitignored overlay: private servers/skills/policies (e.g. personal
 # apps) that layer on top of the core kit without editing this script.
-OVERLAY="${AVA_OVERLAY:-$HERE/../overlay/agent}"
+OVERLAY="${AVA_OVERLAY:-${AVA_HOME:-$HERE/..}/overlay/agent}"
 # GENERATED material — the egress policies and per-app tools rendered from
 # connector manifests. It lives under AVA_HOME, not in the checkout, because it
 # is runtime state: under Docker the checkout is an image layer, so a rebuild

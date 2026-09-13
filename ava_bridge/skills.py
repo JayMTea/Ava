@@ -37,7 +37,7 @@ CORE_DIR = os.path.join(config.ROOT, "agent", "skills")
 
 
 def _overlay_dir() -> str:
-    base = os.environ.get("AVA_OVERLAY") or os.path.join(config.ROOT, "overlay", "agent")
+    base = settings.overlay_dir()
     return os.path.join(base, "skills")
 
 

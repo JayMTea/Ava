@@ -174,7 +174,7 @@ services:
   # the accelerated variant precisely so this one stays startable anywhere.
   ollama:
     profiles: ["cpu"]
-    image: ollama/ollama:latest
+    image: ${AVA_OLLAMA_IMAGE:-ollama/ollama:latest@sha256:684d8674b4315fa18f4f0e973a118ec2652ed96f67563277839985175858e0ba}
     volumes:
       - ${AVA_HOME:-./ava-data}/models/ollama:/root/.ollama
     ports:
@@ -198,7 +198,7 @@ services:
   # ⚠️ NOT VERIFIED ON DEVICE — see deploy/profiles/rocm.env.
   ollama-rocm:
     profiles: ["rocm"]
-    image: ollama/ollama:rocm
+    image: ${AVA_OLLAMA_ROCM_IMAGE:-ollama/ollama:rocm@sha256:36a99c0aaa4d28d0fc84969124bcf2f3d1ba8ab89181e2bd33bbc12f6ac2c4ce}
     volumes:
       - ${AVA_HOME:-./ava-data}/models/ollama:/root/.ollama
     devices:
@@ -235,7 +235,7 @@ services:
   # share the same model cache — switching between them re-downloads nothing.
   ollama-cuda:
     profiles: ["cuda"]
-    image: ollama/ollama:latest
+    image: ${AVA_OLLAMA_IMAGE:-ollama/ollama:latest@sha256:684d8674b4315fa18f4f0e973a118ec2652ed96f67563277839985175858e0ba}
     volumes:
       - ${AVA_HOME:-./ava-data}/models/ollama:/root/.ollama
     ports:
@@ -271,7 +271,7 @@ services:
   # reasoning.
   vllm:
     profiles: ["gpu"]
-    image: vllm/vllm-openai:latest
+    image: ${VLLM_IMAGE:-vllm/vllm-openai:latest@sha256:c2914767605584b6d8f45686b82de173ecc99e781897aa3d0a66dacd72c51ae1}
     # Per-model flags come from ONE place: deploy/model-flags.conf, resolved by
     # deploy/resolve-model-flags.sh. This used to be a hardcoded
     # `--tool-call-parser ${AVA_TOOL_PARSER:-hermes}` here AND a per-family `case`

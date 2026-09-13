@@ -312,3 +312,8 @@ not present a fork as the original — [TRADEMARK.md](TRADEMARK.md) says what th
 means in practice. Short version: the code is yours, the name is not, and Ava's
 built-in [branding](docs/BRANDING.md) makes calling your install something else a
 two-minute job.
+
+For independent owner instances, custom apps and agent runtimes, trusted extensions,
+backup/restore and private builds, see [Instance reference](docs/INSTANCE_REFERENCE.md),
+[Runtime service protocol](docs/RUNTIME_SERVICE.md) and
+[Application-neutral charts](docs/ANALYTICS_ARTIFACTS.md).

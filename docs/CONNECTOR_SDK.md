@@ -985,3 +985,7 @@ with `embed: iframe` and its `url` - see §2.
 - **First-party native** (in-repo): a React view in `NATIVE_VIEWS`, plus
   optionally a dedicated proxy for media. Reserved for apps shipped inside
   Ava's bundle.
+
+Application-neutral `ava-artifact/3` supports recorded values from any provider and
+live destinations declared by the operator. See [Chart contract](ANALYTICS_ARTIFACTS.md)
+for schemas, limits, route authorization and compatibility with existing artifacts.

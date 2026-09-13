@@ -21,6 +21,7 @@ from .nemoclaw import NemoClawRuntime
 from .direct import DirectRuntime
 from .openclaw_gw import OpenClawGatewayRuntime
 from .remote import RemoteRuntime
+from .service import ServiceRuntime
 
 _nemoclaw = NemoClawRuntime()
 _direct = DirectRuntime()
@@ -40,7 +41,52 @@ _REGISTRY: dict[str, AgentRuntime] = {
     "remote": _remote,       # nemoclaw in a separate container (Docker full agent)
     "direct": _direct,
     "none": _direct,
+    "service": ServiceRuntime(),
 }
+
+_INSTALLED: dict[str, AgentRuntime] = {}
+_LOAD_ERRORS: dict[str, str] = {}
+
+
+class UnavailableRuntime(AgentRuntime):
+    """Keep the settings UI available without selecting an unintended agent."""
+    def __init__(self, name: str):
+        self.name = name
+
+    def available(self) -> bool:
+        return False
+
+    def run_turn(self, text: str, session_id=None, history=None):
+        from .errors import GatewayError
+        raise GatewayError("The selected runtime could not be loaded", code="agent_conflict")
+
+    def provision(self, auto_install=False, scope="all", on_line=None, connector=None):
+        return {"ok": False, "steps": [], "scope": scope,
+                "detail": "Select a valid runtime before provisioning"}
+
+
+def _installed(name: str) -> AgentRuntime | None:
+    """Load only the selected adapter, never every executable file on disk."""
+    if name in _INSTALLED:
+        return _INSTALLED[name]
+    if name in _LOAD_ERRORS:
+        return None
+    from .. import extensions
+    try:
+        root, document = extensions.manifest("runtime_adapters", name)
+        factory = extensions.load_entry(root, str(document.get("runtime", "")),
+                                        f"ava_runtime_{name}")
+        adapter = factory()
+        if not isinstance(adapter, AgentRuntime) or adapter.name != name:
+            raise ValueError("adapter must implement AgentRuntime and declare the selected name")
+        _INSTALLED[name] = adapter
+        _LOAD_ERRORS.pop(name, None)
+        return adapter
+    except FileNotFoundError:
+        return None
+    except Exception as exc:  # noqa: BLE001 — report a broken installed adapter without blocking login
+        _LOAD_ERRORS[name] = f"runtime adapter could not load ({type(exc).__name__})"
+        return None
 
 
 def nemoclaw() -> NemoClawRuntime:
@@ -62,24 +108,25 @@ def openclaw_gw() -> OpenClawGatewayRuntime:
 def configured() -> AgentRuntime:
     """The runtime the user asked for (config agent.runtime), default nemoclaw."""
     from .. import config
-    return _REGISTRY.get(str(config.AGENT_RUNTIME).strip().lower(), _nemoclaw)
+    name = str(config.AGENT_RUNTIME).strip().lower()
+    return _REGISTRY.get(name) or _installed(name) or UnavailableRuntime(name)
 
 
 def name_error() -> str | None:
     """Non-None when `agent.runtime` names something that does not exist.
 
-    The fallback itself is right — a typo must not brick the box — but it was
-    SILENT, and selecting a different runtime than the one asked for is not the
-    same kind of degradation as running with less. `agent.runtime: nemocalw` ran
-    NemoClaw and reported `runtime: nemocalw` back, so the status screen agreed
-    with the typo and nothing anywhere disagreed with the owner.
+    A missing or invalid adapter keeps the settings UI available but cannot
+    select a different agent. The owner sees the configuration error and can
+    repair it without sending data to an unintended runtime.
     """
     from .. import config
     want = str(config.AGENT_RUNTIME).strip().lower()
-    if want in _REGISTRY:
+    if want in _REGISTRY or _installed(want):
         return None
+    if want in _LOAD_ERRORS:
+        return _LOAD_ERRORS[want]
     return (f"agent.runtime is {config.AGENT_RUNTIME!r}, which is not a known "
-            f"runtime ({', '.join(sorted(_REGISTRY))}). Falling back to nemoclaw.")
+            f"runtime ({', '.join(sorted(_REGISTRY))}). Select a shipped or installed adapter.")
 
 
 def active() -> AgentRuntime:
@@ -92,8 +139,8 @@ def active() -> AgentRuntime:
 
 
 _REQUIRED_MSG = (
-    "The agent runtime (NemoClaw) is required but isn't available. "
-    "Provision it with `ava agent provision --install`, or set `agent.required: "
+    "The configured agent runtime is required but isn't available. "
+    "Check its connection and provisioning in the Agent panel, or set `agent.required: "
     "false` in ava.yaml to allow tool-less direct chat."
 )
 
@@ -145,6 +192,8 @@ def gate() -> tuple[AgentRuntime, GateError | None]:
     """
     from .. import config
     rt = configured()
+    if isinstance(rt, UnavailableRuntime):
+        return _direct, GateError(name_error() or "The selected runtime could not be loaded", "agent_conflict")
     if rt is _direct:
         # The explicit-Direct case. This branch used to fall straight through to
         # `return rt, None`, so `agent.required: true` was silently void for

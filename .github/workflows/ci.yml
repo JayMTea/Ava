@@ -54,6 +54,25 @@ jobs:
           fi
           echo "all commits signed off"
 
+  product-contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: frontend/.nvmrc
+      - name: Check publication gates
+        run: node --test tests/test_release_gate.cjs
+      - name: Check the transitive runtime lock
+        run: |
+          python -m pip install uv==0.12.7
+          uv export --frozen --no-dev --no-emit-project --no-header --output-file "$RUNNER_TEMP/runtime.lock"
+          tail -n +3 requirements-runtime.lock > "$RUNNER_TEMP/committed.lock"
+          diff -u "$RUNNER_TEMP/committed.lock" "$RUNNER_TEMP/runtime.lock"
+
   frontend-checks:
     # The SPA had NO automated check but `tsc`: no linter, no unit tests. So a
     # stale hook dependency, an unreachable branch, a click handler on a
@@ -149,7 +168,7 @@ jobs:
           python ava_cli.py setup --password ci-smoke-pass
           python serve.py &
           SERVER_PID=$!
-          for i in $(seq 1 30); do
+          for _attempt in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:8096/api/health >/dev/null 2>&1; then
               echo "health OK"; kill $SERVER_PID; exit 0
             fi

@@ -53,9 +53,10 @@ REPO="$(cd "$HERE/.." && pwd)"
 # gives the FILE the last word, which silently defeats the override this script's
 # own header documents (`AVA_MODEL=… bash deploy/local-serve.sh`) the moment
 # someone pins AVA_MODEL in .env. Snapshot the real environment, source, restore.
-if [ -f "$REPO/.env" ]; then
+_ava_env_root="${AVA_HOME:-$REPO}"
+if [ -f "$_ava_env_root/.env" ]; then
   _ava_real_env="$(export -p)"
-  set -a; . "$REPO/.env"; set +a
+  set -a; . "$_ava_env_root/.env"; set +a
   eval "$_ava_real_env"
   unset _ava_real_env
 fi
@@ -66,8 +67,8 @@ fi
 # on the majority of NVIDIA hardware. A default that is wrong for most readers is
 # a broken default, however well commented.
 case "$(uname -m 2>/dev/null || true)" in
-  aarch64|arm64) _vllm_default="vllm/vllm-openai:v0.20.0-aarch64-cu130-ubuntu2404" ;;
-  *)             _vllm_default="vllm/vllm-openai:latest" ;;
+  aarch64|arm64) _vllm_default="vllm/vllm-openai:v0.20.0-aarch64-cu130-ubuntu2404@sha256:f81415d5682a03566d92dc46e883d73a6ac001e6ef1fc4293512269f1372b8b9" ;;
+  *)             _vllm_default="vllm/vllm-openai:latest@sha256:c2914767605584b6d8f45686b82de173ecc99e781897aa3d0a66dacd72c51ae1" ;;
 esac
 IMAGE="${VLLM_IMAGE:-$_vllm_default}"
 

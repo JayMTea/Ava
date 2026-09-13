@@ -66,6 +66,10 @@ ava.yaml*
 # JIT-consent user data (grants + declared tool tiers)
 connector_grants.yaml
 connector_tools_cache.json
+domains.yaml*
+/extensions/
+/runtime_adapters/
+/backups/
 
 # Private, deployment-specific (not shipped publicly). Entries for specific
 # private apps live in .git/info/exclude (local-only) so their names aren't

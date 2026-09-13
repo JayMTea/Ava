@@ -45,7 +45,7 @@ def agent_status():
     st["blurb"] = rt.blurb()
     st["install_hint"] = rt.install_hint()
     st["required"] = config.AGENT_REQUIRED
-    st["tools"] = bool(st.get("available"))
+    st["tools"] = bool(st.get("available") and rt.supports_tools)
     # Distinguish "turned off by config" from "configured but not working".
     # nemoclaw.available() returns False either way, so without this the Hub
     # can't tell the operator whether to flip a switch or fix an install.
@@ -262,6 +262,8 @@ def _device_auth_posture() -> dict:
     answer matters most when the gateway is NOT reachable — that is exactly when
     an owner is trying to work out why.
     """
+    if getattr(runtime.configured(), "provisioning_layout", None) != "nemoclaw":
+        return {"known": False, "change_with": "Configure authentication at your runtime service", "sandbox": ""}
     from ..runtime import nemoclaw_registry
     rec = nemoclaw_registry.registry_record() or {}
     return {"known": bool(rec),

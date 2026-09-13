@@ -235,10 +235,14 @@ class RuntimeNameTests(unittest.TestCase):
             self.assertIn("nemocalw", err)
             self.assertIn("nemoclaw", err)
 
-    def test_a_typo_still_falls_back_rather_than_bricking(self):
-        """Loud, not fatal: the box must still answer."""
+    def test_a_typo_keeps_status_available_without_using_another_agent(self):
+        """A bad selection cannot provision or send owner data to another runtime."""
         with mock.patch("ava_bridge.config.AGENT_RUNTIME", "podman"):
-            self.assertIs(runtime.configured(), runtime.nemoclaw())
+            selected = runtime.configured()
+            self.assertEqual(selected.name, "podman")
+            self.assertFalse(selected.status()["available"])
+            self.assertFalse(selected.provision()["ok"])
+            self.assertEqual(runtime.gate()[1].code, "agent_conflict")
 
     def test_the_status_payload_carries_both_errors(self):
         from ava_bridge.hub import agent as hub_agent

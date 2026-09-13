@@ -97,3 +97,25 @@ manual cleanup.)
 
 Afterwards, tidy up: delete the tag, delete the release, and delete the rc images
 from GHCR. Nothing needs re-pointing.
+
+## Reproducible product boundary
+
+Both release and deployment require the latest successful push CI run for the
+exact selected commit. A tag with no successful run does not publish. Push the
+commit, wait for CI, then tag it; rerun a release after CI completes if necessary.
+Release builds create an isolated context with `deploy/scripts/build_context.py`;
+untracked private apps, instance configuration and overlays cannot enter it.
+
+Both Python images install hash-verified transitive dependencies from
+`requirements-runtime.lock`, exported from `uv.lock`. Refresh it with
+`uv export --frozen --no-dev --no-emit-project --output-file requirements-runtime.lock`
+after an intentional dependency update. Frontend builds use `npm ci` and refuse
+a lockfile mismatch. Inference image defaults include immutable registry digests;
+operators can override `AVA_OLLAMA_IMAGE`, `AVA_OLLAMA_ROCM_IMAGE` or `VLLM_IMAGE`.
+Digest updates require platform and inference validation. These pins were resolved
+from their existing upstream image tags on 2026-09-13; local validation does not
+claim GPU inference coverage on hardware that was unavailable.
+
+The Node and Python base image major tags and OS package repositories still receive
+upstream updates. Published image digests, provenance and SBOMs identify each built
+release; retain and deploy those digests when byte-identical rollback is required.

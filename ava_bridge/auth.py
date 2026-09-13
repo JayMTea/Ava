@@ -70,10 +70,35 @@ def needs_setup() -> bool:
 
 
 def set_password(pw: str) -> None:
-    """Persist the admin password (0600). Used by the first-run /setup screen."""
-    with open(_PASSWORD_FILE, "w", encoding="utf-8", opener=_secure_opener) as f:
-        f.write(pw.strip() + "\n")
-    os.chmod(_PASSWORD_FILE, 0o600)
+    """Persist a salted password verifier atomically; never the new password."""
+    import hashlib
+    import secrets
+    from . import settings
+    salt = secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac("sha256", pw.strip().encode("utf-8"),
+                                 bytes.fromhex(salt), 600000).hex()
+    settings.atomic_write(_PASSWORD_FILE, f"ava-pbkdf2-sha256$600000${salt}${digest}\n", mode=0o600)
+
+
+def verify_password(candidate: str) -> bool:
+    """Accept existing passwords and new verifiers without resetting sessions."""
+    import hashlib
+    stored = current_password()
+    if not stored or not isinstance(candidate, str) or len(candidate) > 4096:
+        return False
+    # Environment-pinned credentials are literal, including unusual prefixes.
+    if os.environ.get("AVA_PASSWORD") or not stored.startswith("ava-pbkdf2-sha256$"):
+        return constant_time_equals(candidate, stored)
+    try:
+        _, rounds, salt, expected = stored.split("$")
+        iterations = int(rounds)
+        if iterations != 600000 or len(salt) != 32 or len(expected) != 64:
+            return False
+        actual = hashlib.pbkdf2_hmac("sha256", candidate.encode("utf-8"),
+                                    bytes.fromhex(salt), iterations).hex()
+        return constant_time_equals(actual, expected)
+    except (ValueError, TypeError):
+        return False
 
 
 _AUTH_SECRET: bytes | None = None

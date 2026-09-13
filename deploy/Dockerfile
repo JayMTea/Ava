@@ -20,7 +20,7 @@ ARG NODE_VERSION=22
 FROM node:${NODE_VERSION}-slim AS web
 WORKDIR /web
 COPY frontend/package*.json ./
-RUN npm ci || npm install
+RUN npm ci
 COPY frontend/ ./
 # frontend/src/lib/chatEvents.contract.test.ts imports ../../../qa/fakes/run-events.json
 # and frontend/tsconfig.app.json includes all of src, so `tsc -b` needs the fixture at
@@ -61,8 +61,8 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends curl ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 ARG AVA_VOICE_DEPS=0
-COPY requirements.txt requirements-voice.txt ./
-RUN pip install --no-cache-dir -r requirements.txt \
+COPY requirements.txt requirements-runtime.lock requirements-voice.txt ./
+RUN pip install --no-cache-dir --require-hashes -r requirements-runtime.lock \
     && if [ "$AVA_VOICE_DEPS" = "1" ]; then \
          pip install --no-cache-dir -r requirements-voice.txt \
            --extra-index-url https://download.pytorch.org/whl/cpu; \

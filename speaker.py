@@ -68,7 +68,8 @@ def load_voiceprint(path: str = ""):
     path = path or VOICEPRINT
     if os.path.exists(path):
         return np.load(path)
-    if path == VOICEPRINT and os.path.exists(_LEGACY_VOICEPRINT):
+    if (path == VOICEPRINT and _legacy_enabled()
+            and os.path.exists(_LEGACY_VOICEPRINT)):
         emb = np.load(_LEGACY_VOICEPRINT)
         try:
             save_voiceprint(emb)  # migrate forward; keep the legacy copy
@@ -88,22 +89,21 @@ def save_voiceprint(emb: np.ndarray, path: str = ""):
         pass
 
 
+def _legacy_enabled() -> bool:
+    """Only an explicitly adopted legacy enrollment belongs to this instance."""
+    from ava_bridge import settings
+    return settings.get_bool("voice.legacy_enrollment", False,
+                             env="AVA_LEGACY_VOICEPRINT")
+
+
 def voiceprint_paths() -> list[str]:
-    """Every path a voiceprint can live at, in the order `load_voiceprint` reads.
-
-    There are two, and that is the whole reason deletion needs a function rather
-    than an `os.remove`: `load_voiceprint` MIGRATES the legacy repo-local copy
-    forward when the live one is absent (and its comment says "keep the legacy
-    copy"). So removing only `VOICEPRINT` means the next gate check silently
-    re-creates it — an eraser that does not erase.
-
-    On a default bare-metal install `AVA_HOME` is the code root, so both entries
-    collapse to one path and the bug is invisible. They diverge under Docker,
-    which is the primary documented install — meaning a test written on the
-    maintainer's own box would not have caught it.
+    """Paths owned by this enrollment. A separate home never reads or erases
+    the checkout's copy unless legacy enrollment was deliberately enabled.
+    Prefer `ava instance adopt-voiceprint --source ...` for a copy that leaves
+    the original intact and needs no ongoing legacy enrollment permission.
     """
     seen: list[str] = []
-    for p in (VOICEPRINT, _LEGACY_VOICEPRINT):
+    for p in ([VOICEPRINT, _LEGACY_VOICEPRINT] if _legacy_enabled() else [VOICEPRINT]):
         if p not in seen:
             seen.append(p)
     return seen

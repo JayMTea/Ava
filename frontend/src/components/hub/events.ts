@@ -7,6 +7,7 @@ import type { Tone } from './ui/Tile';
 // changed something, warn/err = permission or destructive, ok = a normal turn,
 // muted = passive/system. Unknown kinds fall back to a humanised label.
 export const EVENT_META: Record<string, { icon: string; label: string; tone: Tone }> = {
+  instance_adopt: { icon: 'download', label: 'Instance data imported', tone: 'accent' },
   turn: { icon: 'chats', label: 'Chat turn', tone: 'ok' },
   egress: { icon: 'code', label: 'Tool call', tone: 'info' },
   memory_recall: { icon: 'db', label: 'Memory recall', tone: 'muted' },

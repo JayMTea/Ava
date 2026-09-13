@@ -53,6 +53,12 @@ class AgentRuntime(ABC):
     # Capabilities the shell uses to decide what to render (e.g. live CoT).
     supports_tools: bool = False
     supports_cot: bool = False
+    # Only the vendor adapter opts into vendor-specific provisioning probes.
+    provisioning_layout: str | None = None
+
+    def desired_state(self) -> dict:
+        """Versioned adapters supply their own resource identities and digests."""
+        return {key: [] for key in ("persona", "policies", "servers", "skills")}
 
     @abstractmethod
     def available(self) -> bool:

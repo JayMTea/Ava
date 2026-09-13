@@ -105,12 +105,12 @@ try {
   assert.ok(await page.locator('#text').isVisible());
   await page.setViewportSize({ width: 1500, height: 950 });
   await openChat(imageChat);
-  await page.locator('.analysis-chart-image').waitFor();
-  await page.waitForFunction(() => (document.querySelector('.analysis-chart-image') as HTMLImageElement)?.naturalWidth > 0);
+  await page.locator('.analysis-chart svg').first().waitFor();
+  assert.equal(await page.locator('.analysis-chart-image').count(), 0, 'recorded values follow the active theme');
   if (output) {
     await preview.click();
     await panel.getByRole('link', { name: 'Census PUMS documentation' }).waitFor();
-    await page.waitForFunction(() => (document.querySelector('.chat-artifact-panel .analysis-chart-image') as HTMLImageElement)?.naturalWidth > 0);
+    await panel.locator('.analysis-chart svg').first().waitFor();
     await page.screenshot({ path: `${output}/chart-from-analytics.png`, animations: 'disabled' });
   }
   // The underlying image route remains authenticated.
@@ -118,6 +118,20 @@ try {
   const response = await anon.request.get(`${base}/api/artifact/analytics/${process.env.QA_IMAGE_ID}/chart`);
   assert.notEqual(response.headers()['content-type'], 'image/svg+xml');
   await anon.close();
+  await openChat(process.env.QA_GENERIC_CHAT!);
+  await page.getByRole('img', { name: /USD by Department/ }).first().waitFor();
+  assert.ok((await preview.innerText()).includes('-12.5'));
+  assert.ok((await preview.innerText()).includes('25.75'));
+  assert.equal(await page.getByText(/Weighted PUMS/).count(), 0);
+  assert.equal(await page.getByText(/Margin of error unavailable/).count(), 0);
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(value => document.documentElement.setAttribute('data-theme', value), theme);
+    assert.ok(await page.locator('.analysis-chart svg rect').first().evaluate(el => {
+      const fill = getComputedStyle(el).fill;
+      return fill !== 'none' && el.getBoundingClientRect().width > 0;
+    }));
+  }
+  if (output) await page.screenshot({ path: `${output}/generic-chart.png`, animations: 'disabled' });
   // A failed preview request stays within the conversation and can be retried.
   let fail = true;
   await page.route(`**/api/artifact/analytics/${artifactId}`, async route => {

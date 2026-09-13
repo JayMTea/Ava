@@ -135,7 +135,7 @@ def test_a_remote_caller_can_actually_finish_first_run(fresh) -> None:
     assert done.status_code == 303, (
         f"submitting the form the server itself rendered was refused "
         f"({done.status_code}) -- first run is impossible for a remote caller")
-    assert auth.current_password() == "hunter2hunter2"
+    assert auth.verify_password("hunter2hunter2")
 
 
 def test_a_recoverable_typo_stays_recoverable(fresh) -> None:
@@ -219,7 +219,7 @@ def test_the_pages_own_form_still_goes_through(fresh) -> None:
                                 "origin": "http://testserver"},
                        follow_redirects=False)
     assert done.status_code == 303, "the browser's own same-origin submit was refused"
-    assert auth.current_password() == "hunter2hunter2"
+    assert auth.verify_password("hunter2hunter2")
 
 
 def test_a_non_browser_client_is_not_locked_out(fresh) -> None:
@@ -231,4 +231,4 @@ def test_a_non_browser_client_is_not_locked_out(fresh) -> None:
                              "confirm": "hunter2hunter2"},
                        follow_redirects=False)
     assert done.status_code == 303
-    assert auth.current_password() == "hunter2hunter2"
+    assert auth.verify_password("hunter2hunter2")

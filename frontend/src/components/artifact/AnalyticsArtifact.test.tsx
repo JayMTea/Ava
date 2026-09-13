@@ -16,6 +16,19 @@ const result: RecordedAnalyticsArtifactPayload['result'] = {
 };
 
 describe('recorded chart presentation', () => {
+  it('renders another application without Census captions and preserves signed decimals', () => {
+    const generic = { ...result, filters: undefined, metric_id: undefined,
+      dimension_label: 'Department', unit: 'USD', rows: [
+        { label: 'Returns', value: -12.5 }, { label: 'Sales', value: 25.75 },
+      ] };
+    const html = renderToStaticMarkup(<RecordedChart result={generic} />);
+    expect(html).toContain('USD by Department');
+    expect(html).toContain('-12.5');
+    expect(html).toContain('25.75');
+    expect(html).not.toContain('margin of error');
+    expect(html).not.toContain('width="0"');
+    expect(html).not.toContain('PUMS');
+  });
   it('inherits live Ava colors for recorded marks and uncertainty', () => {
     const html = renderToStaticMarkup(<RecordedChart result={result} />);
     expect(html).toContain('fill="var(--analysis-accent)"');

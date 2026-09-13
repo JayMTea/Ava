@@ -131,7 +131,7 @@ def _secret_purpose(name: str) -> str:
                 else f"Connector credential (env {var}) — no manifest claims it")
     low = name.lower()
     if "password" in low:
-        return "Password (stored 0600, not hashed)"
+        return "Password credential (owner-readable; format depends on provider)"
     if "token" in low:
         return "Access token"
     if "key" in low or "api" in low or "secret" in low:
@@ -228,6 +228,9 @@ def delete_store(sid: str) -> dict:
     elif sid == "chats":
         from . import chat_store
         receipt["rows"] = chat_store.delete_all(reason="empty store")
+    elif sid == "artifacts":
+        from . import data_artifacts
+        receipt["rows"] = data_artifacts.delete_all()
     else:
         roots = {
             # Same resolution stores() uses, so the delete and the
@@ -278,6 +281,11 @@ def stores():
     data_dir = settings.data_dir()
     logs_dir = settings.logs_dir()
     out: list[dict] = []
+    from . import data_artifacts
+    artifacts = data_artifacts.inventory()
+    out.append(_store("artifacts", "Recorded app artifacts", artifacts["path"], "sqlite",
+                      size=artifacts["bytes"], count=artifacts["rows"],
+                      last_write=artifacts["last_write"], managed=True))
 
     # Memory — SQLite FTS5 of distilled facts + indexed document chunks.
     from . import memory_store

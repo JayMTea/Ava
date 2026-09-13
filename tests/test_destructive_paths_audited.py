@@ -37,6 +37,10 @@ _DESTRUCTIVE_SQL = ("delete from", "drop table", "truncate table")
 # with the reason. This is the `test_path_roots._ENV_ALLOW` pattern: an allowlist
 # entry must say why, so the next reader can judge it rather than trust it.
 _ALLOW = {
+    # Failed backup/restore clean up only their newly created, unpublished
+    # output. Both operations refuse an existing destination before writing.
+    ("ava_bridge/instance.py", "backup"),
+    ("ava_bridge/instance.py", "restore"),
     # --- temp files this process created moments earlier ---------------------- #
     # Auditing a tempfile cleanup would bury the real events in noise.
     ("ava_bridge/audio.py", "_run_to_wav"),
