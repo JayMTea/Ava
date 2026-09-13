@@ -123,7 +123,9 @@ class HandshakeTests(unittest.TestCase):
         settings.clear_secret("openclaw_device_token")
         self.addCleanup(settings.clear_secret, "openclaw_device_token")
 
-        gw = FakeGateway().start()
+        # Make the gap between socket acceptance and connect observable even
+        # on a fast runner. A socket count cannot prove a handshake arrived.
+        gw = FakeGateway(challenge_delay=0.15).start()
         self.addCleanup(gw.stop)
         rt, client = _connected(gw)
         self.addCleanup(client.stop)
@@ -131,11 +133,12 @@ class HandshakeTests(unittest.TestCase):
         self.assertTrue(first_issued, "the gateway issued no device token")
 
         client.reconnect()
+        connects = []
         for _ in range(80):
-            if gw.connections >= 2:
+            connects = [c for c in gw.calls if c["method"] == "connect"]
+            if len(connects) >= 2:
                 break
             time.sleep(0.05)
-        connects = [c for c in gw.calls if c["method"] == "connect"]
         self.assertGreaterEqual(len(connects), 2, "no reconnect happened")
         offered = connects[-1]["params"]["auth"].get("deviceToken")
         self.assertIn(offered, first_issued,

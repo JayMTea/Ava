@@ -186,12 +186,14 @@ class FakeGateway:
     """Runs on its own loop in its own thread; `.url` once started."""
 
     def __init__(self, *, methods=None, answers=None, script=None,
-                 token: str | None = None, protocol: int = PROTOCOL):
+                 token: str | None = None, protocol: int = PROTOCOL,
+                 challenge_delay: float = 0):
         self.methods = list(DEFAULT_METHODS if methods is None else methods)
         self.answers = {**DEFAULT_ANSWERS, **(answers or {})}
         self.script = list(DEFAULT_SCRIPT if script is None else script)
         self.token = token
         self.protocol = protocol
+        self.challenge_delay = challenge_delay
         self.calls: list[dict] = []
         self.connections = 0
         # What this gateway has handed out, so a test can assert a reconnect
@@ -241,6 +243,9 @@ class FakeGateway:
     # ---- protocol ----------------------------------------------------------
     async def _handle(self, conn) -> None:
         self.connections += 1
+        # Model a socket opening before the application handshake starts.
+        if self.challenge_delay:
+            await asyncio.sleep(self.challenge_delay)
         # The gateway speaks FIRST. A client that sends before listening will
         # deadlock against the real one too, which is the point of doing it here.
         await conn.send(json.dumps({
