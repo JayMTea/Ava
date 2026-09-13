@@ -83,9 +83,11 @@ if ! nemoclaw list --json 2>/dev/null | grep -q "\"${SANDBOX}\""; then
 fi
 
 # --- Deploy Ava's tools/policies/skills into the sandbox (idempotent) --------
-echo "[agent] deploying tools/policies/skills ..."
-AVA_BRIDGE_URL="${BRIDGE_URL}" AVA_OC_SANDBOX="${SANDBOX}" \
-  bash /app/agent/install.sh || echo "[agent] WARNING: install.sh reported issues"
+if [ "${AVA_AGENT_PROVISION_ON_START:-1}" = "1" ]; then
+  echo "[agent] deploying tools/policies/skills ..."
+  AVA_BRIDGE_URL="${BRIDGE_URL}" AVA_OC_SANDBOX="${SANDBOX}" \
+    bash /app/agent/install.sh || { echo "[agent] ERROR: provisioning failed"; exit 1; }
+fi
 
 echo "[agent] serving the runtime shim on :9100 ..."
 exec python -m ava_bridge.agent_runtime_server

@@ -110,6 +110,9 @@ def update(cid: str, tools: list) -> None:
         # app said nothing", which lets the manifest decide, and the non-device
         # default is still `write` there.
         rec = {"description": str(t.get("description") or "")[:200]}
+        schema = t.get("inputSchema")
+        if isinstance(schema, dict) and len(json.dumps(schema)) <= 32000:
+            rec["inputSchema"] = schema
         if "access" in t:
             rec["access"] = acc if acc in _TIERS else "write"
         entry[name[:64]] = rec

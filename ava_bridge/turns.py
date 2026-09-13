@@ -103,6 +103,19 @@ def _parse_turn_steps(text: str) -> list[dict]:
         if o.get("type") != "message":
             continue
         msg = o.get("message") or {}
+        if msg.get("role") == "toolResult":
+            # Keep only the host-issued artifact receipt, not arbitrary tool bodies.
+            # The same parser is used by the CLI runtime and saved trajectories.
+            from .data_artifacts import RECEIPT_PATTERN
+            output = "\n".join(
+                b.get("text", "") for b in msg.get("content") or []
+                if isinstance(b, dict) and b.get("type") == "text"
+            )
+            receipts = [match.group(0) for match in RECEIPT_PATTERN.finditer(output.replace('\\"', '"'))]
+            if receipts:
+                steps.append({"kind": "tool_result", "name": msg.get("toolName", "tool"),
+                              "output": "\n".join(receipts)})
+            continue
         if msg.get("role") != "assistant":
             continue
         for b in msg.get("content") or []:
@@ -265,16 +278,59 @@ def _tooling_note(direct: bool) -> str:
                 + ". If the question needs an app's data or actions, say so "
                 "plainly and point the user to Setup → Agent → Runtime to provision the "
                 "runtime. Never invent tool results.]\n\n")
+    routing = _app_tools_note({item["id"] for item in missing})
     if not missing:
-        return creds + _capabilities_note()
+        return creds + routing + _capabilities_note()
     apps = ", ".join(f"{m['label']} ({m['tools']} tools)" for m in missing)
-    return creds + _capabilities_note() + (
+    return creds + routing + _capabilities_note() + (
             f"[note for {config.AVA_NAME} — not from the user: these connected apps' tools "
             f"are NOT deployed to your sandbox yet: {apps}. You cannot use "
             "them this turn. If the user's request needs one of these apps, "
             "explain that they must open Setup → Connectors and click Deploy "
             "on that app first (Preview shows what gets loaded). Never invent "
             "tool results.]\n\n")
+
+
+def _app_tools_note(missing: set[str]) -> str:
+    """Refresh app routing each turn, including tools connected after persona setup."""
+    from .provision import CONNECTOR_CATEGORY, server_name
+    try:
+        apps = connectors.agent_surface()
+    except Exception:  # noqa: BLE001 — discovery context must never break chat
+        return ""
+    entries = []
+    rt = runtime.configured()
+    server = server_name(CONNECTOR_CATEGORY)
+    for app in apps:
+        cid = app.get("id", "")
+        if not cid or cid in missing:
+            continue
+        label = " ".join(str(app.get("label") or cid).split())[:100]
+        names = [str(name)[:100] for name in app.get("tools", [])[:16]]
+        route = (rt.mcp_tool_name(server, f"{cid}_find_tool") + " then "
+                 + rt.mcp_tool_name(server, f"{cid}_call") if app.get("meta") else
+                 ", ".join(rt.mcp_tool_name(server, f"{cid}_{name}") for name in names))
+        entry = f"{label}: {route}. Known actions: {', '.join(names)}."
+        if app.get("meta"):
+            finder = rt.mcp_tool_name(server, f"{cid}_find_tool")
+            caller = rt.mcp_tool_name(server, f"{cid}_call")
+            entry += (f" {finder} searches ACTION DEFINITIONS, not the app's data. "
+                      "Search by a known action name to get its inputSchema. "
+                      f"After receiving a matching action, immediately use {caller} "
+                      'with {"name":"<returned action name>","arguments":{<inputs matching inputSchema>}}. '
+                      "Put dataset search terms and filters in that arguments object. "
+                      "Do not keep calling the action finder to search for data.")
+        entries.append(entry)
+        if sum(len(entry) for entry in entries) > 4000:
+            entries.pop()
+            break
+    if not entries:
+        return ""
+    return ("[Connected app tools available this turn: " + " ".join(entries)
+            + " When the user names an app or asks about data already in their apps, "
+            "discover that app's tools first and use its returned dataset context and "
+            "results. Local app data is available through these tools. "
+            "Use the exact action names and input schemas returned by discovery.]\n\n")
 
 
 def _run_turn_direct(tid: str, agent_text: str, chat_id: str):
@@ -345,6 +401,8 @@ def _run_turn_polled(tid: str, agent_text: str, sid: str, chat_id: str, rt):
         # `session_file` (live CoT) correctly used `configured()`, so the
         # reasoning and the reply came from two different machines.
         reply, tools = rt.run_turn(agent_text, session_id=sid)
+        if not isinstance(reply, str) or not reply.strip():
+            raise RuntimeError("The agent returned no answer. Check its inference service and retry.")
     except Exception as e:  # noqa: BLE001
         m = which_model()
         # Never leave the user with a dangling question and an endless spinner.
@@ -590,7 +648,7 @@ def _finish_turn(tid: str, chat_id: str, sid: str, after: int, reply: str,
     ctx_tokens = usage_tokens if usage_tokens else (m or {}).get("prompt_tokens")
     if chat_id:
         chat_append(chat_id, "assistant", reply, model=m, tools_used=tools,
-                    steps=final_steps, attachments=media)
+                    steps=final_steps, attachments=media, artifact=artifact)
     with state.turns_lock:
         prev_steps = state.turns.get(tid, {}).get("steps")
     _set_turn(tid, status="done", reply=reply,

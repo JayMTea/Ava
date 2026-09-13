@@ -45,6 +45,10 @@ class RunHandle:
 
 
 class AgentRuntime(ABC):
+    def mcp_tool_name(self, server: str, tool: str) -> str:
+        """Name presented by this host for a tool from a registered MCP server."""
+        return tool
+
     name: str = "base"
     # Capabilities the shell uses to decide what to render (e.g. live CoT).
     supports_tools: bool = False

@@ -10,6 +10,15 @@ pre-release milestones from when Ava ran on one box and nothing was tagged.
 
 ### Added
 
+- **Right-click any sidebar tile to open it in a new tab or window.** Every
+  tile — Chats, Agent, each connected app, and the Setup and Domains entries in
+  the Settings & dashboards pop-up — now carries a menu with **Open in new
+  tab**, **Open in new window** and **Copy link** (Shift+F10 opens it from the
+  keyboard). What opens is Ava at that tile: an app fills the new window with
+  the shell around it, so a second monitor can hold one app while the first
+  keeps the chat. The bare app address still bounces into the shell, by
+  design. Shift+right-click keeps the browser's own menu.
+
 - **The hardware monitor can report another machine.** The bridge on a NAS and
   the models on a GPU workstation is a common shape, and every reading Ava
   took described the box it ran on — so the floating monitor showed the NAS's

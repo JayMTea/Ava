@@ -146,6 +146,10 @@ def _sha(text: str) -> str:
 
 
 class OpenClawGatewayRuntime(AgentRuntime):
+    def mcp_tool_name(self, server: str, tool: str) -> str:
+        from .nemoclaw_layout import mcp_tool_name
+        return mcp_tool_name(server, tool)
+
     name = "openclaw_gw"
     display_name = "OpenClaw gateway"
 

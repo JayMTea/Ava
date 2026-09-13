@@ -57,7 +57,7 @@ _INVALID_REQUEST = -32600
 _METHOD_NOT_FOUND = -32601
 _INTERNAL_ERROR = -32603
 
-_TOOL_KEYS = ("name", "description", "inputSchema")
+_TOOL_KEYS = ("name", "title", "description", "inputSchema", "outputSchema", "annotations", "_meta")
 
 
 # ── Tool sources ─────────────────────────────────────────────────────────────
@@ -184,6 +184,24 @@ def _content(result) -> list[dict]:
     return [{"type": "text", "text": text}]
 
 
+def _tool_result(result, is_error: bool = False) -> dict:
+    """Preserve native MCP envelopes; expose facade JSON as structured content.
+
+    A text fallback keeps older agent runtimes working. Resource links, image
+    blocks and vendor metadata must survive a gateway hop without JSON nesting.
+    """
+    if isinstance(result, dict) and isinstance(result.get("content"), list):
+        out = {key: result[key] for key in ("content", "structuredContent", "_meta")
+               if key in result}
+        out["isError"] = bool(is_error or result.get("isError"))
+        return out
+    out = {"content": _content(result), "isError": bool(is_error)}
+    if isinstance(result, dict):
+        out["structuredContent"] = result
+        out["isError"] = bool(is_error or result.get("error"))
+    return out
+
+
 # ── Server ───────────────────────────────────────────────────────────────────
 def serve_mcp(source: ToolSource, host: str = "127.0.0.1", port: int = 9300,
               path: str = "/mcp", auth_token: str | None = None,
@@ -268,7 +286,7 @@ def serve_mcp(source: ToolSource, host: str = "127.0.0.1", port: int = 9300,
                            "isError": True})
             # Tool-level failures ride back as isError, NOT as a JSON-RPC error:
             # the model is meant to read them and try something else.
-            return ok({"content": _content(result), "isError": bool(is_error)})
+            return ok(_tool_result(result, is_error))
 
         return fail(_METHOD_NOT_FOUND, f"unknown method: {method}")
 

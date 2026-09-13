@@ -939,7 +939,14 @@ def generate_connector(cid: str, write: int = 0):
     policy_yaml = _yaml.safe_dump(pol, sort_keys=False) if pol else ""
     # tool_files decides the shape: find/call meta tools for dynamic or large
     # static connectors, else one tool per action.
-    tools = connectors.tool_files(cid)
+    if m.get("agent_tools"):
+        discovered = connectors.discover_tools(cid)
+        if discovered.get("error"):
+            return JSONResponse({"ok": False, "error": discovered["error"]}, status_code=502)
+    try:
+        tools = connectors.tool_files(cid)
+    except ValueError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=422)
     wrote: list[str] = []
     pruned: list[str] = []
     if write:

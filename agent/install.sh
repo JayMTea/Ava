@@ -81,7 +81,15 @@ shopt -s nullglob
 # explicit `|| echo WARNING`.
 _run_cli() {
   local out rc                      # NOT `local out=$(...)` — that masks $?
-  out="$("$@" 2>&1)"; rc=$?
+  if [ "${AVA_SANDBOX_EXEC_MODE:-nemoclaw}" = "openshell" ] && [ "${3:-}" = "exec" ]; then
+    # Execute through the policy-enforcing gRPC API. NemoClaw's convenience
+    # wrapper additionally repairs ownership through Docker, which requires a
+    # host-wide socket the runtime deliberately does not have.
+    shift 3
+    out="$("${AVA_OPENSHELL:-$HOME/.local/bin/openshell}" sandbox exec --name "$SANDBOX" "$@" 2>&1)"; rc=$?
+  else
+    out="$("$@" 2>&1)"; rc=$?
+  fi
   printf '%s\n' "$out" | grep -vE "$NOISE" | tail -3 || true
   return $rc
 }
@@ -305,6 +313,22 @@ for poldir in "$HERE/policies" "$HERE/policies/generated" \
     if [ "$_BRIDGE_PORT_RESOLVED" != "8096" ]; then
       _send="$_POLTMP/$(basename "$pol")"
       sed "s/port: 8096\b/port: ${_BRIDGE_PORT_RESOLVED}/g" "$pol" > "$_send"
+    fi
+    # The deployed broker is one exact host; do not retain broad private-network grants.
+    if [ -n "${AVA_BRIDGE_ALLOWED_IPS:-}" ]; then
+      _target="$_POLTMP/$(basename "$pol")"
+      python3 - "$_send" "$_target" <<'PY'
+import os, sys, yaml, ipaddress
+from pathlib import Path
+policy = yaml.safe_load(Path(sys.argv[1]).read_text())
+allowed = [str(ipaddress.ip_network(v.strip(), strict=False)) for v in os.environ["AVA_BRIDGE_ALLOWED_IPS"].split(",")]
+for entry in policy.get("network_policies", {}).values():
+    for endpoint in entry.get("endpoints", []):
+        if endpoint.get("host") == "host.openshell.internal":
+            endpoint["allowed_ips"] = allowed
+Path(sys.argv[2]).write_text(yaml.safe_dump(policy, sort_keys=False))
+PY
+      _send="$_target"
     fi
     # Deliberately non-fatal: one rejected policy must not strand the other
     # seven or the MCP deploy that follows. But it is REPORTED now — this used
@@ -530,19 +554,21 @@ fi
 # Token groups = discovered categories + the shared "connectors" group.
 GROUPS_JSON="$(printf '%s\n' "${CATS[@]}" connectors | sort -u \
   | python3 -c 'import sys,json; print(json.dumps([l.strip() for l in sys.stdin if l.strip()]))')"
-TOKENS_JSON="$(AVA_GROUPS="$GROUPS_JSON" python3 - "$INTERNAL_TOKEN" <<'PY'
+TOKENS_JSON="$(AVA_GROUPS="$GROUPS_JSON" AVA_CALLBACK_ROOT="$INTERNAL_TOKEN" python3 - <<'PY'
 import hashlib
 import hmac
 import json
 import os
 import sys
 
-base = sys.argv[1]
+base = os.environ["AVA_CALLBACK_ROOT"]
 groups = json.loads(os.environ.get("AVA_GROUPS", "[]"))
 tokens = {
     group: hmac.new(base.encode(), f"ava-internal:{group}".encode(), hashlib.sha256).hexdigest()
     for group in groups
 }
+if os.environ.get("AVA_CALLBACK_AUTH_MODE") == "broker":
+    tokens = {}
 print(json.dumps(tokens, separators=(",", ":")))
 PY
 )"
@@ -692,9 +718,24 @@ const tokens = JSON.parse(process.env.AVA_TOKENS || "{}");
 const servers = JSON.parse(process.env.AVA_SERVERS || "[]");
 
 function server(path, tokenGroup) {
+  const crypto = require("crypto");
+  const nodePath = require("path");
+  const hash = crypto.createHash("sha256");
+  function fingerprint(dir) {
+    for (const e of fs.readdirSync(dir, {withFileTypes: true}).sort((a,b) => a.name.localeCompare(b.name))) {
+      const file = nodePath.join(dir, e.name);
+      if (e.isDirectory()) fingerprint(file);
+      else if (e.isFile() && e.name.endsWith(".mjs")) { hash.update(file); hash.update(fs.readFileSync(file)); }
+    }
+  }
+  fingerprint(nodePath.dirname(path));
   return {
     command: "node",
-    args: [path, "--proxy", process.env.AVA_PROXY, "--internal-token", tokens[tokenGroup] || ""],
+    args: [path, "--proxy", process.env.AVA_PROXY,
+           "--deployment-sha256", hash.digest("hex"),
+           ...(tokens[tokenGroup] ? ["--internal-token", tokens[tokenGroup]] : [])],
+    // Consent can wait 120s; the caller must outlast that wait plus execution.
+    ...(tokenGroup === "connectors" ? {requestTimeoutMs: 180000} : {}),
   };
 }
 

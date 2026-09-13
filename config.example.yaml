@@ -397,6 +397,7 @@ agent:
 #                            #   fewer false accepts, more "say that again".
 
 features:
+  data_artifacts: true      # [AVA_DATA_ARTIFACTS] recorded charts, tables, and citations from connectors
   voice: false             # [AVA_VOICE] push-to-talk STT/TTS
                            # NOTE: there is deliberately no `voiceprint` flag.
                            #   Speaker verification is gated by whether a

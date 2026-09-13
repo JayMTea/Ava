@@ -2,7 +2,7 @@ import { Badge } from '../hub/ui/Badge';
 import { Tile } from '../hub/ui/Tile';
 import {
   type ConsoleSession, SESSION_LABEL, SESSION_TONE, sessionIcon, unreadLabel,
-} from './agentView';
+} from './agentViewModel';
 
 // One session in the list.
 //

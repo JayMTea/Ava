@@ -114,7 +114,7 @@ export async function runPolledTurn(
         deps.setItems((xs) => applyTurnRecord(xs, s, ctx));
         if (typeof s.ctx_tokens === 'number') deps.setRealCtx(s.ctx_tokens);
         if (s.reply) deps.pushHistory('assistant', s.reply);
-        if (s.artifact) deps.setArtifact(s.artifact);
+        if (s.artifact?.type === 'weather') deps.setArtifact(s.artifact);
         return;
       }
       if (s.status === 'error' || (!s.status && s.error)) {

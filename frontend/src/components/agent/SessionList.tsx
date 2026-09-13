@@ -1,5 +1,5 @@
 import { EmptyState } from '../ui/layout';
-import type { ConsoleGroup } from './agentView';
+import type { ConsoleGroup } from './agentViewModel';
 import { SessionRow } from './SessionRow';
 
 // The left column: what the agent has open, grouped.

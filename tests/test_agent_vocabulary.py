@@ -18,7 +18,7 @@ import subprocess
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 AGENT_DIR = "frontend/src/components/agent"
-VIEW = f"{AGENT_DIR}/agentView.ts"
+VIEW = f"{AGENT_DIR}/agentViewModel.ts"
 TONES = {"muted", "accent", "ok", "warn", "err", "info"}
 
 # Two patterns, because the two maps hold different kinds of value. A tone is a

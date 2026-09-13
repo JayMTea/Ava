@@ -19,7 +19,7 @@ import {
 } from './agentRoute';
 import {
   chatIdOfSession, DEFAULT_SESSION_PREFIX, groupConsoleSessions,
-} from './agentView';
+} from './agentViewModel';
 
 // The agent console. Sessions · Activity · Automations, and nothing else.
 //

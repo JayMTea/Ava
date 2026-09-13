@@ -52,3 +52,24 @@ export function placePanel(r: Rect, vp: Viewport): Placed {
     maxHeight: Math.max(Math.round(r.top - PANEL_GAP - EDGE_PAD), 0),
   };
 }
+
+/** A right-click menu (lib/ContextMenu.tsx): DOWN and to the RIGHT of the
+ *  point, the way every desktop context menu opens, flipping an axis to end
+ *  AT the point when growing from it would leave the viewport, and clamped
+ *  inside EDGE_PAD either way — so a menu taller than a short viewport pins to
+ *  the top edge rather than losing its first item, the same failure the
+ *  maxHeight above guards. Takes the menu's measured size, not an item count:
+ *  the caller has a real box by the time it asks, and an estimate (RowMenu's
+ *  `estH`) is only ever right for one row height. */
+export interface Point { x: number; y: number }
+export interface Size { width: number; height: number }
+export interface PlacedAt { left: number; top: number }
+
+const fit = (start: number, length: number, span: number) => {
+  const flipped = start + length + EDGE_PAD > span ? start - length : start;
+  return Math.round(clamp(flipped, EDGE_PAD, Math.max(EDGE_PAD, span - length - EDGE_PAD)));
+};
+
+export function placeAt(p: Point, size: Size, vp: Viewport): PlacedAt {
+  return { left: fit(p.x, size.width, vp.width), top: fit(p.y, size.height, vp.height) };
+}

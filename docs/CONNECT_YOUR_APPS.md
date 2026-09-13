@@ -192,6 +192,11 @@ web interface, it appears under **Apps** in the left rail carrying its own accen
 colour, and Ava reverse-proxies that interface same-origin - so the app's own
 pages render inside Ava, already signed in, with no second front end to build.
 
+Right-click the tile (Shift+F10 from the keyboard) to open it in a new tab or a
+new window - the app fills that window with Ava's shell around it, so a second
+monitor can hold one app while the first keeps the chat. The same menu is on
+every sidebar tile, Chats and Setup included.
+
 Which field turns this on depends on what Detect found:
 
 - **Detect found a web page at the address you gave** (a plain web app, or an app

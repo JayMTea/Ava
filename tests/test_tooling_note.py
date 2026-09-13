@@ -58,6 +58,18 @@ class UndeployedTests(unittest.TestCase):
 
 
 class NoteTests(unittest.TestCase):
+    def test_newly_connected_app_routing_does_not_need_persona_reinstall(self):
+        surface = [{"id": "mydata", "label": "My Data", "meta": True,
+                    "tools": ["find_dataset", "run_measure"]}]
+        with mock.patch.object(connectors, "agent_surface", return_value=surface):
+            note = turns._app_tools_note(set())
+            self.assertIn("ava-tools-connectors__mydata_find_tool then "
+                          "ava-tools-connectors__mydata_call", note)
+            self.assertIn("run_measure", note)
+            self.assertIn("searches ACTION DEFINITIONS", note)
+            self.assertIn('"name":"<returned action name>"', note)
+            self.assertEqual(turns._app_tools_note({"mydata"}), "")
+
     def test_agent_note_names_apps_and_deploy(self):
         with mock.patch.object(connectors, "undeployed",
                                return_value=[{"id": "a", "label": "My App", "tools": 2}]):

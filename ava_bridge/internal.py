@@ -275,6 +275,16 @@ def _timed_connector_call(fn, cid: str, tool: str, args: dict) -> tuple:
     without writing its own performance.jsonl."""
     t0 = time.time()
     data, status = fn(cid, tool, args)
+    if status < 400:
+        from . import data_artifacts
+        import sqlite3
+        try:
+            data = data_artifacts.capture(cid, data)
+        except (ValueError, TypeError, OSError, sqlite3.Error):
+            # A bad visualization never changes the query's factual answer.
+            # Discard only UI metadata, not a successful structured result.
+            if isinstance(data, dict):
+                data = {key: value for key, value in data.items() if key != "_meta"}
     app_perf.record_action(cid, tool, time.time() - t0, status)
     return data, status
 

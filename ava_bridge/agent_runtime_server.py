@@ -1,7 +1,7 @@
 """Agent-runtime shim — exposes NemoClawRuntime over HTTP for RemoteRuntime.
 
 Runs INSIDE the agent-runtime container (which owns the nemoclaw CLI + the
-Docker socket). The bridge container's `RemoteRuntime` calls these endpoints, so
+authenticated OpenShell management credentials). The bridge container's `RemoteRuntime` calls these endpoints, so
 the whole agent surface (run_turn / exec / session_file / provision / status)
 works across the network exactly as it does in-process. Every route is guarded
 by the shared bearer (X-Ava-Agent-Token == config.AGENT_TOKEN), so only the
@@ -14,6 +14,9 @@ from __future__ import annotations
 
 import os
 import re
+import threading
+import json
+import ipaddress
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -63,7 +66,7 @@ _rt = nemoclaw()
 # Not conditional on the gateway token existing: /healthz is unauthenticated, so
 # a conditional entry would tell an anonymous prober whether this agent is
 # credentialed.
-CAPABILITIES = ["provision.scope", "provision.assert", "provision.connector",
+CAPABILITIES = ["provision.scope", "provision.assert", "provision.connector", "provision.material",
                 "health.model",
                 "gateway.proxy"]
 
@@ -87,6 +90,16 @@ _GW_TIMEOUT_MIN, _GW_TIMEOUT_MAX = 1.0, 120.0
 
 @app.middleware("http")
 async def _auth(request: Request, call_next):
+    allowed = os.environ.get("AVA_AGENT_ALLOWED_IPS", "")
+    if allowed:
+        try:
+            peer = ipaddress.ip_address(request.client.host if request.client else "")
+            networks = [ipaddress.ip_network(v.strip()) for v in allowed.split(",")]
+            permitted = any(peer in network for network in networks)
+        except ValueError:
+            permitted = False
+        if not permitted:
+            return JSONResponse({"error": "forbidden"}, status_code=403)
     if request.url.path != "/healthz":
         tok = request.headers.get("x-ava-agent-token", "")
         # `constant_time_equals`, not `hmac.compare_digest`. Starlette decodes
@@ -202,8 +215,8 @@ async def run_turn(request: Request):
     """
     body = await request.json()
     try:
-        reply, tools = _rt.run_turn(body.get("text", ""),
-                                    session_id=body.get("session_id"))
+        reply, tools = await run_in_threadpool(
+            _rt.run_turn, body.get("text", ""), session_id=body.get("session_id"))
     except Exception as e:  # noqa: BLE001 — the reason IS the payload
         return JSONResponse({"error": f"{type(e).__name__}: {e}"[:400],
                              "error_code": "agent_turn_failed"}, status_code=200)
@@ -226,7 +239,7 @@ async def exec_(request: Request):
         timeout = 20
     timeout = max(1, min(timeout, _EXEC_TIMEOUT_MAX))
     try:
-        out = _rt.exec(body.get("inner", ""), timeout=timeout)
+        out = await run_in_threadpool(_rt.exec, body.get("inner", ""), timeout=timeout)
     except Exception as e:  # noqa: BLE001 — RemoteRuntime.exec swallows anyway,
         return {"out": "", "error": f"{type(e).__name__}: {e}"[:200]}
     return {"out": out}
@@ -241,7 +254,7 @@ async def session_file(request: Request):
 @app.post("/discard_session")
 async def discard_session(request: Request):
     body = await request.json()
-    return {"ok": _rt.discard_session(body.get("session_id", ""))}
+    return {"ok": await run_in_threadpool(_rt.discard_session, body.get("session_id", ""))}
 
 
 @app.post("/warm")
@@ -250,9 +263,22 @@ def warm():
     return {"ok": True}
 
 
+_provision_request_lock = threading.Lock()
+
+
 @app.post("/provision")
 async def provision(request: Request):
-    body = await request.json()
+    raw = bytearray()
+    async for chunk in request.stream():
+        raw.extend(chunk)
+        if len(raw) > 5 << 20:
+            return JSONResponse({"ok": False, "error": "provision request too large"}, status_code=413)
+    try:
+        body = json.loads(raw)
+    except ValueError:
+        return JSONResponse({"ok": False, "error": "invalid JSON"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"ok": False, "error": "request must be an object"}, status_code=400)
     scope = str(body.get("scope") or "all")
     # 400 rather than a silent fall-through to `all`. This route reads its body
     # with .get() and ignores unknown keys, so a newer bridge asking an older
@@ -269,8 +295,28 @@ async def provision(request: Request):
         return JSONResponse(
             {"ok": False, "error": f"not a connector id: {connector!r}",
              "error_code": "bad_connector"}, status_code=400)
-    return _rt.provision(auto_install=bool(body.get("auto_install")), scope=scope,
-                         connector=connector)
+    def apply():
+        from . import provision_material
+        if not _provision_request_lock.acquire(blocking=False):
+            return JSONResponse({"ok": False, "error": "provisioning in progress"}, status_code=409)
+        try:
+            material = body.get("material", {})
+            provision_material.validate(material)
+            scopes = {"servers", "policies"} if scope == "all" else {s.strip() for s in scope.split(",")}
+            if material and not (scopes & {"servers", "policies"}):
+                raise ValueError("material requires servers or policies scope")
+            if any(("policies" if p.startswith("policies/") else "servers") not in scopes for p in material):
+                raise ValueError("material exceeds requested provision scope")
+            if connector and any((p.split("/")[2].removesuffix(".yaml") if p.startswith("policies/") else p.split("/")[2]) != connector for p in material):
+                raise ValueError("material exceeds requested connector scope")
+            if "material" in body:
+                provision_material.install(material, connector=connector, scopes=scopes)
+            return _rt.provision(auto_install=bool(body.get("auto_install")), scope=scope, connector=connector)
+        except ValueError as exc:
+            return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+        finally:
+            _provision_request_lock.release()
+    return await run_in_threadpool(apply)
 
 
 @app.post("/registry_record")

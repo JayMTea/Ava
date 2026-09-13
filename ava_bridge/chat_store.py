@@ -135,7 +135,8 @@ def chat_append(cid: str, role: str, content: str,
                  steps: list | None = None,
                  error_code: str | None = None,
                  attachments: list | None = None,
-                 ts: float | None = None) -> None:
+                 ts: float | None = None,
+                 artifact: dict | None = None) -> None:
     """Append one message. `ts` defaults to now.
 
     An explicit `ts` is not a testing affordance — it is what lets history be
@@ -147,6 +148,8 @@ def chat_append(cid: str, role: str, content: str,
     """
     when = time.time() if ts is None else float(ts)
     extra: dict = {}
+    if artifact:
+        extra["artifact"] = artifact
     if atts:
         extra["atts"] = atts
     if error_code:
@@ -189,6 +192,17 @@ def get(cid: str) -> dict | None:
     with _db() as con:
         row = con.execute("SELECT * FROM chats WHERE id=?", (cid,)).fetchone()
         return _chat(row, _messages_for(con, cid)) if row else None
+
+
+def artifact_chat_id(ident: str) -> str | None:
+    """Resolve a saved visualization link to a conversation that still exists."""
+    with _db() as con:
+        row = con.execute(
+            "SELECT m.chat_id FROM messages m JOIN chats c ON c.id=m.chat_id "
+            "WHERE json_extract(m.extra, '$.artifact.id')=? ORDER BY m.id DESC LIMIT 1",
+            (ident,),
+        ).fetchone()
+        return row["chat_id"] if row else None
 
 
 def snapshot(cid: str) -> dict | None:

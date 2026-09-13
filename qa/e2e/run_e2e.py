@@ -8,6 +8,7 @@ performs first-run setup, so ordering matters.
 Run directly:  .venv/bin/python qa/e2e/run_e2e.py
 """
 import os
+import json
 import subprocess
 import sys
 
@@ -32,7 +33,7 @@ SKIP = 77
 # dead entry cost nothing visible — which is precisely the failure this file's
 # header warns about, a tier that reports PASS for specs it never ran. Named
 # here rather than left to be re-derived from a silent skip.
-SPECS = ["setup-flow.spec.ts", "chat-flow.spec.ts",
+SPECS = ["setup-flow.spec.ts", "chat-flow.spec.ts", "artifact-flow.spec.ts",
          "connectors-flow.spec.ts"]
 if len(sys.argv) > 1:   # debug: run a subset (setup still needed by the rest)
     SPECS = ["setup-flow.spec.ts"] + [s for s in sys.argv[1:]
@@ -83,6 +84,11 @@ def main() -> int:
             if not os.path.isfile(path):
                 continue
             print(f"[e2e] running {spec} …", flush=True)
+            if spec == "artifact-flow.spec.ts":
+                seed = subprocess.run([sys.executable, os.path.join(_HERE, "artifact_fixture.py")],
+                                      cwd=_REPO, env=bridge._env(), capture_output=True,
+                                      text=True, check=True)
+                env.update(json.loads(seed.stdout))
             r = subprocess.run([tsx, path], cwd=_HERE, env=env, timeout=300)
             if r.returncode != 0:
                 failed.append(spec)

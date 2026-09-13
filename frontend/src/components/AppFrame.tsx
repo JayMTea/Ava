@@ -2,16 +2,24 @@ import { useEffect, useRef, useState } from 'react';
 import { getTheme } from '../lib/theme';
 import { connectAppTheme, sendAppTheme } from '../lib/embedTheme';
 
-// Renders a third-party app's own web UI inside Ava's shell. The app is served
-// SAME-ORIGIN via the bridge's /apps/<id>/ reverse-proxy, so it inherits Ava's
-// session cookie (no cross-origin auth). Ava's current theme is passed as a
-// ?theme= query param; the app may opt in to match Ava's look.
+// Renders an app using the bridge-issued embed destination. A configured app
+// origin isolates it from Ava; the bridge supplies scoped access and theme.
 //
 // The shell keeps visited frames mounted and toggles `active` instead of
 // unmounting, so the app's in-page state (typed prompts, scroll, modals)
 // survives switching to other Ava tabs. Inactive frames are display:none —
 // still loaded, just not laid out.
-export function AppFrame({ id, label, active = true }: { id: string; label: string; active?: boolean }) {
+export function appFrameDestination(base: string, id: string, path: string): string {
+  const launch = new URL(base, window.location.href);
+  const prefix = `/apps/${encodeURIComponent(id)}/`;
+  const target = new URL(prefix + path.replace(/^\//, ''), launch.origin);
+  if (!target.pathname.startsWith(prefix) || target.origin !== launch.origin) throw new Error('Invalid app destination');
+  // Keep the bridge's credential and theme; an artifact cannot override either.
+  for (const [key, value] of launch.searchParams) target.searchParams.set(key, value);
+  return target.toString();
+}
+
+export function AppFrame({ id, label, active = true, path = '/' }: { id: string; label: string; active?: boolean; path?: string }) {
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
   const ref = useRef<HTMLIFrameElement>(null);
 
@@ -20,7 +28,7 @@ export function AppFrame({ id, label, active = true }: { id: string; label: stri
     // If the frame never fires `load` (app down / proxy 502), surface an error.
     const t = setTimeout(() => setState((s) => (s === 'loading' ? 'error' : s)), 12000);
     return () => clearTimeout(t);
-  }, [id]);
+  }, [id, path]);
 
   // The bridge decides where this frame loads from. With `apps.origin` configured
   // it returns an absolute URL on a second hostname carrying a short-lived,
@@ -38,12 +46,11 @@ export function AppFrame({ id, label, active = true }: { id: string; label: stri
     const query = `theme=${getTheme()}&embedded=1&v=1`;
     fetch(`/api/apps/${encodeURIComponent(id)}/embed?${query}`, { credentials: 'same-origin' })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((j) => { if (live) setSrc(j.url); })
-      // Fall back to the relative path so a bridge that predates this route still
-      // renders, rather than showing an empty frame.
-      .catch(() => { if (live) setSrc(`/apps/${encodeURIComponent(id)}/?${query}`); });
+      .then((j) => { if (live) setSrc(appFrameDestination(j.url, id, path)); })
+      // Preserve the bridge's origin boundary when obtaining access fails.
+      .catch(() => { if (live) setState('error'); });
     return () => { live = false; };
-  }, [id]);
+  }, [id, path]);
 
   // Keep open apps in sync without reloading their frames and losing local state.
   // The initial URL covers first paint; the request/reply covers delayed hydration.

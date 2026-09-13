@@ -259,6 +259,10 @@ def build_turn_artifact(tools: list[str], sid: str, after: int,
     as before. Steps are tried first and the file is the fallback, so a runtime
     that supplies steps never touches the sandbox.
     """
+    from . import data_artifacts
+    analytical = data_artifacts.from_steps(steps)
+    if analytical:
+        return analytical
     if any("get_weather" in (t or "") for t in tools):
         location, days = _weather_args_from_steps(steps)
         if location is None:

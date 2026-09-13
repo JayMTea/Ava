@@ -4,7 +4,7 @@ import { useGateway } from '../../hooks/useGateway';
 import { EmptyState, Panel } from '../ui/layout';
 import { Badge } from '../hub/ui/Badge';
 import { StatRow } from '../hub/ui/StatRow';
-import { receiptBadge, type Receipt } from './agentView';
+import { receiptBadge, type Receipt } from './agentViewModel';
 
 // One run, and what it was allowed to do.
 //

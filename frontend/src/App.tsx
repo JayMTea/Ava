@@ -3,7 +3,7 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom';
 import { ActionConsole } from './components/ActionConsole';
 import { AppFrame } from './components/AppFrame';
-import { ArtifactPanel } from './components/artifact/ArtifactPanel';
+import { ChatWorkspace } from './components/chat/ChatWorkspace';
 import { ChatView } from './components/chat/ChatView';
 import { Composer } from './components/chat/Composer';
 import { Lightbox } from './components/chat/Media';
@@ -205,6 +205,17 @@ export default function App() {
     if (typeof window === 'undefined' || window.innerWidth <= 760) return;
     try { localStorage.setItem('ava.sidebarOpen', sidebarOpen ? '1' : '0'); } catch { /* storage unavailable */ }
   }, [sidebarOpen]);
+  useEffect(() => {
+    const mobile = window.matchMedia('(max-width:760px)');
+    const changed = () => {
+      if (mobile.matches) setSidebarOpen(false);
+      else {
+        try { setSidebarOpen(localStorage.getItem('ava.sidebarOpen') !== '0'); } catch { /* storage unavailable */ }
+      }
+    };
+    mobile.addEventListener('change', changed);
+    return () => mobile.removeEventListener('change', changed);
+  }, []);
   // Sidebar width. Resizable, but inside limits — a sidebar narrower than its
   // own rows is not a preference, and one wide enough to squeeze the chat column
   // costs more than it gives. Remembered across reloads like the open/closed
@@ -220,13 +231,11 @@ export default function App() {
     try { localStorage.setItem('ava.sidebarWidth', String(navWidth)); } catch { /* storage unavailable */ }
   }, [navWidth]);
   const [text, setText] = useState('');
-  const [artWidth, setArtWidth] = useState('50%');
   const [refreshing, setRefreshing] = useState(false);
   const [lightbox, setLightbox] = useState<string | null>(null);
 
 
   const shellRef = useRef<HTMLDivElement>(null);
-  const dragging = useRef(false);
 
   const openLightbox = useCallback((url: string) => setLightbox(url), []);
   const closeLightbox = useCallback(() => setLightbox(null), []);
@@ -287,43 +296,6 @@ export default function App() {
     }
   }, []);
 
-  // ---- divider drag resize (desktop) --------------------------------------
-  const onMove = useCallback((clientX: number) => {
-    const shell = shellRef.current;
-    if (!shell) return;
-    const rect = shell.getBoundingClientRect();
-    let pct = ((rect.right - clientX) / rect.width) * 100;
-    pct = Math.max(24, Math.min(78, pct));
-    setArtWidth(pct.toFixed(1) + '%');
-  }, []);
-  const startDrag = useCallback(
-    (e: React.MouseEvent | React.TouchEvent) => {
-      dragging.current = true;
-      document.body.style.cursor = 'col-resize';
-      document.body.style.userSelect = 'none';
-      e.preventDefault();
-      const move = (ev: MouseEvent | TouchEvent) => {
-        if (!dragging.current) return;
-        const x = 'touches' in ev ? ev.touches[0]?.clientX : ev.clientX;
-        if (x != null) onMove(x);
-      };
-      const stop = () => {
-        dragging.current = false;
-        document.body.style.cursor = '';
-        document.body.style.userSelect = '';
-        window.removeEventListener('mousemove', move);
-        window.removeEventListener('mouseup', stop);
-        window.removeEventListener('touchmove', move);
-        window.removeEventListener('touchend', stop);
-      };
-      window.addEventListener('mousemove', move);
-      window.addEventListener('mouseup', stop);
-      window.addEventListener('touchmove', move, { passive: false });
-      window.addEventListener('touchend', stop);
-    },
-    [onMove],
-  );
-
   const onSend = useCallback(() => {
     const t = text;
     setText('');
@@ -348,11 +320,10 @@ export default function App() {
       <div
         id="appShell"
         className={
-          (chat.artifact ? 'art-open' : '') +
           (sidebarOpen ? ' nav-open' : ' nav-closed') +
           (navResizing ? ' nav-drag' : '')
         }
-        style={{ ['--art-w' as string]: artWidth, ['--nav-w' as string]: `${navWidth}px` }}
+        style={{ ['--nav-w' as string]: `${navWidth}px` }}
         ref={shellRef}
       >
         <Drawer
@@ -381,9 +352,7 @@ export default function App() {
           onDeleteChat={chat.deleteChat}
         />
 
-        {/* Sidebar resize handle. Rendered always and shown by CSS only when the
-            panel is expanded and we are not on a phone — the same arrangement as
-            #artifactDivider, so the DOM does not shuffle on every collapse. */}
+        {/* Sidebar resize handle, visible while the desktop sidebar is expanded. */}
         <div
           id="navDivider"
           role="separator"
@@ -428,16 +397,34 @@ export default function App() {
             {view === 'hub' && <ViewErrorBoundary label="Setup"><HubView /></ViewErrorBoundary>}
             {view === 'chat' && (
               <ViewErrorBoundary label="Chat">
-                <ChatView
-                  items={chat.items}
-                  currentChatId={chat.currentChatId}
-                  onRetryUser={retryUser}
-                  onRetryAva={retryAva}
-                  onReplay={chat.replay}
-                  onQuickSay={chat.quickSay}
-                  onOpenLightbox={openLightbox}
-                  onOpenArtifact={openArtifact}
-                />
+                <ChatWorkspace artifact={chat.artifact} onClose={() => chat.setArtifact(null)} onRefresh={onRefresh} refreshing={refreshing}>
+                  <div className="chat-transcript">
+                    <ChatView
+                      items={chat.items}
+                      currentChatId={chat.currentChatId}
+                      onRetryUser={retryUser}
+                      onRetryAva={retryAva}
+                      onReplay={chat.replay}
+                      onQuickSay={chat.quickSay}
+                      onOpenLightbox={openLightbox}
+                      onOpenArtifact={openArtifact}
+                    />
+                  </div>
+                  <Composer
+                    text={text}
+                    onText={setText}
+                    pending={chat.pending}
+                    onRemoveAtt={chat.removeAtt}
+                    onFiles={chat.uploadFiles}
+                    onSend={onSend}
+                    onTalk={chat.talk}
+                    onStop={chat.canStop ? chat.stop : undefined}
+                    busy={chat.busy}
+                    hint={chat.hint}
+                    ctxTokens={chat.ctxTokens}
+                    ctxMax={chat.ctxMax}
+                  />
+                </ChatWorkspace>
               </ViewErrorBoundary>
             )}
             {/* Kept-alive iframe apps: every visited frame stays in the tree;
@@ -465,34 +452,10 @@ export default function App() {
               return <ViewErrorBoundary label={app.label}><ActionConsole id={app.id} label={app.label} /></ViewErrorBoundary>;
             })()}
           </div>
-          {view === 'chat' && (
-            <Composer
-              text={text}
-              onText={setText}
-              pending={chat.pending}
-              onRemoveAtt={chat.removeAtt}
-              onFiles={chat.uploadFiles}
-              onSend={onSend}
-              onTalk={chat.talk}
-              onStop={chat.canStop ? chat.stop : undefined}
-              busy={chat.busy}
-              hint={chat.hint}
-              ctxTokens={chat.ctxTokens}
-              ctxMax={chat.ctxMax}
-            />
-          )}
+
         </div>
 
-        <div id="artifactDivider" title="Drag to resize" onMouseDown={startDrag} onTouchStart={startDrag}>
-          <span className="art-grip" />
-        </div>
 
-        <ArtifactPanel
-          artifact={chat.artifact}
-          onClose={() => chat.setArtifact(null)}
-          onRefresh={onRefresh}
-          refreshing={refreshing}
-        />
       </div>
 
       {/* biome-ignore lint/a11y/useKeyWithClickEvents: a decorative backdrop, not

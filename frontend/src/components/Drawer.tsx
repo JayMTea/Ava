@@ -12,7 +12,9 @@ import { byId, HEALTH_LABEL, HealthDot, healthTitle } from '../lib/appHealth';
 import { applyOrder, moveTo } from '../lib/appOrder';
 import { DEFAULT_BRAND } from '../lib/brand';
 import { useBrand } from '../lib/brandContext';
+import { ContextMenu, type ContextMenuState, contextPoint } from '../lib/ContextMenu';
 import { Icon } from '../lib/icons';
+import { openElsewhereActions } from '../lib/openWindow';
 import {
   alsoInLabel,
   groupByRealm,
@@ -85,6 +87,17 @@ const navClick = (id: string, onView: (v: string) => void) =>
     onView(id);
   };
 
+// ── …and a destination has a right-click menu ───────────────────────────────
+// "Open in new tab / Open in new window / Copy link" on every destination —
+// rail tab, panel row, and the flyout's Setup and Domains entries, which are
+// <button>s inside a menu and so had none of the gestures the href gives the
+// others. The verbs live in lib/openWindow.ts; the menu itself is one piece of
+// Drawer state (`openElsewhere`, below), so at most one is ever open.
+// Shift+right-click is left to the browser — Firefox's own convention for
+// reaching the native menu past a page's — so nothing the href already offered
+// is taken away.
+type OpenElsewhere = (id: string, label: string) => (e: ReactMouseEvent<HTMLElement>) => void;
+
 /** The sidebar head: a wordmark image when there is one to show, else the name
  *  as text — which is what this always did before the slot had a default.
  *
@@ -141,6 +154,7 @@ interface FlyoutProps {
   items: NavItem[];
   view: string;
   onView: (v: string) => void;
+  onOpenElsewhere: OpenElsewhere;
   /** The sidebar's open/collapsed state. Not used for layout — used to DISMISS.
    *  The menu is portalled to <body>, so it outlives its trigger: collapsing the
    *  panel sets `.side-panel { display:none }` and the menu would keep floating
@@ -308,11 +322,12 @@ function useFlyout(
 
 /** The menu itself — identical for both triggers, which is the point. */
 function FlyoutMenu({
-  id, labelledBy, className, items, view, onView,
+  id, labelledBy, className, items, view, onView, onOpenElsewhere,
   cursor, menuRef, itemRefs, style, onKeyDown, onClose, onMouseEnter, onMouseLeave,
 }: {
   id: string; labelledBy: string; className?: string;
   items: NavItem[]; view: string; onView: (v: string) => void;
+  onOpenElsewhere: OpenElsewhere;
   cursor: number;
   menuRef: RefObject<HTMLDivElement | null>;
   itemRefs: RefObject<(HTMLButtonElement | null)[]>;
@@ -349,6 +364,7 @@ function FlyoutMenu({
           aria-current={view === it.id ? 'page' : undefined}
           className={'rail-menu-item' + (view === it.id ? ' active' : '')}
           onClick={() => { onView(it.id); onClose(); }}
+          onContextMenu={onOpenElsewhere(it.id, it.label)}
         >
           <Icon name={it.icon} />
           <span>{it.label}</span>
@@ -362,7 +378,7 @@ function FlyoutMenu({
 /** Collapsed rail, foot. Hover-opens with a 140ms grace timer covering the
  *  diagonal from button to menu — unchanged behaviour, now also operable from
  *  the keyboard. */
-function RailFlyout({ items, view, onView, drawerOpen }: FlyoutProps) {
+function RailFlyout({ items, view, onView, onOpenElsewhere, drawerOpen }: FlyoutProps) {
   const menuId = useId();
   const btnId = useId();
   const f = useFlyout(items.length, placeRail, drawerOpen);
@@ -389,7 +405,7 @@ function RailFlyout({ items, view, onView, drawerOpen }: FlyoutProps) {
       {f.open && (
         <FlyoutMenu
           id={menuId} labelledBy={btnId}
-          items={items} view={view} onView={onView}
+          items={items} view={view} onView={onView} onOpenElsewhere={onOpenElsewhere}
           cursor={f.cursor} menuRef={f.menuRef} itemRefs={f.itemRefs}
           style={f.pos} onKeyDown={f.onMenuKeyDown} onClose={f.closeToTrigger}
           onMouseEnter={f.hoverOpen} onMouseLeave={f.scheduleClose}
@@ -403,7 +419,7 @@ function RailFlyout({ items, view, onView, drawerOpen }: FlyoutProps) {
  *  one would make `[aria-label="Settings & dashboards"]` match two elements —
  *  one of them display:none — which is how demo/src/tour.ts drives the rail's
  *  gear, and a two-element match is a Playwright strict-mode failure. */
-function PanelFlyout({ items, view, onView, drawerOpen }: FlyoutProps) {
+function PanelFlyout({ items, view, onView, onOpenElsewhere, drawerOpen }: FlyoutProps) {
   const menuId = useId();
   const btnId = useId();
   const f = useFlyout(items.length, placePanel, drawerOpen);
@@ -427,7 +443,7 @@ function PanelFlyout({ items, view, onView, drawerOpen }: FlyoutProps) {
       {f.open && (
         <FlyoutMenu
           id={menuId} labelledBy={btnId} className="panel-menu"
-          items={items} view={view} onView={onView}
+          items={items} view={view} onView={onView} onOpenElsewhere={onOpenElsewhere}
           cursor={f.cursor} menuRef={f.menuRef} itemRefs={f.itemRefs}
           style={f.pos} onKeyDown={f.onMenuKeyDown} onClose={f.closeToTrigger}
         />
@@ -481,6 +497,20 @@ export function Drawer({
   // one step an owner with no apps has to take first. The dialog is the shared
   // <ConnectAppFields> (hub/ConnectApp.tsx), not a sidebar-local copy.
   const [connectOpen, setConnectOpen] = useState(false);
+  // The right-click menu — see OpenElsewhere above. One for the whole sidebar:
+  // the tile that was clicked, its address's three verbs, and where it opened.
+  const [ctx, setCtx] = useState<ContextMenuState | null>(null);
+  const openElsewhere: OpenElsewhere = (id, label) => (e) => {
+    if (e.shiftKey) return;
+    e.preventDefault();
+    setTip(null);
+    setCtx({
+      ...contextPoint(e),
+      from: e.currentTarget,
+      actions: openElsewhereActions(id),
+      label: `${label} — open in…`,
+    });
+  };
   // The rule itself lives in lib/realms.ts, pure and tested: these entries only
   // exist inside a flyout that is closed until opened, so no render can reach
   // them and the filter has to be provable somewhere else.
@@ -593,6 +623,7 @@ export function Drawer({
                 aria-label={`${a.label} — ${h ? HEALTH_LABEL[h.health] : 'checking'}`
                   + alsoInLabel(realms, a.id)}
                 onClick={navClick(a.id, onView)}
+                onContextMenu={openElsewhere(a.id, a.label)}
               >
                 <Icon name={appIcon(a)} className="nav-ic" />
                 <span className="nav-app-name">{a.label}</span>
@@ -652,6 +683,7 @@ export function Drawer({
         style={{ '--app-accent': accent } as CSSProperties}
         {...tipProps(tip)}
         onClick={navClick(id, onView)}
+        onContextMenu={openElsewhere(id, label)}
       >
         <Icon name={icon} />
         {accent && <HealthDot health={h?.health} className="rail-dot" />}
@@ -711,7 +743,8 @@ export function Drawer({
         )}
         <div className="rail-spacer" />
         <div className="rail-foot">
-          <RailFlyout items={systemNav} view={view} onView={onView} drawerOpen={open} />
+          <RailFlyout items={systemNav} view={view} onView={onView}
+                      onOpenElsewhere={openElsewhere} drawerOpen={open} />
         </div>
       </div>
 
@@ -769,6 +802,7 @@ export function Drawer({
               className={'nav-item' + (view === it.id ? ' active' : '')}
               aria-current={view === it.id ? 'page' : undefined}
               onClick={navClick(it.id, onView)}
+              onContextMenu={openElsewhere(it.id, it.label)}
             >
               <Icon name={it.icon} className="nav-ic" />
               <span>{it.label}</span>
@@ -883,7 +917,8 @@ export function Drawer({
             list attached. Mirrors the collapsed rail's foot flyout: same items,
             same menu, one list (NAV_SYSTEM), so the two forms cannot drift. */}
         <div className="panel-foot">
-          <PanelFlyout items={systemNav} view={view} onView={onView} drawerOpen={open} />
+          <PanelFlyout items={systemNav} view={view} onView={onView}
+                       onOpenElsewhere={openElsewhere} drawerOpen={open} />
         </div>
       </div>
 
@@ -892,7 +927,20 @@ export function Drawer({
           `ava:apps-changed` on a successful connect, which is what redraws the
           rail (App.tsx re-fetches /api/apps), so a new app appears behind the
           dialog while it is still open. */}
-      {connectOpen && <ConnectAppDialog onClose={() => setConnectOpen(false)} />}
+      {/* biome-ignore lint/complexity/noUselessFragments: the dialog and the
+          right-click menu share ONE child slot of the aside on purpose. Both
+          portal themselves away, so the DOM is the same either way — but React's
+          useId encodes a component's position among its parent's children, and a
+          fourth child here renumbered both flyout triggers' ids and broke the
+          byte-identical snapshot in Drawer.test.tsx for a menu that was not even
+          rendered. The same trap realms.ts groupId() documents, from the other
+          side. */}
+      <>
+        {connectOpen && <ConnectAppDialog onClose={() => setConnectOpen(false)} />}
+        {/* The right-click menu, portalled by ContextMenu itself. One instance
+            for every tile in both sidebar forms — see `openElsewhere`. */}
+        {ctx && <ContextMenu menu={ctx} onClose={() => setCtx(null)} />}
+      </>
     </aside>
   );
 }

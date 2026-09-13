@@ -195,6 +195,7 @@ _BLOCK_TYPES: dict = {
     # consent. Private/loopback connectors are trusted without it; see
     # `_trusts_declared_tiers`.
     "trust_declared_tiers": bool,
+    "agent_tools": list,
 }
 
 # What this Ava understands. A manifest declaring a NEWER version still loads —
@@ -1182,6 +1183,10 @@ def _filter_tools(res: dict, query: str, limit: int) -> dict:
 
 def render_find_tool(cid: str) -> str:
     """The .mjs source for <cid>_find_tool: search the connector's tool set."""
+    from . import runtime
+    from .provision import CONNECTOR_CATEGORY, server_name
+
+    caller = runtime.configured().mcp_tool_name(server_name(CONNECTOR_CATEGORY), f"{cid}_call")
     m = {x["id"]: x for x in load()}.get(cid) or {}
     label = m.get("label") or cid
     acts = [a for a in _static_actions(m) if a.get("id") and a.get("path")]
@@ -1197,8 +1202,8 @@ def render_find_tool(cid: str) -> str:
     app_ref = label if label.lower().endswith(" app") else f"{label} app"
     desc = _json.dumps(
         f"Search the {app_ref}'s available actions ({hint}). "
-        f"ALWAYS call this first with a few keywords for what you want to do, "
-        f"then invoke the chosen action with {cid}_call.")
+        "This returns action schemas, not records from the app. Find an action once "
+        f"using its name or purpose, then execute it with {caller}.")
     return f"""// AUTO-GENERATED from connectors/{cid}/connector.yaml (meta: find_tool).
 // Regenerate with:  ava connector tools {cid} --write
 const BRIDGE = process.env.AVA_BRIDGE_URL || '{_layout.bridge_url(_bridge_port())}';
@@ -1224,7 +1229,10 @@ export default {{
         direct: false, timeout: 30,
         headers: {{ 'X-Ava-Internal-Token': ctx.internalToken || '' }},
       }});
-      return JSON.stringify(data, null, 2);
+      const next_step = (data.tools || []).length
+        ? {{ tool: {_json.dumps(caller)}, instruction: 'Execute a returned action: pass its name in name and its inputSchema parameters in arguments. Dataset search terms belong in that arguments object. Discovery is complete for this action.' }}
+        : {{ instruction: 'No action definition matched. Use query="" once to list available actions, then execute a suitable action through the call tool.' }};
+      return JSON.stringify({{ ...data, next_step }}, null, 2);
     }} catch (e) {{
       return `Error calling {cid}_find_tool: ${{e.message}}`;
     }}
@@ -1510,10 +1518,47 @@ def orphans() -> Dict[str, List[str]]:
             "grants": stale_grants, "cache": stale_cache}
 
 
+def _native_tool_names(m: dict) -> list[str]:
+    """Optional small, owner-selected action set with explicit agent schemas."""
+    names = m.get("agent_tools") or []
+    if not names:
+        return []
+    if not (_discover_spec(m) or _mcp_spec(m)):
+        raise ValueError("agent_tools requires a dynamic connector")
+    if (not isinstance(names, list) or len(names) > 16
+            or any(not isinstance(name, str) or not _re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,63}", name)
+                   for name in names) or len(set(names)) != len(names)):
+        raise ValueError("agent_tools must contain at most 16 unique action names")
+    return names
+
+
+def render_native_tool(cid: str, name: str, spec: dict) -> str:
+    """Typed wrapper over the same authenticated, consent-gated dynamic call."""
+    return f"""// AUTO-GENERATED from connector discovery. Refresh with connector Generate.
+const BRIDGE = process.env.AVA_BRIDGE_URL || '{_layout.bridge_url(_bridge_port())}';
+export default {{
+  name: {_json.dumps(cid + '_' + name)},
+  description: {_json.dumps(spec.get('description') or name)},
+  inputSchema: {_json.dumps(spec['inputSchema'])},
+  async handler(args, ctx) {{
+    const data = await ctx.http.postJson(`${{BRIDGE}}/internal/connector/{cid}/__call`,
+      {{name: {_json.dumps(name)}, arguments: args}}, {{
+        direct: false, timeout: 150,
+        headers: {{'X-Ava-Internal-Token': ctx.internalToken || ''}},
+      }});
+    return typeof data === 'string' ? data : JSON.stringify(data);
+  }},
+}};
+"""
+
+
 def _tool_file_names(m: dict) -> List[dict]:
     """`tool_files` without rendering sources — names only, from any manifest
     (including a disabled one, which `tool_files`'s `load()` cannot see)."""
     cid = m["id"]
+    native = _native_tool_names(m)
+    if native:
+        return [{"name": f"{cid}_{name}.mjs"} for name in native]
     if _discover_spec(m) or _mcp_spec(m) or meta_static(m):
         return [{"name": f"{cid}_find_tool.mjs"}, {"name": f"{cid}_call.mjs"}]
     return [{"name": f"{cid}_{a['id']}.mjs"}
@@ -1574,6 +1619,15 @@ def tool_files(cid: str) -> List[dict]:
     dynamic (mcp/discover) or large static connectors, else one tool per
     generic-proxy action. Every generator/checker derives from this ONE list."""
     m = {x["id"]: x for x in load()}.get(cid) or {}
+    native = _native_tool_names(m)
+    if native:
+        from . import tools_cache
+        schemas = tools_cache.for_connector(cid)
+        missing = [name for name in native if not isinstance(schemas.get(name, {}).get("inputSchema"), dict)]
+        if missing:
+            raise ValueError("Discover app tools before generating native tools: " + ", ".join(missing))
+        return [{"name": f"{cid}_{name}.mjs", "source": render_native_tool(cid, name, schemas[name])}
+                for name in native]
     if _discover_spec(m) or _mcp_spec(m) or meta_static(m):
         return [{"name": f"{cid}_find_tool.mjs", "source": render_find_tool(cid)},
                 {"name": f"{cid}_call.mjs", "source": render_call_tool(cid)}]
@@ -1618,9 +1672,10 @@ def agent_surface() -> List[dict]:
             names = sorted(tools_cache.for_connector(cid))
         else:
             names = static
+        native = _native_tool_names(m)
         out.append({"id": cid, "label": _display_label(m),
-                    "meta": dynamic or meta_static(m),
-                    "tools": names, "discovered": dynamic})
+                    "meta": not native and (dynamic or meta_static(m)),
+                    "tools": native or names, "discovered": dynamic})
     return out
 
 

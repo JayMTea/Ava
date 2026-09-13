@@ -6,9 +6,11 @@ Each instance gets a brand-new AVA_HOME and its own ports; the fake LLM/app
 servers from conftest are plain TCP so they serve subprocesses too.
 """
 import os
+from collections import deque
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.request
 
@@ -26,6 +28,7 @@ class BridgeProc:
         self.llm_url = llm_url
         self.env_extra = dict(env_extra or {})
         self.proc: subprocess.Popen | None = None
+        self._output: deque[bytes] = deque(maxlen=200)
 
     @property
     def base_url(self) -> str:
@@ -46,6 +49,14 @@ class BridgeProc:
             [sys.executable, os.path.join(_REPO, "serve.py")],
             cwd=_REPO, env=self._env(),
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        self._output.clear()
+        # Browser suites make enough requests to fill a pipe. Drain continuously
+        # so uvicorn cannot block while logging an otherwise healthy request.
+        stream = self.proc.stdout
+        def drain():
+            for line in iter(stream.readline, b""):
+                self._output.append(line)
+        threading.Thread(target=drain, daemon=True).start()
         self.wait_health(timeout)
         return self
 
@@ -55,7 +66,7 @@ class BridgeProc:
         deadline = t0 + timeout
         while time.time() < deadline:
             if self.proc and self.proc.poll() is not None:
-                out = (self.proc.stdout.read() or b"").decode(errors="replace")
+                out = b"".join(self._output).decode(errors="replace")
                 raise AssertionError(f"bridge exited rc={self.proc.returncode}:\n{out[-4000:]}")
             try:
                 with urllib.request.urlopen(self.base_url + "/api/health", timeout=2) as r:

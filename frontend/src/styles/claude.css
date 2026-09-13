@@ -98,6 +98,14 @@ body { font-family:var(--font-ui); }
 .rail-menu-item.active { background:var(--accent-soft); color:var(--accent-tint); }
 .rail-menu-item svg { width:18px; height:18px; flex:0 0 auto; }
 
+/* The right-click menu on a sidebar tile (lib/ContextMenu.tsx): the flyout's
+   chrome, anchored at the POINTER. Positioned by `top`, not `bottom` — it grows
+   away from the click rather than up from a foot trigger — and moved by
+   flyoutPlace.placeAt when it would leave the viewport. ADDITIVE MODIFIER
+   ONLY, for the same reason .panel-menu below is: the base rules are shared
+   with RowMenu. nowrap so the three verbs never fold at a narrow width. */
+.rail-menu.ctx-menu { min-width:196px; white-space:nowrap; }
+
 /* --- Expanded panel (claude.ai layout) --- */
 /* Fills whatever width the drawer currently has rather than restating it: the
    drawer is the one place --nav-w is read, so a resize cannot leave the panel
@@ -535,12 +543,8 @@ header .sub { display:none; }
 .send.stop svg { width:15px; height:15px; }
 
 /* Artifact panel surfaces on the warm palette. */
-#artifactPanel { background:var(--panel); }
 .art-head { background:var(--panel2); }
 .art-ic { color:var(--accent); }
-#artifactDivider { background:var(--bg); }
-#artifactDivider .art-grip { background:var(--disabled-bg); }
-#artifactDivider:hover .art-grip { background:var(--accent); }
 
 /* ================= Full-height view scroller ================= */
 .view-scroll { position:absolute; inset:0; overflow-y:auto; display:block; }
@@ -722,8 +726,7 @@ body {
    them and each one anchored at top:0 has to be told separately — otherwise the
    banner (z-index 60) simply covers the top of the drawer it sits above. */
 @media (max-width: 760px) {
-  #drawer,
-  #artifactPanel {
+  #drawer {
     top: var(--inf-banner-h, 0px);
     height: calc(100dvh - var(--inf-banner-h, 0px));
   }

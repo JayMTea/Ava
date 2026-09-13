@@ -25,13 +25,13 @@ function check(name: string, ok: boolean, extra = '') {
   // The composer lives on the chat view. (Landing is Setup; the walkthrough
   // was marked seen by setup-flow.spec.ts, which runs first — without that the
   // overlay puts #root in `inert` and nothing below can type.)
-  await page.evaluate(() => { location.hash = 'chat'; });
+  await page.locator('a[href="#chat"]:visible').first().click();
   const composer = page.locator('textarea#text');
   await composer.waitFor({ timeout: 20000 });
   check('composer present', true);
 
   await composer.fill('Hello Ava, quick smoke check?');
-  await page.keyboard.press('Enter');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
 
   // The fake model's canned reply must render in the conversation.
   const reply = page.getByText('QA fake model', { exact: false }).first();

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../lib/api';
-import type { Artifact, Attachment, HistoryEntry } from '../lib/types';
+import type { AnalyticsArtifactPayload, Artifact, Attachment, HistoryEntry } from '../lib/types';
 import { ChatItem, uid } from '../lib/chatItems';
 import { runPolledTurn } from './chatDirect';
 import { runStreamedTurn } from './chatGateway';
@@ -27,9 +27,15 @@ export function useChat() {
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [pending, setPending] = useState<Attachment[]>([]);
   const [busy, setBusy] = useState(false);
+  const [chatLoading, setChatLoading] = useState(true);
+  const chatLoadingRef = useRef(true);
+  const setLoadingChat = useCallback((value: boolean) => {
+    chatLoadingRef.current = value;
+    setChatLoading(value);
+  }, []);
   const [status, setStatus] = useState('hold the mic to talk');
   const [hint, setHint] = useState('');
-  const [artifact, setArtifact] = useState<Artifact | null>(null);
+  const [artifact, setArtifactState] = useState<Artifact | null>(null);
   const [ghost, setGhost] = useState(false);
   const [ctxMax, setCtxMax] = useState(65536);
   const [ctxBase, setCtxBase] = useState(2200);
@@ -45,15 +51,32 @@ export function useChat() {
   const ghostRef = useRef(false);
   const ghostIdRef = useRef<string | null>(null);
   const busyRef = useRef(false);
+  const navigation = useRef(0);
+  const setArtifact = useCallback((value: Artifact | null) => {
+    setArtifactState(value);
+    const cid = chatIdRef.current;
+    if (cid && !ghostRef.current) {
+      try {
+        if (value?.type === 'analytics') localStorage.setItem(`ava.artifact.${cid}`, value.id);
+        else localStorage.removeItem(`ava.artifact.${cid}`);
+      } catch { /* storage unavailable */ }
+    }
+    // A consumed deep link must not reopen an old panel after navigating away.
+    const url = new URL(window.location.href);
+    if (url.searchParams.has('artifact')) {
+      url.searchParams.delete('artifact');
+      window.history.replaceState(null, '', url);
+    }
+  }, []);
   // The turn currently stoppable, or '' when there is nothing to stop. Only the
   // streamed path sets it — see StreamDeps.onTurnStarted.
   const [abortableTurn, setAbortableTurn] = useState('');
 
-  const setBusyBoth = (v: boolean) => {
+  const setBusyBoth = useCallback((v: boolean) => {
     busyRef.current = v;
     setBusy(v);
     if (!v) setAbortableTurn('');
-  };
+  }, []);
 
   const push = useCallback((it: ChatItem) => setItems((xs) => [...xs, it]), []);
   const patch = useCallback(
@@ -75,7 +98,8 @@ export function useChat() {
     }
   }, []);
 
-  const setChat = (id: string | null, persist = true) => {
+  const setChat = useCallback((id: string | null, persist = true) => {
+    setArtifactState(null);
     chatIdRef.current = id;
     setCurrentChatId(id);
     setRealCtx(null);
@@ -83,7 +107,7 @@ export function useChat() {
       if (id) localStorage.setItem('ava.chat', id);
       else localStorage.removeItem('ava.chat');
     }
-  };
+  }, []);
 
   const ensureChat = useCallback(async (): Promise<string> => {
     if (ghostRef.current) {
@@ -95,7 +119,7 @@ export function useChat() {
     setChat(c.id);
     loadChats();
     return c.id;
-  }, [loadChats]);
+  }, [loadChats, setChat]);
 
   // ---- one Ava turn --------------------------------------------------------
   // The body moved to hooks/chatDirect.ts unchanged. It is the Direct floor's
@@ -141,6 +165,13 @@ export function useChat() {
 
   const runAvaTurn = useCallback(
     (t: string, atts: Attachment[], cid: string, userItemId: string | null) => {
+      // A turn can finish after the owner switches chats. Its server record
+      // remains durable, but its UI updates must stay in the originating chat.
+      const active = () => chatIdRef.current === cid;
+      const scopedItems: typeof setItems = value => { if (active()) setItems(value); };
+      const scopedArtifact = (value: Artifact | null) => { if (active()) setArtifact(value); };
+      const scopedContext = (value: number | null) => { if (active()) setRealCtx(value); };
+      const scopedHistory = (role: string, content: string) => { if (active()) pushHistory(role, content); };
       // BOTH strategies submit through POST /api/chat-stream — the bridge's one
       // turn pipeline (credentials note, memory recall, chats.db history, the
       // audit record, and the same session key as the voice path). The choice
@@ -149,26 +180,26 @@ export function useChat() {
       if (streamable && gw) {
         return runStreamedTurn(t, atts, cid, userItemId, {
           client: gw,
-          setItems,
-          setRealCtx,
-          setArtifact,
+          setItems: scopedItems,
+          setRealCtx: scopedContext,
+          setArtifact: scopedArtifact,
           history: () => history.current,
-          pushHistory,
+          pushHistory: scopedHistory,
           onTurnStarted: setAbortableTurn,
         });
       }
       return runPolledTurn(t, atts, cid, userItemId, {
-        push,
-        patch,
-        remove,
-        setItems,
-        setRealCtx,
-        setArtifact,
+        push: item => { if (active()) push(item); },
+        patch: (id, fn) => { if (active()) patch(id, fn); },
+        remove: id => { if (active()) remove(id); },
+        setItems: scopedItems,
+        setRealCtx: scopedContext,
+        setArtifact: scopedArtifact,
         history: () => history.current,
-        pushHistory,
+        pushHistory: scopedHistory,
       });
     },
-    [push, patch, remove, pushHistory, streamable, gw],
+    [push, patch, remove, pushHistory, streamable, gw, setArtifact],
   );
 
   // ---- submit --------------------------------------------------------------
@@ -192,7 +223,7 @@ export function useChat() {
     async (text: string) => {
       const t = text.trim();
       const atts = pending.slice();
-      if ((!t && !atts.length) || busyRef.current) return;
+      if ((!t && !atts.length) || busyRef.current || chatLoadingRef.current) return;
       const userItemId = uid();
       push({ kind: 'user', id: userItemId, text: t, atts });
       if (t) {
@@ -219,7 +250,7 @@ export function useChat() {
         loadChats();
       }
     },
-    [pending, push, patch, ensureChat, submit, loadChats],
+    [pending, push, patch, ensureChat, submit, loadChats, setBusyBoth],
   );
 
   const retry = useCallback(
@@ -240,7 +271,7 @@ export function useChat() {
         loadChats();
       }
     },
-    [patch, push, ensureChat, submit, loadChats],
+    [patch, push, ensureChat, submit, loadChats, setBusyBoth],
   );
 
   // ---- voice: send a recorded clip through Ava (push-to-talk) -------------
@@ -305,12 +336,14 @@ export function useChat() {
       setStatus('hold the mic to talk');
       loadChats();
     },
-    [pending, push, ensureChat, loadChats],
+    [pending, push, ensureChat, loadChats, setBusyBoth],
   );
 
   // ---- chat list / history ------------------------------------------------
   const openChat = useCallback(
-    async (id: string) => {
+    async (id: string, artifactId?: string) => {
+      const ticket = ++navigation.current;
+      setLoadingChat(true);
       if (ghostRef.current) {
         const gid = ghostIdRef.current;
         ghostRef.current = false;
@@ -318,9 +351,11 @@ export function useChat() {
         setGhost(false);
         if (gid) api.ghostDiscard(gid);
       }
+      setChat(id);
+      setItems([]);
       try {
         const j = await api.getChat(id);
-        setChat(id);
+        if (ticket !== navigation.current) return;
         history.current = [];
         const next: ChatItem[] = [];
         let lastUserText = '';
@@ -348,6 +383,7 @@ export function useChat() {
               model: m.model || null,
               toolsUsed: m.tools_used || [],
               attachments: m.attachments || [],
+              artifact: m.artifact ?? null,
               srcText: lastUserText,
               srcAtts: m.atts || [],
             });
@@ -357,14 +393,23 @@ export function useChat() {
           next.push({ kind: 'sys', id: uid(), text: 'New chat. Type a message or attach a file.' });
         }
         setItems(next);
+        let selected = artifactId;
+        try { selected ||= localStorage.getItem(`ava.artifact.${id}`) || undefined; } catch { /* storage unavailable */ }
+        const found = next.find(item => item.kind === 'ava' && item.artifact?.type === 'analytics' && item.artifact.id === selected);
+        if (found?.kind === 'ava' && found.artifact) setArtifact(found.artifact);
       } catch {
-        /* ignore */
+        if (ticket === navigation.current) setItems([{ kind: 'sys', id: uid(), text: 'Could not open this conversation. Please try again.' }]);
+      } finally {
+        if (ticket === navigation.current) setLoadingChat(false);
       }
     },
-    [],
+    [setChat, setArtifact, setLoadingChat],
   );
 
   const newChat = useCallback(async () => {
+    const ticket = ++navigation.current;
+    setLoadingChat(true);
+    setArtifactState(null);
     if (ghostRef.current) {
       const gid = ghostIdRef.current;
       ghostRef.current = false;
@@ -374,14 +419,17 @@ export function useChat() {
     }
     try {
       const c = await api.newChat();
+      if (ticket !== navigation.current) return;
       setChat(c.id);
       history.current = [];
       setItems([{ kind: 'sys', id: uid(), text: 'New chat. Type a message or attach a file.' }]);
       loadChats();
     } catch {
       /* ignore */
+    } finally {
+      if (ticket === navigation.current) setLoadingChat(false);
     }
-  }, [loadChats]);
+  }, [loadChats, setChat, setLoadingChat]);
 
   // ---- ghost mode: ephemeral, unsaved conversation ------------------------
   // Uses an unregistered chat id, so nothing is written to chats.json (the
@@ -394,6 +442,8 @@ export function useChat() {
       return;
     }
     ghostRef.current = true;
+    navigation.current++;
+    setLoadingChat(false);
     ghostIdRef.current = 'ghost-' + uid();
     setGhost(true);
     setChat(ghostIdRef.current, false);
@@ -406,7 +456,7 @@ export function useChat() {
         icon: 'ghost',
       },
     ]);
-  }, [newChat]);
+  }, [newChat, setChat, setLoadingChat]);
 
   const deleteChat = useCallback(
     async (id: string) => {
@@ -424,7 +474,7 @@ export function useChat() {
         /* ignore */
       }
     },
-    [loadChats, openChat, newChat],
+    [loadChats, openChat, newChat, setChat],
   );
 
   // ---- attachments --------------------------------------------------------
@@ -453,31 +503,51 @@ export function useChat() {
 
   const refreshArtifact = useCallback(async () => {
     if (!artifact || artifact.type !== 'weather') return;
+    const cid = chatIdRef.current;
     try {
       const j = await api.weatherArtifact(artifact.location || '', (artifact.daily || []).length || 7);
-      if (j && j.type) setArtifact(j);
+      if (j && j.type && cid === chatIdRef.current) setArtifact(j);
     } catch {
       /* ignore */
     }
-  }, [artifact]);
+  }, [artifact, setArtifact]);
 
   // ---- initial load -------------------------------------------------------
   useEffect(() => {
     (async () => {
       const last = localStorage.getItem('ava.chat');
+      const ticket = navigation.current;
       try {
         const j = await api.listChats();
         setChats(j.chats || []);
+        if (ticket !== navigation.current) return;
         const ids = (j.chats || []).map((c) => c.id);
+        const linked = new URLSearchParams(window.location.search).get('artifact');
+        if (linked && /^[a-f0-9-]{36}$/.test(linked)) {
+          try {
+            const response = await fetch(`/api/artifact/analytics/${linked}`);
+            if (response.ok) {
+              const payload: AnalyticsArtifactPayload = await response.json();
+              if (ticket !== navigation.current) return;
+              if (payload.chat_id && ids.includes(payload.chat_id)) {
+                window.location.hash = 'chat';
+                await openChat(payload.chat_id, linked);
+                return;
+              }
+            }
+          } catch { /* preserve the normal history if a link is unavailable */ }
+        }
+        if (ticket !== navigation.current) return;
         if (last && ids.includes(last)) openChat(last);
         else if (ids.length) openChat(ids[0]);
         else setItems([{ kind: 'sys', id: uid(), text: 'Type a message or attach a document or image.' }]);
       } catch {
-        setItems([{ kind: 'sys', id: uid(), text: 'Type a message or attach a document or image.' }]);
+        if (ticket === navigation.current) setItems([{ kind: 'sys', id: uid(), text: 'Type a message or attach a document or image.' }]);
+      } finally {
+        if (ticket === navigation.current) setLoadingChat(false);
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [openChat, setLoadingChat]);
 
   // ---- context sizing from the bridge -------------------------------------
   useEffect(() => {
@@ -585,7 +655,7 @@ export function useChat() {
     chats,
     currentChatId,
     pending,
-    busy,
+    busy: busy || chatLoading,
     status,
     hint,
     artifact,

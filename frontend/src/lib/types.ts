@@ -388,7 +388,49 @@ export interface WeatherArtifactData {
   hourly: { time: string; temp: number | null; code: number | null }[];
 }
 
-export type Artifact = WeatherArtifactData;
+export interface AnalyticsArtifactReference {
+  type: 'analytics';
+  id: string;
+  title: string;
+  connector_id: string;
+  result_id: string;
+  mode: 'snapshot';
+  chart_type: 'bar' | 'table';
+}
+
+export interface AnalysisRow {
+  label: string;
+  state: string;
+  puma: string;
+  value: number | null;
+  moe_90: number | null;
+  sample_records: number;
+}
+
+export interface AnalyticsArtifactPayload {
+  reference: AnalyticsArtifactReference;
+  chat_id?: string | null;
+  visualization?: { format: 'svg'; result_id: string; content: string };
+  app_url?: string | null;
+  live_dashboard?: { path: string; mode: 'live' };
+  result: {
+    id: string;
+    title: string;
+    created_at: string;
+    unit: string;
+    row_count: number;
+    rows: AnalysisRow[];
+    filters: { release: string; record_type: string; geography_level: string; states: string[] };
+    method: string;
+    metric_id: string;
+    metric_version: string;
+    limitations: string[];
+    citations: { title: string; url: string }[];
+    sources: { dataset_id: string; url: string; source_sha256: string; silver_sha256: string; published_object: string }[];
+  };
+}
+
+export type Artifact = WeatherArtifactData | AnalyticsArtifactReference;
 
 // ---- Turn polling ----------------------------------------------------------
 export interface TurnStatus {
@@ -441,6 +483,7 @@ export interface ChatMessage {
   tools_used?: string[];
   steps?: CotStep[];
   attachments?: MediaRef[]; // agent/tool-produced media, durable across reload
+  artifact?: Artifact | null;
   error_code?: string; // machine-readable ("voice_off", "inference_down") — drives the fix-it link
 }
 

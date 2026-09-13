@@ -5,7 +5,7 @@ import {
   groupRunsByDay, groupSessions, prChipView, receiptBadge,
   RUN_TONE, runTone, SESSION_LABEL, SESSION_TONE, sessionIcon, unreadLabel,
   unreadRollup,
-} from './agentView';
+} from './agentViewModel';
 
 const s = (over: Partial<Session> = {}): Session => ({
   id: 'x', title: 't', kind: 'other', state: 'idle', unread: 0,

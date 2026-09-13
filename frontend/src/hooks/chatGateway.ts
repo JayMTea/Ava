@@ -124,7 +124,7 @@ export async function runStreamedTurn(
     if (!finished && !failed) return false;
     setItems((xs) => applyTurnRecord(xs, s, ctx));
     if (typeof s.ctx_tokens === 'number') deps.setRealCtx(s.ctx_tokens);
-    if (s.artifact) deps.setArtifact(s.artifact);
+    if (s.artifact?.type === 'weather') deps.setArtifact(s.artifact);
     if (finished) {
       if (s.reply && !historyPushed) {
         historyPushed = true;

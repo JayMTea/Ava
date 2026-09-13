@@ -57,6 +57,22 @@ class TurnAlwaysTerminatesTests(unittest.TestCase):
     def test_set_turn_on_an_evicted_turn_is_a_no_op_not_a_keyerror(self):
         turns._set_turn("never-existed", status="done")  # must not raise
 
+    def test_empty_cli_reply_is_reported_as_degraded_not_success(self):
+        self._seed("empty")
+        rt = mock.Mock()
+        rt.run_turn.return_value = ("", [])
+        with (mock.patch.object(turns, "_session_line_count", return_value=0),
+              mock.patch.object(turns.threading, "Thread"),
+              mock.patch.object(turns, "_tooling_note", return_value=""),
+              mock.patch.object(turns, "_tools_from_session", return_value=[]),
+              mock.patch.object(turns, "which_model", return_value={}),
+              mock.patch.object(turns.audit, "record")):
+            turns._run_turn_polled("empty", "Compare the states", "sid", "", rt)
+        result = state.turns["empty"]
+        self.assertTrue(result["degraded"])
+        self.assertTrue(result["reply"].strip())
+        self.assertIn("inference service", result["error"])
+
     def test_prune_never_evicts_a_running_turn(self):
         """_prune_turns runs at the top of every start_turn and used to test age
         only — so an unrelated new message could delete a turn that was still

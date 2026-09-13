@@ -33,6 +33,12 @@ from . import settings
 # ava.yaml; without it the only way to register such a capability would be to
 # rename the owner's config key, which is not a thing a refactor gets to do.
 REGISTRY: dict[str, dict] = {
+    "data_artifacts": {
+        "label": "Data artifacts",
+        "sub": "cited charts and recorded query results from connected apps",
+        "default": True,
+        "env": "AVA_DATA_ARTIFACTS",
+    },
     # EVERY entry carries an `env` key, including the two that manage without one
     # for Ava's own purposes. A control plane can only pin a flag it can set from
     # outside the container, and `settings.get_bool` has nothing to read without

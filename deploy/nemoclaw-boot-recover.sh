@@ -60,14 +60,16 @@ for i in $(seq 1 30); do
   log "waiting for sandbox container ($i/30)"; sleep 5
 done
 
-# 4) Restore the sandbox gateway + dashboard port-forward, with retries.
-for i in $(seq 1 5); do
-  if nemoclaw "$SANDBOX" recover; then
-    log "recover succeeded on attempt $i"
+# 4) Verify the running sandbox through the authenticated API. Forward ownership
+# belongs to its dedicated user service; it reconnects by sandbox name after a rebuild.
+for i in $(seq 1 12); do
+  if openshell sandbox exec --name "$SANDBOX" --no-tty --timeout 10 -- true >/dev/null 2>&1; then
+    docker update --pids-limit 512 --cpus 2 --memory 4g --memory-swap 4g "$cid" >/dev/null || exit 1
+    systemctl --user restart nemoclaw-dashboard-forward.service || exit 1
+    log "sandbox verified; resource limits and dashboard forward restored"
     exit 0
   fi
-  log "recover attempt $i/5 failed; retrying in 5s"; sleep 5
+  sleep 5
 done
-
-log "recover failed after 5 attempts"
+log "sandbox verification failed"
 exit 1

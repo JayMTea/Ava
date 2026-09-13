@@ -37,6 +37,11 @@ SKILLS_GLOB = f"{SKILLS_DIR}/*/SKILL.md"
 CONFIG_PATH = f"{OPENCLAW_DIR}/openclaw.json"
 
 
+def mcp_tool_name(server: str, tool: str) -> str:
+    """OpenClaw exposes registered MCP tools as server__tool."""
+    return f"{server}__{tool}"
+
+
 def mcp_server_dir(category: str) -> str:
     """Where a generated MCP tool server for `category` is deployed."""
     return f"{OPENCLAW_DIR}/mcp_server_{category}"

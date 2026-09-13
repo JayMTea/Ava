@@ -2,7 +2,7 @@ import type { ChatMessage, Session } from '../../lib/agentApi';
 import { EmptyState, Panel } from '../ui/layout';
 import { Badge } from '../hub/ui/Badge';
 import type { SidePanel as SidePanelId } from './agentRoute';
-import { prChipView, SESSION_LABEL, type PrRef } from './agentView';
+import { prChipView, SESSION_LABEL, type PrRef } from './agentViewModel';
 
 // One session's transcript — a window, never a mouth.
 //

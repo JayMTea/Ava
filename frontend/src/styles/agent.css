@@ -12,7 +12,7 @@
  * which is the arrangement tests/test_icon_sizing.py depends on.
  *
  * NO NEW COLOUR TOKENS. Session and run status map onto the existing six tones,
- * and that mapping lives in exactly one module (components/agent/agentView.ts),
+ * and that mapping lives in exactly one module (components/agent/agentViewModel.ts),
  * the way DRIFT_TONE lives only in provisionView.ts. Nothing here is a colour;
  * everything new is a tone NAME.
  */

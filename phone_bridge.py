@@ -33,6 +33,7 @@ import voice_ava as va
 # owns one concern. Routes below only authenticate, serve, capture input, and
 # forward to Ava-the-agent. See ava_bridge/__init__.py for the map.
 from ava_bridge import brand, config, settings, state
+from ava_bridge.data_artifacts import router as _data_artifact_router
 from ava_bridge.version import version as _ava_version
 from ava_bridge.config import (
     RATE, UPLOAD_DIR, PHONE_THRESHOLD,
@@ -271,6 +272,7 @@ app.include_router(_gateway_router)
 # table the middleware consults, so a new route's author sees the scope entry
 # they have to add. auth.auth_gate refuses any /internal path it cannot classify.
 app.include_router(internal.router)
+app.include_router(_data_artifact_router)
 
 # Mount the optional overlay personal-app routes now that `app` exists.
 try:

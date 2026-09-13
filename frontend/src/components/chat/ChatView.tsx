@@ -4,6 +4,7 @@ import { AvaMessage, SysMessage, UserMessage } from './Message';
 import { ChainOfThought } from './ChainOfThought';
 import { PreviewCard } from './Media';
 import { Icon } from '../../lib/icons';
+import { AnalyticsArtifact } from '../artifact/AnalyticsArtifact';
 
 interface Props {
   items: ChatItem[];
@@ -153,7 +154,9 @@ export function ChatView({
                     onReplay={it.audio ? () => onReplay(it.audio!) : undefined}
                     onOpen={onOpenLightbox}
                   >
-                    {it.artifact && (
+                    {it.artifact?.type === 'analytics' ? (
+                      <AnalyticsArtifact key={it.artifact.id} artifact={it.artifact} onOpen={() => onOpenArtifact(it.artifact!)} />
+                    ) : it.artifact && (
                       <button type="button" className="art-chip" onClick={() => onOpenArtifact(it.artifact!)}>
                         <span>
                           <b>{it.artifact.title || 'View artifact'}</b>

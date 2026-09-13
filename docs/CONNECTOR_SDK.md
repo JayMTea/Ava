@@ -448,6 +448,40 @@ real MCP (FastMCP, the official SDKs, `npx` servers) uses the `mcp:` block
 instead (see *MCP servers* below). Reserved bridge actions `__tools` and
 `__call` serve this.
 
+### Optional native action schemas
+
+Dynamic connectors normally use the discovery/call pair. For a local model that
+works better with explicit function schemas, declare a small action set:
+
+```yaml
+agent_tools: [find_dataset, run_measure]
+```
+
+Use actual action names from the connected app. This accepts at most 16 unique
+names and replaces the meta pair for that connector. Generate refreshes the app's
+discovered schemas; Deploy installs the resulting `<id>_<action>` tools. A missing
+action or schema refuses generation. Refresh and deploy after an upstream schema
+change. The host still validates each call through the existing `__call` route,
+with the same authentication, consent tiers, audit records and artifact capture.
+Selecting a tool never grants permission to execute it.
+
+### Recorded charts in chat
+
+An analytics tool can return an `ava-artifact/1` snapshot under
+`_meta["ava/artifact"]`. Ava stores the result and citations, attaches a preview
+to the response, and opens it beside the originating conversation. The chat
+viewer shows the chart and sources; the connected Analytics app owns exploration
+and exports. Existing snapshots without an image continue to render from their
+recorded rows.
+
+To supply the chart image directly, include a `visualization` object with
+`format: "svg"`, `result_id` matching the enclosing snapshot, and `content`
+containing an inert SVG drawing. Ava accepts basic geometry and text, rejects
+scripts and external resources, and serves the image through its authenticated
+artifact route. Keep this object in metadata, outside the model's text context.
+A live dashboard is a separate destination and cannot substitute for the
+recorded result or its geographical selection.
+
 ### The tool facade - `ava-tools/1`
 
 The contract *your app* implements to be discovered. Two routes; the Hub's

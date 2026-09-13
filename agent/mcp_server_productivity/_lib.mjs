@@ -55,11 +55,11 @@ function run(args, timeout, tries = 3) {
 }
 
 // GET JSON through the guard proxy (for internet services on :443).
-// Set { direct: true } for host-local services reached via an /etc/hosts alias
-// + policy (the proxy can't CONNECT to non-443 ports, so host services go direct).
+// Host callbacks also use the guard HTTP proxy. The legacy direct option is
+// accepted for module compatibility; it never bypasses the sandbox proxy.
 export async function httpGetJson(url, { timeout = 12, direct = false, headers = {} } = {}) {
   const args = ['-s', '--max-time', String(timeout), '--fail', '--show-error'];
-  if (!direct && PROXY) args.push('-x', PROXY);
+  if (PROXY) args.push('-x', PROXY);
   if (CA_BUNDLE) args.push('--cacert', CA_BUNDLE);
   for (const [k, v] of Object.entries(headers)) args.push('-H', `${k}: ${v}`);
   args.push(url);
@@ -68,15 +68,15 @@ export async function httpGetJson(url, { timeout = 12, direct = false, headers =
   catch (e) { throw new Error(`bad JSON from ${url}: ${e.message}`); }
 }
 
-// POST JSON. Defaults to a DIRECT route (host-local services like the bridge).
+// POST JSON through the guard. Never automatically repeat a possible write.
 export async function httpPostJson(url, body, { timeout = 30, direct = true, headers = {} } = {}) {
   const args = ['-s', '--max-time', String(timeout), '--fail', '--show-error',
     '-H', 'Content-Type: application/json', '-d', JSON.stringify(body)];
-  if (!direct && PROXY) args.push('-x', PROXY);
+  if (PROXY) args.push('-x', PROXY);
   if (CA_BUNDLE) args.push('--cacert', CA_BUNDLE);
   for (const [k, v] of Object.entries(headers)) args.push('-H', `${k}: ${v}`);
   args.push(url);
-  const out = await run(args, timeout);
+  const out = await run(args, timeout, 1);
   try { return out ? JSON.parse(out) : {}; }
   catch (e) { throw new Error(`bad JSON from ${url}: ${e.message}`); }
 }

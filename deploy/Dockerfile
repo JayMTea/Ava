@@ -69,6 +69,7 @@ RUN pip install --no-cache-dir -r requirements.txt \
        fi
 COPY . /app
 COPY --from=web /web/dist /app/frontend/dist
+RUN chmod -R a+rX /app
 VOLUME ["/data"]
 EXPOSE 8096
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=5 \

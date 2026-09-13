@@ -3,7 +3,7 @@ import { agentApi } from '../../lib/agentApi';
 import { useGateway } from '../../hooks/useGateway';
 import { ago, EmptyState, Panel } from '../ui/layout';
 import { Badge } from '../hub/ui/Badge';
-import { groupRunsByDay, runTone, type RunRow } from './agentView';
+import { groupRunsByDay, runTone, type RunRow } from './agentViewModel';
 
 // What the agent DID — the past tense of Sessions.
 //

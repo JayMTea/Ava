@@ -24,6 +24,10 @@ from .. import config
 
 
 class RemoteRuntime(AgentRuntime):
+    def mcp_tool_name(self, server: str, tool: str) -> str:
+        from .nemoclaw_layout import mcp_tool_name
+        return mcp_tool_name(server, tool)
+
     name = "remote"
     display_name = "Remote agent"
 
@@ -291,6 +295,15 @@ class RemoteRuntime(AgentRuntime):
             body = {"auto_install": auto_install, "scope": scope}
             if connector:
                 body["connector"] = connector
+            if scope == "all" or {s.strip() for s in scope.split(",")} & {"servers", "policies"}:
+                from .. import provision_material
+                scopes = {"servers", "policies"} if scope == "all" else {s.strip() for s in scope.split(",")}
+                material = provision_material.collect(connector, scopes)
+                if material and "provision.material" not in self.capabilities():
+                    return {"ok": False, "steps": [], "scope": scope,
+                            "error_code": "remote_material_unsupported",
+                            "detail": "Update the remote runtime to receive generated connector tools."}
+                body["material"] = material
             return self._post("/provision", body, timeout=900)
         except Exception as e:  # noqa: BLE001
             return {"ok": False, "steps": [], "scope": scope,

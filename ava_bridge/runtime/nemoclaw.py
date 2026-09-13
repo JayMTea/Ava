@@ -111,6 +111,10 @@ def _find_key(obj, key):
 
 
 class NemoClawRuntime(AgentRuntime):
+    def mcp_tool_name(self, server: str, tool: str) -> str:
+        from .nemoclaw_layout import mcp_tool_name
+        return mcp_tool_name(server, tool)
+
     name = "nemoclaw"
     display_name = "NemoClaw"
 
@@ -143,6 +147,9 @@ class NemoClawRuntime(AgentRuntime):
         return config.OC_SANDBOX
 
     def _base(self, *args: str) -> list[str]:
+        if args and args[0] == "exec" and os.environ.get("AVA_SANDBOX_EXEC_MODE") == "openshell":
+            cli = os.environ.get("AVA_OPENSHELL", os.path.expanduser("~/.local/bin/openshell"))
+            return [cli, "sandbox", "exec", "--name", self.sandbox, *args[1:]]
         return [self.cli, self.sandbox, *args]
 
     def install_env(self) -> dict[str, str]:

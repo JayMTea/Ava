@@ -345,6 +345,8 @@ def same_site_write(request: Request) -> tuple[bool, str]:
             return True, ""
         return False, f"Sec-Fetch-Site: {sfs}"
     origin = (request.headers.get("origin") or "").strip()
+    if origin.lower() in ("null", "undefined"):
+        return False, "opaque origin"
     if origin and origin.lower() not in ("null", "undefined"):
         host = (request.headers.get("host") or "").strip().lower()
         try:
@@ -687,6 +689,10 @@ async def auth_gate(request: Request, call_next):
     # The device-event ingest endpoint bypasses the cookie gate the same way:
     # callers are apps, not browsers, with their own per-connector bearer check.
     _authed = is_authed(request)
+    if _authed and request.method not in {"GET", "HEAD", "OPTIONS"}:
+        _safe, _reason = same_site_write(request)
+        if not _safe:
+            return JSONResponse({"error": "cross-origin write refused", "code": "cross_site"}, status_code=403)
     if path in _PUBLIC_PATHS or _is_ingest(path) or _authed:
         # A cookie-authenticated request is the OWNER; a public path or a device
         # ingest is neither owner nor agent, so it stays unattributed rather than
