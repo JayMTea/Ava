@@ -19,6 +19,29 @@ def _client(bridge):
 
 
 class TestChatCrud(unittest.TestCase):
+    def test_clear_all_chats(self):
+        from ava_bridge import chat_store
+
+        c = CLIENT
+        ids = [c.post("/api/chats").json()["id"] for _ in range(2)]
+        for cid in ids:
+            chat_store.chat_append(cid, "user", "Saved conversation")
+        count = len(c.get("/api/chats").json()["chats"])
+        result = c.delete("/api/chats")
+        self.assertEqual(result.status_code, 200)
+        self.assertEqual(result.json(), {"ok": True, "deleted": count})
+        self.assertEqual(c.get("/api/chats").json()["chats"], [])
+        for cid in ids:
+            self.assertEqual(c.get(f"/api/chats/{cid}").status_code, 404)
+            # A late reply cannot recreate a deleted conversation.
+            chat_store.chat_append(cid, "assistant", "Late reply")
+            self.assertIsNone(chat_store.snapshot(cid))
+        events = c.get("/api/hub/audit?kind=chat_delete").json()["events"]
+        self.assertTrue(any(e.get("scope") == "all" and e.get("chats") == count
+                            for e in events))
+        self.assertEqual(c.delete("/api/chats").json(), {"ok": True, "deleted": 0})
+        self.assertIn("id", c.post("/api/chats").json())
+
     def test_create_rename_delete(self):
         c = CLIENT
         chat = c.post("/api/chats").json()

@@ -20,7 +20,7 @@ from starlette.concurrency import run_in_threadpool
 from . import audit, memory_store
 from .agent import discard_session
 from .chat_store import (atts_meta, chat_append, chat_new, chat_session,
-                         chat_summary, delete, rename, snapshot, summaries)
+                         chat_summary, delete, delete_all, rename, snapshot, summaries)
 from .config import OC_SESSION
 from .documents import augment, parse_ids
 from .turns import start_turn
@@ -65,6 +65,10 @@ def chats_list():
 @router.post("/api/chats")
 def chats_create():
     return chat_summary(chat_new())
+
+@router.delete("/api/chats")
+def chats_clear():
+    return {"ok": True, "deleted": delete_all(reason="owner cleared chat history")}
 
 @router.get("/api/chats/{cid}")
 def chats_get(cid: str):

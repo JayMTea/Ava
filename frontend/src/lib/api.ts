@@ -115,6 +115,7 @@ export const api = {
   getChat: (id: string) => req<ChatDetail>(`/api/chats/${id}`),
   newChat: () => req<{ id: string }>('/api/chats', { method: 'POST' }),
   deleteChat: (id: string) => req<unknown>(`/api/chats/${id}`, { method: 'DELETE' }),
+  clearChats: () => req<{ ok: boolean; deleted: number }>('/api/chats', { method: 'DELETE' }),
   // Ghost mode: wipe the ephemeral conversation's agent-side session transcript.
   ghostDiscard: (chatId: string) => {
     const fd = new FormData();

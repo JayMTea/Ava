@@ -464,6 +464,10 @@ interface Props {
   onNewChat: () => void;
   onOpenChat: (id: string) => void;
   onDeleteChat: (id: string) => void;
+  onClearChats: () => void;
+  clearChatsDisabled?: boolean;
+  clearingChats?: boolean;
+  clearChatsError?: string;
   /** Realm grouping for the app list. Defaults to OFF, so every existing caller
    *  — and the snapshot recorded before Domains existed — renders unchanged. */
   realms?: RailRealms;
@@ -481,6 +485,10 @@ export function Drawer({
   onNewChat,
   onOpenChat,
   onDeleteChat,
+  onClearChats,
+  clearChatsDisabled = false,
+  clearingChats = false,
+  clearChatsError = '',
   realms = RAIL_REALMS_OFF,
 }: Props) {
   // Hover tooltip for the rail icons (claude.ai style). One shared label,
@@ -860,7 +868,18 @@ export function Drawer({
               ))}
           </nav>
         )}
-        <div className="draw-sub">Recents</div>
+        <div className="draw-sub draw-sub-row">
+          <span>Recents</span>
+          <button type="button" className="draw-clear"
+            aria-label="Clear all chats"
+            disabled={clearChatsDisabled || clearingChats || chats.length === 0}
+            onClick={onClearChats}
+          >
+            <Icon name="trash" />
+            <span>{clearingChats ? 'Clearing…' : 'Clear all'}</span>
+          </button>
+        </div>
+        {clearChatsError && <div className="draw-clear-error" role="alert">{clearChatsError}</div>}
         <div id="chatList">
           {visibleChats.length === 0 ? (
             <div className="draw-empty">{q ? 'No matching chats' : 'No conversations yet'}</div>

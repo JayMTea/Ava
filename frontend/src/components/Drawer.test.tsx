@@ -45,6 +45,7 @@ function render(extra: Record<string, unknown> = {}) {
       onNewChat={() => {}}
       onOpenChat={() => {}}
       onDeleteChat={() => {}}
+      onClearChats={() => {}}
       {...extra}
     />,
   );

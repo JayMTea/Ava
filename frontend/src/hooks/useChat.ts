@@ -28,6 +28,10 @@ export function useChat() {
   const [pending, setPending] = useState<Attachment[]>([]);
   const [busy, setBusy] = useState(false);
   const [chatLoading, setChatLoading] = useState(true);
+  const [clearingChats, setClearingChats] = useState(false);
+  const [clearChatsError, setClearChatsError] = useState('');
+  const clearingChatsRef = useRef(false);
+  const chatListRequest = useRef(0);
   const chatLoadingRef = useRef(true);
   const setLoadingChat = useCallback((value: boolean) => {
     chatLoadingRef.current = value;
@@ -90,9 +94,10 @@ export function useChat() {
   }, []);
 
   const loadChats = useCallback(async () => {
+    const request = ++chatListRequest.current;
     try {
       const j = await api.listChats();
-      setChats(j.chats || []);
+      if (request === chatListRequest.current) setChats(j.chats || []);
     } catch {
       /* ignore */
     }
@@ -104,8 +109,10 @@ export function useChat() {
     setCurrentChatId(id);
     setRealCtx(null);
     if (persist) {
-      if (id) localStorage.setItem('ava.chat', id);
-      else localStorage.removeItem('ava.chat');
+      try {
+        if (id) localStorage.setItem('ava.chat', id);
+        else localStorage.removeItem('ava.chat');
+      } catch { /* storage unavailable */ }
     }
   }, []);
 
@@ -342,6 +349,7 @@ export function useChat() {
   // ---- chat list / history ------------------------------------------------
   const openChat = useCallback(
     async (id: string, artifactId?: string) => {
+      if (clearingChatsRef.current) return;
       const ticket = ++navigation.current;
       setLoadingChat(true);
       if (ghostRef.current) {
@@ -407,6 +415,7 @@ export function useChat() {
   );
 
   const newChat = useCallback(async () => {
+    if (clearingChatsRef.current) return;
     const ticket = ++navigation.current;
     setLoadingChat(true);
     setArtifactState(null);
@@ -437,6 +446,7 @@ export function useChat() {
   // OpenClaw session, so she has full multi-turn context + every tool. Leaving
   // ghost (toggle off / new chat / open chat) wipes the session transcript too.
   const toggleGhost = useCallback(async () => {
+    if (clearingChatsRef.current) return;
     if (ghostRef.current) {
       await newChat();
       return;
@@ -460,6 +470,7 @@ export function useChat() {
 
   const deleteChat = useCallback(
     async (id: string) => {
+      if (clearingChatsRef.current) return;
       if (!window.confirm('Delete this chat? This cannot be undone.')) return;
       try {
         await api.deleteChat(id);
@@ -476,6 +487,43 @@ export function useChat() {
     },
     [loadChats, openChat, newChat, setChat],
   );
+
+  const clearChats = useCallback(async () => {
+    if (clearingChatsRef.current || busyRef.current || chatLoadingRef.current || !chats.length) return;
+    if (!window.confirm('Clear all saved chats, including chats hidden by search? This cannot be undone. Saved memory and agent runtime history are managed separately.')) return;
+    clearingChatsRef.current = true;
+    setClearingChats(true);
+    setClearChatsError('');
+    setLoadingChat(true);
+    navigation.current++;
+    chatListRequest.current++;
+    try {
+      const result = await api.clearChats();
+      if (!result.ok) throw new Error('Please try again.');
+      // Invalidate any list response started before the deletion completed.
+      chatListRequest.current++;
+      setChats([]);
+      try {
+        for (const key of Object.keys(localStorage)) {
+          if (key.startsWith('ava.artifact.')) localStorage.removeItem(key);
+        }
+        localStorage.removeItem('ava.chat');
+      } catch { /* storage unavailable */ }
+      if (!ghostRef.current) {
+        setArtifact(null);
+        setChat(null);
+        history.current = [];
+        setPending([]);
+        setItems([{ kind: 'sys', id: uid(), text: 'Chat history cleared. Type a message to start a new conversation.' }]);
+      }
+    } catch (e) {
+      setClearChatsError(`Could not clear chat history. ${(e as Error).message}`);
+    } finally {
+      clearingChatsRef.current = false;
+      setClearingChats(false);
+      setLoadingChat(false);
+    }
+  }, [chats.length, setArtifact, setChat, setLoadingChat]);
 
   // ---- attachments --------------------------------------------------------
   const uploadFiles = useCallback(async (fileList: FileList) => {
@@ -669,6 +717,9 @@ export function useChat() {
     openChat,
     newChat,
     deleteChat,
+    clearChats,
+    clearingChats,
+    clearChatsError,
     uploadFiles,
     removeAtt,
     quickSay,

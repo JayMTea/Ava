@@ -350,6 +350,10 @@ export default function App() {
             if (isMobile()) setSidebarOpen(false);
           }}
           onDeleteChat={chat.deleteChat}
+          onClearChats={chat.clearChats}
+          clearChatsDisabled={chat.busy || !chat.chats.length}
+          clearingChats={chat.clearingChats}
+          clearChatsError={chat.clearChatsError}
         />
 
         {/* Sidebar resize handle, visible while the desktop sidebar is expanded. */}
