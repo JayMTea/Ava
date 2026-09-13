@@ -51,11 +51,14 @@ both the configured agent/backend hostname and the exact observed model identity
 match. Ambiguous matches remain unattributed. Host aliases need consistent
 configuration; an unrelated machine with the same model name cannot claim the row.
 
-The Spark-style unified-memory percentage is whole-system memory occupancy, not
-GPU compute utilization. The process rows explain observed GPU allocations; they
+On unified-memory NVIDIA hardware, the memory percentage is whole-system memory
+occupancy, not GPU compute utilization. The process rows explain observed GPU allocations; they
 are not a complete accounting of OS, CPU processes, cache or shared pages.
 
 ## Deployment validation (2026-09-13)
+
+These figures were measured on a GB10 with one inference runtime and ComfyUI;
+expect different figures with other models, runtime settings or hardware.
 
 - Targeted backend coverage: 128 tests and 43 subtests passed, including process
   grouping, privacy, stale/missing telemetry and host/model attribution.
