@@ -394,8 +394,8 @@ export interface AnalyticsArtifactReference {
   title: string;
   connector_id: string;
   result_id: string;
-  mode: 'snapshot';
-  chart_type: 'bar' | 'table';
+  mode: 'snapshot' | 'live';
+  chart_type: string;
 }
 
 export interface AnalysisRow {
@@ -407,7 +407,8 @@ export interface AnalysisRow {
   sample_records: number;
 }
 
-export interface AnalyticsArtifactPayload {
+export interface RecordedAnalyticsArtifactPayload {
+  schema_version: 'ava-artifact/1';
   reference: AnalyticsArtifactReference;
   chat_id?: string | null;
   visualization?: { format: 'svg'; result_id: string; content: string };
@@ -429,6 +430,26 @@ export interface AnalyticsArtifactPayload {
     sources: { dataset_id: string; url: string; source_sha256: string; silver_sha256: string; published_object: string }[];
   };
 }
+
+export interface SupersetArtifactPayload {
+  schema_version: 'ava-artifact/2';
+  reference: AnalyticsArtifactReference;
+  chat_id?: string | null;
+  app_url?: string | null;
+  mode: 'live';
+  chart: {
+    id: number;
+    title: string;
+    chart_type: string;
+    dataset: string;
+    description: string;
+    filters: { subject?: string; comparator?: unknown; operator?: string }[];
+    citations: { title: string; url: string }[];
+  };
+  visualization: { format: 'superset'; path: string };
+}
+
+export type AnalyticsArtifactPayload = RecordedAnalyticsArtifactPayload | SupersetArtifactPayload;
 
 export type Artifact = WeatherArtifactData | AnalyticsArtifactReference;
 

@@ -4,10 +4,62 @@ import io
 import json
 import uuid
 import zipfile
+from urllib.parse import urlencode
 
 import pytest
 
 from ava_bridge import data_artifacts as artifacts
+
+
+@pytest.fixture
+def native(snapshot):
+    form = {"slice_id": 7, "adhoc_filters": []}
+    return {"schema_version": "ava-artifact/2", "type": "analytics", "mode": "live",
+            "id": str(uuid.uuid4()), "title": "Population map", "chart_type": "world_map",
+            "chart": {"id": 7, "chart_type": "world_map", "filters": [], "citations": []},
+            "visualization": {"format": "superset", "path": "/superset/superset/explore/?" + urlencode({
+                "slice_id": 7, "standalone": "1", "form_data": json.dumps(form)})}}
+
+
+@pytest.mark.parametrize("chart_type", ["world_map", "country_map", "pie", "heatmap_v2",
+                                       "echarts_timeseries_line", "bubble_v2", "deck_scatter", "custom_plugin"])
+def test_native_chart_type_scope_and_live_mode_survive_capture(native, chart_type):
+    native["chart_type"] = native["chart"]["chart_type"] = chart_type
+    receipt = artifacts.capture("test-data", {"_meta": {"ava/artifact": native}})
+    reference = receipt["structuredContent"]["artifact"]
+    assert reference["chart_type"] == chart_type
+    assert reference["mode"] == "live"
+    assert artifacts.read(reference["id"])[1]["visualization"] == native["visualization"]
+    assert "/superset/explore" not in json.dumps(receipt)
+    exported = artifacts.export_artifact(reference["id"])
+    assert json.loads(exported.body)["mode"] == "live"
+    with pytest.raises(artifacts.HTTPException):
+        artifacts.get_chart(reference["id"])
+
+
+@pytest.mark.parametrize("change", ["external", "duplicate", "wrong_id", "scope", "renderer", "path"])
+def test_native_destination_cannot_escape_saved_chart(native, change):
+    path = native["visualization"]["path"]
+    if change == "external":
+        native["visualization"]["path"] = "https://example.com" + path
+    elif change == "duplicate":
+        native["visualization"]["path"] += "&slice_id=8"
+    elif change == "wrong_id":
+        native["chart"]["id"] = 8
+    elif change == "scope":
+        native["chart"]["filters"] = [{"subject": "state", "comparator": ["41"]}]
+    elif change == "renderer":
+        native["chart"]["chart_type"] = "bar"
+    else:
+        native["visualization"]["path"] = path.replace("/superset/superset/explore/", "/sql/explore/")
+    with pytest.raises(ValueError):
+        artifacts.capture("test-data", {"_meta": {"ava/artifact": native}})
+
+
+def test_native_chart_respects_connector_revocation(native, monkeypatch):
+    receipt = artifacts.capture("test-data", {"_meta": {"ava/artifact": native}})
+    monkeypatch.setattr(artifacts.connectors, "load", lambda **kwargs: [])
+    assert artifacts.read(receipt["structuredContent"]["ava_artifact_id"]) is None
 
 
 @pytest.fixture

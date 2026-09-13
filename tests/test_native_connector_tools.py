@@ -48,7 +48,8 @@ class NativeTools(unittest.TestCase):
         harness = """import tool from './tool.mjs';
 let captured;
 const ctx = {internalToken:'test-token', http:{postJson:async (...args)=>{
-  captured=args;return {ava_artifact_id:'recorded'};
+  captured=args;return {structuredContent:{ava_artifact_id:'recorded'},
+    content:[{type:'text',text:'Duplicated transport envelope'}],app_status:200};
 }}};
 const result=await tool.handler({year:2024},ctx);
 console.log(JSON.stringify({captured,result:JSON.parse(result)}));
@@ -65,7 +66,7 @@ console.log(JSON.stringify({captured,result:JSON.parse(result)}));
         self.assertEqual(body, {"name": "measure", "arguments": {"year": 2024}})
         self.assertEqual(options["headers"]["X-Ava-Internal-Token"], "test-token")
         self.assertFalse(options["direct"])
-        self.assertEqual(data["result"]["ava_artifact_id"], "recorded")
+        self.assertEqual(data["result"], {"ava_artifact_id": "recorded"})
 
 
 class RuntimeConcurrency(unittest.IsolatedAsyncioTestCase):

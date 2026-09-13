@@ -17,6 +17,7 @@ import uuid
 import zipfile
 import xml.etree.ElementTree as ET
 from datetime import datetime
+from urllib.parse import parse_qs, urlsplit
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse, Response
@@ -44,6 +45,9 @@ def _db():
 
 
 def _validate(artifact: dict) -> None:
+    if artifact.get('schema_version') == 'ava-artifact/2':
+        _validate_superset(artifact)
+        return
     if artifact.get("schema_version") != "ava-artifact/1" or artifact.get("type") != "analytics":
         raise ValueError("Unsupported artifact contract")
     result = artifact.get("result")
@@ -94,6 +98,48 @@ def _validate(artifact: dict) -> None:
         _validate_visualization(visualization, artifact["result_id"])
 
 
+def _validate_superset(artifact: dict) -> None:
+    """A native chart runs only within its configured connector's app boundary."""
+    if artifact.get('type') != 'analytics' or artifact.get('mode') != 'live':
+        raise ValueError('Invalid native chart contract')
+    uuid.UUID(str(artifact.get('id')))
+    chart, visual = artifact.get('chart'), artifact.get('visualization')
+    if not isinstance(chart, dict) or not isinstance(visual, dict) or visual.get('format') != 'superset':
+        raise ValueError('Invalid Superset chart')
+    if type(chart.get('id')) is not int or chart['id'] <= 0:
+        raise ValueError('Invalid saved chart ID')
+    if not isinstance(artifact.get('title'), str) or not 1 <= len(artifact['title']) <= 1000:
+        raise ValueError('Invalid chart title')
+    chart_type = artifact.get('chart_type')
+    if not isinstance(chart_type, str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,100}', chart_type):
+        raise ValueError('Invalid Superset chart type')
+    if chart.get('chart_type') != chart_type:
+        raise ValueError('Chart types differ')
+    path = visual.get('path')
+    if not isinstance(path, str) or len(path) > 64000:
+        raise ValueError('Invalid chart destination')
+    url = urlsplit(path)
+    params = parse_qs(url.query, keep_blank_values=True)
+    if (url.scheme or url.netloc or url.fragment or url.path != '/superset/superset/explore/'
+            or set(params) != {'slice_id', 'standalone', 'form_data'}
+            or any(len(values) != 1 for values in params.values())
+            or params['slice_id'] != [str(chart['id'])] or params['standalone'] != ['1']):
+        raise ValueError('Invalid chart destination')
+    form = json.loads(params['form_data'][0])
+    if (not isinstance(form, dict) or set(form) != {'slice_id', 'adhoc_filters'}
+            or form['slice_id'] != chart['id'] or not isinstance(form['adhoc_filters'], list)
+            or form['adhoc_filters'] != chart.get('filters')):
+        raise ValueError('Chart destination and saved scope differ')
+    citations = chart.get('citations')
+    if not isinstance(citations, list) or len(citations) > 100 or any(
+        not isinstance(item, dict) or not all(isinstance(item.get(k), str) for k in ('title', 'url'))
+        for item in citations
+    ):
+        raise ValueError('Invalid chart citations')
+    if len(json.dumps(artifact, ensure_ascii=False, allow_nan=False).encode()) > MAX_BYTES:
+        raise ValueError('Artifact exceeds the snapshot budget')
+
+
 def _validate_visualization(visualization, result_id: str) -> None:
     """Only inert SVG drawings bound to this recorded result can be served as images."""
     if (not isinstance(visualization, dict) or visualization.get("format") != "svg"
@@ -136,8 +182,9 @@ def capture(cid: str, data):
         _validate(artifact)
         ident = str(uuid.uuid4())
         reference = {"type": "analytics", "id": ident, "ava_artifact_id": ident,
-                     "result_id": artifact["result_id"], "title": str(artifact.get("title", "Analysis"))[:240],
-                     "connector_id": cid, "mode": "snapshot", "chart_type": artifact.get("chart_type", "bar")}
+                     "result_id": artifact.get('result_id', artifact.get('id')),
+                     "title": str(artifact.get("title", "Analysis"))[:240],
+                     "connector_id": cid, "mode": artifact['mode'], "chart_type": artifact.get("chart_type", "bar")}
         # The connected app's configured UI is the only authority for its route.
         app = next((app for app in connectors.apps() if app["id"] == cid), {})
         artifact = {**artifact, "connector_id": cid, "app_url": app.get("url")}
@@ -207,7 +254,7 @@ def get_artifact(ident: str):
 def get_chart(ident: str):
     artifact = _authorized_artifact(ident)
     visualization = artifact.get("visualization")
-    if visualization is None:
+    if visualization is None or visualization.get('format') != 'svg':
         raise HTTPException(status_code=404, detail="No chart image recorded")
     _validate_visualization(visualization, artifact["result_id"])
     return Response(visualization["content"], media_type="image/svg+xml", headers={
@@ -219,6 +266,10 @@ def get_chart(ident: str):
 @router.get("/api/artifact/analytics/{ident}/export")
 def export_artifact(ident: str):
     artifact = _authorized_artifact(ident)
+    if artifact.get('schema_version') == 'ava-artifact/2':
+        # The saved chart definition is reproducible; live query rows are not a snapshot.
+        return JSONResponse(artifact, headers={'Cache-Control': 'no-store',
+                            'Content-Disposition': 'attachment; filename="superset-chart.json"'})
     result = artifact["result"]
     content = io.StringIO(newline="")
     columns = [column["name"] for column in result["columns"]]

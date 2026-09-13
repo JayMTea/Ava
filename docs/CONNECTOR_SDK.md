@@ -474,6 +474,15 @@ viewer shows the chart and sources; the connected Analytics app owns exploration
 and exports. Existing snapshots without an image continue to render from their
 recorded rows.
 
+Native Superset charts use `ava-artifact/2` with `mode: "live"`. The connector
+returns the saved chart ID, original visualization type, selected filters and
+citations in `chart`, plus `visualization: {format: "superset", path: "..."}`.
+Ava validates the chart-only destination and filter identity, stores the
+reference with the conversation, and renders it through the app's authenticated
+frame inside the chat. No chart-type whitelist or bar fallback applies to this
+path. The app remains responsible for authentication, chart definitions and
+data queries. Live views are labelled as live; they are not immutable snapshots.
+
 To supply the chart image directly, include a `visualization` object with
 `format: "svg"`, `result_id` matching the enclosing snapshot, and `content`
 containing an inert SVG drawing. Ava accepts basic geometry and text, rejects

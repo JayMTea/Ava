@@ -1546,7 +1546,8 @@ export default {{
         direct: false, timeout: 150,
         headers: {{'X-Ava-Internal-Token': ctx.internalToken || ''}},
       }});
-    return typeof data === 'string' ? data : JSON.stringify(data);
+    const result = data?.structuredContent ?? data;
+    return typeof result === 'string' ? result : JSON.stringify(result);
   }},
 }};
 """

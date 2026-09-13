@@ -1,9 +1,9 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { AnalysisSources, RecordedChart } from './AnalyticsArtifact';
-import type { AnalyticsArtifactPayload } from '../../lib/types';
+import type { RecordedAnalyticsArtifactPayload } from '../../lib/types';
 
-const result: AnalyticsArtifactPayload['result'] = {
+const result: RecordedAnalyticsArtifactPayload['result'] = {
   id: 'test', title: 'Test comparison', created_at: '2026-01-01', unit: 'people', row_count: 2,
   rows: [
     { state: '06', puma: '', label: 'California', value: 120, moe_90: null, sample_records: 4 },

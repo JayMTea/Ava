@@ -1,6 +1,7 @@
 import { useEffect, useState, type CSSProperties } from 'react';
-import type { AnalyticsArtifactPayload, AnalyticsArtifactReference } from '../../lib/types';
+import type { AnalyticsArtifactPayload, AnalyticsArtifactReference, RecordedAnalyticsArtifactPayload, SupersetArtifactPayload } from '../../lib/types';
 import { appAccent, appById } from '../../lib/appColor';
+import { AppFrame } from '../AppFrame';
 import './analytics-artifact.css';
 
 const number = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
@@ -8,7 +9,7 @@ const format = (value: number | null) => value == null ? 'Unavailable' : number.
 const sourceUrl = (url: string) => /^https:\/\//i.test(url) ? url : undefined;
 
 /** Old saved results keep a faithful preview when their connector predates chart delivery. */
-export function RecordedChart({ result, compact = false }: { result: AnalyticsArtifactPayload['result']; compact?: boolean }) {
+export function RecordedChart({ result, compact = false }: { result: RecordedAnalyticsArtifactPayload['result']; compact?: boolean }) {
   const shown = compact ? result.rows.slice(0, 6) : result.rows;
   const maximum = Math.max(1, ...result.rows.map(row => (row.value ?? 0) + (row.moe_90 ?? 0)));
   return <div className="analysis-chart" role="img" aria-label={`${result.unit} by ${result.filters.geography_level}. ${shown.map(row => `${row.label}: ${format(row.value)}; ${row.moe_90 == null ? 'margin of error unavailable' : `90% margin of error ${format(row.moe_90)}`}`).join('. ')}`}>
@@ -27,7 +28,7 @@ export function RecordedChart({ result, compact = false }: { result: AnalyticsAr
   </div>;
 }
 
-export function AnalysisSources({ result }: { result: AnalyticsArtifactPayload['result'] }) {
+export function AnalysisSources({ result }: { result: RecordedAnalyticsArtifactPayload['result'] }) {
   const citations = [...result.citations, ...result.sources.map(source => ({
     title: source.url.split('/').pop() || 'Source dataset', url: source.url,
   }))].filter((source, index, all) => sourceUrl(source.url) && all.findIndex(item => item.url === source.url) === index);
@@ -38,6 +39,24 @@ export function AnalysisSources({ result }: { result: AnalyticsArtifactPayload['
       {citations.slice(3).map(source => <a key={source.url} href={source.url} target="_blank" rel="noreferrer">{source.title}</a>)}
     </details>}
   </div>;
+}
+
+export function SupersetChart({ data, artifact, onOpen }: {
+  data: SupersetArtifactPayload; artifact: AnalyticsArtifactReference; onOpen?: () => void;
+}) {
+  const citations = data.chart.citations.filter(source => sourceUrl(source.url));
+  return <section className={`analysis-artifact analysis-native${onOpen ? ' analysis-preview' : ''}`} style={{ '--analysis-accent': appAccent(artifact.connector_id) } as CSSProperties} aria-label={onOpen ? 'Chart preview' : 'Superset chart'}>
+    {onOpen && <button type="button" className="analysis-preview-open" onClick={onOpen} aria-label={`Open chart: ${artifact.title}`}>
+      <span className="analysis-preview-title">{artifact.title}</span><span className="analysis-preview-hint">View chart ↗</span>
+    </button>}
+    <div className="analysis-native-frame">
+      <AppFrame id={artifact.connector_id} label={artifact.title} path={data.visualization.path} />
+    </div>
+    <p className="analysis-note">Live chart from {appById(artifact.connector_id)?.label ?? 'Analytics'}</p>
+    {citations.length > 0 && <div className="analysis-sources" aria-label="Chart sources"><span>Sources</span>
+      {citations.map(source => <a key={source.url} href={source.url} target="_blank" rel="noreferrer">{source.title}</a>)}
+    </div>}
+  </section>;
 }
 
 export function AnalyticsArtifact({ artifact, onOpen }: {
@@ -65,6 +84,7 @@ export function AnalyticsArtifact({ artifact, onOpen }: {
   const app = appById(artifact.connector_id);
   if (error) return <div role="alert" className="analysis-notice">{error} <button type="button" onClick={() => setAttempt(value => value + 1)}>Try again</button></div>;
   if (!data) return <div className="analysis-loading" role="status">Loading chart…</div>;
+  if (data.schema_version === 'ava-artifact/2') return <SupersetChart data={data} artifact={artifact} onOpen={onOpen} />;
   const result = data.result;
   const chartImage = data.visualization?.format === 'svg' && data.visualization.result_id === artifact.result_id && (!compact || result.rows.length <= 6);
   const chart = chartImage && !imageFailed
