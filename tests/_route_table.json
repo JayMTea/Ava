@@ -93,6 +93,13 @@
  [
   "/api/chats",
   [
+   "DELETE"
+  ],
+  "APIRoute"
+ ],
+ [
+  "/api/chats",
+  [
    "GET"
   ],
   "APIRoute"
