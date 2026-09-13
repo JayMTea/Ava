@@ -33,6 +33,7 @@ Run: .venv/bin/python -m pytest tests/test_install_first_run_exec.py -q
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -112,6 +113,17 @@ class FirstRunLinkTests(unittest.TestCase):
         self.bin = self.tmp / "bin"
         self.bin.mkdir()
         stubs = {"docker": _DOCKER, "curl": _CURL, "uname": _UNAME, "sleep": _SLEEP}
+        # The simulated OS must not inherit the real host's WSL kernel. Keep
+        # ordinary grep calls real; only the kernel probe follows the fixture.
+        grep = shutil.which("grep")
+        assert grep is not None
+        stubs["grep"] = f"""#!/bin/sh
+if [ "$*" = "-qi microsoft /proc/version" ]; then
+  [ -n "${{WSL_DISTRO_NAME:-}}" ]
+  exit $?
+fi
+exec {shlex.quote(grep)} "$@"
+"""
         # Every launcher arm of open_browser, so a branch that picks the "wrong"
         # one still records rather than silently doing nothing.
         for name in ("xdg-open", "wslview", "powershell.exe", "open", "cmd"):

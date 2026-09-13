@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 import re
 import tempfile
-from . import settings
+from . import audit, settings
 
 MAX_BYTES = 4 << 20
 MAX_FILES = 256
@@ -71,3 +71,11 @@ def install(files: dict[str, str], *, connector: str | None = None, scopes: set[
     for rel in collect(connector, scopes):
         if rel not in files:
             (root / rel).unlink()
+            # Record each successful removal immediately so a later filesystem
+            # failure cannot hide files already withdrawn from the runtime.
+            policy = rel.startswith("policies/")
+            cid = Path(rel).stem if policy else Path(rel).parent.name
+            audit.record("connector_prune", id=cid,
+                         policies=[cid] if policy else [],
+                         tool_files=[] if policy else [rel],
+                         reason="stale material removed on remote provision")
