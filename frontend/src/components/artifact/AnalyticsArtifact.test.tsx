@@ -16,6 +16,13 @@ const result: RecordedAnalyticsArtifactPayload['result'] = {
 };
 
 describe('recorded chart presentation', () => {
+  it('inherits live Ava colors for recorded marks and uncertainty', () => {
+    const html = renderToStaticMarkup(<RecordedChart result={result} />);
+    expect(html).toContain('fill="var(--analysis-accent)"');
+    expect(html).toContain('stroke="currentColor"');
+    expect(html).not.toContain('<img');
+    expect(html).not.toContain('background:white');
+  });
   it('uses a common zero baseline and preserves missing uncertainty', () => {
     const html = renderToStaticMarkup(<RecordedChart result={result} />);
     expect(html).toContain('California');

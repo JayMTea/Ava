@@ -66,12 +66,11 @@ export function AnalyticsArtifact({ artifact, onOpen }: {
   const [data, setData] = useState<AnalyticsArtifactPayload | null>(null);
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
-  const [imageFailed, setImageFailed] = useState(false);
   const compact = !!onOpen;
   // biome-ignore lint/correctness/useExhaustiveDependencies: retry intentionally repeats the same request.
   useEffect(() => {
     const controller = new AbortController();
-    setData(null); setError(''); setImageFailed(false);
+    setData(null); setError('');
     fetch(`/api/artifact/analytics/${encodeURIComponent(artifact.id)}`, { signal: controller.signal })
       .then(async response => {
         if (!response.ok) throw new Error(response.status === 404 ? 'This chart is unavailable or its app is disconnected.' : response.status === 401 ? 'Sign in to Ava to open this chart.' : 'The chart could not be loaded.');
@@ -86,10 +85,9 @@ export function AnalyticsArtifact({ artifact, onOpen }: {
   if (!data) return <div className="analysis-loading" role="status">Loading chart…</div>;
   if (data.schema_version === 'ava-artifact/2') return <SupersetChart data={data} artifact={artifact} onOpen={onOpen} />;
   const result = data.result;
-  const chartImage = data.visualization?.format === 'svg' && data.visualization.result_id === artifact.result_id && (!compact || result.rows.length <= 6);
-  const chart = chartImage && !imageFailed
-    ? <img className="analysis-chart-image" src={`/api/artifact/analytics/${encodeURIComponent(artifact.id)}/chart`} alt={`${result.title}. ${result.rows.slice(0, 6).map(row => `${row.label}: ${format(row.value)} ${result.unit}`).join('; ')}`} onError={() => setImageFailed(true)} />
-    : artifact.chart_type === 'table' ? <div className="analysis-table-scroll"><table><caption>{result.unit} by {result.filters.geography_level}</caption><thead><tr><th>Geography</th><th>{result.unit}</th></tr></thead><tbody>
+  // Render recorded values with Ava tokens; immutable export images cannot follow
+  // a live theme change. Native Superset artifacts keep their original chart type.
+  const chart = artifact.chart_type === 'table' ? <div className="analysis-table-scroll"><table><caption>{result.unit} by {result.filters.geography_level}</caption><thead><tr><th>Geography</th><th>{result.unit}</th></tr></thead><tbody>
       {(compact ? result.rows.slice(0, 6) : result.rows).map(row => <tr key={`${row.state}-${row.puma}-${row.label}`}><th scope="row">{row.label}</th><td>{format(row.value)}</td></tr>)}
     </tbody></table>{compact && result.rows.length > 6 && <p className="analysis-note">{result.rows.length} areas. Open to see all.</p>}</div>
     : <RecordedChart result={result} compact={compact} />;
