@@ -4,12 +4,28 @@
 // one flat dropdown, which read as a list of stale entries belonging to Ava.
 import { describe, expect, it } from 'vitest';
 import {
-  MODEL_RELATION, RELATION_ORDER, activityTone, componentMeta, foundVia,
+  MODEL_RELATION, RELATION_ORDER, activityTone, componentMeta, emptyInventory, foundVia,
   groupMemoryGb, groupRows, heldGb, holdsLine, identified,
   isAvas, listHint, memPhrase, needsGroupHeads, poolOf, relationOf, rowHint,
   rowSub, rowTitle, servedLine, shareOf, tempTone, driftLine,
 } from './hwModels';
 import type { MemPool, Row } from './hwModels';
+import type { HardwareStats } from '../lib/types';
+
+describe('remote inventory availability', () => {
+  it('never turns missing or stale telemetry into a claim that memory is empty', () => {
+    for (const state of [undefined, 'stale', 'unavailable']) {
+      const stats = { machine: { kind: 'exporters', model_inventory: { state } } } as HardwareStats;
+      expect(emptyInventory(stats)).toContain('unavailable');
+      expect(emptyInventory(stats)).not.toContain('No other');
+    }
+    expect(emptyInventory(null)).toContain('Loading');
+  });
+  it('describes an observed empty inventory without claiming complete memory accounting', () => {
+    const stats = { machine: { kind: 'exporters', model_inventory: { state: 'ok' } } } as HardwareStats;
+    expect(emptyInventory(stats)).toBe('No other model processes were detected.');
+  });
+});
 
 const row = (over: Partial<Row>): Row => ({
   id: 'x', name: 'runtime', model: 'A Model', memory_mb: null, memory_gb: null,

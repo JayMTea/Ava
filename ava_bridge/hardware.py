@@ -974,13 +974,67 @@ def _backend_state(b: dict, reachable: bool, served: list[str],
     return "idle", matched, None, True
 
 
+def _remote_loaded_models(remote) -> list[dict]:
+    """Join measured-host processes to configuration without reading this host's /proc.
+
+    Model identity alone is insufficient: the agent/backend host must also match
+    the configured inventory host. A cloud model with the same name cannot claim
+    a local process. No keys, commands or extra endpoint probes are needed here.
+    """
+    from urllib.parse import urlparse
+    from . import config, models as _models
+
+    exporter, reading = remote
+    inventory = exporter.model_inventory(reading)
+    rows = inventory["rows"]
+    host = urlparse(exporter.config()["node_url"]).hostname
+    brain = _models.effective_brain()
+    brain_url = config.AGENT_URL if brain.get("source") == "agent" else brain.get("base_url", "")
+    same_host = bool(host and urlparse(brain_url).hostname == host)
+    matches = [r for r in rows if r.get("model_id") == brain.get("model_id") and r.get("model_id")]
+    observed_brain = matches[0] if same_host and len(matches) == 1 else None
+    if observed_brain is not None:
+        observed_brain.update(role_key="brain", config_label=brain.get("label", ""),
+                              drift="agrees", implicit=False)
+    elif brain.get("model_id"):
+        rows.append({
+            "id": "agent:sandbox" if brain.get("source") == "agent" else "brain:unobserved",
+            "name": "Agent sandbox" if brain.get("source") == "agent" else "Inference engine",
+            "model": brain.get("label") or brain["model_id"], "model_id": brain["model_id"],
+            "role_key": "brain", "memory_mb": None, "memory_gb": None, "pid": None,
+            "gpu_util": None, "local": same_host, "source": brain.get("source", "agent"),
+            "state": "unknown" if same_host or not brain_url else "remote",
+            "state_measured": False, "status": "empty", "drift": "unobservable",
+            "components": [], "cmd": "",
+        })
+    for backend in _configured_backends():
+        if not host or urlparse(str(backend.get("url") or "")).hostname != host:
+            continue
+        matches = [r for r in rows if r.get("model_id") == backend.get("model")
+                   and r.get("model_id") and r.get("source") == "gpu-exporter"]
+        if len(matches) == 1:
+            matches[0]["backend"] = backend.get("id")
+    for row in rows:
+        for component in row.get("components", []):
+            component["kind_label"] = _component_kind_label(component.get("kind", "model"))
+        row["component_count"] = len(row.get("components", []))
+        row["in_memory"] = True if row.get("state") == "resident" else None
+        row["app"] = _owning_app(row)
+        row["relation"] = _relation(row)
+    rows.sort(key=lambda row: (row.get("role_key") != "brain", -(row.get("memory_mb") or 0)))
+    return rows
+
+
 def _loaded_models() -> list[dict]:
     # Process and container inventory describes THIS box. When the hardware
     # being reported is another machine's, a GPU process here or a container
     # here would be filed as living in the remote box's memory — so the rows
     # come from the configured backends alone, which are probed over the
     # network and are the same wherever the bridge runs.
-    remote = hwinfo.remote_source() is not None
+    source = hwinfo.remote_source()
+    if source is not None:
+        return _remote_loaded_models(source)
+    remote = False
     procs = [] if remote else _gpu_model_processes()
     rows = procs if procs else ([] if remote else _docker_model_containers())
 

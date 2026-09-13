@@ -8,7 +8,7 @@ import { stateCopy } from '../lib/modelState';
 import type { HardwareStats } from '../lib/types';
 import { appAccent, appById, AppDot } from '../lib/appColor';
 import {
-  MODEL_RELATION, activityTone, componentMeta, foundVia, groupMemoryGb,
+  MODEL_RELATION, activityTone, componentMeta, emptyInventory, foundVia, groupMemoryGb,
   groupRows, holdsLine, identified, isAvas, listHint, memPhrase,
   needsGroupHeads, poolOf, relationOf, rowSub, rowTitle, shareOf, tempTone,
 } from './hwModels';
@@ -280,17 +280,22 @@ export function HardwareBubble() {
 
   useEffect(() => {
     let alive = true;
+    let inFlight = false;
     const tick = async () => {
+      if (inFlight) return;
+      inFlight = true;
       try {
         const s = await api.hardware();
         if (alive) setStats(s);
       } catch {
         /* ignore transient errors */
+      } finally {
+        inFlight = false;
       }
     };
     tick();
     // Poll a little faster while the panel is open, slower when it's just a bubble.
-    const id = window.setInterval(tick, open ? 2000 : 5000);
+    const id = window.setInterval(tick, open ? 1000 : 2000);
     return () => {
       alive = false;
       window.clearInterval(id);
@@ -562,11 +567,9 @@ export function HardwareBubble() {
                 {/* Ava's own rows are excluded here — the brain and any engines
                     the owner registered each have their own section above, and
                     this heading would be lying about them. */}
-                {models.length === 0 ? (
-                  <div className="hwb-empty">No inference engine is running here yet.</div>
-                ) : outside.length === 0 ? (
+                {outside.length === 0 ? (
                   <div className="hwb-empty">
-                    Nothing else on this machine is holding model memory.
+                    {emptyInventory(stats)}
                   </div>
                 ) : outsideOpen && (
                   /* Groups stay in RELATION_ORDER and are NOT ranked by weight,

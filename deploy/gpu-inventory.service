@@ -1,0 +1,17 @@
+[Unit]
+Description=Ava GPU process inventory for node_exporter
+After=network.target
+
+[Service]
+Type=simple
+# User service: run as an account that can inspect the model processes.
+EnvironmentFile=%h/.config/ava/gpu-inventory.env
+ExecStart=/usr/bin/python3 %h/.local/lib/ava/gpu_inventory.py --output ${AVA_GPU_INVENTORY_OUTPUT} --interval 2
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+# Reading GPU process identities across user accounts requires host /proc.
+# This service has no network listeners and exports no commands or credentials.
+
+[Install]
+WantedBy=default.target

@@ -242,6 +242,7 @@ export interface HardwareSource {
   reachable: boolean;
   error_code: string;
   error: string;
+  model_inventory?: { state: 'ok' | 'unavailable' | 'stale'; observed_at: number | null };
 }
 
 export interface HardwareStats {

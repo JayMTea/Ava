@@ -183,7 +183,55 @@ _NODE_WANT = frozenset({
     "node_filesystem_size_bytes", "node_filesystem_free_bytes",
     "node_filesystem_avail_bytes",
     "node_uname_info",
+    "ava_gpu_inventory_timestamp_seconds", "ava_gpu_inventory_success",
+    "ava_gpu_process_info", "ava_gpu_process_memory_bytes", "ava_gpu_model_component_info",
 })
+
+
+def model_inventory(r: "Reading") -> dict:
+    """Host-bound GPU inventory; absence and stale files never mean an empty host."""
+    timestamp = _one(r.node, "ava_gpu_inventory_timestamp_seconds")
+    if timestamp is None:
+        return {"state": "unavailable", "observed_at": None, "rows": []}
+    age = time.time() - timestamp
+    if age > 15 or age < -10:
+        return {"state": "stale", "observed_at": timestamp, "rows": []}
+    if _one(r.node, "ava_gpu_inventory_success") != 1:
+        return {"state": "unavailable", "observed_at": timestamp, "rows": []}
+    rows = {}
+    for sample in (r.node or {}).get("ava_gpu_process_info", []):
+        try:
+            pid = int(sample.labels.get("pid", ""))
+        except ValueError:
+            continue
+        if pid <= 0 or sample.value != 1:
+            continue
+        model = sample.labels.get("model_id", "")[:512]
+        runtime = sample.labels.get("runtime", "GPU process")[:80]
+        rows[str(pid)] = {
+            "id": f"exporter:pid:{pid}", "pid": pid, "name": runtime,
+            "model_id": model or None, "model": model.rsplit("/", 1)[-1] or runtime,
+            "memory_mb": None, "memory_gb": None, "gpu_util": None,
+            "source": "gpu-exporter", "local": True, "cmd": "", "components": [],
+            "state": "unknown", "status": "empty", "state_measured": False,
+        }
+    for sample in (r.node or {}).get("ava_gpu_process_memory_bytes", []):
+        row = rows.get(sample.labels.get("pid", ""))
+        if row is not None and sample.value >= 0:
+            row["memory_mb"] = sample.value / (1024 ** 2)
+            row["memory_gb"] = round(sample.value / _GIB, 2)
+            row["state"] = "resident" if sample.value > 0 else "unknown"
+            row["status"] = "loaded" if sample.value > 0 else "empty"
+            row["state_measured"] = sample.value > 0
+    for sample in (r.node or {}).get("ava_gpu_model_component_info", []):
+        row = rows.get(sample.labels.get("pid", ""))
+        name = sample.labels.get("name", "")[:512]
+        if row is not None and name and sample.value == 1:
+            row["components"].append({"name": name, "kind": sample.labels.get("kind", "model"),
+                                      # An open/mapped file identifies a component; it does
+                                      # not measure that component's individual GPU residency.
+                                      "in_memory": None, "source": "gpu-exporter"})
+    return {"state": "ok", "observed_at": timestamp, "rows": list(rows.values())}
 
 
 def system_mem(r: "Reading") -> MemInfo:
@@ -533,5 +581,8 @@ def describe(r: Reading | None = None) -> dict:
     if r.state == "off":
         return {"kind": "local", "label": "", "reachable": True,
                 "error_code": r.code, "error": r.error}
+    inventory = model_inventory(r)
     return {"kind": "exporters", "label": label(r), "reachable": r.state == "ok",
-            "error_code": r.code, "error": r.error}
+            "error_code": r.code, "error": r.error,
+            "model_inventory": {"state": inventory["state"],
+                                "observed_at": inventory["observed_at"]}}

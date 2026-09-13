@@ -17,6 +17,14 @@ import { stateOf, stateCopy, stateTone } from '../lib/modelState';
 
 export type Row = NonNullable<HardwareStats['models']>[number];
 
+export function emptyInventory(stats: HardwareStats | null): string {
+  if (!stats) return 'Loading model inventory…';
+  if (stats?.machine?.kind === 'exporters' && stats.machine.model_inventory?.state !== 'ok') {
+    return 'Model inventory is unavailable. Memory totals still include other processes.';
+  }
+  return 'No other model processes were detected.';
+}
+
 export type RelationCopy = {
   /** Section heading. */
   group: string;
@@ -115,6 +123,7 @@ export function holdsLine(m: Row): string {
 export function foundVia(source: string | undefined): string {
   switch ((source || '').toLowerCase()) {
     case 'nvidia-smi': return 'GPU process telemetry';
+    case 'gpu-exporter': return 'GPU process telemetry on the monitored machine';
     case 'docker': return 'Docker';
     case 'api': return "the engine's own API";
     case 'agent': return "Ava's agent sandbox";
