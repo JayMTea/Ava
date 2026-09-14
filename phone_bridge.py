@@ -835,8 +835,9 @@ def _proxy_response(r: "httpx.Response", cid: str, base: str) -> Response:
         name = k.decode("latin-1").lower()
         if name in drop:
             continue
-        if html and name in ("cache-control", "expires"):
-            # An embedded app's HTML entry must always revalidate. Many app
+        if html and name == "expires":
+            # Honor an app's explicit Cache-Control, including private/no-store.
+            # An entry without a cache policy must revalidate. Many app
             # servers (Starlette StaticFiles included) send Last-Modified but
             # no Cache-Control, so browsers cache the page heuristically —
             # pinning the iframe to a stale bundle across the app's rebuilds.
@@ -851,7 +852,7 @@ def _proxy_response(r: "httpx.Response", cid: str, base: str) -> Response:
             # so each upstream header survives as its own header here.
             v = _rewrite_set_cookie(v.decode("latin-1"), cid, base).encode("latin-1")
         headers.append((k.decode("latin-1").lower().encode("latin-1"), v))
-    if html:
+    if html and not r.headers.get("cache-control"):
         headers.append((b"cache-control", b"no-cache"))
     resp = StreamingResponse(r.aiter_raw(), status_code=r.status_code,
                              background=BackgroundTask(r.aclose))

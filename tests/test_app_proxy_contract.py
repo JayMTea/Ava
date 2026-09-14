@@ -98,6 +98,15 @@ class _Upstream:
                 self._record()
                 p = self.path.split("?")[0]
                 port = self.server.server_address[1]
+                if p in ("/private-html", "/unversioned-html"):
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/html")
+                    if p == "/private-html":
+                        self.send_header("Cache-Control", "private, no-store")
+                    self.send_header("Content-Length", "15")
+                    self.end_headers()
+                    self.wfile.write(b"<p>analysis</p>")
+                    return
                 if p == "/redir-abs":
                     self.send_response(302)
                     self.send_header("Location",
@@ -256,6 +265,12 @@ class HeaderContractTests(unittest.TestCase):
         self.assertIn(f"Path=/apps/{CID}/deep", pref)
         self.assertIn("Secure", pref)
         self.assertIn("Max-Age=60", pref)
+
+    def test_private_html_retains_no_store_and_unversioned_html_revalidates(self):
+        private = self.c.get(f"/apps/{CID}/private-html", headers=_LOCAL)
+        self.assertEqual(private.headers["cache-control"], "private, no-store")
+        ordinary = self.c.get(f"/apps/{CID}/unversioned-html", headers=_LOCAL)
+        self.assertEqual(ordinary.headers["cache-control"], "no-cache")
 
     def test_browser_cookies_forward_except_avas_own(self):
         self.c.cookies.set("myapp_session", "zzz")
