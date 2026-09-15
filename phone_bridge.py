@@ -462,7 +462,12 @@ async def api_app_embed(cid: str, request: Request):
         return JSONResponse({"error": f"unknown app '{cid}'"}, status_code=404)
     q = str(request.url.query or "")
     url = apps_origin.embed_url(cid, q)
-    return {"url": url or f"/apps/{cid}/?{q}", "isolated": bool(url)}
+    return {"url": url or f"/apps/{cid}/?{q}", "isolated": bool(url),
+            # How long what was just handed out lives, so the shell can re-mint on
+            # its own when a frame comes back from the background past either —
+            # see AppFrame.tsx and the two lifetimes in ava_bridge/apps_origin.py.
+            "token_ttl_s": apps_origin.TOKEN_TTL_S,
+            "cookie_ttl_s": apps_origin.COOKIE_TTL_S}
 
 
 # --- Devices: inbound "app → Ava" event channel ------------------------------
@@ -990,6 +995,22 @@ def _unreachable_response(cid: str, e: Exception, request: Request,
 # preflighting or introspecting its own API) used to fall outside the list and
 # came back as Ava's 405 — listed explicitly because FastAPI does not add them.
 _PROXY_METHODS = ["GET", "POST", "DELETE", "PATCH", "PUT", "HEAD", "OPTIONS"]
+
+
+@app.get("/apps/{cid}/.ava/keepalive")
+async def app_embed_keepalive(cid: str):
+    """The shell's heartbeat for a frame it keeps mounted.
+
+    `auth_gate` has already done the only work there is by the time this runs:
+    on the apps origin it verified the embed cookie and, past half-life, re-set
+    it (`apps_origin._renewal`). Nothing is proxied — the app never sees this —
+    and the body is empty on purpose: `AppFrame` fetches it `no-cors` from Ava's
+    own origin and could not read one anyway. Registered ABOVE the two proxies
+    because Starlette matches in order, and `/apps/{cid}/{path:path}` would
+    otherwise forward `.ava/keepalive` upstream as if the app served it.
+    """
+    del cid  # the path carries it for the gate; nothing here needs it
+    return Response(status_code=204, headers={"cache-control": "no-store"})
 
 
 @app.api_route("/apps/{cid}/api/{path:path}", methods=_PROXY_METHODS)

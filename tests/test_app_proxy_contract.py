@@ -408,6 +408,8 @@ class OriginSplitTokenTests(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         set_cookie = "; ".join(r.headers.get_list("set-cookie"))
         self.assertIn(apps_origin.cookie_name(CID), set_cookie)
+        self.assertIn(f"Max-Age={apps_origin.COOKIE_TTL_S}", set_cookie,
+                      "the cookie lives its own, longer life — not the URL token's")
 
     def test_an_aging_cookie_is_renewed_so_an_active_panel_never_expires(self):
         old = apps_origin.mint(CID, ttl_s=100)      # past the 150s half-life
@@ -427,7 +429,10 @@ class OriginSplitTokenTests(unittest.TestCase):
                            "replaces")
 
     def test_a_fresh_cookie_is_not_churned(self):
-        self.c.cookies.set(apps_origin.cookie_name(CID), apps_origin.mint(CID))
+        # A cookie is minted for COOKIE_TTL_S at the exchange; a five-minute one
+        # would be an aging cookie now, and renewed on sight.
+        self.c.cookies.set(apps_origin.cookie_name(CID),
+                           apps_origin.mint(CID, ttl_s=apps_origin.COOKIE_TTL_S))
         r = self.c.get(f"/apps/{CID}/echo",
                        headers={**APPS_HOST, "sec-fetch-dest": "empty"})
         self.assertEqual(r.status_code, 200)
@@ -449,6 +454,43 @@ class OriginSplitTokenTests(unittest.TestCase):
                        follow_redirects=False)
         self.assertEqual(r.status_code, 302)
         self.assertTrue(r.headers["location"].endswith(f"/#{CID}"))
+
+    def test_a_dead_frame_navigation_gets_the_reconnect_page_not_json(self):
+        # The case between the two above: the FRAME itself navigating on a token
+        # the bridge no longer accepts. JSON there was rendered as the app's whole
+        # UI; the page asks the shell for a fresh URL instead. Still a 403, still
+        # nothing proxied — the refusal is unchanged, only its body can recover.
+        stale = apps_origin.mint(CID, ttl_s=-1)
+        r = self.c.get(f"/apps/{CID}/reports/7?x=1&t={stale}",
+                       headers={**APPS_HOST, "sec-fetch-dest": "iframe"})
+        self.assertEqual(r.status_code, 403)
+        self.assertIn("text/html", r.headers["content-type"])
+        self.assertEqual(r.headers["cache-control"], "no-store")
+        self.assertIn('"type": "ava:embed-expired"', r.text)
+        self.assertIn(f'"cid": "{CID}"', r.text)
+        self.assertIn('"path": "/reports/7?x=1"', r.text)
+        self.assertEqual(self.up.state.seen, [])
+
+    def test_the_keepalive_renews_the_cookie_without_touching_the_app(self):
+        # The shell's heartbeat for a frame it keeps mounted: past half-life the
+        # gate re-sets the cookie, and the app never learns a request was made.
+        self.c.cookies.set(apps_origin.cookie_name(CID), apps_origin.mint(CID, ttl_s=100))
+        r = self.c.get(f"/apps/{CID}/.ava/keepalive",
+                       headers={**APPS_HOST, "sec-fetch-dest": "empty"})
+        self.assertEqual(r.status_code, 204)
+        self.assertEqual(self.up.state.seen, [],
+                         "a heartbeat is the bridge's business, never the app's")
+        renewed = [v for v in r.headers.get_list("set-cookie")
+                   if v.startswith(apps_origin.cookie_name(CID) + "=")]
+        self.assertTrue(renewed, "an aging cookie must come back renewed")
+        self.assertTrue(apps_origin.verify(CID, renewed[0].split("=", 1)[1].split(";", 1)[0]))
+
+    def test_the_keepalive_is_gated_like_everything_else_on_the_apps_host(self):
+        r = self.c.get(f"/apps/{CID}/.ava/keepalive",
+                       headers={**APPS_HOST, "sec-fetch-dest": "empty"})
+        self.assertEqual(r.status_code, 403)
+        self.assertEqual(r.json()["error"], "forbidden")
+        self.assertEqual(self.up.state.seen, [])
 
 
 class NativeUiApiTests(unittest.TestCase):

@@ -49,6 +49,14 @@ would break every existing install's app tiles.
 internal token, so it needs no new store. Short TTL, single connector, and it grants
 exactly one thing: permission to load that app's proxy on the apps origin. It is not
 a session — the apps origin has no session, deliberately.
+
+**Two lifetimes, and what happens when the second runs out.** The token in the
+iframe's URL lives `TOKEN_TTL_S`; the cookie it is exchanged for lives `COOKIE_TTL_S`
+and slides forward on use. A frame that outlives even that is not left staring at
+JSON: a framed navigation on a dead token is answered with `reconnect_page()`, which
+asks the shell for a fresh URL, and the shell (`AppFrame`) re-mints on its own when
+the page comes back from the background. The constants below say why the numbers
+differ.
 """
 from __future__ import annotations
 
@@ -59,15 +67,28 @@ from urllib.parse import urlsplit
 
 from . import config, settings
 
-# Long enough to survive a slow first paint and a user switching tabs before the
-# frame loads; short enough that a token copied out of a URL is stale by the time
-# anyone reuses it. Short does NOT mean a panel dies at the five-minute mark:
-# authorize() re-mints a verified token once it is past half-life and the auth
-# middleware sets the replacement as the cookie (`_renewal`), so an ACTIVE panel
-# renews itself indefinitely — only a token nobody has presented for the full
-# TTL actually expires. The frame re-fetches on every mount, so a fresh mount
-# never depends on the old token either.
+# The token lives in two places with different exposure, so it has two lifetimes.
+#
+# THE URL TOKEN is what `AppFrame` is handed and puts in the iframe's `src`. A URL
+# leaks — browser history, a screenshot, a Referer to the app's own origin — so it
+# is long enough to survive a slow first paint and a user switching tabs before the
+# frame loads, and short enough that a copied one is stale by the time anyone
+# reuses it. The frame re-fetches on every mount, so a fresh mount never depends on
+# an old one.
 TOKEN_TTL_S = 300
+#
+# THE COOKIE the URL token is exchanged for is HttpOnly, Secure, SameSite=Lax and
+# scoped to `/apps/<cid>/` on the apps origin: never in a URL, unreadable by the
+# app's own JS. It used to inherit the five minutes, renewed only by traffic
+# (`_renewal`), and that was measured as a dead panel on every phone: iOS freezes a
+# backgrounded page, so no request arrives to renew anything, and the first tap
+# after unlocking got `embed token expired` as the app's whole UI — with no reload
+# button on a home-screen app to get out of it. Twelve hours is a working day of
+# being left alone. Renewal still slides it forward on use, and the shell re-mints
+# on resume past it, so this is a floor on idle survival, not a ceiling on a
+# session. The security argument is unchanged: the cookie grants one app's proxy on
+# one origin, and the app behind it still runs its own sign-in.
+COOKIE_TTL_S = 12 * 60 * 60
 
 
 def configured() -> str | None:
@@ -186,33 +207,33 @@ def verify(cid: str, token: str) -> bool:
 
 
 def _renewal(cid: str, token: str) -> str | None:
-    """A replacement token when `token` is past half-life, else None.
+    """A replacement cookie token when `token` is past half-life, else None.
 
-    Sliding renewal is what keeps an OPEN panel alive past TOKEN_TTL_S. The
-    TTL used to be absolute: five minutes after the frame loaded, every
-    request — an SSE reconnect, a click, an asset — got a raw 403 while the
-    panel looked perfectly healthy. Now every authorized request past
-    half-life hands back a fresh token for the middleware to set as the
-    cookie, so the clock re-arms for as long as the panel is in use, and only
-    one idle for the FULL TTL ever sees its token die. A top-level return to
-    such a dead panel re-enters through the shell (auth._shell_bounce ->
-    /#<cid> -> a freshly minted embed URL), so the owner sees a reload rather
-    than a wall of JSON. Re-minting FOR an expired token is deliberately not
-    done: an expired token is exactly as unauthenticated as no token, and
-    honouring it would make the TTL decorative.
+    Sliding renewal is what keeps an OPEN panel alive past COOKIE_TTL_S. The
+    TTL used to be absolute: once the frame's token aged out, every request —
+    an SSE reconnect, a click, an asset — got a raw 403 while the panel looked
+    perfectly healthy. Now every authorized request past half-life hands back a
+    fresh token for the middleware to set as the cookie, so the clock re-arms
+    for as long as the panel is in use, and only one idle for the FULL TTL ever
+    sees its token die. A top-level return to such a dead panel re-enters
+    through the shell (auth._shell_bounce -> /#<cid> -> a freshly minted embed
+    URL); a framed one gets `reconnect_page`, which asks the shell to do the
+    same. Re-minting FOR an expired token is deliberately not done: an expired
+    token is exactly as unauthenticated as no token, and honouring it would
+    make the TTL decorative.
 
     Half-life rather than every request: a fresh token's burst of asset loads
     should not carry a Set-Cookie per response, and renewing early buys
     nothing — the replacement is identical in power (same cid, same TTL).
-    The security property is unchanged: tokens stay cid-bound and short-lived,
+    The security property is unchanged: tokens stay cid-bound and bounded,
     and a token for app A still verifies for app A alone.
     """
     try:
         exp = int(str(token).split(".", 1)[0])
     except ValueError:
         return None
-    if exp - int(time.time()) <= TOKEN_TTL_S // 2:
-        return mint(cid)
+    if exp - int(time.time()) <= COOKIE_TTL_S // 2:
+        return mint(cid, COOKIE_TTL_S)
     return None
 
 
@@ -246,17 +267,18 @@ def authorize(request, path: str) -> tuple[bool, str | None, str]:
     request carries `?t=<token>` from the URL `AppFrame` was handed. Assets the app
     then requests relative to its own document carry no query string, so the token
     is exchanged once for a cookie scoped to THIS origin. That cookie is not an Ava
-    session and grants nothing but this one app's proxy: it is the same minted
-    token, verified against the cid in the path on every request — and re-minted
-    on a sliding half-life (`_renewal`) so an open panel outlives TOKEN_TTL_S
-    for exactly as long as it stays in use.
+    session and grants nothing but this one app's proxy: a token of the same shape,
+    minted for the cookie's own life (COOKIE_TTL_S — the URL token's job ends at
+    the exchange), verified against the cid in the path on every request, and
+    re-minted on a sliding half-life (`_renewal`) so an open panel outlives even
+    that for exactly as long as it stays in use.
     """
     cid = cid_from_path(path)
     if not cid:
         return False, None, "no connector id in path"
     from_query = request.query_params.get("t") or ""
     if from_query and verify(cid, from_query):
-        return True, _renewal(cid, from_query) or from_query, ""
+        return True, mint(cid, COOKIE_TTL_S), ""
     from_cookie = request.cookies.get(cookie_name(cid)) or ""
     if from_cookie and verify(cid, from_cookie):
         return True, _renewal(cid, from_cookie), ""
@@ -273,8 +295,122 @@ def apply_cookie(response, cid: str, token: str, secure: bool) -> None:
     not offered to another's proxy.
     """
     response.set_cookie(
-        cookie_name(cid), token, max_age=TOKEN_TTL_S, httponly=True,
+        cookie_name(cid), token, max_age=COOKIE_TTL_S, httponly=True,
         samesite="lax", secure=secure, path=f"/apps/{cid}/")
+
+
+def wants_frame_document(request) -> bool:
+    """A GET that will RENDER the answer inside a frame, where JSON is a wall.
+
+    `iframe`/`frame`/`embed`/`object` are the framed navigations. `document` is
+    a top-level one and belongs to `auth._shell_bounce`; `empty` is app JS, which
+    must keep getting JSON it can parse. Without Fetch Metadata at all (curl, an
+    old engine) the Accept header decides — the same fallback
+    `phone_bridge._wants_document` uses for the unreachable page.
+    """
+    if getattr(request, "method", "GET") != "GET":
+        return False
+    dest = (request.headers.get("sec-fetch-dest") or "").lower()
+    if dest:
+        return dest in ("iframe", "frame", "embed", "object")
+    return "text/html" in (request.headers.get("accept") or "")
+
+
+def shell_origin() -> str:
+    """`server.public_url` as a bare origin — the only place a frame may report to."""
+    parts = urlsplit(config.PUBLIC_URL)
+    if parts.scheme and parts.netloc:
+        return f"{parts.scheme}://{parts.netloc}"
+    return config.PUBLIC_URL.rstrip("/")
+
+
+def resume_path(request, cid: str) -> str:
+    """Where the frame was going, relative to the app, minus the spent token.
+
+    `/apps/<cid>/reports/7?x=1&t=…` -> `/reports/7?x=1`. The shell feeds it back
+    through `appFrameDestination`, which re-validates the prefix, so the worst a
+    hostile value can do here is land the reopened app on its own 404.
+    """
+    from urllib.parse import quote, unquote, urlencode
+    raw = str(getattr(request.url, "path", "") or "")
+    prefix = f"/apps/{cid}"
+    rel = raw[len(prefix):] if raw.startswith(prefix) else "/"
+    rel = quote(unquote(rel), safe="/")[:2000] or "/"
+    if not rel.startswith("/"):
+        rel = "/" + rel
+    items = getattr(request.query_params, "multi_items", None)
+    pairs = list(items()) if callable(items) else list(request.query_params.items())
+    query = urlencode([(k, v) for k, v in pairs if k != "t"], doseq=True)
+    return f"{rel}?{query}" if query else rel
+
+
+def reconnect_page(cid: str, label: str, reason: str, theme: str, path: str) -> str:
+    """The document a DEAD FRAME renders instead of `{"error":"forbidden"}`.
+
+    Served by the apps origin itself, so nothing about framing changes: the
+    frame is already allowed to show this origin, and the page carries no CSP a
+    parent could trip over. Its one job is to tell the shell which app died and
+    where it was, so `AppFrame` can fetch a fresh embed URL and reload the frame
+    there — what the owner would do by hand with a reload button, which a
+    home-screen app on a phone does not have.
+
+    `postMessage` goes to `shell_origin()` and nowhere else: a parent on any
+    other origin receives nothing, and there is nothing in the message worth
+    having anyway (a cid and a path the parent already put in the URL). Opened
+    with no parent — a browser that sent no Fetch Metadata at the top level —
+    it sends itself to the shell instead, the way `auth._shell_bounce` does for
+    the ones that say `document`.
+
+    Still a 403 from the caller's side: the refusal is unchanged, only its body
+    knows how to get the owner a fresh token.
+    """
+    import html as _html
+    import json as _json
+
+    def js(value) -> str:
+        # `</` inside a string literal would end the <script>; the escape is
+        # invisible to JSON and to JS.
+        return _json.dumps(value).replace("</", "<\\/")
+
+    dark = theme != "light"
+    bg, fg, dim = ("#16181d", "#e8eaed", "#9aa0a6") if dark else ("#fbfbfc", "#1f2124", "#5f6368")
+    card, edge = ("#1e2127", "#2c3038") if dark else ("#ffffff", "#e3e5e9")
+    shell = shell_origin()
+    script = (
+        "<script>(function(){"
+        "var shell=" + js(shell) + ",tile=" + js(f"{shell}/#{cid}") + ","
+        "msg=" + js({"type": "ava:embed-expired", "cid": cid, "path": path}) + ";"
+        "function ask(){"
+        "if(window.parent===window){window.location.replace(tile);return;}"
+        "try{window.parent.postMessage(msg,shell);}catch(e){}"
+        "}"
+        "var b=document.getElementById('reconnect');if(b){b.addEventListener('click',ask);}"
+        "ask();"
+        "})();</script>"
+    )
+    return f"""<!doctype html>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Reconnecting {_html.escape(label)}</title>
+<style>
+ html,body{{margin:0;height:100%;background:{bg};color:{fg};
+   font:14px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}}
+ .wrap{{height:100%;display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box}}
+ .card{{max-width:30rem;background:{card};border:1px solid {edge};border-radius:12px;padding:22px 24px}}
+ h1{{margin:0 0 8px;font-size:15px;font-weight:600}}
+ p{{margin:0 0 12px;color:{dim}}}
+ button{{font:inherit;padding:8px 14px;border-radius:8px;border:1px solid {edge};background:{bg};color:{fg};cursor:pointer}}
+ details{{margin-top:16px}}
+ summary{{color:{dim};font-size:12px;cursor:pointer}}
+ pre{{margin:8px 0 0;padding:10px;background:{bg};border:1px solid {edge};border-radius:8px;
+   font-size:11px;color:{dim};white-space:pre-wrap;word-break:break-all;overflow-x:auto}}
+</style>
+<div class="wrap"><div class="card">
+ <h1>Reconnecting {_html.escape(label)}…</h1>
+ <p>Ava's link to this app timed out while it was idle. It reconnects on its own; if this stays, use the button.</p>
+ <p><button id="reconnect" type="button">Reconnect</button></p>
+ <details><summary>Technical detail</summary><pre>{_html.escape(reason)}</pre></details>
+</div></div>
+{script}"""
 
 
 def warning() -> dict:

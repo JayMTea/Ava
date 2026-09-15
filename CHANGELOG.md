@@ -217,6 +217,24 @@ pre-release milestones from when Ava ran on one box and nothing was tagged.
 
 ### Fixed
 
+- **An embedded app no longer dies on a phone that was put down for five
+  minutes.** With `apps.origin` set, the token a frame is handed was swapped for
+  a cookie that inherited its five-minute life and was renewed only by traffic.
+  iOS freezes a backgrounded page, so nothing renewed it, and the first tap
+  after unlocking got `{"error":"forbidden","detail":"embed token expired"}` as
+  the app's whole UI — with no reload button on a home-screen app to get out
+  of it. Three changes, each explained where it lives: the cookie now lives
+  twelve hours and slides forward on use, while the URL token keeps its five
+  minutes (`ava_bridge/apps_origin.py`, "two lifetimes"); the shell re-mints
+  when the page comes back from the background past either lifetime, keeps the
+  cookie alive with a heartbeat while the page is awake, and tells a slow link
+  apart from a dead app (`AppFrame.tsx`, `GET /apps/<id>/.ava/keepalive`); and a
+  framed navigation that still arrives on a dead token gets a page that asks the
+  shell for a fresh URL instead of a wall of JSON (`apps_origin.reconnect_page`).
+  App JS still gets the 403 — the refusal is unchanged, only its body learned
+  to recover. The embed endpoint now states both lifetimes (`token_ttl_s`,
+  `cookie_ttl_s`) so the shell schedules from the bridge's numbers, not its own.
+
 - **An app with `ui.embed: none` and a real `mcp:` server showed an empty
   console.** `connectors.actions()` knew two connector shapes — statically
   declared `actions:` and the `actions.discover` facade — and never learned the

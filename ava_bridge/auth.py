@@ -633,6 +633,38 @@ def _shell_bounce(request: Request, path: str):
                             status_code=302)
 
 
+def _reconnect_page(request: Request, path: str, reason: str):
+    """A dead FRAME gets the reconnect page, not JSON — or None to fall through.
+
+    Sits between `_shell_bounce` (top-level: redirect to the shell) and the raw
+    403 (app JS: JSON it can parse), and answers the case in the middle: the
+    frame itself navigating — the first load after the URL token aged out, or a
+    tap inside an app whose cookie died while the phone was asleep — where a
+    JSON body is rendered verbatim as the app's whole UI. Still a 403; only the
+    body changes, and it asks the shell for a fresh token. See
+    apps_origin.reconnect_page for what it may say and to whom.
+    """
+    from . import apps_origin as _apps_origin
+    if not _apps_origin.configured() or not _apps_origin.is_app_path(path):
+        return None
+    if not _apps_origin.wants_frame_document(request):
+        return None
+    cid = _apps_origin.cid_from_path(path) or ""
+    if not cid or not all(c.isalnum() or c in "-_" for c in cid):
+        return None
+    try:
+        from . import connectors as _connectors
+        label = (_connectors.app(cid) or {}).get("label") or cid
+    except Exception:  # noqa: BLE001 — the label is decorative; the page must come back regardless
+        label = cid
+    theme = (request.query_params.get("theme") or "dark").lower()
+    html = _apps_origin.reconnect_page(cid, label, reason, theme,
+                                       _apps_origin.resume_path(request, cid))
+    return Response(content=html, status_code=403,
+                    media_type="text/html; charset=utf-8",
+                    headers={"cache-control": "no-store"})
+
+
 async def auth_gate(request: Request, call_next):
     path = request.url.path
     # HOST ALLOWLIST, before everything — including the origin split and
@@ -670,6 +702,9 @@ async def auth_gate(request: Request, call_next):
             _bounce = _shell_bounce(request, path)
             if _bounce is not None:
                 return _bounce
+            _page = _reconnect_page(request, path, _reason)
+            if _page is not None:
+                return _page
             return JSONResponse({"error": "forbidden", "detail": _reason},
                                 status_code=403)
         _resp = await call_next(request)

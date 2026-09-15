@@ -109,6 +109,16 @@ between them looks exactly like being logged out. Install the home-screen app
 from the URL that works from *everywhere* - with `tailscale serve` that is the
 tailnet name, on the LAN as well as off it.
 
+**Connected apps stay open too.** With `apps.origin` set, a tile such as an
+analytics app is loaded from Ava's isolated apps origin on a short-lived token
+that Ava swaps for a cookie scoped to that one app. That cookie lives twelve
+hours and slides forward on use, Ava re-issues it when the app comes back from
+the background, and a frame that still arrives on a dead token reconnects
+itself instead of showing an error - so a phone put down mid-dashboard picks up
+where it left off. A tile that says it is *still loading* is on a slow link, not
+down; it only says an app *isn't responding* after 45 seconds, and tries again
+when you come back to it.
+
 ## What is (and isn't) cached offline
 
 The service worker precaches only the **app shell** - the HTML, JS, CSS and

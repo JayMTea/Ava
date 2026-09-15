@@ -161,17 +161,24 @@ class EmbedTokenTests(unittest.TestCase):
 
 
 class AuthorizeTests(unittest.TestCase):
-    def test_the_query_token_authorises_and_is_handed_back_for_a_cookie(self):
+    def test_the_query_token_authorises_and_is_exchanged_for_a_cookie_token(self):
         t = apps_origin.mint("crm")
         ok, to_set, _ = apps_origin.authorize(_Req("apps.ava.test", {"t": t}),
                                               "/apps/crm/")
         self.assertTrue(ok)
-        self.assertEqual(to_set, t)
+        self.assertTrue(apps_origin.verify("crm", to_set))
+        # The URL token's job ends at the exchange: what the cookie holds is minted
+        # for the cookie's own, longer life — never the five-minute URL token itself.
+        self.assertNotEqual(to_set, t)
+        self.assertGreaterEqual(int(to_set.split(".", 1)[0]),
+                                int(time.time()) + apps_origin.COOKIE_TTL_S - 5)
 
     def test_an_asset_request_authorises_from_the_cookie_with_no_query(self):
         """Assets the app requests relative to its own document carry no query, so
         the one-time exchange to a cookie is what keeps them working."""
-        t = apps_origin.mint("crm")
+        # What the cookie actually holds after the exchange: a cookie-life token.
+        # A five-minute one would be an aging cookie now, and renewed on sight.
+        t = apps_origin.mint("crm", ttl_s=apps_origin.COOKIE_TTL_S)
         ok, to_set, _ = apps_origin.authorize(
             _Req("apps.ava.test", cookies={apps_origin.cookie_name("crm"): t}),
             "/apps/crm/assets/main.js")
@@ -287,6 +294,146 @@ class TopLevelVisitBouncesToTheShellTests(unittest.TestCase):
             self.assertIsNone(auth._shell_bounce(req, "/apps/crm/"),
                               "single-origin installs already redirect in "
                               "phone_bridge.app_ui_proxy; two would fight")
+
+
+class TwoLifetimesTests(unittest.TestCase):
+    """The URL token and the cookie it becomes do not share a clock.
+
+    The cookie used to inherit the URL token's five minutes and was renewed only
+    by traffic. A phone freezes a backgrounded page, so nothing renewed it, and
+    the first tap after unlocking got the refusal as the app's whole UI. The URL
+    token keeps its five minutes (it leaks: history, screenshots, Referer); the
+    cookie — HttpOnly, path-scoped, never in a URL — gets a working day.
+    """
+
+    def test_the_cookie_outlives_the_url_token_by_design(self):
+        self.assertGreater(apps_origin.COOKIE_TTL_S, apps_origin.TOKEN_TTL_S)
+        self.assertEqual(apps_origin.TOKEN_TTL_S, 300,
+                         "the URL token stays short — a copied one must go stale")
+
+    def test_renewal_is_measured_against_the_cookie_life(self):
+        aging = apps_origin.mint("crm", ttl_s=100)
+        fresh = apps_origin.mint("crm", ttl_s=apps_origin.COOKIE_TTL_S)
+        renewed = apps_origin._renewal("crm", aging)
+        self.assertIsNotNone(renewed)
+        self.assertTrue(apps_origin.verify("crm", renewed))
+        self.assertGreaterEqual(int(renewed.split(".", 1)[0]),
+                                int(time.time()) + apps_origin.COOKIE_TTL_S - 5,
+                                "a renewal is a full cookie life, not another five minutes")
+        self.assertIsNone(apps_origin._renewal("crm", fresh),
+                          "a cookie in its first half-life is not churned")
+
+    def test_the_cookie_is_set_for_its_own_life(self):
+        seen = {}
+
+        class R:
+            def set_cookie(self, k, v, **kw):
+                seen.update({"k": k, "v": v, **kw})
+
+        apps_origin.apply_cookie(R(), "crm", "tok", secure=True)
+        self.assertEqual(seen["max_age"], apps_origin.COOKIE_TTL_S)
+
+
+class _FrameReq:
+    """What `wants_frame_document`, `resume_path` and `_reconnect_page` read."""
+
+    def __init__(self, dest="iframe", method="GET", path="/apps/crm/", query=None,
+                 accept=None):
+        self.method = method
+        self.headers = {}
+        if dest is not None:
+            self.headers["sec-fetch-dest"] = dest
+        if accept is not None:
+            self.headers["accept"] = accept
+        self.query_params = query or {}
+        self.url = type("U", (), {"path": path, "scheme": "https"})()
+        self.cookies = {}
+
+
+class ReconnectPageTests(unittest.TestCase):
+    """A dead FRAME gets a page that asks the shell for a fresh token.
+
+    Between `_shell_bounce` (top-level: redirect) and the raw 403 (app JS: JSON)
+    sits the frame itself navigating on a token the bridge no longer accepts —
+    the case where JSON was rendered verbatim as the app's whole UI, on a phone
+    with no reload button. The refusal is unchanged (still 403, nothing served);
+    only the body knows how to recover, and only to the configured shell.
+    """
+
+    def test_only_framed_navigations_want_the_page(self):
+        for dest in ("iframe", "frame", "embed", "object"):
+            self.assertTrue(apps_origin.wants_frame_document(_FrameReq(dest)), dest)
+        self.assertFalse(apps_origin.wants_frame_document(_FrameReq("document")),
+                         "a top-level visit belongs to _shell_bounce")
+        self.assertFalse(apps_origin.wants_frame_document(_FrameReq("empty")),
+                         "app JS must keep getting JSON it can parse")
+        self.assertFalse(apps_origin.wants_frame_document(_FrameReq("iframe", method="POST")))
+        self.assertTrue(apps_origin.wants_frame_document(
+            _FrameReq(None, accept="text/html,application/xhtml+xml")),
+            "no Fetch Metadata at all: the Accept header decides")
+        self.assertFalse(apps_origin.wants_frame_document(
+            _FrameReq(None, accept="application/json")))
+
+    def test_the_resume_path_is_relative_to_the_app_and_drops_the_spent_token(self):
+        req = _FrameReq(path="/apps/crm/reports/7", query={"x": "1", "t": "1.dead"})
+        self.assertEqual(apps_origin.resume_path(req, "crm"), "/reports/7?x=1")
+        self.assertEqual(apps_origin.resume_path(_FrameReq(path="/apps/crm/"), "crm"), "/")
+        self.assertEqual(apps_origin.resume_path(_FrameReq(path="/apps/crm"), "crm"), "/")
+        self.assertEqual(apps_origin.resume_path(_FrameReq(path="/elsewhere"), "crm"), "/")
+
+    def test_the_page_reports_to_the_configured_shell_and_nowhere_else(self):
+        with mock.patch.object(apps_origin.config, "PUBLIC_URL", "http://ava.test:8096/"):
+            html = apps_origin.reconnect_page("crm", "CRM", "embed token expired",
+                                              "dark", "/reports/7?x=1")
+        self.assertIn('postMessage(msg,shell)', html)
+        self.assertIn('shell="http://ava.test:8096"', html)
+        self.assertIn('"type": "ava:embed-expired", "cid": "crm", "path": "/reports/7?x=1"',
+                      html)
+        # No parent to ask: send itself to the shell, as _shell_bounce would have.
+        self.assertIn('tile="http://ava.test:8096/#crm"', html)
+        self.assertIn("window.location.replace(tile)", html)
+        self.assertIn("Reconnecting CRM", html)
+
+    def test_nothing_from_the_request_can_break_out_of_the_page(self):
+        with mock.patch.object(apps_origin.config, "PUBLIC_URL", "http://ava.test:8096"):
+            html = apps_origin.reconnect_page(
+                "crm", "<b>x</b>", "</pre><script>alert(1)</script>", "light",
+                "/</script><script>alert(2)</script>")
+        self.assertNotIn("<b>x</b>", html)
+        self.assertNotIn("</pre><script>", html)
+        self.assertNotIn("</script><script>alert(2)", html,
+                         "a path may not end the <script> it is quoted inside")
+        self.assertIn("<\\/script>", html)
+
+    def _gate(self, req, path="/apps/crm/", configured=ORIGIN):
+        from ava_bridge import auth
+        with mock.patch.object(apps_origin, "configured", return_value=configured), \
+             mock.patch.object(auth.config, "PUBLIC_URL", "http://ava.test:8096"):
+            return auth._reconnect_page(req, path, "embed token expired — reload the app in Ava")
+
+    def test_a_dead_frame_gets_the_page_as_a_403(self):
+        r = self._gate(_FrameReq("iframe", path="/apps/crm/reports/7",
+                                 query={"theme": "light", "t": "1.dead"}),
+                       path="/apps/crm/reports/7")
+        self.assertIsNotNone(r, "a framed navigation must not get raw JSON")
+        self.assertEqual(r.status_code, 403, "the refusal is unchanged; only its body is")
+        self.assertIn("text/html", r.headers["content-type"])
+        self.assertEqual(r.headers["cache-control"], "no-store")
+        body = r.body.decode()
+        self.assertIn('"path": "/reports/7?theme=light"', body)
+        self.assertIn("embed token expired", body)
+
+    def test_app_javascript_and_top_level_visits_are_not_given_the_page(self):
+        self.assertIsNone(self._gate(_FrameReq("empty")),
+                          "fetch() must keep getting JSON")
+        self.assertIsNone(self._gate(_FrameReq("document")),
+                          "a top-level visit is _shell_bounce's, which runs first")
+        self.assertIsNone(self._gate(_FrameReq("iframe", method="POST")))
+
+    def test_the_page_is_not_served_off_the_split_or_for_a_dirty_cid(self):
+        self.assertIsNone(self._gate(_FrameReq("iframe"), configured=None))
+        for bad in ("/apps/../etc/passwd", "/apps", "/apps//"):
+            self.assertIsNone(self._gate(_FrameReq("iframe", path=bad), path=bad), bad)
 
 
 if __name__ == "__main__":
