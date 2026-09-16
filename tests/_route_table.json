@@ -903,6 +903,13 @@
   "APIRoute"
  ],
  [
+  "/apps/{cid}/.ava/keepalive",
+  [
+   "GET"
+  ],
+  "APIRoute"
+ ],
+ [
   "/apps/{cid}/api/{path:path}",
   [
    "DELETE",
