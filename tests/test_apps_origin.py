@@ -288,6 +288,8 @@ class TopLevelVisitBouncesToTheShellTests(unittest.TestCase):
         req = _mock.Mock()
         req.method = method
         req.headers = {"sec-fetch-dest": dest} if dest else {}
+        req.url.path = path
+        req.query_params = {}
         with _mock.patch.object(apps_origin, "configured", return_value=ORIGIN), \
              _mock.patch.object(auth.config, "PUBLIC_URL", public):
             return auth._shell_bounce(req, path)

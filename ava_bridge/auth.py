@@ -615,9 +615,9 @@ def _shell_bounce(request: Request, path: str):
     `Sec-Fetch-Dest: iframe` and must keep getting the 403 — that refusal IS the
     boundary. `fetch()` from app JS sends `empty` and is likewise untouched.
 
-    The target is `server.public_url`, which the owner configured; nothing from
-    the request reaches it, so this cannot become an open redirect. The cid is
-    charset-checked before it goes in the fragment.
+    The target origin is `server.public_url`, which the owner configured. The
+    checked cid and app-relative destination live only in its fragment; spent
+    embed tokens are removed before the shell requests fresh scoped access.
     """
     if request.method != "GET":
         return None
@@ -629,7 +629,9 @@ def _shell_bounce(request: Request, path: str):
     cid = _apps_origin.cid_from_path(path) or ""
     if not cid or not all(c.isalnum() or c in "-_" for c in cid):
         return None
-    return RedirectResponse(f"{config.PUBLIC_URL.rstrip('/')}/#{cid}",
+    destination = _apps_origin.resume_path(request, cid)
+    suffix = destination if destination != "/" else ""
+    return RedirectResponse(f"{config.PUBLIC_URL.rstrip('/')}/#{cid}{suffix}",
                             status_code=302)
 
 

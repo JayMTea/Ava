@@ -24,6 +24,7 @@ import InferenceBanner from './components/InferenceBanner';
 import TourHost from './components/tour/TourHost';
 import { useChat } from './hooks/useChat';
 import { api } from './lib/api';
+import { appRouteFromHash } from './lib/appRoute';
 import { registerApps } from './lib/appColor';
 import { RAIL_REALMS_OFF, type RailRealms, railRealms } from './lib/realms';
 import type { AppEntry, Artifact, Attachment } from './lib/types';
@@ -75,8 +76,7 @@ for (const [path, mod] of Object.entries(_overlayViews)) {
 // optimistically (the /api/apps list confirms them once loaded).
 function viewFromHash(): View | null {
   if (typeof window === 'undefined') return null;
-  const h = window.location.hash.replace(/^#\/?/, '').split('/')[0];
-  return h || null;
+  return appRouteFromHash(window.location.hash)?.view || null;
 }
 
 export default function App() {
@@ -127,6 +127,10 @@ export default function App() {
   // entirely — nothing else consumed it, and leaving the write behind would
   // invite the read back.
   const [view, setView] = useState<View>(() => viewFromHash() || 'hub');
+  const [appPaths, setAppPaths] = useState<Record<string, string>>(() => {
+    const route = appRouteFromHash(window.location.hash);
+    return route ? { [route.view]: route.path } : {};
+  });
   // Reflect the view in the URL hash so Back/forward and bookmarks work. The
   // FIRST stamp replaces rather than pushes: a bare `/` is where the setup
   // wizard's `location.href='/'` lands, and pushing would leave `/` in history —
@@ -146,8 +150,15 @@ export default function App() {
   // Back/forward buttons (and manual hash edits / bookmarks) drive the view.
   useEffect(() => {
     const onHash = () => {
-      const v = viewFromHash();
-      if (v && v !== view) setView(v);
+      const route = appRouteFromHash(window.location.hash);
+      if (!route) return;
+      // Plain tile changes keep the mounted app's state. Explicit destinations
+      // also work within an already-open app and through browser Back/Forward.
+      if (route.path !== '/') {
+        setAppPaths((paths) => paths[route.view] === route.path
+          ? paths : { ...paths, [route.view]: route.path });
+      }
+      if (route.view !== view) setView(route.view);
     };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
@@ -438,7 +449,7 @@ export default function App() {
               .filter((a) => a.embed === 'iframe' && openedApps.includes(a.id))
               .map((a) => (
                 <ViewErrorBoundary key={a.id} label={a.label} hidden={view !== a.id}>
-                  <AppFrame id={a.id} label={a.label} active={view === a.id} />
+                  <AppFrame id={a.id} label={a.label} active={view === a.id} path={appPaths[a.id] || '/'} />
                 </ViewErrorBoundary>
               ))}
             {!BUILTIN_VIEWS.includes(view) && (() => {

@@ -1063,9 +1063,13 @@ async def app_ui_proxy(cid: str, path: str, request: Request):
     # strands the user in the bare app with no Ava shell around it. Bounce them
     # to the app's tile inside the shell; the embedded iframe itself fetches
     # with Sec-Fetch-Dest: iframe and passes through untouched.
-    if not path and request.method == "GET" \
+    if request.method == "GET" \
             and request.headers.get("sec-fetch-dest") == "document":
-        return RedirectResponse(f"/#{cid}")
+        from ava_bridge import apps_origin
+        destination = apps_origin.resume_path(request, cid)
+        suffix = destination if destination != "/" else ""
+        shell = apps_origin.shell_origin() if apps_origin.configured() else ""
+        return RedirectResponse(f"{shell}/#{cid}{suffix}")
     url = f"{meta['url'].rstrip('/')}/{path}"
     # Keep the owner signed in to an app they already connected — same
     # credential rule as the data-proxy above, resolved on the bridge and

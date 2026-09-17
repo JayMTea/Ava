@@ -411,6 +411,18 @@ class OriginSplitTokenTests(unittest.TestCase):
         self.assertIn(f"Max-Age={apps_origin.COOKIE_TTL_S}", set_cookie,
                       "the cookie lives its own, longer life — not the URL token's")
 
+    def test_authorized_deep_link_returns_to_the_shell_origin(self):
+        with mock.patch.object(config, "PUBLIC_URL", "http://ava.test:8096"):
+            response = self.c.get(
+                f"/apps/{CID}/reports?model=approved&t={apps_origin.mint(CID)}",
+                headers={**APPS_HOST, "sec-fetch-dest": "document"},
+                follow_redirects=False,
+            )
+        self.assertIn(response.status_code, (302, 307))
+        self.assertEqual(response.headers["location"],
+                         f"http://ava.test:8096/#{CID}/reports?model=approved")
+        self.assertEqual(self.up.state.seen, [])
+
     def test_an_aging_cookie_is_renewed_so_an_active_panel_never_expires(self):
         old = apps_origin.mint(CID, ttl_s=100)      # past the 150s half-life
         self.c.cookies.set(apps_origin.cookie_name(CID), old)
