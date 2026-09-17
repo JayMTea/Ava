@@ -299,6 +299,26 @@ def apply_cookie(response, cid: str, token: str, secure: bool) -> None:
         samesite="lax", secure=secure, path=f"/apps/{cid}/")
 
 
+def apply_grant_cookie(response, request, cid: str) -> None:
+    """Establish the app session on the authenticated grant response when possible.
+
+    Cookies are scoped to host and path, not port. When the apps origin uses
+    another port on Ava's hostname, the shell can set the app's cookie before
+    navigating its frame. This also repairs older cached app shells whose worker
+    swallows that navigation and therefore never exchanges the URL token.
+    Different hostnames still exchange the token on the apps origin as usual.
+    Call only after authorizing the owner and checking that the app exists.
+    """
+    origin = configured()
+    if not origin:
+        return
+    app = urlsplit(origin)
+    host = urlsplit("//" + request_host(request)).hostname
+    if not host or host.lower() != (app.hostname or "").lower():
+        return
+    apply_cookie(response, cid, mint(cid, COOKIE_TTL_S), secure=app.scheme == "https")
+
+
 def wants_frame_document(request) -> bool:
     """A GET that will RENDER the answer inside a frame, where JSON is a wall.
 

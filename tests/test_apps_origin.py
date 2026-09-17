@@ -51,6 +51,41 @@ def _with_origin(value=ORIGIN):
                              value if d == "apps.origin" else default)
 
 
+class GrantCookieTests(unittest.TestCase):
+    def test_same_hostname_different_port_establishes_scoped_session(self):
+        from starlette.responses import Response
+        from http.cookies import SimpleCookie
+        response = Response()
+        with _with_origin("https://ava.test:10443"):
+            apps_origin.apply_grant_cookie(response, _Req("ava.test"), "crm")
+        cookies = SimpleCookie(response.headers["set-cookie"])
+        cookie = cookies[apps_origin.cookie_name("crm")]
+        self.assertTrue(apps_origin.verify("crm", cookie.value))
+        self.assertFalse(apps_origin.verify("other", cookie.value))
+        self.assertEqual(cookie["path"], "/apps/crm/")
+        self.assertEqual(cookie["max-age"], str(apps_origin.COOKIE_TTL_S))
+        self.assertTrue(cookie["httponly"])
+        self.assertTrue(cookie["secure"])
+        self.assertEqual(cookie["samesite"], "lax")
+        self.assertFalse(cookie["domain"])
+
+    def test_other_hostname_or_disabled_origin_does_not_set_cookie(self):
+        from starlette.responses import Response
+        for origin in ("https://apps.ava.test", ""):
+            response = Response()
+            with _with_origin(origin):
+                apps_origin.apply_grant_cookie(response, _Req("ava.test"), "crm")
+            self.assertNotIn("set-cookie", response.headers)
+
+    def test_only_trusted_proxy_can_supply_matching_hostname(self):
+        from starlette.responses import Response
+        with _with_origin("https://ava.test:10443"), mock.patch.object(apps_origin.config, "TRUSTED_PROXIES", {"10.0.0.1"}):
+            for client, expected in (("10.0.0.1", True), ("10.0.0.2", False)):
+                response = Response()
+                apps_origin.apply_grant_cookie(response, _Req("bridge:8096", client=client, fwd_host="ava.test"), "crm")
+                self.assertEqual("set-cookie" in response.headers, expected)
+
+
 class ConfigurationTests(unittest.TestCase):
     def test_unset_means_disabled(self):
         with _with_origin(""):

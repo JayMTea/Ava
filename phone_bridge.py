@@ -462,12 +462,15 @@ async def api_app_embed(cid: str, request: Request):
         return JSONResponse({"error": f"unknown app '{cid}'"}, status_code=404)
     q = str(request.url.query or "")
     url = apps_origin.embed_url(cid, q)
-    return {"url": url or f"/apps/{cid}/?{q}", "isolated": bool(url),
+    response = JSONResponse({"url": url or f"/apps/{cid}/?{q}", "isolated": bool(url),
             # How long what was just handed out lives, so the shell can re-mint on
             # its own when a frame comes back from the background past either —
             # see AppFrame.tsx and the two lifetimes in ava_bridge/apps_origin.py.
             "token_ttl_s": apps_origin.TOKEN_TTL_S,
-            "cookie_ttl_s": apps_origin.COOKIE_TTL_S}
+            "cookie_ttl_s": apps_origin.COOKIE_TTL_S},
+            headers={"cache-control": "no-store"})
+    apps_origin.apply_grant_cookie(response, request, cid)
+    return response
 
 
 # --- Devices: inbound "app → Ava" event channel ------------------------------

@@ -350,14 +350,14 @@ identifiers, and a broken bundle inside an iframe is painful to debug.
 If your app has its **own** password/login, don't make the owner sign in again
 after they've already connected it in Ava. The owner connects **once** (they
 paste your app's token in Setup → Connectors, or it's auto-detected); Ava then
-**presents that saved token on every embedded request** - the same value it uses
-for your agent tools. Two small steps make your app honor it:
+**presents the saved app credential on every embedded request**. Two small steps
+make your app honor it:
 
 1. **Accept a static token as a full session.** Alongside your human login,
    treat a configured static token (referenced by your manifest's `token_env`,
    e.g. `auth.token_env: MYAPP_TOKEN`) as authenticated on every route your UI
-   hits. Ava sends it as `Authorization: Bearer <token>` when the browser has no
-   session of its own (a fresh embed). Media tags that can't set headers work
+   hits. Ava sends it as `Authorization: Bearer <token>` on every proxied request,
+   replacing stale Authorization headers from the embedded browser. Media tags that can't set headers work
    too, because Ava injects on the proxied request, so a plain
    `withBase('/media/x')` is authenticated without a `?token=`.
 
@@ -378,6 +378,16 @@ That's the whole contract. Standalone (direct at your port) your password login
 is unchanged; embedded in Ava it's single sign-on. Ava resolves the token only
 on the bridge when building the request - it never reaches the browser or the
 sandboxed agent (the *Ava-never-has-passwords* invariant, §2).
+
+If the app's agent tools have different permissions from its human UI, give the
+tile a dedicated app credential through `auth.token_env` and keep the tool
+credential in `mcp.token_env` or `actions.discover.token_env`. The app should map
+the tile credential to the connected account and check that account's current
+permissions. Ava does not forward an MCP-only credential to a web UI. A missing
+UI credential, a frontend that requires its own cookie, or an inner service that
+drops the bearer can each cause a second login even when the tile itself opens.
+Verify a new connection in a fresh browser holding only an Ava session, including
+any nested workspace and a reload.
 
 !!! note "Self-describe it (optional, nicer onboarding)"
 
