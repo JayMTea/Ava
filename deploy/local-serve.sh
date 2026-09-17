@@ -41,7 +41,6 @@
 # (the allocator restores only what it released itself). Pair it with a boot unit that
 # runs THIS script — Type=oneshot + RemainAfterExit, so systemd starts it and then stops
 # caring, and will not fight the allocator when it stops the container to free the pool.
-# `ava-omni.service` on the development box is exactly that.
 set -uo pipefail
 
 # Resolve the repo root and load .env (HF_CACHE, AVA_HOME, ports …) if present,
@@ -53,13 +52,8 @@ REPO="$(cd "$HERE/.." && pwd)"
 # gives the FILE the last word, which silently defeats the override this script's
 # own header documents (`AVA_MODEL=… bash deploy/local-serve.sh`) the moment
 # someone pins AVA_MODEL in .env. Snapshot the real environment, source, restore.
-_ava_env_root="${AVA_HOME:-$REPO}"
-if [ -f "$_ava_env_root/.env" ]; then
-  _ava_real_env="$(export -p)"
-  set -a; . "$_ava_env_root/.env"; set +a
-  eval "$_ava_real_env"
-  unset _ava_real_env
-fi
+. "$HERE/load-instance-env.sh"
+ava_load_instance_env "$REPO"
 
 # The image is resolved from the host architecture, not pinned to the maintainer's.
 # It used to default to the aarch64 CUDA-13 tag unconditionally, with a comment
@@ -91,7 +85,7 @@ GPU_ARGS="$(_gpu_args)"
 # AVA_HOME (matching `ava setup`); override with HF_CACHE or AVA_HOME in .env.
 HF_CACHE="${HF_CACHE:-${AVA_HOME:-$REPO}/models/hf}"
 # AVA_MODEL is the canonical name; AVA_OMNI_MODEL is kept as a legacy alias so
-# existing .env files and the ava-omni.service unit keep working unchanged.
+# existing .env files and service units keep working unchanged.
 #
 # There is no fallback. Ava ships no default model, so a bare `local-serve.sh`
 # has nothing to serve and says so, rather than pulling ~15 GB of somebody
@@ -111,15 +105,13 @@ if [ -z "$MODEL" ]; then
   exit 2
 fi
 PORT="${AVA_SERVE_PORT:-${OMNI_PORT:-8002}}"
-# Container name. Things outside this repo may reference it by name (a sibling
-# app's GPU coordinator, your own connectors/, ava_security_check.py), so rename
-# it only if you update those too.
-NAME="${AVA_SERVE_CONTAINER:-vllm-open}"
+# Container identity is an operator setting, shared explicitly with any allocator.
+NAME="${AVA_SERVE_CONTAINER:-ava-inference}"
 RESTART="${AVA_SERVE_RESTART:-${OMNI_RESTART:-unless-stopped}}"
 # Docker's restart policy vs the allocator: they are both supervisors, and only one
 # can decide when there is room. `unless-stopped` (the default here, right for a box
 # with no allocator) retries a start forever with no backoff — the mechanism behind the
-# 7997 restarts this box once saw. If you declare this container in ava.yaml
+# repeated restart loops when memory is insufficient. If you declare this container in ava.yaml
 # `alloc.models`, set AVA_SERVE_RESTART=no so Ava is the sole supervisor; `ava doctor`
 # flags the combination.
 # CTX is resolved below, from AVA_SERVE_MAX_LEN clamped to the model's real
@@ -147,30 +139,7 @@ EXTRA_FLAGS="$AVA_RESOLVED_EXTRA_FLAGS"
 # rather than clamping when asked for more than the model supports.
 CTX="$AVA_RESOLVED_MAX_LEN"
 
-# --gpu-memory-utilization. 0.40 (~48.7 GiB of a 121.7 GiB unified pool) is this
-# box's measured value for the 30B Omni, lowered from 0.55 on 2026-07-25 after
-# 7997 restarts: at 0.55 vLLM took 66.9 GiB and left only ~34 GiB MemAvailable,
-# so the box's other 66.5 GiB tenant could not co-fit and vLLM's startup check
-# failed on a loop. At 0.40 it still measures KV 9.7 GiB / 676k tokens /
-# 40.8x concurrency at the full 65k ctx — ample for a single user.
-#
-# Sizing KV is about CONCURRENCY, not context: vLLM needs only >=1 sequence's
-# worth of KV to accept --max-model-len. Do NOT trade CTX for headroom.
-#
-# READING THE NUMBERS when you retune this: use MemAvailable from /proc/meminfo,
-# NOT an engine's own reported free VRAM. On a unified-memory host that number
-# tracks MemFree and so ignores ~30 GiB of reclaimable page cache (loading 66 GiB
-# of weights fills it), which makes it read 5-9 GiB when 34 GiB is genuinely
-# available. Both numbers move for unrelated reasons, and neither is comparable
-# across another process's run unless you drop caches first.
-#
-# A model this size and a second tenant that big CANNOT co-fit at any
-# utilization — that is what a GPU timeshare coordinator is for: pause this
-# container around the other model's work, ref-counted and debounced, so a burst
-# of it costs one reload. 0.40 does leave room for kokoro TTS to co-fit.
-#
-# If you serve a different model or have a dedicated GPU (nothing else competing
-# for the pool), raise this — 0.85-0.90 is the usual vLLM default territory.
+# Memory share is an operator choice. Keep headroom for the OS and other workloads.
 UTIL="${AVA_SERVE_GPU_UTIL:-${OMNI_GPU_UTIL:-0.40}}"
 
 # Stop any prior container of the same name before starting a new one.

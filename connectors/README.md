@@ -13,7 +13,7 @@ The easiest path is the **Setup → Connect an app** GUI, which writes the manif
 for you; this file documents the format underneath it.
 
 ## Where they load from
-- **built-in:** `connectors/<id>/connector.yaml` (this folder — the first-party ones)
+- **built-in:** `connectors/<id>/connector.yaml`, restricted to `builtins.json`
 - **yours:** `$AVA_HOME/connectors/<id>/connector.yaml` (overrides built-ins by id)
 
 ## Manifest format

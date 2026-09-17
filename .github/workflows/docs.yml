@@ -1,45 +1,15 @@
 name: Docs
 
-# Build the MkDocs site (docs-site/) and publish it to GitHub Pages on pushes to
-# master that touch docs. The build is --strict, so a broken internal link fails
-# the job before anything is published.
-
-# LAUNCHED 2026-07-30: the repo is public and auto-publish is back on.
-#
-# The gate above it existed because a GitHub Pages site is public even when the
-# repo is private (access control is Enterprise-only), so while Ava was private
-# every push to master would have republished this site to the open web ahead of
-# the repo itself. That asymmetry is gone now that both are public, and Pages is
-# configured with build_type=workflow so this file is the only thing that deploys.
-#
-# Keep the `paths:` filter. It is what stops an unrelated Python change from
-# redeploying the site, and `concurrency: pages` below is what stops two pushes
-# from racing each other to the same environment.
-#
-# BOOTSTRAPPING A FRESH REPO. A `paths:` filter needs a push whose diff touches
-# one of those paths, and the push that CREATES a repository does not qualify:
-# GitHub registers a workflow when an event first matches it, so on a brand-new
-# remote this file is never parsed, never appears in `gh workflow list`, and
-# `gh workflow run docs.yml` answers 404 — while Pages, set to
-# build_type=workflow, has nothing to deploy and serves 404 as well. An empty
-# commit does NOT break the deadlock; it touches no path, so the filter still
-# does not match. MEASURED 2026-08-04 on a recreated repo: six minutes of
-# waiting changed nothing, and the fix was a commit that edits a file the filter
-# lists — this one will do, which is why it is in the list.
+# Publish documentation after privacy checks and a strict MkDocs build.
+# Forks must enable GitHub Pages with GitHub Actions as the publishing source.
+# URLs come from the repository and Pages configuration below.
 on:
   push:
     branches: [master, main]
     paths:
       - "**/*.md"
       - "**/*.svg"          # diagrams are published on the site
-      # The landing hero's mp4, poster and captions, plus the docs detail crops.
-      # WITHOUT THIS a re-render deploys nothing: the filter above catches .md
-      # and .svg, so every previous media change happened to ride along with a
-      # prose edit in the same push and the gap never showed. A push that ONLY
-      # swaps ava-tour.mp4 (exactly what `npm run tour:hero` produces) matches
-      # no path, so the job never runs and the site keeps serving last month's
-      # video on a green build — the same silent-404 class of failure
-      # tests/test_landing_page.py exists to catch on the other side.
+      # Asset-only updates must also rebuild the published site.
       - "docs/assets/**"
       - "docs-site/**"
       - "frontend/src/styles/tokens.css"  # the site inherits the app palette
@@ -58,22 +28,28 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # The SAME switch drives three things that must light up together (see the
-    # header comment in docs-site/mkdocs.yml): the "View on GitHub" pill, the
-    # header repo widget, and sync.py's rewriting of links that point at repo
-    # source. Unset, sync.py silently degrades those links to plain text rather
-    # than minting 404s — which was right while the repo was private and is wrong
-    # now that it is public. The ordering caveat that used to sit here is spent:
-    # the repo went public on 2026-07-30 with this value already set, so the URLs
-    # it mints resolve rather than 404.
+    # Keep source links and the repository widget aligned with this fork.
     env:
-      AVA_DOCS_REPO_BASE: https://github.com/JayMTea/Ava
+      AVA_DOCS_REPO_BASE: ${{ github.server_url }}/${{ github.repository }}
+      AVA_DOCS_REPO_NAME: ${{ github.repository }}
+      AVA_DOCS_BRANCH: ${{ github.event.repository.default_branch }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - run: pip install -r requirements-docs.txt
+      - run: pip install -r requirements-docs.txt -r requirements-dev.txt
+      - name: Check public source and assets
+        env:
+          AVA_PRIVATE_NAMES: ${{ secrets.AVA_PRIVATE_NAMES }}
+        run: python -m pytest tests/test_no_owner_identity.py tests/test_no_private_apps_shipped.py tests/test_no_internal_plans.py tests/test_docs_assets.py tests/test_landing_page.py -q
+      - name: Configure Pages
+        id: pages
+        uses: actions/configure-pages@v5
+      - name: Set site URL
+        env:
+          SITE_URL: ${{ steps.pages.outputs.base_url }}
+        run: echo "AVA_DOCS_SITE_URL=${SITE_URL}/" >> "$GITHUB_ENV"
       - name: Stage docs
         run: python docs-site/sync.py
       - name: Build (strict)

@@ -95,7 +95,7 @@ A map from action to surface.
 | Forget an item | same panel | A whole upload's chunks go one at a time |
 | Export the store as JSON | same panel | |
 | See `memory.db` size, path and last write | `ava attest` | One of four artifacts in the evidence bundle |
-| Back up or move everything | Copy `AVA_HOME` | One folder holds memory, chats, settings and keys |
+| Back up or move everything | `ava instance backup` / `restore` | Consistent per-database snapshots; see [Instance reference](INSTANCE_REFERENCE.md) |
 
 ## Configuration (`ava.yaml`)
 

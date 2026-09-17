@@ -2,13 +2,13 @@
 
 ## Is my data safe? The short answer
 
-Ava runs on one machine that you control. Your chats, your uploaded files, your
-long-term memory and your voiceprint are ordinary files on that machine's disk.
-Out of the box the app answers only on the machine it runs on, behind a
-password, and Ava's agent has no network access of its own - each of its tools
-is allowed a short, named list of destinations and nothing else. Nothing is sent
-to anyone else unless you switch that on yourself: a cloud model you configured,
-a web search, or an API key you set.
+Ava stores instance data on infrastructure you control and binds the web app to
+loopback by default. You configure any wider exposure, inference backend, agent
+runtime, and connected services. Local inference can keep prompts on your host;
+cloud inference, remote agents, searches, downloads, and connected APIs send
+requests to their configured destinations. Sandbox enforcement depends on the
+selected runtime. Same-origin embedded apps are trusted code; configure a
+separate apps origin to isolate them from the shell.
 
 The rest of this page is the detailed version, written for someone checking
 those claims rather than taking them. Every control below names the file that
@@ -41,6 +41,13 @@ document is the human-readable companion to two diagrams:
     artifact.
 
 ## 1. Trust boundaries
+
+The sandbox-specific controls below describe the shipped NemoClaw integration.
+External `service` runtimes own their own isolation and egress enforcement;
+installed Python adapters and extensions execute as the bridge user. Direct
+mode has no agent tools. See [Product boundaries](docs/PRODUCT_BOUNDARIES.md)
+and [External agent service](docs/RUNTIME_SERVICE.md).
+
 
 [![Trust zones from the internet down to the sandbox: an untrusted internet/LAN zone, a Tailscale TLS + auth-gate perimeter, a loopback-only host zone holding the bridge, the 0600 secrets and Tor-only web egress, and a Docker sandbox with no ambient egress that reaches the bridge only over enumerated /internal routes with a scoped token](agent/docs/diagrams/security.svg)](agent/docs/diagrams/security.svg)
 
@@ -155,7 +162,6 @@ The bridge (`:8096`) is password-gated by middleware in `ava_bridge/auth.py`:
 *Egress* is anything leaving the machine. Here is the whole picture: what stays
 put, and what leaves only because you switched it on.
 
-[![What stays on your machine and what leaves only if you switch it on. Staying: your chats and history, what Ava remembers about you, your files and images, your voiceprint, the model weights, your connected apps' data, your secrets and API keys. Leaving only when switched on: a web search, your prompt to a cloud model you picked, a model download, and reaching Ava from your phone. Each of those switches is off or unset by default](docs/assets/egress.svg)](docs/assets/egress.svg)
 
 The agent cannot reach the network freely. **Every MCP tool is bound to its own
 narrow egress policy**; anything not explicitly allowed is denied by default.
@@ -404,7 +410,7 @@ Please report security issues **privately**, not in public issues or PRs:
   repo → Security → *Report a vulnerability*. That opens a private thread visible
   only to you and the maintainer.
 - If that form is unavailable to you for any reason, contact the maintainer
-  through the [GitHub profile](https://github.com/JayMTea) instead. There is
+  through the repository security reporting channel instead. There is
   deliberately no published email address: an inbox in a public repository gets
   scraped, and a report sent to a scraped address is a report that competes with
   spam. The advisory thread is both more private and more reliable.

@@ -206,7 +206,7 @@ class NodeExporterTests(_Case):
     def test_disk_for_a_directory_on_root_is_the_root_volume(self):
         # ...whereas a directory that simply is not its own mount lives on the
         # root filesystem, and saying so is the honest reading of the box.
-        self.cfg["disk_mount"] = "/home/models"
+        self.cfg["disk_mount"] = "/srv/models"
         self.serve()
         d = hwexporters.disk(hwexporters.reading())
         self.assertEqual(d["path"], "/")

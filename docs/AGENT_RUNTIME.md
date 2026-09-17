@@ -20,6 +20,12 @@ and the memory. Ava talks to it through one interface
 ([`ava_bridge/runtime/`](../ava_bridge/runtime/)), so the runtime is pluggable
 and its specifics live in a single adapter.
 
+For an independent agent service, select `agent.runtime: service` and follow
+[ava-runtime/1](RUNTIME_SERVICE.md). Custom Python adapters are installed in your
+instance as described in [Independent instances](INSTANCE_REFERENCE.md).
+The sandbox setup below applies specifically to NemoClaw. Direct mode provides
+tool-less chat; other runtime capabilities depend on the selected adapter.
+
 ## The default runtime: NemoClaw (recommended)
 
 [**NemoClaw**](https://github.com/NVIDIA/NemoClaw) (NVIDIA, Apache-2.0) is the
@@ -33,7 +39,7 @@ sandbox. That gives Ava:
 | **Isolation and egress policies** | An *egress policy* is a list of the network addresses one group of tools is allowed to reach, and nothing else ([agent/policies/](../agent/policies/)). The sandbox is where that list is enforced, along with the filesystem boundary. It is what makes the connector SDK's auto-generated policies mean something. |
 | **Persistent, per-conversation memory** | One session id equals continuous memory. |
 | **Skills** | The `ava-*` drop-in skills, deployed into the sandbox. |
-| **Live chain-of-thought** | The UI streams the agent's real reasoning and tool steps. |
+| **Run progress** | The UI reports runtime-provided progress and tool steps; live streaming requires a supporting adapter such as `openclaw_gw`. |
 
 **It is hardware-portable.** OpenShell creates the sandbox from a container image
 via the local Docker daemon (a community `openclaw` image, or your own

@@ -1,6 +1,6 @@
 """The agent sandbox's model is the operative brain — surfaced truthfully.
 
-Covers the two seams added for the "Ava's brain shows empty while Nemotron is
+Covers the two seams added for the "Ava's brain shows empty while Example is
 plainly answering" UX gap: NemoClawRuntime.sandbox_info() (parses `nemoclaw
 list --json`) and agent.which_model()'s sandbox fallback when the router has
 no answer.
@@ -18,7 +18,7 @@ LIST_JSON = json.dumps({
     "sandboxes": [
         {"name": "other-box", "model": "meta/llama-3.1-8b", "provider": "ollama"},
         {"name": "my-assistant",
-         "model": "nvidia/Nemotron-Open-30B-A3B-Reasoning-NVFP4",
+         "model": "example/Example-30B-A3B-Reasoning-NVFP4",
          "provider": "compatible-endpoint", "isDefault": True},
     ],
 })
@@ -44,7 +44,7 @@ class SandboxInfoTests(unittest.TestCase):
         with mock.patch.object(config, "OC_SANDBOX", "my-assistant"):
             info = self._rt().sandbox_info()
         self.assertEqual(info["provider"], "compatible-endpoint")
-        self.assertIn("Nemotron", info["model"])
+        self.assertIn("Example", info["model"])
 
     def test_other_sandbox_names_do_not_match(self):
         with mock.patch.object(config, "OC_SANDBOX", "nope"):
@@ -72,7 +72,7 @@ class SandboxInfoTests(unittest.TestCase):
         rt._sandbox_exists = lambda **_k: True  # type: ignore[method-assign]
         with mock.patch.object(config, "OC_SANDBOX", "my-assistant"):
             st = rt.status()
-        self.assertIn("Nemotron", st["sandbox_model"])
+        self.assertIn("Example", st["sandbox_model"])
         self.assertEqual(st["sandbox_provider"], "compatible-endpoint")
 
 
@@ -135,15 +135,15 @@ class AvailabilityRequiresSandboxTests(unittest.TestCase):
 class WhichModelFallbackTests(unittest.TestCase):
     def test_router_miss_falls_back_to_sandbox_model(self):
         rt = _fresh_runtime()
-        rt._info_cache.update(ts=9e12, info={"model": "nvidia/Nemotron-Omni",
+        rt._info_cache.update(ts=9e12, info={"model": "nvidia/Example-Omni",
                                              "provider": "compatible-endpoint"})
         with mock.patch.object(agent.requests, "get",
                                side_effect=OSError("router down")), \
              mock.patch.object(runtime, "active", return_value=rt):
             m = agent.which_model()
         self.assertEqual(m["id"], "agent-sandbox")
-        self.assertEqual(m["label"], "Nemotron-Omni")
-        self.assertEqual(m["model"], "nvidia/Nemotron-Omni")
+        self.assertEqual(m["label"], "Example-Omni")
+        self.assertEqual(m["model"], "nvidia/Example-Omni")
 
     def test_router_answer_still_wins(self):
         resp = mock.Mock()

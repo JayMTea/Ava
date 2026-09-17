@@ -40,7 +40,8 @@ This is the productization contract: fork Ava, connect **your** apps, ship.
 
 Manifests are discovered from two roots (the second overrides the first by id):
 
-1. **Built-in**: `<repo>/connectors/<id>/connector.yaml` (first-party, shipped)
+1. **Built-in**: `<repo>/connectors/<id>/connector.yaml`, restricted to IDs in
+   `connectors/builtins.json` (first-party, shipped)
 2. **User**: `$AVA_HOME/connectors/<id>/connector.yaml` (yours)
 
 `$AVA_HOME` defaults to the repo root; in Docker it is the mounted data volume.

@@ -42,7 +42,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-TOKEN = "tok_ABCdef0123456789"
+TOKEN = "fixture-claim-token"
 
 # A docker whose token is reachable by exactly one route, so each of install.sh's
 # three fallbacks can be exercised alone. FAKE_TOKEN_VIA: exec | logs | none.
@@ -112,7 +112,8 @@ class FirstRunLinkTests(unittest.TestCase):
         self.record = self.tmp / "launched.txt"
         self.bin = self.tmp / "bin"
         self.bin.mkdir()
-        stubs = {"docker": _DOCKER, "curl": _CURL, "uname": _UNAME, "sleep": _SLEEP}
+        stubs = {"docker": _DOCKER, "curl": _CURL, "uname": _UNAME, "sleep": _SLEEP,
+                 "nvidia-smi": "#!/bin/sh\nexit 1\n"}  # The fixture is CPU-only.
         # The simulated OS must not inherit the real host's WSL kernel. Keep
         # ordinary grep calls real; only the kernel probe follows the fixture.
         grep = shutil.which("grep")

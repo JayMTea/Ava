@@ -1,217 +1,69 @@
 # Why Ava?
 
-Connect an app and get its tools, its dashboard and its firewall - from one
-file, on hardware you already own.
+**One self-hosted workspace for your assistant and the apps you choose.**
+Ava is an independently configurable product. You can clone it, change its
+branding and persona, connect your own work, and choose where inference and
+agent execution run.
 
-## The problem
+## One connector, several surfaces
 
-**Writing an app used to be a project. It is a weekend now.** So you have
-several: something that tracks your training, something that tracks the money, a
-blog, whatever your business needed last month, a thing that runs the house.
-Each one works.
+An app manifest can declare all of these:
 
-None of them know about each other. And the assistants you can buy sit *outside*
-all of them, answering from whatever you remember to paste into a chat box. That
-gap is the whole reason this project exists.
-
-## The one thing worth comparing
-
-Start here, because it is the only claim on this page that nothing else in the
-market makes. Drop a folder with a `connector.yaml` into your data root, and
-**Ava derives all of the following from that single declaration**, at load time,
-with nothing hand-maintained in its core:
-
-| Surface | What it is |
+| Surface | What Ava derives |
 |---|---|
-| **A tab in the sidebar** | Your app's own web UI, reverse-proxied same-origin under `/apps/<id>/` so it inherits your session cookie and the current theme. No second login, no third-party cookies. |
-| **A health dot** | Beside that tab, from `service.probe`. Name the feature flag governing the service and a dead probe reads *off* rather than *down*. |
-| **A live perf source** | From `perf.path`. If your app never writes a `performance.jsonl`, the bridge writes one *for* it: every proxied call timed with its latency and status, self-registering, so a brand-new app is recorded on its first call with no restart. The agent reads them back with its `read_performance` tool. |
-| **Agent tools** | Declared in the manifest, discovered live from an `ava-tools/1` facade, or read off your app's own MCP server. Generated into the sandbox for you. |
-| **An egress policy** | The allow-list of exactly which addresses the agent's sandbox may reach on this app's behalf, namespaced `ava-<id>`, rendered from the same file. Anything not on it is refused. |
+| App interface | A sidebar entry and a proxied iframe, tool console, or bundled native view. |
+| Health | A probe-backed status, including off-by-choice where a feature flag is declared. |
+| Performance | An app's declared log, or request timing and status recorded by the proxy. |
+| Tools | Static actions, `ava-tools/1` discovery, or an MCP server's tools. |
+| Network policy | Generated destinations for compatible sandbox runtimes to enforce. |
 
-Plenty of tools are MCP clients. A whole category of MCP gateways does policy.
-Every self-hosted chat UI does tools. **Deriving the UI surface, the health
-signal and the network policy from one declaration is the thing Ava does
-that they do not.**
+Manifests live in your instance's data directory. Adding an iframe or tool-only
+connector requires no core source change. Native React views need a frontend
+build. Your app keeps its own authentication unless supported SSO is explicitly
+configured. Use a separate `apps.origin` for browser isolation; same-origin
+embedding trusts the app's JavaScript.
 
-The walkthrough is [Connect your apps](CONNECT_YOUR_APPS.md); the field-by-field
-reference is the [Connector SDK](CONNECTOR_SDK.md).
+Start with [Connect your apps](CONNECT_YOUR_APPS.md), then use the
+[Connector SDK](CONNECTOR_SDK.md) for the full contract.
 
-!!! note "And what is *not* special, said plainly"
+## What you can use
 
-    Self-hosted chat over a local model, speaking MCP, on-device voice, and
-    egress policy for tool servers are **commodity** as of 2026. Open WebUI,
-    LibreChat, AnythingLLM, Goose, Home Assistant's Assist pipeline and a
-    growing category of MCP gateways all ship some combination of them, several
-    with far more distribution than this project has. Ava does all four because
-    a platform needs them, not because they are a reason to choose it. If those
-    four are all you want, one of those projects is probably a better fit, and
-    that is a fine outcome.
+Chat, memory, uploaded documents, captured charts, app health, and hardware
+monitoring share a web interface. Optional voice, web search, remote hardware
+monitoring, and domain summaries extend that interface when configured.
+The PWA can be installed on a phone.
 
-## What is Ava?
+**Ava ships no default language model.** Connect a compatible local engine or
+cloud endpoint. NemoClaw is the default agent adapter, and independently hosted
+agents can implement [ava-runtime/1](RUNTIME_SERVICE.md). Direct mode provides
+tool-less chat. Streaming, provisioning, control-plane operations, and sandbox
+guarantees depend on the runtime you select.
 
-**A private, AI-native platform for the apps you own**, and the assistant is
-yours end to end: your model (served locally by **vLLM / Ollama / llama.cpp /
-MLX**, or through a **cloud API key**), your persona, your skills, your memory,
-and per-tool egress policies naming exactly which addresses it may reach. The
-agent runs sandboxed in [NemoClaw](AGENT_RUNTIME.md), the MCP client runs
-host-side so a compromised tool server never gets a line into that sandbox, and
-the agent itself reaches exactly two policed bridge routes and nothing else.
-Ava's own calls into the agent's control plane cross a second policed
-boundary of their own — one cookie-gated, rate-limited, audited relay
-route, with the browser never holding a socket to the agent.
+[Using Ava](capabilities/index.md) describes the screens and prerequisites.
+Hardware fit, cost, and energy numbers are estimates based on available
+measurements; the [evidence tools](EVIDENCE.md) distinguish measured results from
+unverified support.
 
-Chat and voice come with it, but they are how you *use*
-the platform, not what it is for.
+## Independent instances
 
-## Who it's for
+Keep your configuration, credentials, memory, and integrations under a separate
+`AVA_HOME`. Only allow-listed infrastructure connectors ship. There are no
+prefilled owner facts, private app dependencies, or maintainer model weights.
+Branding and persona belong to your instance. Separate owners use separate
+instances, not a shared password.
 
-People who build their own software - increasingly with AI writing most of it -
-and now have a scatter of small apps for their health, their money, their
-business, their writing and their home, with nothing joining them up. Ava is the
-hub for that scatter: always-on, on their **own** hardware, wired to their
-**own** apps, not locked to a single cloud vendor.
+[Product boundaries](PRODUCT_BOUNDARIES.md) maps each integration point.
+[The instance reference](INSTANCE_REFERENCE.md) covers extension installation,
+private builds, backup, and restore.
 
-## What it does
+## Data flows follow your configuration
 
-- **Derives four surfaces from one manifest**, per the table above.
-- **Answers across your apps** through the tools they advertise, behind a
-  policed boundary, naming the calls it made.
-- **Doubles as your apps' ops console**: per-app spend, speed, errors and
-  service health, computed from its own logs.
-- **Sizes your hardware** and names the model class it can hold, before you
-  download one.
-- **Talks and listens** on-device, gated to *your* voice.
-- **Searches the web** through a SearXNG *you* run.
-- **Studies its own activity** and parks proposals for you.
-- **Remembers what matters**, and hands you the eraser.
-- **Installs to your phone** as a home-screen app.
+Local storage does not make every configured service local. Cloud inference and
+remote agents receive prompts, tools contact their declared services, and model
+downloads reach registries. Web search is off by default and requires your own
+SearXNG/Tor setup. Voice is off by default and requires voice dependencies.
+Read [Security](../SECURITY.md) before selecting trust boundaries for your apps
+and runtimes.
 
-Each of those is taken apart, with the endpoint or config key behind it, in
-[Using Ava](capabilities/index.md).
-
-!!! note "What needs a setup step first"
-    **Web search** is off by default, and the shipped Docker profiles do not
-    provision SearXNG or Tor yet, so it is opt-in setup rather than on out of
-    the box. **Voice** is off by default, and under Docker needs an image built
-    with `AVA_VOICE_DEPS=1`. **The agent runtime** wants the NemoClaw CLI
-    already installed; Ava deliberately will not run a `curl | bash` installer
-    on your behalf. See [Quickstart](../deploy/README.md).
-
-!!! note "Three words this site uses a lot"
-    **MCP** is the Model Context Protocol, the open standard a tool server
-    speaks so any assistant can call it. A **sandbox** is the locked-down
-    container Ava's agent runs inside. An **egress policy** is that sandbox's
-    allow-list of what it may talk to; everything not on the list is refused.
-
-## What it is not
-
-- **Not another chat app.** The chat window is the way in, not the product. If
-  all you want is a private chat UI over a local model, several projects do
-  that in fewer moving parts. Ava is worth its complexity only if you have apps
-  to plug into it.
-- **Not a model.** Ava is the control layer around one. It trails the cloud
-  giants on raw model IQ and polish, because its job is to put *their* models
-  (or yours) to work, privately.
-- **Not a NemoClaw competitor.** NemoClaw is Ava's default agent runtime, and
-  Ava is the assistant built on it. Use NemoClaw alone if you want the runtime;
-  use Ava if you want the stack. See [Set up the agent](AGENT_RUNTIME.md).
-- **Not multi-tenant.** One install, one owner. There is no seat count, no
-  billing tier, and no capability held back behind one.
-
-## Every claim, and what backs it
-
-| Claim | What backs it |
-|---|---|
-| **One declaration, four surfaces.** | The table at the top of this page, every row of it derived at load time with nothing hand-maintained in Ava's core. [Connect your apps](CONNECT_YOUR_APPS.md) |
-| **The boundary is real.** | The MCP client runs host-side, so a compromised tool server never gets a line into the sandbox, and the agent reaches exactly two policed bridge routes and nothing else. [Connector SDK](CONNECTOR_SDK.md) |
-| **And it holds in both directions.** | Ava reaches the agent's control plane through one relay route — cookie-gated, rate-limited, audited by method, and refusing the settings that govern browser authentication. The browser never opens a socket to the agent. [Agent runtime reference](AGENT_RUNTIME_REFERENCE.md) |
-| **It knows what your hardware can take.** | Setup reads your chip and usable memory and names the model tier it will hold, detected live, before you download anything. [Pick a model](CHOOSE_A_MODEL.md) |
-| **It watches itself, and your apps.** | Tokens per second, time to first token (TTFT), cost and energy, jobs, alerts, and per-app service health and call latency. An assistant you can't observe is one you can't trust. |
-| **No personality until you give it one.** | The shipped prompt covers only what Ava must *do*. How it talks is a blank field you fill in, so a fork sounds like *your* assistant. [Persona](PERSONA.md) |
-| **You own it.** | Self-hosted and single-tenant, on your GPU. Conversations, files and voiceprint stay on your box. Nothing reaches a third party unless you turn it on. |
-| **Your model, local by default.** | Ships a 7B model that fits a normal GPU, and swaps in one line: vLLM, Ollama, llama.cpp, LM Studio, MLX, or a cloud endpoint. [Pick a model](CHOOSE_A_MODEL.md) |
-| **It learns without leaking.** | Local-first cycles analyse Ava's own activity and park proposals for your sign-off. Nothing self-applies. [Memory](MEMORY.md) |
-
-??? note "The config keys behind those claims"
-    Every default below is read straight out of the code, not out of a brochure.
-
-    | Key | Default | What it means |
-    |---|---|---|
-    | `persona.style` | *empty* | Free text written straight into the prompt. Empty means the model's own voice, unshaped. Max 4000 characters. |
-    | `features.web_search` | `false` | Web search off. Env override `AVA_WEB_SEARCH`. |
-    | `features.voice` | `false` | Voice off, and it needs `requirements-voice.txt` installed. Env override `AVA_VOICE`. |
-    | `AVA_WEB_TOR` | `1` | Host-side fetch is fail-closed over Tor. Set `0` to opt out. |
-    | `sandbox: docker` (connector manifest, `mcp:` block) | *unset* | Set it on a stdio MCP server and Ava runs it in a throwaway container: `--read-only`, a tmpfs for scratch, CPU/memory/pid caps, `no-new-privileges`, and **no host filesystem mounts**. Add `network: none` to cut its network too. The Setup GUI offers this as a one-click toggle, defaulted on when Docker is available. |
-
-    The approvals ladder is the gate worth reading twice. A tool call that
-    carries `confirm:` pauses, shows you its arguments, and runs only if you
-    approve. An author's `confirm:` outranks the access tier: it always asks
-    and can never be granted away. Every request and every decision is written
-    to the audit ledger.
-
-## What actually leaves your machine
-
-[![What stays on your computer and what leaves only if you switch it on: chats, memories, files, voiceprint, model weights, connected-app data and secrets never cross the line; a web search, a prompt to a cloud model, a model download, and reaching Ava from your phone each cross it only behind a named switch, and each of those switches is off or unset by default](assets/egress.svg)](assets/egress.svg)
-
-Nothing crosses that line unless you turn it on, and each crossing carries the
-name of the switch that opens it. [Privacy and security](../SECURITY.md) covers
-what to set when you do open one.
-
-## The verification tiers
-
-**Where a claim is unverified, the code says `NOT MEASURED` rather than rounding
-up.**
-
-Ava's platform table names twelve hardware profiles, and exactly one of them is
-marked verified on real silicon today. So the installer prints your platform's
-**verification tier** - how strong the evidence behind "this works here"
-actually is - before it installs anything. `[verified-on-device]` means somebody
-ran this on that hardware class and committed the report. `[ci-simulated]` means
-the decision logic is tested but the numbers are not. You learn which one you
-are on first contact, not after a week of trusting a number.
-
-??? note "What verified means here"
-    Verbatim from `deploy/install.sh` on the machine this was written on, and
-    the line a Mac gets today:
-
-    ```
-    ==> Platform: Unified-memory NVIDIA (GB10 / Grace-Blackwell) [verified-on-device]
-    ==> Platform: Apple Silicon (Mac mini / Studio / laptop) [ci-simulated]
-    Warning: This hardware class is tested by simulation, not on real hardware.
-    Warning: The install should work; the numbers Ava reports are unconfirmed here.
-    Warning: Help fix that: python3 tools/ondevice_check.py --record
-    ```
-
-    The tiers live in `deploy/platforms.conf`, strongest first. Anything above
-    `ci-simulated` must name an evidence file that exists, or the table fails
-    its own test.
-
-    | Tier | What it means |
-    |---|---|
-    | `verified-on-device` | A human ran `tools/ondevice_check.py` on real hardware and committed its JSON report. |
-    | `ci-native` | A CI job runs the real code on real hardware of this class. |
-    | `ci-simulated` | Decision logic exercised against constructed or recorded sysfs bytes. The parsing is tested; the numbers are not. |
-    | `community-reported` | Someone else's `ondevice_check` report, named in the table. |
-    | `unsupported` | Detected and refused, with an explanation. |
-
-    Every capability carries the same discipline. `ava attest` writes an
-    evidence bundle of what this box can and cannot demonstrate. It is
-    **unsigned on purpose**: the trust model is reproducibility rather than
-    authenticity. Signing your own bundle proves only that you signed it, so
-    instead the bundle ships a stdlib-only `verify.py` that recomputes every
-    digest offline, and a `--self-test` that mutates a byte and asserts the
-    verifier actually fails. A verifier nobody has seen fail is not a verifier.
-
-    Hardware reports are the single most useful contribution to this right now.
-    `python3 tools/ondevice_check.py --record --json` on your machine produces
-    exactly the evidence the support matrix is missing. Full detail:
-    [Evidence bundles](EVIDENCE.md) and
-    [Hardware validation](HWINFO_VALIDATION.md).
-
-## Start here
-
-One command on the Docker path. It detects your hardware, writes your `.env`,
-and finishes by printing a one-time link that sets your admin password.
-
-**[Install Ava](../deploy/README.md)**
+[Install Ava](../deploy/README.md), [pick a model](CHOOSE_A_MODEL.md), and
+[set up an agent](AGENT_RUNTIME.md) when you need tools.

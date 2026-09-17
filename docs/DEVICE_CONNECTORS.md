@@ -182,11 +182,9 @@ What Ava does with an accepted event:
   `paths.logs` / `AVA_LOGS_DIR`). Bounded and self-managing - 8 MiB per file,
   3 rotations kept, no external database - so it survives restarts and Ava can
   answer *"did anything happen?"*.
-- **Surfaces it live** on the dashboard: every event rides the ops SSE stream as
-  a `device.event` frame and lands at the top of the **Device events** panel on
-  the Operations page (the panel appears once your first event arrives).
-- For **`notify: true`** or **`severity` warn/critical**, also raises a short-lived
-  entry in the dashboard's **active alerts** panel.
+- Records event notifications for consumers of the device event APIs. The
+  retired Operations dashboard and its browser alert controls are not part
+  of the current shell.
 - Makes it **readable by Ava's agent** via the `device_events` tool, so *"did the
   greenhouse report anything?"* works in conversation.
 
@@ -214,10 +212,8 @@ rotates the token. Keep it secret; treat it like a password.
     Ava is the *delivery surface*: it receives the event and shows it to the
     user.
 
-    Opt-in **voice**: tick *Speak alerts* in the Operations page's **Device
-    events** panel and Ava reads notify/warn/critical events aloud in that
-    browser via the Web Speech API - no server voice process. Per-browser, and
-    off by default.
+    The current shell does not offer the former *Speak alerts* browser control.
+    Build a separate event consumer if your workflow needs spoken notifications.
 
 ---
 

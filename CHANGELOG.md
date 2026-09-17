@@ -8,6 +8,21 @@ pre-release milestones from when Ava ran on one box and nothing was tagged.
 
 ## [Unreleased]
 
+### Standalone product and documentation
+
+- Shell launchers respect the selected instance environment and exported
+  overrides; the standalone voice loop uses instance models and persona.
+- The local NVIDIA launcher defaults to `ava-inference`. Set
+  `AVA_SERVE_CONTAINER` to reuse a previously named container.
+- Public metadata uses project attribution. Development identifiers and stale
+  demo media were removed from the current source tree.
+- README, capability references, and Pages now describe selectable runtimes,
+  app authentication, optional services, and independent instances. Pages derives
+  deployment URLs from its repository configuration.
+- Privacy checks cover extensionless text, private-name rules, and model/data
+  artifacts. Pages runs the checks before upload; missing docs sources fail staging.
+
+
 ### Added
 
 - **Right-click any sidebar tile to open it in a new tab or window.** Every
@@ -1555,11 +1570,11 @@ minutes." Four coherent work streams:
 ### Fixed - Omni agent switchover
 - **Ava's agent now runs on open-model 30B** (Super-120B fully retired). The sandbox
   agent's own inference config was repointed from Super to Omni.
-- **`vllm-open` served at 65536 context** (was 32768) - the agent's ~29k-token
+- **The local inference container served at 65536 context** (was 32768) - the agent's ~29k-token
   system context now fits; `deploy/omni-serve.sh` default bumped.
 
 ### Security
-- **`vllm-open` bound to `127.0.0.1` only** (was `0.0.0.0`) - inference is no longer
+- **The local inference container bound to `127.0.0.1` only** (was `0.0.0.0`) - inference is no longer
   exposed on external interfaces; the sandbox reaches it via the host-side guard
   proxy. `ava_security_check.py` passes.
 

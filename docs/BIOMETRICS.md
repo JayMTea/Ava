@@ -31,14 +31,17 @@ Enrollment clips are held in memory and never written to disk by
 | Path | What | Destroyed by the delete? |
 |---|---|---|
 | `$AVA_HOME/models/voiceprint.npy` | the enrolled voiceprint | **yes** |
-| `<code root>/models/voiceprint.npy` | a legacy copy `load_voiceprint()` migrates forward | **yes** - see below |
+| `<code root>/models/voiceprint.npy` | legacy enrollment, only when explicitly enabled or using the original checkout instance | **yes**, only when that legacy source is enabled |
 | `state.heavy["voiceprint"]` / `["verifier"]` | the running process's cached copy | **yes**, evicted together |
 | `voice.threshold` in `ava.yaml` | a gate tuned to that print | **yes**, reset to default |
 | `$AVA_HOME/logs/last_talk.wav` | raw audio, only written under `AVA_DEBUG_TALK` | **yes** |
 | `$AVA_HOME/models/ecapa/**` | public pretrained weights, identical for every install | **no** - nothing about you |
 | `enroll/*.wav`, `*.m4a` | source recordings *you* provided to the CLI | **no** - your files |
 
-**Why two stored copies matter.** `speaker.load_voiceprint()` migrates a legacy
+A separate instance never adopts or deletes the checkout's enrollment by default.
+`voice.legacy_enrollment` explicitly opts into shared legacy enrollment.
+
+**Why two stored copies matter when migration is enabled.** `speaker.load_voiceprint()` migrates a legacy
 repo-local voiceprint into the persistent store when the live one is absent, so
 that a Docker rebuild never silently loses an enrollment. The consequence is that
 deleting only `$AVA_HOME/models/voiceprint.npy` lets the biometric **come back**
@@ -72,8 +75,8 @@ first:
 
 1. `GET /api/hub/voice/status` reports `enrolled: false` - this is the tool's own
    report about itself, and is the one you should trust least.
-2. `test -f` each path in the receipt, and check the **Models & voiceprint** row
-   on the **Data** page for its size and last-write time.
+2. `test -f` each path in the receipt and inspect `ava attest` for remaining
+   stores. The current shell has no Data page.
 3. Read the ledger: `audit.tail(kind="voiceprint")` shows the enrollment and the
    deletion, each with a **content digest**. The digest is what makes destruction
    *provable* - the record can say "an artifact hashing to `a1b2…` existed and was

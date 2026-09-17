@@ -11,7 +11,7 @@ Layered resolution (highest wins):
 
 Plus a single **data root** (`AVA_HOME`) under which all runtime state lives
 (config, data, logs, media, models, secrets). This is the piece that makes Ava
-portable: nothing in the code needs to know it lives at /home/<you>/projects/Ava.
+portable: source and instance locations are configured independently.
 
 **Backwards compatible on purpose:** with no `ava.yaml` and no `AVA_HOME` set,
 `AVA_HOME` defaults to the repo root, so the existing personal install keeps

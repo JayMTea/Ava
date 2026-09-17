@@ -3,13 +3,9 @@ from unittest import mock
 
 from ava_bridge import model_fit
 
-# Ava's real prod inference config is a SINGLE always-on backend: the open-model
-# 30B brain (OMNI below). The fit engine itself is generic, though — a fork can
-# declare more than one local backend (e.g. the Mac two-model example in
-# config.example.yaml). SMALL is a synthetic second local backend used here only
-# to exercise the engine's tier / workload / memory-shedding logic.
-OMNI = {"id": "omni", "label": "open-model 30B",
-        "model": "nvidia/Nemotron-Open-30B-A3B-Reasoning-NVFP4",
+# Synthetic backends exercise tier, workload and memory-shedding decisions.
+OMNI = {"id": "omni", "label": "Example 30B",
+        "model": "example/Example-30B-A3B-Reasoning-NVFP4",
         "engine": "vllm", "url": "http://127.0.0.1:8002/v1",
         "fit": {"weight_gb": 35, "tier": "large", "min_free_gb": 10,
                 "workloads": ["chat", "reasoning", "code", "vision", "audio",

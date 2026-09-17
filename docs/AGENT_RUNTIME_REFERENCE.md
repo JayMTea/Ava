@@ -133,10 +133,11 @@ your users do.
 
 ## Adding another runtime
 
-Implement [`AgentRuntime`](../ava_bridge/runtime/base.py) (`run_turn`, `exec`,
-`provision`, `status`, …) in `ava_bridge/runtime/<name>.py`, register it in
-`runtime/__init__.py`, and select it with `agent.runtime: <name>`. `RemoteRuntime`
-(the Docker full-agent path) and `DirectRuntime` are worked examples.
+Implement [`AgentRuntime`](../ava_bridge/runtime/base.py) in an instance-installed
+adapter under `$AVA_HOME/runtime_adapters/<name>/`, declare its entry point in
+`extension.yaml`, and select `agent.runtime: <name>`. No core registry edit is
+required. See [Independent instances](INSTANCE_REFERENCE.md). For a separately
+hosted service, implement [ava-runtime/1](RUNTIME_SERVICE.md).
 
 ### What happened when that claim was tested
 

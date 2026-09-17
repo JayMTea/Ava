@@ -5,18 +5,11 @@ title = "Ava gitleaks config"
 [extend]
 useDefault = true
 
-# Narrow allowlist: only the true template/example files are path-excluded, so a
-# real secret accidentally committed to docs/examples is still caught. The
-# regexes cover placeholder tokens that appear in prose examples.
+# Only known placeholder patterns are exempted. Templates and examples remain
+# in scope so pasted real credentials are detected.
 [allowlist]
 description = "Example/template placeholders — not real secrets"
-paths = [
-  '''config\.example\.yaml''',
-  '''\.env\.example''',
-  '''connectors/_template/connector\.yaml''',
-  '''examples/hello-app/connector\.yaml''',
-  '''examples/device-app/connector\.yaml''',
-]
+# Templates are scanned too: accidentally pasted real credentials must fail.
 regexes = [
   '''you@example\.com''',
   '''your-[a-z-]*-(key|token|password)''',

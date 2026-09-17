@@ -80,7 +80,8 @@ to remain available. Recorded snapshots remain immutable and are stored in
 `paths.data/analytics-artifacts.db`; disconnecting the connector removes access to
 its artifacts until that connector is available again.
 
-The Data inventory exposes stored chart counts and audited deletion.
+The store inventory and deletion helpers include recorded charts. The current
+shell has no Data tab; use instance backup/inspection and artifact export routes.
 `data.artifact_retention_days` defaults to zero (retain indefinitely); positive
 retention prunes on store access. Backups preserve recorded charts independently
 of live-store retention. See [Instance reference](INSTANCE_REFERENCE.md).

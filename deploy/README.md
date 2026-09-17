@@ -310,10 +310,10 @@ gate entirely.
     would leave it looking for `frontend/dist`, `config.example.yaml` and
     `agent/install.sh` inside `site-packages`, where they are not.
 
-    A healthy run looks like this - `doctor` shows the hardware it detected, and
-    `up` prints the address to open:
+    `doctor` reports detected hardware and missing services; `up` prints the
+    address to open. Configure and start an inference backend before expecting
+    the inference check to pass.
 
-    ![Terminal: ava setup and ava doctor passing with green checks, including hardware Apple M4 Max with 128 GB unified memory, then ava up printing http://localhost:8096](../docs/assets/install-1-terminal.png)
 
     Engine wiring, per-engine tool-calling support and the Apple Silicon recipe are
     in the [install reference](../docs/INSTALL_REFERENCE.md).

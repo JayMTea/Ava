@@ -74,8 +74,10 @@ reads as Ava's own.
     How the tab renders is the manifest's choice:
 
     - **`embed: iframe`** - your app's own web UI, reverse-proxied same-origin
-      under `/apps/<id>/` so it inherits the session cookie and the current
-      theme.
+      under `/apps/<id>/`. Ava authenticates proxy access and strips its own
+      cookie upstream. The app retains its login unless SSO is configured.
+      Set `apps.origin` for isolation from the shell; same-origin mode trusts
+      the embedded app. Theme support depends on the app.
     - **`embed: none`** - no UI of its own, so Ava renders a read-only console
       of the agent actions the app exposes. When the connector's tools are
       discovered at run time (`mcp:` or `actions.discover`), that list is
@@ -125,7 +127,7 @@ for the manifest reference.
     you do expose Ava - cookie flags, trusted proxies, the first-run claim
     token - is in [Security](../../SECURITY.md).
 
-## Two optional capabilities, and "off" means off
+## Optional capabilities, and "off" means off
 
 Web search and voice are switches, not assumptions. They live in one backend
 registry (`ava_bridge/features.py`) that renders the **Setup → System →
@@ -135,6 +137,9 @@ code gates on.
 | Switch | Default | What it needs |
 |--------|---------|---------------|
 | `features.web_search` | off | A self-hosted SearXNG, plus the guarded fetch path |
+| `features.memory` | on | Local recall and distillation using a configured local inference backend |
+| `features.data_artifacts` | on | Connected apps emitting supported artifact schemas |
+| `features.domains` | off | Operator-defined app groups and KPI sources |
 | `features.voice` | off | `requirements-voice.txt` installed (and a voiceprint, to gate who Ava listens to) |
 | `features.remote_hardware` | off | node_exporter and a GPU exporter on the machine that runs your models, when that is not the box Ava is on; addresses in Setup → Hardware ([install reference](../INSTALL_REFERENCE.md#reading-the-hardware-of-another-machine)) |
 
@@ -151,8 +156,9 @@ A capability you chose not to enable never surfaces as a mysterious outage.
 
 ## One data root
 
-Everything Ava persists resolves under **`AVA_HOME`**. One root means backup
-is a folder copy, and it means the **Data** view can show you the whole of it.
+Instance stores resolve through **`AVA_HOME`** and configurable path overrides.
+Use `ava attest` to inventory them and the [instance backup commands](../INSTANCE_REFERENCE.md)
+for consistent SQLite snapshots. The retired Data tab is not part of the current shell.
 
 | Folder | What is in it |
 |---|---|

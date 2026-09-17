@@ -12,20 +12,13 @@ cff-version: 1.2.0
 message: "If you use Ava, build on it, or write about it, please cite it as below."
 title: "Ava: a private, self-hosted AI assistant that runs on your own hardware"
 abstract: >-
-  Ava is a self-hosted personal AI assistant: chat, voice and agentic code
-  changes, running entirely on hardware you own. It bundles an inference engine, an
-  agent runtime in a sandbox with deny-by-default egress policy, a connector SDK for
-  wiring in your own applications, and an operations dashboard that reports what it
-  has actually measured — including a data page that lists every store it keeps, with
-  audited deletes and a destruction path for biometric voiceprints.
+  Ava is a self-hosted assistant and workspace for connected applications.
+  It provides chat, configurable agent runtimes, a connector SDK, optional voice,
+  instance-local memory, and operational dashboards. Operators choose their own
+  inference engine or API, integrations, credentials, and execution boundaries.
 type: software
 authors:
-  - family-names: Thompson
-    given-names: Joshua
-    alias: JayMTea
-    # No email on purpose: this file is published and scraped. These two links are
-    # the reachable routes, and they are the same ones NOTICE names.
-    website: "https://www.linkedin.com/in/joshua-thompson-b89913105"
+  - name: "The Ava Authors"
 repository-code: "https://github.com/JayMTea/Ava"
 url: "https://jaymtea.github.io/Ava/"
 license: Apache-2.0

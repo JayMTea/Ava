@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""Local voice loop for Ava on the DGX Spark.
+"""Voice loop for Ava with an operator-configured inference endpoint.
 
 Pipeline:  USB mic --(arecord)--> energy VAD --> faster-whisper (STT, CPU)
            --> Ava (local LLM engine, port 8002) --> Piper (TTS) --> aplay/pw-play (TV HDMI)
 
-Everything runs locally. Whisper stays on CPU so it never competes with the
-Omni model for GPU memory.
+Whisper stays on CPU. Audio processing is local; prompts are sent to AVA_URL.
 """
 
 import argparse
@@ -28,8 +27,12 @@ try:
     _OWNER = _settings.owner_name() or "the user"
     _OWNER_ADDR = _settings.owner_name()
     _HARDWARE = _settings.owner_hardware()
+    _VOICE_DEFAULT = os.path.join(_settings.models_dir(), "en_US-amy-medium.onnx")
+    _STYLE = _settings.persona_style()
 except Exception:  # noqa: BLE001 — voice loop must run even without the config layer
     _ASSISTANT, _OWNER, _OWNER_ADDR, _HARDWARE = "Ava", "the user", "", "your local hardware"
+    _VOICE_DEFAULT = ""  # Require VOICE if instance settings could not load.
+    _STYLE = ""
 
 _ADDR = f" {_OWNER_ADDR}" if _OWNER_ADDR else ""
 
@@ -47,7 +50,7 @@ PLAYER = os.environ.get("PLAYER", "")
 OUT_DEVICE = os.environ.get("OUT_DEVICE", "")           # aplay -D ... (e.g. plughw:0,3 for HDMI 0)
 
 PIPER = os.path.join(HERE, "bin", "piper", "piper")
-VOICE = os.environ.get("VOICE", os.path.join(HERE, "models", "en_US-amy-medium.onnx"))
+VOICE = os.environ.get("VOICE", _VOICE_DEFAULT)
 
 WAKE_WORD = os.environ.get("WAKE_WORD", "").strip().lower()  # optional, e.g. "ava"
 
@@ -64,13 +67,13 @@ MIN_SPEECH_MS = 300                                    # ignore blips shorter th
 MAX_UTTERANCE_S = 20                                   # hard cap per utterance
 
 PERSONA = (
-    f"You are {_ASSISTANT}, the personal, always-on AI assistant for {_OWNER}, running "
-    f"locally and privately on {_HARDWARE}. Your name is {_ASSISTANT}; always "
-    f"refer to yourself as {_ASSISTANT} and never as OpenClaw, a runtime, or a language "
-    "model. Be warm, concise, proactive, and capable — a private on-device "
-    "assistant in the spirit of Siri. Answer in one to three spoken sentences "
+    f"You are {_ASSISTANT}, an assistant for {_OWNER}. "
+    "Answer in one to three spoken sentences "
     "unless more detail is explicitly requested; avoid markdown, lists, and "
-    "code blocks since your reply will be read aloud."
+    "code blocks since your reply will be read aloud. "
+    "This voice interface sends prompts to the configured inference endpoint; "
+    "do not assume it is local or that you have tools. "
+    + _STYLE
 )
 
 

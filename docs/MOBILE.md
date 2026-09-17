@@ -24,9 +24,6 @@ is opened.
    *Add to Home screen*). Chrome may also offer to install it on its own
    once you've used Ava a few times.
 
-| iPhone | Android |
-|---|---|
-| ![iPhone: in Safari, tap Share, then Add to Home Screen](assets/pwa-install-ios.png) | ![Android: in Chrome, tap the three-dot menu, then Install app](assets/pwa-install-android.png) |
 
 ## HTTPS is required for the full experience
 

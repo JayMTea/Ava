@@ -159,7 +159,7 @@ class AuthHeaderFromStoreTests(unittest.TestCase):
     """The bearer header resolves from the saved secret, and the value never
     lands in the manifest or a generated tool (the load-bearing invariant)."""
 
-    SECRET = "sk-secret-xyz-987"
+    SECRET = "fixture-token"
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()

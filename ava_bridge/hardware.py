@@ -309,7 +309,7 @@ def _app_from_cmdline(cmd: str) -> str:
 
     Two evidence shapes, because a Python process is started one of two ways and
     only the first was ever read. A script whose name is `main.py` says nothing
-    and defers to its folder; a script named `emu35_worker.py` IS the answer and
+    and defers to its folder; a script named `sample35_worker.py` IS the answer and
     was being thrown away, leaving the row called the literal word "Model".
     """
     for tok in (cmd or "").split():
@@ -327,7 +327,7 @@ def _app_from_cmdline(cmd: str) -> str:
                 return parent
             continue
         # Any other script names itself. The folder above it is not better
-        # evidence — `.../atelier/emu35_worker.py` sits in a workspace folder
+        # evidence — `.../example-workspace/sample35_worker.py` sits in a workspace folder
         # and the script is the specific fact.
         return base[:-3]
     return _module_from_cmdline(cmd)
@@ -368,8 +368,8 @@ def _env_from_cmdline(cmd: str) -> str:
     """The directory an interpreter's virtualenv was built in, or "".
 
     The weakest evidence on the line and so the last one tried: a venv at
-    `~/models/emu35/venv` was put there by someone who called that folder
-    emu35, which beats the word "Model" on the row holding the most memory on
+    `~/models/sample35/venv` was put there by someone who called that folder
+    sample35, which beats the word "Model" on the row holding the most memory on
     the box. Only a venv-SHAPED directory counts — without that check
     `/usr/bin/python3` would name half the rows "usr".
     """

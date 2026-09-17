@@ -14,6 +14,7 @@ Set AVA_DOCS_REPO_BASE=https://github.com/you/ava to link source (public repos).
 from __future__ import annotations
 
 import os
+import posixpath
 import re
 import shutil
 from pathlib import Path
@@ -40,6 +41,10 @@ CURATED: dict[str, str] = {
     # Ava is for them, and answered that at word 988 while the reader was still
     # scrolling. docs/WHY_AVA.md is the site's copy: same claims, reader order.
     "docs/WHY_AVA.md": "overview.md",
+    "docs/PRODUCT_BOUNDARIES.md": "docs/PRODUCT_BOUNDARIES.md",
+    "docs/INSTANCE_REFERENCE.md": "docs/INSTANCE_REFERENCE.md",
+    "docs/RUNTIME_SERVICE.md": "docs/RUNTIME_SERVICE.md",
+    "docs/ANALYTICS_ARTIFACTS.md": "docs/ANALYTICS_ARTIFACTS.md",
     "CONTRIBUTING.md": "CONTRIBUTING.md",
     "TRADEMARK.md": "TRADEMARK.md",
     "SECURITY.md": "SECURITY.md",
@@ -60,6 +65,7 @@ CURATED: dict[str, str] = {
     "docs/capabilities/chat.md": "docs/capabilities/chat.md",
     "docs/capabilities/connectors.md": "docs/capabilities/connectors.md",
     "docs/capabilities/agent.md": "docs/capabilities/agent.md",
+    "docs/capabilities/agent-console.md": "docs/capabilities/agent-console.md",
     "docs/AGENT_RUNTIME.md": "docs/AGENT_RUNTIME.md",
     "docs/ALLOCATION.md": "docs/ALLOCATION.md",
     "docs/CONNECT_YOUR_APPS.md": "docs/CONNECT_YOUR_APPS.md",
@@ -129,51 +135,9 @@ ASSETS: dict[str, str] = {
     "frontend/public/fonts/OFL.txt": "docs/assets/fonts/OFL.txt",
     "docs/assets/architecture.svg": "docs/assets/architecture.svg",
     "docs/assets/agent-remote-runtime.svg": "docs/assets/agent-remote-runtime.svg",
-    # "What leaves your machine" — the owner-facing privacy picture, on the
-    # Why Ava? page and SECURITY.md. The privacy claim was argued in prose and
-    # drawn nowhere.
-    "docs/assets/egress.svg": "docs/assets/egress.svg",
-    # Detail CROPS, from demo/manifests/docs-crops.yaml. The docs column caps
-    # media at 44rem, so a 1920px full-page capture lands at ~704px and small UI
-    # becomes unreadable: each of these is the one element a page was arguing
-    # about in prose while showing it at 0.37x, or not at all.
-    "docs/assets/chat-tools-used.png": "docs/assets/chat-tools-used.png",
     "docs/assets/approvals-banner.png": "docs/assets/approvals-banner.png",
-    # ASSETS is an explicit allow-list, so a new image referenced from a page is
-    # a 404 on the site until it is named here.
-    "docs/assets/install-1-terminal.png": "docs/assets/install-1-terminal.png",
-    # docs/assets/hardware-detected.png is deliberately NOT staged: it is a crop
-    # of the old row-layout "Your hardware" panel and no page references it.
-    "docs/assets/pwa-install-ios.png": "docs/assets/pwa-install-ios.png",
-    "docs/assets/pwa-install-android.png": "docs/assets/pwa-install-android.png",
-    # The landing hero's narrated walkthrough, its poster, and its captions —
-    # the ONE video on this site, embedded in overrides/home.html band 2.
-    # Rendered by demo/src/tour-hero.ts from demo/vo-hero/SCRIPT.md.
-    #
-    # A MISSING ASSET HERE IS SILENT. main() only appends to `missing` and
-    # prints a warning, and mkdocs --strict checks markdown links, not the
-    # `src` of a <video> in a Jinja template. That is how this tour vanished
-    # twice: a2148e7 stripped the binaries from history and re-added only the
-    # svg/png ones, so the page shipped a player whose source AND poster both
-    # 404'd on a green build; 2ceb9f6 then removed the embed and these entries
-    # together, which is the correct order and the one to repeat. If you strip
-    # these again, delete the embed in overrides/home.html in the same commit.
-    #
-    # tests/test_landing_page.py::test_landing_media_is_staged_and_tracked
-    # now fails on either half going missing, so the silence above is bounded.
-    "docs/assets/reel-poster.png": "docs/assets/reel-poster.png",
-    "docs/assets/ava-tour.mp4": "docs/assets/ava-tour.mp4",
-    # The .vtt is listed for the same reason as the mp4, and matters more: an
-    # unlisted caption track does not fail anything, it just 404s and leaves a
-    # video that looks like it has no captions at all.
-    "docs/assets/ava-tour.vtt": "docs/assets/ava-tour.vtt",
     "agent/docs/diagrams/security.svg": "agent/docs/diagrams/security.svg",
-    # Staged as assets, not pages: both are fixed-width plain text that markdown
-    # would reflow into mush. Copying them verbatim keeps the licence readable
-    # AND makes README's `[Apache-2.0](LICENSE)` / `[NOTICE](NOTICE)` links
-    # resolve on the site instead of being stripped to bare labels.
-    "LICENSE": "LICENSE.txt",
-    "NOTICE": "NOTICE.txt",
+
 }
 
 # Per-page MkDocs front matter, keyed by STAGED destination and prepended on the
@@ -238,16 +202,16 @@ def _rewrite_target(target: str, src: str, src_dst: str) -> str | None:
     path_part, _, anchor = raw.partition("#")
     if not path_part:                      # pure anchor
         return target
-    src_dir = os.path.dirname(src)         # repo-relative dir the link was AUTHORED in
-    dst_dir = os.path.dirname(src_dst)     # staging-relative dir the page LANDS in
+    src_dir = posixpath.dirname(src)       # URLs use forward slashes on every OS.
+    dst_dir = posixpath.dirname(src_dst)
     # Resolve the link against the SOURCE layout, then re-relativize against the
     # staged location (pages can move during staging, e.g. README.md remaps).
-    resolved = os.path.normpath(os.path.join(src_dir, path_part))
+    resolved = posixpath.normpath(posixpath.join(src_dir, path_part))
     resolved_noslash = resolved.rstrip("/").lstrip("./")
 
     dst = _staged_dst(resolved_noslash)
     if dst is not None:                    # an internal page/asset/index dir
-        rel = os.path.relpath(dst, start=dst_dir or ".")
+        rel = posixpath.relpath(dst, start=dst_dir or ".")
         return rel + (("#" + anchor) if anchor else "")
     # Otherwise it points at repo source not on the site -> GitHub, if it's public.
     if not REPO_BASE:
@@ -317,7 +281,7 @@ ICONS_WANTED = (
     # can never illustrate a capability that does not exist.
     #
     # A DELETED GLYPH IS SILENT HERE. _stage_icons() appends to `missing` and
-    # main() prints a warning and still returns 0 — and overrides/.icons/ava/
+    # main() fails staging — and overrides/.icons/ava/
     # is TRACKED, so a glyph renamed in icons.tsx leaves last month's drawing on
     # disk and rendering forever. tests/test_landing_page.py holds this tuple,
     # the template and icons.tsx together for exactly that reason.
@@ -402,11 +366,12 @@ def main() -> int:
     (OUT / "stylesheets" / "tokens.css").write_text(css, encoding="utf-8")
     missing += _stage_icons()
     if missing:
-        print("WARNING: missing sources:\n  " + "\n  ".join(missing))
+        print("ERROR: missing sources:\n  " + "\n  ".join(missing))
+        return 1
     if not REPO_BASE:
         print("note: AVA_DOCS_REPO_BASE unset — links into repo source are rendered "
               "as plain labels. The docs workflow sets it; export "
-              "AVA_DOCS_REPO_BASE=https://github.com/JayMTea/Ava to preview as published.")
+              "AVA_DOCS_REPO_BASE=https://github.com/OWNER/REPO to preview source links.")
     print(f"staged {len(CURATED)} pages + {len(ASSETS)} assets -> {OUT}")
     return 0
 

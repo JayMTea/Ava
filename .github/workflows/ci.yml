@@ -121,6 +121,8 @@ jobs:
           python-version: "3.12"
       - run: pip install -r requirements.txt -r requirements-dev.txt
       - run: python -m pytest tests/ -q
+        env:
+          AVA_PRIVATE_NAMES: ${{ secrets.AVA_PRIVATE_NAMES }}
 
   frontend-dist-drift:
     # The bridge serves the prebuilt bundle, so frontend/dist is tracked. Rebuild

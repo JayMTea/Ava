@@ -54,13 +54,13 @@ by making the local build imitate CI.
    above it. (The release notes are extracted from the matching section by
    `deploy/scripts/changelog_extract.py`; if you forget to rename, it falls back
    to `[Unreleased]`.)
-2. **Bump the version in four files.** `VERSION` is the source of truth, with
+2. **Bump the version in three public files.** `VERSION` is the source of truth, with
    three consumers: the fallback the app reads when `AVA_VERSION` isn't injected
    (`ava_bridge/version.py`), the package version (`pyproject.toml` reads it via
-   `dynamic = ["version"]`), and the `ava version` output. Three *other* files
+   `dynamic = ["version"]`), and the `ava version` output. Two *other* public files
    restate it and are **hard-asserted against it** by
-   `tests/test_version_ssot.py` - `CITATION.cff`, `frontend/package.json` and
-   `demo/package.json`. Bump all four, then prove it:
+   `tests/test_version_ssot.py` - `CITATION.cff` and `frontend/package.json`.
+   Bump those with `VERSION`, then prove it:
    ```bash
    python -m pytest tests/test_version_ssot.py -q
    ```

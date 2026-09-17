@@ -928,7 +928,7 @@ class HonestNaming(unittest.TestCase):
         it and "Model"."""
         self.assertEqual(
             hardware._app_from_cmdline(
-                "/o/venv/bin/python /w/atelier/gen_worker.py /w/out/job.json"),
+                "/o/venv/bin/python /w/example-workspace/gen_worker.py /w/out/job.json"),
             "gen_worker")
 
     def test_a_module_launch_is_read_when_there_is_no_script(self):
@@ -954,20 +954,20 @@ class HonestNaming(unittest.TestCase):
     def test_a_venv_folder_names_a_row_only_when_nothing_else_can(self):
         rows = hardware._name_from_evidence([{
             "model": "Model", "model_id": None, "components": [],
-            "cmd": "/home/u/rigs/emu35/venv/bin/python -c 'import x; x.go()'",
+            "cmd": "/srv/example/rigs/sample35/venv/bin/python -c 'import x; x.go()'",
         }])
-        self.assertEqual(rows[0]["model"], "emu35")
+        self.assertEqual(rows[0]["model"], "sample35")
 
     def test_a_system_interpreter_never_names_a_row(self):
         """Without the venv-shape check `/usr/bin/python3` names rows "usr"."""
         self.assertEqual(hardware._env_from_cmdline("/usr/bin/python3 -c pass"), "")
         # A store that holds many things is not the name of any one of them.
-        self.assertEqual(hardware._env_from_cmdline("/home/u/models/venv/bin/python"), "")
+        self.assertEqual(hardware._env_from_cmdline("/srv/example/models/venv/bin/python"), "")
 
     def test_the_weakest_evidence_never_outranks_the_script(self):
         rows = hardware._name_from_evidence([{
             "model": "Model", "model_id": None, "components": [],
-            "cmd": "/home/u/rigs/emu35/venv/bin/python /w/atelier/gen_worker.py",
+            "cmd": "/srv/example/rigs/sample35/venv/bin/python /w/example-workspace/gen_worker.py",
         }])
         self.assertEqual(rows[0]["model"], "gen_worker")
 
@@ -978,7 +978,7 @@ class HonestNaming(unittest.TestCase):
 
     def test_brain_role_comes_from_backend_tag_not_name_guess(self):
         self.assertIn("brain", hardware._model_role("anything", backend_id="brain"))
-        self.assertNotIn("brain", hardware._model_role("Some-Nemotron-30B-Omni"))
+        self.assertNotIn("brain", hardware._model_role("Some-Example-30B-Omni"))
 
     def test_role_key_never_derives_a_brain_from_a_models_name(self):
         """The `role_key` twin of the rule above (`_model_role` is now only the
@@ -988,7 +988,7 @@ class HonestNaming(unittest.TestCase):
         the brain is `models.effective_brain()`'s answer and nothing else, so
         `_role_key` must decline to guess it — see BrainVisibility.
         """
-        for name in ("Some-Nemotron-30B-Omni", "brain-model-v2", "llama3.1:70b",
+        for name in ("Some-Example-30B-Omni", "brain-model-v2", "llama3.1:70b",
                      "acme/Cool-LLM-7B-FP8", "Ava-Brain", None):
             self.assertNotEqual(hardware._role_key(name), "brain", name)
 
@@ -1017,7 +1017,7 @@ class BlobIsNotAName(unittest.TestCase):
     def test_a_content_hash_is_not_a_model_id(self):
         # The exact cmdline observed from a live Ollama 0.24.0.
         cmd = ("/usr/local/bin/ollama runner --model "
-               "/home/u/.ollama/models/blobs/sha256-1eee6953530837b2b17d61a4e6f71a5a"
+               "/srv/example/.ollama/models/blobs/sha256-1eee6953530837b2b17d61a4e6f71a5a"
                " --ctx-size 8192")
         self.assertEqual(hardware._extract_model_names(cmd), [])
         self.assertIsNone(hardware._extract_model(cmd))

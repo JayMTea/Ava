@@ -44,9 +44,10 @@ hand-maintained anywhere in Ava's core.
   and HTTP status, and that file registers itself, so a brand-new app is
   recorded on its first call with no restart. The agent reads them back with
   its `read_performance` tool.
-- **A same-origin tab in the sidebar**, from a `ui:` block with `embed: iframe`.
-  Ava reverse-proxies the app under `/apps/<id>/` so it inherits your session
-  cookie. No second login, no third-party cookies.
+- **An app tab in the sidebar**, from a `ui:` block with `embed: iframe`.
+  Ava authenticates proxy access under `/apps/<id>/` and strips its session
+  cookie upstream. Apps keep their own login unless SSO is configured. Use
+  `apps.origin` for isolation from the shell; same-origin mode trusts app code.
 - **Agent tools**, generated as `.mjs` into the sandbox
   (`ava connector tools <id> --write`, or **Deploy** in the browser).
 - **An egress policy** (the allow-list of exactly which addresses the agent's

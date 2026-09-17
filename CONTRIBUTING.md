@@ -3,12 +3,8 @@
 Thanks for helping build Ava - a self-hosted personal AI operating layer.
 This guide covers the development workflow for a fresh clone or fork.
 
-Ava is maintained by **Joshua Thompson** ([@JayMTea](https://github.com/JayMTea)).
-Open an [issue](https://github.com/JayMTea/Ava/issues) to ask anything, propose
-something, or just say what you are building - that is the front door, and it is a
-better one than email because the answer stays where the next person can find it.
-Security reports go privately instead, per [SECURITY.md](SECURITY.md).
-For anything longer-form or work-related, LinkedIn: <https://www.linkedin.com/in/joshua-thompson-b89913105>.
+Use the repository issue tracker for questions and contributions. Report
+security issues privately as described in [SECURITY.md](SECURITY.md).
 
 **The most valuable contribution right now is a hardware report.** Ava claims four
 first-class platform families and only some are verified on real silicon; the rest are
@@ -233,3 +229,29 @@ any of it to contribute. See [agent/docs/README.md](agent/docs/README.md).
 - [ ] New network access expressed as a narrow policy/connector egress
 - [ ] `CHANGELOG.md` updated for user-facing changes
 - [ ] Commits signed off (`git commit -s`)
+
+## Public product checks
+
+Keep instance state and custom integrations outside the public checkout, using
+an explicit `AVA_HOME`. Before publishing source, docs, or images, run:
+
+```bash
+python -m pytest tests/test_no_owner_identity.py tests/test_no_private_apps_shipped.py tests/test_path_roots.py tests/test_launcher_instance.py -q
+python -m pytest tests/test_docs_assets.py tests/test_landing_page.py -q
+python docs-site/sync.py
+mkdocs build --strict -f docs-site/mkdocs.yml
+```
+
+Private identifiers belong in `.git/info/private-names`, one regex per line,
+never in a tracked test. The optional `AVA_PRIVATE_NAMES` repository secret
+supplies the same rules to CI and the Pages publication gate. With neither
+input present, only generic checks run. Review binary assets visually and scan
+Git history and release artifacts separately; current-tree checks do not erase
+previous publication. See [Product boundaries](docs/PRODUCT_BOUNDARIES.md).
+
+For a public container context, use `deploy/scripts/build_context.py` without
+private extension arguments. A frontend built from a checkout containing an
+overlay includes that overlay; do not commit or publish its bundle as the public
+product. Forked Pages builds derive their URLs from the repository and Pages
+configuration. Local previews can set `AVA_DOCS_REPO_BASE`, `AVA_DOCS_REPO_NAME`,
+`AVA_DOCS_BRANCH`, and `AVA_DOCS_SITE_URL` explicitly.

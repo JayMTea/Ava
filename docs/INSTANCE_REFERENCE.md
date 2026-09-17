@@ -19,6 +19,11 @@ ava doctor
 ava up
 ```
 
+The shell launchers also read the selected home's `.env`, with exported values
+taking precedence. The NVIDIA launcher defaults to a product-owned container
+name, `ava-inference`. Set `AVA_SERVE_CONTAINER` explicitly when reusing an
+existing container or sharing its identity with a separate allocator.
+
 For a second instance, choose another home, bridge port, router port and any
 published app-origin port. Select its own inference endpoint or runtime credentials.
 `ava setup` preserves existing configuration unless a command says otherwise.

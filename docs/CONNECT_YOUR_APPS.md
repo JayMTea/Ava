@@ -189,8 +189,9 @@ that loads them (`cd agent && ./install.sh`); run it once and you're done.
 
 A connected app doesn't have to be just a set of tools. When it serves its own
 web interface, it appears under **Apps** in the left rail carrying its own accent
-colour, and Ava reverse-proxies that interface same-origin - so the app's own
-pages render inside Ava, already signed in, with no second front end to build.
+colour, and Ava proxies that interface into an app tab. Your app keeps its own
+login unless SSO is configured. Use `apps.origin` to isolate it from the shell;
+same-origin mode trusts the app's JavaScript. No second frontend is required.
 
 Right-click the tile (Shift+F10 from the keyboard) to open it in a new tab or a
 new window - the app fills that window with Ava's shell around it, so a second
@@ -215,7 +216,7 @@ or **Appearance** (icon and accent):
 ### Step 6: Ask
 
 Now just ask. Ava picks the tool, calls it, and answers out of the app's own
-data. The call shows up in the chat's tool chips and on the Operations page like
+data. The call shows up in the chat's tool chips like
 everything else Ava does:
 
 ---

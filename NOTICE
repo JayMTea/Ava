@@ -1,12 +1,9 @@
 Ava
-Copyright 2026 Joshua Thompson
+Copyright 2026 The Ava Authors
 
 This product includes software developed as part of the Ava project.
 
-Created and maintained by Joshua Thompson (GitHub: JayMTea).
 Project home: https://github.com/JayMTea/Ava
-Contact / collaboration: https://github.com/JayMTea
-LinkedIn: https://www.linkedin.com/in/joshua-thompson-b89913105
 
 If you fork, redistribute or build on Ava, Apache-2.0 section 4(d) asks you to
 keep this file's contents with your distribution. That is the whole ask — you owe
@@ -45,8 +42,7 @@ their OWN licenses, which apply to those components. Notable examples:
     app — see frontend/package.json — and their upstream licenses.
 
 Ava does not display model license terms during install. Before you pull a
-model, read its license: the Llama-family defaults are under Meta's Llama
-Community License. Provisioning the agent runtime runs NVIDIA's installer with
+model, read its license: each model has its own license; Ava ships no default language model. Provisioning the agent runtime runs NVIDIA's installer with
 NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE=1, which accepts NemoClaw's third-party
 software terms on your behalf. It is the operator's responsibility to comply
 with the terms of any model or component they choose to install.

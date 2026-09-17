@@ -91,7 +91,7 @@ def _exit(patches):
 MAC_BACKENDS = [
     {"id": "local", "engine": "ollama",
      "url": "http://127.0.0.1:11434/v1",
-     "model": "nemotron-open-model-30b",
+     "model": "example-model-30b",
      "fit": {"weight_gb": 35, "tier": "large", "min_free_gb": 10,
              "workloads": ["chat", "reasoning", "code", "vision", "audio"]}},
     {"id": "mac-fast", "engine": "ollama",

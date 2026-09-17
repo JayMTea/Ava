@@ -9,10 +9,11 @@ Selection order for a turn:
   agent.enabled? -> configured().available()? -> that runtime, else Direct
   agent.enabled == false                      -> Direct (explicit opt-out)
 
-Four adapters ship: `nemoclaw` (the default, drives OpenClaw through its CLI),
+Built-in adapters include: `nemoclaw` (the default, drives OpenClaw through its CLI),
 `openclaw_gw` (the same OpenClaw over its gateway WebSocket, which is what makes
 sessions/cron/devices/approvals reachable), `remote` (nemoclaw in its own
-container) and `direct` (the tool-less floor).
+container), `direct` (the tool-less floor), and `service` (ava-runtime/1).
+Additional adapters can be installed under the selected instance home.
 """
 from __future__ import annotations
 

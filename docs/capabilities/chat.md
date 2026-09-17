@@ -25,7 +25,6 @@ from a laptop or a phone.
 **Tools used** is the one worth opening. It is how you check Ava's work: the
 answer above it came from these calls, on this machine, and nothing else.
 
-![The "Tools used (2)" control expanded under a reply, listing the two tools that turn actually called: paceboard_summary and ledger_totals, from two different connected apps](../assets/chat-tools-used.png)
 
 Chats title themselves from your first message (truncated to 48 characters);
 the sidebar's search box filters the recents list by title.
@@ -192,7 +191,7 @@ plainly that **the gate is open** and anyone can talk to Ava.
   to read, correct or delete it.
 - [On your phone (PWA)](../MOBILE.md) - installing Ava as a home-screen app.
   Voice capture works there; there are no push notifications.
-- [Operations](operations.md) - the live view of turns, jobs and the
+- [Agent console](agent-console.md) - the live view of turns, jobs and the
   approvals that pause a tool call.
-- [Data, memory & privacy](data.md) - where chats and uploads actually live on
+- [Data, memory & privacy](../INSTANCE_REFERENCE.md) - where chats and uploads actually live on
   disk, and how to export or delete them.

@@ -8,8 +8,9 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-# Load local secrets/overrides if present (gitignored). See .env.example.
-[ -f .env ] && set -a && . ./.env && set +a
+# Use the selected instance, preserving explicit environment overrides.
+. ./deploy/load-instance-env.sh
+ava_load_instance_env "$PWD"
 
 # Port: env APP_PORT/AVA_PORT wins, else ava.yaml server.port, else 8096.
 APP_PORT="${APP_PORT:-${AVA_PORT:-$(./.venv/bin/python -c 'from ava_bridge import config; print(config.SERVER_PORT)' 2>/dev/null || echo 8096)}}"
@@ -29,7 +30,6 @@ export AVA_URL="${AVA_URL:-http://localhost:8002/v1/chat/completions}"
 # No default model: whatever you export is what gets served.
 export AVA_MODEL="${AVA_MODEL:-}"
 export WHISPER_MODEL="${WHISPER_MODEL:-small.en}"
-export VOICE="${VOICE:-$PWD/models/en_US-amy-medium.onnx}"
 
 # Phone-mic speaker gate (your voice only). 0 disables. Phone mics differ from
 # the PC enrollment, so this is a touch more lenient than the USB-mic loop.

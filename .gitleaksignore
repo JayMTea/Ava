@@ -1,0 +1,4 @@
+# Exact historical synthetic test credentials; no file or rule exclusions.
+8977b61b413b543c4ea89ee54eead0fd841ab509:tests/test_install_first_run_exec.py:generic-api-key:44
+3a79225c655b6f8152b088f5d0d1283b4b5ecfc3:tests/test_mcp_client.py:generic-api-key:95
+33d376320295a818e761f7c1133edd92155b4b68:tests/test_connector_secrets.py:generic-api-key:72

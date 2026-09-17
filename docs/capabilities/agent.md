@@ -14,19 +14,20 @@ capability-scoped, and nothing it does writes to your source tree.
 
 ---
 
-## A pluggable seam with four real implementations
+## Pluggable agent runtimes
 
 `ava_bridge/runtime/` defines one `AgentRuntime` interface (`available()`,
 `run_turn()`, plus optional `exec` / `session_file` / `provision` / `status`,
 and the control-plane half — `rpc` / `subscribe` / `start_run` / `iter_run` /
-`observe`) and a registry keyed by the `agent.runtime` setting. Four
-implementations ship:
+`observe`) and a registry keyed by the `agent.runtime` setting. Built-in
+implementations and instance-installed adapters are supported:
 
 | `agent.runtime` | What runs | Tools | Live CoT | Streams |
 |---|---|:--:|:--:|:--:|
 | `nemoclaw` *(default, alias `openclaw`)* | [NemoClaw](https://github.com/NVIDIA/NemoClaw) (NVIDIA, Apache-2.0) running OpenClaw inside an OpenShell sandbox, driven in-process by the bridge — one `openclaw agent --json` per message | Yes | Yes | No |
 | `openclaw_gw` | The **same** OpenClaw, reached over its gateway instead: JSON-RPC 2.0 on a persistent WebSocket. A turn is started and then streamed, and the rest of the gateway's method surface (sessions, cron, devices, plugins, approvals, audit) becomes reachable at all | Yes | Yes | Yes |
 | `remote` | The Docker split: a separate **agent** container owns the `nemoclaw` CLI and the Docker socket, and the bridge drives it over HTTP | Yes | Yes | No |
+| `service` | An external agent implementing [ava-runtime/1](../RUNTIME_SERVICE.md); its declared capabilities determine available operations | Declared by service | No | No |
 | `direct` *(alias `none`)* | The explicit tool-less floor: an OpenAI-compatible call to Ava's inference router with recent history replayed for continuity | No | No | No |
 
 !!! note "Why `openclaw` still means the CLI adapter"
@@ -49,9 +50,11 @@ implementations ship:
     with that access. Full instructions:
     [Set up the agent](../AGENT_RUNTIME.md).
 
-Adding a fifth is a file: implement the interface in
-`ava_bridge/runtime/<name>.py`, register it, select it with
-`agent.runtime: <name>`. Ava's core only ever talks to the interface.
+Install your own adapter under `$AVA_HOME/runtime_adapters/<name>/` and select
+`agent.runtime: <name>`, without editing the core registry. See
+[Independent instances](../INSTANCE_REFERENCE.md) for the manifest and trust model.
+The sandbox and policy discussion below describes the NemoClaw integration;
+external runtimes must declare and enforce their own boundaries.
 
 That claim was tested when `openclaw_gw` was added, and it held with one honest
 amendment: the interface itself grew. A streaming runtime needs a way to report
@@ -395,7 +398,7 @@ provisioning. The UI will not claim a capability the agent does not have.
 **Everything above competes for the same memory.** The agent's model, a second
 model you keep resident and a voice sidecar all want the GPU. See
 [Running two models](../ALLOCATION.md) for how Ava arbitrates that, and
-[Data, memory & privacy](data.md) for what the audit ledger records about every
+[Data, memory & privacy](../INSTANCE_REFERENCE.md) for what the audit ledger records about every
 decision on this page.
 
 ## Where to go next
@@ -403,5 +406,6 @@ decision on this page.
 - [**Set up the agent**](../AGENT_RUNTIME.md) is how you turn all of this on.
 - [**Apps, devices & MCP**](connectors.md) is what the agent reaches through,
   and the permission model in front of it.
-- [**Operations**](operations.md) is where proposals are reviewed and approved.
+- [**Agent console**](agent-console.md) shows runtime-supported sessions, activity, and automations.
+  Connector consent appears in chat; learning proposals are managed in Setup.
 - [**Security**](../../SECURITY.md) is the trust model end to end.

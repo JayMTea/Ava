@@ -265,7 +265,7 @@ def test_landing_media_is_staged_and_tracked() -> None:
     require_git()
     home = _home()
     refs = sorted({r for r in _URL_REF.findall(home) if not r.endswith("/")})
-    assert refs, "the landing template names no staged file - did the media go?"
+    # A text-led landing page may have no bitmap or video references.
 
     assets = _sync_value("ASSETS")            # source path -> staged destination
     staged = {dest: src for src, dest in assets.items()}
@@ -290,25 +290,12 @@ def test_landing_media_is_staged_and_tracked() -> None:
         )
 
 
-def test_landing_carries_exactly_one_video() -> None:
-    """One walkthrough, and the landing page is the only place it plays.
+def test_landing_links_to_product_contracts() -> None:
+    """The public entry point exposes reuse and capability requirements."""
+    refs = set(_URL_REF.findall(_home()))
+    assert {"docs/PRODUCT_BOUNDARIES/", "docs/INSTANCE_REFERENCE/",
+            "docs/capabilities/"} <= refs
 
-    demo/out/ holds a dozen renders - six task tours, seven diagram clips, a
-    chaptered cut - and any of them can be argued onto this page. The moment
-    there are two, the visitor's first decision is which video is THE video,
-    which is a decision about the website rather than about Ava. The task tours
-    have a home already: the Get-started pages that teach the task.
-
-    Nothing here judges whether the one video is any good. That is
-    demo/SCRIPT.md's job and a human's.
-    """
-    count = len(_VIDEO_EL.findall(_home()))
-    assert count == 1, (
-        f"the landing page carries {count} <video> elements, expected exactly 1.\n"
-        "If a second tour really belongs on the site, put it on the page that "
-        "teaches its task and link it - see the 'Other videos' table in "
-        "demo/SCRIPT.md."
-    )
 
 
 def test_landing_ships_no_img_svg_and_no_untracked_script() -> None:

@@ -1,6 +1,6 @@
 site_name: Ava
 site_description: A self-hosted personal AI operating layer. Chat, voice, and app automation on your own hardware.
-site_url: https://JayMTea.github.io/Ava/
+site_url: !ENV [AVA_DOCS_SITE_URL, "http://localhost:8000/"]
 # The repo went public on 2026-07-30 and .github/workflows/docs.yml sets
 # AVA_DOCS_REPO_BASE, so the published site carries the widget and the pill and
 # sync.py mints real source links. The switch stays rather than being hardcoded
@@ -10,7 +10,7 @@ site_url: https://JayMTea.github.io/Ava/
 # (it no-ops without the anchor), which is the right local default. Export it to
 # preview the site exactly as published.
 repo_url: !ENV [AVA_DOCS_REPO_BASE, ""]
-repo_name: JayMTea/Ava
+repo_name: !ENV [AVA_DOCS_REPO_NAME, "Source"]
 copyright: Apache-2.0 &middot; The Ava Authors
 
 # Staged by docs-site/sync.py (an allow-list copy — see that script).
@@ -168,6 +168,7 @@ nav:
   - Using Ava:
       - What Ava does: docs/capabilities/index.md
       - Chat & voice: docs/capabilities/chat.md
+      - Agent console: docs/capabilities/agent-console.md
       - Apps, devices & MCP: docs/capabilities/connectors.md
       - "The agent: tools, skills & memory": docs/capabilities/agent.md
       - Give it a voice of its own: docs/PERSONA.md
@@ -178,6 +179,10 @@ nav:
       - Voiceprint & biometrics: docs/BIOMETRICS.md
       - Hardware support: docs/HWINFO_VALIDATION.md
   - Build & extend:
+      - Product boundaries: docs/PRODUCT_BOUNDARIES.md
+      - Independent instances: docs/INSTANCE_REFERENCE.md
+      - External agent service: docs/RUNTIME_SERVICE.md
+      - Charts and artifacts: docs/ANALYTICS_ARTIFACTS.md
       - App connectors: docs/CONNECTOR_SDK.md
       - Device connectors: docs/DEVICE_CONNECTORS.md
       - Home Assistant: docs/CONNECT_HOME_ASSISTANT.md

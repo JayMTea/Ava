@@ -7,7 +7,7 @@
   "version": "0.1.0",
   "type": "module",
   "description": "Ava web app — Vite + React + TypeScript SPA served by the FastAPI bridge.",
-  "author": "Joshua Thompson (https://github.com/JayMTea)",
+  "author": "The Ava Authors",
   "license": "Apache-2.0",
   "homepage": "https://github.com/JayMTea/Ava",
   "repository": {

@@ -92,7 +92,7 @@ class TestStdioEndToEnd(unittest.TestCase):
         """A server that echoes its token in a startup banner must not put it in
         a Hub error message — the owner's screen is not where a credential goes.
         """
-        secret = "sk-live-abcdef1234567890"
+        secret = "fixture-private-token"
         spec = dict(STDIO_SPEC, env={"APP_TOKEN": secret}, command=[
             sys.executable, "-c",
             "import os, sys; sys.stderr.write('starting with token ' "

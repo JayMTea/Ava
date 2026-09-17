@@ -1,6 +1,6 @@
 ---
 template: home.html
-title: "Ava: connect an app, get its tools, its dashboard and its firewall"
+title: "Ava: your assistant and apps in one self-hosted workspace"
 description: One manifest gives your app a tab, a health row, a live performance chart, the tools your AI may call, and an allow-list of every address those tools may reach. Self-hosted, on your own model.
 hide:
   - navigation

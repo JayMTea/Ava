@@ -25,7 +25,8 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
-[ -f "$REPO/.env" ] && set -a && . "$REPO/.env" && set +a
+. "$HERE/load-instance-env.sh"
+ava_load_instance_env "$REPO"
 cd "$REPO" || exit 1
 
 VENV="${AVA_TTS_VENV:-$REPO/.venv-tts}"

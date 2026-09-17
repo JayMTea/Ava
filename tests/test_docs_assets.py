@@ -26,6 +26,7 @@ a diff.
 Run: python -m pytest tests/test_docs_assets.py -q
 """
 import ast
+import importlib.util
 import pathlib
 import posixpath
 import re
@@ -34,6 +35,33 @@ from gitfiles import require_git, tracked
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SYNC = ROOT / "docs-site" / "sync.py"
+
+
+def _sync_module():
+    spec = importlib.util.spec_from_file_location("ava_docs_sync", SYNC)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_staging_fails_when_a_required_source_is_missing(tmp_path, monkeypatch):
+    module = _sync_module()
+    (tmp_path / "frontend/src/styles").mkdir(parents=True)
+    (tmp_path / "frontend/src/styles/tokens.css").write_text(":root {}")
+    (tmp_path / "home.md").write_text("# Example")
+    monkeypatch.setattr(module, "REPO", tmp_path)
+    monkeypatch.setattr(module, "HERE", tmp_path)
+    monkeypatch.setattr(module, "OUT", tmp_path / "staged")
+    monkeypatch.setattr(module, "CURATED", {"missing.md": "missing.md"})
+    monkeypatch.setattr(module, "ASSETS", {})
+    monkeypatch.setattr(module, "_stage_icons", lambda: [])
+    assert module.main() == 1
+
+
+def test_staged_links_are_urls_on_every_platform():
+    module = _sync_module()
+    assert module._rewrite_target("INSTANCE_REFERENCE.md", "docs/WHY_AVA.md",
+                                  "overview.md") == "docs/INSTANCE_REFERENCE.md"
 
 # Markdown images only: `![alt](target)`. Links are mkdocs --strict's job and it
 # actually does that one. The alt text may contain brackets (several of these

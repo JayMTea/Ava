@@ -3,8 +3,9 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-# Load local secrets/overrides if present (gitignored). See .env.example.
-[ -f .env ] && set -a && . ./.env && set +a
+# Use the selected instance, preserving explicit environment overrides.
+. ./deploy/load-instance-env.sh
+ava_load_instance_env "$PWD"
 
 # ---- Audio devices ---------------------------------------------------------
 # Find these with:  ./devices.sh
