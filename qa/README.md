@@ -34,6 +34,13 @@ Deliberately not exercised live (their *degradation* paths are tested instead):
 real GPU inference, Anthropic-billed code-agent calls, NemoClaw provisioning,
 voice model downloads.
 
+`e2e/agent-setup.spec.ts` checks every Agent setup section at 320, 390, 768,
+and 1440 px, keyboard navigation, failed-request recovery, and an apply run
+surviving a page reload. Controlled browser responses exercise gateway
+reconnection and microphone cleanup without provisioning an agent or recording
+audio. Run it with `python qa/e2e/run_e2e.py agent-setup.spec.ts`; set
+`AVA_QA_SCREENSHOTS` to a directory to save the layout captures.
+
 ## Conventions
 
 - `qa/env_recipe.py` is the single source of the hermetic env (used by

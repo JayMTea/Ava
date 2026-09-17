@@ -27,18 +27,35 @@ export function AgentPanel({ onRestart, sub, onSub }: {
       {/* Deliberately NOT .hub-tabs — see the block comment in hub.css. Labelled
           because a screen reader now meets two tab bars on one page and has no
           other way to tell which is which. */}
-      <div className="hub-subtabs" aria-label="Agent sections">
+      <p className="agent-setup-intro">Check your runtime, choose a brain, then tailor your agent’s skills and memory.</p>
+      <div className="hub-subtabs" role="tablist" aria-label="Agent sections">
         {AGENT_SUBTABS.map((t) => (
           <button
             type="button" key={t.id}
+            role="tab" id={`agent-tab-${t.id}`}
+            aria-selected={sub === t.id} aria-controls={`agent-section-${sub}`}
+            tabIndex={sub === t.id ? 0 : -1}
             className={'hub-subtab' + (sub === t.id ? ' active' : '')}
             onClick={() => onSub(t.id)}
+            onKeyDown={(e) => {
+              const index = AGENT_SUBTABS.findIndex((tab) => tab.id === t.id);
+              const next = e.key === 'ArrowRight' ? (index + 1) % AGENT_SUBTABS.length
+                : e.key === 'ArrowLeft' ? (index - 1 + AGENT_SUBTABS.length) % AGENT_SUBTABS.length
+                  : e.key === 'Home' ? 0 : e.key === 'End' ? AGENT_SUBTABS.length - 1 : -1;
+              if (next < 0) return;
+              e.preventDefault();
+              const id = AGENT_SUBTABS[next].id;
+              onSub(id);
+              document.getElementById(`agent-tab-${id}`)?.focus();
+            }}
           >
             {t.label}
           </button>
         ))}
       </div>
 
+      <div className="agent-setup-panels" role="tabpanel" id={`agent-section-${sub}`}
+        aria-labelledby={`agent-tab-${sub}`} tabIndex={0}>
       {sub === 'runtime' && <AgentRuntimePanel />}
       {sub === 'brain' && <BrainPanel onRestart={onRestart} />}
       {sub === 'persona' && <PersonaPanel />}
@@ -46,6 +63,7 @@ export function AgentPanel({ onRestart, sub, onSub }: {
       {sub === 'memory' && <MemoryPanel />}
       {sub === 'voice' && <VoicePanel onRestart={onRestart} />}
       {sub === 'providers' && <ProvidersPanel />}
+      </div>
     </>
   );
 }

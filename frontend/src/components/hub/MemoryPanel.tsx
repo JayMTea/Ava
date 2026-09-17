@@ -97,6 +97,7 @@ export function MemoryPanel() {
           <input
             className="hub-input" style={{ flex: '1 1 260px' }}
             placeholder="e.g. My workshop machine is the Jetson in the garage"
+            aria-label="Fact to remember"
             value={newFact}
             onChange={(e) => setNewFact(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') add(); }}
@@ -130,6 +131,7 @@ export function MemoryPanel() {
           <input
             className="hub-input" style={{ flex: '1 1 180px', maxWidth: 320 }}
             placeholder="Search memory…"
+            aria-label="Search memory"
             value={q}
             onChange={(e) => { setQ(e.target.value); if (!e.target.value.trim()) setQuery(''); }}
             onKeyDown={(e) => { if (e.key === 'Enter') setQuery(q.trim()); }}

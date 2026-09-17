@@ -34,7 +34,7 @@ SKIP = 77
 # header warns about, a tier that reports PASS for specs it never ran. Named
 # here rather than left to be re-derived from a silent skip.
 SPECS = ["setup-flow.spec.ts", "chat-flow.spec.ts", "artifact-flow.spec.ts",
-         "connectors-flow.spec.ts"]
+         "connectors-flow.spec.ts", "agent-setup.spec.ts"]
 if len(sys.argv) > 1:   # debug: run a subset (setup still needed by the rest)
     SPECS = ["setup-flow.spec.ts"] + [s for s in sys.argv[1:]
                                       if s != "setup-flow.spec.ts"]

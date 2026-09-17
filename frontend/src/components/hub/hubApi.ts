@@ -257,6 +257,8 @@ export interface AgentStatus {
   url?: string;
   error?: string;
   name: string;
+  config_error?: string | null;
+  gate_error?: string | null;
   available: boolean;
   enabled: boolean;      // agent.enabled / AVA_AGENT_ENABLED — the on/off switch
   runtime: string;
@@ -879,7 +881,7 @@ export const hub = {
     }),
 
   // Agent
-  agentStatus: () => req<AgentStatus>('/api/hub/agent/status'),
+  agentStatus: () => req<AgentStatus>('/api/hub/agent/status', { signal: AbortSignal.timeout(60_000) }),
   agentGateway: () => req<{
     ok: boolean;
     configured: boolean;
@@ -943,7 +945,7 @@ export const hub = {
       ok: boolean; job_id?: string; scope?: string; status?: string;
       steps?: { step: string; ok: boolean; detail: string }[]; detail?: string;
       error?: string; error_code?: string;
-    }>(`/api/hub/agent/provision?scope=${scope}`, { method: 'POST' }),
+    }>(`/api/hub/agent/provision?scope=${scope}`, { method: 'POST', signal: AbortSignal.timeout(30_000) }),
 
   // Asked only when the owner opens Setup → Agent → Runtime — it is not a cheap
   // read (up to four `exec` round-trips into the sandbox behind a 30s cache), and
@@ -951,11 +953,11 @@ export const hub = {
   // cached answer may predate it.
   provisionState: (force = false) =>
     req<ProvisionState>(`/api/hub/agent/provision/state${force ? '?force=1' : ''}`,
-      { cache: 'no-store' }),
+      { cache: 'no-store', signal: AbortSignal.timeout(90_000) }),
 
   provisionJob: (since = 0) =>
     req<ProvisionJob>(`/api/hub/agent/provision/status?since=${since}`,
-      { cache: 'no-store' }),
+      { cache: 'no-store', signal: AbortSignal.timeout(15_000) }),
 
   // Connectors
   connectors: () =>

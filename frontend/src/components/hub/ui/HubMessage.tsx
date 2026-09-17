@@ -9,7 +9,7 @@ export function HubMessage({ message, className, style }: {
 }) {
   if (!message) return null;
   return (
-    <div className={'hub-msg ' + (message.ok ? 'ok' : 'err') + (className ? ' ' + className : '')} style={style}>
+    <div role={message.ok ? 'status' : 'alert'} className={'hub-msg ' + (message.ok ? 'ok' : 'err') + (className ? ' ' + className : '')} style={style}>
       {message.text}
     </div>
   );

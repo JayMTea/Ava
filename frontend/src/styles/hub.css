@@ -14,6 +14,44 @@
   padding: var(--sp-5) var(--sp-5) 64px;
 }
 
+/* Agent sections share one spacing and overflow contract, including nested
+   panels, long model identifiers, and translated or enlarged text. */
+.agent-setup-intro { margin: 0 0 var(--sp-3); color: var(--muted); font-size: var(--fs-sm); line-height: 1.6; }
+.agent-setup-panels { display: grid; gap: var(--sp-4); min-width: 0; }
+.agent-setup-panels > .hub-section:empty { display: none; }
+.agent-setup-panels .db-panel,
+.agent-setup-panels .db-panel-body { min-width: 0; }
+.agent-setup-panels .db-panel-head { flex-wrap: wrap; }
+.agent-setup-panels .db-panel-head > div:first-child { flex: 1 1 240px; min-width: 0; }
+.agent-setup-panels .db-panel-right,
+.agent-setup-panels .db-panel-right > span { flex-wrap: wrap; max-width: 100%; }
+.agent-setup-panels :is(.db-panel-sub, .hub-note, .hub-msg, .hub-step, .hub-opt, .stat-row-label) { overflow-wrap: anywhere; }
+.agent-setup-panels .db-panel-sub { line-height: 1.6; margin-top: 5px; }
+.agent-setup-panels .hub-model-list > .hub-opt { flex-wrap: wrap; }
+.agent-setup-panels .hub-model-list b { flex-wrap: wrap; }
+.agent-setup-panels .hub-fieldrow > * { min-width: 0; }
+.agent-setup-panels .hub-btn { justify-content: center; min-height: 38px; }
+.agent-setup-panels :is(input, select, textarea) { min-width: 0; max-width: 100%; }
+.agent-setup-panels .hub-note.with-icon > code { overflow-wrap: anywhere; }
+.agent-apply-section { margin-top: var(--sp-4); padding-top: var(--sp-4); border-top: 1px solid var(--line); }
+.agent-apply-section h4 { margin: 0 0 var(--sp-2); font-size: var(--fs-sm); font-weight: var(--fw-medium); }
+.hub-subtab { min-height: 40px; }
+.hub-subtab:focus-visible,
+.agent-setup-panels :is(button, a, input, select, textarea):focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 3px;
+}
+@media (max-width: 540px) {
+  .hub-inner { padding: var(--sp-4) var(--sp-3) 64px; }
+  .agent-setup-panels .hub-fieldrow { flex-direction: column; gap: 0; }
+  .agent-setup-panels .stat-row { grid-template-columns: 10px minmax(0, 1fr); gap: 4px 10px; }
+  .agent-setup-panels .stat-row-val { grid-column: 2; }
+  .agent-setup-panels .hub-btn { min-height: 44px; }
+  .hub .hub-subtabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .hub-subtab { justify-content: center; min-height: 44px; padding-inline: 8px; }
+  .agent-setup-panels .skill-head { flex-wrap: wrap; }
+  .agent-setup-panels .skill-head-main { flex-basis: calc(100% - 60px); }
+}
+
 /* ---- header ---- */
 .hub-head {
   margin-bottom: var(--sp-4);
@@ -414,13 +452,13 @@
 /* ---- status-board rows (dot + label + value) — Agent runtime, Voice gate ---- */
 .stat-rows { display: grid; gap: 1px; }
 .stat-row {
-  display: grid; grid-template-columns: 10px 120px 1fr; align-items: baseline;
+  display: grid; grid-template-columns: 10px 120px minmax(0, 1fr); align-items: baseline;
   gap: 10px; padding: 8px 0; font-size: var(--fs-sm);
   border-bottom: 1px solid var(--line);
 }
 .stat-row:last-child { border-bottom: 0; }
 .stat-row-dot { width: 8px; height: 8px; border-radius: 50%; align-self: center; background: var(--tone, var(--muted)); }
-.stat-row-label { color: var(--muted); }
+.stat-row-label { color: var(--muted); min-width: 0; overflow-wrap: anywhere; }
 .stat-row-val { color: var(--txt); min-width: 0; overflow-wrap: anywhere; }
 .stat-row-val .hub-btn { margin-left: 8px; }
 

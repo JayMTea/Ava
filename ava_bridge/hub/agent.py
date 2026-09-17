@@ -281,12 +281,25 @@ async def agent_gateway_token(request: Request):
     lie about which side is wrong. `agent/install.sh` writes it on the machine
     where the CLI lives; this route is the paste-it-in path for everyone else.
     """
-    body = await request.json() if await request.body() else {}
-    token = str((body or {}).get("token") or "").strip()
+    # A malformed or missing field must never erase a working credential.
+    # Clearing is explicit: {"token": ""}. Never stringify objects as secrets.
+    try:
+        body = await request.json()
+    except ValueError:
+        return JSONResponse({"ok": False, "error": "expected a JSON object with a token string"},
+                            status_code=400)
+    if not isinstance(body, dict) or not isinstance(body.get("token"), str):
+        return JSONResponse({"ok": False, "error": "token must be a string"}, status_code=400)
+    token = body["token"].strip()
+    if len(token) > 8192 or any(ord(char) < 32 or ord(char) == 127 for char in token):
+        return JSONResponse({"ok": False, "error": "invalid token format"}, status_code=400)
+    if settings.env_override("AVA_OC_GATEWAY_TOKEN"):
+        return JSONResponse({"ok": False, "error": "the gateway token is managed by AVA_OC_GATEWAY_TOKEN"},
+                            status_code=409)
     if not token:
         settings.clear_secret(_GATEWAY_SECRET)
-        return {"ok": True, "configured": False, "source": ""}
-    settings.write_secret(_GATEWAY_SECRET, token)
+    else:
+        settings.write_secret(_GATEWAY_SECRET, token)
     # Reconnect rather than making the owner wait out the backoff curve: they
     # just told us the reason the last attempt failed.
     try:
@@ -295,7 +308,7 @@ async def agent_gateway_token(request: Request):
             client.reconnect()
     except Exception:  # noqa: BLE001 — saving the token is the job
         pass
-    return {"ok": True, "configured": True, "source": "file"}
+    return {"ok": True, "configured": bool(token), "source": "file" if token else ""}
 
 
 

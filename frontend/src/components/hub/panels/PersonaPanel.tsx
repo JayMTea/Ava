@@ -117,7 +117,7 @@ export function PersonaPanel() {
             </div>
 
             <div className="hub-field">
-              <label>
+              <label htmlFor="agent-persona-style">
                 Ava's voice, in your words
                 {/* "Is the value the one Ava is running" used to be a second
                     badge here. Answering it means computing drift, and drift has
@@ -127,6 +127,7 @@ export function PersonaPanel() {
                 {!isSet && <> <Badge tone="muted">not set</Badge></>}
               </label>
               <textarea
+                id="agent-persona-style"
                 className="hub-input"
                 value={style}
                 spellCheck
@@ -161,7 +162,7 @@ export function PersonaPanel() {
             </div>
 
             <div className="hub-btn-row">
-              <button type="button" className="hub-btn" onClick={save} disabled={busy}>
+              <button type="button" className="hub-btn" onClick={save} disabled={busy || !!p.config_error}>
                 <Icon name="check" />{busy ? 'Saving…' : 'Save persona'}
               </button>
             </div>

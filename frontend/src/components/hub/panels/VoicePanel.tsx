@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Icon } from '../../../lib/icons';
 import { EmptyState, Panel } from '../../ui/layout';
 import { ResourceError } from '../ui/ResourceState';
@@ -13,13 +13,50 @@ function useRecorder() {
   const [recording, setRecording] = useState(false);
   const mrRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
+  const active = useRef(false);
+  const requesting = useRef(false);
+  const [starting, setStarting] = useState(false);
+
+  useEffect(() => {
+    active.current = true;
+    return () => {
+      active.current = false;
+      const recorder = mrRef.current;
+      mrRef.current = null;
+      if (recorder) {
+        recorder.ondataavailable = null;
+        recorder.onstop = null;
+        if (recorder.state !== 'inactive') recorder.stop();
+        recorder.stream.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, []);
 
   const start = useCallback(async () => {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const mr = new MediaRecorder(stream);
+    if (requesting.current || mrRef.current) return;
+    requesting.current = true;
+    setStarting(true);
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } finally {
+      requesting.current = false;
+      if (active.current) setStarting(false);
+    }
+    if (!active.current) {
+      stream.getTracks().forEach((track) => track.stop());
+      return;
+    }
+    let mr: MediaRecorder;
+    try {
+      mr = new MediaRecorder(stream);
+      mr.start();
+    } catch (error) {
+      stream.getTracks().forEach((track) => track.stop());
+      throw error;
+    }
     chunksRef.current = [];
     mr.ondataavailable = (e) => chunksRef.current.push(e.data);
-    mr.start();
     mrRef.current = mr;
     setRecording(true);
   }, []);
@@ -27,6 +64,7 @@ function useRecorder() {
   const stop = useCallback((): Promise<Blob> => new Promise((resolve) => {
     const mr = mrRef.current;
     if (!mr) return resolve(new Blob());
+    mrRef.current = null;
     mr.onstop = () => {
       mr.stream.getTracks().forEach((t) => t.stop());
       resolve(new Blob(chunksRef.current, { type: mr.mimeType || 'audio/webm' }));
@@ -35,7 +73,7 @@ function useRecorder() {
     setRecording(false);
   }), []);
 
-  return { recording, start, stop };
+  return { recording, starting, start, stop };
 }
 
 const ENROLL_PHRASES = [
@@ -234,9 +272,9 @@ export function VoicePanel({ onRestart }: { onRestart: () => void }) {
           <button type="button"
             className={'hub-btn' + (rec.recording && mode === 'enroll' ? '' : ' ghost')}
             onClick={() => toggleRecord('enroll')}
-            disabled={busy || !st?.deps_ok || (rec.recording && mode !== 'enroll')}
+            disabled={busy || rec.starting || !st?.deps_ok || (rec.recording && mode !== 'enroll')}
           >
-            <Icon name="mic" />{rec.recording && mode === 'enroll' ? 'Stop recording' : `Record clip ${clips.length + 1}`}
+            <Icon name="mic" />{rec.starting && mode === 'enroll' ? 'Waiting for microphone…' : rec.recording && mode === 'enroll' ? 'Stop recording' : `Record clip ${clips.length + 1}`}
           </button>
           {clips.length > 0 && (
             <button type="button" className="hub-btn" onClick={enroll} disabled={busy || rec.recording}>
@@ -282,9 +320,9 @@ export function VoicePanel({ onRestart }: { onRestart: () => void }) {
           <button type="button"
             className={'hub-btn' + (rec.recording && mode === 'test' ? '' : ' ghost')}
             onClick={() => toggleRecord('test')}
-            disabled={busy || !st?.deps_ok || !st?.enrolled || (rec.recording && mode !== 'test')}
+            disabled={busy || rec.starting || !st?.deps_ok || !st?.enrolled || (rec.recording && mode !== 'test')}
           >
-            <Icon name="mic" />{rec.recording && mode === 'test' ? 'Stop & score' : 'Record test clip'}
+            <Icon name="mic" />{rec.starting && mode === 'test' ? 'Waiting for microphone…' : rec.recording && mode === 'test' ? 'Stop & score' : 'Record test clip'}
           </button>
         </div>
         {testSim != null && st && (

@@ -25,10 +25,11 @@ const SCOPE_LABEL: Record<string, string> = {
  * what you actually want.
  */
 export function ProvisionRun({ job }: { job: ProvisionJob | null }) {
-  const [showLog, setShowLog] = useState(false);
+  const [logChoice, setLogChoice] = useState<{ id: string | null; show: boolean } | null>(null);
   const logRef = useRef<HTMLPreElement>(null);
   const running = job?.status === 'running';
   const failed = job?.status === 'error';
+  const showLog = logChoice?.id === job?.id ? logChoice?.show : failed;
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -40,7 +41,7 @@ export function ProvisionRun({ job }: { job: ProvisionJob | null }) {
 
   return (
     <div className="hub-steps">
-      <div className="hub-step">
+      <div className="hub-step" role="status">
         <span className={'hub-step-mark ' + (running ? 'run' : failed ? 'bad' : 'ok')}>
           <Icon name={running ? 'refresh' : failed ? 'close' : 'check'} />
         </span>
@@ -52,6 +53,8 @@ export function ProvisionRun({ job }: { job: ProvisionJob | null }) {
           {job.detail && <div className="hub-step-detail">{job.detail}</div>}
         </span>
       </div>
+
+      {running && <p className="hub-note">You can leave this page. Changes continue applying on the agent host.</p>}
 
       {/* The remote runtime has no streaming primitive: steps only arrive at the
           end. Drawing an empty checklist that never fills is a lie dressed as
@@ -88,12 +91,13 @@ export function ProvisionRun({ job }: { job: ProvisionJob | null }) {
       {!!job.log?.length && (
         <div className="hub-btn-row">
           <button type="button" className="hub-btn ghost sm"
-                  onClick={() => setShowLog((v) => !v)}>
-            {showLog || failed ? 'Hide log' : 'Show log'}
+                  aria-expanded={!!showLog}
+                  onClick={() => setLogChoice({ id: job.id, show: !showLog })}>
+            {showLog ? 'Hide log' : 'Show log'}
           </button>
         </div>
       )}
-      {(showLog || failed) && !!job.log?.length && (
+      {showLog && !!job.log?.length && (
         <div className="hub-preview">
           <pre ref={logRef}>{job.log.join('\n')}</pre>
         </div>
@@ -133,15 +137,16 @@ export function DriftBoard({ state }: { state: ProvisionState | null }) {
         {order.map((scope) => {
           const s = state.scopes?.[scope];
           if (!s) return null;
-          const { stale, undeployed, unknown, total } = s.counts;
+          const { deployed, stale, undeployed, unknown, total } = s.counts;
           const pending = stale + undeployed;
           const value = !total ? 'none'
             : unknown === total ? 'couldn’t be checked'
-            : pending ? `${pending} of ${total} not applied`
+            : pending ? `${pending} of ${total} not applied${unknown ? ` · ${unknown} unchecked` : ''}`
+            : unknown ? `${deployed} of ${total} live · ${unknown} unchecked`
             : `all ${total} live`;
           return (
             <StatRow key={scope} label={label[scope]} value={value}
-                     tone={DRIFT_TONE[s.state]} />
+                     tone={unknown && !pending ? 'muted' : DRIFT_TONE[s.state]} />
           );
         })}
       </div>

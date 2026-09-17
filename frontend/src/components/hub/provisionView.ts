@@ -17,7 +17,13 @@ import type { DriftState, ProvisionJob } from './hubApi';
 export function mergeJob(prev: ProvisionJob | null, next: ProvisionJob | null): ProvisionJob | null {
   if (!next) return prev;
   if (!prev || prev.id !== next.id) return next;
-  return { ...next, log: [...prev.log, ...next.log].slice(-400) };
+  if (next.seq < prev.seq) return prev;
+  if (prev.ended_at != null && next.status === 'running') return prev;
+  // A full read and a cursor poll can overlap when the owner re-checks.
+  // Append only unseen lines, while still accepting terminal status updates
+  // that contain no new log output.
+  const added = Math.max(0, next.seq - prev.seq);
+  return { ...next, log: [...prev.log, ...(added ? next.log.slice(-added) : [])].slice(-400) };
 }
 
 export const DRIFT_LABEL: Record<DriftState, string> = {

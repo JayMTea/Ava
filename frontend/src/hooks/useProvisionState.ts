@@ -27,10 +27,12 @@ type Snapshot = {
   state: ProvisionState | null;
   job: ProvisionJob | null;
   error: string;
+  jobError: string;
   loading: boolean;
 };
 
-let snap: Snapshot = { state: null, job: null, error: '', loading: true };
+let snap: Snapshot = { state: null, job: null, error: '', jobError: '', loading: true };
+let readVersion = 0;
 const subs = new Set<() => void>();
 
 // Domains the owner saved since the last drift read. This is NOT an optimistic
@@ -53,16 +55,20 @@ function set(patch: Partial<Snapshot>) {
 }
 
 /** Read drift from the bridge. The ONLY thing that computes it. */
-export async function refreshProvisionState(): Promise<void> {
-  const force = savedSinceLastRead.size > 0;
+export async function refreshProvisionState(force = false): Promise<void> {
+  const version = ++readVersion;
+  const dirty = [...savedSinceLastRead];
+  force ||= dirty.length > 0;
   savedSinceLastRead.clear();
+  set({ loading: true });
   try {
     const state = await hub.provisionState(force);
-    set({ state, error: '', loading: false });
+    if (version === readVersion) set({ state, error: '', loading: false });
   } catch (e) {
+    for (const scope of dirty) savedSinceLastRead.add(scope);
     // A failed fetch NEVER clears the last good snapshot: drift is sticky, so the
     // last known count is probably still true.
-    set({ error: (e as Error).message, loading: false });
+    if (version === readVersion) set({ error: (e as Error).message, loading: false });
   }
 }
 
@@ -75,12 +81,17 @@ export function markProvisionDirty(scope: ProvisionScope): void {
 /** Everything the drift view needs, in one call: the current facts, plus any run
  *  already in flight (started in another tab, by a connector Deploy, or before an
  *  F5 — the job is server-side, so it is picked up mid-flight). */
-export async function openDriftView(): Promise<void> {
-  await refreshProvisionState();
-  const j = await hub.provisionJob(0).catch(() => null);
-  if (j?.status === 'running') {
-    set({ job: j });
-    void pollJob();
+export async function openDriftView(force = false): Promise<void> {
+  await Promise.all([refreshProvisionState(force), readJob()]);
+}
+
+async function readJob(): Promise<void> {
+  try {
+    const j = await hub.provisionJob(0);
+    set({ job: mergeJob(snap.job, j), jobError: '' });
+    if (j?.status === 'running') void pollJob();
+  } catch (e) {
+    set({ jobError: `Couldn’t check the last apply run. ${(e as Error).message}` });
   }
 }
 
@@ -92,7 +103,7 @@ export async function openDriftView(): Promise<void> {
  *  one against the same job. */
 export async function attachToProvisionJob(): Promise<ProvisionJob | null> {
   const first = await hub.provisionJob(0).catch(() => null);
-  if (first) set({ job: first });
+  if (first) set({ job: mergeJob(snap.job, first), jobError: '' });
   await pollJob();
   return snap.job;
 }
@@ -114,8 +125,8 @@ async function runJobLoop(): Promise<void> {
       if (++misses < 5) { await sleep(2000); continue; }
       set({
         job: null,
-        error: 'Lost contact with Ava while applying. The run is still going on the '
-             + 'bridge — reopen Setup → Agent → Runtime to see how it finished.',
+        jobError: 'Lost contact with Ava while applying. The run may still be going on the '
+             + 'bridge. Re-check agent to recover its status before applying again.',
       });
       return;
     }
@@ -123,9 +134,21 @@ async function runJobLoop(): Promise<void> {
     // Merge, never replace: the bridge slices the log by cursor, so each frame
     // carries only what is new. Replacing would leave "Show log" showing the last
     // second of install.sh and nothing before it.
-    set({ job: mergeJob(snap.job, job) });
+    // Cursors belong to one run. A different tab may have started a new run
+    // with a lower cursor; recover its complete log instead of losing its start.
+    if (snap.job?.id && job.id !== snap.job.id) {
+      await readJob();
+      if (snap.job?.status !== 'running') {
+        await refreshProvisionState(true);
+        window.dispatchEvent(new Event('ava:agent-provisioned'));
+        return;
+      }
+      await sleep(1000);
+      continue;
+    }
+    set({ job: mergeJob(snap.job, job), jobError: '' });
     if (job.status !== 'running') {
-      await refreshProvisionState();
+      await refreshProvisionState(true);
       // The sandbox model can change across a provision, and the header's model
       // chip is fetched once on mount. Broadcast so it can re-read — the existing
       // `ava:apps-changed` / `ava:theme` idiom, which keeps useChat from importing
@@ -143,7 +166,7 @@ export async function startProvision(
   try {
     const r = await hub.agentProvision(scope);
     if (r.job_id) {
-      set({ job: { ...(snap.job as ProvisionJob), status: 'running', id: r.job_id,
+      set({ jobError: '', job: { status: 'running', id: r.job_id,
                    scope, started_at: Date.now() / 1000, ended_at: null, steps: [],
                    log: [], seq: 0, rc: null, detail: '', observable: true } });
       void pollJob();
@@ -158,7 +181,7 @@ export async function startProvision(
     // tab). Attach to their run rather than reporting a conflict: with one Apply
     // button left, "already running" is not something the owner can act on.
     if ((e as { code?: string }).code === 'provision_running') {
-      void pollJob();
+      await readJob();
       return { ok: true };
     }
     return { ok: false, error: (e as Error).message };
@@ -183,6 +206,7 @@ export function useProvisionState(opts?: { refreshOnMount?: boolean }) {
     state: snap.state,
     job: snap.job,
     error: snap.error,
+    jobError: snap.jobError,
     loading: snap.loading,
     reload: refreshProvisionState,
   };
@@ -190,6 +214,9 @@ export function useProvisionState(opts?: { refreshOnMount?: boolean }) {
 
 /** Test seam: reset module state between cases. */
 export function __resetForTests() {
-  snap = { state: null, job: null, error: '', loading: true };
+  snap = { state: null, job: null, error: '', jobError: '', loading: true };
+  readVersion += 1;
   savedSinceLastRead.clear();
 }
+
+export function __snapshotForTests() { return snap; }

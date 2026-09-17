@@ -1,7 +1,7 @@
 import { hub } from '../hubApi';
 import { useResource } from '../hooks';
 import { useGatewayStatus } from '../../../hooks/useGateway';
-import { Panel } from '../../ui/layout';
+import { EmptyState, Panel } from '../../ui/layout';
 import { Badge } from '../ui/Badge';
 import { ResourceError } from '../ui/ResourceState';
 import { StatRow } from '../ui/StatRow';
@@ -17,9 +17,11 @@ export function GatewayCard() {
   const g = r.data;
 
   return (
-    <Panel title="Agent gateway" subtitle="OpenClaw's own control plane">
+    <Panel title="Agent gateway" subtitle="Connection and authentication for the agent console.">
       <ResourceError r={r} label="the gateway settings" />
 
+      {!g && !r.error && <EmptyState text="Loading gateway settings…" />}
+      {g && <>
       <div className="stat-rows">
         <StatRow
           label="Connection"
@@ -35,8 +37,8 @@ export function GatewayCard() {
           // Never the value, and never generated — it has to match something
           // the gateway will accept, so an invented one fails every handshake
           // while reporting the gateway's fault.
-          tone={g?.configured ? 'ok' : 'warn'}
-          value={g?.configured ? `configured (${g.source})` : 'not set'}
+          tone={g.configured ? 'ok' : live.phase === 'unconfigured' || live.phase === 'open' ? 'muted' : 'warn'}
+          value={g.configured ? `configured (${g.source})` : 'not set locally'}
         />
         <StatRow
           label="Address"
@@ -97,19 +99,20 @@ export function GatewayCard() {
         </p>
       )}
 
-      {!g?.configured && (
+      {!g.configured && live.phase !== 'unconfigured' && live.phase !== 'open' && (
         <p className="hub-note">
-          Without a token the gateway runtime cannot connect, and chat falls back
-          to whichever runtime <code>agent.runtime</code> names.{' '}
+          A gateway connection needs the token accepted by the agent host.{' '}
           <code>ava agent provision</code> writes one where the CLI lives.
         </p>
       )}
 
+      {live.phase === 'unconfigured' && <p className="hub-note">Your current runtime does not use this gateway.</p>}
       <span className="hub-badge-row">
         <Badge tone={live.phase === 'open' ? 'ok' : 'muted'}>
-          {live.phase === 'open' ? 'gateway live' : 'gateway offline'}
+          {live.phase === 'open' ? 'gateway live' : live.phase === 'unconfigured' ? 'not in use' : 'gateway offline'}
         </Badge>
       </span>
+      </>}
     </Panel>
   );
 }

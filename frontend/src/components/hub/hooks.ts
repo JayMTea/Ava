@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 // Shared Hub data/action hooks — every Setup panel used to hand-roll the same
 // load/error/busy/message dance (33 nullable-state holders, 10 load callbacks,
@@ -24,23 +24,32 @@ export function useResource<T>(fetcher: () => Promise<T>, deps: React.Dependency
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState('');
   const [code, setCode] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const request = useRef(0);
 
   // The fetcher closes over `deps`; we intentionally key the callback on those,
   // not on the (always-new) fetcher identity — the standard load-hook pattern.
-  const reload = useCallback(() => {
+  const reload = useCallback(async () => {
+    const id = ++request.current;
     setLoading(true); setError(''); setCode('');
-    fetcher()
-      .then((d) => setData(d))
-      .catch((e) => {
+    try {
+      const d = await fetcher();
+      if (id === request.current) setData(d);
+    } catch (e) {
+      if (id === request.current) {
         setError((e as Error).message);
         setCode((e as { code?: string }).code || '');
-      })
-      .finally(() => setLoading(false));
+      }
+    } finally {
+      if (id === request.current) setLoading(false);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
 
-  useEffect(() => { reload(); }, [reload]);
+  useEffect(() => {
+    void reload();
+    return () => { request.current += 1; };
+  }, [reload]);
   return { data, error, code, loading, reload, setData };
 }
 

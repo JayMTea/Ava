@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useResource } from '../hooks';
+import { ResourceError } from '../ui/ResourceState';
 import { agentApi } from '../../../lib/agentApi';
 import { useGateway, useGatewayStatus } from '../../../hooks/useGateway';
 import { EmptyState, Panel } from '../../ui/layout';
@@ -25,28 +26,15 @@ interface ModelRow {
 export function ProvidersPanel() {
   const client = useGateway();
   const { phase, why } = useGatewayStatus();
-  const [models, setModels] = useState<ModelRow[]>([]);
-  const [usage, setUsage] = useState<Record<string, unknown> | null>(null);
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(true);
-
-  const load = useCallback(async () => {
-    if (!client) return;
-    setLoading(true);
-    try {
+  const resource = useResource(async () => {
+    if (!client || phase !== 'open') return null;
       const api = agentApi(client);
       const [m, u] = await Promise.all([api.models.list(), api.models.usage()]);
-      setModels(((m?.models || []) as ModelRow[]));
-      setUsage(u || null);
-      setError('');
-    } catch (e) {
-      setError((e as Error).message || String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [client]);
-
-  useEffect(() => { void load(); }, [load]);
+      return { models: (Array.isArray(m?.models) ? m.models : []) as ModelRow[], usage: u || null };
+  }, [client, phase]);
+  const { loading, error, reload: load } = resource;
+  const models = resource.data?.models ?? [];
+  const usage = resource.data?.usage;
 
   // The gateway being down is not an error in THIS panel — it is the reason
   // there is nothing to show, and saying so beats a red box that implies the
@@ -59,8 +47,8 @@ export function ProvidersPanel() {
           + 'providers cannot be read. This page describes the agent runtime, '
           + 'not Ava’s own inference router.'} />
         <p className="hub-note">
-          Ava’s own model lives under <b>Brain</b>. This page is about the
-          agent’s.
+          Check the connection in <a href="#hub/agent">Runtime</a>, or manage
+          Ava’s model in <a href="#hub/agent/brain">Brain</a>.
         </p>
       </Panel>
     );
@@ -71,9 +59,9 @@ export function ProvidersPanel() {
       <Panel
         title="Providers"
         subtitle="What the agent can think with"
-        right={<button type="button" className="hub-btn ghost" onClick={load}>Refresh</button>}
+        right={<button type="button" className="hub-btn ghost" onClick={load} disabled={loading}>{loading ? 'Refreshing…' : 'Refresh'}</button>}
       >
-        {error && <p className="hub-msg err">{error}</p>}
+        <ResourceError r={resource} label="providers and usage" />
         {loading && !models.length && <p className="agent-list-note">Loading providers…</p>}
         {!loading && !models.length && !error && (
           <EmptyState text="The gateway advertises no models." />
@@ -84,7 +72,7 @@ export function ProvidersPanel() {
               <StatRow
                 key={m.id}
                 label={m.name || m.id}
-                tone={m.auth === 'ok' || !m.auth ? 'ok' : 'warn'}
+                tone={m.auth === 'ok' ? 'ok' : m.auth ? 'warn' : 'muted'}
                 value={
                   <span className="meta-row">
                     {m.provider && <code>{m.provider}</code>}

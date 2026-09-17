@@ -246,7 +246,7 @@ function BrainManager({ onRestart }: { onRestart: () => void }) {
               {backends.map((b) => (
                 <div key={b.id} className={'hub-opt' + (b.is_brain ? ' sel' : '')}
                      style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'default' }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ flex: '1 1 240px', minWidth: 0 }}>
                     <b style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       {b.label}
                       {b.is_brain && (agentBrain
@@ -261,6 +261,7 @@ function BrainManager({ onRestart }: { onRestart: () => void }) {
                       {!b.local && (b.has_key ? ' · key ✓' : ' · no key')}
                     </small>
                   </div>
+                  <div className="row-actions">
                   {!b.is_brain && (
                     <button type="button" className="hub-btn sm ghost" onClick={() => setBrain(b.id)}>Use as brain</button>
                   )}
@@ -268,6 +269,7 @@ function BrainManager({ onRestart }: { onRestart: () => void }) {
                   <button type="button" className="hub-btn sm ghost" onClick={() => remove(b.id)} aria-label={`Remove ${b.id}`}>
                     <Icon name="trash" />
                   </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -276,24 +278,24 @@ function BrainManager({ onRestart }: { onRestart: () => void }) {
       {showForm && (
         <div className="hub-model-form" style={{ marginTop: 14, borderTop: '1px solid var(--line)', paddingTop: 14 }}>
           <div className="hub-fieldrow">
-            <div className="hub-field"><label>Name</label>
-              <input className="hub-input" value={id} disabled={!!editing}
+            <div className="hub-field"><label htmlFor="agent-model-name">Name</label>
+              <input id="agent-model-name" className="hub-input" value={id} disabled={!!editing}
                      onChange={(e) => setId(e.target.value)} placeholder="e.g. my-openai" /></div>
-            <div className="hub-field"><label>Engine</label>
-              <select className="hub-select" value={engine} onChange={(e) => onEngine(e.target.value)}>
+            <div className="hub-field"><label htmlFor="agent-model-engine">Engine</label>
+              <select id="agent-model-engine" className="hub-select" value={engine} onChange={(e) => onEngine(e.target.value)}>
                 {ENGINE_PRESETS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
               </select></div>
           </div>
           <div className="hub-fieldrow">
-            <div className="hub-field"><label>Base URL</label>
-              <input className="hub-input" value={baseUrl} onChange={(e) => { setBaseUrl(e.target.value); setTest(null); }} /></div>
-            <div className="hub-field"><label>Model</label>
-              <input className="hub-input" value={model} onChange={(e) => { setModel(e.target.value); setTest(null); }}
+            <div className="hub-field"><label htmlFor="agent-model-url">Base URL</label>
+              <input id="agent-model-url" className="hub-input" value={baseUrl} onChange={(e) => { setBaseUrl(e.target.value); setTest(null); }} /></div>
+            <div className="hub-field"><label htmlFor="agent-model-id">Model</label>
+              <input id="agent-model-id" className="hub-input" value={model} onChange={(e) => { setModel(e.target.value); setTest(null); }}
                      placeholder={isCloud ? 'e.g. gpt-4o-mini' : 'e.g. llama3.1:70b'} /></div>
           </div>
           {isCloud && (
-            <div className="hub-field"><label>API key <span style={{ opacity: 0.7 }}>(stored in secrets/, never in ava.yaml)</span></label>
-              <input className="hub-input" type="password" value={apiKey}
+            <div className="hub-field"><label htmlFor="agent-model-key">API key <span style={{ opacity: 0.7 }}>(stored in secrets/, never in ava.yaml)</span></label>
+              <input id="agent-model-key" className="hub-input" type="password" value={apiKey} autoComplete="new-password"
                      onChange={(e) => { setApiKey(e.target.value); setTest(null); }}
                      placeholder={editing ? 'leave blank to keep the saved key' : ''} /></div>
           )}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Icon } from '../../../lib/icons';
 import { AppDot, appAccent, appById, appForTool, appsForTools } from '../../../lib/appColor';
 import { MarkdownLite } from '../../../lib/markdown';
@@ -7,6 +7,8 @@ import { hub } from '../hubApi';
 import type { Skill, SkillList } from '../hubApi';
 import { Badge } from '../ui/Badge';
 import { DriftBadge } from '../ui/DriftBadge';
+import { useResource } from '../hooks';
+import { ResourceError } from '../ui/ResourceState';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Skills — the agent's SKILL.md capabilities, auto-discovered from the filesystem
@@ -131,8 +133,6 @@ function SkillRow({ s, open, onToggle, body, dragging, onDragStart, onDragEnd }:
 }
 
 export function SkillsPanel() {
-  const [data, setData] = useState<SkillList | null>(null);
-  const [err, setErr] = useState('');
   const [note, setNote] = useState('');
   const [query, setQuery] = useState('');
   const [openId, setOpenId] = useState<string | null>(null);
@@ -153,20 +153,20 @@ export function SkillsPanel() {
   const [newCat, setNewCat] = useState<{ skill?: string } | null>(null);
   const [newCatVal, setNewCatVal] = useState('');
 
-  const refresh = useCallback(
+  const resource = useResource<SkillList>(
     // Normalise the payload so a partial or errored response (missing summary or
     // skills) can never crash the whole Setup view via the error boundary — a
     // malformed body renders as "no skills", not a blank error page.
-    () => hub.agentSkills().then((d) => setData({
+    () => hub.agentSkills().then((d) => ({
       skills: d?.skills ?? [],
       errors: d?.errors ?? [],
       summary: d?.summary ?? {
         total: (d?.skills ?? []).length, deployed: 0, stale: 0, unknown: 0,
       },
       category_order: d?.category_order,
-    })).catch((e) => setErr((e as Error).message)),
+    })),
     []);
-  useEffect(() => { refresh(); }, [refresh]);
+  const { data, setData, reload: refresh } = resource;
 
   const toggle = useCallback(async (s: Skill) => {
     if (openId === s.id) { setOpenId(null); return; }
@@ -351,6 +351,7 @@ export function SkillsPanel() {
       <input
         className="hub-input"
         placeholder="New category name…"
+        aria-label="New category name"
         value={newCatVal}
         autoFocus
         onChange={(e) => setNewCatVal(e.target.value)}
@@ -364,12 +365,11 @@ export function SkillsPanel() {
   return (
     <Panel
       title="Skills"
-      subtitle="Capabilities your agent loads. Drop a folder in agent/skills (or your overlay) and it appears here automatically; expand one to read its full instructions, and re-provision to deploy it into the sandbox. Categories are yours: create your own, drag skills between them, drag headers to reorder, rename with the pencil."
+      subtitle="Browse your agent’s capabilities and open a skill to read its instructions. Apply changed skills in Runtime. Use categories to keep your collection organized."
       right={right}
     >
-      {err ? (
-        <div className="hub-msg err">{err}</div>
-      ) : !data ? (
+      <ResourceError r={resource} label="your skills" />
+      {resource.error ? null : !data ? (
         <EmptyState text="Loading skills…" />
       ) : data.skills.length === 0 ? (
         <EmptyState text="No skills found under agent/skills." />
@@ -380,6 +380,7 @@ export function SkillsPanel() {
               <input
                 className="hub-input skill-search"
                 placeholder="Filter skills…"
+                aria-label="Filter skills"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
               />
@@ -425,6 +426,7 @@ export function SkillsPanel() {
                     {editingCat === cat ? (
                       <input
                         className="skill-group-edit"
+                        aria-label="Category name"
                         value={editVal}
                         autoFocus
                         onChange={(e) => setEditVal(e.target.value)}

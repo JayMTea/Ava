@@ -21,8 +21,8 @@ describe('mergeJob', () => {
   });
 
   it('appends log lines within the same run', () => {
-    const a = job({ id: 'a', log: ['one'] });
-    const b = job({ id: 'a', log: ['two'] });
+    const a = job({ id: 'a', log: ['one'], seq: 1 });
+    const b = job({ id: 'a', log: ['two'], seq: 2 });
     expect(mergeJob(a, b)?.log).toEqual(['one', 'two']);
   });
 
@@ -32,11 +32,30 @@ describe('mergeJob', () => {
   });
 
   it('bounds the merged log', () => {
-    const a = job({ id: 'a', log: Array.from({ length: 500 }, (_, i) => `l${i}`) });
-    const b = job({ id: 'a', log: ['tail'] });
+    const a = job({ id: 'a', log: Array.from({ length: 500 }, (_, i) => `l${i}`), seq: 500 });
+    const b = job({ id: 'a', log: ['tail'], seq: 501 });
     expect(mergeJob(a, b)!.log.length).toBeLessThanOrEqual(400);
     const merged = mergeJob(a, b)!.log;
     expect(merged[merged.length - 1]).toBe('tail');
+  });
+
+  it('does not duplicate lines when a full read overlaps a poll', () => {
+    const a = job({ id: 'a', log: ['one'], seq: 1 });
+    const b = job({ id: 'a', log: ['one', 'two'], seq: 2 });
+    expect(mergeJob(a, b)?.log).toEqual(['one', 'two']);
+    expect(mergeJob(b, a)).toBe(b);
+  });
+
+  it('accepts completion even when no more log lines were written', () => {
+    const a = job({ id: 'a', status: 'running', log: ['one'], seq: 1 });
+    const b = job({ id: 'a', status: 'done', log: [], seq: 1 });
+    expect(mergeJob(a, b)).toMatchObject({ status: 'done', log: ['one'] });
+  });
+
+  it('never revives a completed run from a delayed poll response', () => {
+    const a = job({ id: 'a', status: 'done', ended_at: 2, seq: 1 });
+    const b = job({ id: 'a', status: 'running', seq: 1 });
+    expect(mergeJob(a, b)).toBe(a);
   });
 });
 
