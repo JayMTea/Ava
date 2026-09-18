@@ -1,5 +1,6 @@
 """Resolve CLI session keys after OpenClaw rotates their transcript files."""
 import shlex
+import subprocess
 from pathlib import PurePosixPath
 
 
@@ -23,6 +24,6 @@ def resolve_transcript(exec_command, fallback: str, agent: str, session_id: str)
         if (PurePosixPath(path).parent == PurePosixPath(root)
                 and path.endswith('.jsonl') and '\n' not in path):
             return path
-    except Exception:  # Older runtimes may have no session index.
+    except (OSError, subprocess.SubprocessError):  # Unavailable runtime or session index.
         pass
     return fallback
