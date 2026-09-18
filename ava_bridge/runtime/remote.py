@@ -168,7 +168,12 @@ class RemoteRuntime(AgentRuntime):
     def session_file(self, session_id: str) -> str | None:
         try:
             data = self._post("/session_file", {"session_id": session_id}, timeout=10)
-            return data.get("path")
+            path = data.get("path")
+            if path:
+                # Also works with an older shim that returns the original name.
+                from .session_files import resolve_transcript
+                return resolve_transcript(self.exec, path, config.OC_AGENT, session_id)
+            return None
         except Exception:  # noqa: BLE001
             return None
 

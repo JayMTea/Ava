@@ -26,7 +26,7 @@
 .analysis-artifact td { font-variant-numeric:tabular-nums; }
 .analysis-artifact caption { text-align:left; padding-bottom:10px; }
 @media (max-width:600px) { .analysis-preview { padding:14px; } }
-.analysis-native-frame { position: relative; overflow: hidden; flex: none; height: min(60vh, 600px); min-height: 320px; width: 100%; border-radius: 8px; }
-.analysis-preview .analysis-native-frame { height: 320px; min-height: 260px; }
+.analysis-native-frame { position: relative; overflow: hidden; flex: none; height: min(70vh, 680px); min-height: 380px; width: 100%; border-radius: 8px; }
+.analysis-preview .analysis-native-frame { height: clamp(360px, 50vh, 440px); min-height: 360px; }
 .analysis-native-frame .appframe { height: 100%; min-height: 0; }
 .analysis-native-frame .appframe-iframe { width: 100%; height: 100%; border: 0; }

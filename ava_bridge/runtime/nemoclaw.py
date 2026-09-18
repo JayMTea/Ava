@@ -291,7 +291,9 @@ class NemoClawRuntime(AgentRuntime):
         return cp.stdout.decode(errors="ignore")
 
     def session_file(self, session_id: str) -> str:
-        return f"/sandbox/.openclaw/agents/{config.OC_AGENT}/sessions/{session_id}.jsonl"
+        from .session_files import resolve_transcript
+        path = f"/sandbox/.openclaw/agents/{config.OC_AGENT}/sessions/{session_id}.jsonl"
+        return resolve_transcript(self.exec, path, config.OC_AGENT, session_id)
 
     def discard_session(self, session_id: str) -> bool:
         if not session_id:

@@ -104,6 +104,27 @@ def test_model_text_cannot_create_artifact(snapshot):
     assert artifacts.capture("test-data", {"text": json.dumps(snapshot)}) == {"text": json.dumps(snapshot)}
 
 
+@pytest.mark.parametrize('rotated', [False, True])
+def test_map_receipt_survives_transcript_rotation(native, monkeypatch, rotated):
+    from ava_bridge import turns
+    envelope = artifacts.capture('test-data', {'_meta': {'ava/artifact': native}})
+    transcript = json.dumps({'type': 'message', 'message': {
+        'role': 'toolResult', 'toolName': 'show_chart', 'content': envelope['content']}})
+    original = '/sessions/chat.jsonl'
+    current = '/sessions/uuid.jsonl' if rotated else original
+    monkeypatch.setattr(turns, 'session_file', lambda sid: current)
+    commands = []
+
+    def read(command):
+        commands.append(command)
+        return transcript
+
+    monkeypatch.setattr(turns, 'sbx_read', read)
+    steps = turns._read_session_steps('chat', 42, original)
+    assert f'tail -n +{1 if rotated else 42} {current}' in commands[0]
+    assert artifacts.from_steps(steps)['id'] == envelope['structuredContent']['ava_artifact_id']
+
+
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), True, "120"])
 def test_invalid_numbers_cannot_reach_chart(snapshot, value):
     snapshot["result"]["rows"][0]["value"] = value

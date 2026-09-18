@@ -80,8 +80,8 @@ def _tools_from_session(sid: str, after: int) -> list[str]:
     return seen
 
 
-def _session_line_count(sid: str) -> int:
-    path = session_file(sid)
+def _session_line_count(sid: str, path: str | None = None) -> int:
+    path = path or session_file(sid)
     try:
         out = sbx_read(f"wc -l < {shlex.quote(path)} 2>/dev/null || echo 0")
         return int((out.strip() or "0").split()[0])
@@ -135,29 +135,31 @@ def _parse_turn_steps(text: str) -> list[dict]:
     return steps
 
 
-def _read_session_steps(sid: str, after: int) -> list[dict]:
+def _read_session_steps(sid: str, after: int, initial_path: str | None = None) -> list[dict]:
     """Read the complete CoT trajectory for a finished turn (same source as the
     live poller). Used to persist durable chain-of-thought with the chat message."""
     try:
         path = session_file(sid)
         if not path:
             return []
+        if initial_path is not None and path != initial_path:
+            # A reset starts a new transcript, so the old file's line count is
+            # no longer a valid cursor (and can skip the entire new turn).
+            after = 1
         cmd = f"tail -n +{after} {shlex.quote(path)} 2>/dev/null | head -c 400000"
         return _parse_turn_steps(sbx_read(cmd))
     except Exception:  # noqa: BLE001
         return []
 
 
-def _poll_turn_steps(tid: str, sid: str, after: int):
-    path = session_file(sid)
-    cmd = f"tail -n +{after} {shlex.quote(path)} 2>/dev/null | head -c 400000"
+def _poll_turn_steps(tid: str, sid: str, after: int, initial_path: str | None = None):
     while True:
         with state.turns_lock:
             running = state.turns.get(tid, {}).get("status") == "running"
         if not running:
             break
         try:
-            steps = _parse_turn_steps(sbx_read(cmd))
+            steps = _read_session_steps(sid, after, initial_path)
             with state.turns_lock:
                 if tid in state.turns and steps:
                     state.turns[tid]["steps"] = steps
@@ -166,7 +168,7 @@ def _poll_turn_steps(tid: str, sid: str, after: int):
         time.sleep(1.1)
     # One last read so the final reasoning step isn't missed.
     try:
-        steps = _parse_turn_steps(sbx_read(cmd))
+        steps = _read_session_steps(sid, after, initial_path)
         with state.turns_lock:
             if tid in state.turns and steps:
                 state.turns[tid]["steps"] = steps
@@ -388,8 +390,9 @@ def _run_turn(tid: str, agent_text: str, sid: str, chat_id: str):
 def _run_turn_polled(tid: str, agent_text: str, sid: str, chat_id: str, rt):
     """The CLI path, unchanged: block on one call, tail the session file beside
     it for live chain-of-thought."""
-    after = _session_line_count(sid) + 1
-    threading.Thread(target=_poll_turn_steps, args=(tid, sid, after), daemon=True).start()
+    initial_path = session_file(sid)
+    after = _session_line_count(sid, initial_path) + 1
+    threading.Thread(target=_poll_turn_steps, args=(tid, sid, after, initial_path), daemon=True).start()
     agent_text = _tooling_note(direct=False) + agent_text
     t0 = time.time()
     tools: list[str] = []
@@ -424,11 +427,12 @@ def _run_turn_polled(tid: str, agent_text: str, sid: str, chat_id: str, rt):
         return
     # `openclaw agent --json` doesn't reliably report tools; recover them from
     # the trajectory so tool chips AND the artifact panel (weather, etc.) work.
-    if not tools:
-        tools = _tools_from_session(sid, after)
     # durable CoT: the definitive trajectory, re-read once the turn is over
+    final_steps = _read_session_steps(sid, after, initial_path)
+    if not tools:
+        tools = _tools_of_steps(final_steps)
     _finish_turn(tid, chat_id, sid, after, reply, tools, t0,
-                 final_steps=_read_session_steps(sid, after))
+                 final_steps=final_steps)
 
 
 def _run_turn_push(tid: str, agent_text: str, sid: str, chat_id: str, rt):
