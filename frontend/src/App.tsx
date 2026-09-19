@@ -24,7 +24,7 @@ import InferenceBanner from './components/InferenceBanner';
 import TourHost from './components/tour/TourHost';
 import { useChat } from './hooks/useChat';
 import { api } from './lib/api';
-import { appRouteFromHash } from './lib/appRoute';
+import { type AppPaths, appPathsFrom, appRouteFromHash, appRouteIsExplicit } from './lib/appRoute';
 import { registerApps } from './lib/appColor';
 import { RAIL_REALMS_OFF, type RailRealms, railRealms } from './lib/realms';
 import type { AppEntry, Artifact, Attachment } from './lib/types';
@@ -79,6 +79,33 @@ function viewFromHash(): View | null {
   return appRouteFromHash(window.location.hash)?.view || null;
 }
 
+/**
+ * Where each hosted app was last seen, remembered across reloads.
+ *
+ * The address bar is the authority whenever it carries a destination, and this
+ * exists only for the case it CANNOT describe: a reload taken while another tab
+ * is on screen. The fragment then reads `#chat`, which says nothing about Home
+ * Lab, so the frame reopened at its root and the section the user had been on
+ * all morning was gone — the same complaint the fragment was added to answer,
+ * reached through a different door.
+ *
+ * Note what this deliberately does NOT do: it never decides which tab opens.
+ * `view` still comes from the fragment, else Setup. The old `ava.view` key made
+ * the landing tab a sticky preference nobody had chosen and was removed for it;
+ * this remembers WHERE an app was, never WHICH tab to show, so that stays true.
+ */
+const APP_PATHS_KEY = 'ava.appPaths';
+
+function readAppPaths(): AppPaths {
+  try {
+    return appPathsFrom(JSON.parse(window.localStorage.getItem(APP_PATHS_KEY) || '{}'));
+  } catch {
+    // Unparseable, or storage refused: a private window and blocked site data
+    // both throw on ACCESS, not only on write.
+    return {};
+  }
+}
+
 export default function App() {
   const chat = useChat();
   // Left-rail apps, derived server-side from connector `ui:` blocks. Loaded at
@@ -127,10 +154,35 @@ export default function App() {
   // entirely — nothing else consumed it, and leaving the write behind would
   // invite the read back.
   const [view, setView] = useState<View>(() => viewFromHash() || 'hub');
-  const [appPaths, setAppPaths] = useState<Record<string, string>>(() => {
+  const [appPaths, setAppPaths] = useState<AppPaths>(() => {
+    const remembered = readAppPaths();
     const route = appRouteFromHash(window.location.hash);
-    return route ? { [route.view]: route.path } : {};
+    // A fragment that names a destination wins — including `#infra/`, which is
+    // how a tile says "open this at its home". A bare `#infra` does not, so a
+    // reload taken on another tab still comes back where the app was.
+    return route && appRouteIsExplicit(window.location.hash)
+      ? { ...remembered, [route.view]: route.path }
+      : remembered;
   });
+  const onAppNavigate = useCallback((id: string, path: string) => {
+    setAppPaths(paths => paths[id] === path ? paths : { ...paths, [id]: path });
+    if (viewFromHash() === id) {
+      // The child navigation already owns its history entry. Mirror it without
+      // reloading the frame or adding a second Back-button stop.
+      window.history.replaceState(null, '', `#${id}${path}`);
+    }
+  }, []);
+  // Persist the memory, pruned to apps that still exist. Pruning waits for the
+  // app list: at boot it is empty, and writing then would erase the very entry
+  // this load is about to restore.
+  useEffect(() => {
+    const known = apps.length ? apps.map((app) => app.id) : undefined;
+    try {
+      window.localStorage.setItem(APP_PATHS_KEY, JSON.stringify(appPathsFrom(appPaths, known)));
+    } catch {
+      /* storage unavailable — the app simply opens where the fragment says */
+    }
+  }, [appPaths, apps]);
   // Reflect the view in the URL hash so Back/forward and bookmarks work. The
   // FIRST stamp replaces rather than pushes: a bare `/` is where the setup
   // wizard's `location.href='/'` lands, and pushing would leave `/` in history —
@@ -138,15 +190,23 @@ export default function App() {
   // same view and cannot re-write the hash. replaceState fires no hashchange, so
   // the listener below cannot loop.
   const stamped = useRef(false);
+  // Native views own their own subroutes; only hosted frames use this memory.
+  const framePath = apps.some(app => app.id === view && app.embed === 'iframe') ? appPaths[view] || '' : '';
   useEffect(() => {
-    if (viewFromHash() === view) { stamped.current = true; return; }
+    if (viewFromHash() === view) {
+      stamped.current = true;
+      if (framePath && (window.location.hash === `#${view}` || window.location.hash === `#/${view}`)) {
+        window.history.replaceState(null, '', `#${view}${framePath}`);
+      }
+      return;
+    }
     if (!stamped.current) {
       stamped.current = true;
-      window.history.replaceState(null, '', `#${view}`);
+      window.history.replaceState(null, '', `#${view}${framePath}`);
     } else {
-      window.location.hash = view;
+      window.location.hash = view + framePath;
     }
-  }, [view]);
+  }, [view, framePath]);
   // Back/forward buttons (and manual hash edits / bookmarks) drive the view.
   useEffect(() => {
     const onHash = () => {
@@ -154,7 +214,7 @@ export default function App() {
       if (!route) return;
       // Plain tile changes keep the mounted app's state. Explicit destinations
       // also work within an already-open app and through browser Back/Forward.
-      if (route.path !== '/') {
+      if (appRouteIsExplicit(window.location.hash)) {
         setAppPaths((paths) => paths[route.view] === route.path
           ? paths : { ...paths, [route.view]: route.path });
       }
@@ -449,7 +509,7 @@ export default function App() {
               .filter((a) => a.embed === 'iframe' && openedApps.includes(a.id))
               .map((a) => (
                 <ViewErrorBoundary key={a.id} label={a.label} hidden={view !== a.id}>
-                  <AppFrame id={a.id} label={a.label} active={view === a.id} path={appPaths[a.id] || '/'} />
+                  <AppFrame id={a.id} label={a.label} active={view === a.id} path={appPaths[a.id] || '/'} onNavigate={onAppNavigate} />
                 </ViewErrorBoundary>
               ))}
             {!BUILTIN_VIEWS.includes(view) && (() => {

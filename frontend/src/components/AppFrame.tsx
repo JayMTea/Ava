@@ -11,6 +11,7 @@ import {
 } from '../lib/embedLease';
 import { connectAppTheme, sendAppTheme } from '../lib/embedTheme';
 import { getTheme } from '../lib/theme';
+import { frameNavigation } from '../lib/embedNavigation';
 
 // Renders an app using the bridge-issued embed destination. A configured app
 // origin isolates it from Ava; the bridge supplies scoped access and theme.
@@ -38,7 +39,7 @@ const DEAD_AFTER_MS = 45_000;
 
 type FrameState = 'loading' | 'slow' | 'ready' | 'error';
 
-export function AppFrame({ id, label, active = true, path = '/' }: { id: string; label: string; active?: boolean; path?: string }) {
+export function AppFrame({ id, label, active = true, path = '/', onNavigate }: { id: string; label: string; active?: boolean; path?: string; onNavigate?: (id: string, path: string) => void }) {
   const [state, setState] = useState<FrameState>('loading');
   const [lease, setLease] = useState<EmbedLease | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -83,9 +84,25 @@ export function AppFrame({ id, label, active = true, path = '/' }: { id: string;
   }, [id]);
 
   useEffect(() => {
+    // A route reported by this frame is already on screen. Only an external
+    // destination (a bookmark or browser history) needs a new navigation.
+    if (generation.current > 0 && wanted.current === path) return;
     wanted.current = path;
     mint();
   }, [path, mint]);
+
+  useEffect(() => {
+    const frame = ref.current?.contentWindow;
+    if (!lease || !frame) return;
+    const onMessage = (event: MessageEvent) => {
+      const next = frameNavigation(event, frame, lease.origin, id);
+      if (next === null) return;
+      wanted.current = next;
+      onNavigate?.(id, next);
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [lease, id, onNavigate]);
 
   // The wait, named honestly: slow first, dead later. Reset on every attempt.
   useEffect(() => {
@@ -192,6 +209,9 @@ export function AppFrame({ id, label, active = true, path = '/' }: { id: string;
           // claim was aspirational for a long time: the bridge shipped
           // `apps_origin.warning()` on /api/apps and nothing anywhere read it.
           sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-downloads"
+          // Connected apps have a separate origin, so Copy buttons need explicit
+          // write permission. Restrict it to this frame's source; never grant reads.
+          allow="clipboard-write 'src'"
           onLoad={() => { loaded.current = true; setState('ready'); sendTheme(); }}
         />
       )}
