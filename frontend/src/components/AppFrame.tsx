@@ -212,6 +212,21 @@ export function AppFrame({ id, label, active = true, path = '/', onNavigate }: {
           // Connected apps have a separate origin, so Copy buttons need explicit
           // write permission. Restrict it to this frame's source; never grant reads.
           allow="clipboard-write 'src'"
+          // Introduce the shell to its app. An embedded app can learn who its
+          // shell is from its first document's referrer and address its route
+          // reports (ava:navigation) there. A reverse proxy in front of Ava
+          // commonly sends `Referrer-Policy: same-origin` on every page, Ava's
+          // included; with apps.origin set the frame is cross-origin, so the
+          // default left document.referrer empty, the app could not tell who its
+          // shell was, and every refresh landed on its home page — a Machine
+          // Learning tab lost to F5. This covers this frame's own navigation only
+          // and sends Ava's origin, never its path or query (no referrer ever
+          // carries a fragment). It is a hint, not a guarantee: a redirect on the
+          // way in that carries its own Referrer-Policy empties it again, which
+          // is why apps are told to prefer ancestorOrigins and the
+          // ava:theme-request handshake (docs/CONNECTOR_SDK.md §3). The bridge
+          // never reads Referer; its app proxy passes it through like any header.
+          referrerPolicy="origin"
           onLoad={() => { loaded.current = true; setState('ready'); sendTheme(); }}
         />
       )}

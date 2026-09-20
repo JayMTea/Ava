@@ -27,7 +27,7 @@ This is the productization contract: fork Ava, connect **your** apps, ship.
 |---|---|---|
 | 1 | [Where connectors live](#1-where-connectors-live) | Which folder do I drop it in, and how do I scaffold one? |
 | 2 | [The manifest](#2-the-manifest) | Every field, annotated - and how credentials are named but never held |
-| 3 | [The three embed tiers](#3-the-three-embed-tiers-how-your-ui-renders) | How does my UI render inside Ava, and what does embedding trust? |
+| 3 | [The three embed tiers](#3-the-three-embed-tiers-how-your-ui-renders) | How does my UI render inside Ava, what does embedding trust, and how does it talk to the shell? |
 | 4 | [Browser data-proxy](#4-browser-data-proxy-uiapi) | How does my browser UI call my own API without shipping a token to it? |
 | 5 | [Agent tools](#5-agent-tools) | How do I give Ava tools - declared, discovered, or a real MCP server - and what gets an approval prompt? |
 | 6 | [What's derived automatically](#6-whats-derived-automatically) | What do I get for free from that one file? |
@@ -395,6 +395,46 @@ any nested workspace and a reload.
     Advertise the token name in `/.well-known/ava.json` as
     `"auth": {"token_env": "MYAPP_TOKEN"}` (§5). Ava's connect form then
     pre-fills the field so the owner just pastes the value.
+
+### Talking to the shell from an iframe app
+
+An `iframe` app and Ava's shell can exchange a few `postMessage` messages. All
+of them are optional - an app that sends none still works, it just reopens at
+its home page after a refresh.
+
+| Message | Direction | What it does |
+|---|---|---|
+| `{type: "ava:theme", theme}` | shell → frame | Sent on every frame load and every theme change, so a kept-alive app follows the owner's theme without reloading. `theme` is `light` or `dark`. |
+| `{type: "ava:theme-request"}` | frame → shell | Asks for an `ava:theme` now, for an app that hydrates after the load-time one went by. |
+| `{type: "ava:navigation", cid, path}` | frame → shell | Says where the app is, so a refresh reopens it there. `cid` is your connector id; `path` is app-relative (`/machine-learning?tab=models`, not `/apps/<id>/…`), with its query and fragment, minus credentials and launch hints (`t`, `theme`, `embedded`, `v`, anything token-like). The shell mirrors it into its own address as `#<cid><path>` and remembers it across reloads. It ignores `/login`, `/logout`, `/auth` and `/.ava`, so a sign-in screen is never where the app reopens. |
+| `{type: "ava:embed-expired", cid, path}` | frame → shell | Not yours to send: the bridge's reconnect page posts it when the frame's access has lapsed, and the shell reopens the app at `path` with fresh access. |
+
+The shell takes a message only from its own frame's window and the app's
+origin, and posts only to the app's origin. Do the same in reverse: post to the
+shell's **origin**, and accept a message only when `event.source` is
+`window.parent` and `event.origin` is that origin. To find it, first match wins:
+
+1. `location.ancestorOrigins[0]`, where the browser has it (not all do).
+2. `window.parent.location.origin` - readable only when the shell is
+   same-origin (no `apps.origin`); a cross-origin parent throws.
+3. The handshake: post `{type: "ava:theme-request"}` to `'*'` - it carries
+   nothing, so it is the one message that may go out unaddressed - and take
+   `event.origin` of the `ava:theme` reply whose `event.source` is
+   `window.parent`. The browser sets `event.origin`, so this is a fact, not a
+   guess.
+4. Until then, `document.referrer` as a hint, and only when its origin is
+   **not** your own. The shell sets `referrerpolicy="origin"` on the iframe, so
+   the frame's first document gets Ava's origin (never its path) even when a
+   proxy serves every page with `Referrer-Policy: same-origin` - unless the
+   request is redirected on the way in: a redirect carrying its own
+   `Referrer-Policy` empties it again. After a full navigation inside the frame
+   the referrer names your own previous page, or whatever site that navigation
+   passed through, so let an `ava:theme` from `window.parent` overrule it.
+
+Never fall back to your own origin. With `apps.origin` set the shell lives on
+another one (`https://ava.example` framing `https://apps.example`), so every
+message addressed to your own origin is silently dropped and every `ava:theme`
+the shell sends fails your origin check.
 
 ---
 
