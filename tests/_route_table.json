@@ -910,6 +910,13 @@
   "APIRoute"
  ],
  [
+  "/apps/{cid}/.ava/route.js",
+  [
+   "GET"
+  ],
+  "APIRoute"
+ ],
+ [
   "/apps/{cid}/api/{path:path}",
   [
    "DELETE",

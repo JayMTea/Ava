@@ -33,8 +33,11 @@ SKIP = 77
 # dead entry cost nothing visible — which is precisely the failure this file's
 # header warns about, a tier that reports PASS for specs it never ran. Named
 # here rather than left to be re-derived from a silent skip.
+# `embedded-route-memory.spec.ts` needs the connector `connectors-flow.spec.ts`
+# creates — it drives the app tile that spec put in the rail — so it follows it.
 SPECS = ["setup-flow.spec.ts", "chat-flow.spec.ts", "artifact-flow.spec.ts",
-         "connectors-flow.spec.ts", "clipboard-policy.spec.ts", "navigation-persistence.spec.ts", "agent-setup.spec.ts"]
+         "connectors-flow.spec.ts", "embedded-route-memory.spec.ts",
+         "clipboard-policy.spec.ts", "navigation-persistence.spec.ts", "agent-setup.spec.ts"]
 if len(sys.argv) > 1:   # debug: run a subset (setup still needed by the rest)
     SPECS = ["setup-flow.spec.ts"] + [s for s in sys.argv[1:]
                                       if s != "setup-flow.spec.ts"]

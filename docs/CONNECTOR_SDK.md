@@ -27,7 +27,7 @@ This is the productization contract: fork Ava, connect **your** apps, ship.
 |---|---|---|
 | 1 | [Where connectors live](#1-where-connectors-live) | Which folder do I drop it in, and how do I scaffold one? |
 | 2 | [The manifest](#2-the-manifest) | Every field, annotated - and how credentials are named but never held |
-| 3 | [The three embed tiers](#3-the-three-embed-tiers-how-your-ui-renders) | How does my UI render inside Ava, what does embedding trust, and how does it talk to the shell? |
+| 3 | [The three embed tiers](#3-the-three-embed-tiers-how-your-ui-renders) | How does my UI render inside Ava, what does embedding trust, how does it talk to the shell, and how is it reopened on the page the owner left it on? |
 | 4 | [Browser data-proxy](#4-browser-data-proxy-uiapi) | How does my browser UI call my own API without shipping a token to it? |
 | 5 | [Agent tools](#5-agent-tools) | How do I give Ava tools - declared, discovered, or a real MCP server - and what gets an approval prompt? |
 | 6 | [What's derived automatically](#6-whats-derived-automatically) | What do I get for free from that one file? |
@@ -141,6 +141,12 @@ ui:                           # OPTIONAL — declare it to get a left-rail tile
   order: 50                   # sort order within the section
   embed: iframe               # native | iframe | none  (see §3)
   url: "http://127.0.0.1:9000"   # embed=iframe: your app's own web server
+  route: auto                 # embed=iframe: WHO tells Ava which page the app is
+                              #   on, so a reload reopens it there.
+                              #   auto (default) Ava adds a tiny script to your
+                              #     document as it proxies it — no app code.
+                              #   self  your app posts ava:navigation itself.
+                              #   off   Ava touches nothing.  (see §3)
   view: mycrm                 # embed=native: a key in the frontend NATIVE_VIEWS registry
   api:                        # OPTIONAL browser data-proxy (see §4)
     prefix: "/api"
@@ -398,9 +404,146 @@ any nested workspace and a reload.
 
 ### Talking to the shell from an iframe app
 
-An `iframe` app and Ava's shell can exchange a few `postMessage` messages. All
-of them are optional - an app that sends none still works, it just reopens at
-its home page after a refresh.
+**Route memory is automatic — read on only if you want to control it.** Ava
+reopens an embedded app on the page the owner left it on, across a refresh, a
+Back, and a reload taken while another tab was on screen. Your app needs no code
+for this. Everything below is either how to switch that off, how to do it
+yourself instead, or what it cannot do.
+
+> **If your app already posts `ava:navigation` itself, set `ui.route: self`.**
+> The default is `auto`, so an app written against an earlier version of this
+> page gets a second reporter the moment this ships and sends every route
+> twice. `window.__avaShell` cannot save you here: the injected script runs
+> first, so it is already installed by the time your own code could look. Either
+> set `ui.route: self` in your manifest, or check `window.__avaShell` **before
+> installing your own reporter** and stand down when it is there.
+
+#### `ui.route: auto | self | off`
+
+| Value | What the bridge does |
+|---|---|
+| **`auto`** (default) | Adds the script described below to your app's document as it proxies it. Nothing is asked of your app. |
+| **`self`** | Adds nothing: your app posts `ava:navigation` itself (see *Reporting your own route*). **Set this if your app already reports** — the default is `auto`, two reporters send every route twice, and the injected one runs before your code can check `window.__avaShell`. |
+| **`off`** | Touches nothing at all — for an app whose document must arrive exactly as its server wrote it. Route memory is then off for that app. |
+
+Anything else is reported in **Setup → Connectors** and the field is dropped, so
+the connector keeps working on the default.
+
+#### What the bridge injects, and where
+
+On a **framed document navigation** — a `GET` whose `Sec-Fetch-Dest` is
+`iframe`/`frame`/`embed`/`object` **and whose `Accept` names `text/html`**,
+answering `200` with `Content-Type: text/html` — the proxy splices one
+`<script>` into the head of the HTML as it streams past. Nothing else is
+touched: your app's own `fetch` of an HTML fragment says `Sec-Fetch-Dest: empty`
+and is never edited, no subresource ever is, and a framed `<object data>` or
+`<embed src>` asks for `*/*` under the same destination, so framed media is left
+alone down to its `ETag`.
+
+The tag goes **first in `<head>`**, after a leading `<meta charset>` when there
+is one (so the declaration stays inside the first 1024 bytes the encoding
+prescan reads) and never before the doctype, after a `<base>`, or after a
+`<meta http-equiv="Content-Security-Policy">`. First matters: Next.js's app
+router reads `window.history.pushState` once at startup and calls the reference
+it captured, so a wrapper installed after your bundle would never be reached.
+
+One case overrides *first*: if your `Content-Type` names **no charset**, the
+document's own `<meta charset>` is the only thing that decides how your text
+decodes, so the tag goes after that declaration wherever in the head it is —
+otherwise a head that opens with a `<title>` would have its charset line pushed
+past the prescan window and your app would render as mojibake inside Ava's
+frame and nowhere else. Naming a charset in the header (`text/html;
+charset=utf-8`) outranks the document and buys *first in `<head>`* back.
+
+The script returns immediately unless it is framed, works out its shell's origin
+the same way this page tells *you* to, then watches `pushState`, `replaceState`,
+`popstate`, `hashchange` and the Navigation API and posts `ava:navigation` —
+exactly the message in the table below, validated by the shell exactly the same
+way. It is inline by default; where a policy forbids that it is fetched from
+`/apps/<id>/.ava/route.js`, which is Ava's own route and never reaches your
+server. `/.ava/` is reserved on your mount: the shell refuses to remember a path
+under it.
+
+Injection buffers your document only until it knows where the tag goes — which
+is inside the first chunk — so a streamed SSR response still arrives
+incrementally.
+
+#### Your Content-Security-Policy is never edited
+
+Ava reads your policy and decides what it is allowed to add. It never rewrites,
+widens or drops a `Content-Security-Policy` header. Report-Only policies are
+ignored, because they report rather than block. The governing directive is
+`script-src-elem`, else `script-src`, else `default-src`, and every enforcing
+policy has to admit the choice:
+
+| Your policy | What Ava does |
+|---|---|
+| none, or `'unsafe-inline'` with no nonce | inline tag |
+| a `'nonce-…'` | inline tag **carrying that same nonce** — one you already published to your own same-origin scripts, so the policy is exactly as strong as you wrote it |
+| inline blocked, `'self'` allowed, no `'strict-dynamic'` | the external tag instead |
+| `'none'`, `'strict-dynamic'` with no usable nonce, a `sandbox` policy, or two policies demanding different nonces with no `'self'` between them | **nothing is injected** |
+
+**Only a policy delivered as a HEADER is read.** A
+`<meta http-equiv="Content-Security-Policy">` is not, and cannot be: the tag is
+placed ahead of that meta on purpose — everything after it is governed by it,
+and a policy that arrives *after* our script has already been parsed would
+change the meaning of the document we are inserting into. So an app that
+declares its policy only in a meta element is injected into regardless of what
+that policy says. The browser still enforces it: an inline tag ahead of the meta
+predates the policy and runs, and the external form loads from your own origin.
+Declare the policy as a header if you want Ava to honour it, or set
+`ui.route: off`.
+
+#### `window.__avaShell`
+
+The script publishes `{version, cid, origin, report}`. `origin` is the shell's
+origin once it is known (`''` until then), so an app can find its shell without
+repeating the discovery below, and `report()` re-sends the current address — for
+a route your app keeps in memory rather than in the address bar. Its presence is
+also how an app that reports for itself can stand down instead of sending
+everything twice.
+
+#### What it cannot do
+
+Honest list; each of these lands on the app's home page, never on an error:
+
+* **A service worker that answers the navigation from Cache Storage.** The
+  request never reaches the proxy, so there is nothing to inject into. Deep
+  paths that go to the network still work.
+* **An app whose server has no SPA fallback.** A remembered deep path is
+  requested as a real URL on reopen and lands on the app's own 404. Such an app
+  should keep its route state in the query string, which is always served from
+  `/`.
+* **A CSP that blocks everything** (the last row above).
+* **A document that is not `text/html`** — `application/xhtml+xml` included,
+  where an unclosed tag is a fatal parse error rather than a tolerated one.
+* **A redirect.** There is no body to inject; the shell also refuses to remember
+  `/login`, `/logout`, `/auth` and `/.ava`, so an app whose entry redirects to a
+  sign-in page reopens at that sign-in page's own destination.
+* **A body that arrives compressed anyway**, or as a byte range.
+
+The costs, stated. On the hops where injection applies — the framed **document**
+only, never a subresource, which keeps the browser's own negotiation byte for
+byte — the bridge:
+
+* asks your server for `Accept-Encoding: identity`, because a gzipped body
+  cannot be scanned for the insertion point;
+* adds `Sec-Fetch-Dest` to your `Vary` (merged with whatever you already named),
+  because the body now genuinely differs between a frame's document and your
+  own `fetch` of the same URL, and a cache keyed on the URL alone would mix the
+  two up;
+* namespaces the `ETag` it serves (`W/"ava1-…"`) and unwraps it again on the way
+  back to you, so a browser that cached your page before route memory existed is
+  made to fetch it once more. An ETag is marked only on a copy that really
+  carries the script. If your document has **no ETag but a `Last-Modified`**, Ava
+  mints a marked weak ETag of its own from that date and lets your
+  `If-Modified-Since` through on later requests, so you can still answer `304`.
+  The one shape with no way back to a `304` is a document whose **ETag is not a
+  quoted entity-tag and which sends no `Last-Modified`** — there is nothing to
+  mark and nothing to derive from, so every frame load refetches it in full.
+  Quote the tag, or send a `Last-Modified`.
+
+#### The messages
 
 | Message | Direction | What it does |
 |---|---|---|
@@ -409,32 +552,39 @@ its home page after a refresh.
 | `{type: "ava:navigation", cid, path}` | frame → shell | Says where the app is, so a refresh reopens it there. `cid` is your connector id; `path` is app-relative (`/machine-learning?tab=models`, not `/apps/<id>/…`), with its query and fragment, minus credentials and launch hints (`t`, `theme`, `embedded`, `v`, anything token-like). The shell mirrors it into its own address as `#<cid><path>` and remembers it across reloads. It ignores `/login`, `/logout`, `/auth` and `/.ava`, so a sign-in screen is never where the app reopens. |
 | `{type: "ava:embed-expired", cid, path}` | frame → shell | Not yours to send: the bridge's reconnect page posts it when the frame's access has lapsed, and the shell reopens the app at `path` with fresh access. |
 
-The shell takes a message only from its own frame's window and the app's
-origin, and posts only to the app's origin. Do the same in reverse: post to the
-shell's **origin**, and accept a message only when `event.source` is
-`window.parent` and `event.origin` is that origin. To find it, first match wins:
+#### Reporting your own route (`ui.route: self`)
 
-1. `location.ancestorOrigins[0]`, where the browser has it (not all do).
-2. `window.parent.location.origin` - readable only when the shell is
-   same-origin (no `apps.origin`); a cross-origin parent throws.
-3. The handshake: post `{type: "ava:theme-request"}` to `'*'` - it carries
-   nothing, so it is the one message that may go out unaddressed - and take
+Set `ui.route: self` and post `ava:navigation` yourself — worth doing when your
+route lives somewhere the address bar does not show it, or when you want to
+report less than every navigation.
+
+The shell takes a message only from its own frame's window and the app's origin,
+and posts only to the app's origin. Do the same in reverse: post to the shell's
+**origin**, and accept a message only when `event.source` is `window.parent` and
+`event.origin` is that origin. To find it, first match wins:
+
+1. `window.parent.location.origin` — readable only when the shell is same-origin
+   (no `apps.origin`); a cross-origin parent throws. Readable *is* the proof:
+   nothing but Ava can be on the origin Ava's proxy just served you from.
+2. `location.ancestorOrigins[0]`, where the browser has it (not all do).
+3. The handshake: post `{type: "ava:theme-request"}` to `'*'` — it carries
+   nothing, so it is the one message that may go out unaddressed — and take
    `event.origin` of the `ava:theme` reply whose `event.source` is
    `window.parent`. The browser sets `event.origin`, so this is a fact, not a
    guess.
 4. Until then, `document.referrer` as a hint, and only when its origin is
    **not** your own. The shell sets `referrerpolicy="origin"` on the iframe, so
    the frame's first document gets Ava's origin (never its path) even when a
-   proxy serves every page with `Referrer-Policy: same-origin` - unless the
+   proxy serves every page with `Referrer-Policy: same-origin` — unless the
    request is redirected on the way in: a redirect carrying its own
    `Referrer-Policy` empties it again. After a full navigation inside the frame
    the referrer names your own previous page, or whatever site that navigation
    passed through, so let an `ava:theme` from `window.parent` overrule it.
 
-Never fall back to your own origin. With `apps.origin` set the shell lives on
-another one (`https://ava.example` framing `https://apps.example`), so every
-message addressed to your own origin is silently dropped and every `ava:theme`
-the shell sends fails your origin check.
+Never fall back to your own origin when the parent is *not* same-origin. With
+`apps.origin` set the shell lives on another one (`https://ava.example` framing
+`https://apps.example`), so every message addressed to your own origin is
+silently dropped and every `ava:theme` the shell sends fails your origin check.
 
 ---
 

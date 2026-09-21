@@ -580,9 +580,12 @@ async def api_devices():
 # app issued — a login inside an embedded app could never stick. Forward-by-
 # default with a named excludes list is the posture a reverse proxy owes the
 # thing it fronts.
-import httpx  # noqa: E402 — the proxy block below is this import's only user
+import hashlib  # noqa: E402 — the proxy block below is this import's only user
+import httpx  # noqa: E402 — likewise
 from fastapi.responses import StreamingResponse  # noqa: E402
 from starlette.background import BackgroundTask  # noqa: E402
+
+from ava_bridge import embed_route  # noqa: E402 — likewise
 
 # RFC 9110 §7.6.1 hop-by-hop headers, plus `proxy-connection` (the legacy
 # Netscape spelling some stacks still emit). Relaying any of these re-states
@@ -667,7 +670,7 @@ def _foreign_cookies(header: str, cid: str) -> str:
 
 
 def _upstream_headers(request: Request, cid: str,
-                      auth_override: str | None) -> list:
+                      auth_override: str | None, *, injecting: bool = False) -> list:
     """The header pairs to send upstream — the request half of the contract.
 
     Works on `headers.raw` because Starlette's mapping view de-duplicates keys,
@@ -690,8 +693,24 @@ def _upstream_headers(request: Request, cid: str,
     token in the app's own storage. When absent the browser's own header rides
     through with everything else: an app with a login but no stored token must
     not be logged out by the hop.
+
+    `injecting` marks the one hop where the bridge edits the body — a FRAMED
+    DOCUMENT of an app with `ui.route: auto` (ava_bridge/embed_route.py). Two
+    headers change, for that hop only:
+
+      * `Accept-Encoding: identity`, because a gzipped body cannot be scanned
+        for the insertion point and the proxy forwards encodings verbatim. Four
+        of the six apps this was measured against gzip their HTML. Every
+        SUBRESOURCE keeps the browser's own negotiation byte for byte — this
+        buys back nothing on the bytes that matter and costs one small document.
+      * the conditional headers, so a browser holding a copy cached before route
+        memory shipped is made to fetch a body we can inject into once. See
+        embed_route.upstream_if_none_match; `If-Modified-Since` travels with it,
+        because forwarding it alone would earn the same 304 by the other door.
     """
     drop = set(_HOP_BY_HOP) | {"host"}
+    if injecting:
+        drop |= {"accept-encoding", "if-none-match", "if-modified-since"}
     for tok in (request.headers.get("connection") or "").split(","):
         tok = tok.strip().lower()
         if tok:
@@ -714,6 +733,22 @@ def _upstream_headers(request: Request, cid: str,
             out.append((b"cookie", kept.encode("latin-1")))
     if auth_override is not None:
         out.append((b"authorization", auth_override.encode("latin-1")))
+    if injecting:
+        out.append((b"accept-encoding", b"identity"))
+        offered = request.headers.get("if-none-match") or ""
+        inm = embed_route.upstream_if_none_match(offered)
+        if inm:
+            # Only tags the browser got from US survive, unmarked.
+            out.append((b"if-none-match", inm.encode("latin-1")))
+        if embed_route.ours_conditional(offered):
+            # A marked tag — round-trippable or minted — means the cached copy
+            # already carries the shim, so the app's OTHER validator is safe to
+            # offer alongside it. For an app that sends `Last-Modified` and no
+            # markable ETag this door is the only one there is: `mint_etag` puts
+            # a tag of ours in the browser precisely so this one can open.
+            ims = request.headers.get("if-modified-since")
+            if ims:
+                out.append((b"if-modified-since", ims.encode("latin-1")))
     return out
 
 
@@ -819,7 +854,33 @@ def _rewrite_set_cookie(value: str, cid: str, base: str = "") -> str:
     return "; ".join(out)
 
 
-def _proxy_response(r: "httpx.Response", cid: str, base: str) -> Response:
+async def _inject_stream(source, tag: bytes, *, prescan: bool):
+    """`source`, with the route-memory tag spliced into the head exactly once.
+
+    The injector holds bytes back only until it knows where the tag goes, which
+    is inside the first chunk for every real document; after that each chunk is
+    yielded as it arrives. Streaming SSR (which every Next.js app does) must
+    keep arriving incrementally — buffering a document to edit it would trade
+    the reload that loses your page for a first paint that waits for the last
+    byte.
+
+    `prescan` is "the Content-Type named no charset", which makes the document's
+    own `<meta charset>` the only thing that decides how the app's text decodes
+    (embed_route.PRESCAN). The one async thing here is the drain; every decision
+    belongs to `embed_route.Injector`, which is where it is tested.
+    """
+    injector = embed_route.Injector(tag, prescan=prescan)
+    async for chunk in source:
+        out = injector.feed(chunk)
+        if out:
+            yield out
+    tail = injector.finish()
+    if tail:
+        yield tail
+
+
+def _proxy_response(r: "httpx.Response", cid: str, base: str, *,
+                    injecting: bool = False, varies: bool = False) -> Response:
     """Wrap an upstream response for the browser — the response half of the
     contract: stream the body, forward the headers, apply the two rewrites.
 
@@ -831,13 +892,48 @@ def _proxy_response(r: "httpx.Response", cid: str, base: str) -> Response:
     that close is what releases the pooled connection and, mid-stream, what
     actually hangs up on the app. Without it an abandoned SSE panel would hold
     its upstream socket until the app noticed on its own.
+
+    `injecting` says this hop asked the app for a framed document it may add
+    route memory to (embed_route). Three things then happen and nothing else:
+    an eligible 200 gets the tag spliced into its head, the validator is
+    namespaced — on the 304 as well as the 200, because the whole point of the
+    namespace is that a revalidation cannot hand back a pre-injection copy —
+    and `Vary` gains `Sec-Fetch-Dest`, which is now a real axis of this URL's
+    representation. Content-Length is already dropped for every response here,
+    so a longer body needs no fix-up.
+
+    `varies` says this connector injects SOMEWHERE, so the axis is declared on
+    both representations of an HTML URL, not only on the injected one. A cache
+    that stored the uninjected copy — the app's own `fetch` of its HTML, which
+    is never touched — under a key that does not mention the axis would go on
+    to answer a frame navigation with it, and route memory would be silently
+    off for a page nobody can see is different.
+
+    The ETag is marked only on a copy that ACTUALLY carries the shim. Marking an
+    uninjected one (an app that gzips despite `Accept-Encoding: identity`, a
+    framed resource that is not HTML, a head that never resolved) would publish
+    a marker whose contract is "this copy has the script in it" over a copy that
+    does not, and the browser would then 304 against it forever — route memory
+    silently dead for that app, which is the failure the namespace exists to
+    prevent.
     """
     drop = set(_HOP_BY_HOP) | {"content-length"}
+    tag = (embed_route.script_tag(cid, r.headers.multi_items())
+           if injecting and embed_route.injectable(
+               r.status_code, r.headers.multi_items())
+           else None)
+    remark = injecting and (tag is not None or r.status_code == 304)
+    validator = varied = False
     for tok in (r.headers.get("connection") or "").split(","):
         tok = tok.strip().lower()
         if tok:
             drop.add(tok)
     html = "text/html" in r.headers.get("content-type", "")
+    # Only an HTML document can differ between the two destinations; an asset is
+    # the same bytes either way, and saying otherwise would just split its cache
+    # entry. A 304 carries no content-type, and only an injecting hop can reach
+    # one, so it is named here rather than inferred.
+    declare_vary = varies and (html or injecting)
     headers: list[tuple[bytes, bytes]] = []
     for k, v in r.headers.raw:
         name = k.decode("latin-1").lower()
@@ -859,10 +955,39 @@ def _proxy_response(r: "httpx.Response", cid: str, base: str) -> Response:
             # comma-joined value corrupts it (Expires dates contain commas),
             # so each upstream header survives as its own header here.
             v = _rewrite_set_cookie(v.decode("latin-1"), cid, base).encode("latin-1")
+        elif remark and name == "etag":
+            marked = embed_route.mark_etag(v.decode("latin-1"))
+            if not embed_route.marked(marked):
+                # Not a quoted entity-tag, so `mark_etag` could only hand it
+                # back as it came. Serving it would have the browser offer a tag
+                # on every frame load that `upstream_if_none_match` then drops —
+                # a conditional request that can only ever be answered in full.
+                # Drop it here and let `mint_etag` below put a usable one in its
+                # place when the app gave us a `Last-Modified` to derive one
+                # from.
+                continue
+            validator = True
+            v = marked.encode("latin-1")
+        elif declare_vary and name == "vary":
+            varied = True
+            v = embed_route.vary_with_dest(v.decode("latin-1")).encode("latin-1")
         headers.append((k.decode("latin-1").lower().encode("latin-1"), v))
+    if declare_vary and not varied:
+        headers.append((b"vary", embed_route.vary_with_dest().encode("latin-1")))
+    if remark and not validator and r.headers.get("last-modified"):
+        # An app with `Last-Modified` and no markable ETag — python's
+        # http.server and most small static servers — would otherwise revalidate
+        # never again, because the conditional headers are dropped on every
+        # injecting hop and only a marked tag coming back reopens that door.
+        headers.append((b"etag", embed_route.mint_etag(
+            r.headers["last-modified"]).encode("latin-1")))
     if html and not r.headers.get("cache-control"):
         headers.append((b"cache-control", b"no-cache"))
-    resp = StreamingResponse(r.aiter_raw(), status_code=r.status_code,
+    body = (_inject_stream(r.aiter_raw(), tag,
+                           prescan=not embed_route.transport_charset(
+                               r.headers.multi_items()))
+            if tag else r.aiter_raw())
+    resp = StreamingResponse(body, status_code=r.status_code,
                              background=BackgroundTask(r.aclose))
     resp.raw_headers = headers
     return resp
@@ -902,7 +1027,8 @@ def _classifiable(e: Exception) -> Exception:
 
 
 async def _proxy_stream(cid: str, request: Request, url: str, *, base: str,
-                        auth_override: str | None, what: str) -> Response:
+                        auth_override: str | None, what: str,
+                        route: str = "off") -> Response:
     """One hop, browser -> app, streamed in both directions.
 
     The request body is `request.stream()` — an upload passes through without
@@ -911,22 +1037,31 @@ async def _proxy_stream(cid: str, request: Request, url: str, *, base: str,
     body, which some app servers refuse on safe methods. The query string is
     relayed raw rather than re-encoded, so whatever encoding the app's own
     frontend chose survives the hop byte-for-byte.
+
+    `route` is the connector's `ui.route`. Only the UI proxy passes it: the
+    data-proxy returns the app's DATA, and a `ui.api` answer is never a document
+    the shell frames.
     """
     q = str(request.url.query or "")
     target = f"{url}?{q}" if q else url
     has_body = request.headers.get("transfer-encoding") is not None or \
         (request.headers.get("content-length") or "0") not in ("", "0")
+    injecting = route == embed_route.AUTO and embed_route.framed_document(
+        request.method, request.headers.get("sec-fetch-dest") or "",
+        request.headers.get("accept") or "")
     client = _app_client()
     req = client.build_request(
         request.method, target,
-        headers=_upstream_headers(request, cid, auth_override),
+        headers=_upstream_headers(request, cid, auth_override,
+                                  injecting=injecting),
         content=request.stream() if has_body else None)
     try:
         r = await client.send(req, stream=True)
     except Exception as e:  # noqa: BLE001 — an app being down is not a bridge error
         return _unreachable_response(cid, _classifiable(e), request,
                                      url=url, what=what)
-    return _proxy_response(r, cid, base)
+    return _proxy_response(r, cid, base, injecting=injecting,
+                           varies=route == embed_route.AUTO)
 
 
 # A failed proxy hop has TWO audiences and they need different media types.
@@ -1016,6 +1151,41 @@ async def app_embed_keepalive(cid: str):
     return Response(status_code=204, headers={"cache-control": "no-store"})
 
 
+@app.get("/apps/{cid}/.ava/route.js")
+async def app_route_script(cid: str, request: Request):
+    """The route-memory shim as a file, for an app whose CSP forbids inline JS.
+
+    Registered beside the keepalive and ABOVE both proxies for the same reason:
+    Starlette matches in order, and `/apps/{cid}/{path:path}` would otherwise
+    forward `.ava/route.js` upstream as if the app served it. `/.ava/` is
+    already the reserved namespace on an app's mount — the shell refuses to
+    remember a path under it (embedNavigation.ts), so nothing here can become
+    somewhere an app is reopened.
+
+    The upstream is never touched: this is Ava's own file, parameterised for one
+    connector (`embed_route.shim`). It exists only for `ui.route: auto`, because
+    `self` and `off` are the two ways of saying the bridge is not reporting this
+    app's route and a fetchable script would contradict that.
+    """
+    meta = await run_in_threadpool(connectors.app, cid)
+    if not meta or meta.get("embed") != "iframe" \
+            or meta.get("route") != embed_route.AUTO:
+        return JSONResponse(
+            {"error": f"connector {cid} has no bridge-managed route memory"},
+            status_code=404)
+    body = embed_route.shim(cid).encode("utf-8")
+    # The content turns over when `server.public_url` changes, and a browser
+    # holding the old one would post the owner's route at an origin that is no
+    # longer the shell. An ETag over the bytes is the cheapest way to say so.
+    etag = '"' + hashlib.sha256(body).hexdigest()[:32] + '"'
+    headers = {"etag": etag, "cache-control": "no-cache"}
+    if etag in [t.strip() for t in
+                (request.headers.get("if-none-match") or "").split(",")]:
+        return Response(status_code=304, headers=headers)
+    return Response(content=body, headers=headers,
+                    media_type="text/javascript; charset=utf-8")
+
+
 @app.api_route("/apps/{cid}/api/{path:path}", methods=_PROXY_METHODS)
 async def app_api_proxy(cid: str, path: str, request: Request):
     cfg = await run_in_threadpool(connectors.app_api, cid)
@@ -1077,7 +1247,11 @@ async def app_ui_proxy(cid: str, path: str, request: Request):
     tok = await run_in_threadpool(connectors.app_token, cid)
     return await _proxy_stream(cid, request, url, base=meta["url"],
                                auth_override=("Bearer " + tok) if tok else None,
-                               what="app")
+                               # `connectors.app` always resolves this; the
+                               # fallback is the manifest default, so a meta
+                               # from anywhere else behaves as documented.
+                               what="app",
+                               route=meta.get("route", embed_route.AUTO))
 
 
 @app.websocket("/apps/{cid}/{path:path}")

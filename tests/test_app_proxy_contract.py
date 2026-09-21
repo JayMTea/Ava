@@ -26,6 +26,7 @@ tests/test_app_ws_proxy.py next door.
 from __future__ import annotations
 
 import contextlib
+import gzip
 import http.server
 import json
 import os
@@ -42,12 +43,30 @@ import httpx
 from fastapi.testclient import TestClient
 
 import phone_bridge
-from ava_bridge import apps_origin, auth, config
+from ava_bridge import apps_origin, auth, config, embed_route
 
 CID = "myapp"
 _LOCAL = {"host": "localhost"}
 ORIGIN = "http://apps.ava.test:8096"
 APPS_HOST = {"host": "apps.ava.test:8096"}
+SHELL = "https://ava.example"
+
+#: What a framed document looks like: a head, a charset meta that has to keep
+#: its place, and something after it that must not be jumped.
+HTML_PAGE = (b'<!doctype html><html><head><meta charset="utf-8">'
+             b'<title>My App</title></head><body>hi</body></html>')
+
+#: The same page with its charset declaration SECOND — the shape that makes the
+#: insertion point a question about the browser's encoding prescan.
+LATE_CHARSET = (b'<!doctype html><html><head><title>My App</title>'
+                b'<meta charset="utf-8"></head><body>hi</body></html>')
+
+LAST_MODIFIED = "Wed, 21 Oct 2015 07:28:00 GMT"
+
+#: What an `<iframe src>` navigation asks for. `<object data>` and `<embed src>`
+#: share its `Sec-Fetch-Dest` and send `*/*`, which is the difference the gate
+#: rests on — so a test that leaves this out is testing the other branch.
+FRAME_ACCEPT = "text/html,application/xhtml+xml,image/avif,*/*;q=0.8"
 
 
 class _State:
@@ -140,6 +159,102 @@ class _Upstream:
                     self.end_headers()
                     self.wfile.write(b"ok")
                     return
+                if p in ("/page", "/csp-page", "/blocked-page"):
+                    # A document the shell would FRAME: a head with a charset
+                    # meta in it, an ETag (so the revalidation case is real),
+                    # and for two of them an app's own CSP to be honoured.
+                    if '"v1"' in (self.headers.get("If-None-Match") or ""):
+                        self.send_response(304)
+                        self.send_header("ETag", '"v1"')
+                        self.end_headers()
+                        return
+                    body = HTML_PAGE
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/html; charset=utf-8")
+                    self.send_header("ETag", '"v1"')
+                    if p == "/csp-page":
+                        self.send_header("Content-Security-Policy",
+                                         "script-src 'nonce-abcd1234' 'self'")
+                    if p == "/blocked-page":
+                        self.send_header("Content-Security-Policy",
+                                         "default-src 'none'")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
+                if p == "/missing-page":
+                    body = b"<!doctype html><html><head></head><body>gone</body></html>"
+                    self.send_response(404)
+                    self.send_header("Content-Type", "text/html")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
+                if p == "/vary-page":
+                    # An app that already negotiates. Injection adds an axis to
+                    # what it named; replacing it would have a cache serve a
+                    # representation negotiated for somebody else.
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/html; charset=utf-8")
+                    self.send_header("Vary", "Accept-Encoding")
+                    self.send_header("Content-Length", str(len(HTML_PAGE)))
+                    self.end_headers()
+                    self.wfile.write(HTML_PAGE)
+                    return
+                if p == "/late-charset":
+                    # The head opens with a <title>, so the charset declaration
+                    # is NOT first — and the Content-Type names no charset, so
+                    # that declaration is the only thing deciding how the app's
+                    # own text decodes.
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/html")
+                    self.send_header("Content-Length", str(len(LATE_CHARSET)))
+                    self.end_headers()
+                    self.wfile.write(LATE_CHARSET)
+                    return
+                if p == "/gzip-page":
+                    # Ignores `Accept-Encoding: identity` and compresses anyway.
+                    # Nothing can be injected into it, so nothing about it may
+                    # be marked as carrying the shim.
+                    body = gzip.compress(HTML_PAGE)
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/html; charset=utf-8")
+                    self.send_header("Content-Encoding", "gzip")
+                    self.send_header("ETag", '"v1"')
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
+                if p in ("/lastmod-page", "/weak-etag-page"):
+                    # The two ordinary shapes with no validator the bridge can
+                    # mark: `Last-Modified` and no ETag at all (python's own
+                    # http.server, and most small static servers), and an ETag
+                    # that is not a quoted entity-tag. Both revalidate by DATE,
+                    # which is the door `mint_etag` exists to keep open.
+                    if self.headers.get("If-Modified-Since") == LAST_MODIFIED:
+                        self.send_response(304)
+                        self.end_headers()
+                        return
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/html; charset=utf-8")
+                    self.send_header("Last-Modified", LAST_MODIFIED)
+                    if p == "/weak-etag-page":
+                        self.send_header("ETag", "not-an-entity-tag")
+                    self.send_header("Content-Length", str(len(HTML_PAGE)))
+                    self.end_headers()
+                    self.wfile.write(HTML_PAGE)
+                    return
+                if p == "/poster.pdf":
+                    # What an <object data> or <embed src> asks for: the same
+                    # framed destination, but `Accept: */*` and a body with no
+                    # head in it, ever.
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/pdf")
+                    self.send_header("ETag", '"strong-v1"')
+                    self.send_header("Content-Length", "5")
+                    self.end_headers()
+                    self.wfile.write(b"%PDF-")
+                    return
                 if p == "/echo":
                     body = json.dumps(
                         {"cookie": self.headers.get("Cookie"),
@@ -191,8 +306,10 @@ class _Upstream:
 
     @property
     def meta(self) -> dict:
+        # `route` is what `connectors.app` resolves from `ui.route`; stated here
+        # rather than left out so the default this fixture exercises is visible.
         return {"id": CID, "label": "My App", "embed": "iframe",
-                "url": f"http://127.0.0.1:{self.port}"}
+                "url": f"http://127.0.0.1:{self.port}", "route": "auto"}
 
 
 def _authed() -> TestClient:
@@ -362,6 +479,300 @@ class HeaderContractTests(unittest.TestCase):
         self.assertEqual(self.up.state.seen, [],
                          "the upstream app was dialled for an unauthenticated "
                          "caller")
+
+
+class RouteInjectionTests(unittest.TestCase):
+    """Route memory, added to the app's document by the proxy.
+
+    An embedded app is reopened where the owner left it only if something tells
+    the shell where that was, and only code inside the app's document can see an
+    SPA navigation. Rather than that being a feature the one app that opted in
+    has, the proxy adds the reporter (ava_bridge/embed_route.py) as the document
+    streams past. The decision half is unit-tested in tests/test_embed_route.py;
+    these run it through the REAL proxy and assert on what each side of the hop
+    received, because the gate is the request's Fetch Metadata and the app's own
+    headers — neither of which exists in a pure test.
+    """
+
+    def setUp(self):
+        self._stack = contextlib.ExitStack()
+        self.addCleanup(self._stack.close)
+        self.up = self._stack.enter_context(_Upstream())
+        self._stack.enter_context(
+            mock.patch("ava_bridge.connectors.app", return_value=self.up.meta))
+        self._stack.enter_context(
+            mock.patch("ava_bridge.connectors.app_token", return_value=""))
+        self._stack.enter_context(
+            mock.patch("ava_bridge.connectors.app_api", return_value=None))
+        self._stack.enter_context(mock.patch.object(config, "PUBLIC_URL", SHELL))
+        self.c = _authed()
+
+    def _framed(self, path="/page", **kw):
+        headers = {**_LOCAL, "sec-fetch-dest": "iframe",
+                   "accept": FRAME_ACCEPT, **kw.pop("headers", {})}
+        return self.c.get(f"/apps/{CID}{path}", headers=headers, **kw)
+
+    def _mode(self, mode: str):
+        return mock.patch("ava_bridge.connectors.app",
+                          return_value=dict(self.up.meta, route=mode))
+
+    # --- what gets the shim ---------------------------------------------------
+
+    def test_a_framed_document_gets_the_shim_first_in_head(self):
+        r = self._framed()
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("ava:navigation", r.text,
+                      "the injected reporter speaks the protocol the shell "
+                      "already validates")
+        self.assertIn(f'var CID = "{CID}"', r.text)
+        self.assertIn(f'var SHELL = "{SHELL}"', r.text)
+        head = r.text.index("<script")
+        self.assertLess(r.text.index('charset="utf-8"'), head,
+                        "the charset declaration has to stay inside the first "
+                        "1024 bytes the sniffer reads")
+        self.assertLess(head, r.text.index("<title>"),
+                        "Next.js's router captures history.pushState at "
+                        "startup, so the wrapper has to be installed first")
+        self.assertTrue(r.text.startswith("<!doctype html>"),
+                        "a tag before the doctype is quirks mode")
+
+    def test_an_apps_own_fetch_is_never_edited(self):
+        r = self.c.get(f"/apps/{CID}/page",
+                       headers={**_LOCAL, "sec-fetch-dest": "empty"})
+        self.assertEqual(r.content, HTML_PAGE,
+                         "an app fetching an HTML fragment is about to hand it "
+                         "to innerHTML; our script has no business in it")
+
+    def test_framed_media_is_left_entirely_alone(self):
+        # `<object data>` and `<embed src>` carry a FRAMED destination and ask
+        # for `*/*`. Reading that as a document navigation would cost every
+        # framed PDF, video and image its compression and its strong ETag —
+        # which is also what `If-Range` byte-range resumption needs.
+        r = self.c.get(f"/apps/{CID}/poster.pdf",
+                       headers={**_LOCAL, "sec-fetch-dest": "object",
+                                "accept": "*/*",
+                                "accept-encoding": "gzip, br"})
+        self.assertEqual(r.headers["etag"], '"strong-v1"',
+                         "a weakened validator is an If-Range that never "
+                         "resumes")
+        self.assertNotIn("vary", r.headers)
+        self.assertEqual(self.up.state.seen[-1][2].get("accept-encoding"),
+                         "gzip, br")
+
+    def test_a_request_with_no_fetch_metadata_is_never_edited(self):
+        r = self.c.get(f"/apps/{CID}/page",
+                       headers={**_LOCAL, "accept": "text/html"})
+        self.assertEqual(r.content, HTML_PAGE,
+                         "guessing from Accept picks an error page's media "
+                         "type; guessing here edits somebody's document")
+
+    def test_a_non_200_and_a_non_html_body_are_left_alone(self):
+        missing = self._framed("/missing-page")
+        self.assertEqual(missing.status_code, 404)
+        self.assertNotIn("<script", missing.text,
+                         "a 404 body is the app's own error page, not the page "
+                         "route memory is for")
+        plain = self._framed("/thing")
+        self.assertEqual(plain.text, "ok")
+
+    def test_route_self_and_off_inject_nothing(self):
+        for mode in ("self", "off"):
+            with self.subTest(route=mode), self._mode(mode):
+                r = self._framed()
+                self.assertEqual(r.content, HTML_PAGE,
+                                 "`self` already reports for itself and a "
+                                 "second reporter doubles every message; `off` "
+                                 "means hands off")
+
+    # --- the app's own policy -------------------------------------------------
+
+    def test_a_nonce_is_adopted_and_the_policy_travels_unchanged(self):
+        r = self._framed("/csp-page")
+        self.assertIn('<script nonce="abcd1234">', r.text)
+        self.assertEqual(r.headers["content-security-policy"],
+                         "script-src 'nonce-abcd1234' 'self'",
+                         "an app's policy is read, never edited or widened")
+
+    def test_a_policy_that_blocks_everything_gets_nothing(self):
+        r = self._framed("/blocked-page")
+        self.assertEqual(r.content, HTML_PAGE)
+        self.assertEqual(r.headers["content-security-policy"], "default-src 'none'")
+
+    def test_the_external_tag_is_served_by_ava_and_never_by_the_app(self):
+        r = self.c.get(f"/apps/{CID}/.ava/route.js", headers=_LOCAL)
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("text/javascript", r.headers["content-type"])
+        self.assertIn("ava:navigation", r.text)
+        self.assertNotIn("/.ava/route.js", [p for _, p, _ in self.up.state.seen],
+                         "`.ava` is Ava's reserved namespace on an app's mount; "
+                         "the upstream must never be asked for it")
+        again = self.c.get(f"/apps/{CID}/.ava/route.js",
+                           headers={**_LOCAL, "if-none-match": r.headers["etag"]})
+        self.assertEqual(again.status_code, 304)
+        with self._mode("off"):
+            self.assertEqual(
+                self.c.get(f"/apps/{CID}/.ava/route.js", headers=_LOCAL).status_code,
+                404, "`off` says the bridge is not reporting this app's route; "
+                     "a fetchable reporter would contradict it")
+
+    # --- caching --------------------------------------------------------------
+
+    def test_a_copy_cached_before_this_shipped_is_refetched_once(self):
+        # The case that decides whether route memory ever reaches an owner whose
+        # app already sits in their browser cache: its entry document carries an
+        # ETag, so the browser revalidates rather than refetching, and an
+        # untouched 304 would keep a shim-less document alive forever.
+        fresh = self._framed()
+        served = fresh.headers["etag"]
+        self.assertNotEqual(served, '"v1"')
+        self.assertEqual(embed_route.unmark_etag(served), '"v1"')
+
+        stale = self._framed(headers={"if-none-match": '"v1"'})
+        self.assertEqual(stale.status_code, 200)
+        self.assertIn("ava:navigation", stale.text)
+        self.assertIsNone(self.up.state.seen[-1][2].get("if-none-match"),
+                          "an unmarked tag must not reach the app, or it "
+                          "answers 304 and the browser keeps the old document")
+
+        revalidated = self._framed(headers={"if-none-match": served})
+        self.assertEqual(revalidated.status_code, 304)
+        self.assertEqual(revalidated.headers["etag"], served)
+        self.assertEqual(self.up.state.seen[-1][2].get("if-none-match"), '"v1"',
+                         "our own marker is stripped so the app can answer the "
+                         "conditional it issued")
+
+    def test_an_uninjected_copy_is_never_marked_as_carrying_the_shim(self):
+        # The marker's whole contract is "a copy with this tag has the script in
+        # it". An app that gzips despite `Accept-Encoding: identity` cannot be
+        # injected into — and a marked ETag over that copy would have the
+        # browser 304 against it forever, so route memory would be silently
+        # dead for that app: the exact failure the namespace exists to prevent.
+        r = self._framed("/gzip-page")
+        self.assertEqual(r.headers["content-encoding"], "gzip")
+        self.assertEqual(r.headers["etag"], '"v1"')
+        self.assertFalse(embed_route.marked(r.headers["etag"]))
+        self._framed("/gzip-page", headers={"if-none-match": '"v1"'})
+        self.assertIsNone(self.up.state.seen[-1][2].get("if-none-match"),
+                          "an unmarked tag is still dropped, so the app is "
+                          "asked for a body we could inject into")
+
+    def test_an_app_with_only_a_last_modified_still_revalidates(self):
+        # python's http.server and most small static servers: a date and no
+        # ETag. The conditional headers are dropped on every injecting hop, so
+        # without a validator of our own this app would refetch its whole
+        # document, uncompressed, on every single frame load, forever.
+        fresh = self._framed("/lastmod-page")
+        self.assertIn("ava:navigation", fresh.text)
+        served = fresh.headers["etag"]
+        self.assertTrue(embed_route.marked(served))
+        self.assertIsNone(embed_route.unmark_etag(served),
+                          "minted: there is no app tag inside it")
+
+        back = self._framed("/lastmod-page",
+                            headers={"if-none-match": served,
+                                     "if-modified-since": LAST_MODIFIED})
+        self.assertEqual(back.status_code, 304)
+        self.assertEqual(self.up.state.seen[-1][2].get("if-modified-since"),
+                         LAST_MODIFIED,
+                         "seeing a tag of ours is what lets the app's own "
+                         "validator through")
+        self.assertIsNone(self.up.state.seen[-1][2].get("if-none-match"),
+                          "a minted tag stands for no app tag at all and must "
+                          "never be offered upstream")
+
+    def test_an_app_whose_etag_cannot_be_round_tripped_still_revalidates(self):
+        # `mark_etag` hands an unquoted tag back verbatim, so serving it would
+        # have the browser offer a conditional on every frame load that
+        # `upstream_if_none_match` then drops — a full refetch every time.
+        fresh = self._framed("/weak-etag-page")
+        self.assertIn("ava:navigation", fresh.text)
+        served = fresh.headers["etag"]
+        self.assertNotEqual(served, "not-an-entity-tag")
+        self.assertTrue(embed_route.marked(served))
+        back = self._framed("/weak-etag-page",
+                            headers={"if-none-match": served,
+                                     "if-modified-since": LAST_MODIFIED})
+        self.assertEqual(back.status_code, 304)
+
+    def test_the_varying_axis_is_declared_and_the_apps_own_is_kept(self):
+        # The body genuinely differs by Sec-Fetch-Dest now. A cache keyed on the
+        # URL alone would hand the app's own fetch a copy with Ava's script in
+        # it, or hand a frame an uninjected one and switch route memory off.
+        r = self._framed("/vary-page")
+        self.assertEqual(r.headers["vary"], "Accept-Encoding, Sec-Fetch-Dest",
+                         "merged with what the app named, never replacing it")
+        plain = self._framed()
+        self.assertEqual(plain.headers["vary"], "Sec-Fetch-Dest")
+
+    def test_the_uninjected_copy_declares_the_axis_too(self):
+        # Only one of the two representations carries the shim, so BOTH have to
+        # say the axis exists. A cache that stored the app's own fetch of its
+        # HTML — never injected, by design — under a key that does not mention
+        # Sec-Fetch-Dest would answer the next frame navigation with it, and
+        # route memory would be off with nothing on screen to show it.
+        own = self.c.get(f"/apps/{CID}/page",
+                         headers={**_LOCAL, "sec-fetch-dest": "empty"})
+        self.assertEqual(own.content, HTML_PAGE)
+        self.assertEqual(own.headers["vary"], "Sec-Fetch-Dest")
+        asset = self.c.get(f"/apps/{CID}/poster.pdf",
+                           headers={**_LOCAL, "sec-fetch-dest": "empty"})
+        self.assertNotIn("vary", asset.headers,
+                         "an asset is the same bytes either way; splitting its "
+                         "cache entry buys nothing")
+        with self._mode("off"):
+            plain = self.c.get(f"/apps/{CID}/page",
+                               headers={**_LOCAL, "sec-fetch-dest": "empty"})
+        self.assertNotIn("vary", plain.headers,
+                         "a connector that is never injected has no axis")
+
+    def test_a_charset_declaration_that_is_not_first_keeps_its_window(self):
+        # Served with a bare `text/html`, so the document's own <meta charset>
+        # is the only thing deciding how the app's text decodes. A ~9 KB tag in
+        # front of it pushes it past the 1024 bytes the browser's encoding
+        # prescan reads — and the app renders as mojibake in Ava's frame and
+        # nowhere else.
+        body = self._framed("/late-charset").content
+        self.assertIn(b"ava:navigation", body)
+        self.assertLess(body.index(b'<meta charset="utf-8">'),
+                        embed_route.PRESCAN)
+        self.assertLess(body.index(b'<meta charset="utf-8">'),
+                        body.index(b"<script"))
+
+    def test_the_apps_cache_policy_is_otherwise_untouched(self):
+        # Pinned next door for the un-injected path; re-asserted here because
+        # injection rewrites a header in the same response.
+        r = self._framed()
+        self.assertEqual(r.headers["cache-control"], "no-cache")
+        private = self._framed("/private-html")
+        self.assertEqual(private.headers["cache-control"], "private, no-store")
+
+    # --- transport ------------------------------------------------------------
+
+    def test_identity_is_asked_for_on_framed_documents_only(self):
+        self._framed(headers={"accept-encoding": "gzip, deflate, br"})
+        self.assertEqual(self.up.state.seen[-1][2].get("accept-encoding"),
+                         "identity",
+                         "a gzipped body cannot be scanned for the insertion "
+                         "point, and the proxy forwards encodings verbatim")
+        self.c.get(f"/apps/{CID}/asset.js",
+                   headers={**_LOCAL, "sec-fetch-dest": "script",
+                            "accept-encoding": "gzip, deflate, br"})
+        self.assertEqual(self.up.state.seen[-1][2].get("accept-encoding"),
+                         "gzip, deflate, br",
+                         "every subresource keeps the browser's own "
+                         "negotiation byte for byte")
+        with self._mode("off"):
+            self._framed(headers={"accept-encoding": "gzip"})
+        self.assertEqual(self.up.state.seen[-1][2].get("accept-encoding"), "gzip")
+
+    def test_the_document_still_arrives_in_pieces(self):
+        # The injector holds bytes back only until it knows where the tag goes.
+        # Content-Length is dropped for every proxied response, so the longer
+        # body needs no fix-up — and claiming the app's length would truncate it.
+        r = self._framed()
+        self.assertNotIn("content-length", r.headers)
+        self.assertGreater(len(r.content), len(HTML_PAGE))
+        self.assertTrue(r.content.endswith(b"</body></html>"))
 
 
 def _origin_settings():

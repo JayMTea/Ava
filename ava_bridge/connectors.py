@@ -303,6 +303,19 @@ def _validate_nested(m: dict, cid: str, path: str, errors: list) -> None:
             bad("ui", "order", "a number")
         if "api" in ui and not isinstance(ui["api"], dict):
             bad("ui", "api", "a mapping")
+        if "route" in ui and str(ui["route"]).strip().lower() not in ROUTE_MODES:
+            # A VALUE check rather than a type check, so the message names what
+            # was written: `route: on` is the plausible wrong guess, and being
+            # told "must be a string" about a string helps nobody. Quarantined
+            # like every other bad field — the connector keeps working, on the
+            # default.
+            got = (repr(ui["route"]) if isinstance(ui["route"], str)
+                   else type(ui["route"]).__name__)
+            errors.append({"id": cid, "path": path, "severity": "error",
+                           "error": _NESTED_ERR % (
+                               "ui", "route",
+                               "one of " + ", ".join(ROUTE_MODES), got)})
+            ui.pop("route", None)
 
     eg = m.get("egress")
     if isinstance(eg, dict):
@@ -1702,6 +1715,36 @@ def agent_surface() -> List[dict]:
 #             fed by app_actions() — the app's RESOLVED tool list, not the
 #             manifest's, because for a dynamic connector the manifest holds one
 #             synthetic bridge row and that is not a usable answer)
+#: `ui.route` — WHO tells the shell which page an embedded app is on, so a
+#: reload reopens it there rather than at the app's home.
+#:
+#:   auto  (default) the bridge adds a small script to the app's own document as
+#:                   it proxies it (ava_bridge/embed_route.py). Nothing is asked
+#:                   of the app.
+#:   self            the app posts `ava:navigation` itself (docs/CONNECTOR_SDK.md
+#:                   §3). Injecting as well would double every message.
+#:   off             touch nothing. For an app whose document must arrive exactly
+#:                   as its server wrote it.
+#:
+#: This is per-connector PROXY BEHAVIOUR, like cookie rescoping — not an
+#: owner-facing optional capability — so it has no ava_bridge/features.py entry
+#: and no Setup switch. The manifest is where it belongs and the only place it
+#: is read.
+ROUTE_MODES = ("auto", "self", "off")
+
+
+def _route_mode(ui: dict) -> str:
+    """`ui.route`, normalised. Anything unrecognised is the default.
+
+    `_validate_nested` already quarantines a bad value with a message the Setup
+    page shows; this is the same belt-and-braces `_safe_order` is: the proxy
+    dereferences the answer on every framed request and must never be handed one
+    it cannot compare.
+    """
+    value = str(ui.get("route") or "").strip().lower()
+    return value if value in ROUTE_MODES else ROUTE_MODES[0]
+
+
 def _safe_order(v) -> int:
     """`ui.order` as an int, whatever the manifest held. `_validate_nested`
     already coerces or quarantines it, but `apps()` renders the whole left
@@ -1819,7 +1862,11 @@ def app(cid: str) -> dict | None:
     # other surface says "Home Assistant".
     return {"id": cid, "label": _display_label(m),
             "embed": str(ui.get("embed") or "none").lower(),
-            "url": _expand(ui.get("url")), "api": ui.get("api")}
+            "url": _expand(ui.get("url")), "api": ui.get("api"),
+            # Who reports the app's page to the shell. Read by the proxy on
+            # every framed document, so it rides along with the rest of the
+            # `ui:` block rather than costing a second registry read per hop.
+            "route": _route_mode(ui)}
 
 
 def app_api(cid: str) -> dict | None:
