@@ -27,7 +27,7 @@ jobs:
         id: commit
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Require successful CI for the released commit
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           VERIFIED_SHA: ${{ steps.commit.outputs.sha }}
         with:

@@ -45,7 +45,7 @@ jobs:
         run: python -m pytest tests/test_no_owner_identity.py tests/test_no_private_apps_shipped.py tests/test_no_internal_plans.py tests/test_docs_assets.py tests/test_landing_page.py -q
       - name: Configure Pages
         id: pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
       - name: Set site URL
         env:
           SITE_URL: ${{ steps.pages.outputs.base_url }}
