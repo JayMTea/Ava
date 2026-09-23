@@ -64,6 +64,8 @@ def validate(artifact: dict, cid: str = "") -> None:
         if not isinstance(chart, dict):
             raise ValueError("Live artifact requires a saved chart description")
         _citations(chart.get("citations"))
+        if not isinstance(chart.get("sources_in_view", False), bool):
+            raise ValueError("Invalid chart sources_in_view")
         return
     result = artifact.get("result")
     if not isinstance(result, dict) or result.get("schema_version") != "analysis-result/2":

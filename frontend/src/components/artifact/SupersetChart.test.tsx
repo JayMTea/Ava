@@ -19,4 +19,17 @@ describe('native Superset presentation', () => {
     expect(html).not.toContain('javascript:');
     expect(html).not.toContain('tablist');
   });
+
+  it('leaves sources to a view that already shows them', () => {
+    const artifact = { id: 'test', title: 'Population', connector_id: 'analytics', chart_type: 'custom_map', mode: 'live' } as AnalyticsArtifactReference;
+    const chart = { citations: [{ title: 'Source', url: 'https://example.com/data' }] };
+    const visualization = { format: 'superset', path: '/superset/superset/explore/?slice_id=7&standalone=1' };
+    const shown = renderToStaticMarkup(<SupersetChart data={{ chart: { ...chart, sources_in_view: true }, visualization } as SupersetArtifactPayload} artifact={artifact} />);
+    expect(shown).not.toContain('Chart sources');
+    expect(shown).not.toContain('https://example.com/data');
+    expect(shown).toContain('Live chart');
+    // An older payload, or a view without its own notes, keeps the list here.
+    const listed = renderToStaticMarkup(<SupersetChart data={{ chart, visualization } as SupersetArtifactPayload} artifact={artifact} />);
+    expect(listed).toContain('https://example.com/data');
+  });
 });

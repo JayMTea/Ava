@@ -49,7 +49,9 @@ export function AnalysisSources({ result }: { result: RecordedAnalyticsArtifactP
 export function SupersetChart({ data, artifact, onOpen }: {
   data: SupersetArtifactPayload | AppArtifactPayload; artifact: AnalyticsArtifactReference; onOpen?: () => void;
 }) {
-  const citations = data.chart.citations.filter(source => sourceUrl(source.url));
+  // A view that shows its own sources owns them: listing them here as well gives
+  // one fact two homes, and only the app's copy follows what the chart now shows.
+  const citations = data.chart.sources_in_view ? [] : data.chart.citations.filter(source => sourceUrl(source.url));
   return <section className={`analysis-artifact analysis-native${onOpen ? ' analysis-preview' : ''}`} style={{ '--analysis-accent': appAccent(artifact.connector_id) } as CSSProperties} aria-label={onOpen ? 'Chart preview' : data.schema_version === 'ava-artifact/2' ? 'Superset chart' : 'Live chart'}>
     {onOpen && <button type="button" className="analysis-preview-open" onClick={onOpen} aria-label={`Open chart: ${artifact.title}`}>
       <span className="analysis-preview-title">{artifact.title}</span><span className="analysis-preview-hint">View chart ↗</span>

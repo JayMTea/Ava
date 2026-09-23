@@ -72,6 +72,11 @@ Then the tool may return:
 }
 ```
 
+Ava lists `chart.citations` as Sources under the live view. When the view
+already shows them itself (in its own notes or source panel), set
+`chart.sources_in_view: true` and Ava leaves them to the view instead of
+listing them twice. It is optional and must be a boolean; omitted means false.
+
 The path must match a declared prefix on a path-segment boundary. Absolute URLs,
 protocol-relative URLs, traversal (including encoded traversal), backslashes and
 fragments are refused. The configured connector UI determines the app origin and

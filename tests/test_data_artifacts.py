@@ -56,6 +56,15 @@ def test_native_destination_cannot_escape_saved_chart(native, change):
         artifacts.capture("test-data", {"_meta": {"ava/artifact": native}})
 
 
+def test_a_view_can_claim_its_own_sources_but_only_as_a_boolean(native):
+    native["chart"]["sources_in_view"] = True
+    reference = artifacts.capture("test-data", {"_meta": {"ava/artifact": native}})["structuredContent"]["artifact"]
+    assert artifacts.read(reference["id"])[1]["chart"]["sources_in_view"] is True
+    native["chart"]["sources_in_view"] = "yes"
+    with pytest.raises(ValueError):
+        artifacts.capture("test-data", {"_meta": {"ava/artifact": native}})
+
+
 def test_native_chart_respects_connector_revocation(native, monkeypatch):
     receipt = artifacts.capture("test-data", {"_meta": {"ava/artifact": native}})
     monkeypatch.setattr(artifacts.connectors, "load", lambda **kwargs: [])

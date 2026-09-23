@@ -678,6 +678,8 @@ recorded rows.
 Native Superset charts use `ava-artifact/2` with `mode: "live"`. The connector
 returns the saved chart ID, original visualization type, selected filters and
 citations in `chart`, plus `visualization: {format: "superset", path: "..."}`.
+A chart that shows its own sources sets `chart.sources_in_view: true`, so Ava
+does not repeat them under the frame.
 Ava validates the chart-only destination and filter identity, stores the
 reference with the conversation, and renders it through the app's authenticated
 frame inside the chat. No chart-type whitelist or bar fallback applies to this

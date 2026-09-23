@@ -449,6 +449,8 @@ export interface SupersetArtifactPayload {
     description: string;
     filters: { subject?: string; comparator?: unknown; operator?: string }[];
     citations: { title: string; url: string }[];
+    /** The rendered view already shows these sources, so Ava does not list them again. */
+    sources_in_view?: boolean;
   };
   visualization: { format: 'superset'; path: string };
 }
@@ -459,7 +461,7 @@ export interface AppArtifactPayload {
   chat_id?: string | null;
   app_url?: string | null;
   mode: 'live';
-  chart: { citations: { title: string; url: string }[] };
+  chart: { citations: { title: string; url: string }[]; sources_in_view?: boolean };
   visualization: { format: 'app'; path: string };
 }
 

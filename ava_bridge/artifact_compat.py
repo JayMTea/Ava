@@ -102,6 +102,8 @@ def _validate_superset(artifact: dict) -> None:
         for item in citations
     ):
         raise ValueError('Invalid chart citations')
+    if not isinstance(chart.get('sources_in_view', False), bool):
+        raise ValueError('Invalid chart sources_in_view')
     if len(json.dumps(artifact, ensure_ascii=False, allow_nan=False).encode()) > MAX_BYTES:
         raise ValueError('Artifact exceeds the snapshot budget')
 
