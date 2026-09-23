@@ -550,6 +550,7 @@ byte — the bridge:
 | `{type: "ava:theme", theme}` | shell → frame | Sent on every frame load and every theme change, so a kept-alive app follows the owner's theme without reloading. `theme` is `light` or `dark`. |
 | `{type: "ava:theme-request"}` | frame → shell | Asks for an `ava:theme` now, for an app that hydrates after the load-time one went by. |
 | `{type: "ava:navigation", cid, path}` | frame → shell | Says where the app is, so a refresh reopens it there. `cid` is your connector id; `path` is app-relative (`/machine-learning?tab=models`, not `/apps/<id>/…`), with its query and fragment, minus credentials and launch hints (`t`, `theme`, `embedded`, `v`, anything token-like). The shell mirrors it into its own address as `#<cid><path>` and remembers it across reloads. It ignores `/login`, `/logout`, `/auth` and `/.ava`, so a sign-in screen is never where the app reopens. |
+| `{type: "ava:sources-in-view"}` | frame → shell | Says the view already lists its own sources (in a notes or source panel), so a live chart in chat stops listing its `chart.citations` under the frame. Unlike `chart.sources_in_view`, it covers charts saved before your connector sent that flag. Post it to the shell's origin, found as below. |
 | `{type: "ava:embed-expired", cid, path}` | frame → shell | Not yours to send: the bridge's reconnect page posts it when the frame's access has lapsed, and the shell reopens the app at `path` with fresh access. |
 
 #### Reporting your own route (`ui.route: self`)
@@ -679,7 +680,8 @@ Native Superset charts use `ava-artifact/2` with `mode: "live"`. The connector
 returns the saved chart ID, original visualization type, selected filters and
 citations in `chart`, plus `visualization: {format: "superset", path: "..."}`.
 A chart that shows its own sources sets `chart.sources_in_view: true`, so Ava
-does not repeat them under the frame.
+does not repeat them under the frame; its view can also post
+`ava:sources-in-view` (§3), which covers charts saved before the flag existed.
 Ava validates the chart-only destination and filter identity, stores the
 reference with the conversation, and renders it through the app's authenticated
 frame inside the chat. No chart-type whitelist or bar fallback applies to this

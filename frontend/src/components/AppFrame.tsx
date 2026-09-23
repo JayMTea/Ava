@@ -12,6 +12,7 @@ import {
 import { connectAppTheme, sendAppTheme } from '../lib/embedTheme';
 import { getTheme } from '../lib/theme';
 import { frameNavigation } from '../lib/embedNavigation';
+import { frameShowsSources } from '../lib/embedSources';
 
 // Renders an app using the bridge-issued embed destination. A configured app
 // origin isolates it from Ava; the bridge supplies scoped access and theme.
@@ -39,7 +40,7 @@ const DEAD_AFTER_MS = 45_000;
 
 type FrameState = 'loading' | 'slow' | 'ready' | 'error';
 
-export function AppFrame({ id, label, active = true, path = '/', onNavigate }: { id: string; label: string; active?: boolean; path?: string; onNavigate?: (id: string, path: string) => void }) {
+export function AppFrame({ id, label, active = true, path = '/', onNavigate, onSourcesInView }: { id: string; label: string; active?: boolean; path?: string; onNavigate?: (id: string, path: string) => void; onSourcesInView?: () => void }) {
   const [state, setState] = useState<FrameState>('loading');
   const [lease, setLease] = useState<EmbedLease | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -153,6 +154,17 @@ export function AppFrame({ id, label, active = true, path = '/', onNavigate }: {
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
   }, [lease, id, mint]);
+
+  // A view that lists its own sources says so, and whoever frames it stops
+  // repeating them. Same frame and origin checks as every message above.
+  useEffect(() => {
+    if (!lease || !onSourcesInView) return;
+    const onMessage = (event: MessageEvent) => {
+      if (frameShowsSources(event, ref.current?.contentWindow, lease.origin)) onSourcesInView();
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [lease, onSourcesInView]);
 
   // While the page is awake, keep the cookie alive even if nobody touches the app:
   // a quarter of its life apart, a credentialed no-cors fetch the bridge answers

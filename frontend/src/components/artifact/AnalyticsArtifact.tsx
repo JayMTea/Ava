@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useState, type CSSProperties } from 'react';
 import type { AnalyticsArtifactPayload, AnalyticsArtifactReference, RecordedAnalyticsArtifactPayload, SupersetArtifactPayload, AppArtifactPayload } from '../../lib/types';
 import { appAccent, appById } from '../../lib/appColor';
 import { analysisLabels } from '../../lib/artifactCompat';
@@ -51,13 +51,17 @@ export function SupersetChart({ data, artifact, onOpen }: {
 }) {
   // A view that shows its own sources owns them: listing them here as well gives
   // one fact two homes, and only the app's copy follows what the chart now shows.
-  const citations = data.chart.sources_in_view ? [] : data.chart.citations.filter(source => sourceUrl(source.url));
+  // The saved chart may say so; the frame says so as it renders, which also
+  // covers a chart saved before its connector learned to.
+  const [viewListsSources, setViewListsSources] = useState(false);
+  const onSourcesInView = useCallback(() => setViewListsSources(true), []);
+  const citations = data.chart.sources_in_view || viewListsSources ? [] : data.chart.citations.filter(source => sourceUrl(source.url));
   return <section className={`analysis-artifact analysis-native${onOpen ? ' analysis-preview' : ''}`} style={{ '--analysis-accent': appAccent(artifact.connector_id) } as CSSProperties} aria-label={onOpen ? 'Chart preview' : data.schema_version === 'ava-artifact/2' ? 'Superset chart' : 'Live chart'}>
     {onOpen && <button type="button" className="analysis-preview-open" onClick={onOpen} aria-label={`Open chart: ${artifact.title}`}>
       <span className="analysis-preview-title">{artifact.title}</span><span className="analysis-preview-hint">View chart ↗</span>
     </button>}
     <div className="analysis-native-frame">
-      <AppFrame id={artifact.connector_id} label={artifact.title} path={data.visualization.path} />
+      <AppFrame id={artifact.connector_id} label={artifact.title} path={data.visualization.path} onSourcesInView={onSourcesInView} />
     </div>
     <p className="analysis-note">Live chart from {appById(artifact.connector_id)?.label ?? 'Analytics'}</p>
     {citations.length > 0 && <div className="analysis-sources" aria-label="Chart sources"><span>Sources</span>

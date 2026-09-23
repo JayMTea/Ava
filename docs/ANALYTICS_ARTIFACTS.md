@@ -76,6 +76,9 @@ Ava lists `chart.citations` as Sources under the live view. When the view
 already shows them itself (in its own notes or source panel), set
 `chart.sources_in_view: true` and Ava leaves them to the view instead of
 listing them twice. It is optional and must be a boolean; omitted means false.
+The flag is saved with the chart, so a chart saved earlier keeps its list; a
+view that posts `{type: "ava:sources-in-view"}` to the shell as it renders
+(see [Connector SDK §3](CONNECTOR_SDK.md)) covers those too.
 
 The path must match a declared prefix on a path-segment boundary. Absolute URLs,
 protocol-relative URLs, traversal (including encoded traversal), backslashes and
