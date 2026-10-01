@@ -196,6 +196,16 @@ def test_dockerignore_default_denies_the_connectors_directory() -> None:
         "the `!connectors/<id>` allow-list beneath it.")
 
 
+def test_receiver_owned_deployment_config_cannot_enter_the_image() -> None:
+    patterns = _dockerignore()
+    assert any(p.rstrip("/") == "/deploy/nas" for p in patterns), (
+        "Exclude /deploy/nas from the build context: deployment sync preserves "
+        "the receiver's private export configuration, and COPY . must not ship it.")
+    assert not any(p.lstrip("!").lstrip("/").startswith("deploy/nas")
+                   for p in patterns if p.startswith("!")), (
+        "Do not re-include receiver-owned export files in the bridge image.")
+
+
 def test_the_dockerignore_allow_list_is_exactly_the_shipped_builtins() -> None:
     """Both directions matter. A re-include of something untracked ships a private
     app; a MISSING re-include silently drops a built-in Ava needs, which shows up

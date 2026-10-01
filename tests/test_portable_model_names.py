@@ -1,4 +1,4 @@
-"""A fresh clone names observed models without Home Lab or any live service."""
+"""A fresh Ava clone names observed models without an external application."""
 import json
 import shlex
 import subprocess
@@ -29,8 +29,8 @@ def observe(process, args=None, mapped=None, local=False):
     if mapped is not None:
         (folder / "maps").write_text("".join(f"0-1 r--p 0 0 0 {p}\n" for p in mapped))
     output = "42, python3, 2048\n"
-    # No optional registry is accessed, even when matching newly added models.
-    with mock.patch.object(gpu_inventory.sqlite3, "connect", side_effect=AssertionError("No Home Lab")):
+    # Observed model names require no database, even for newly added models.
+    with mock.patch("sqlite3.connect", side_effect=AssertionError("No external database")):
         if local:
             command = shlex.join((folder / "cmdline").read_text().split("\0"))
             with (
@@ -134,6 +134,25 @@ def test_directory_sidecar_names_generic_mapped_files(process, local):
     assert row["model"] == "My fine-tune"
 
 
+def test_binary_weights_and_onnx_use_portable_names(process):
+    _, folder = process
+    directory = folder / "root/weights/voice"
+    directory.mkdir(parents=True)
+    (directory / "voice.onnx.ava-model.json").write_text(json.dumps({"name": "My voice model"}))
+    cache = "/cache/models--publisher--Embedder/snapshots/" + "ab" * 20
+    row = observe(process, mapped=["/weights/voice/voice.onnx", f"{cache}/pytorch_model.bin",
+                                   "/weights/unrelated.bin"])
+    assert not row["model_id"]
+    assert {c["name"] for c in row["components"]} == {"My voice model", "Embedder"}
+
+
+def test_model_flags_do_not_confuse_python_modules_with_models():
+    for flag in ("--model-id", "--model-path", "--ckpt_name"):
+        assert gpu_inventory._model(["python3", "server.py", flag, "publisher/New"]) == "publisher/New"
+    assert gpu_inventory._model(["llama-server", "-m", "new.gguf"]) == "new.gguf"
+    assert gpu_inventory._model(["python3", "-m", "app.server"]) == ""
+
+
 @pytest.mark.parametrize("name", ["python3", "12345", "ab" * 20, "/PRIVATE/model", "bad\nname"])
 def test_bad_sidecar_does_not_turn_a_runtime_or_hash_into_a_model(process, name):
     _, folder = process
@@ -166,7 +185,7 @@ def test_relative_model_path_uses_the_process_working_directory(process):
     assert gpu_inventory.resolve_model("12345", proc, 42) == ("My local model", "My local model")
 
 
-def test_collector_is_standalone_without_ava_or_home_lab_imports(process):
+def test_collector_is_standalone_without_application_imports(process):
     proc, folder = process
     (folder / "cmdline").write_bytes(b"vllm\0serve\0publisher/New-Model\0")
     script = (

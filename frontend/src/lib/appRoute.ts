@@ -16,8 +16,8 @@ export function appRouteFromHash(hash: string): AppRoute | null {
 // Does the fragment name a destination INSIDE the app, or only the tile?
 //
 // `#infra` and `#infra/` both resolve to path '/', and the difference decides
-// what the shell may forget: the first is "open Home Lab", which should land
-// where it was left, and the second is "open Home Lab at its home", which says
+// what the shell may forget: the first is "open the app", which should land
+// where it was left, and the second is "open the app at its home", which says
 // so. Only an explicit destination overwrites the remembered path.
 export function appRouteIsExplicit(hash: string): boolean {
   return appRouteFromHash(hash) !== null && /^#\/?[\w-]+\/.*$/.test(hash);

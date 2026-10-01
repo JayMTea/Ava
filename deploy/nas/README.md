@@ -21,6 +21,8 @@ Deployment automation deliberately preserves the receiver's `deploy/nas/` files.
 Existing custom export mappings, networks, paths, and credentials stay under the
 operator's control. Copy your deployment files to a private backup before adopting
 new templates. Changing this example does not migrate an existing exporter.
+This directory is excluded from the bridge image's build context; the exporter
+uses the operator's files on the host.
 
 The optional CD workflow requires repository variables `NAS_DEPLOY=true` and
 `NAS_STACK_DIR` set to the absolute existing checkout directory. The default runner

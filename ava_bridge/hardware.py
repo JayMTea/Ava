@@ -711,14 +711,14 @@ def _gpu_model_processes(proc_root: Path = Path("/proc")) -> list[dict]:
         cmd = _proc_cmdline(pid)
         owner, owner_cmd, model = _resolve_owner(pid, cmd)
         # Also resolve blob paths discarded by the legacy parser, using the
-        # observed process's own store. No Home Lab service is required.
+        # observed process's own store.
         try:
             value = gpu_inventory._model(shlex.split(owner_cmd)) or model or ""
         except ValueError:
             value = model or ""
         model, model_name = gpu_inventory.resolve_model(value, proc_root, owner)
         if not model:
-            model, model_name = gpu_inventory._run_identity(proc_root, pid, {})
+            model, model_name = gpu_inventory._run_identity(proc_root, pid)
         components = gpu_inventory._components(proc_root, pid, include_paths=True)
         g = groups.setdefault(owner, {
             "model_id": None, "model_name": "", "owner_cmd": "", "mem_mb": None, "util": None,

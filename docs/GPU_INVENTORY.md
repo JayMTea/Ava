@@ -14,9 +14,8 @@ sizes are exported. Commands, environment variables and absolute paths are omitt
 
 ## Names on a fresh Ava installation
 
-**Home Lab is optional.** Ava's local process monitor and this standalone collector
-share the same naming code. Neither needs Home Lab, a registration database, or a
-list of the maintainer's models. They resolve observed identities from:
+Ava's local process monitor and this standalone collector share the same naming
+code. Model naming is built into Ava and resolves observed identities from:
 
 - Model launch arguments, including `vllm serve MODEL`, `--model`, `--model-id`,
   `--model-path`, `--ckpt_name`, and llama.cpp's `-m`.
@@ -67,47 +66,11 @@ node_exporter:
 AVA_GPU_INVENTORY_OUTPUT=/var/lib/node_exporter/textfile/ava_gpu_inventory.prom
 ```
 
-Optionally, when the monitored host has Home Lab's Model Store, add its registry database to
-the same environment file (use that controller's configured `state_dir`):
-
-```dotenv
-AVA_GPU_MODEL_REGISTRY=/path/to/model-controller/state/controller.sqlite3
-```
-
-The collector opens this database read-only and uses registered model names,
-matching the observed model path, repository ID or an unambiguous revision.
-Registrations and renamed models are picked up on the next collection; no per-model
-mapping or restart is required. Only the resolved identity and display name leave
-the host. The database path and manifests are never exported. The service account
-needs read access to the database and its SQLite WAL files.
-
-Names also resolve from serving-profile IDs and registered component files.
-An otherwise unnamed process with one identifiable registered model mapped in
-memory takes that model's name. Processes holding several models keep their
-separate, named components instead of attributing all memory to one of them.
-Multiple quantizations retain their shared registered family name. When two
-registrations reference the exact same copy, a serving profile's label wins,
-followed by a declared registry label, ahead of an automatically scanned folder
-alias. Each registration's own ID still resolves to its own name. Unrelated
-models sharing only a revision or basename remain ambiguous.
-
-Audit all existing registrations and their host/container lookups without loading
-models or making inference requests:
-
-```sh
-python3 ~/.local/lib/ava/gpu_inventory.py --audit-registry --model-registry /path/to/model-controller/state/controller.sqlite3
-```
-
-The JSON result reports model/profile counts, lookup checks and any naming issues;
-the command exits nonzero on an issue or an unreadable database.
-
-Without a readable registry, the portable sources above continue to work.
-
 For Python image-generation workloads, the collector also recognizes an active
 local Diffusers run: the GPU process must have `generated.jsonl` open for appending,
 and its sibling `run.json` must declare `generator.name: diffusers`, a
 `generator.model_id`, and `images_started_at` without a later `images_finished_at`.
-That model ID is resolved directly, with a registry label if one is available. This covers
+That model ID is resolved directly. This covers
 existing runs and future models without restarting a generation job. Completed
 runs, read-only observers, remote/API generators and conflicting active identities
 do not name a process. The collector reads only the bounded manifest; generated

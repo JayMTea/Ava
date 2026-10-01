@@ -45,6 +45,10 @@ frontend/dist
 **/ava-data
 **/ava-data-*
 
+# Receiver-owned export configuration is used on the host, never by the bridge.
+# Deployment sync preserves this directory, so it may contain private overrides.
+/deploy/nas
+
 # Instance extensions, branding, metadata and private authoring material.
 /overlay
 /frontend/src/overlay

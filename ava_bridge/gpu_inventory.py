@@ -13,11 +13,9 @@ import io
 import json
 import math
 import os
-from contextlib import closing
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 import re
-import sqlite3
 import subprocess
 import time
 
@@ -127,13 +125,11 @@ def _ollama_name(path: Path) -> tuple[str, str]:
     return name, name
 
 
-def resolve_model(value: str, proc: Path, pid: int,
-                  registry: dict[str, set[tuple[str, str]]] | None = None,
-                  *, component: bool = False) -> tuple[str, str]:
-    """Shared local/remote name resolver. Home Lab is an optional label source."""
-    model, label = _identity(value, registry or {})
-    if label or not value:
-        return model, label
+def resolve_model(value: str, proc: Path, pid: int, *, component: bool = False) -> tuple[str, str]:
+    """Ava's shared local/remote resolver, using observed model identities."""
+    model = model_identity(value)
+    if not value:
+        return "", ""
     path = _process_path(proc, pid, value)
     declared = _artifact_name(path)
     if declared[0]:
@@ -160,148 +156,6 @@ def component_identity(components: list[dict]) -> tuple[str, str]:
         if model and name:
             return model, name
     return "", ""
-
-
-def _registry(path: Path | None) -> dict[str, set[tuple[str, str]]]:
-    """Read Home Lab's Model Store names without credentials or a write connection.
-
-    Only identity fields are selected, not manifests, hashes or controller settings.
-    Re-read each collection so registrations and renames require no collector restart.
-    Ambiguous aliases retain every candidate; they must not arbitrarily name a process.
-    """
-    index: dict[str, set[tuple[str, str]]] = {}
-    locations: dict[str, list[tuple[tuple, tuple[str, str]]]] = {}
-    families: set[str] = set()
-    if path is None:
-        return index
-    try:
-        with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro",
-                                     uri=True, timeout=0.2)) as db:
-            records = db.execute("""
-                SELECT r.id, json_extract(r.document, '$.name'),
-                       json_extract(v.value, '$.source_repo'),
-                       json_extract(v.value, '$.revision'),
-                       json_extract(l.value, '$.path'),
-                       json_extract(l.value, '$.relative_path'),
-                       json_extract(r.document, '$.source'),
-                       EXISTS(SELECT 1 FROM record p WHERE p.kind = 'profile'
-                              AND json_extract(p.document, '$.model_id') = r.id)
-                FROM record r
-                LEFT JOIN json_each(r.document, '$.variants') v
-                LEFT JOIN json_each(v.value, '$.locations') l
-                WHERE r.kind = 'model'
-            """).fetchall()
-            profiles = db.execute("""
-                SELECT p.id, json_extract(m.document, '$.name'),
-                       json_extract(v.value, '$.source_repo')
-                FROM record p JOIN record m
-                  ON m.kind = 'model' AND m.id = json_extract(p.document, '$.model_id')
-                LEFT JOIN json_each(m.document, '$.variants') v
-                  ON json_extract(v.value, '$.id') = json_extract(p.document, '$.variant_id')
-                WHERE p.kind = 'profile'
-            """).fetchall()
-        for mid, name, repo, revision, location, relative, source, used in records:
-            if not isinstance(name, str) or not name.strip():
-                continue
-            name = model_identity(name) or model_identity(repo or location or "")
-            identity = (model_identity(repo or name), name.strip())
-            if not identity[0]:
-                continue
-            # Home Lab's managed engines mount model_root at /models. Keep the
-            # full relative path, so equal basenames in different folders do
-            # not collide or require an owner-specific host path in Ava.
-            mounted = f"/models/{relative}" if isinstance(relative, str) and relative else None
-            # A registry record names the family even when it contains several
-            # quantizations. Those variants must not make its own ID ambiguous.
-            for key in (mid, name):
-                index.setdefault(key, set()).add(identity)
-                families.add(key)
-            for key in (repo, revision):
-                if isinstance(key, str) and key:
-                    key = key.replace("\\", "/").rstrip("/")
-                    index.setdefault(key, set()).add(identity)
-            # Duplicate registrations of the SAME copy are aliases, not two
-            # possible weight sets. Prefer a serving profile's name, then a
-            # declared registry name, over an automatically scanned folder.
-            rank = (not used, source != "registry", source != "hub", name, mid)
-            for key in (location, mounted):
-                if isinstance(key, str) and key:
-                    key = key.replace("\\", "/").rstrip("/")
-                    locations.setdefault(key, []).append((rank, identity))
-        for key in families:
-            names = {name for _, name in index[key]}
-            if len(index[key]) > 1 and len(names) == 1:
-                name = next(iter(names))
-                index[key] = {(model_identity(name), name)}
-        for pid, name, repo in profiles:
-            if isinstance(name, str) and name.strip():
-                name = model_identity(name) or model_identity(repo or "")
-                if name:
-                    index[pid] = {(model_identity(repo or name), name)}
-        for key, candidates in locations.items():
-            identity = min(candidates)[1]
-            index[key] = {identity}
-            basename = PurePosixPath(key).name
-            if basename not in families and not basename.startswith("profile:"):
-                index.setdefault(basename, set()).add(identity)
-    except (OSError, sqlite3.Error):
-        # A missing/locked registry must not blank measured GPU memory.
-        return {}
-    return index
-
-
-def audit_registry(path: Path) -> dict:
-    """Check the whole registry's names and lookups without loading any weights."""
-    index = _registry(path)
-    try:
-        with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro",
-                                     uri=True, timeout=0.2)) as db:
-            models = db.execute("SELECT id, document FROM record WHERE kind = 'model'").fetchall()
-            profiles = db.execute("SELECT id, document FROM record WHERE kind = 'profile'").fetchall()
-    except sqlite3.Error as exc:
-        return {"ok": False, "error": str(exc)}
-    issues, checks, copies = [], 0, 0
-    names = {}
-
-    def check(value, expected, kind, exact=True):
-        nonlocal checks
-        checks += 1
-        _, label = _identity(value, index)
-        if not label or (exact and label != expected):
-            issues.append({"model": expected, "lookup": kind, "resolved_name": label})
-
-    for mid, raw in models:
-        model = json.loads(raw)
-        name = model.get("name", "")
-        names[mid] = name
-        check(mid, name, "registered_id")
-        check(name, name, "registered_name")
-        has_copy = False
-        for variant in model.get("variants", []):
-            if variant.get("source_repo"):
-                check(variant["source_repo"], name, "source_repository")
-            for location in variant.get("locations", []):
-                has_copy = True
-                # Two records for the same copy may have different display
-                # aliases. Either way, a registered name must win over its path.
-                check(location["path"], name, "host_path", exact=False)
-                check("/models/" + location["relative_path"], name, "container_path", exact=False)
-        copies += has_copy
-    for pid, raw in profiles:
-        profile = json.loads(raw)
-        check(pid, names.get(profile.get("model_id"), ""), "serving_profile")
-    return {"ok": not issues, "registered_models": len(models), "models_with_copies": copies,
-            "serving_profiles": len(profiles), "lookup_checks": checks, "issues": issues}
-
-
-def _identity(value: str, registry: dict[str, set[tuple[str, str]]]) -> tuple[str, str]:
-    value = value.strip().replace("\\", "/").rstrip("/")
-    portable = model_identity(value)
-    for key in (value, portable, PurePosixPath(value).name):
-        matches = registry.get(key, set())
-        if matches:
-            return next(iter(matches)) if len(matches) == 1 else (portable, "")
-    return portable, ""
 
 
 def _args(proc: Path, pid: int) -> list[str]:
@@ -359,9 +213,7 @@ def _runtime(args: list[str], process_name: str) -> str:
     return Path(process_name.strip()).name[:80] or "GPU process"
 
 
-def _components(proc: Path, pid: int,
-                registry: dict[str, set[tuple[str, str]]] | None = None,
-                *, include_paths: bool = False) -> list[dict]:
+def _components(proc: Path, pid: int, *, include_paths: bool = False) -> list[dict]:
     paths: set[str] = set()
     try:
         for line in (proc / str(pid) / "maps").read_text(errors="replace").splitlines():
@@ -383,16 +235,7 @@ def _components(proc: Path, pid: int,
         path = Path(name)
         if path.suffix.lower() not in _WEIGHTS and path.parent.name != "blobs":
             continue
-        model, label = _identity(name, registry or {})
-        if not label and registry:
-            # A mapped shard may sit inside a registered directory.
-            for parent in path.parents:
-                matches = registry.get(str(parent), set())
-                if len(matches) == 1:
-                    model, label = next(iter(matches))
-                    break
-        if not label:
-            model, label = resolve_model(name, proc, pid, registry, component=True)
+        model, label = resolve_model(name, proc, pid, component=True)
         if path.suffix.lower() == ".bin" and not label:
             continue
         kind = "model"
@@ -416,7 +259,7 @@ def _components(proc: Path, pid: int,
     return out[:128]
 
 
-def _run_model(manifest: Path, registry: dict[str, set[tuple[str, str]]]) -> tuple[str, str]:
+def _run_model(manifest: Path) -> tuple[str, str]:
     """Identity from a running local Diffusers generation manifest.
 
     The caller must establish that this PID has the run's output open for
@@ -443,13 +286,13 @@ def _run_model(manifest: Path, registry: dict[str, set[tuple[str, str]]]) -> tup
         value = generator.get("model_id")
         if not isinstance(value, str) or not value.strip() or len(value) > 512:
             return "", ""
-        return _identity(value, registry)
+        model = model_identity(value)
+        return model, model.rsplit("/", 1)[-1]
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return "", ""
 
 
-def _run_identity(proc: Path, pid: int,
-                  registry: dict[str, set[tuple[str, str]]]) -> tuple[str, str]:
+def _run_identity(proc: Path, pid: int) -> tuple[str, str]:
     """Join an active output writer to its sibling run.json, without reading output.
 
     We never scan run directories or read generated records/prompts. The open
@@ -473,7 +316,7 @@ def _run_identity(proc: Path, pid: int,
                     continue
                 # Use the process's filesystem view, including container mounts.
                 manifest = folder / "root" / str(target.parent).lstrip("/") / "run.json"
-                identity = _run_model(manifest, registry)
+                identity = _run_model(manifest)
                 if identity[0]:
                     matches.add(identity)
             except (OSError, ValueError, IndexError, StopIteration):
@@ -483,21 +326,19 @@ def _run_identity(proc: Path, pid: int,
     return next(iter(matches)) if len(matches) == 1 else ("", "")
 
 
-def collect(proc: Path = Path("/proc"), run=subprocess.run,
-            model_registry: Path | None = None) -> list[dict]:
+def collect(proc: Path = Path("/proc"), run=subprocess.run) -> list[dict]:
     result = run(["nvidia-smi", "--query-compute-apps=pid,process_name,used_memory",
                   "--format=csv,noheader,nounits"], capture_output=True, text=True,
                  timeout=5, check=True)
-    registry = _registry(model_registry)
     groups: dict[int, dict] = {}
     for fields in csv.reader(io.StringIO(result.stdout)):
         if len(fields) != 3:
             raise ValueError("Unrecognized GPU process inventory")
         pid = int(fields[0].strip())
         owner, args, model = _owner(proc, pid)
-        model, model_name = resolve_model(model, proc, owner, registry)
+        model, model_name = resolve_model(model, proc, owner)
         if not model:
-            model, model_name = _run_identity(proc, pid, registry)
+            model, model_name = _run_identity(proc, pid)
         group = groups.setdefault(owner, {"pid": owner, "runtime": _runtime(args, fields[1]),
                                           "model_id": model, "model_name": model_name,
                                           "memory_bytes": None,
@@ -508,7 +349,7 @@ def collect(proc: Path = Path("/proc"), run=subprocess.run,
             memory = None
         if memory is not None and math.isfinite(memory) and memory >= 0:
             group["memory_bytes"] = (group["memory_bytes"] or 0) + memory
-        for component in _components(proc, pid, registry):
+        for component in _components(proc, pid):
             if component not in group["components"]:
                 group["components"].append(component)
     for group in groups.values():
@@ -540,9 +381,9 @@ def render(rows: list[dict], timestamp: float, success: bool = True) -> str:
     return "\n".join(lines) + "\n"
 
 
-def write_snapshot(output: Path, model_registry: Path | None = None) -> None:
+def write_snapshot(output: Path) -> None:
     try:
-        content = render(collect(model_registry=model_registry), time.time())
+        content = render(collect(), time.time())
     except (OSError, ValueError, subprocess.SubprocessError):
         content = render([], time.time(), success=False)
     temporary = output.with_suffix(".tmp")
@@ -553,27 +394,14 @@ def write_snapshot(output: Path, model_registry: Path | None = None) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output", type=Path)
-    parser.add_argument("--audit-registry", action="store_true",
-                        help="Check every registered model name and exit; no GPU or inference calls")
+    parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--interval", type=float, default=2.0)
     parser.add_argument("--once", action="store_true")
-    parser.add_argument("--model-registry", type=Path,
-                        default=os.environ.get("AVA_GPU_MODEL_REGISTRY") or None,
-                        help="Home Lab Model Store controller.sqlite3 (read-only name lookup)")
     args = parser.parse_args()
-    if args.audit_registry:
-        if args.model_registry is None:
-            parser.error("--audit-registry requires --model-registry or AVA_GPU_MODEL_REGISTRY")
-        audit = audit_registry(args.model_registry)
-        print(json.dumps(audit, indent=2))
-        raise SystemExit(0 if audit["ok"] else 1)
-    if args.output is None:
-        parser.error("--output is required for collection")
     if args.interval < 1:
         parser.error("interval must be at least one second")
     while True:
-        write_snapshot(args.output, args.model_registry)
+        write_snapshot(args.output)
         if args.once:
             return
         time.sleep(args.interval)

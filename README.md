@@ -102,8 +102,8 @@ memory, models, and integrations from product source. Independent owners need
 independent instances and credentials; Ava is single-owner, not multi-tenant.
 Name, appearance, and persona are configurable. No owner facts are prefilled.
 
-Model names come from your configured engines and observed model files, without
-requiring Home Lab. See [model naming and remote GPU inventory](docs/GPU_INVENTORY.md)
+Model names come from your configured engines and observed model files.
+See [model naming and remote GPU inventory](docs/GPU_INVENTORY.md)
 for automatic detection and labels for custom models.
 
 Data locality depends on what you connect. Cloud inference and remote agents

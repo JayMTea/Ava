@@ -1,11 +1,9 @@
 """Host inventory crosses the exporter boundary without secrets or false emptiness."""
 import json
 import os
-import sqlite3
 import tempfile
 import time
 import unittest
-from contextlib import closing
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -98,154 +96,6 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(hwexporters.model_inventory(hwexporters.Reading())["state"], "unavailable")
 
 
-class RegistryNamesTests(unittest.TestCase):
-    def setUp(self):
-        directory = tempfile.TemporaryDirectory()
-        self.addCleanup(directory.cleanup)
-        self.root = Path(directory.name)
-        self.database = self.root / "controller.sqlite3"
-        with closing(sqlite3.connect(self.database)) as db, db:
-            db.execute("CREATE TABLE record (kind TEXT, id TEXT, document TEXT)")
-        self.proc = self.root / "proc"
-        (self.proc / "100").mkdir(parents=True)
-        self.revision = "abcdef0123456789abcdef0123456789abcdef0123"
-        self.model_path = f"/private/models/hub/models--acme--Embed-8B/snapshots/{self.revision}"
-        self.register("model:1", "My registered embedder", "acme/Embed-8B", self.model_path)
-
-    def register(self, mid, name, repo, path):
-        with closing(sqlite3.connect(self.database)) as db, db:
-            db.execute("INSERT INTO record VALUES ('model', ?, ?)", (mid, json.dumps({
-                "id": mid, "name": name, "variants": [{
-                    "source_repo": repo, "revision": self.revision,
-                    "locations": [{"path": path, "relative_path": "local/" + Path(path).name,
-                                   "hashes": {"secret": "NEVER_EXPORT"}}],
-                }],
-            })))
-
-    def collect(self, model):
-        (self.proc / "100" / "cmdline").write_bytes(
-            "\0".join(["vllm", "serve", model, "--api-key", "NEVER_EXPORT"]).encode())
-        run = mock.Mock(return_value=SimpleNamespace(stdout="100, python, 18974\n"))
-        rows = gpu_inventory.collect(self.proc, run, model_registry=self.database)
-        text = gpu_inventory.render(rows, time.time())
-        self.assertNotIn("NEVER_EXPORT", text)
-        self.assertNotIn("/private", text)
-        return hwexporters.model_inventory(
-            hwexporters.Reading(node=hwexporters.parse_metrics(text)))["rows"][0]
-
-    def test_registered_name_survives_collection_and_exporter_boundary(self):
-        for value in (self.model_path, "acme/Embed-8B", f"/models/{self.revision}", "model:1"):
-            row = self.collect(value)
-            self.assertEqual(row["model"], "My registered embedder")
-            self.assertEqual(row["model_id"], "acme/Embed-8B")
-            self.assertEqual(row["memory_mb"], 18974)
-
-    def test_new_registrations_and_renames_are_read_on_the_next_collection(self):
-        self.collect(self.model_path)
-        self.register("model:2", "New local reasoner", None, "/private/new/reasoner.gguf")
-        self.assertEqual(self.collect("/private/new/reasoner.gguf")["model"], "New local reasoner")
-        self.assertEqual(self.collect("/models/local/reasoner.gguf")["model"], "New local reasoner")
-        with closing(sqlite3.connect(self.database)) as db, db:
-            db.execute("UPDATE record SET document=json_set(document, '$.name', 'Renamed embedder') "
-                       "WHERE id='model:1'")
-        self.assertEqual(self.collect(self.model_path)["model"], "Renamed embedder")
-
-    def test_same_revision_in_two_models_does_not_guess_the_name(self):
-        self.register("model:2", "Other embedder", "other/Embed", "/private/other")
-        row = self.collect(f"/models/{self.revision}")
-        self.assertIsNone(row["model_id"])
-        self.assertEqual(row["model"], "vLLM")
-        self.assertEqual(self.collect(self.model_path)["model"], "My registered embedder")
-
-    def test_missing_or_invalid_registry_preserves_inventory_and_repository_name(self):
-        for filename in ("missing.sqlite3", "invalid.sqlite3"):
-            self.database = self.root / filename
-            if filename == "invalid.sqlite3":
-                self.database.write_text("not a database")
-            row = self.collect(self.model_path)
-            self.assertEqual(row["model"], "Embed-8B")
-            self.assertEqual(row["memory_mb"], 18974)
-        self.assertFalse((self.root / "missing.sqlite3").exists())
-
-    def test_model_families_with_multiple_quantizations_still_have_one_registered_name(self):
-        with closing(sqlite3.connect(self.database)) as db, db:
-            model = json.loads(db.execute("SELECT document FROM record WHERE id='model:1'").fetchone()[0])
-            model["variants"].append({"source_repo": "acme/Embed-8B-FP8", "locations": []})
-            db.execute("UPDATE record SET document=? WHERE id='model:1'", (json.dumps(model),))
-        self.assertEqual(self.collect("model:1")["model"], "My registered embedder")
-        self.assertEqual(self.collect("acme/Embed-8B-FP8")["model"], "My registered embedder")
-        self.assertTrue(gpu_inventory.audit_registry(self.database)["ok"])
-
-    def test_shared_copy_uses_a_profile_name_and_preserves_each_registered_alias(self):
-        self.register("model:2", "Folder alias", None, self.model_path)
-        with closing(sqlite3.connect(self.database)) as db, db:
-            db.execute("INSERT INTO record VALUES ('profile', 'profile:embed', ?)",
-                       (json.dumps({"model_id": "model:1"}),))
-        for value in (self.model_path, "profile:embed"):
-            self.assertEqual(self.collect(value)["model"], "My registered embedder")
-        self.assertEqual(self.collect("model:2")["model"], "Folder alias")
-        self.assertTrue(gpu_inventory.audit_registry(self.database)["ok"])
-
-    def test_declared_name_beats_automatically_scanned_folder_alias(self):
-        self.register("model:2", "Folder alias", None, self.model_path)
-        with closing(sqlite3.connect(self.database)) as db, db:
-            db.execute("UPDATE record SET document=json_set(document, '$.source', 'registry') "
-                       "WHERE id='model:1'")
-        self.assertEqual(self.collect(self.model_path)["model"], "My registered embedder")
-
-    def test_basename_alias_does_not_override_an_exact_registered_name(self):
-        self.register("model:2", "image_folder", None, "/private/image_folder")
-        self.register("model:3", "Registered image model", None, "/private/image_folder")
-        with closing(sqlite3.connect(self.database)) as db, db:
-            db.execute("UPDATE record SET document=json_set(document, '$.source', 'registry') "
-                       "WHERE id='model:3'")
-        self.assertEqual(self.collect("image_folder")["model"], "image_folder")
-        self.assertEqual(self.collect("/private/image_folder")["model"], "Registered image model")
-        self.assertTrue(gpu_inventory.audit_registry(self.database)["ok"])
-
-    def test_audit_detects_bad_stored_names_even_when_display_can_use_repository(self):
-        with closing(sqlite3.connect(self.database)) as db, db:
-            db.execute("UPDATE record SET document=json_set(document, '$.name', '123456')")
-        self.assertEqual(self.collect(self.model_path)["model"], "acme/Embed-8B")
-        audit = gpu_inventory.audit_registry(self.database)
-        self.assertFalse(audit["ok"])
-        self.assertEqual(audit["registered_models"], 1)
-
-    def test_mapped_components_use_registered_names_including_onnx_and_binary_weights(self):
-        self.register("model:2", "Registered voice", None, "/private/voice.onnx")
-        (self.proc / "100" / "maps").write_text(
-            "0-1 r--p 0 0 0 /private/voice.onnx\n"
-            f"0-1 r--p 0 0 0 {self.model_path}/pytorch_model.bin\n"
-            "0-1 r--p 0 0 0 /private/unrelated.bin\n")
-        components = gpu_inventory._components(self.proc, 100, gpu_inventory._registry(self.database))
-        self.assertEqual({c["name"] for c in components}, {"Registered voice", "My registered embedder"})
-
-    def test_model_flags_cover_registered_models_without_confusing_python_modules(self):
-        for flag in ("--model-id", "--model-path", "--ckpt_name"):
-            self.assertEqual(gpu_inventory._model(["python3", "server.py", flag, "acme/New"]), "acme/New")
-        self.assertEqual(gpu_inventory._model(["llama-server", "-m", "new.gguf"]), "new.gguf")
-        self.assertEqual(gpu_inventory._model(["python3", "-m", "app.server"]), "")
-
-    def test_unnamed_python_with_one_registered_mapped_model_gets_its_name(self):
-        (self.proc / "100" / "cmdline").write_bytes(b"python3\0worker.py\0")
-        (self.proc / "100" / "maps").write_text(
-            f"0-1 r--p 0 0 0 {self.model_path}/model-00001.safetensors\n"
-            f"0-1 r--p 0 0 0 {self.model_path}/model-00002.safetensors\n")
-        run = mock.Mock(return_value=SimpleNamespace(stdout="100, python3, 20000\n"))
-        rows = gpu_inventory.collect(self.proc, run, self.database)
-        self.assertEqual(rows[0]["model_name"], "My registered embedder")
-        self.assertEqual(rows[0]["model_id"], "acme/Embed-8B")
-        self.assertEqual(len(rows[0]["components"]), 1)
-        # A process holding two distinct models must not attribute all its memory to one.
-        self.register("model:2", "Second model", None, "/private/other.onnx")
-        with (self.proc / "100" / "maps").open("a") as stream:
-            stream.write("0-1 r--p 0 0 0 /private/other.onnx\n")
-        rows = gpu_inventory.collect(self.proc, run, self.database)
-        self.assertEqual(rows[0]["model_id"], "")
-        self.assertEqual({c["name"] for c in rows[0]["components"]},
-                         {"My registered embedder", "Second model"})
-
-
 @unittest.skipUnless(os.name == "posix", "Linux /proc descriptor and mount semantics")
 class ActiveGenerationTests(unittest.TestCase):
     def setUp(self):
@@ -258,7 +108,6 @@ class ActiveGenerationTests(unittest.TestCase):
         (self.process / "cmdline").write_bytes(b"python3\0generate.py\0")
         (self.process / "stat").write_text("100 (python3) S 1 0 0")
         self.manifest = self.add_run("3", "batch", "acme/Image-Model")
-        self.registry = {"acme/Image-Model": {("acme/Image-Model", "Registered image model")}}
 
     def add_run(self, fd, run, model):
         # The container's /runs lives under /proc/PID/root, not on this host.
@@ -278,8 +127,7 @@ class ActiveGenerationTests(unittest.TestCase):
 
     def row(self):
         run = mock.Mock(return_value=SimpleNamespace(stdout="100, python3, 64265\n"))
-        with mock.patch.object(gpu_inventory, "_registry", return_value=self.registry):
-            rows = gpu_inventory.collect(self.proc, run)
+        rows = gpu_inventory.collect(self.proc, run)
         text = gpu_inventory.render(rows, time.time())
         self.assertNotIn("PRIVATE", text)
         self.assertNotIn("/runs", text)
@@ -293,18 +141,17 @@ class ActiveGenerationTests(unittest.TestCase):
         document.update(changes)
         self.manifest.write_text(json.dumps(document))
 
-    def test_active_python_writer_resolves_the_registered_model(self):
-        self.assertEqual(self.row()["model"], "Registered image model")
+    def test_active_python_writer_resolves_the_observed_model(self):
+        self.assertEqual(self.row()["model"], "Image-Model")
         self.assertEqual(self.row()["model_id"], "acme/Image-Model")
         self.assertEqual(self.row()["name"], "python3")  # runtime remains a separate fact
 
-    def test_future_models_and_registry_renames_are_not_cached(self):
-        self.assertEqual(self.row()["model"], "Registered image model")
-        self.registry["acme/Next-Model"] = {("acme/Next-Model", "Newly registered model")}
+    def test_future_model_identities_are_read_on_each_collection(self):
+        self.assertEqual(self.row()["model"], "Image-Model")
         self.edit_run(generator={"name": "diffusers", "model_id": "acme/Next-Model"})
-        self.assertEqual(self.row()["model"], "Newly registered model")
-        self.registry["acme/Next-Model"] = {("acme/Next-Model", "Renamed model")}
-        self.assertEqual(self.row()["model"], "Renamed model")
+        self.assertEqual(self.row()["model"], "Next-Model")
+        self.edit_run(generator={"name": "diffusers", "model_id": "acme/Updated-Model"})
+        self.assertEqual(self.row()["model"], "Updated-Model")
 
     def test_readers_non_appenders_and_closed_descriptors_cannot_claim_a_model(self):
         for flags in ("0", "02000", "01"):
@@ -318,7 +165,7 @@ class ActiveGenerationTests(unittest.TestCase):
         self.edit_run(images_finished_at="2026-09-30T11:00:00Z")
         self.assertIsNone(self.row()["model_id"])
         self.edit_run(images_started_at="2026-09-30T12:00:00Z")
-        self.assertEqual(self.row()["model"], "Registered image model")
+        self.assertEqual(self.row()["model"], "Image-Model")
 
     def test_remote_generators_do_not_name_local_gpu_memory(self):
         for engine in ("comfyui", "api", "fake"):
@@ -330,7 +177,7 @@ class ActiveGenerationTests(unittest.TestCase):
         other = self.add_run("4", "other", "acme/Other-Model")
         self.assertIsNone(self.row()["model_id"])
         other.unlink()
-        self.assertEqual(self.row()["model"], "Registered image model")
+        self.assertEqual(self.row()["model"], "Image-Model")
 
     def test_unreadable_malformed_and_oversized_manifests_preserve_memory(self):
         for value in ("{broken", "[]", '{"generator": null}', "x" * (1024 * 1024 + 1)):
@@ -349,7 +196,7 @@ class RemoteJoinTests(unittest.TestCase):
     def run_inventory(self, agent_host="gpu.example", model="acme/Reasoner", stale=False):
         text = gpu_inventory.render([
             {"pid": 100, "runtime": "vLLM", "model_id": "acme/Reasoner",
-             "model_name": "Registered reasoner",
+             "model_name": "Custom reasoner",
              "memory_bytes": 44 * 1024 ** 3, "components": []},
             {"pid": 200, "runtime": "ComfyUI", "model_id": "",
              "memory_bytes": 65 * 1024 ** 3, "components": [
@@ -373,7 +220,7 @@ class RemoteJoinTests(unittest.TestCase):
         rows = self.run_inventory()
         self.assertEqual(len(rows), 2)
         self.assertEqual(rows[0]["role_key"], "brain")
-        self.assertEqual(rows[0]["model"], "Registered reasoner")
+        self.assertEqual(rows[0]["model"], "Custom reasoner")
         self.assertEqual(rows[0]["state"], "resident")
         self.assertEqual(rows[0]["memory_gb"], 44)
         self.assertTrue(rows[0]["local"])
