@@ -317,6 +317,13 @@
 
 .hwb-row .hwb-num { grid-area: mem; }
 
+.hwb-kind-lab {
+  color: var(--muted);
+  font-weight: var(--fw-medium);
+  margin: var(--sp-2) 0 var(--sp-1);
+  padding-left: 12px;
+}
+
 /* Aligned under the name by the grid, not by a magic marginLeft: 12. */
 .hwb-sub {
   grid-area: sub;

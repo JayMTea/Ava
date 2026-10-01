@@ -9,7 +9,7 @@ import type { HardwareStats } from '../lib/types';
 import { appAccent, appById, AppDot } from '../lib/appColor';
 import {
   MODEL_RELATION, activityTone, componentMeta, emptyInventory, foundVia, groupMemoryGb,
-  groupRows, holdsLine, identified, isAvas, listHint, memPhrase,
+  groupRows, holdsLine, identified, inventorySections, isAvas, listHint, memPhrase,
   needsGroupHeads, poolOf, relationOf, rowSub, rowTitle, shareOf, tempTone,
 } from './hwModels';
 import type { MemPool, Row as HwRow } from './hwModels';
@@ -174,7 +174,9 @@ function ModelDetail({ m, pool }: { m: Row; pool: MemPool }) {
           "Status: Empty" — two readings of the same fact, in two vocabularies,
           neither actionable. The runtime joins it rather than spending a whole
           labelled row on one word. */}
-      <div className="hwb-detail-meta">{stateCopy(m).label} · {m.name}</div>
+      <div className="hwb-detail-meta">
+        {identified(m) ? stateCopy(m).label : 'Application / runtime'} · {m.name}
+      </div>
       {m.memory_gb != null && (
         <div className="hwb-detail-mem">
           {m.memory_gb.toFixed(2)} GB{denominator && ` · ${denominator}`}
@@ -553,7 +555,7 @@ export function HardwareBubble() {
                           onClick={toggleOutside}>
                     <span className={'hwb-chev' + (outsideOpen ? ' is-open' : '')}
                           aria-hidden="true"><Icon name="chevronDown" /></span>
-                    <span>Model use outside Ava</span>
+                    <span>Memory use outside Ava</span>
                     <span className="hwb-num">
                       {outsideGb != null ? gb(outsideGb) : ''}
                     </span>
@@ -561,7 +563,7 @@ export function HardwareBubble() {
                 ) : (
                   <div className="hwb-lab">
                     <span className="hwb-chev-gap" aria-hidden="true" />
-                    <span>Model use outside Ava</span>
+                    <span>Memory use outside Ava</span>
                   </div>
                 )}
                 {/* Ava's own rows are excluded here — the brain and any engines
@@ -594,14 +596,19 @@ export function HardwareBubble() {
                         {g.copy.note && (
                           <div className="hwb-grp-note">{g.copy.note}</div>
                         )}
-                        <ul className="hwb-rows">
-                          {g.rows.map((m) => (
-                            <ModelRow key={m.id} m={m} pool={pool}
-                                      open={openId === m.id} onToggle={toggle}>
-                              {openId === m.id && <ModelDetail m={m} pool={pool} />}
-                            </ModelRow>
-                          ))}
-                        </ul>
+                        {inventorySections(g.rows).map((section) => (
+                          <div className="hwb-inventory-section" key={section.label}>
+                            <div className="hwb-kind-lab">{section.label}</div>
+                            <ul className="hwb-rows" aria-label={section.label}>
+                              {section.rows.map((m) => (
+                                <ModelRow key={m.id} m={m} pool={pool}
+                                          open={openId === m.id} onToggle={toggle}>
+                                  {openId === m.id && <ModelDetail m={m} pool={pool} />}
+                                </ModelRow>
+                              ))}
+                            </ul>
+                          </div>
+                        ))}
                       </div>
                     ))}
                   </div>

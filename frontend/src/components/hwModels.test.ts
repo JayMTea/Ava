@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   MODEL_RELATION, RELATION_ORDER, activityTone, componentMeta, emptyInventory, foundVia,
-  groupMemoryGb, groupRows, heldGb, holdsLine, identified,
+  groupMemoryGb, groupRows, heldGb, holdsLine, identified, inventorySections,
   isAvas, listHint, memPhrase, needsGroupHeads, poolOf, relationOf, rowHint,
   rowSub, rowTitle, servedLine, shareOf, tempTone, driftLine,
 } from './hwModels';
@@ -23,7 +23,7 @@ describe('remote inventory availability', () => {
   });
   it('describes an observed empty inventory without claiming complete memory accounting', () => {
     const stats = { machine: { kind: 'exporters', model_inventory: { state: 'ok' } } } as HardwareStats;
-    expect(emptyInventory(stats)).toBe('No other model processes were detected.');
+    expect(emptyInventory(stats)).toBe('No other model or runtime processes were detected.');
   });
 });
 
@@ -121,6 +121,44 @@ describe('groupRows', () => {
   });
 });
 
+describe('models and application memory', () => {
+  const runtime = row({
+    id: 'runtime', name: 'vLLM', model: 'vLLM', model_id: null,
+    relation: 'foreign', source: 'gpu-exporter', state: 'resident', memory_gb: 1.9,
+  });
+
+  it('separates model identities from runtimes without dropping memory or component evidence', () => {
+    const rows = [runtime, OTHER_VLLM, COMFY, APP_VLLM];
+    const sections = inventorySections(rows);
+    expect(sections).toEqual([
+      { label: 'Identified models', rows: [OTHER_VLLM, APP_VLLM] },
+      { label: 'Applications and runtimes', rows: [runtime, COMFY] },
+    ]);
+    expect(groupMemoryGb(sections.flatMap((s) => s.rows), SPARK))
+      .toBeCloseTo(groupMemoryGb(rows, SPARK)!);
+    expect(rowSub(runtime)).toBe('Model not identified');
+  });
+
+  it('promotes a runtime only when a model identity arrives', () => {
+    expect(inventorySections([runtime]).map((s) => s.label))
+      .toEqual(['Applications and runtimes']);
+    const resolved = { ...runtime, model_id: 'org/New-Model', model: 'New Model' };
+    expect(inventorySections([resolved])).toEqual([{ label: 'Identified models', rows: [resolved] }]);
+    expect(rowTitle(resolved)).toBe('New Model');
+    expect(rowSub(resolved)).toBe('');
+    expect(inventorySections([])).toEqual([]);
+  });
+
+  it('does not treat a connected app, backend label, or whitespace as a model identity', () => {
+    const app = { ...runtime, relation: 'app' as const, app: 'studio', backend: 'engine', model_id: ' ' };
+    expect(identified(app)).toBe(false);
+    expect(inventorySections([app])[0].label).toBe('Applications and runtimes');
+    expect(rowSub(app)).toBe('Model not identified');
+    expect(identified(BRAIN)).toBe(true);
+    expect(identified(ENV_BACKEND)).toBe(true);
+  });
+});
+
 describe('naming an unidentified row', () => {
   it('never shows the bare word "Model"', () => {
     // The backend names it from its command line and mapped files; the point
@@ -135,7 +173,8 @@ describe('naming an unidentified row', () => {
 
   it('admits when it cannot tell', () => {
     expect(holdsLine(row({ model_id: null, components: [] })))
-      .toBe('Ava cannot tell what this program is holding.');
+      .toBe('No model name is available for this process. '
+        + 'Process memory can include model weights, caches, and runtime allocations.');
   });
 
   it('adds no holds-line to a row that was properly identified', () => {
@@ -388,7 +427,7 @@ describe('rowSub', () => {
   it('keeps the no-evidence case short enough to not ellipse into nonsense', () => {
     // holdsLine's full sentence is right in the card and wrong in a ~183px row,
     // where it truncates to "Ava cannot tell what this progr…".
-    expect(rowSub(row({ model_id: null, components: [] }))).toBe('Contents unknown');
+    expect(rowSub(row({ model_id: null, components: [] }))).toBe('Model not identified');
   });
 
   it('spends no words on a model that is working', () => {

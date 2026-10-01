@@ -22,7 +22,7 @@ export function emptyInventory(stats: HardwareStats | null): string {
   if (stats?.machine?.kind === 'exporters' && stats.machine.model_inventory?.state !== 'ok') {
     return 'Model inventory is unavailable. Memory totals still include other processes.';
   }
-  return 'No other model processes were detected.';
+  return 'No other model or runtime processes were detected.';
 }
 
 export type RelationCopy = {
@@ -89,12 +89,22 @@ export function relationOf(m: Row): ModelRelation {
   return 'foreign';
 }
 
-/** Did anything actually READ an identity for this row?
+/** Does this row have a model identity, or represent Ava's configured engine?
  *
- *  `model_id` stays null when nothing did — the backend names such a row from
- *  its command line and mapped files instead, and never invents an id. */
+ *  Outside Ava, a runtime or connected-app label is not a model identity.
+ *  Ava's own engine rows retain their configured state and diagnosis. */
 export function identified(m: Row): boolean {
-  return Boolean(m.model_id || m.backend || m.role_key === 'brain');
+  return Boolean(m.model_id?.trim() || (isAvas(relationOf(m)) && (m.backend || m.role_key === 'brain')));
+}
+
+/** Outside Ava, only an observed model identity belongs in the model list.
+ *  Runtime names and component collections identify processes, not one model.
+ *  Keep every process visible so its memory remains accounted for. */
+export function inventorySections(rows: Row[]): { label: string; rows: Row[] }[] {
+  return [
+    { label: 'Identified models', rows: rows.filter((m) => Boolean(m.model_id?.trim())) },
+    { label: 'Applications and runtimes', rows: rows.filter((m) => !m.model_id?.trim()) },
+  ].filter((section) => section.rows.length > 0);
 }
 
 /** The row's headline. */
@@ -108,7 +118,8 @@ export function rowTitle(m: Row): string {
 export function holdsLine(m: Row): string {
   if (identified(m)) return '';
   const names = (m.components || []).map((c) => c.name).filter(Boolean);
-  if (!names.length) return 'Ava cannot tell what this program is holding.';
+  if (!names.length) return 'No model name is available for this process. '
+    + 'Process memory can include model weights, caches, and runtime allocations.';
   const shown = names.slice(0, 2).join(', ');
   return names.length > 2
     ? `Holds ${shown} +${names.length - 2}`
@@ -360,13 +371,12 @@ export function activityTone(m: Row): 'ok' | 'warn' | 'err' | 'muted' {
  *  be legible without anyone clicking anything, which is the whole reason this
  *  panel stopped hiding its list behind a dropdown.
  *
- *  `holdsLine`'s "Ava cannot tell what this program is holding." is the right
- *  sentence in the card and the wrong one in a row: at this width it ellipses
- *  to "Ava cannot tell what this progr…", which reads as a truncated error. */
+ *  The full explanation of process memory belongs in the detail card; the row
+ *  only needs to say that its model has not been identified. */
 export function rowSub(m: Row): string {
   if (!identified(m)) {
     const names = (m.components || []).map((c) => c.name).filter(Boolean);
-    return names.length ? holdsLine(m) : 'Contents unknown';
+    return names.length ? holdsLine(m) : 'Model not identified';
   }
   return stateOf(m) === 'resident' ? '' : stateCopy(m).label;
 }
