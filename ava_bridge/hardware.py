@@ -16,12 +16,14 @@ import time
 import json
 import re
 import os
+import shlex
 from collections import deque
 from pathlib import Path
 
 import requests
 
 from . import hwinfo
+from . import gpu_inventory
 
 try:  # psutil powers cross-platform CPU%; /proc/stat is the Linux fallback.
     import psutil as _psutil
@@ -39,7 +41,7 @@ def _short_model_name(model: str | None, runtime: str | None = None) -> str:
     Friendly display labels come from the backend config (see _loaded_models),
     not from pattern-matching ids.
     """
-    m = (model or "").strip()
+    m = gpu_inventory.model_identity(model or "")
     ml = m.lower()
     rl = (runtime or "").lower()
 
@@ -225,13 +227,13 @@ def _attach_components(rows: list[dict]) -> list[dict]:
     out = []
     for r in rows:
         item = dict(r)
-        comps = []
+        comps = list(item.get("components") or [])
         pid = item.get("pid")
         runtime = str(item.get("name") or "").lower()
         source = str(item.get("source") or "").lower()
         model = str(item.get("model") or "")
 
-        if isinstance(pid, int) and pid > 0 and "python runtime" in runtime:
+        if not comps and isinstance(pid, int) and pid > 0 and "python runtime" in runtime:
             comps = _read_mapped_model_components(pid)
             if not comps:
                 comps = _read_open_model_components(pid)
@@ -588,17 +590,21 @@ def _extract_model_names(cmdline: str) -> list[str]:
     """
     if not cmdline:
         return []
-    pats = [
-        r"--model[= ]([^\s]+)",
-        r"--served-model-name[= ]([^\s]+)",
-        r"--ckpt_name[= ]([^\s]+)",
-    ]
+    # Share launch syntax with the standalone collector, preserving quoted paths.
+    try:
+        args = shlex.split(cmdline)
+    except ValueError:
+        return []
+    values = [gpu_inventory._model(args)]
+    for index, arg in enumerate(args):
+        if arg == "--served-model-name" and index + 1 < len(args):
+            values.append(args[index + 1])
+        elif arg.startswith("--served-model-name="):
+            values.append(arg.partition("=")[2])
     out: list[str] = []
-    for p in pats:
-        for m in re.finditer(p, cmdline):
-            v = m.group(1).strip('"\'')
-            if v and v not in out and not _is_blob_name(v):
-                out.append(v)
+    for value in values:
+        if value and value not in out and not _is_blob_name(value):
+            out.append(value)
     return out
 
 
@@ -610,8 +616,8 @@ def _extract_model(cmdline: str) -> str | None:
 def _proc_cmdline(pid: int) -> str:
     try:
         with open(f"/proc/{pid}/cmdline", "rb") as f:
-            raw = f.read().replace(b"\x00", b" ").strip()
-        return raw.decode("utf-8", errors="ignore")
+            args = f.read().decode("utf-8", errors="replace").rstrip("\0").split("\0")
+        return shlex.join(args)
     except Exception:  # noqa: BLE001
         return ""
 
@@ -674,7 +680,7 @@ def _parse_mem_mb(s: str | None) -> float | None:
     return v * factors.get(unit, 1)
 
 
-def _gpu_model_processes() -> list[dict]:
+def _gpu_model_processes(proc_root: Path = Path("/proc")) -> list[dict]:
     """Active GPU compute processes, grouped per engine, with inferred model.
 
     One inference engine usually appears as several GPU processes (a launcher
@@ -704,12 +710,26 @@ def _gpu_model_processes() -> list[dict]:
         mem_mb = _num(parts[2])
         cmd = _proc_cmdline(pid)
         owner, owner_cmd, model = _resolve_owner(pid, cmd)
+        # Also resolve blob paths discarded by the legacy parser, using the
+        # observed process's own store. No Home Lab service is required.
+        try:
+            value = gpu_inventory._model(shlex.split(owner_cmd)) or model or ""
+        except ValueError:
+            value = model or ""
+        model, model_name = gpu_inventory.resolve_model(value, proc_root, owner)
+        if not model:
+            model, model_name = gpu_inventory._run_identity(proc_root, pid, {})
+        components = gpu_inventory._components(proc_root, pid, include_paths=True)
         g = groups.setdefault(owner, {
-            "model_id": None, "owner_cmd": "", "mem_mb": None, "util": None,
-            "top_pid": pid, "top_mem": -1.0, "ctx": [],
+            "model_id": None, "model_name": "", "owner_cmd": "", "mem_mb": None, "util": None,
+            "top_pid": pid, "top_mem": -1.0, "ctx": [], "components": [],
         })
         if model and not g["model_id"]:
             g["model_id"] = model
+            g["model_name"] = model_name
+        for component in components:
+            if component not in g["components"]:
+                g["components"].append(component)
         # Keep the owner's command line whether or not it named a model. It was
         # recorded only alongside a model id, so a process that exposes none —
         # ComfyUI, a bare worker — kept nothing, and the one string that says
@@ -729,12 +749,15 @@ def _gpu_model_processes() -> list[dict]:
     for owner, g in groups.items():
         runtime_ctx = " ".join(filter(None, [g["owner_cmd"], *g["ctx"]]))
         model = g["model_id"]
+        model_name = g["model_name"]
+        if not model:
+            model, model_name = gpu_inventory.component_identity(g["components"])
         mem_mb = g["mem_mb"]
         rows.append({
             "id": f"pid:{owner}",
             "name": _short_runtime_name(runtime_ctx),
-            "model": _short_model_name(model, runtime=runtime_ctx),
-            "model_id": model,
+            "model": model_name or _short_model_name(model, runtime=runtime_ctx),
+            "model_id": model or None,
             "memory_mb": mem_mb,
             "memory_gb": round(mem_mb / 1024, 2) if mem_mb is not None else None,
             "gpu_util": g["util"],
@@ -742,6 +765,8 @@ def _gpu_model_processes() -> list[dict]:
             "pid": g["top_pid"],
             "status": "loaded",
             "source": "nvidia-smi",
+            "components": [{"name": c["name"], "kind": c["kind"], "path": c.get("path"),
+                            "in_memory": None} for c in g["components"] if c["name"]],
             "cmd": (g["owner_cmd"] or (g["ctx"][0] if g["ctx"] else ""))[:300],
         })
     rows.sort(key=lambda x: x.get("memory_mb") or 0, reverse=True)

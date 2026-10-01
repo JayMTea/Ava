@@ -12,6 +12,51 @@ or memory size. Process allocation includes weights, caches and runtime overhead
 Only runtime names, model identities, component basenames, PIDs and allocation
 sizes are exported. Commands, environment variables and absolute paths are omitted.
 
+## Names on a fresh Ava installation
+
+**Home Lab is optional.** Ava's local process monitor and this standalone collector
+share the same naming code. Neither needs Home Lab, a registration database, or a
+list of the maintainer's models. They resolve observed identities from:
+
+- Model launch arguments, including `vllm serve MODEL`, `--model`, `--model-id`,
+  `--model-path`, `--ckpt_name`, and llama.cpp's `-m`.
+- Hugging Face cache paths: `models--publisher--Model/snapshots/REVISION` identifies
+  `publisher/Model`, including when an unnamed Python worker maps its weight shards.
+- Descriptive GGUF filenames, retaining the model and quantization in the name.
+- Ollama's own manifests beside an observed blob. Only a matching model layer
+  counts; a shared adapter does not. If several tags share the same weights, the
+  collector does not guess which tag is active. This follows Ollama's
+  [manifest structure](https://github.com/ollama/ollama/blob/main/manifest/manifest.go)
+  and [name format](https://github.com/ollama/ollama/blob/main/types/model/name.go).
+
+The local monitor also uses the existing configured engine APIs and their display
+labels. Those remain available on platforms without Linux/NVIDIA process inventory.
+Installing a model is not proof it is loaded: the monitor names only observed
+processes or models reported by the configured engine.
+
+New downloads using these formats need no per-model Ava configuration. Cache hashes,
+numeric IDs, Python interpreter names and generic shard filenames are not model
+identities. An inaccessible or unidentifiable workload keeps its runtime context
+and measured memory with unknown contents; Ava cannot recover a name that neither
+the process, its files, nor the engine exposes.
+
+For a custom model with opaque filenames, its downloader or owner can supply a
+small UTF-8 metadata file, with no external registration service:
+
+```json
+{"id": "my-team/Custom-Chat", "name": "Custom Chat Q4"}
+```
+
+Save it as `WEIGHT_FILENAME.ava-model.json` beside one weight file, or as
+`ava-model.json` inside a directory whose weights all belong to that model. The
+file-specific label takes precedence. `id` is a portable identifier (defaults to
+`name`); neither field may be a path, opaque hash, numeric ID or runtime name.
+The model path must be observed in the process's launch arguments or mapped/open
+files. Metadata is read through that process's filesystem view, including container
+mounts and relative paths, never from a similarly named file on another host.
+Only `id` and `name` are used, reads are bounded to 16 KiB, and updates appear on
+the next collection. No weights are opened or loaded to discover their name.
+
 ## Installation
 
 Copy the standalone module to `~/.local/lib/ava/gpu_inventory.py`. Set this variable in
@@ -21,6 +66,52 @@ node_exporter:
 ```dotenv
 AVA_GPU_INVENTORY_OUTPUT=/var/lib/node_exporter/textfile/ava_gpu_inventory.prom
 ```
+
+Optionally, when the monitored host has Home Lab's Model Store, add its registry database to
+the same environment file (use that controller's configured `state_dir`):
+
+```dotenv
+AVA_GPU_MODEL_REGISTRY=/path/to/model-controller/state/controller.sqlite3
+```
+
+The collector opens this database read-only and uses registered model names,
+matching the observed model path, repository ID or an unambiguous revision.
+Registrations and renamed models are picked up on the next collection; no per-model
+mapping or restart is required. Only the resolved identity and display name leave
+the host. The database path and manifests are never exported. The service account
+needs read access to the database and its SQLite WAL files.
+
+Names also resolve from serving-profile IDs and registered component files.
+An otherwise unnamed process with one identifiable registered model mapped in
+memory takes that model's name. Processes holding several models keep their
+separate, named components instead of attributing all memory to one of them.
+Multiple quantizations retain their shared registered family name. When two
+registrations reference the exact same copy, a serving profile's label wins,
+followed by a declared registry label, ahead of an automatically scanned folder
+alias. Each registration's own ID still resolves to its own name. Unrelated
+models sharing only a revision or basename remain ambiguous.
+
+Audit all existing registrations and their host/container lookups without loading
+models or making inference requests:
+
+```sh
+python3 ~/.local/lib/ava/gpu_inventory.py --audit-registry --model-registry /path/to/model-controller/state/controller.sqlite3
+```
+
+The JSON result reports model/profile counts, lookup checks and any naming issues;
+the command exits nonzero on an issue or an unreadable database.
+
+Without a readable registry, the portable sources above continue to work.
+
+For Python image-generation workloads, the collector also recognizes an active
+local Diffusers run: the GPU process must have `generated.jsonl` open for appending,
+and its sibling `run.json` must declare `generator.name: diffusers`, a
+`generator.model_id`, and `images_started_at` without a later `images_finished_at`.
+That model ID is resolved directly, with a registry label if one is available. This covers
+existing runs and future models without restarting a generation job. Completed
+runs, read-only observers, remote/API generators and conflicting active identities
+do not name a process. The collector reads only the bounded manifest; generated
+records, prompts and images are never read or exported.
 
 Install `deploy/gpu-inventory.service` as `~/.config/systemd/user/ava-gpu-inventory.service`
 and enable it with `systemctl --user enable --now ava-gpu-inventory`. The account needs

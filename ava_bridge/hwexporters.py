@@ -190,6 +190,8 @@ _NODE_WANT = frozenset({
 
 def model_inventory(r: "Reading") -> dict:
     """Host-bound GPU inventory; absence and stale files never mean an empty host."""
+    from .gpu_inventory import model_identity
+
     timestamp = _one(r.node, "ava_gpu_inventory_timestamp_seconds")
     if timestamp is None:
         return {"state": "unavailable", "observed_at": None, "rows": []}
@@ -206,11 +208,13 @@ def model_inventory(r: "Reading") -> dict:
             continue
         if pid <= 0 or sample.value != 1:
             continue
-        model = sample.labels.get("model_id", "")[:512]
+        model = model_identity(sample.labels.get("model_id", "")[:512])
+        model_name = model_identity(sample.labels.get("model_name", "")[:512])
         runtime = sample.labels.get("runtime", "GPU process")[:80]
         rows[str(pid)] = {
             "id": f"exporter:pid:{pid}", "pid": pid, "name": runtime,
-            "model_id": model or None, "model": model.rsplit("/", 1)[-1] or runtime,
+            "model_id": model or None,
+            "model": model_name or model.rsplit("/", 1)[-1] or runtime,
             "memory_mb": None, "memory_gb": None, "gpu_util": None,
             "source": "gpu-exporter", "local": True, "cmd": "", "components": [],
             "state": "unknown", "status": "empty", "state_measured": False,

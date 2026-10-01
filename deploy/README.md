@@ -327,6 +327,13 @@ configure.
 Under Docker the GPU row reads as unavailable and the tier is sized from system
 memory instead, as described above. That is expected, not a fault.
 
+Model naming does not require Home Lab. Configured engines provide their model
+identities; on Linux/NVIDIA hosts, Ava also resolves launch arguments, Hugging Face
+caches, GGUF filenames and Ollama manifests. To monitor a host outside Ava's
+container, install the [standalone GPU collector](../docs/GPU_INVENTORY.md).
+That guide also explains custom model labels and what remains unknown when an
+engine does not expose its model.
+
 ## Troubleshooting
 
 - "Docker's daemon is not reachable"? Docker Desktop is installed but not
