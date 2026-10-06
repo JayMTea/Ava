@@ -183,7 +183,7 @@ The tier decides how Ava asks, and you cannot be talked past it:
     row's **Edit manifest** - see [Connector SDK §5](CONNECTOR_SDK.md).
 
 If the sandbox isn't reachable from the browser, the page shows the one command
-that loads them (`cd agent && ./install.sh`); run it once and you're done.
+that loads them (`ava agent provision`); run it once and you're done.
 
 ### Step 5: If it has a web UI, it gets its own place in the sidebar
 

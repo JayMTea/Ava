@@ -1,0 +1,18 @@
+schema_version: 1
+name: pipeline
+description: Two agent steps; the second templates the first step's output.
+inputs:
+  question:
+    description: The question to answer.
+    required: true
+steps:
+  - id: gather
+    agent: helper
+    input: "Answer: {{ inputs.question }}"
+  - id: check
+    agent: lead
+    input: |
+      Check this draft for: {{ inputs.question }}
+
+      {{ steps.gather.output }}
+output: "{{ steps.check.output }}"

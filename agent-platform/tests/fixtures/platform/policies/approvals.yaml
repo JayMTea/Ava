@@ -1,0 +1,15 @@
+# HARD ENFORCEMENT - which tool calls need a human yes before they run.
+# A call needs approval if its side_effects class is listed, or its id matches `tools`.
+# `auto_approve` exempts specific tools (keep it empty in production).
+schema_version: 1
+
+require_approval:
+  side_effects: [external_write, destructive]
+  tools: []            # e.g. ["mcp.github.*"] to gate a whole MCP server
+
+auto_approve:
+  tools: []
+
+# When no human can answer (CI, cron, background jobs): deny. Only tests may use allow.
+non_interactive: deny
+timeout_s: 300

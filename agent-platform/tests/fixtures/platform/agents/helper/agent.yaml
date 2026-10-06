@@ -1,0 +1,10 @@
+schema_version: 1
+name: helper
+description: Fixture specialist with read-only workspace access; receives delegated tasks.
+instructions: instructions.md
+model:
+  route: balanced
+tools: [memory.recall, filesystem.read, filesystem.list]
+memory:
+  read: [project, session]
+data_classification: internal

@@ -1,0 +1,107 @@
+"""Chat API (/api/chats/*, /api/chat-stream, /api/ghost/discard) — cookie-gated.
+
+/api/chat-stream is the ONE ingress for typed messages: every one of them
+becomes an agent turn, so the frontend carries no routing knowledge.
+
+Persistence goes through app/backend/chat_store.py and nothing here touches
+state.chats. That is enforced, not merely intended — tests/test_chat_store_
+boundary.py fails any module but chat_store reaching for it.
+
+It matters because the chat corpus is moving off a whole-file chats.json rewrite
+onto a real storage engine, and a store that callers reach past cannot have its
+engine swapped underneath it: you migrate the data and the bypassers keep
+reading an in-memory dict that is no longer authoritative. These handlers used
+to do exactly that in eleven places.
+"""
+from fastapi import APIRouter, Form
+from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
+
+from app.backend import audit
+from ava_agent import memory_store
+from ava_agent.agent import discard_session
+from app.backend.chat_store import (
+    atts_meta,
+    chat_append,
+    chat_new,
+    chat_session,
+    chat_summary,
+    delete,
+    delete_all,
+    rename,
+    snapshot,
+    summaries,
+)
+from app.backend.config import OC_SESSION
+from app.backend.documents import augment, parse_ids
+from ava_agent.turns import start_turn
+
+router = APIRouter()
+@router.post("/api/chat-stream")
+async def chat_stream(text: str = Form(...), history: str = Form("[]"),
+                      attachments: str = Form("[]"), chat_id: str = Form("")):
+    """The ONE ingress for typed messages. Returns {"turn_id"}; the outcome is
+    persisted server-side (Phase 1)."""
+    text = text.strip()
+    ids = parse_ids(attachments)
+    if not text and not ids:
+        return JSONResponse({"error": "empty text"}, status_code=400)
+    agent_text = augment(text, ids)
+    agent_text = memory_store.augment_with_recall(agent_text, text, chat_id)
+    sid = chat_session(chat_id) if chat_id else OC_SESSION
+    if chat_id:
+        chat_append(chat_id, "user", text, atts_meta(ids))
+    tid = start_turn(agent_text, sid, chat_id)
+    return {"turn_id": tid}
+
+@router.post("/api/ghost/discard")
+async def ghost_discard(chat_id: str = Form(...)):
+    """Wipe a ghost conversation's agent-side session transcript.
+
+    Ghost chats use an unregistered chat id, so they were never written to
+    chats.json (host-side persistence is already a no-op). This also deletes the
+    OpenClaw session file so the ephemeral conversation leaves no trace when the user
+    exits ghost mode or starts a new chat.
+    """
+    cid = (chat_id or "").strip()
+    if not cid:
+        return {"ok": False}
+    ok = await run_in_threadpool(discard_session, chat_session(cid))
+    return {"ok": bool(ok)}
+
+@router.get("/api/chats")
+def chats_list():
+    return {"chats": summaries()}
+
+@router.post("/api/chats")
+def chats_create():
+    return chat_summary(chat_new())
+
+@router.delete("/api/chats")
+def chats_clear():
+    return {"ok": True, "deleted": delete_all(reason="owner cleared chat history")}
+
+@router.get("/api/chats/{cid}")
+def chats_get(cid: str):
+    c = snapshot(cid)
+    if not c:
+        return JSONResponse({"error": "unknown chat"}, status_code=404)
+    return {"id": c["id"], "title": c.get("title") or "New chat",
+            "messages": c.get("messages", [])}
+
+@router.delete("/api/chats/{cid}")
+def chats_delete(cid: str):
+    gone = delete(cid)
+    if gone is not None:
+        # Same ledger treatment as memory edits: deletions leave a trace.
+        audit.record("chat_delete", id=cid, title=gone.get("title") or "New chat",
+                     messages=len(gone.get("messages") or []))
+    return {"ok": gone is not None}
+
+@router.patch("/api/chats/{cid}")
+def chats_rename(cid: str, title: str = Form(...)):
+    summary = rename(cid, title)
+    if summary is None:
+        return JSONResponse({"error": "unknown chat"}, status_code=404)
+    return summary
+

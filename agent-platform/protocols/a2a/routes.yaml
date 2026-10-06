@@ -1,0 +1,10 @@
+# Maps A2A skill ids (agent-card.json `skills[].id`) to internal agents or workflows:
+#   routes:
+#     answer-question: {agent: assistant}
+#     triage: {workflow: triage}
+# Serving A2A is optional and off by default; the server itself belongs in app/.
+# Every inbound A2A request is an untrusted caller: it gets the target agent's normal
+# policies, never more, and should run with non_interactive approvals (deny).
+schema_version: 1
+enabled: false
+routes: {}

@@ -33,7 +33,7 @@ the `agent` container's entrypoint:
    --non-interactive`), configured entirely from `NEMOCLAW_*` env: inference
    endpoint `ava:8010/v1`, provider `compatible-endpoint`.
 3. Maps `host.openshell.internal` to the bridge.
-4. Runs `agent/install.sh`.
+4. Runs `agent-platform/integrations/ava/sandbox/install.sh`.
 5. Serves the runtime shim on `:9100` (auth-gated, never published).
 
 ### What `/healthz` carries, and why it is more than a health check
@@ -64,7 +64,7 @@ This table is a contract across two files, and it was broken once in exactly the
 way a table prevents: `RemoteRuntime.available()` read `model` and `provider`
 that `healthz()` never sent, so every `remote` install resolved an empty brain
 and told its owner no model was configured while the sandbox answered turns.
-`tests/test_remote_brain_contract.py` now holds both halves at once — it drives
+`tests/unit/test_remote_brain_contract.py` now holds both halves at once — it drives
 the real shim app with a real `RemoteRuntime` and fails if the bridge reads a
 field the shim does not send.
 
@@ -81,8 +81,8 @@ first bring-up.
 
 Ava vendors no OpenClaw source. It talks to a running OpenClaw the way any other
 operator client does — over its gateway — and the whole relationship is one
-Python file (`ava_bridge/runtime/openclaw_gw.py`) plus one TypeScript file
-(`frontend/src/lib/agentApi.ts`). A guard fails the build if a gateway method is
+Python file (`agent-platform/integrations/ava/ava_agent/adapters/openclaw_gw.py`) plus one TypeScript file
+(`app/frontend/src/lib/agentApi.ts`). A guard fails the build if a gateway method is
 called from anywhere else, so an upstream rename lands in one adapter instead of
 across the app.
 
@@ -98,13 +98,13 @@ suite before failing in a browser. Nothing but a live probe ever caught one.
 So the contract is captured, not written:
 
 ```bash
-.venv/bin/python qa/capture_gateway.py --schemas   # learn from a live gateway
-.venv/bin/python qa/capture_gateway.py --check     # re-probe, diff, exit 3 on drift
+.venv/bin/python tests/integration/capture_gateway.py --schemas   # learn from a live gateway
+.venv/bin/python tests/integration/capture_gateway.py --check     # re-probe, diff, exit 3 on drift
 ```
 
 It learns each method's schema from the gateway's **own `INVALID_REQUEST`
 messages** — a deliberately wrong call executes nothing and is the cheapest safe
-probe — and writes `qa/fakes/gateway-schemas.json`: 44 method schemas, the event
+probe — and writes `tests/integration/fakes/gateway-schemas.json`: 44 method schemas, the event
 vocabulary, the transcript shapes, the abort and approval shapes. Each entry is
 stamped with the build it came from, and the file records what could **not** be
 captured and why, because silence about a gap reads as "fully captured".
@@ -118,7 +118,7 @@ captured and why, because silence about a gap reads as "fully captured".
 | `test_no_runtime_name_dispatch` | code picks a runtime by name, compares `rt.name` to a literal, or reaches into `rt._client` |
 | `test_nemoclaw_layout` | vendor paths or hostnames are spelled outside the runtime package |
 | `test_run_event_vocabulary` + `chatEvents.contract.test.ts` | Ava's own run-event kinds stop matching between Python and TypeScript |
-| `qa/test_23_live_gateway_turn` | a whole turn stops working through a real bridge process |
+| `tests/integration/test_23_live_gateway_turn` | a whole turn stops working through a real bridge process |
 
 The rule this encodes, for anyone extending the wrapper: **if you cannot point
 at where a shape was captured, do not ship code that depends on it.** Add the
@@ -133,7 +133,7 @@ your users do.
 
 ## Adding another runtime
 
-Implement [`AgentRuntime`](../ava_bridge/runtime/base.py) in an instance-installed
+Implement [`AgentRuntime`](../agent-platform/integrations/ava/ava_agent/adapters/base.py) in an instance-installed
 adapter under `$AVA_HOME/runtime_adapters/<name>/`, declare its entry point in
 `extension.yaml`, and select `agent.runtime: <name>`. No core registry edit is
 required. See [Independent instances](INSTANCE_REFERENCE.md). For a separately
@@ -154,7 +154,7 @@ because it is the shape a fifth runtime should expect:
   `rpc_methods()` returns an empty set meaning *none*, `observe()` returns
   `None` meaning *no view of its own*. A new adapter inherits all of it and
   cannot accidentally claim a capability it lacks.
-  `tests/test_runtime_capability_contract.py` pins that.
+  `tests/unit/test_runtime_capability_contract.py` pins that.
 
 The members added:
 

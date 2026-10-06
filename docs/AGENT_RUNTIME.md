@@ -17,7 +17,7 @@ terminal command first if the runtime is not installed yet.
 Ava is an **agent**, not just a chat box. Everything past plain conversation is
 provided by an **agent runtime**: the component that owns the sandbox, the tools
 and the memory. Ava talks to it through one interface
-([`ava_bridge/runtime/`](../ava_bridge/runtime/)), so the runtime is pluggable
+([`agent-platform/integrations/ava/ava_agent/adapters/`](../agent-platform/integrations/ava/ava_agent/adapters/)), so the runtime is pluggable
 and its specifics live in a single adapter.
 
 For an independent agent service, select `agent.runtime: service` and follow
@@ -36,7 +36,7 @@ sandbox. That gives Ava:
 | What you get | What it means |
 |---|---|
 | **Tools and connectors** | Ava's tools run inside the sandbox and reach the outside world only through the bridge's token-gated `/internal/*` routes. Web search/fetch and every connector call execute host-side, so the sandbox never touches the internet or a connector's API directly. |
-| **Isolation and egress policies** | An *egress policy* is a list of the network addresses one group of tools is allowed to reach, and nothing else ([agent/policies/](../agent/policies/)). The sandbox is where that list is enforced, along with the filesystem boundary. It is what makes the connector SDK's auto-generated policies mean something. |
+| **Isolation and egress policies** | An *egress policy* is a list of the network addresses one group of tools is allowed to reach, and nothing else ([agent-platform/integrations/ava/policies/egress/](../agent-platform/integrations/ava/policies/egress/)). The sandbox is where that list is enforced, along with the filesystem boundary. It is what makes the connector SDK's auto-generated policies mean something. |
 | **Persistent, per-conversation memory** | One session id equals continuous memory. |
 | **Skills** | The `ava-*` drop-in skills, deployed into the sandbox. |
 | **Run progress** | The UI reports runtime-provided progress and tool steps; live streaming requires a supporting adapter such as `openclaw_gw`. |
@@ -60,7 +60,7 @@ many tools are deployed. The **Provision / re-check** button sits below it.
 ### Step 2: Click "Provision / re-check"
 
 Provisioning deploys Ava's tools, skills and deny-by-default egress policies into
-the sandbox (`agent/install.sh`). Each step reports what it checked and what it
+the sandbox (`agent-platform/integrations/ava/sandbox/install.sh`). Each step reports what it checked and what it
 found, and says plainly which one failed if any did.
 
 That's the whole setup. From a terminal, the same flow is:
@@ -82,7 +82,7 @@ ava agent status                  # verify: CLI, sandbox, active runtime, health
     **Node ≥ 22.16** and a reachable Docker daemon. `ava agent provision
     --install` runs this for you.
 
-    **Pin it to the same ref the container path uses.** `deploy/agent.Dockerfile`
+    **Pin it to the same ref the container path uses.** `agent-platform/integrations/ava/sandbox/Dockerfile`
     pins `NEMOCLAW_INSTALL_REF` deliberately, so that installing from `main` here
     would give bare-metal and Docker installs two different agent runtimes: the
     exact drift that ARG exists to prevent. Read the pin out of the Dockerfile
@@ -90,7 +90,7 @@ ava agent status                  # verify: CLI, sandbox, active runtime, health
     before:
 
     ```bash
-    REF="$(sed -n 's/^ARG NEMOCLAW_INSTALL_REF=//p' deploy/agent.Dockerfile)"
+    REF="$(sed -n 's/^ARG NEMOCLAW_INSTALL_REF=//p' agent-platform/integrations/ava/sandbox/Dockerfile)"
     curl -fsSL "https://raw.githubusercontent.com/NVIDIA/NemoClaw/${REF}/install.sh" | bash
     ```
 

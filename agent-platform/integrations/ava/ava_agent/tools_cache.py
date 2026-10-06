@@ -1,0 +1,164 @@
+"""Access-tier cache for dynamically discovered connector tools.
+
+The ava-tools/1 facade (docs/CONNECTOR_SDK.md §5) lets an app declare a JIT
+consent tier per tool (`access: read | write | destructive`). The gate
+(`connectors.needs_confirm`) is synchronous and can't fetch /tools per call, so
+every successful discovery — the Hub's Detect-and-connect, the agent's
+find_tool, Deploy — writes the tiers through to this cache, and the gate reads
+them from here.
+
+Fail-ask, never fail-open: a tool that has never been seen (or declares an
+invalid tier) stays `write` — it asks the operator on first use. Tiers are
+self-reported by the app: they can only make a tool quieter, never extend its
+reach (egress policy, destructive-never-grantable, author `confirm:`, and the
+audit ledger all still apply on Ava's side).
+
+`update` reads ONE field: a top-level `access`. The ava-tools/1 facade writes
+exactly that; a real MCP server has no such field, so `mcp_client` normalises
+every `tools/list` entry before it reaches here — lifting `_meta.access` (or
+`_meta["ava/access"]`, what sdk/host/ava_mcp mirrors) and, failing that, the
+spec's ToolAnnotations (`readOnlyHint: true` -> read, `destructiveHint: true`
+-> destructive) to top-level `access`, and never touching an explicit one. A
+tool that carries none of those arrives here WITHOUT `access`, and the
+"declared nothing" branch below keeps it that way.
+
+Storage: $AVA_HOME/connector_tools_cache.json — user data, same rules as
+connector_grants.yaml (atomic writes, mtime-cached reads). Shape:
+
+    {"persona": {"list_personas": {"access": "read", "description": "…"}}}
+"""
+from __future__ import annotations
+
+import json
+import os
+import threading
+
+from app.backend import settings
+
+PATH = settings.home("connector_tools_cache.json")
+# Kept in step with connectors._TIERS. This list was short by two: `physical`
+# and (now) `sensitive` were coerced to "write" on the way in and filtered out on
+# the way out, so a device tool self-reporting `physical` was stored — and
+# enforced — as the weaker `write`. docs/CONNECTOR_SDK.md works around that by
+# telling device connectors to always ship `"*": physical` in the manifest, which
+# outranks this cache; the cache being unable to represent the tier was still a
+# silent downgrade for anyone who didn't.
+_TIERS = ("read", "sensitive", "write", "destructive", "physical")
+
+_lock = threading.Lock()
+_cache: dict = {"data": None, "mtime": 0.0}
+
+
+def _load() -> dict:
+    try:
+        mtime = os.path.getmtime(PATH)
+    except OSError:
+        _cache.update(data={}, mtime=0.0)
+        return {}
+    if _cache["data"] is not None and _cache["mtime"] == mtime:
+        return _cache["data"]
+    try:
+        with open(PATH, encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:  # noqa: BLE001 — a corrupt cache must not break the gate
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    _cache.update(data=data, mtime=mtime)
+    return data
+
+
+def _save(data: dict) -> None:
+    os.makedirs(os.path.dirname(PATH), exist_ok=True)
+    tmp = PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, sort_keys=True, indent=1)
+    os.replace(tmp, PATH)
+    _cache.update(data=data, mtime=os.path.getmtime(PATH))
+
+
+def update(cid: str, tools: list) -> None:
+    """Write-through from one /tools (or MCP list) result. Replaces the
+    connector's entry wholesale — the facade is the source of truth, so tools
+    it no longer lists drop out (their grants stay; grants are the operator's)."""
+    entry: dict = {}
+    for t in tools or []:
+        if not isinstance(t, dict):
+            continue
+        name = str(t.get("name") or "").strip()
+        if not name:
+            continue
+        acc = str(t.get("access") or "").lower()
+        # Record ONLY a tier the tool actually self-declared. Defaulting an
+        # undeclared tool to "write" here silently overwrote the caller's own
+        # fallback: connectors._dynamic_access consults this cache BEFORE the
+        # role:device rule, so one discovery call turned a relay/lock from the
+        # never-grantable `physical` tier into grantable `write` — defeating the
+        # one tier the code refuses to infer. Absent means "unknown, ask the
+        # manifest", which is what _dynamic_access is for.
+        # Three cases, and the middle one used to be lost:
+        #   declared + valid   -> record it
+        #   declared + invalid -> "write", conservatively. The app ASKED for a gate
+        #                         and typo'd the tier; refusing to gate would be
+        #                         the unsafe reading.
+        #   declared nothing   -> record NO access at all.
+        # That last case is the fix. Writing "write" for an undeclared tool
+        # overwrote the caller's own fallback: _dynamic_access consults this cache
+        # before the role:device rule, so ONE discovery call turned a relay or lock
+        # from the never-grantable `physical` tier into grantable `write` — undoing
+        # the one tier the code deliberately refuses to infer. Absent means "the
+        # app said nothing", which lets the manifest decide, and the non-device
+        # default is still `write` there.
+        rec = {"description": str(t.get("description") or "")[:200]}
+        schema = t.get("inputSchema")
+        if isinstance(schema, dict) and len(json.dumps(schema)) <= 32000:
+            rec["inputSchema"] = schema
+        if "access" in t:
+            rec["access"] = acc if acc in _TIERS else "write"
+        entry[name[:64]] = rec
+    with _lock:
+        data = {k: dict(v) for k, v in _load().items()}
+        if entry:
+            data[cid] = entry
+        elif cid in data:
+            del data[cid]
+        _save(data)
+
+
+def access(cid: str, name: str) -> str | None:
+    """The cached tier for one tool, or None if never seen (caller fail-asks)."""
+    with _lock:
+        t = (_load().get(cid) or {}).get(name)
+    acc = (t or {}).get("access")
+    return acc if acc in _TIERS else None
+
+
+def for_connector(cid: str) -> dict:
+    """{name: {access, description}} for the permissions sheet."""
+    with _lock:
+        return {k: dict(v) for k, v in (_load().get(cid) or {}).items()}
+
+
+def forget(cid: str) -> int:
+    """Drop one connector's cached tier declarations. Returns how many went.
+
+    `update()` only ever replaces a connector's entry, so nothing removed one —
+    a deleted app's self-reported tiers sat here indefinitely, and because ids
+    are reusable they would be consulted again for whatever took the name next.
+    That is the wrong direction to be wrong in: the tiers decide which actions
+    run silently.
+    """
+    with _lock:
+        data = {k: dict(v) for k, v in _load().items()}
+        gone = len(data.get(cid) or {})
+        if cid not in data:
+            return 0
+        del data[cid]
+        _save(data)
+    return gone
+
+
+def known_ids() -> list[str]:
+    """Every connector id this store holds state for — so `connectors.orphans()`
+    can flag entries whose manifest is gone before a reused id inherits them."""
+    return sorted(_load().keys())

@@ -1,0 +1,10 @@
+# Traces use OpenTelemetry GenAI semantic conventions (gen_ai.* attributes).
+# Always written to state/sessions/<session>/trace.jsonl; also exported when exporter: otlp
+# (extra: otel; endpoint from OTEL_EXPORTER_OTLP_ENDPOINT).
+schema_version: 1
+enabled: true
+exporter: jsonl                # jsonl | otlp
+service_name: ava-agent-platform
+# Prompt and completion text is sensitive. Leave false unless you have a reason and a
+# retention policy; redaction still applies when it is on.
+capture_content: false

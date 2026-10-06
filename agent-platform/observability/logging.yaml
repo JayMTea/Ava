@@ -1,0 +1,6 @@
+# Application logs (logger "agent_platform"). All output passes through safety.yaml redaction.
+# The security audit trail (policy denials, approvals, refusals) is separate and always on:
+# state/sessions/<session>/audit.jsonl.
+schema_version: 1
+level: INFO
+format: json                   # json | text

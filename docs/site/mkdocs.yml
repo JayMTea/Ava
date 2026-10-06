@@ -1,0 +1,198 @@
+site_name: Ava
+site_description: A self-hosted personal AI operating layer. Chat, voice, and app automation on your own hardware.
+site_url: !ENV [AVA_DOCS_SITE_URL, "http://localhost:8000/"]
+# The repo went public on 2026-07-30 and .github/workflows/docs.yml sets
+# AVA_DOCS_REPO_BASE, so the published site carries the widget and the pill and
+# sync.py mints real source links. The switch stays rather than being hardcoded
+# because it drives three things that must agree (widget, pill, and sync.py's
+# link rewriting), and because a LOCAL `python docs/site/sync.py` runs with it
+# unset: Material then renders no widget and javascripts/chrome.js skips the pill
+# (it no-ops without the anchor), which is the right local default. Export it to
+# preview the site exactly as published.
+repo_url: !ENV [AVA_DOCS_REPO_BASE, ""]
+repo_name: !ENV [AVA_DOCS_REPO_NAME, "Source"]
+copyright: Apache-2.0 &middot; The Ava Authors
+
+# Staged by docs/site/sync.py (an allow-list copy — see that script).
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: material
+  custom_dir: overrides  # home.html — the landing page template
+  language: en
+  # A site that sells "nothing leaves your box" must not make its own visitors
+  # fetch fonts from Google. `false` disables Material's webfont loading
+  # entirely; stylesheets/extra.css SELF-HOSTS Inter instead, from .woff2 files
+  # sync.py stages out of app/frontend/public/fonts/ — same privacy promise, but the
+  # font now actually arrives.
+  #
+  # It did not before. This key was `false` while the stack merely NAMED Inter
+  # and nothing served it, so the intended font reached only visitors who
+  # happened to have it installed locally and everyone else silently got their
+  # OS default. Turning this back to `true` is not the fix for that — it trades
+  # the bug for a Google request. Adding a @font-face is.
+  font: false
+  # Ava's own mark, staged from app/frontend/public/ by sync.py. Unset, Material
+  # ships its own favicon, so every docs tab advertised the theme's mark instead
+  # of the product's. The header logo is NOT set here on purpose: extra.css masks
+  # the wordmark onto .md-logo in `currentColor`, which is what keeps it legible
+  # against a header that is accent-painted in light and --panel in dark.
+  favicon: docs/assets/favicon.svg
+  icon:
+    repo: fontawesome/brands/github
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-sunny
+        name: Light mode
+  features:
+    # No navigation.sections -> top-level sections render as collapsible dropdowns.
+    # navigation.tabs puts those top-level sections in the header as well, which
+    # is the only site navigation the landing page has: home.md sets
+    # `hide: navigation`, so without tabs a visitor on the homepage saw one
+    # button and a footnote link as the entire route into 30 pages.
+    - navigation.tabs
+    # .sticky is load-bearing for the LAYOUT, not just for scroll behaviour.
+    # With it, base.html stops emitting the tabs into .md-container and
+    # partials/header.html renders them INSIDE <header class="md-header">
+    # instead, which is what lets extra.css lift them onto the header's own row
+    # (see "Tabs on the header row") rather than leaving a second accent bar
+    # under it. Turning this off puts the strip back on its own line and makes
+    # that CSS lift a no-op at best.
+    #
+    # It also stops Material hiding the tabs on scroll. Without the flag its JS
+    # sets [hidden] on .md-tabs once you scroll down, which is right for a strip
+    # that scrolls away and wrong for chrome that is now part of a sticky
+    # header — the tabs would fade out and leave a half-empty bar behind.
+    - navigation.tabs.sticky
+    - navigation.top
+    - navigation.tracking
+    - content.code.copy
+    - content.code.annotate
+    - search.suggest
+    - search.highlight
+    - toc.follow
+
+extra_css:
+  - stylesheets/tokens.css  # the app's design tokens, staged by sync.py (SSOT)
+  - stylesheets/extra.css
+
+extra_javascript:
+  - javascripts/diagram-zoom.js  # zoom/pan lightbox for diagram SVGs
+  - javascripts/chrome.js        # "View on GitHub" pill + the expand button
+  # Adds one class to the landing figure and nothing else. The figure is
+  # complete without it: dropping this line loses the reveal, not the picture.
+  - javascripts/hero.js          # landing figure: play the reveal once
+  # carousel.js is NOT loaded: no page builds `.ava-carousel` any more. The file
+  # and its .ava-carousel styles in stylesheets/extra.css are kept for whenever a
+  # gallery comes back. It was called "a 93-line no-op" when it was dropped —
+  # it was not: it also owned the landing page's expand-to-fullscreen button,
+  # which then rendered, styled and announced itself while doing nothing on
+  # click. That handler is in chrome.js now. Before dropping a file from this
+  # list, grep the templates for every selector it binds.
+
+extra:
+  generator: false  # hide "Made with Material for MkDocs" in the footer
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc: {}
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+      options:
+        # `:ava-*:` glyphs, generated from the app's own icon set by sync.py.
+        # Material only indexes custom icons listed here (it does NOT scan
+        # custom_dir), and it resolves these paths against the CWD — both
+        # spellings are listed so the build works from the repo root (what
+        # CONTRIBUTING and both CI workflows use) or from docs/site/. A path
+        # that does not exist simply contributes no icons.
+        custom_icons:
+          - docs/site/overrides/.icons
+          - overrides/.icons
+
+# The homepage (index.md) is reached via the "Ava" title in the header, so it is
+# intentionally not listed here. Sections render as collapsible dropdowns.
+validation:
+  nav:
+    omitted_files: ignore
+  # MkDocs defaults these to `info`, which --strict does NOT fail on — so the
+  # docs gate in CI was green while broken anchors shipped. Promote them to
+  # warnings so `mkdocs build --strict` actually catches them.
+  links:
+    anchors: warn
+    absolute_links: warn
+    unrecognized_links: warn
+
+# Ordered by reader intent, not by how the project is built. The old order put
+# Capabilities (7 pages, ~17,800 words) between "Why Ava?" and "Get started", so
+# a visitor who had just decided to install scrolled past every deep-dive page to
+# find out how. The sequence now matches the questions a reader actually asks in
+# order: is this for me -> how do I run it -> how do I use it -> can I trust it
+# -> how do I extend it.
+#
+# docs/RELEASING.md is still staged by sync.py (CONTRIBUTING.md and SECURITY.md
+# both link it, and those links must resolve on the site) but is deliberately NOT
+# listed here: it is a one-person release runbook, not a page a reader navigates
+# to. validation.nav.omitted_files is `ignore` above, so this is not a warning.
+nav:
+  - Why Ava?: overview.md
+  - Get started:
+      - 1. Install on your hardware: deploy/README.md
+      - 2. Pick a model: docs/CHOOSE_A_MODEL.md
+      - 3. Set up the agent: docs/AGENT_RUNTIME.md
+      - 4. Connect your apps: docs/CONNECT_YOUR_APPS.md
+      - On your phone: docs/MOBILE.md
+  - Using Ava:
+      - What Ava does: docs/capabilities/index.md
+      - Chat & voice: docs/capabilities/chat.md
+      - Agent console: docs/capabilities/agent-console.md
+      - Apps, devices & MCP: docs/capabilities/connectors.md
+      - "The agent: tools, skills & memory": docs/capabilities/agent.md
+      - Give it a voice of its own: docs/PERSONA.md
+      - Make it look like yours: docs/BRANDING.md
+  - Privacy & proof:
+      - Security: SECURITY.md
+      - Proving it (attest): docs/EVIDENCE.md
+      - Voiceprint & biometrics: docs/BIOMETRICS.md
+      - Hardware support: docs/HWINFO_VALIDATION.md
+  - Build & extend:
+      - Product boundaries: docs/PRODUCT_BOUNDARIES.md
+      - Independent instances: docs/INSTANCE_REFERENCE.md
+      - External agent service: docs/RUNTIME_SERVICE.md
+      - Charts and artifacts: docs/ANALYTICS_ARTIFACTS.md
+      - App connectors: docs/CONNECTOR_SDK.md
+      - Device connectors: docs/DEVICE_CONNECTORS.md
+      - Home Assistant: docs/CONNECT_HOME_ASSISTANT.md
+      - Architecture: docs/architecture/README.md
+      - Decision records: docs/architecture/adr/index.md
+      - Memory & recall: docs/MEMORY.md
+      - Running two models: docs/ALLOCATION.md
+      - Install reference: docs/INSTALL_REFERENCE.md
+      - Agent runtime reference: docs/AGENT_RUNTIME_REFERENCE.md
+  - Project:
+      - Contributing: CONTRIBUTING.md
+      - Trademark: TRADEMARK.md
+      - Changelog: CHANGELOG.md

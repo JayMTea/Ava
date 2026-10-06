@@ -35,7 +35,7 @@ tag and you retest yesterday's code. **Setup → System → About** should show 
 `+stg.<sha>` stamp `slot.sh` just made; if it ends `.dirty`, the build included
 uncommitted changes.
 
-Then: rebuild `frontend/dist` and commit it if you touched `frontend/src` (the
+Then: rebuild `app/frontend/dist` and commit it if you touched `app/frontend/src` (the
 slot cannot catch dist drift - only CI compares the two), `git commit -s` because
 DCO is enforced on PRs, push, wait for CI green, merge, and cut the release below.
 
@@ -56,15 +56,15 @@ by making the local build imitate CI.
    to `[Unreleased]`.)
 2. **Bump the version in three public files.** `VERSION` is the source of truth, with
    three consumers: the fallback the app reads when `AVA_VERSION` isn't injected
-   (`ava_bridge/version.py`), the package version (`pyproject.toml` reads it via
+   (`app/backend/version.py`), the package version (`pyproject.toml` reads it via
    `dynamic = ["version"]`), and the `ava version` output. Two *other* public files
    restate it and are **hard-asserted against it** by
-   `tests/test_version_ssot.py` - `CITATION.cff` and `frontend/package.json`.
+   `tests/unit/test_version_ssot.py` - `CITATION.cff` and `app/frontend/package.json`.
    Bump those with `VERSION`, then prove it:
    ```bash
-   python -m pytest tests/test_version_ssot.py -q
+   python -m pytest tests/unit/test_version_ssot.py -q
    ```
-   No rebuild is needed: the version never reaches `frontend/dist`, which is also
+   No rebuild is needed: the version never reaches `app/frontend/dist`, which is also
    why CI's dist-drift job cannot catch an unsynced `package.json` - only the test
    above can.
 3. **Commit** the changelog + version bump.
@@ -107,8 +107,8 @@ Release builds create an isolated context with `deploy/scripts/build_context.py`
 untracked private apps, instance configuration and overlays cannot enter it.
 
 Both Python images install hash-verified transitive dependencies from
-`requirements-runtime.lock`, exported from `uv.lock`. Refresh it with
-`uv export --frozen --no-dev --no-emit-project --output-file requirements-runtime.lock`
+`config/dependencies/runtime.lock`, exported from `uv.lock`. Refresh it with
+`uv export --frozen --no-dev --no-emit-project --output-file config/dependencies/runtime.lock`
 after an intentional dependency update. Frontend builds use `npm ci` and refuse
 a lockfile mismatch. Inference image defaults include immutable registry digests;
 operators can override `AVA_OLLAMA_IMAGE`, `AVA_OLLAMA_ROCM_IMAGE` or `VLLM_IMAGE`.

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "task.schema.json",
+  "title": "Task record (state/tasks/<id>.json)",
+  "type": "object",
+  "required": ["id", "agent", "input", "status", "session_id", "created_at", "updated_at", "usage", "artifacts"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {"type": "string", "pattern": "^task_\\d{8}T\\d{6}_[0-9a-f]{6}$"},
+    "agent": {"type": "string"},
+    "input": {"type": "string"},
+    "status": {"enum": ["pending", "running", "awaiting_approval", "completed", "failed", "cancelled"]},
+    "session_id": {"type": "string"},
+    "parent_id": {"type": ["string", "null"], "description": "Set for delegated sub-tasks."},
+    "workflow": {"type": ["string", "null"]},
+    "created_at": {"type": "string"},
+    "updated_at": {"type": "string"},
+    "result": {"type": ["string", "null"]},
+    "error": {"type": ["string", "null"]},
+    "usage": {
+      "type": "object",
+      "required": ["input_tokens", "output_tokens"],
+      "properties": {
+        "input_tokens": {"type": "integer", "minimum": 0},
+        "output_tokens": {"type": "integer", "minimum": 0}
+      }
+    },
+    "artifacts": {"type": "array", "items": {"$ref": "artifact.schema.json"}}
+  }
+}

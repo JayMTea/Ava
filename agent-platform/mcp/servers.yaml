@@ -1,0 +1,19 @@
+# MCP servers - external tools and data via the Model Context Protocol (extra: mcp).
+# Bridge: runtime/mcp_bridge.py. Tools appear in the registry as mcp.<server>.<tool>.
+#
+# To add a server (recipe: docs/extending.md -> Connect an MCP server):
+#   1. define it below and set enabled: true; expose its tools in mcp/permissions.yaml
+#   2. classify its tools' side effects in mcp/adapters/<server>.yaml
+#   3. add the server to an agent's mcp_servers and its tools (e.g. "mcp.<server>.*") to `tools`
+#   4. grant those tool ids in policies/tool-permissions.yaml
+# Secrets come from the environment via ${VAR}; never write them here.
+#
+#   docs:
+#     enabled: false
+#     transport: stdio                      # or: http, with url + headers
+#     command: npx
+#     args: ["-y", "@modelcontextprotocol/server-filesystem", "./knowledge"]
+#     default_side_effects: none            # unknown tools default to external_write
+#     timeout_s: 60
+schema_version: 1
+servers: {}

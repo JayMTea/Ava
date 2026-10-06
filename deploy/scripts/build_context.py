@@ -35,7 +35,7 @@ def create(destination: Path, *, source: Path = SOURCE, additions: dict | None =
             shutil.copyfile(origin, dest)
         included = []
         for label, folder in (additions or {}).items():
-            if label not in ("frontend/src/overlay", "overlay/ava_bridge", "overlay/agent"):
+            if label not in ("app/frontend/src/overlay", "overlay/ava_bridge", "overlay/agent"):
                 raise ValueError("Unsupported private build destination")
             folder = Path(folder).resolve()
             if not folder.is_dir():
@@ -82,7 +82,7 @@ def main() -> int:
     parser.add_argument("--agent-extensions", type=Path)
     args = parser.parse_args()
     additions = {label: value for label, value in (
-        ("frontend/src/overlay", args.frontend_extensions),
+        ("app/frontend/src/overlay", args.frontend_extensions),
         ("overlay/ava_bridge", args.backend_extensions),
         ("overlay/agent", args.agent_extensions)) if value}
     print(json.dumps(create(args.output, additions=additions), indent=2))

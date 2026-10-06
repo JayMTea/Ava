@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Launch the Ava voice loop. Edit the device vars below after you plug in the mic.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+# Use the selected instance, preserving explicit environment overrides.
+. ./deploy/load-instance-env.sh
+ava_load_instance_env "$PWD"
+
+# ---- Audio devices ---------------------------------------------------------
+# Find these with:  ./bin/ava-devices
+# MIC_DEVICE:  arecord device for your USB mic   (e.g. plughw:1,0)
+# OUT_DEVICE:  aplay device for the TV over HDMI (e.g. plughw:0,3 = HDMI 0)
+export MIC_DEVICE="${MIC_DEVICE:-default}"
+export OUT_DEVICE="${OUT_DEVICE:-}"     # empty = ALSA default; set to plughw:0,3 for TV HDMI
+export PLAYER="${PLAYER:-aplay}"        # aplay (ALSA) | pw-play (PipeWire desktop session)
+
+# ---- Ava backend (local LLM engine on port 8002) ------------------------------------
+export AVA_URL="${AVA_URL:-http://localhost:8002/v1/chat/completions}"
+# No default model: whatever you export is what gets served.
+export AVA_MODEL="${AVA_MODEL:-}"
+export WHISPER_MODEL="${WHISPER_MODEL:-small.en}"
+
+# Optional wake word gate (only respond when the word is heard). Empty = respond to any speech.
+export WAKE_WORD="${WAKE_WORD:-}"
+
+# Speaker verification: only respond to the enrolled voice (models/voiceprint.npy).
+# Tune to YOUR enrollment quality (typical 0.45-0.65). 0 = disable the voice gate.
+export SPEAKER_THRESHOLD="${SPEAKER_THRESHOLD:-0.55}"
+
+# Pass through any args (e.g. --mode ptt). Defaults to hands-free listen mode.
+exec ./.venv/bin/python -m app.voice "$@"

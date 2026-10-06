@@ -1,0 +1,12 @@
+# No network, read-only workspace and root filesystem, unprivileged, tightly resourced.
+network: none
+workspace_mount: ro
+writable_paths: [artifacts]    # relative to the workspace; mounted read-write
+read_only_root: true
+no_new_privileges: true
+cap_drop: [ALL]
+user: "10001:10001"
+cpus: 1
+memory: 512m
+pids_limit: 128
+timeout_s: 60

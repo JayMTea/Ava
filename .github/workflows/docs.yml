@@ -11,8 +11,8 @@ on:
       - "**/*.svg"          # diagrams are published on the site
       # Asset-only updates must also rebuild the published site.
       - "docs/assets/**"
-      - "docs-site/**"
-      - "frontend/src/styles/tokens.css"  # the site inherits the app palette
+      - "docs/site/**"
+      - "app/frontend/src/styles/tokens.css"  # the site inherits the app palette
       - ".github/workflows/docs.yml"
   workflow_dispatch:
 
@@ -38,11 +38,11 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - run: pip install -r requirements-docs.txt -r requirements-dev.txt
+      - run: pip install -r config/dependencies/docs.txt -r config/dependencies/dev.txt
       - name: Check public source and assets
         env:
           AVA_PRIVATE_NAMES: ${{ secrets.AVA_PRIVATE_NAMES }}
-        run: python -m pytest tests/test_no_owner_identity.py tests/test_no_private_apps_shipped.py tests/test_no_internal_plans.py tests/test_docs_assets.py tests/test_landing_page.py -q
+        run: python -m pytest tests/unit/test_no_owner_identity.py tests/unit/test_no_private_apps_shipped.py tests/unit/test_no_internal_plans.py tests/unit/test_docs_assets.py tests/unit/test_landing_page.py -q
       - name: Configure Pages
         id: pages
         uses: actions/configure-pages@v5
@@ -51,12 +51,12 @@ jobs:
           SITE_URL: ${{ steps.pages.outputs.base_url }}
         run: echo "AVA_DOCS_SITE_URL=${SITE_URL}/" >> "$GITHUB_ENV"
       - name: Stage docs
-        run: python docs-site/sync.py
+        run: python docs/site/sync.py
       - name: Build (strict)
-        run: mkdocs build --strict -f docs-site/mkdocs.yml
+        run: mkdocs build --strict -f docs/site/mkdocs.yml
       - uses: actions/upload-pages-artifact@v5
         with:
-          path: docs-site/site
+          path: docs/site/site
 
   deploy:
     needs: build

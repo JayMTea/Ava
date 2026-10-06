@@ -1,0 +1,4 @@
+# Ava development extras — tests + lint. Install alongside config/dependencies/runtime.txt:
+#   pip install -r config/dependencies/runtime.txt -r config/dependencies/dev.txt
+pytest==9.1.1
+ruff==0.16.1

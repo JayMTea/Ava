@@ -283,8 +283,8 @@ gate entirely.
 
     ```bash
     python -m venv .venv && . .venv/bin/activate
-    pip install -r requirements.txt
-    cd frontend && npm install && npm run build && cd ..
+    pip install -r config/dependencies/runtime.txt
+    cd app/frontend && npm install && npm run build && cd ..
 
     ./bin/ava setup              # creates AVA_HOME, generates secrets + admin password, ava.yaml
     ./bin/ava models pull --auto # downloads a model that fits your hardware (once, large)
@@ -304,11 +304,11 @@ gate entirely.
     `ava setup` prints your generated admin password (or pass `--password`).
 
     `./bin/ava` works from the checkout with no install step. To get a plain `ava`
-    command on your `PATH` instead, swap the `pip install -r requirements.txt` line
+    command on your `PATH` instead, swap the `pip install -r config/dependencies/runtime.txt` line
     for `pip install -e .` - it installs the same dependencies and adds the console
     script. Keep the `-e`: Ava runs *from* this checkout, and a non-editable install
-    would leave it looking for `frontend/dist`, `config.example.yaml` and
-    `agent/install.sh` inside `site-packages`, where they are not.
+    would leave it looking for `app/frontend/dist`, `config/ava.example.yaml` and
+    `agent-platform/integrations/ava/sandbox/install.sh` inside `site-packages`, where they are not.
 
     `doctor` reports detected hardware and missing services; `up` prints the
     address to open. Configure and start an inference backend before expecting

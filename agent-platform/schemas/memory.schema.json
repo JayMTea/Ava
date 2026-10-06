@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "memory.schema.json",
+  "title": "Memory definitions (memory/*.yaml). The data itself lives in state/memory/.",
+  "$defs": {
+    "memory": {
+      "type": "object",
+      "required": ["schema_version", "backend"],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {"const": 1},
+        "backend": {"enum": ["jsonl"], "description": "Add your backend here when you implement it."},
+        "redact_before_write": {"type": "boolean"},
+        "max_entry_chars": {"type": "integer", "minimum": 100}
+      }
+    },
+    "retrieval": {
+      "type": "object",
+      "required": ["schema_version"],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {"const": 1},
+        "auto_recall": {"type": "boolean"},
+        "k": {"type": "integer", "minimum": 1},
+        "min_score": {"type": "number", "minimum": 0, "maximum": 1},
+        "max_chars": {"type": "integer", "minimum": 100},
+        "recency_half_life_days": {"type": "number", "minimum": 0},
+        "recency_weight": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "consolidation": {
+      "type": "object",
+      "required": ["schema_version"],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {"const": 1},
+        "dedupe": {"type": "boolean"},
+        "max_entries_per_namespace": {"type": "integer", "minimum": 1},
+        "session_retention_days": {"type": "integer", "minimum": 1},
+        "summarize": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {"enabled": {"type": "boolean"}, "route": {"type": "string"}}
+        }
+      }
+    },
+    "namespaces": {
+      "type": "object",
+      "required": ["schema_version", "namespaces"],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {"const": 1},
+        "namespaces": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["description", "scope", "read", "write"],
+            "additionalProperties": false,
+            "properties": {
+              "description": {"type": "string"},
+              "scope": {"enum": ["global", "session", "agent"]},
+              "read": {"type": "array", "items": {"type": "string"}},
+              "write": {"type": "array", "items": {"type": "string"}},
+              "ttl_days": {"type": ["integer", "null"], "minimum": 1},
+              "data_classification": {"enum": ["public", "internal", "confidential", "restricted"]}
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,1355 @@
+/* Ava docs theme — the palette is INHERITED from the app, not copied. sync.py
+   stages app/frontend/src/styles/tokens.css (the SSOT) as stylesheets/tokens.css,
+   re-keyed to Material's scheme attribute; this file only maps Material's
+   variables onto those tokens and adds docs-specific chrome. Change a token in
+   the app and the site follows on the next docs build — declare no color
+   literals here that the app already has a token for. */
+
+/* The typeface, SELF-HOSTED — the same two .woff2 files the app serves, staged
+   here from app/frontend/public/fonts/ by sync.py (ASSETS). Material's own webfont
+   loading stays off in mkdocs.yml: a site that sells "nothing leaves your box"
+   must not make its visitors fetch from Google, and self-hosting keeps that
+   promise while actually delivering the font.
+
+   IT PREVIOUSLY DID NOT. `font: false` with `Inter` at the head of the stack and
+   no @font-face anywhere meant Inter rendered only for the few visitors who
+   happened to have it installed; everyone else fell through to system-ui, so the
+   site drew itself in Segoe UI on Windows, SF on macOS and Cantarell on Linux —
+   under headings that resolved to Times New Roman. "Standardised across the web"
+   was true of the stylesheet and of nothing else.
+
+   The URL is relative to THIS file's published location (/Ava/stylesheets/), not
+   to the site root — the site is served from a /Ava/ subpath, so a leading-slash
+   path would 404 and fail back to system-ui silently. Same form as the wordmark
+   mask further down. */
+@font-face {
+  font-family: "Inter Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("../docs/assets/fonts/inter-latin-wght-normal.woff2")
+    format("woff2-variations");
+}
+@font-face {
+  font-family: "Inter Variable";
+  font-style: italic;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("../docs/assets/fonts/inter-latin-wght-italic.woff2")
+    format("woff2-variations");
+}
+
+/* The families, INHERITED from the app rather than restated — same rule as the
+   palette. They live in app/frontend/src/styles/tokens.css (SSOT), which sync.py
+   stages as stylesheets/tokens.css and mkdocs loads before this file. Declaring
+   a stack again here is what let the site and the app drift apart to begin with.
+
+   ON `body`, NOT `:root`, and that is not a style preference. Material's own
+   main.css carries
+
+       body { --md-text-font-family: var(--md-text-font,_),-apple-system,… }
+
+   so it REDECLARES this property on body, overriding anything :root says — the
+   scheme-attribute mappings below sit on body for a related reason. Setting it
+   at :root looks right, computes right on <html>, and is silently discarded for
+   every element that actually renders text: the whole page keeps drawing in
+   `_` → the OS default. Measured in Chrome, not reasoned about. If a future
+   Material moves that rule, the alternative knob is --md-text-font (the bare
+   family name, which it wraps in its own fallback stack). */
+body {
+  --md-text-font-family: var(--font-ui);
+  --md-code-font-family: var(--font-mono);
+}
+
+/* One mapping for BOTH schemes: the token file swaps the underlying values per
+   scheme, so this block never changes. Declared on the scheme attribute
+   (= <body>) so each var() resolves against that scheme's token values —
+   var() captured at :root would freeze the dark values. */
+[data-md-color-scheme="default"],
+[data-md-color-scheme="slate"] {
+  --ava-accent: var(--accent);
+  --ava-accent-hover: var(--accent-hover);
+  --md-primary-fg-color: var(--accent);
+  --md-primary-fg-color--light: var(--accent-tint);
+  --md-primary-fg-color--dark: var(--accent-hover);
+  --md-accent-fg-color: var(--accent);
+  --md-typeset-a-color: var(--accent-tint);
+  --md-default-bg-color: var(--bg);
+  --md-default-bg-color--light: var(--panel);
+  --md-code-bg-color: var(--panel);
+  --md-default-fg-color: var(--txt);
+  --md-default-fg-color--light: color-mix(in srgb, var(--txt) 85%, var(--bg));
+  --md-default-fg-color--lighter: var(--muted);
+  --md-typeset-color: var(--txt);
+  --md-footer-bg-color: var(--panel);
+}
+
+/* Headings are the SAME family as the paragraphs under them — the whole point of
+   the change. They are set apart by weight and tracking instead, which is what
+   the app and the setup/login screens now do too. No font-family here at all:
+   inheriting is what guarantees a heading can never disagree with its own body
+   text, which is exactly what a second declaration reintroduces. */
+.md-typeset h1,
+.md-typeset h2,
+.md-typeset h3 {
+  font-weight: var(--fw-medium);
+  letter-spacing: var(--tracking-display);
+}
+
+/* The header carries the accent in both schemes */
+.md-header {
+  background-color: var(--ava-accent);
+}
+[data-md-color-scheme="slate"] .md-header {
+  background-color: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+
+/* Tables (comparison matrix, config keys) read cleanly on the warm canvas */
+[data-md-color-scheme="slate"] .md-typeset table:not([class]) th {
+  background-color: var(--panel2);
+}
+
+/* ------------------------------------------------------------------ */
+/* Chrome tweaks                                                        */
+/* ------------------------------------------------------------------ */
+
+/* Remove the right-hand table of contents everywhere; content reflows wider. */
+.md-sidebar--secondary {
+  display: none !important;
+}
+
+/* Brand wordmark (docs/assets/ava-wordmark.svg), applied as a MASK rather than
+   dropped in as an <img>: the artwork's ink is the brand navy, which reads
+   15.9:1 on the light canvas but 1.06:1 on the dark one. Masking paints the
+   glyphs in `currentColor`, so a single asset inherits the surrounding text
+   color and stays legible in both schemes — and in the header, which carries
+   the accent in light and --panel in dark, i.e. is dark either way. */
+.ava-wordmark {
+  display: block;
+  background-color: currentColor;
+  -webkit-mask: url(../docs/assets/ava-wordmark.svg) center / contain no-repeat;
+  mask: url(../docs/assets/ava-wordmark.svg) center / contain no-repeat;
+}
+
+/* Header logo slot (far-left): the bare MARK, where the wordmark used to be.
+   Material ships an inline placeholder <svg> in this anchor; hide it and mask
+   the anchor itself, which already carries the accessible name
+   (aria-label="Ava") and the home href.
+
+   STILL MASKED, and here that is not a preference. The mark's own ink is the
+   brand blue, and this bar is painted the brand accent in the light scheme, so
+   dropped in as an <img> it would be blue on blue and effectively vanish.
+   Masking paints the silhouette in currentColor, which is the light ink this
+   bar carries in both schemes. The cost is the mark's two tones collapsing to
+   one - the pale cross-braces stop reading as behind the primary edges - and
+   at this size that detail was never resolvable anyway.
+
+   The file is the app's own favicon.svg, not a copy: tools/sync_icons.py
+   rewrites it, pwa-192 and pwa-512 from one master and tests/unit/test_icon_sync.py
+   fails if they drift, so this header cannot disagree with the browser tab
+   sitting directly above it.
+
+   Square box, unlike the 2449:1060 the wordmark needed. It is taller than the
+   old strip because the drawing sits ~75% of the way down its own canvas: the
+   1.55rem box puts roughly 1.16rem of ink on the bar, matching the wordmark's
+   old cap height rather than its box. */
+.md-header__button.md-logo {
+  display: block;
+  width: 1.55rem;
+  height: 1.55rem;
+  padding: 0;
+  margin: 0.2rem 0.4rem 0.2rem 0.2rem;
+  background-color: currentColor;
+  -webkit-mask: url(../docs/assets/favicon.svg) center / contain no-repeat;
+  mask: url(../docs/assets/favicon.svg) center / contain no-repeat;
+}
+.md-header__button.md-logo :is(img, svg) {
+  display: none;
+}
+/* Below this breakpoint Material hides the header logo, on the assumption that
+   the drawer is now carrying the branding. That was left alone while the logo
+   was the wordmark, because a phone header showing "AVA" beside the site-name
+   topic's "Ava" was the same word twice in a 420px strip. The mark does not
+   spell anything, so it can stand next to the name the way it does in the
+   drawer, and the phone header stops being the one surface with no mark on it.
+
+   ONE LINK, NOT TWO NEIGHBOURS. Material's logo anchor stays hidden here, as
+   the theme intends, and the mark is drawn as the ::before of an anchor
+   javascripts/chrome.js wraps around the site name — so the mark and the word
+   are a single target that goes home, not a link sitting next to inert text.
+   Building it around the name rather than beside it also keeps Material's
+   behaviour: it fades this topic out and the page title in as you scroll, and
+   the mark now leaves with the name instead of stranding "Ava" beside
+   "Why Ava?".
+
+   The gap is the ::before's own margin, which is why it is a single number to
+   tune rather than a margin fighting a flex gap. */
+@media screen and (max-width: 76.234375em) {
+  .md-header__button.md-logo {
+    display: none;
+  }
+  .ava-home {
+    display: inline-flex;
+    align-items: center;
+    color: inherit;
+    text-decoration: none;
+  }
+  .ava-home::before {
+    content: "";
+    flex: none;
+    width: 1.5rem;
+    height: 1.5rem;
+    margin-right: 0.3rem;
+    background-color: currentColor;
+    -webkit-mask: url(../docs/assets/favicon.svg) center / contain no-repeat;
+    mask: url(../docs/assets/favicon.svg) center / contain no-repeat;
+  }
+}
+
+/* The site-name topic stays hidden, but NOT for the reason it used to be. It
+   was hidden because the header logo was the wordmark and the two both spelled
+   "AVA"; the logo is the bare mark now, so nothing is being de-duplicated. It
+   is a choice: the header reads as one quiet icon rather than icon-plus-label,
+   and the name is never far — the tabs under it say Ava three times and the
+   page title carries it.
+
+   That makes this the one line to change if the header should read
+   "[mark] Ava" instead. Delete the rule, do not delete the media query: the
+   hide applies ONLY where the logo actually renders, because Material moves
+   .md-logo into the drawer at <=76.234375em and below that breakpoint this
+   text is the only branding left in the header. The SECOND topic (the page
+   title Material swaps in on scroll) is untouched either way. */
+@media screen and (min-width: 76.25em) {
+  .md-header__title .md-header__topic:first-child {
+    display: none;
+  }
+}
+
+/* Drawer nav title on small screens — Material puts the logo there instead, and
+   it is the ONE place on the site that renders a logo and a text label
+   together: the markup is `<label class="md-nav__title"><a class="md-logo">
+   …</a> Ava </label>`. While this slot masked the wordmark, that label read
+   "AVA" over "Ava", the same word twice in one corner, which is the one thing
+   the header rule further up this file exists to prevent.
+
+   The mark, not the wordmark, and the text stays. That is the same split the
+   header makes — mark for chrome, wordmark for the hero. Square box, so the
+   2449:1060 width that framed the letterforms goes with them. */
+.md-nav__title .md-nav__button.md-logo {
+  width: 1.9rem;
+  height: 1.9rem;
+  background-color: currentColor;
+  -webkit-mask: url(../docs/assets/favicon.svg) center / contain no-repeat;
+  mask: url(../docs/assets/favicon.svg) center / contain no-repeat;
+}
+.md-nav__title .md-nav__button.md-logo :is(img, svg) {
+  display: none;
+}
+
+/* ...and it sits BESIDE the name, not above it. Material stacks them: the
+   title is 5.6rem tall with `padding: 3rem .8rem .2rem`, and the logo is lifted
+   out of flow (`position: absolute; top: .2rem; left: .2rem; right: .2rem`) to
+   sit in the space that padding opens up. Laying them on one line therefore
+   takes both halves — the anchor back into flow, and the title into a flex row
+   whose height its content decides.
+
+   Scoped with `>` on purpose. Material's own rules reach the nested section
+   titles through a descendant selector, and those carry a back arrow rather
+   than a logo; the child combinator keeps this to the drawer's own header and
+   leaves the ones you reach by drilling in exactly as they were. */
+@media screen and (max-width: 76.234375em) {
+  .md-nav--primary > .md-nav__title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    height: auto;
+    padding: 0.75rem 0.8rem;
+    line-height: 1.4;
+  }
+  .md-nav--primary > .md-nav__title .md-nav__button.md-logo {
+    position: static;
+    flex: 0 0 auto;
+    margin: 0;
+    padding: 0;
+  }
+}
+
+/* Tabs on the header row.
+   ------------------------------------------------------------------
+   Material ships the tab strip as its own full-width bar under the header, and
+   because extra.css paints it in the same accent, the two read as one bar two
+   rows tall with the nav marooned on the second. This lifts the strip onto the
+   header's own row, beside the logo and across from the GitHub pill.
+
+   It works because of navigation.tabs.sticky (mkdocs.yml, where the reasoning
+   lives): with that flag the strip is rendered INSIDE <header class="md-header">
+   rather than into .md-container, so lifting it is a margin, not a fight with
+   the stacking order. Without the flag this rule is a no-op at best and hides
+   the nav behind the header's own background at worst.
+
+   THE ROW HAS THE SPACE, measured rather than assumed. .md-header__title sits
+   between the logo and the right-hand cluster as a flex spacer 697px wide with
+   nothing in it (its site-name topic is hidden further up this file). Real
+   occupants are only the logo, the pill, the search box and the palette toggle:
+   463 of 1220px at 1280 wide, 509 of 1342 at 1920. The tabs need 568 and 624.
+   That leaves ~190px of slack at the narrowest desktop the strip renders at --
+   Material moves the nav into the drawer below 76.25em, which is why this is
+   scoped to it -- and it is the number that shrinks if a seventh top-level
+   section is ever added.
+
+   -2.4rem is the header's height, not a nudge: 48px against this site's 20px
+   root and 53px against the 22px root Material switches to at 1600, both 2.4rem,
+   which is why one value lands the tabs dead-centre at every width.
+
+   The strip stays full-width and would swallow clicks aimed at the search box
+   sitting over it, so it passes them through and only the links take them
+   back. */
+@media screen and (min-width: 76.25em) {
+  .md-tabs {
+    margin-top: -2.4rem;
+    background: transparent;
+    z-index: 5;
+    pointer-events: none;
+  }
+  .md-tabs__link {
+    pointer-events: auto;
+  }
+  /* Clears the logo. The strip and .md-header__inner are both .md-grid, so they
+     share a left edge and the tabs would start underneath the mark. */
+  .md-tabs .md-grid {
+    padding-left: 2.9rem;
+  }
+}
+
+/* Header: hide the repo source widget; the theme toggle takes its far-right
+   slot (flex order), and chrome.js injects a "View on GitHub" pill before the
+   search box. */
+.md-header__source {
+  display: none;
+}
+.md-header__option {
+  order: 9;
+}
+.ava-gh-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45em;
+  margin-right: 0.6rem;
+  padding: 0.34em 1.05em;
+  border: 1.5px solid currentColor;
+  border-radius: 2em;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: inherit;
+  white-space: nowrap;
+  opacity: 0.95;
+  transition: opacity 0.15s ease, background-color 0.15s ease;
+}
+.ava-gh-btn:hover {
+  opacity: 1;
+  background-color: rgba(255, 255, 255, 0.12);
+  color: inherit;
+}
+.ava-gh-btn svg {
+  width: 0.95em;
+  height: 0.95em;
+  fill: currentColor;
+}
+@media (max-width: 44rem) {
+  .ava-gh-btn span { display: none; }   /* icon-only on small screens */
+  .ava-gh-btn { padding: 0.34em 0.6em; }
+}
+
+/* ------------------------------------------------------------------ */
+/* Landing page (overrides/home.html — homepage only)                  */
+/* ------------------------------------------------------------------ */
+
+/* Landing tokens ride the app tokens too — resolved per scheme via <body>. */
+.ava-landing {
+  --ava-land-border: var(--line);
+  --ava-land-card-bg: var(--input);
+  /* Derived from --muted, not a literal, so a re-theme still follows the app.
+     Bare --muted is tuned for dense app chrome against the app's own surfaces;
+     on the landing page's raised card (--input) it measures 4.44:1 light /
+     4.48:1 dark, just under AA (4.5) for the card and tagline copy — and this
+     is the page every first-time visitor reads. Mixing toward --txt darkens it
+     in the light scheme and lightens it in the dark one, so one declaration
+     clears AA in both (5.2:1 / 5.3:1) while staying visibly secondary. */
+  --ava-land-muted: color-mix(in srgb, var(--muted) 85%, var(--txt));
+}
+
+.ava-landing .md-grid {
+  max-width: 61rem;
+  margin: 0 auto;
+  padding: 0 1rem;
+}
+
+/* Hero — full-bleed warm band under the header */
+.ava-hero {
+  padding: 3.4rem 0 2.8rem;
+  border-bottom: 1px solid var(--ava-land-border);
+  text-align: center;
+}
+
+/* Wordmark standing in for the old "MEET AVA" text eyebrow (home.html). It
+   inherits the hero's text color through .ava-wordmark's currentColor fill:
+   15.9:1 on the light panel, 15.0:1 on the dark one.
+
+   The `display: block` this needs comes from .ava-wordmark, which the span
+   carries alongside this class. Do not split them: an inline box ignores
+   width, height and aspect-ratio, so on its own this rule computes to zero and
+   the hero loses its logo while the markup still reads correctly. */
+.ava-hero__mark {
+  width: clamp(9rem, 20vw, 12.5rem);
+  aspect-ratio: 2449 / 1060;
+  margin: 0 auto 1.1rem;
+}
+
+.ava-hero h1 {
+  margin: 0 0 0.9rem;
+  /* --fw-display, not --fw-medium: this is the one line on the site that runs to
+     2.6rem, and type reads optically heavier as it grows. */
+  font-weight: var(--fw-display);
+  font-size: clamp(1.9rem, 4vw, 2.6rem);
+  line-height: 1.12;
+  /* Negative, and it has to be: the old +0.2px was tuned for a serif at this
+     size. Inter at 2.6rem needs tracking pulled IN, not opened out. */
+  letter-spacing: var(--tracking-display);
+}
+
+.ava-hero__tagline {
+  max-width: 40rem;
+  margin: 0 auto 0.7rem;
+  font-size: 1.02rem;
+  line-height: 1.55;
+  color: var(--ava-land-muted);
+}
+
+.ava-hero__kicker {
+  margin: 0 0 1.6rem;
+  /* Still italic — that is what marks it as an aside rather than a second
+     heading — but now the body family's italic, which is why the italic .woff2
+     is shipped alongside the roman one. */
+  font-style: italic;
+  font-size: 0.9rem;
+}
+
+.ava-hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.6rem;
+}
+
+/* Self-selection line under the single CTA (home.html). Deliberately quieter
+   than the button so it reads as a caption rather than a second action; the
+   "Why Ava?" link inside it is the demoted secondary destination. */
+.ava-hero__note {
+  margin: 0.9rem 0 0;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--ava-land-muted);
+}
+/* --accent-tint, not --accent: the raw accent is a BUTTON-FILL colour, and as
+   link text on the hero panel it measures 3.69:1 in dark mode — under AA for
+   body-size text. --accent-tint is the token that exists for exactly this (it
+   is what --md-typeset-a-color maps to for every other link on the site) and
+   it flips per scheme, so both modes clear AA. */
+.ava-hero__note a {
+  color: var(--accent-tint);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.ava-btn {
+  display: inline-block;
+  padding: 0.5em 1.4em;
+  border: 1.5px solid var(--ava-accent);
+  border-radius: 2em;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--ava-accent);
+  transition: background-color 0.15s, color 0.15s, border-color 0.15s;
+}
+.ava-btn:hover {
+  color: var(--ava-accent-hover);
+  border-color: var(--ava-accent-hover);
+}
+.ava-btn--primary {
+  background-color: var(--ava-accent);
+  color: #fff;
+}
+.ava-btn--primary:hover {
+  background-color: var(--ava-accent-hover);
+  border-color: var(--ava-accent-hover);
+  color: #fff;
+}
+.ava-btn--ghost {
+  border-color: transparent;
+}
+
+/* Bands
+   ------------------------------------------------------------------
+   THE AXIS RULE, and it is the whole reason the old page read as two
+   documents stapled together: THE PAGE IS CENTRED, THE TEXT INSIDE A BOX IS
+   NOT. Band headings and ledes are centred and capped at a ~72-character
+   measure so centred text never runs long; anything inside a card, a tile, a
+   caveat list or a verbatim block is left-aligned and ragged-right.
+
+   .ava-cards already obeyed this - the grid centres as a block while the card
+   body stays left - which is why the top of the page always looked composed.
+   The page simply stopped obeying its own rule at pixel 840, where the Jinja
+   hero ended and Material's typeset <article> began. That article is gone now
+   (home.html empties {% block container %}), so every band below is the same
+   kind of object and shares the one 61rem rail. */
+/* ONE CANVAS. The bands used to alternate --bg and --panel, which striped the
+   page into slabs and made the seam between the Jinja hero and the old typeset
+   column louder rather than quieter. Every band now sits on the page's own
+   --bg, the warm paper the rest of the site already uses, so the landing page
+   and every doc page are one continuous surface. Only the header (accent) and
+   Material's footer (--panel) break it, on purpose.
+
+   Structure comes from spacing and from the cards, which sit on --input and
+   carry a hairline border. Do not reintroduce a band fill to separate two
+   sections: add space, or give the section a card. */
+.ava-band {
+  padding: 2.8rem 0;
+}
+.ava-band__head {
+  max-width: 44rem;
+  margin: 0 auto 1.8rem;
+  text-align: center;
+}
+.ava-band__head h2 {
+  margin: 0 0 0.6rem;
+  font-weight: var(--fw-medium);
+  /* Tops out at 1.35rem on purpose. The restraint IS the brand: every heading on
+     this site sits under 1.4rem at --fw-medium except the hero, and a 2rem
+     headline here would look imported from a different website. (This used to
+     read "serif 500" — the restraint survived the move to one family; the serif
+     did not.) */
+  font-size: clamp(1.15rem, 2.6vw, 1.35rem);
+  letter-spacing: var(--tracking-display);
+}
+.ava-band__lede {
+  margin: 0;
+  font-size: 0.86rem;
+  line-height: 1.6;
+  color: var(--ava-land-muted);
+}
+
+/* The walkthrough band (home.html band 2)
+   ------------------------------------------------------------------
+   The mp4 already carries its own window frame and branded background, so the
+   element takes a radius and a shadow and nothing else: no border, no panel
+   fill behind it. It is capped WELL below the 61rem rail on purpose. A 1920px
+   capture stretched across the full rail turns the app's own chrome into
+   wallpaper and pushes every band below it off the first two screens; 44rem is
+   the same measure the docs column caps media at, which keeps the UI in the
+   video at roughly the size it has on screen.
+
+   Centred as a block, per the axis rule above: the band's heading and lede are
+   centred text, the video is a centred BOX. */
+.ava-tour .ava-reel {
+  display: block;
+  width: 100%;
+  max-width: 44rem;
+  margin: 0 auto;
+  border-radius: 0.7rem;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22);
+}
+[data-md-color-scheme="slate"] .ava-tour .ava-reel {
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+}
+/* Native fullscreen (the `controls` button - this page ships no expand button
+   of its own) letterboxes against the browser's black backdrop, where a
+   rounded corner and a drop shadow are both invisible and wrong. */
+.ava-reel:fullscreen {
+  max-width: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* Material's <main> is still emitted (home.html keeps the landmark and the
+   back-to-top button, and only empties the article inside it), so its
+   1.5rem top margin would leave 24px of dead space under the last band.
+   Adjacent sibling: base.html emits .ava-landing then <main>, nothing between. */
+.ava-landing + .md-main .md-main__inner {
+  margin-top: 0;
+}
+
+/* Feature cards */
+.ava-features {
+  padding: 2.6rem 0;
+}
+
+.ava-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 0.9rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Four cards, explicitly 2x2 rather than auto-fit. The rail is 944px at 61rem,
+   and four cards at minmax(15rem, 1fr) with 0.9rem gaps need 1003px, so the
+   fourth orphans onto a row of its own - the exact problem the old three-card
+   comment in home.html recorded. An explicit pair also lets each card carry a
+   sentence more copy without going gappy. */
+@media screen and (min-width: 48rem) {
+  .ava-cards--2up {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.ava-cards li {
+  padding: 1.1rem 1.2rem;
+  border: 1px solid var(--ava-land-border);
+  border-radius: 0.55rem;
+  background-color: var(--ava-land-card-bg);
+}
+
+.ava-cards h3 {
+  margin: 0 0 0.5rem;
+  font-weight: var(--fw-medium);
+  font-size: 0.95rem;
+}
+
+.ava-cards p {
+  margin: 0;
+  font-size: 0.74rem;
+  line-height: 1.55;
+  color: var(--ava-land-muted);
+}
+
+.ava-cards code {
+  padding: 0.1em 0.35em;
+  border-radius: 0.25em;
+  background-color: var(--md-code-bg-color, #f5f5f5);
+  font-size: 0.95em;
+}
+
+/* The install command and the caveat list
+   ------------------------------------------------------------------
+   A COMMAND IS SIZED TO FIT, NEVER WRAPPED. One that visually wraps is one
+   somebody mistypes, which is why the install shows two short lines rather
+   than deploy/README.md's 67-character && one-liner: 67 characters cannot fit
+   the 296px a 320px viewport leaves, at any readable size. This is also the
+   fix for the old
+   page's horizontal overflow: pymdownx.superfences wraps a fence in
+   <div class="highlight">, so the <pre> was not a direct child of
+   .md-content__inner and Material's small-screen bleed rule never applied. The
+   block could neither bleed nor fit. There is no markdown fence on this page
+   any more, so the whole class of bug is gone. */
+
+.ava-cmd {
+  max-width: 30rem;
+  margin: 0 auto;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--ava-land-border);
+  border-radius: var(--r-sm, 0.5rem);
+  background-color: var(--wash-5, rgba(128, 128, 128, 0.05));
+  font-family: var(--md-code-font-family);
+  /* Longest line is 40 characters. At 0.72rem the line is ~284px, inside the
+     296px a 320px viewport leaves. overflow-x is the belt that should never
+     need to fire. */
+  font-size: clamp(0.66rem, 3vw, 0.76rem);
+  line-height: 1.9;
+  text-align: left;
+  color: var(--txt);
+  overflow-x: auto;
+}
+.ava-cmd span {
+  display: block;
+  white-space: nowrap;
+}
+/* Phones. MEASURED, because the arithmetic that said this fitted was wrong
+   twice over: this site's root font-size is 20px, not 16, so a 0.66rem floor
+   is 13.2px rather than the assumed 10.6px, and the block's own 2rem of
+   horizontal padding comes off the line before the grid's does. At 320px that
+   left 40 characters needing 298px inside 238px. Media-query rem is always
+   16px (initial font size), unlike the rem above, so 26rem here is 416px.
+
+   The command shrinks rather than wraps. A visually wrapped command is one
+   somebody mistypes, which is the whole reason it is two short lines and not
+   deploy/README.md's 67-character && one-liner. */
+@media screen and (max-width: 26rem) {
+  .ava-cmd {
+    padding: 0.7rem 0.6rem;
+    font-size: 0.55rem;
+  }
+}
+
+.ava-caveats {
+  max-width: 44rem;
+  margin: 1.6rem auto 0;
+  font-size: 0.76rem;
+  line-height: 1.65;
+  text-align: left;
+  color: var(--ava-land-muted);
+}
+.ava-caveats strong {
+  color: var(--txt);
+}
+/* Deliberately no --warn, no --err, no coloured tier tag anywhere on this
+   page. Painting the honest section amber is precisely what made the old page
+   feel unprofessional, and it is the fastest way to undo this one. One accent,
+   one text colour, one muted. */
+
+.ava-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.6rem;
+  margin-top: 1.8rem;
+}
+/* Duplicates .ava-hero__actions' three declarations rather than sharing a
+   class with it. Worth merging one day; not worth coupling the hero's markup
+   to a band that may be reordered. */
+
+
+/* Colophon. Sits on --panel so the page closes on the surface it opened on. */
+.ava-colophon {
+  padding: 1.8rem 0;
+  border-top: 1px solid var(--ava-land-border);
+  text-align: center;
+}
+.ava-colophon p {
+  max-width: 40rem;
+  margin: 0 auto;
+  font-size: 0.78rem;
+  line-height: 1.6;
+  color: var(--ava-land-muted);
+}
+.ava-colophon p + p {
+  margin-top: 0.5rem;
+}
+.ava-colophon a {
+  color: var(--accent-tint);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+/* The convergence figure
+   ------------------------------------------------------------------
+   Eight apps you already run, wired into one Ava. Each tile owns a short STUB
+   in that app's identity accent; the stub stops where the shared plumbing
+   begins, and the BUS and FEEDER that carry on are Ava's, in --line.
+
+   WHAT IT MUST NOT SAY. There is no box, ring, shield or enclosure around the
+   tiles, and there never may be. SECURITY.md:59-65 is explicit that enabling a
+   connector trusts its code as much as Ava's own - "closer to a browser
+   extension than to a browser tab". What Ava contains is the AGENT, not the
+   connector, so a protective boundary drawn here would be the one false claim
+   on the page. The colour break at the stub is the honest version: shared
+   plumbing, not a wall.
+
+   THE INVARIANT, and everything else depends on it: EVERY KEYFRAME'S 100% IS
+   THE ELEMENT'S AUTHORED REST STATE. Nothing outside @keyframes or .is-playing
+   may set opacity below 1 or a transform other than none. So JS off, JS
+   blocked, hero.js 404, the observer never firing and prefers-reduced-motion
+   all land on the same finished picture, and the only thing that can be lost
+   is the motion. The inverse - scatter by default, JS tidies it up - would
+   turn every one of those into a blank LCP region on the most-visited page,
+   which is the failure this repo has already shipped once with a <video> whose
+   source and poster both 404'd behind a green build.
+
+   IT IS A STILL IMAGE THAT ASSEMBLES ITSELF ONCE. There is no idle state: no
+   pulse on the hub, no shimmer along the bus, no loop. Anything that moves
+   after 1.8s is a bug, and tests/unit/test_landing_page.py fails an `infinite`. */
+/* THE FIGURE SITS ON ITS OWN SHEET, and it is the one exception to the
+   one-canvas rule above. --input is the token that goes pure white in light
+   mode (#ffffff) and a raised grey in dark (#30302e), so the band lifts off
+   the page in both schemes from a single declaration rather than a media
+   query.
+
+   The tiles had to move with it. They were --ava-land-card-bg, which IS
+   --input, so a white band would have left eight white cards on a white sheet
+   separated by nothing but a hairline - the 1.04:1 surface difference this
+   file already warns about for the hero. They sit on --panel now, which keeps
+   them a step off the sheet in both schemes. The feature cards further down
+   are untouched: they are still --input on the page canvas, which is the
+   contrast relationship that was already working. */
+.ava-conv-sheet {
+  background-color: var(--input);
+  border-top: 1px solid var(--ava-land-border);
+  border-bottom: 1px solid var(--ava-land-border);
+}
+
+.ava-conv {
+  /* Landing-scoped, alongside --ava-land-* above. The app SSOT declares only
+     --dur-fast (.12s) and --dur-slow (.3s), and both are tuned for UI
+     FEEDBACK; a 1.8s narrative reveal is not feedback, and minting a duration
+     token in the app's tokens.css to serve one docs picture would put a docs
+     concern in the product's design system. */
+  --conv-in: 340ms;
+  --conv-move: 620ms;
+  --conv-step: 34ms;
+  --conv-wire: 200ms;
+
+  /* The channel between a column and the hub, and how it is DIVIDED. The three
+     segments have to share it: the app's stub, then the shared bus, then Ava's
+     feeder. Sizing all three off one gap put the bus exactly on the hub's left
+     edge, where it was invisible and the whole spine collapsed into a stub. */
+  --conv-gap: clamp(1.4rem, 5vw, 3.2rem);
+  --conv-stub: calc(var(--conv-gap) * 0.42);
+  --conv-feed: calc(var(--conv-gap) - var(--conv-stub));
+
+  display: grid;
+  grid-template-columns: 1fr minmax(10rem, 13.5rem) 1fr;
+  align-items: center;
+  gap: var(--conv-gap);
+  max-width: 54rem;
+  margin: 0 auto;
+  /* Clips the scattered offsets without creating a scroll container. */
+  overflow: clip;
+}
+
+.ava-conv__col {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  position: relative;
+}
+.ava-conv__col--l { justify-items: end; }
+.ava-conv__col--r { justify-items: start; }
+
+.ava-conv__tile {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  max-width: 12rem;
+  padding: clamp(0.3rem, 1.6vw, 0.5rem) clamp(0.45rem, 2vw, 0.7rem);
+  border: 1px solid var(--ava-land-border);
+  border-radius: var(--r-sm, 0.5rem);
+  background-color: var(--panel);
+}
+
+.ava-conv__glyph {
+  flex: none;
+  display: block;
+  /* The tile's identity accent, set once per tile as an inline --tile-accent.
+     No colour literal appears anywhere in this figure and no colour is ever
+     set from JS: tests/unit/test_brand_tokens.py does not scan .js, so a fill
+     written from a script would silently escape the one-accent-one-file rule
+     on the most visible surface the project has. */
+  color: var(--tile-accent);
+}
+.ava-conv__glyph svg {
+  display: block;
+  width: clamp(0.85rem, 3vw, 1rem);
+  height: clamp(0.85rem, 3vw, 1rem);
+}
+
+.ava-conv__label {
+  font-size: clamp(0.62rem, 2.4vw, 0.72rem);
+  line-height: 1.3;
+  color: var(--txt);
+}
+
+/* The app's own segment. Real HTML text above, so the label reflows, zooms and
+   translates; only the geometry is decoration. */
+.ava-conv__stub {
+  position: absolute;
+  top: 50%;
+  width: var(--conv-stub);
+  border-top: 1px solid;
+  border-color: color-mix(in srgb, var(--tile-accent) 78%, transparent);
+}
+.ava-conv__col--l .ava-conv__stub { left: 100%; transform-origin: left center; }
+.ava-conv__col--r .ava-conv__stub { right: 100%; transform-origin: right center; }
+
+/* Ava's shared plumbing. Spans first-tile-centre to last-tile-centre by
+   construction, so it stays correct at any tile height or font size and needs
+   no alignment maths against the grid. */
+.ava-conv__bus {
+  position: absolute;
+  top: 1.1rem;
+  bottom: 1.1rem;
+  border-left: 1px solid var(--line);
+  transform-origin: center;
+}
+.ava-conv__col--l .ava-conv__bus { left: calc(100% + var(--conv-stub)); }
+.ava-conv__col--r .ava-conv__bus { right: calc(100% + var(--conv-stub)); }
+
+.ava-conv__feed {
+  position: absolute;
+  top: 50%;
+  width: var(--conv-feed);
+  border-top: 1px solid var(--line);
+}
+.ava-conv__hub { position: relative; }
+.ava-conv__feed--l { right: 100%; transform-origin: right center; }
+.ava-conv__feed--r { left: 100%; transform-origin: left center; }
+
+.ava-conv__card {
+  padding: 0.9rem 0.85rem;
+  border: 1px solid var(--ava-land-border);
+  border-radius: var(--r-md, 0.7rem);
+  background-color: var(--panel);
+  text-align: center;
+}
+/* Same mask idiom as the header mark and for the same reason: the artwork's
+   own ink is the brand blue, so it is painted from currentColor instead and
+   inks itself correctly on either surface. Reuses docs/assets/favicon.svg,
+   which sync.py already stages - the figure adds no binary of its own. */
+.ava-conv__mark {
+  display: block;
+  width: 2.15rem;
+  height: 2.15rem;
+  margin: 0 auto 0.55rem;
+  color: var(--txt);
+  background-color: currentColor;
+  -webkit-mask: url(../docs/assets/favicon.svg) center / contain no-repeat;
+  mask: url(../docs/assets/favicon.svg) center / contain no-repeat;
+}
+.ava-conv__name {
+  margin: 0 0 0.55rem;
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid var(--ava-land-border);
+  font-weight: var(--fw-medium);
+  font-size: 0.8rem;
+  color: var(--txt);
+}
+.ava-conv__chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.3rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+/* Three of the eight accents, inside Ava's own card. This is the product's
+   real grammar, not decoration: CLAUDE.md requires every element representing
+   a connected app to carry that app's accent, which is exactly what a chat
+   tool chip does. Three of eight says it selected and combined some of them
+   for one piece of work, which is what the agent does with connector tools. */
+.ava-conv__chip {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.12rem 0.4rem;
+  border: 1px solid var(--ava-land-border);
+  border-radius: var(--r-pill, 999px);
+  font-size: 0.58rem;
+  color: var(--ava-land-muted);
+}
+.ava-conv__chip::before {
+  content: "";
+  width: 0.34rem;
+  height: 0.34rem;
+  border-radius: 50%;
+  background-color: var(--tile-accent);
+}
+
+.ava-conv__caption {
+  max-width: 40rem;
+  margin: 1.6rem auto 0;
+  font-size: 0.74rem;
+  line-height: 1.6;
+  text-align: center;
+  color: var(--ava-land-muted);
+}
+
+/* One topology at every width. Below the breakpoint the two columns sit side
+   by side and the hub reflows underneath, so the tiles, stubs and buses are
+   completely unchanged and only the feeder rotates. 48rem rather than 44rem so
+   the hub drops BEFORE the centre channel gets squeezed. */
+@media screen and (max-width: 47.99rem) {
+  .ava-conv {
+    grid-template-columns: 1fr 1fr;
+    row-gap: 1.4rem;
+  }
+  .ava-conv__hub {
+    grid-column: 1 / -1;
+    max-width: 13rem;
+    margin: 0 auto;
+  }
+  .ava-conv__feed {
+    top: 100%;
+    width: 0;
+    height: var(--conv-feed);
+    border-top: 0;
+    border-left: 1px solid var(--line);
+    transform-origin: top center;
+  }
+  .ava-conv__feed--l { right: auto; left: 30%; }
+  .ava-conv__feed--r { left: auto; right: 30%; }
+}
+
+/* Motion. Every animation is compositor-only: opacity and transform, never a
+   colour, a width or a shadow. A scheme toggle mid-reveal therefore cannot
+   produce an interpolation artefact - the tokens simply re-resolve. */
+.ava-conv.is-playing .ava-conv__card {
+  animation: avaConvHub 260ms both;
+}
+.ava-conv.is-playing .ava-conv__tile {
+  animation: avaConvTile calc(var(--conv-in) + var(--conv-move)) both;
+  animation-delay: calc(60ms + var(--i) * var(--conv-step));
+}
+.ava-conv.is-playing .ava-conv__stub {
+  animation: avaConvGrowX var(--conv-wire) ease-out both;
+  animation-delay: calc(760ms + var(--i) * var(--conv-step));
+}
+.ava-conv.is-playing .ava-conv__bus {
+  animation: avaConvGrowY var(--conv-wire) ease-out both;
+  animation-delay: 1180ms;
+}
+.ava-conv.is-playing .ava-conv__feed {
+  animation: avaConvGrowX var(--conv-wire) ease-out both;
+  animation-delay: 1330ms;
+}
+.ava-conv.is-playing .ava-conv__chip {
+  animation: avaConvChip 240ms ease-out both;
+  animation-delay: calc(1400ms + var(--i) * 80ms);
+}
+
+@keyframes avaConvHub {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: none; }
+}
+/* The 35% hold is the beat that carries the message. Keeping the tiles STILL
+   at their scattered offsets for ~340ms makes "scattered" a legible state
+   rather than a flight path; without it the eye only sees eight things
+   arriving. The offsets are hand-picked per tile in home.html, not random, so
+   the scatter reads as a real desk rather than jitter. */
+@keyframes avaConvTile {
+  0%   { opacity: 0; transform: translate(var(--dx), var(--dy)) rotate(var(--dr)) scale(0.94); }
+  35%  { opacity: 1; transform: translate(var(--dx), var(--dy)) rotate(var(--dr)) scale(0.94);
+         animation-timing-function: cubic-bezier(0.22, 0.61, 0.36, 1); }
+  100% { opacity: 1; transform: none; }
+}
+@keyframes avaConvGrowX {
+  from { transform: scaleX(0); }
+  to   { transform: none; }
+}
+@keyframes avaConvGrowY {
+  from { transform: scaleY(0); }
+  to   { transform: none; }
+}
+@keyframes avaConvChip {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* The good case of the house convention. Elsewhere the guidance is to
+   substitute something static where motion carried state - see
+   app/frontend/src/styles/global.css and hub.css - but here the rest state is
+   already the whole picture, so there is nothing to substitute and nothing is
+   lost. Do not "fix" this by adding a substitute. hero.js checks the same
+   query and returns before it ever builds an observer. */
+@media (prefers-reduced-motion: reduce) {
+  .ava-conv.is-playing :is(.ava-conv__card, .ava-conv__tile, .ava-conv__stub,
+                           .ava-conv__bus, .ava-conv__feed, .ava-conv__chip) {
+    animation: none;
+  }
+}
+
+/* .ava-reel lived here and is gone with the landing-page walkthrough it
+   styled. .ava-media went with it: it was the video's own wrapper, and the
+   carousel below positions its button against .ava-carousel instead.
+
+   .ava-expand STAYS, and is not dead code. It is the base class that
+   .ava-expand--carousel below modifies, and that carousel is dormant on
+   purpose — see the note beside extra_javascript in mkdocs.yml. Deleting the
+   base while keeping the modifier is exactly how this site once ended up
+   rendering a button that announced itself as "Expand video" and did nothing:
+   the two halves were separated, and only one of them was noticed. */
+.ava-expand {
+  position: absolute;
+  top: 0.55rem;
+  right: 0.55rem;
+  width: 1.95rem;
+  height: 1.95rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 0.4rem;
+  background: rgba(20, 18, 22, 0.6);
+  color: #fff;
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+  transition: background 0.15s ease;
+  z-index: 3;
+}
+.ava-expand:hover {
+  background: rgba(20, 18, 22, 0.9);
+}
+
+/* Screenshot carousel (javascripts/carousel.js) */
+.ava-gallery-sec {
+  padding: 3rem 0 3.4rem;
+}
+.ava-carousel {
+  position: relative;
+  max-width: 44rem;
+  margin: 0 auto;
+  outline: none;
+}
+.ava-expand--carousel {
+  top: 0.55rem;
+  right: 0.55rem;
+}
+/* In fullscreen, center the current image on the branded canvas. */
+.ava-carousel:fullscreen {
+  max-width: none;
+  background: #0d0d10;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 3vh 5vw;
+}
+.ava-carousel:fullscreen .ava-carousel__viewport {
+  border: 0;
+  box-shadow: none;
+}
+.ava-carousel:fullscreen .ava-slide img {
+  max-height: 82vh;
+  width: auto;
+  margin: 0 auto;
+}
+.ava-carousel:fullscreen .ava-carousel__caption {
+  color: #ece9f2;
+}
+.ava-carousel__viewport {
+  overflow: hidden;
+  border-radius: 0.55rem;
+  border: 1px solid var(--ava-land-border);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14);
+}
+[data-md-color-scheme="slate"] .ava-carousel__viewport {
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+}
+.ava-carousel__track {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  transition: transform 0.45s ease;
+}
+.ava-slide {
+  flex: 0 0 100%;
+  min-width: 100%;
+  margin: 0;
+}
+.ava-slide a {
+  display: block;
+}
+.ava-slide img {
+  display: block;
+  width: 100%;
+}
+.ava-carousel__caption {
+  margin: 0.85rem auto 0;
+  max-width: 40rem;
+  font-size: 0.8rem;
+  line-height: 1.55;
+  color: var(--ava-land-muted);
+  text-align: center;
+}
+.ava-carousel__caption strong {
+  color: var(--md-default-fg-color);
+}
+.ava-carousel__arrow {
+  position: absolute;
+  top: calc((58rem / 16 * 9) / 2 - 1.2rem);
+  transform: translateY(-50%);
+  /* Fallback vertical centering on the image band regardless of width. */
+  top: 28%;
+  width: 2.4rem;
+  height: 2.4rem;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(20, 18, 22, 0.62);
+  color: #fff;
+  font-size: 1.35rem;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(4px);
+  transition: background 0.15s ease;
+}
+.ava-carousel__arrow:hover {
+  background: rgba(20, 18, 22, 0.85);
+}
+.ava-carousel__arrow--prev {
+  left: 0.7rem;
+}
+.ava-carousel__arrow--next {
+  right: 0.7rem;
+}
+.ava-carousel__dots {
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+.ava-carousel__dots button {
+  width: 0.55rem;
+  height: 0.55rem;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--ava-land-border);
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+.ava-carousel__dots button.is-active {
+  background: var(--accent);
+  transform: scale(1.25);
+}
+
+/* Diagram zoom lightbox (javascripts/diagram-zoom.js) */
+.dz-zoomable {
+  cursor: zoom-in;
+}
+.dz-lock {
+  overflow: hidden;
+}
+.dz-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: none;
+  background: rgba(20, 18, 16, 0.92);
+}
+.dz-overlay.dz-open {
+  display: block;
+}
+.dz-stage {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+}
+.dz-stage.dz-grabbing {
+  cursor: grabbing;
+}
+.dz-img {
+  max-width: 92vw;
+  max-height: 88vh;
+  background: #fff;
+  border-radius: 0.4rem;
+  transform-origin: center;
+  user-select: none;
+  -webkit-user-drag: none;
+  pointer-events: none;
+}
+.dz-toolbar {
+  position: absolute;
+  top: 0.8rem;
+  right: 0.8rem;
+  display: flex;
+  gap: 0.35rem;
+}
+.dz-btn {
+  min-width: 2.2rem;
+  height: 2.2rem;
+  padding: 0 0.7rem;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 0.45rem;
+  background: rgba(255, 255, 255, 0.08);
+  color: #f4f3ee;
+  font: 600 1rem/1 Inter, sans-serif;
+  cursor: pointer;
+}
+.dz-btn:hover {
+  background: var(--ava-accent);
+  border-color: var(--ava-accent);
+}
+.dz-hint {
+  position: absolute;
+  bottom: 0.9rem;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 0.65rem;
+  color: rgba(244, 243, 238, 0.65);
+  pointer-events: none;
+}
+
+/* 404 page (overrides/404.html) */
+.ava-404 {
+  padding: 3rem 0 4rem;
+  text-align: center;
+}
+.ava-404 h1 {
+  font-weight: var(--fw-display);
+  letter-spacing: var(--tracking-display);
+}
+.ava-404__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.6rem;
+  margin-top: 1.4rem;
+}
+
+/* ------------------------------------------------------------------ */
+/* Get-started funnel strip                                           */
+/* ------------------------------------------------------------------ */
+/* Four numbered steps across the top of every "Get started" page, with
+   the current one filled. Authored as inline HTML in the markdown
+   (md_in_html + attr_list are both enabled in mkdocs.yml), so there is no
+   SVG to render, no asset to stage in sync.py, and no way for the strip to
+   drift out of sync with the nav it mirrors: each page hard-codes its own
+   `is-now`. It replaces the situation where three of the four steps never
+   said which step they were and only one linked to the next. */
+.ava-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0 0 1.6rem;
+  padding: 0;
+  list-style: none;
+  font-size: 0.72rem;
+}
+.ava-steps li {
+  flex: 1 1 8rem;
+  margin: 0;
+}
+.ava-steps a,
+.ava-steps span {
+  display: block;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--ava-line, rgba(128, 128, 128, 0.3));
+  border-radius: 3px;
+  text-decoration: none;
+  line-height: 1.3;
+  color: inherit;
+}
+.ava-steps a:hover {
+  border-color: var(--ava-accent);
+}
+/* The step you are on. Filled, not just bolded: at 0.72rem a weight change
+   alone does not survive a glance. */
+.ava-steps .is-now span {
+  background: var(--ava-accent);
+  border-color: var(--ava-accent);
+  color: #fff;
+  font-weight: 600;
+}
+.ava-steps b {
+  display: block;
+  font-size: 0.62rem;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  opacity: 0.7;
+  font-weight: 500;
+}

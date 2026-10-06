@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "platform.schema.json",
+  "title": "Platform manifest (agent.yaml at the repository root)",
+  "type": "object",
+  "required": ["schema_version", "name", "description", "version", "instructions", "default_agent"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": 1},
+    "name": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,62}$"},
+    "description": {"type": "string", "minLength": 10},
+    "version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+"},
+    "instructions": {"type": "string", "description": "Global operating instructions for every agent (AGENT.md)."},
+    "default_agent": {"type": "string", "description": "Agent that receives tasks when none is named."},
+    "owners": {"type": "array", "items": {"type": "string"}},
+    "template": {
+      "type": "object",
+      "description": "Provenance: which template version this project was created from. Used for upgrades.",
+      "required": ["source", "version"],
+      "additionalProperties": false,
+      "properties": {
+        "source": {"type": "string"},
+        "version": {"type": "string"},
+        "adopted_at": {"type": ["string", "null"]}
+      }
+    }
+  }
+}

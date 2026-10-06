@@ -1,0 +1,56 @@
+# Model registry - the ONLY place model ids appear. Routes (routing.yaml) refer to the keys
+# below; agents refer to routes. Changing a model is a one-line edit here.
+#
+# max_output_tokens is the per-request ceiling the router sends (agents may ask for less).
+# Requests are streamed, so large values are safe for Claude models.
+# options are passed to the provider adapter (see runtime/providers/).
+schema_version: 1
+models:
+  claude-opus:
+    provider: anthropic
+    model: claude-opus-5-5
+    context_window: 1000000
+    max_output_tokens: 64000          # model maximum is 128000
+    supports_effort: true
+    default_effort: high              # set explicitly: the API default for this model is medium
+    options:
+      refusal_fallback: default       # server-side fallback when a safety classifier declines
+    notes: Most capable default for planning, review and hard reasoning.
+
+  claude-sonnet:
+    provider: anthropic
+    model: claude-sonnet-5-5
+    context_window: 1000000
+    max_output_tokens: 64000
+    supports_effort: true
+    default_effort: medium            # start at medium for multistep tool use; tune with evals
+    options:
+      refusal_fallback: default
+    notes: Fast, capable workhorse for most agent work.
+
+  claude-haiku:
+    provider: anthropic
+    model: claude-haiku-4-5
+    context_window: 200000
+    max_output_tokens: 32000
+    supports_effort: false            # effort is not supported on this model
+    notes: Cheapest and fastest; simple, high-volume or latency-sensitive steps.
+
+  openai-default:
+    provider: openai
+    model: ${OPENAI_MODEL:-gpt-5}
+    max_output_tokens: 32000
+    supports_effort: false            # set true for reasoning models that accept reasoning_effort
+    notes: Optional second vendor for fallback chains.
+
+  local-default:
+    provider: local
+    model: ${LOCAL_LLM_MODEL:-local-model}
+    max_output_tokens: 8192
+    notes: Any OpenAI-compatible local server (vLLM, Ollama, LM Studio). Cleared for restricted data.
+
+  mock:
+    provider: mock
+    model: mock
+    max_output_tokens: 4096
+    notes: Built-in deterministic provider for tests, evals and offline demos.

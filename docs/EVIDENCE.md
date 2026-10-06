@@ -9,7 +9,7 @@ invisible.
 Most trust claims in self-hosted software are properties of a repo's culture: the
 docs say a thing, and you either believe the author or read the source. `ava
 attest` produces an **evidence bundle** about one running instance, plus a
-standalone verifier (`tools/verify_bundle.py`) that checks it without importing
+standalone verifier (`scripts/verify_bundle.py`) that checks it without importing
 Ava at all.
 
 **The bundle is unsigned, and that is deliberate.** Signing your own bundle on
@@ -59,12 +59,12 @@ anybody else, pass `--redact-biometrics`.
 ### Verifying one
 
 ```bash
-python3 tools/verify_bundle.py ./evidence            # from the Ava checkout
+python3 scripts/verify_bundle.py ./evidence            # from the Ava checkout
 cd ./evidence && python3 verify.py . --self-test     # or from the bundle itself
 ```
 
 The verifier is deliberately standalone: stdlib only, and it does not import
-`ava_bridge`, so it checks the bundle rather than trusting the code that produced
+`runtime`, so it checks the bundle rather than trusting the code that produced
 it. A copy travels **inside** every bundle, so whoever you hand it to needs
 nothing from this repo.
 

@@ -1,0 +1,179 @@
+# Tool registry - every native tool the platform can run. Validated by schemas/tool.schema.json.
+#
+# This file says what EXISTS. Who may USE a tool is decided by:
+#   agents/<name>/agent.yaml `tools`         (what the agent asks for)
+#   policies/tool-permissions.yaml           (what it is granted - default deny)
+#   policies/approvals.yaml                  (what needs a human first)
+#
+# side_effects is mandatory and drives approvals. Classify honestly:
+#   none           reads workspace/state only
+#   read_external  reads from the network or an external system
+#   local_write    writes inside the workspace
+#   external_write changes something outside the workspace (API call, message, ticket)
+#   destructive    can delete, overwrite or execute arbitrary code
+#
+# Ids are <family>.<action>. Providers see them as <family>__<action>.
+schema_version: 1
+tools:
+  # --- built-ins: call back into the platform (runtime/builtins.py) -------------------------
+  - id: skill.load
+    description: Load the full instructions of one of your available skills by name. Call this before doing work a skill covers.
+    implementation: runtime.builtins:skill_load
+    side_effects: none
+    input_schema:
+      type: object
+      properties:
+        name: {type: string, description: Skill name from <available_skills>.}
+      required: [name]
+      additionalProperties: false
+
+  - id: memory.recall
+    description: Search long-term memory for facts relevant to a query. Returns the best matches with their namespace.
+    implementation: runtime.builtins:memory_recall
+    side_effects: none
+    input_schema:
+      type: object
+      properties:
+        query: {type: string, minLength: 2}
+        namespaces: {type: array, items: {type: string}, description: Defaults to every namespace you may read.}
+        k: {type: integer, minimum: 1, maximum: 20}
+      required: [query]
+      additionalProperties: false
+
+  - id: memory.remember
+    description: Store one durable fact (a decision, preference or finding worth keeping across tasks). Keep it short and self-contained. Never store secrets.
+    implementation: runtime.builtins:memory_remember
+    side_effects: local_write
+    input_schema:
+      type: object
+      properties:
+        namespace: {type: string}
+        text: {type: string, minLength: 3, maxLength: 2000}
+        tags: {type: array, items: {type: string}, maxItems: 10}
+      required: [namespace, text]
+      additionalProperties: false
+
+  - id: task.delegate
+    description: Hand a self-contained sub-task to one of your delegate agents and get its final answer back. The delegate sees only the task text, so include all context it needs.
+    implementation: runtime.builtins:task_delegate
+    side_effects: none
+    timeout_s: 900
+    input_schema:
+      type: object
+      properties:
+        agent: {type: string, description: Name from <delegates>.}
+        task: {type: string, minLength: 10, description: Complete, standalone instructions for the delegate.}
+      required: [agent, task]
+      additionalProperties: false
+
+  # --- filesystem ---------------------------------------------------------------------------
+  - id: filesystem.read
+    description: Read a UTF-8 text file from the workspace. Paths are relative to the workspace root.
+    implementation: tools.filesystem:read
+    side_effects: none
+    input_schema:
+      type: object
+      properties:
+        path: {type: string}
+        max_chars: {type: integer, minimum: 100, maximum: 100000}
+      required: [path]
+      additionalProperties: false
+
+  - id: filesystem.list
+    description: List files and directories in the workspace (directories end with /).
+    implementation: tools.filesystem:list_dir
+    side_effects: none
+    input_schema:
+      type: object
+      properties:
+        path: {type: string, default: "."}
+        recursive: {type: boolean, default: false}
+        max_entries: {type: integer, minimum: 1, maximum: 1000}
+      additionalProperties: false
+
+  - id: filesystem.write
+    description: Write a UTF-8 text file. By policy, only paths under artifacts/ are writable. Files under artifacts/ are recorded as task artifacts.
+    implementation: tools.filesystem:write
+    side_effects: local_write
+    input_schema:
+      type: object
+      properties:
+        path: {type: string, description: "e.g. artifacts/reports/summary.md"}
+        content: {type: string}
+        overwrite: {type: boolean, default: false}
+        description: {type: string, description: One line describing the artifact.}
+      required: [path, content]
+      additionalProperties: false
+
+  # --- shell (denied to everyone by default; needs sandbox + approval) ----------------------
+  - id: shell.run
+    description: Run a command (argv list, no shell) inside the sandbox. Returns exit code, stdout and stderr.
+    implementation: tools.shell:run
+    side_effects: destructive
+    sandbox: required
+    timeout_s: 120
+    input_schema:
+      type: object
+      properties:
+        command: {type: array, items: {type: string}, minItems: 1}
+        timeout_s: {type: integer, minimum: 1, maximum: 600}
+      required: [command]
+      additionalProperties: false
+
+  # --- git (read-only) -----------------------------------------------------------------------
+  - id: git.status
+    description: Show the working tree status of the workspace repository.
+    implementation: tools.git:status
+    side_effects: none
+    input_schema: {type: object, properties: {}, additionalProperties: false}
+
+  - id: git.diff
+    description: Show a diff of the working tree, the staged changes, or against a base ref, optionally limited to one path.
+    implementation: tools.git:diff
+    side_effects: none
+    max_output_chars: 60000
+    input_schema:
+      type: object
+      properties:
+        base: {type: string, description: "Branch, tag or commit, e.g. main or HEAD~3"}
+        staged: {type: boolean}
+        path: {type: string}
+      additionalProperties: false
+
+  - id: git.log
+    description: Show recent commits (hash, date, author, subject).
+    implementation: tools.git:log
+    side_effects: none
+    input_schema:
+      type: object
+      properties:
+        limit: {type: integer, minimum: 1, maximum: 200}
+      additionalProperties: false
+
+  # --- browser ---------------------------------------------------------------------------------
+  - id: browser.fetch
+    description: Fetch a web page over HTTPS and return its text. Only domains allowed by policies/network.yaml are reachable.
+    implementation: tools.browser:fetch
+    side_effects: read_external
+    timeout_s: 30
+    input_schema:
+      type: object
+      properties:
+        url: {type: string, format: uri}
+        max_chars: {type: integer, minimum: 500, maximum: 100000}
+      required: [url]
+      additionalProperties: false
+
+  # --- database (read-only) --------------------------------------------------------------------
+  - id: database.query
+    description: Run one read-only SQL query against the configured database (DATABASE_URL) and return columns and rows.
+    implementation: tools.database:query
+    side_effects: none
+    input_schema:
+      type: object
+      properties:
+        sql: {type: string, minLength: 6}
+        params: {type: array}
+        max_rows: {type: integer, minimum: 1, maximum: 5000}
+      required: [sql]
+      additionalProperties: false

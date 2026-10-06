@@ -39,7 +39,7 @@ their OWN licenses, which apply to those components. Notable examples:
     non-commercial only; commercial deployments need an Open-Meteo
     subscription.
   - Python dependencies — see requirements*.txt; Node dependencies for the web
-    app — see frontend/package.json — and their upstream licenses.
+    app — see app/frontend/package.json — and their upstream licenses.
 
 Ava does not display model license terms during install. Before you pull a
 model, read its license: each model has its own license; Ava ships no default language model. Provisioning the agent runtime runs NVIDIA's installer with

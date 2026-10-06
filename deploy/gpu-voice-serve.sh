@@ -60,10 +60,10 @@ then
 fi
 
 # 3. Install the sidecar deps (idempotent).
-echo "[gpu-voice] installing requirements-voice-gpu.txt…"
+echo "[gpu-voice] installing config/dependencies/voice-gpu.txt…"
 "$VENV/bin/pip" install -q -r "$REPO/requirements-voice-gpu.txt"
 
 # 4. Serve. Model load + first synth (~10-25s) happens at startup; the bridge
 #    falls back to CPU during that window.
 echo "[gpu-voice] serving Kokoro TTS + Whisper STT on 127.0.0.1:$PORT …"
-exec "$VENV/bin/python" -m uvicorn kokoro_tts:app --host 127.0.0.1 --port "$PORT"
+exec "$VENV/bin/python" -m uvicorn app.backend.voice.kokoro:app --host 127.0.0.1 --port "$PORT"

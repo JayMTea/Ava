@@ -24,7 +24,7 @@ HASS_TOKEN=<your long-lived token>
 EOF
 
 # 3. Restart Ava (or `ava up`), then render its egress policy:
-ava connector policies home-assistant --write && (cd agent && ./install.sh)
+ava connector policies home-assistant --write && (ava agent provision)
 ```
 
 Ask Ava: *"what's the temperature in the living room?"* (silent read via

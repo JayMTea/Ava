@@ -11,7 +11,7 @@
 # (`git clone … && cd Ava/deploy && ./install.sh`) runs fine in Git Bash, which
 # ships with Git for Windows — but only if the checkout did not corrupt it first.
 #
-# This is repo-wide, not deploy-only: agent-entrypoint.sh and the qa/ scripts are
+# This is repo-wide, not deploy-only: agent-entrypoint.sh and the tests/integration/ scripts are
 # executed the same way and break the same way.
 *.sh text eol=lf
 

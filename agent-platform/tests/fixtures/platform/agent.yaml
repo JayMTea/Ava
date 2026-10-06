@@ -1,0 +1,9 @@
+# TEST FIXTURE - not a project agent platform. Runtime tests (tests/) run against this small,
+# fixed config so they keep passing however a project tailors its own agents and policies.
+# Change it only when changing the runtime behaviour it pins.
+schema_version: 1
+name: fixture-platform
+description: Fixture platform used by the runtime test suite.
+version: 1.0.0
+instructions: AGENT.md
+default_agent: lead

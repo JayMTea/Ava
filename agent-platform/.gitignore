@@ -1,0 +1,37 @@
+# --- secrets ---------------------------------------------------------------
+.env
+.env.*
+!.env.example
+
+# --- runtime state (sessions, checkpoints, memory, tasks, cache) -----------
+state/**
+!state/**/
+!state/**/.gitkeep
+
+# --- agent outputs: commit deliberately with `git add -f` -------------------
+artifacts/**
+!artifacts/**/
+!artifacts/**/.gitkeep
+
+# --- coding-agent local settings ---------------------------------------------
+.claude/settings.local.json
+
+# --- python -------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# --- editors / OS -------------------------------------------------------------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

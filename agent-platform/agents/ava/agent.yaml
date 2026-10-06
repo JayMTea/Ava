@@ -1,0 +1,18 @@
+schema_version: 1
+name: ava
+description: >-
+  Ava's entry agent for answering questions about the assistant's architecture,
+  operating boundaries, and deployment from curated project knowledge. Use this
+  agent for platform tasks; live app actions require the configured Ava adapter.
+instructions: instructions.md
+model:
+  route: local
+tools:
+  - memory.recall
+  - filesystem.read
+  - filesystem.list
+  - skill.load
+memory:
+  read: [project, user, session]
+data_classification: restricted
+skills: [ava-platform-guide]

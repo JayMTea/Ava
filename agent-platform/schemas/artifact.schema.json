@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "artifact.schema.json",
+  "title": "Artifact record - an output an agent produced under artifacts/",
+  "type": "object",
+  "required": ["id", "type", "path", "task_id", "agent", "created_at", "media_type", "sha256"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {"type": "string", "pattern": "^art_[0-9a-f]{10}$"},
+    "type": {"enum": ["report", "code", "export"]},
+    "path": {"type": "string", "pattern": "^artifacts/"},
+    "task_id": {"type": "string"},
+    "agent": {"type": "string"},
+    "created_at": {"type": "string"},
+    "media_type": {"type": "string"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "description": {"type": "string"}
+  }
+}

@@ -283,7 +283,7 @@ yours is one of those, you are done - skip this section.
 Write one file in `$AVA_HOME/alloc_drivers/`:
 
 ```python
-from ava_bridge.alloc.base import ModelDriver, ReleaseMode, Residency, ActionResult
+from ava_agent.alloc.base import ModelDriver, ReleaseMode, Residency, ActionResult
 
 class MyEngineDriver(ModelDriver):
     name = "myengine"                                   # what `driver:` selects

@@ -1,0 +1,15 @@
+# Routes - what agents ask for. Each route is an ordered fallback chain of registry keys.
+# The router tries each model in order, skipping ones whose provider is disabled (missing
+# credentials) or not cleared for the agent's data classification, and moves on when a call
+# fails with one of the `fallback_on` error kinds.
+#
+# Override every route at once with AGENT_ROUTE_OVERRIDE=<route> (tests and evals use `test`).
+schema_version: 1
+routes:
+  reasoning: [claude-opus, claude-sonnet, openai-default, local-default]
+  balanced: [claude-sonnet, claude-opus, openai-default, local-default]
+  fast: [claude-haiku, claude-sonnet, local-default]
+  local: [local-default]          # restricted data: never leaves your infrastructure
+  test: [mock]
+
+fallback_on: [rate_limit, overloaded, server_error, timeout, connection]

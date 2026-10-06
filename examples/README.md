@@ -33,7 +33,7 @@ Each folder has its own README. The ports differ so you can run them side by sid
   until you configure them.
 - **"How do I stop the assistant doing something irreversible?"** - `home-assistant`,
   whose `dynamic_access` pins `"*": physical` so anything that actuates asks every
-  time. `physical` is the one tier [`_infer_access`](../ava_bridge/connectors.py) will
+  time. `physical` is the one tier [`_infer_access`](../agent-platform/integrations/ava/ava_agent/connectors.py) will
   never derive on its own; it has to be declared, and once declared it cannot be
   granted away.
 

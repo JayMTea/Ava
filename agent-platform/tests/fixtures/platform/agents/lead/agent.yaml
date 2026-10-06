@@ -1,0 +1,16 @@
+schema_version: 1
+name: lead
+description: Fixture entry agent that delegates to the helper, writes artifacts and curates memory.
+instructions: instructions.md
+model:
+  route: reasoning
+  effort: high
+tools: [skill.load, memory.recall, memory.remember, task.delegate, filesystem.read, filesystem.list, filesystem.write]
+skills: [sample]
+delegates_to: [helper]
+memory:
+  read: [project, session]
+  write: [project, session]
+limits:
+  max_turns: 30
+data_classification: internal

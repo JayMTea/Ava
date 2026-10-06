@@ -1,0 +1,14 @@
+# A self-hosted OpenAI-compatible server: vLLM, Ollama (/v1), LM Studio, llama.cpp, LiteLLM.
+# Enabled when LOCAL_LLM_BASE_URL is set. Because data never leaves your infrastructure it is
+# cleared for `restricted` work - only true if the server really is yours.
+schema_version: 1
+name: local
+type: openai_compatible
+enabled_when_env: [LOCAL_LLM_BASE_URL]
+api_key_env: LOCAL_LLM_API_KEY
+base_url: ${LOCAL_LLM_BASE_URL:-http://localhost:8000/v1}
+max_data_classification: restricted
+options:
+  max_tokens_param: max_tokens    # many local servers predate max_completion_tokens
+  timeout_s: 600
+  max_retries: 1

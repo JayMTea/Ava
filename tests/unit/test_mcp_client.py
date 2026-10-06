@@ -1,0 +1,528 @@
+"""MCP client tests — the "wrap any MCP server in an egress policy" feature.
+
+Covers: a REAL end-to-end stdio session against a stub MCP server subprocess
+(initialize -> tools/list -> tools/call over newline JSON-RPC), a REAL
+end-to-end legacy HTTP+SSE session against a threaded stub (the Home Assistant
+MCP-server shape: endpoint event, POSTed requests, responses on the stream),
+the Streamable-HTTP transport's JSON/SSE/session-id handling via mocked
+requests, and the connectors-layer integration (routing + egress policy
+auto-allow).
+"""
+import http.server
+import json
+import queue
+import sys
+import textwrap
+import threading
+import unittest
+from unittest import mock
+
+from ava_agent import connectors, mcp_client
+
+# A minimal MCP server speaking newline-delimited JSON-RPC on stdio.
+STUB_SERVER = textwrap.dedent("""
+    import sys, json
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        msg = json.loads(line)
+        if "id" not in msg:
+            continue  # notification
+        m = msg.get("method")
+        if m == "initialize":
+            r = {"protocolVersion": "2025-03-26", "capabilities": {"tools": {}},
+                 "serverInfo": {"name": "stub", "version": "0"}}
+        elif m == "tools/list":
+            r = {"tools": [{"name": "echo", "description": "echo args back",
+                            "inputSchema": {"type": "object"}}]}
+        elif m == "tools/call":
+            r = {"content": [{"type": "text",
+                              "text": json.dumps(msg["params"]["arguments"])}],
+                 "isError": False}
+        else:
+            r = {}
+        sys.stdout.write(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": r}) + "\\n")
+        sys.stdout.flush()
+""")
+
+STDIO_SPEC = {"transport": "stdio", "url": None, "env": None, "token_env": None,
+              "command": [sys.executable, "-u", "-c", STUB_SERVER]}
+
+
+class TestStdioEndToEnd(unittest.TestCase):
+    def tearDown(self):
+        mcp_client.reset()
+
+    def test_list_and_call(self):
+        out = mcp_client.list_tools("t1", STDIO_SPEC)
+        self.assertNotIn("error", out, out)
+        self.assertEqual(out["tools"][0]["name"], "echo")
+
+        data, status = mcp_client.call_tool("t1", STDIO_SPEC, "echo", {"x": 1})
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(data["content"][0]["text"]), {"x": 1})
+
+    def test_list_is_cached_across_calls(self):
+        mcp_client.list_tools("t2", STDIO_SPEC)
+        s1 = mcp_client._sessions["t2"]
+        mcp_client.list_tools("t2", STDIO_SPEC)
+        self.assertIs(mcp_client._sessions["t2"], s1)  # same live session
+
+    def test_dead_server_returns_error_not_raise(self):
+        spec = dict(STDIO_SPEC, command=[sys.executable, "-c", "pass"])  # exits at once
+        out = mcp_client.list_tools("t3", spec)
+        self.assertIn("error", out)
+
+    def test_a_server_that_dies_says_why(self):
+        """stderr went to DEVNULL, so a server that failed to start produced
+        "exited (rc=1)" and the one line naming the cause — missing module, bad
+        credential, wrong runtime — was discarded. The owner was left with an
+        error that has no next step."""
+        spec = dict(STDIO_SPEC, command=[
+            sys.executable, "-c",
+            "import sys; sys.stderr.write('ModuleNotFoundError: no module named foo\\n'); "
+            "sys.exit(1)"])
+        out = mcp_client.list_tools("t3b", spec)
+        self.assertIn("error", out)
+        self.assertIn("ModuleNotFoundError", out["error"],
+                      f"the server's own reason was dropped: {out['error']!r}")
+
+    def test_a_pasted_credential_never_reaches_the_error_text(self):
+        """A server that echoes its token in a startup banner must not put it in
+        a Hub error message — the owner's screen is not where a credential goes.
+        """
+        secret = "fixture-private-token"
+        spec = dict(STDIO_SPEC, env={"APP_TOKEN": secret}, command=[
+            sys.executable, "-c",
+            "import os, sys; sys.stderr.write('starting with token ' "
+            "+ os.environ.get('APP_TOKEN', '') + '\\n'); sys.exit(2)"])
+        out = mcp_client.list_tools("t3c", spec)
+        self.assertIn("error", out)
+        self.assertIn("starting with token", out["error"])
+        self.assertNotIn(secret, out["error"])
+        self.assertIn("***", out["error"])
+
+
+class _SseStub(http.server.BaseHTTPRequestHandler):
+    """The legacy HTTP+SSE MCP shape (what Home Assistant serves): GET /sse
+    streams an `endpoint` event then parks, relaying JSON-RPC responses;
+    POST /messages answers 202 and computes the response. Responses are
+    broadcast to every open stream (each test session keeps its own stream
+    alive until class teardown; clients correlate strictly by request id, so
+    a one-consumer shared queue would let an idle stream steal them)."""
+    streams: list = []           # one queue per open GET stream
+    stop = threading.Event()
+    seen_auth: list = []
+
+    def log_message(self, *a):
+        pass
+
+    def do_GET(self):
+        self.seen_auth.append(self.headers.get("Authorization"))
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.end_headers()
+        q: "queue.Queue" = queue.Queue()
+        self.streams.append(q)      # register BEFORE announcing the endpoint,
+        try:                        # or a fast client's first POST races us
+            # CRLF line endings on purpose — Home Assistant's SSE does this,
+            # and it regressed the parser once (phantom blank lines).
+            self.wfile.write(b"event: endpoint\r\ndata: /messages\r\n\r\n")
+            self.wfile.flush()
+            while not self.stop.is_set():
+                try:
+                    msg = q.get(timeout=0.05)
+                except queue.Empty:
+                    continue
+                try:
+                    self.wfile.write(b"event: message\r\ndata: "
+                                     + json.dumps(msg).encode() + b"\r\n\r\n")
+                    self.wfile.flush()
+                except OSError:      # client hung up (session reset)
+                    return
+        finally:
+            self.streams.remove(q)
+
+    def do_POST(self):
+        n = int(self.headers.get("Content-Length") or 0)
+        msg = json.loads(self.rfile.read(n))
+        self.send_response(202)
+        self.end_headers()
+        if "id" not in msg:      # notification
+            return
+        m = msg.get("method")
+        if m == "initialize":
+            r = {"protocolVersion": "2024-11-05", "capabilities": {"tools": {}},
+                 "serverInfo": {"name": "ha-stub", "version": "0"}}
+        elif m == "tools/list":
+            r = {"tools": [{"name": "HassTurnOn", "description": "Turns on",
+                            "inputSchema": {"type": "object"}}]}
+        elif m == "tools/call":
+            r = {"content": [{"type": "text",
+                              "text": json.dumps(msg["params"]["arguments"])}],
+                 "isError": False}
+        else:
+            r = {}
+        for q in list(self.streams):
+            q.put({"jsonrpc": "2.0", "id": msg["id"], "result": r})
+
+
+class TestSseEndToEnd(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        _SseStub.stop.clear()
+        cls.srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _SseStub)
+        threading.Thread(target=cls.srv.serve_forever, daemon=True).start()
+        cls.url = f"http://127.0.0.1:{cls.srv.server_address[1]}/sse"
+
+    @classmethod
+    def tearDownClass(cls):
+        mcp_client.reset()
+        _SseStub.stop.set()
+        cls.srv.shutdown()
+
+    def _spec(self, **kw):
+        return {"transport": "sse", "url": self.url, "command": None,
+                "env": None, "token_env": None, **kw}
+
+    def test_list_and_call_over_sse(self):
+        out = mcp_client.list_tools("sse1", self._spec())
+        self.assertNotIn("error", out, out)
+        self.assertEqual(out["tools"][0]["name"], "HassTurnOn")
+
+        data, status = mcp_client.call_tool("sse1", self._spec(), "HassTurnOn",
+                                            {"name": "kitchen"})
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(data["content"][0]["text"]),
+                         {"name": "kitchen"})
+
+    def test_bearer_token_sent_on_the_stream(self):
+        with mock.patch.dict("os.environ", {"HASS_TOKEN": "tok-1"}):
+            mcp_client.reset("sse2")
+            out = mcp_client.list_tools("sse2", self._spec(token_env="HASS_TOKEN"))
+        self.assertNotIn("error", out, out)
+        self.assertIn("Bearer tok-1", _SseStub.seen_auth)
+
+    def test_unreachable_sse_server_returns_error(self):
+        spec = self._spec(url="http://127.0.0.1:1/sse")
+        out = mcp_client.list_tools("sse3", spec)
+        self.assertIn("error", out)
+
+
+class _Resp:
+    def __init__(self, body, headers=None, status=200, sse=False):
+        self._body = body
+        self.status_code = status
+        self.headers = {"Content-Type": "text/event-stream" if sse else "application/json",
+                        **(headers or {})}
+        self.text = body if isinstance(body, str) else json.dumps(body)
+
+    def json(self):
+        if isinstance(self._body, str):
+            raise ValueError("not json")
+        return self._body
+
+
+class TestHttpTransport(unittest.TestCase):
+    def tearDown(self):
+        mcp_client.reset()
+
+    def _spec(self):
+        return {"transport": "http", "url": "http://mcp.test/mcp",
+                "command": None, "env": None, "token_env": None}
+
+    def test_session_id_echoed_and_tools_listed(self):
+        calls = []
+
+        def fake_post(url, json=None, headers=None, timeout=None, **kw):
+            calls.append({"url": url, "json": json, "headers": headers})
+            method = (json or {}).get("method")
+            if method == "initialize":
+                return _Resp({"jsonrpc": "2.0", "id": json["id"],
+                              "result": {"protocolVersion": "2025-03-26"}},
+                             headers={"Mcp-Session-Id": "sess-42"})
+            if method == "notifications/initialized":
+                return _Resp({}, status=202)
+            if method == "tools/list":
+                return _Resp({"jsonrpc": "2.0", "id": json["id"],
+                              "result": {"tools": [{"name": "web_search"}]}})
+            raise AssertionError(f"unexpected method {method}")
+
+        with mock.patch("requests.post", side_effect=fake_post):
+            out = mcp_client.list_tools("h1", self._spec())
+        self.assertEqual(out["tools"][0]["name"], "web_search")
+        # every request after initialize must carry the session id
+        self.assertEqual(calls[-1]["headers"].get("Mcp-Session-Id"), "sess-42")
+
+    def test_sse_response_parsed(self):
+        def fake_post(url, json=None, headers=None, timeout=None, **kw):
+            method = (json or {}).get("method")
+            if method == "initialize":
+                return _Resp({"jsonrpc": "2.0", "id": json["id"], "result": {}})
+            if method == "notifications/initialized":
+                return _Resp({}, status=202)
+            body = ("event: message\n"
+                    f"data: {{\"jsonrpc\": \"2.0\", \"id\": {json['id']}, "
+                    f"\"result\": {{\"tools\": [{{\"name\": \"sse_tool\"}}]}}}}\n\n")
+            return _Resp(body, sse=True)
+
+        with mock.patch("requests.post", side_effect=fake_post):
+            out = mcp_client.list_tools("h2", self._spec())
+        self.assertEqual(out["tools"][0]["name"], "sse_tool")
+
+    def test_http_error_becomes_error_dict(self):
+        with mock.patch("requests.post",
+                        return_value=_Resp({"error": "no"}, status=500)):
+            out = mcp_client.list_tools("h3", self._spec())
+        self.assertIn("error", out)
+
+
+class TestConnectorsIntegration(unittest.TestCase):
+    """The manifest `mcp:` block routes through the seam and polices egress.
+    The registry is mocked at connectors.load — no on-disk manifests needed."""
+
+    def tearDown(self):
+        mcp_client.reset()
+
+    def _manifest(self):
+        return {"id": "mcptest", "mcp": {"url": "http://127.0.0.1:9999/mcp"}}
+
+    def test_mcp_spec_parsed(self):
+        spec = connectors._mcp_spec(self._manifest())
+        self.assertEqual(spec["transport"], "http")
+        self.assertEqual(spec["url"], "http://127.0.0.1:9999/mcp")
+
+    def test_mcp_spec_stdio_inferred(self):
+        spec = connectors._mcp_spec({"id": "x", "mcp": {"command": ["npx", "-y", "srv"]}})
+        self.assertEqual(spec["transport"], "stdio")
+
+    def test_mcp_spec_sse_inferred_from_url_suffix(self):
+        spec = connectors._mcp_spec(
+            {"id": "x", "mcp": {"url": "http://ha.local:8123/mcp_server/sse"}})
+        self.assertEqual(spec["transport"], "sse")
+
+    def test_mcp_spec_explicit_transport_wins(self):
+        spec = connectors._mcp_spec(
+            {"id": "x", "mcp": {"url": "http://h/sse", "transport": "http"}})
+        self.assertEqual(spec["transport"], "http")
+
+    def test_mcp_spec_inert_when_env_unset(self):
+        # "${HASS_URL}/mcp_server/sse" with HASS_URL unset expands to a
+        # scheme-less path — the manifest must go inert, not half-configured.
+        with mock.patch.dict("os.environ", {}, clear=False):
+            import os
+            os.environ.pop("HASS_URL", None)
+            spec = connectors._mcp_spec(
+                {"id": "x", "mcp": {"url": "${HASS_URL}/mcp_server/sse"}})
+        self.assertIsNone(spec)
+
+    def test_mcp_spec_string_command_split(self):
+        spec = connectors._mcp_spec({"id": "x", "mcp": {"command": "npx -y srv"}})
+        self.assertEqual(spec["command"], ["npx", "-y", "srv"])
+
+    def test_discover_routes_to_mcp(self):
+        with mock.patch.object(connectors, "load",
+                               return_value=[self._manifest()]):
+            with mock.patch("ava_agent.mcp_client.list_tools",
+                            return_value={"tools": [{"name": "t"}]}) as m:
+                out = connectors.discover_tools("mcptest")
+        self.assertEqual(out["tools"][0]["name"], "t")
+        m.assert_called_once()
+
+    def test_call_routes_to_mcp(self):
+        with mock.patch.object(connectors, "load",
+                               return_value=[self._manifest()]):
+            with mock.patch("ava_agent.mcp_client.call_tool",
+                            return_value=({"content": []}, 200)) as m:
+                data, status = connectors.call_discovered("mcptest", "t", {"a": 1})
+        self.assertEqual(status, 200)
+        m.assert_called_once()
+
+    def test_egress_policy_allows_exactly_the_bridge_routes(self):
+        """The security invariant for MCP: policy exists and allow-lists the
+        __tools/__call routes — the agent's ONLY surface for this connector."""
+        with mock.patch.object(connectors, "load",
+                               return_value=[self._manifest()]):
+            pol = connectors.render_egress_policy("mcptest")
+        self.assertIsNotNone(pol)
+        allowed = {(r["allow"]["method"], r["allow"]["path"])
+                   for np in pol["network_policies"].values()
+                   for ep in np.get("endpoints", []) for r in ep.get("rules", [])}
+        self.assertIn(("GET", "/internal/connector/mcptest/__tools"), allowed)
+        self.assertIn(("POST", "/internal/connector/mcptest/__call"), allowed)
+        # and NOTHING else — the MCP server itself is not agent-reachable
+        self.assertEqual(len(allowed), 2)
+
+
+
+class TestTierNormalisation(unittest.TestCase):
+    """`tools/list` entries are normalised so the consent gate can read them.
+
+    `tools_cache.update` reads ONE field — a top-level `access` — and plain MCP
+    has no such field. Before this, a real MCP server's tools all fell to the
+    manifest default (`write`) and every read started asking the owner for
+    permission, however carefully the server had tagged them. These pin where a
+    tier is looked for, in what order, and — just as important — where it is NOT
+    invented.
+    """
+
+    def tearDown(self):
+        mcp_client.reset()
+
+    # -- the pure function ---------------------------------------------------
+    def test_explicit_top_level_access_is_never_overridden(self):
+        t = {"name": "x", "access": "read",
+             "_meta": {"access": "destructive"},
+             "annotations": {"destructiveHint": True}}
+        self.assertEqual(mcp_client._normalise_tool(t)["access"], "read")
+
+    def test_meta_access_is_lifted(self):
+        # The SDKs serialise `Tool.meta` as `_meta`.
+        t = {"name": "x", "_meta": {"access": "Sensitive"}}
+        out = mcp_client._normalise_tool(t)
+        self.assertEqual(out["access"], "sensitive")
+        self.assertNotIn("access", t, "normalisation must not mutate the input")
+
+    def test_namespaced_meta_key_is_lifted(self):
+        # What sdk/host/ava_mcp mirrors: the spec's vendor-field convention.
+        t = {"name": "x", "_meta": {"ava/access": "read"}}
+        self.assertEqual(mcp_client._normalise_tool(t)["access"], "read")
+
+    def test_a_meta_word_outside_the_tier_vocabulary_is_not_lifted(self):
+        # `_meta` is the spec's free-form slot: a third-party server's own
+        # "access": "public" is not a consent tier. Lifting it would make
+        # tools_cache coerce it to `write` and demote a device's `physical`
+        # fallback to a grantable prompt — so it must read as "said nothing".
+        t = {"name": "x", "_meta": {"access": "public"}}
+        self.assertNotIn("access", mcp_client._normalise_tool(t))
+
+    def test_an_invalid_meta_word_falls_through_to_the_annotations(self):
+        t = {"name": "x", "_meta": {"access": "bogus"},
+             "annotations": {"readOnlyHint": True}}
+        self.assertEqual(mcp_client._normalise_tool(t)["access"], "read")
+
+    def test_the_namespaced_meta_key_outranks_the_bare_one(self):
+        t = {"name": "x", "_meta": {"access": "read", "ava/access": "sensitive"}}
+        self.assertEqual(mcp_client._normalise_tool(t)["access"], "sensitive")
+
+    def test_meta_outranks_annotations(self):
+        t = {"name": "x", "_meta": {"access": "write"},
+             "annotations": {"readOnlyHint": True}}
+        self.assertEqual(mcp_client._normalise_tool(t)["access"], "write")
+
+    def test_read_only_hint_becomes_read(self):
+        t = {"name": "x", "annotations": {"readOnlyHint": True}}
+        self.assertEqual(mcp_client._normalise_tool(t)["access"], "read")
+
+    def test_destructive_hint_becomes_destructive_unless_read_only(self):
+        t = {"name": "x", "annotations": {"destructiveHint": True}}
+        self.assertEqual(mcp_client._normalise_tool(t)["access"], "destructive")
+        both = {"name": "x", "annotations": {"readOnlyHint": True,
+                                             "destructiveHint": True}}
+        self.assertEqual(mcp_client._normalise_tool(both)["access"], "read")
+
+    def test_no_signal_leaves_access_absent(self):
+        """Absent means "the server said nothing" — the manifest's
+        `dynamic_access` then decides, and a `role: device` connector keeps its
+        never-grantable `physical` fallback. Inventing `write` here would be the
+        silent downgrade tools_cache.update documents."""
+        for t in ({"name": "x"},
+                  {"name": "x", "_meta": {}},
+                  {"name": "x", "_meta": {"access": ""}},
+                  {"name": "x", "annotations": {}},
+                  # destructiveHint DEFAULTS to true in the spec: an explicit
+                  # false, or the other hints alone, must not accuse the tool.
+                  {"name": "x", "annotations": {"destructiveHint": False}},
+                  {"name": "x", "annotations": {"readOnlyHint": False,
+                                                "openWorldHint": True,
+                                                "idempotentHint": True}},
+                  # Only a literal True: strings and 1 are not the spec's shape.
+                  {"name": "x", "annotations": {"readOnlyHint": "true"}}):
+            with self.subTest(tool=t):
+                self.assertNotIn("access", mcp_client._normalise_tool(t))
+
+    def test_odd_shapes_pass_through(self):
+        self.assertEqual(mcp_client._normalise_tool("not a tool"), "not a tool")
+        self.assertEqual(mcp_client._normalise_tool({"name": "x", "_meta": "str"}),
+                         {"name": "x", "_meta": "str"})
+        self.assertEqual(mcp_client.normalise_tools(None), [])
+        self.assertEqual(mcp_client.normalise_tools({"tools": []}), [])
+        self.assertEqual(mcp_client.normalise_tools([1, {"name": "y"}]),
+                         [1, {"name": "y"}])
+
+    # -- through the transport and into the consent gate --------------------
+    def _spec(self):
+        return {"transport": "http", "url": "http://127.0.0.1:9999/mcp",
+                "command": None, "env": None, "token_env": None}
+
+    @staticmethod
+    def _fake_post(tools):
+        def fake_post(url, json=None, headers=None, timeout=None, **kw):
+            method = (json or {}).get("method")
+            if method == "initialize":
+                return _Resp({"jsonrpc": "2.0", "id": json["id"], "result": {}})
+            if method == "notifications/initialized":
+                return _Resp({}, status=202)
+            if method == "tools/list":
+                return _Resp({"jsonrpc": "2.0", "id": json["id"],
+                              "result": {"tools": tools}})
+            raise AssertionError(f"unexpected method {method}")
+        return fake_post
+
+    def test_list_tools_returns_normalised_entries(self):
+        tools = [
+            {"name": "explicit", "access": "sensitive",
+             "annotations": {"readOnlyHint": True}},
+            {"name": "via_meta", "_meta": {"ava/access": "read"}},
+            {"name": "via_hint", "annotations": {"destructiveHint": True}},
+            {"name": "silent"},
+        ]
+        with mock.patch("requests.post", side_effect=self._fake_post(tools)):
+            out = mcp_client.list_tools("norm1", self._spec())
+        got = {t["name"]: t.get("access") for t in out["tools"]}
+        self.assertEqual(got, {"explicit": "sensitive", "via_meta": "read",
+                               "via_hint": "destructive", "silent": None})
+        self.assertNotIn("access", out["tools"][3])
+
+    def test_discovery_writes_the_lifted_tier_into_the_consent_cache(self):
+        """The end-to-end reason this exists: a real MCP server that tags a
+        tool `_meta.access: read` must run it silently, not prompt for it. The
+        manifest is loopback so the self-report is trusted (see
+        connectors._trusts_declared_tiers)."""
+        from ava_agent import tools_cache
+        import tempfile
+        import os
+        manifest = {"id": "mcptest", "kind": "app",
+                    "mcp": {"url": "http://127.0.0.1:9999/mcp"}}
+        tools = [{"name": "list_things", "_meta": {"access": "read"}},
+                 {"name": "wipe_things", "annotations": {"destructiveHint": True}},
+                 {"name": "untagged"}]
+        tmp = tempfile.mkdtemp()
+        try:
+            with mock.patch.object(tools_cache, "PATH",
+                                   os.path.join(tmp, "cache.json")), \
+                 mock.patch.object(connectors, "load", return_value=[manifest]), \
+                 mock.patch("requests.post", side_effect=self._fake_post(tools)):
+                tools_cache._cache.update(data=None, mtime=0.0)
+                out = connectors.discover_tools("mcptest")
+                self.assertNotIn("error", out, out)
+                self.assertEqual(tools_cache.access("mcptest", "list_things"), "read")
+                self.assertEqual(tools_cache.access("mcptest", "wipe_things"),
+                                 "destructive")
+                # Said nothing -> recorded as nothing -> the manifest decides.
+                self.assertIsNone(tools_cache.access("mcptest", "untagged"))
+                self.assertEqual(connectors.action_access("mcptest", "list_things"),
+                                 "read")
+                self.assertEqual(connectors.action_access("mcptest", "wipe_things"),
+                                 "destructive")
+                self.assertEqual(connectors.action_access("mcptest", "untagged"),
+                                 "write")
+        finally:
+            tools_cache._cache.update(data=None, mtime=0.0)
+            import shutil
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+if __name__ == "__main__":
+    unittest.main()

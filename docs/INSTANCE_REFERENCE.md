@@ -64,7 +64,7 @@ api_version: ava-extension/1
 runtime: runtime.py:Runtime
 ```
 
-`Runtime` subclasses `ava_bridge.runtime.base.AgentRuntime`, declares
+`Runtime` subclasses `ava_agent.adapters.base.AgentRuntime`, declares
 `name = "my-runtime"`, and implements `available()` and `run_turn()`. Then select
 `agent.runtime: my-runtime` in `ava.yaml` and restart Ava. Optional methods describe
 capabilities, sessions, model information, provisioning and sandbox execution.
@@ -88,7 +88,7 @@ bridge's existing authentication middleware; choose a distinct route namespace.
 
 Private agent material lives in `$AVA_HOME/overlay/agent` or the explicit
 `extensions.agent_dir` / `AVA_OVERLAY` path. The source-checkout route hook
-`overlay.ava_bridge.personal_routes` remains supported in its original checkout;
+`overlay.runtime.personal_routes` remains supported in its original checkout;
 a separate home must intentionally enable `extensions.legacy_routes` to use it.
 
 Frontend additions are compiled into a private image. Public release builds use
@@ -96,12 +96,12 @@ tracked source only. To build your own extension image from a reviewable context
 
 ```sh
 python deploy/scripts/build_context.py --output /tmp/ava-custom-context \
-  --frontend-extensions /path/to/your/frontend/overlay
+  --frontend-extensions /path/to/your/app/frontend/overlay
 docker build -f /tmp/ava-custom-context/deploy/Dockerfile \
   -t my-ava:custom /tmp/ava-custom-context
 ```
 
-The frontend folder follows the existing `frontend/src/overlay` module contract.
+The frontend folder follows the existing `app/frontend/src/overlay` module contract.
 Optional `--backend-extensions` and `--agent-extensions` copy deliberately selected
 source to the legacy overlay layout. Enable the legacy route hook and mount/configure
 agent material when using that compatibility layout with a separate container home.

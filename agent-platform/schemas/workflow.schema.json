@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "workflow.schema.json",
+  "title": "Workflow (workflows/<name>.yaml) - fixed steps run in order by code, not by a model",
+  "type": "object",
+  "required": ["schema_version", "name", "description", "steps"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": 1},
+    "name": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,62}$"},
+    "description": {"type": "string", "minLength": 10},
+    "inputs": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "description": {"type": "string"},
+          "required": {"type": "boolean"},
+          "default": {}
+        }
+      }
+    },
+    "steps": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/step"}},
+    "output": {"type": "string", "description": "Template for the final result. Defaults to the last step's output."}
+  },
+  "$defs": {
+    "step": {
+      "type": "object",
+      "required": ["id"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+        "description": {"type": "string"},
+        "continue_on_error": {"type": "boolean"}
+      },
+      "oneOf": [
+        {
+          "required": ["agent", "input"],
+          "properties": {
+            "id": true, "description": true, "continue_on_error": true,
+            "agent": {"type": "string"},
+            "input": {"type": "string", "description": "Task text. May use {{ inputs.x }} and {{ steps.<id>.output }}."}
+          },
+          "additionalProperties": false
+        },
+        {
+          "required": ["tool", "as_agent"],
+          "properties": {
+            "id": true, "description": true, "continue_on_error": true,
+            "tool": {"type": "string"},
+            "as_agent": {"type": "string", "description": "Identity the policy engine checks the call against."},
+            "arguments": {"type": "object"}
+          },
+          "additionalProperties": false
+        },
+        {
+          "required": ["approval"],
+          "properties": {
+            "id": true, "description": true, "continue_on_error": true,
+            "approval": {
+              "type": "object",
+              "required": ["message"],
+              "additionalProperties": false,
+              "properties": {
+                "message": {"type": "string"},
+                "side_effects": {"enum": ["none", "read_external", "local_write", "external_write", "destructive"]}
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    }
+  }
+}

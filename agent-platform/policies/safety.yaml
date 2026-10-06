@@ -1,0 +1,34 @@
+# HARD ENFORCEMENT - run limits, untrusted-content handling and secret redaction.
+schema_version: 1
+
+# Ceilings for every run. agent.yaml `limits` can only lower them.
+limits:
+  max_turns: 25
+  max_tool_calls: 100
+  max_delegation_depth: 2
+  max_wall_clock_s: 900
+
+# Wrap every tool result in <tool_output trust="untrusted"> so the model treats it as data.
+untrusted_content:
+  wrap_tool_output: true
+
+# Applied to tool output, memory writes, traces, audit records and logs.
+# Add patterns for any credential format your project handles.
+redaction:
+  patterns:
+    - name: anthropic_api_key
+      regex: 'sk-ant-[A-Za-z0-9_\-]{20,}'
+    - name: openai_api_key
+      regex: 'sk-(?:proj-)?[A-Za-z0-9_\-]{20,}'
+    - name: aws_access_key_id
+      regex: '\b(?:AKIA|ASIA)[0-9A-Z]{16}\b'
+    - name: github_token
+      regex: '\bgh[pousr]_[A-Za-z0-9]{36,}\b'
+    - name: slack_token
+      regex: '\bxox[abprs]-[A-Za-z0-9-]{10,}'
+    - name: private_key_block
+      regex: '-----BEGIN [A-Z ]*PRIVATE KEY-----'
+    - name: bearer_token
+      regex: '(?i)\bbearer\s+[A-Za-z0-9._\-]{20,}'
+    - name: jwt
+      regex: '\beyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}'

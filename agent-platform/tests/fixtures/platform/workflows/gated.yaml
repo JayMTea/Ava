@@ -1,0 +1,19 @@
+schema_version: 1
+name: gated
+description: An agent step, a human approval gate, then a final agent step.
+inputs:
+  summary:
+    description: What happened.
+    required: true
+steps:
+  - id: triage
+    agent: lead
+    input: "Triage: {{ inputs.summary }}"
+  - id: approve
+    approval:
+      message: "Proceed with: {{ steps.triage.output }}"
+      side_effects: external_write
+  - id: act
+    agent: lead
+    input: "Act on: {{ steps.triage.output }}"
+output: "{{ steps.act.output }}"

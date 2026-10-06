@@ -73,7 +73,7 @@ Use separate credentials and session namespaces for independent owners. Configur
 Unsupported operations are reported as unsupported and never sent to the service.
 The provisioning scopes are `persona`, `policies`, `servers` and `skills`, or
 `all`. `agent.service.desired` supplies a list of resource objects per scope,
-using the `id`, digest and evidence fields consumed by `ava_bridge/provision.py`.
+using the `id`, digest and evidence fields consumed by `agent-platform/integrations/ava/ava_agent/provision.py`.
 Observation returns `{"maps":{"skills":{"resource-id":"sha256"}},"sources":{"skills":"service"}}`.
 Omit scopes you cannot observe. An empty map means the scope was observed and
 contains no resources. An unavailable evidence source means unknown. This adapter does not infer

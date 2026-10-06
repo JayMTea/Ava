@@ -100,7 +100,7 @@ The only thing lost is syntax highlighting, which was never in the requirement.
 If highlighting becomes non-negotiable, the one acceptable addition is a single
 zero-dependency highlighter inside Review's own chunk, with a ceiling of
 **40 kB gzipped**. A number makes that decision testable;
-`tests/test_bundle_budget.py` is where it would be enforced.
+`tests/unit/test_bundle_budget.py` is where it would be enforced.
 
 ### Why there is no browser panel
 

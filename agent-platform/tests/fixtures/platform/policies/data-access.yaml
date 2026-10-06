@@ -1,0 +1,32 @@
+# HARD ENFORCEMENT - what agents may read and write on disk.
+# Paths are relative to the platform root and are resolved first, so `..` and symlinks that
+# escape the root are always refused. Patterns are fnmatch-style and case-insensitive;
+# `*` also matches `/`, and a leading `**/` matches at any depth including the root.
+# Deny lists win over allow lists.
+schema_version: 1
+
+filesystem:
+  read_allow: ["**"]
+  read_deny:
+    - ".env"
+    - ".env.*"
+    - "**/.env"
+    - "**/.env.*"
+    - "**/*.pem"
+    - "**/*.key"
+    - "**/*.p12"
+    - "**/*.pfx"
+    - "**/id_rsa*"
+    - "**/id_ed25519*"
+    - "**/secrets/**"
+    - ".git/**"
+    - "state/**"          # runtime state is reached only through the memory and task APIs
+  write_allow:
+    - "artifacts/**"
+  write_deny: []
+
+classification:
+  default: internal
+  notes: >-
+    Each agent declares data_classification in its agent.yaml; each model provider declares
+    max_data_classification. The router never sends an agent's work to a provider below it.

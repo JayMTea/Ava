@@ -186,7 +186,7 @@ fi
 # which meant the installer's idea of the hardware and the app's could disagree —
 # and did: `nvidia-smi`-or-CPU has no branch for ROCm, Level Zero or an APU, so a
 # 128 GB Strix Halo box silently got the CPU-Ollama profile with no explanation.
-# One detector, in ava_bridge/hwinfo.py, is the fix; deploy/platforms.conf maps
+# One detector, in app/backend/hwinfo.py, is the fix; deploy/platforms.conf maps
 # its answer to a profile.
 #
 # This runs unconditionally, even when the user pinned AVA_PROFILE, because the
@@ -199,7 +199,7 @@ fi
 # remain the only vendor detection allowed in this file.
 if [ -n "${_SCRIPT_DIR:-}" ] && command -v python3 >/dev/null 2>&1; then
   _detect="$(cd "${_SCRIPT_DIR}/.." 2>/dev/null \
-             && python3 -m ava_bridge.platforms --install-detect 2>/dev/null)" \
+             && python3 -m app.backend.platforms --install-detect 2>/dev/null)" \
     || _detect=""
   if [ -n "${_detect}" ]; then
     eval "${_detect}"
@@ -208,7 +208,7 @@ if [ -n "${_SCRIPT_DIR:-}" ] && command -v python3 >/dev/null 2>&1; then
       ci-simulated)
         warn "This hardware class is tested by simulation, not on real hardware."
         warn "The install should work; the numbers Ava reports are unconfirmed here."
-        warn "Help fix that: python3 tools/ondevice_check.py --record" ;;
+        warn "Help fix that: python3 scripts/ondevice_check.py --record" ;;
       unsupported)
         warn "${AVA_DETECTED_LABEL} is not a supported target — continuing anyway." ;;
     esac
@@ -240,7 +240,7 @@ fi
 
 # HAL-EXEMPT-BEGIN: identification fallback — the HAL could not answer (no clone
 # yet, or no python3), so a coarse shell probe is better than refusing to install.
-# tests/test_install_detection.py bounds this region.
+# tests/unit/test_install_detection.py bounds this region.
 if [ -z "${AVA_PROFILE:-}" ]; then
   # shellcheck disable=SC2015
   if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
@@ -510,7 +510,7 @@ PY
 
   if [ -n "${AVA_INSTALL_DRY_RUN:-}" ]; then
     say "AVA_INSTALL_DRY_RUN=1 — bare-metal path validated; not creating the venv."
-    say "Would run: python3 -m venv .venv; pip install -r requirements.txt -e .; ava setup"
+    say "Would run: python3 -m venv .venv; pip install -r config/dependencies/runtime.txt -e .; ava setup"
     exit 0
   fi
 
@@ -525,7 +525,7 @@ PY
 
   say "Installing dependencies (this pulls torch for the voice extras — a few minutes)"
   python3 -m pip install --upgrade pip >/dev/null 2>&1 || true
-  python3 -m pip install -r requirements.txt || die "pip install -r requirements.txt failed"
+  python3 -m pip install -r config/dependencies/runtime.txt || die "pip install -r config/dependencies/runtime.txt failed"
   python3 -m pip install -e . || die "pip install -e . failed"
 
   # An engine, because Ava is a control layer and has no brain of its own. Ollama
@@ -560,7 +560,7 @@ First run needs a model. Size it to your Mac (see docs/CHOOSE_A_MODEL.md):
 Then confirm the hardware readings on this machine, and help make Apple Silicon a
 verified platform rather than a simulated one:
 
-  python3 tools/ondevice_check.py --record
+  python3 scripts/ondevice_check.py --record
 
 EOF
   exit 0
@@ -715,7 +715,7 @@ case "${AVA_PROFILE}" in
 esac
 
 # The bridge answering is NOT the engine answering. /api/health returns ok
-# unconditionally (phone_bridge.py) and never probes inference, and vllm carries
+# unconditionally (app/server.py) and never probes inference, and vllm carries
 # `restart: on-failure:3`, so an OOM-looping engine is invisible here: the old
 # script printed "Ava is up." over a chat box that errored on every message with
 # no visible cause. Ask the engine directly.
@@ -789,7 +789,7 @@ if [ "$_ok" = 1 ]; then
               | tr -d '[:space:]' || true)"
   fi
   # And if exec is unavailable, the bridge already printed the link on startup
-  # (phone_bridge._startup, container-aware for this exact reason), so the logs carry
+  # (app.server._startup, container-aware for this exact reason), so the logs carry
   # it. Belt and braces, because there is no second chance at a first run.
   if [ -z "$_claim" ]; then
     _claim="$(docker compose logs ava 2>/dev/null \

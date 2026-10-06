@@ -58,7 +58,7 @@ allow-list) — so declaring what an app needs is enough:
 ava connector policies            # preview generated policies for all connectors
 ava connector policies myapp --write   # write <agent state>/policies/generated/myapp.yaml
 ```
-Then `cd agent && ./install.sh` deploys the policies into the sandbox.
+Then `ava agent provision` deploys the policies into the sandbox.
 
 ## Add one
 ```bash

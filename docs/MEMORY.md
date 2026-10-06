@@ -59,7 +59,7 @@ replaces its chunks, and that bulk delete is recorded with
 `reason: "reindex: document re-uploaded"` rather than looking like an erasure.
 
 Each record carries a **short content digest** of what was removed, never the text.
-`tests/test_destructive_paths_audited.py` fails the build if a function that
+`tests/unit/test_destructive_paths_audited.py` fails the build if a function that
 destroys persisted data stops recording it.
 
 ??? note "Why a digest and not the text"
@@ -70,7 +70,7 @@ destroys persisted data stops recording it.
 
 ## How distillation works
 
-An in-process scheduler (`ava_bridge/distill.py`, gated by `features.memory`,
+An in-process scheduler (`agent-platform/integrations/ava/ava_agent/distill.py`, gated by `features.memory`,
 cadence `memory.distill_interval_hours`, default 24h) reads chat messages it
 hasn't seen before, asks the local brain for durable facts about *you* -
 preferences, projects, setup, recurring people - and stores at most 8 per

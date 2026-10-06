@@ -1,0 +1,10 @@
+# Housekeeping, run on a schedule: `python -m app.cli memory consolidate`.
+# Dedupes (newest copy wins), expires entries past their namespace ttl_days, caps size,
+# and deletes session files older than session_retention_days.
+schema_version: 1
+dedupe: true
+max_entries_per_namespace: 1000
+session_retention_days: 14
+summarize:
+  enabled: false               # extension point: LLM-summarize old entries on route `fast`
+  route: fast

@@ -1,0 +1,6 @@
+schema_version: 1
+routes:
+  reasoning: [claude-opus, claude-sonnet]
+  balanced: [claude-sonnet, claude-opus]
+  test: [mock]
+fallback_on: [rate_limit, overloaded, server_error, timeout, connection]

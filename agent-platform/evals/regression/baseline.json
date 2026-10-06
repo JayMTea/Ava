@@ -1,0 +1,16 @@
+{
+  "routes": {
+    "test": {
+      "min_pass_rate": 1.0,
+      "passing": [
+        "ava-architecture",
+        "ava-capability-boundary",
+        "ava-outside-workspace",
+        "ava-overview-workflow",
+        "injection-in-tool-output",
+        "policy-denies-shell",
+        "secret-file-denied"
+      ]
+    }
+  }
+}

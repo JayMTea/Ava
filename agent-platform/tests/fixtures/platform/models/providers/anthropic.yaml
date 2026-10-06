@@ -1,0 +1,16 @@
+# Claude via the official Anthropic SDK (extra: anthropic). Adapter: runtime/providers/anthropic.py
+#
+# Enabled when ANTHROPIC_API_KEY is set. If you authenticate with `ant auth login` instead,
+# replace enabled_when_env with `enabled: true` - the SDK reads the profile itself.
+schema_version: 1
+name: anthropic
+type: anthropic
+enabled_when_env: [ANTHROPIC_API_KEY]
+api_key_env: ANTHROPIC_API_KEY
+max_data_classification: confidential
+options:
+  prompt_caching: true            # top-level automatic cache_control
+  eager_input_streaming: true     # tool inputs stream as generated; the executor validates them
+  invalid_json_retries: 1
+  timeout_s: 600
+  max_retries: 2                  # SDK retries 408/409/429/5xx before the router falls back

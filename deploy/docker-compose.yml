@@ -47,7 +47,7 @@ services:
       # behind it while the container's own healthcheck (which curls that same
       # in-namespace loopback) still reports healthy. deploy/Dockerfile carries
       # the same value; this restates it so the contract is visible where the
-      # port mapping is. tests/test_dockerfile_bind.py enforces both.
+      # port mapping is. tests/unit/test_dockerfile_bind.py enforces both.
       AVA_HOST: ${AVA_HOST:-0.0.0.0}
       AVA_PASSWORD: ${AVA_PASSWORD:-}
       # Agent runtime: "direct" (tool-less, default) or "remote" (full agent via
@@ -125,7 +125,7 @@ services:
     profiles: ["agent"]
     build:
       context: ..
-      dockerfile: deploy/agent.Dockerfile
+      dockerfile: agent-platform/integrations/ava/sandbox/Dockerfile
     image: ava/agent-runtime:latest
     environment:
       AVA_HOME: /data

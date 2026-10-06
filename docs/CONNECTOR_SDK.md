@@ -59,7 +59,7 @@ ava connector new mycrm                 # scaffold ${AVA_HOME:-$PWD}/connectors/
 $EDITOR "${AVA_HOME:-$PWD}/connectors/mycrm/connector.yaml"   # see the warning below
 ava connector tools    mycrm --write    # generate the agent tools
 ava connector policies mycrm --write    # generate its egress policy
-(cd agent && ./install.sh)              # load them into the agent sandbox
+(ava agent provision)              # load them into the agent sandbox
 ```
 
 ```bash
@@ -80,7 +80,7 @@ the last three for you.)
     ```
     $ ava connector tools mycrm --write
 
-    0 tool(s) written — run `cd agent && ./install.sh` to deploy into the sandbox.
+    0 tool(s) written — run `ava agent provision` to deploy into the sandbox.
     $ echo $?
     0
     ```
@@ -93,7 +93,7 @@ the last three for you.)
     Deploying **one** app, once the kit is already in the sandbox:
 
     ```
-    $ cd agent && ./install.sh --connector mycrm
+    $ ava agent provision --connector mycrm
     ```
 
     That applies `mycrm`'s egress policy and pushes the one server its tools live
@@ -128,7 +128,7 @@ base_url: "http://127.0.0.1:9000"   # OPTIONAL — the host that proxied action
 
 ui:                           # OPTIONAL — declare it to get a left-rail tile
   label: My CRM
-  icon: grid                  # optional — a key in frontend/src/lib/icons.tsx.
+  icon: grid                  # optional — a key in app/frontend/src/lib/icons.tsx.
                               #   Omit for a stable auto icon derived from the app
                               #   id, so apps that declare none still differ.
   color: "#7c5cff"            # optional identity accent: Ava marks everything that
@@ -238,7 +238,7 @@ the app body:
 | `embed` | Who it's for | How Ava renders it |
 |---|---|---|
 | **`iframe`** | **Third-party apps** (the common case) | Ava reverse-proxies your app's web UI **same-origin** under `/apps/<id>/` and shows it in an `<iframe>`. Same-origin means Ava's session cookie already gates the route, and if your app has its **own** login you make it seamless with one small step - see *Single sign-on* below. Ava's theme is passed as `?theme=light\|dark`. |
-| **`native`** | First-party React views | Renders `NATIVE_VIEWS[view]`, provided by an optional gitignored overlay (`frontend/src/overlay/views/*`). Reserved for apps bundled into the frontend. |
+| **`native`** | First-party React views | Renders `NATIVE_VIEWS[view]`, provided by an optional gitignored overlay (`app/frontend/src/overlay/views/*`). Reserved for apps bundled into the frontend. |
 | **`none`** | Apps with tools but no UI | Ava renders an **action console**. For a static connector that is the actions your manifest declares; for an `mcp:` or `actions.discover` connector Ava **asks your app** for its tool list when the tile opens, so the console shows what you actually serve rather than what the manifest spells. Each row carries the access tier Ava will enforce and whether it stops to ask the owner first. If your app cannot be reached, the console shows the last list it served and says why — it never renders an empty panel that looks like "this app does nothing". |
 
 ### Why same-origin matters
@@ -292,7 +292,7 @@ needs a second **origin**, which is what `apps.origin` does.
 
 ??? note "Isolating embedded apps on a second origin (`apps.origin`)"
 
-    See the block in `config.example.yaml`. Two hostnames pointing at the same
+    See the block in `config/ava.example.yaml`. Two hostnames pointing at the same
     machine and port are two origins to a browser (separate cookie jars, no
     `parent` access), so it needs no second listener. With it set, `/apps/*` is
     served only on that host, everything else is refused there, and Ava hands
@@ -886,7 +886,7 @@ decision is written to the audit ledger.
     `destructive` and `physical` cannot be turned into "Always allow" by anyone,
     including you. That is the point of them.
 
-Those five are the whole set (`ava_bridge/connectors.py` `_TIERS`); a value that
+Those five are the whole set (`agent-platform/integrations/ava/ava_agent/connectors.py` `_TIERS`); a value that
 isn't one of them is an error row on Setup → Connectors, and the action falls
 back to being inferred from its HTTP method. Inference only ever yields `read`
 (GET/HEAD), `destructive` (DELETE, or a *delete* in the id/path) or `write` -
@@ -919,7 +919,7 @@ tools Ava has never discovered, so once a tool has been seen the self-reported
     An `ava-tools/1` facade reports `access` per tool; plain MCP has no such
     field, so a hand-rolled port that drops it demotes every `read` to `write`
     and the owner starts getting prompted for things that used to run silently.
-    Ava's MCP client (`ava_bridge/mcp_client.py`) looks for the tier in every
+    Ava's MCP client (`agent-platform/integrations/ava/ava_agent/mcp_client.py`) looks for the tier in every
     place a real server can carry it, and lifts the first it finds to the
     top-level `access` the consent gate reads:
 
@@ -971,7 +971,7 @@ Full reference: [`sdk/host/ava_mcp/README.md`](../sdk/host/ava_mcp/README.md).
 ### Egress
 
 `ava connector policies <id> --write` renders the connector's egress into
-`agent/policies/generated/<id>.yaml`; `cd agent && ./install.sh` deploys it into
+`$AVA_HOME/agent/policies/generated/<id>.yaml`; `ava agent provision` deploys it into
 the sandbox. The generic proxy routes for your actions (and `__tools`/`__call`)
 are allow-listed automatically.
 
@@ -995,11 +995,11 @@ are allow-listed automatically.
 
 A **skill** is a folder with a `SKILL.md` that coaches the model on *when and
 how* to use its tools (progressive disclosure). Skills live in
-`agent/skills/<id>/` (shipped) or `<overlay>/skills/<id>/` (private); every one
-is deployed into the sandbox by `agent/install.sh` (`nemoclaw skill install`).
+`skills/<id>/` (shipped) or `<overlay>/skills/<id>/` (private); every one
+is deployed into the sandbox by `agent-platform/integrations/ava/sandbox/install.sh` (`nemoclaw skill install`).
 
 The filesystem is the single source of truth - **drop a folder and it appears**
-in **Setup → Agent → Skills** with no registration. `ava_bridge/skills.py` globs
+in **Setup → Agent → Skills** with no registration. `agent-platform/integrations/ava/ava_agent/skills.py` globs
 both locations and reads each SKILL.md's YAML frontmatter:
 
 ```yaml
@@ -1027,7 +1027,7 @@ manifest that `install.sh` writes, so a just-added skill honestly reads
 "re-provision" until you run `ava agent provision`. On a fresh fork that manifest
 does not exist yet, so the state is *unknown* rather than a lie about being
 deployed, and every card reads **`provision to load`**. A convention guard
-(`tests/test_skill_frontmatter.py`) fails CI if a shipped SKILL.md lacks valid
+(`tests/unit/test_skill_frontmatter.py`) fails CI if a shipped SKILL.md lacks valid
 frontmatter.
 
 **Categories are owner-owned, never shipped.** Skills carry no category by
@@ -1058,11 +1058,11 @@ From that one manifest, with nothing hand-maintained in Ava's core:
 - **Sidebar health dot** ← `service.probe`
 - **Dashboard performance source** ← `perf`
 - **Agent tools** ← `actions` (declared or discovered) or `mcp` (live from the server)
-- **Agent skills panel** ← `agent/skills/*/SKILL.md` (drop a folder → it shows in
+- **Agent skills panel** ← `skills/*/SKILL.md` (drop a folder → it shows in
   Setup → Agent → Skills, with its deploy state)
 - **The persona's "connected apps" block** ← every enabled `kind: app` manifest
   that exposes tools, plus the tool names the app reported on its last
-  discovery. `agent/render_persona.py` fills `{{APPS_BLOCK}}` at provision time
+  discovery. `agent-platform/integrations/ava/ava_agent/render_persona.py` fills `{{APPS_BLOCK}}` at provision time
   with one line per app - its label, whether it is reached through native
   `<id>_<action>` tools or the `<id>_find_tool` → `<id>_call` pair, and up to
   25 tool names - so the model routes "what did I eat today" to the right app
@@ -1119,7 +1119,7 @@ voice`). When the user turns that feature off, the dashboard paints the service
 as **off** (a neutral state), never as a red "down".
 
 If your capability should be a user-facing switch, register it in
-`ava_bridge/features.py` and gate its execution path with
+`app/backend/features.py` and gate its execution path with
 `features.preflight(key, probe=...)`. That one registry entry gives you, with
 no further wiring:
 
@@ -1129,7 +1129,7 @@ no further wiring:
   `<key>_down` (switch on, backing service unreachable) - which the chat UI
   turns into a guided **fix-it link** (hover explains where it leads; click
   deep-links to the right page). The frontend resolves fixes from the code
-  *pattern* (`frontend/src/lib/fixes.ts`), so no frontend change is needed,
+  *pattern* (`app/frontend/src/lib/fixes.ts`), so no frontend change is needed,
 - a self-contained plain-text message ("Enable it under Setup → System →
   Optional features…"), so agent tools that simply relay `error` already tell
   the user what to do. Return coded errors from `/internal/*` routes as HTTP
@@ -1160,7 +1160,7 @@ cp -r examples/device-app "${AVA_HOME:-$PWD}/connectors/device-demo"
 #    "nemoclaw CLI not found" / "sandbox not found" and changes nothing.
 ava connector tools    device-demo --write
 ava connector policies device-demo --write
-(cd agent && ./install.sh)
+(ava agent provision)
 
 # 4. Restart Ava (or `ava up`) and open the web app
 #    -> "Device Demo" appears under Devices

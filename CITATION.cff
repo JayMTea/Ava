@@ -4,7 +4,7 @@
 # offering APA and BibTeX. That is the point of the file: it turns "who made this"
 # from something you dig out of git log into something the platform surfaces.
 #
-# `version` is a COPY of the VERSION file, so tests/test_version_ssot.py asserts the
+# `version` is a COPY of the VERSION file, so tests/unit/test_version_ssot.py asserts the
 # two agree. Same reason deploy/model-flags.conf and the Node pin carry guards: this
 # repo has been bitten repeatedly by one moving number restated in several places,
 # and a stale citation is worse than none because people paste it verbatim.

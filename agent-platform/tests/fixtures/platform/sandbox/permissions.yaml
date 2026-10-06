@@ -1,0 +1,9 @@
+# Isolated execution for tools registered with `sandbox: required`.
+#   mode: none   - those tools are refused (safe default; nothing executes on the host)
+#   mode: docker - they run in a throwaway container from `image`, with the limits of the
+#                  profile mapped to the tool below
+schema_version: 1
+mode: none
+image: agent-sandbox:latest
+tool_profiles:
+  shell.run: default

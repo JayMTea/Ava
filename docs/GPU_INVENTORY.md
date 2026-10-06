@@ -1,7 +1,7 @@
 # Remote GPU memory inventory
 
 Ava can monitor another host through its existing node_exporter and GPU exporter.
-Run `ava_bridge/gpu_inventory.py` on that host to add GPU process/model inventory
+Run `app/backend/gpu_inventory.py` on that host to add GPU process/model inventory
 to the same node_exporter endpoint. It uses only Python's standard library and
 `nvidia-smi`; it never loads, unloads or interrupts a model.
 

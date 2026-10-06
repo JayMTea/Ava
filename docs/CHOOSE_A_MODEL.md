@@ -57,7 +57,7 @@ to serve (for example `llama3.1:70b`).
 **Ava supports any OpenAI-compatible endpoint, but it does not do the same amount
 for each one.** What it actually provides, per engine:
 
-<!-- engines:begin — generated from ava_bridge/engines.py -->
+<!-- engines:begin — generated from agent-platform/integrations/ava/ava_agent/engines.py -->
 | Engine | Support | Health | Launcher | Weights | Token counts |
 |---|---|---|---|---|---|
 | **vLLM** | first-class | `/models` | deploy/local-serve.sh (and the `vllm` compose service) | ava models pull (HuggingFace cache) | yes |

@@ -23,7 +23,7 @@ it: an embedding still identifies you, which is exactly why it is regulated.
 
 Enrollment clips are held in memory and never written to disk by
 `voice_enroll.enroll()`. If you enrolled with the older CLI
-(`enroll_voice.py --from-wav`) then **your own** source recordings may sit in
+(`app/backend/voice/enroll.py --from-wav`) then **your own** source recordings may sit in
 `enroll/` - those are files you supplied, and Ava does not touch them.
 
 ## Where it lives, and what derives from it
@@ -41,13 +41,13 @@ Enrollment clips are held in memory and never written to disk by
 A separate instance never adopts or deletes the checkout's enrollment by default.
 `voice.legacy_enrollment` explicitly opts into shared legacy enrollment.
 
-**Why two stored copies matter when migration is enabled.** `speaker.load_voiceprint()` migrates a legacy
+**Why two stored copies matter when migration is enabled.** `app.backend.voice.speaker.load_voiceprint()` migrates a legacy
 repo-local voiceprint into the persistent store when the live one is absent, so
 that a Docker rebuild never silently loses an enrollment. The consequence is that
 deleting only `$AVA_HOME/models/voiceprint.npy` lets the biometric **come back**
 on the next gate check. Deletion therefore goes through
-`speaker.delete_voiceprint()`, which knows about both, and
-`tests/test_voiceprint_deletable.py` asserts `load_voiceprint() is None`
+`app.backend.voice.speaker.delete_voiceprint()`, which knows about both, and
+`tests/unit/test_voiceprint_deletable.py` asserts `load_voiceprint() is None`
 afterwards rather than checking that a path is gone - because a path check passes
 on the broken version.
 
@@ -82,7 +82,7 @@ first:
    *provable* - the record can say "an artifact hashing to `a1b2…` existed and was
    destroyed at T" without retaining the artifact, and a 16-hex-character hash of
    a 896-byte vector is not reversible into a voiceprint. Those records are
-   `seq`-chained (see `ava_bridge/audit.py`), so a deletion record cannot be
+   `seq`-chained (see `app/backend/audit.py`), so a deletion record cannot be
    quietly removed afterwards.
 
 After deletion the gate **fails open**: Ava answers any voice, exactly as on a box

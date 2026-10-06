@@ -20,7 +20,7 @@ save is visible on the next request.
 
     Re-branding software you self-host is the premise of self-hosting it, not an
     upsell, and that is enforced rather than promised:
-    `tests/test_no_capability_gate.py` fails the build if any tracked file ever
+    `tests/unit/test_no_capability_gate.py` fails the build if any tracked file ever
     conditions a capability on a licence, plan or subscription value. If you
     find one, it is a bug.
 
@@ -118,7 +118,7 @@ re-encoded through Pillow before it is stored.
     and the apple-touch 180 are Ava's shipped files, served unconditionally.
     Earlier versions derived that set from a `brand.icon` you uploaded, falling
     back to `brand.logo`, which meant uploading a logo silently re-branded your
-    browser tab. Both paths are gone; `tests/test_brand_icon_is_ava.py` fails if
+    browser tab. Both paths are gone; `tests/unit/test_brand_icon_is_ava.py` fails if
     either returns.
 
 ---
@@ -181,7 +181,7 @@ the system and is treated that way:
 
     You may sign a pack, and a catalogue may use that to say where one came
     from. **Ava does not check it.** The loader accepts any well-formed pack,
-    unsigned included, and `tests/test_no_capability_gate.py` asserts the loader
+    unsigned included, and `tests/unit/test_no_capability_gate.py` asserts the loader
     contains no signature verification at all.
 
     The moment an app verifies a signature to decide whether to *load*

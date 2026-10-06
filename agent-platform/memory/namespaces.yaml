@@ -1,0 +1,37 @@
+# Memory namespaces and who may read/write them ("*" = every agent).
+# scope: global  - one shared file
+#        session - one file per session (state/memory/<ns>/<session>.jsonl)
+#        agent   - one private file per agent; "*" then means "each agent, its own file"
+# agents/<name>/agent.yaml `memory.read/write` must be a subset of what is allowed here.
+# Give write access to the agent(s) that should curate each namespace - usually one.
+schema_version: 1
+namespaces:
+  project:
+    description: Durable facts and decisions about this project, shared by every agent.
+    scope: global
+    read: ["*"]
+    write: []
+    ttl_days: null
+    data_classification: internal
+
+  user:
+    description: Stated preferences of the people this platform serves.
+    scope: global
+    read: ["*"]
+    write: []
+    ttl_days: null
+    data_classification: confidential
+
+  session:
+    description: Working notes for the current session; discarded after retention.
+    scope: session
+    read: ["*"]
+    write: []
+    ttl_days: 7
+
+  scratch:
+    description: Each agent's private notes across tasks.
+    scope: agent
+    read: ["*"]
+    write: ["*"]
+    ttl_days: 30

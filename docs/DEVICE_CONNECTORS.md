@@ -101,7 +101,7 @@ reach the bridge proxy for this app:
 ```bash
 ava connector tools    greenhouse --write   # -> <agent state>/mcp_server_connectors/apps/greenhouse/
 ava connector policies greenhouse --write   # -> <agent state>/policies/generated/greenhouse.yaml
-cd agent && ./install.sh                    # deploy into the sandbox
+ava agent provision                    # deploy into the sandbox
 ```
 
 The generator already derives the two `/internal/connector/<id>/__tools|__call` rules
@@ -244,7 +244,7 @@ python3 examples/device-app/server.py    # serves 127.0.0.1:8479 (DEVICE_APP_POR
 #    (or use Setup -> Connectors -> Deploy)
 ava connector tools    device-demo --write
 ava connector policies device-demo --write
-cd agent && ./install.sh
+ava agent provision
 
 # 5. Then, with Ava running:
 ava device list                     # shows device-demo (pull,push)
@@ -279,7 +279,7 @@ already lives.
 
 ??? note "Code that implements this page"
 
-    - `ava_bridge/devices.py` - the event store and the rate limiter.
-    - The ingest route and the `device.event` SSE frame - `phone_bridge.py`.
-    - `ava_bridge/internal.ingest_token` - the per-connector bearer.
-    - `agent/mcp_server_connectors/devices/device_events.mjs` - the agent tool.
+    - `app/backend/devices.py` - the event store and the rate limiter.
+    - The ingest route and the `device.event` SSE frame - `app/server.py`.
+    - `app.backend.internal.ingest_token` - the per-connector bearer.
+    - `agent-platform/integrations/ava/mcp/servers/mcp_server_connectors/devices/device_events.mjs` - the agent tool.

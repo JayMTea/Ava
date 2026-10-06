@@ -26,7 +26,7 @@ if ! command -v nemoclaw >/dev/null 2>&1; then
   # The installer also attempts an onboard at the end; that step is
   # network-dependent and we do our OWN controlled onboard below, so tolerate a
   # non-zero exit and verify success by the CLI being present + runnable.
-  # NEMOCLAW_INSTALL_REF is pinned by deploy/agent.Dockerfile. The `:-main`
+  # NEMOCLAW_INSTALL_REF is pinned by agent-platform/integrations/ava/sandbox/Dockerfile. The `:-main`
   # fallback stays for anyone running this script outside that image, but a
   # build should never rely on it: `main` is a moving branch piped into bash.
   echo "[agent]   ref: ${NEMOCLAW_INSTALL_REF:-main}"
@@ -62,7 +62,7 @@ if ! nemoclaw list --json 2>/dev/null | grep -q "\"${SANDBOX}\""; then
   # Bearer for the router's /v1. In Docker the router binds 0.0.0.0 (so ava:8010
   # is reachable), which turns /v1 auth ON — the sandbox must present the token.
   # Both containers derive it from the shared /data secret, so resolve it here.
-  ROUTER_TOKEN="${AVA_ROUTER_TOKEN:-$(python -c 'from ava_bridge import config; print(config.ROUTER_TOKEN or "")' 2>/dev/null)}"
+  ROUTER_TOKEN="${AVA_ROUTER_TOKEN:-$(python -c 'from app.backend import config; print(config.ROUTER_TOKEN or "")' 2>/dev/null)}"
   export OPENAI_API_KEY="${ROUTER_TOKEN:-none}"
   if ! nemoclaw onboard --non-interactive --yes \
         --yes-i-accept-third-party-software --name "${SANDBOX}"; then
@@ -86,8 +86,8 @@ fi
 if [ "${AVA_AGENT_PROVISION_ON_START:-1}" = "1" ]; then
   echo "[agent] deploying tools/policies/skills ..."
   AVA_BRIDGE_URL="${BRIDGE_URL}" AVA_OC_SANDBOX="${SANDBOX}" \
-    bash /app/agent/install.sh || { echo "[agent] ERROR: provisioning failed"; exit 1; }
+    bash /app/agent-platform/integrations/ava/sandbox/install.sh || { echo "[agent] ERROR: provisioning failed"; exit 1; }
 fi
 
 echo "[agent] serving the runtime shim on :9100 ..."
-exec python -m ava_bridge.agent_runtime_server
+exec python -m ava_agent.agent_runtime_server

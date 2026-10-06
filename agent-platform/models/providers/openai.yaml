@@ -1,0 +1,12 @@
+# OpenAI Chat Completions (extra: openai). Adapter: runtime/providers/openai_compat.py
+schema_version: 1
+name: openai
+type: openai_compatible
+enabled_when_env: [OPENAI_API_KEY]
+api_key_env: OPENAI_API_KEY
+base_url: https://api.openai.com/v1
+max_data_classification: confidential
+options:
+  max_tokens_param: max_completion_tokens
+  timeout_s: 600
+  max_retries: 2

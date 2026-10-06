@@ -1,0 +1,18 @@
+schema_version: 1
+namespaces:
+  project:
+    description: Fixture shared memory.
+    scope: global
+    read: ["*"]
+    write: [lead]
+  session:
+    description: Fixture session memory.
+    scope: session
+    read: ["*"]
+    write: [lead]
+    ttl_days: 7
+  scratch:
+    description: Fixture per-agent memory.
+    scope: agent
+    read: ["*"]
+    write: ["*"]

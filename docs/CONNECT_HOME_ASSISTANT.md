@@ -64,7 +64,7 @@ EOF
 #    (in a second terminal, if `ava up` is holding this one).
 ava connector tools    home-assistant --write
 ava connector policies home-assistant --write
-(cd agent && ./install.sh)
+(ava agent provision)
 ```
 
 **If step 1 or 2 didn't take, step 4 tells you nothing.** With the connector

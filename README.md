@@ -26,6 +26,16 @@ required.
 See [capabilities](docs/capabilities/index.md) for the current app surfaces and
 [product boundaries](docs/PRODUCT_BOUNDARIES.md) for the extension contracts.
 
+The dedicated [agent-platform/](agent-platform/README.md) uses
+`JayMTea/agent-platform-template` v1.1.0, generated with its official adoption
+script. It contains the Ava agent, skills, workflows, schemas, policies, models,
+memory configuration, reference runtime, and offline evals. Ava's live agent
+code and sandbox deployment assets live in `agent-platform/integrations/ava/`;
+the app loads that code as the installed `ava_agent` package. Application
+services live in `app/backend/`, and developer utilities in `scripts/`.
+See the [repository layout and migration notes](docs/REPOSITORY_LAYOUT.md) for
+the directory map and validation commands.
+
 ## Quickstart
 
 Clone this repository or your fork, then run the Docker installer on Linux/WSL2:

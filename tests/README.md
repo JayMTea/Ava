@@ -1,24 +1,24 @@
-# tests/ — unit & module test suite
+# Tests
 
-Fast, isolated tests for individual `ava_bridge` modules. This suite proves the
-**parts**; the whole application (the real `phone_bridge:app`, driven as a new
-user and a continuing user) is proven by the separate [`qa/`](../qa/README.md)
-suite. Keep them separate: `qa/` pins `AVA_HOME` and a hermetic environment at
+`unit/` contains isolated tests for individual `runtime` modules. This suite proves the
+**parts**; the whole application (the real `app.server:app`, driven as a new
+user and a continuing user) is proven by the separate [`integration/`](integration/README.md)
+suite. Keep them separate: `tests/integration/` pins `AVA_HOME` and a hermetic environment at
 import time and must own its process, so it is never collected here.
 
 ## Run
 
 ```bash
-.venv/bin/python -m pytest tests/ -q       # the whole suite (~20s, no GPU/network)
-.venv/bin/python -m pytest tests/test_router.py -q   # one file
-python tests/test_perf_store.py            # most files also run standalone
+.venv/bin/python -m pytest tests/unit/ -q       # the whole suite (no GPU required)
+.venv/bin/python -m pytest tests/unit/test_router.py -q   # one file
+python -m pytest tests/unit/test_perf_store.py            # most files also run standalone
 ```
 
 Style: stdlib `unittest` classes, pytest as the runner. No shared fixtures —
 every file is self-contained. The one `conftest.py` does exactly one thing
 (redirect `AVA_HOME` to a throwaway directory before anything imports
 `settings`, which freezes it); its docstring says why. Dev deps:
-`requirements-dev.txt` (pytest, ruff). Lint: `ruff check .` (config in
+`../config/dependencies/dev.txt` (pytest, ruff). Lint: `ruff check .` (config in
 `ruff.toml`).
 
 ## What each file covers
@@ -44,7 +44,7 @@ every file is self-contained. The one `conftest.py` does exactly one thing
 | `test_fastapi_compat.py` | Canary for the fastapi/starlette prefixed-router 404 regression |
 | `test_grants.py` | Consent access tiers, grants store, tier-aware gate |
 | `test_hardware_models.py` | Hardware monitor model inventory: engine worker processes merge into one row; model identity read from cmdline/config/API, never assumed from runtime kind; and exactly one row is the brain — on a box with no GPU tooling, at any hostname spelling, up or offline — with residency observed (`/api/ps`) instead of read off the pulled-tag list |
-| `test_hub_uniformity.py` | Static guard on the Setup (Hub) **frontend** (`frontend/src/components/hub/`): shared `Badge`/`StatRow` aren't re-hand-rolled, no resurrected per-panel classes (icon tiles, action clusters, tone rules), one `.tone-*`/`--tone` system — no build/browser needed |
+| `test_hub_uniformity.py` | Static guard on the Setup (Hub) **frontend** (`app/frontend/src/components/hub/`): shared `Badge`/`StatRow` aren't re-hand-rolled, no resurrected per-panel classes (icon tiles, action clusters, tone rules), one `.tone-*`/`--tone` system — no build/browser needed |
 | `test_hwinfo.py` | Hardware-abstraction decisions across Apple / CPU-only / no-psutil |
 | `test_mac_setup.py` | Non-CUDA onboarding: a high-RAM Mac must not get the vLLM default |
 | `test_mcp_client.py` | MCP client: real stdio subprocess session, HTTP+SSE stub, Streamable-HTTP, connector integration |
@@ -53,7 +53,7 @@ every file is self-contained. The one `conftest.py` does exactly one thing
 | `test_perf_sources.py` | Live perf sources (`perf_mgmt.sources` + `app_perf`): connectors appear with no restart, history survives disconnect/reconnect, corrupt-ledger tolerance, bounded action-log writer |
 | `test_perf_store.py` | Perf cold store: no data loss, idempotent rollups, retention, tok/s clamp, histogram percentiles, hot/cold stitched readers |
 | `test_probe_wellknown.py` | Hub probe `/.well-known/ava.json` self-description prefill |
-| `test_remote_runtime.py` | `runtime.remote` ↔ agent-container contract (auth header, live-CoT proxy) |
+| `test_remote_runtime.py` | `ava_agent.adapters.remote` ↔ agent-container contract (auth header, live-CoT proxy) |
 | `test_router_host.py` | Embedded router lifecycle: disabled / external / embedded |
 | `test_router.py` | Inference router: model rewrite, failover ordering, engine adapters, control auth — no network, no GPU |
 | `test_scaffold.py` | `ava app new` scaffolds a conformant ava-tools/1 surface |
@@ -71,7 +71,7 @@ every file is self-contained. The one `conftest.py` does exactly one thing
 | `test_cli_entrypoint.py` | The `ava` command must exist, and mean one thing. |
 | `test_code_applier_policy.py` | The decision layer that gates an LLM writing to your source tree. |
 | `test_code_tool_policy.py` | The code agent may not READ what it may not write. |
-| `test_config_template_sync.py` | config.example.yaml is the only documentation of what Ava can be configured to do, so a key the code reads and the template omits is a knob nobody… |
+| `test_config_template_sync.py` | config/ava.example.yaml is the only documentation of what Ava can be configured to do, so a key the code reads and the template omits is a knob nobody… |
 | `test_connector_codegen.py` | The .mjs the connector generators emit must be valid JavaScript. |
 | `test_connector_scaffold.py` | `ava connector new` must scaffold something that WORKS when you follow it. |
 | `test_connector_secrets.py` | Connector credentials: the VALUE lives server-side (secrets/env/<NAME>, 0600), keyed by the env-var NAME a manifest references — never in the… |
@@ -79,8 +79,8 @@ every file is self-contained. The one `conftest.py` does exactly one thing
 | `test_deploy_compose_contract.py` | A profile must start the service its own backend URL points at. |
 | `test_deploy_refs_tracked.py` | Every deploy script a tracked file points at must itself be tracked. |
 | `test_dockerfile_bind.py` | The bridge container must bind 0.0.0.0 inside its own network namespace. |
-| `test_feature_convention.py` | Convention guard: ALL features.* reads go through ava_bridge/features.py. |
-| `test_features.py` | The optional-feature registry contract (ava_bridge/features.py). |
+| `test_feature_convention.py` | Convention guard: ALL features.* reads go through app/backend/features.py. |
+| `test_features.py` | The optional-feature registry contract (app/backend/features.py). |
 | `test_internal_scopes.py` | Every /internal route must be classified, and the docs must not overclaim. |
 | `test_media_retention.py` | `data.retention_days` must reach uploaded media. |
 | `test_model_flags_ssot.py` | vLLM's per-model flags are resolved in exactly ONE place: deploy/model-flags.conf. |
@@ -90,17 +90,17 @@ every file is self-contained. The one `conftest.py` does exactly one thing
 | `test_no_owner_identity.py` | Nothing tracked may carry the owner's identity, a private sibling app, an absolute home path, or a proprietary-tool watermark. |
 | `test_no_private_apps_shipped.py` | A development-only app must not reach the repo, the docs, or the IMAGE — `.dockerignore` default-denies `connectors/` because `COPY . /app` copies the working tree. |
 | `test_password_change.py` | Changing the admin password from inside the product, and revoking sessions. |
-| `test_path_roots.py` | There is exactly ONE resolver for where runtime state lives: `ava_bridge.settings`. |
+| `test_path_roots.py` | There is exactly ONE resolver for where runtime state lives: `app.backend.settings`. |
 | `test_settings_errors.py` | A broken ava.yaml must be loud, and must never be overwritten. |
 | `test_settings_overrides.py` | Env-override honesty helpers (settings.env_override / explicitly_false). |
 | `test_setup_wizard_flow.py` | The first-run wizard must not lie, and must not lock you out. |
 | `test_skill_frontmatter.py` | Every skill the agent ships must be surfaceable in the UI. The Agent tab auto-discovers skills from their SKILL.md frontmatter… |
-| `test_skills_registry.py` | Skills registry mechanics (ava_bridge/skills.py): discovery, frontmatter derivation, tool extraction, and the deploy-state signal — all against a… |
+| `test_skills_registry.py` | Skills registry mechanics (agent-platform/integrations/ava/ava_agent/skills.py): discovery, frontmatter derivation, tool extraction, and the deploy-state signal — all against a… |
 
 ## Isolation patterns (use these in new tests)
 
 - **Unconditional `AVA_HOME`** — at the very top of the file, *before* any
-  `ava_bridge` import: `os.environ["AVA_HOME"] = tempfile.mkdtemp(...)`.
+  `runtime` import: `os.environ["AVA_HOME"] = tempfile.mkdtemp(...)`.
   Never `setdefault`: on a box that already exports `AVA_HOME` it's a silent
   no-op and your test writes into the real ledger (the commit 8d67dc3 bug).
   Note `settings` freezes `AVA_HOME` at first import — if another test file
@@ -131,12 +131,12 @@ every file is self-contained. The one `conftest.py` does exactly one thing
   `web._make_client`), or a threaded stdlib `http.server` stub.
 - **Minimal apps over the real app** — auth/middleware tests build a small
   FastAPI app with just the piece under test; importing `phone_bridge` is
-  heavy and belongs to `qa/`.
+  heavy and belongs to `tests/integration/`.
 
 ## Related checks elsewhere
 
-- `qa/run.sh` — the whole-app suite (in-process app, live subprocess, fixture
-  contracts, CLI, browser E2E). See [qa/README.md](../qa/README.md).
+- `tests/integration/run.sh` — the whole-app suite (in-process app, live subprocess, fixture
+  contracts, CLI, browser E2E). See [integration/README.md](integration/README.md).
 - `ava verify` — end-to-end claim checker (generator drift, governance wiring,
   memory wiring, service probes); run by CI's smoke job.
 - `ava doctor` — environment/health check for a live install.

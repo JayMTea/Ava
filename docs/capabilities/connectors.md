@@ -52,7 +52,7 @@ hand-maintained anywhere in Ava's core.
   (`ava connector tools <id> --write`, or **Deploy** in the browser).
 - **An egress policy** (the allow-list of exactly which addresses the agent's
   sandbox may reach; anything not on it is refused), rendered into the same
-  shape as `agent/policies/*.yaml` and namespaced `ava-<id>`. It allow-lists the
+  shape as `agent-platform/integrations/ava/policies/egress/*.yaml` and namespaced `ava-<id>`. It allow-lists the
   specific bridge routes this connector's tools use, and nothing else.
 
 Also derived, and documented in the [SDK](../CONNECTOR_SDK.md): chat quick-cards
@@ -307,7 +307,7 @@ stating plainly rather than leaving one sentence to cover three cases.
     rather than silently downgrading, unless you explicitly choose to run the
     command on the host.
 
-Ava negotiates MCP revision `2025-03-26` (`ava_bridge/mcp_client.py`).
+Ava negotiates MCP revision `2025-03-26` (`agent-platform/integrations/ava/ava_agent/mcp_client.py`).
 
 ## Devices
 
@@ -350,7 +350,7 @@ raised as an alert. Read events back from `GET /api/devices`,
 ??? note "The ingest contract: guards, status codes and accepted fields"
 
     The guards run in this order, and each has its own status code
-    (`phone_bridge.py`):
+    (`app/server.py`):
 
     1. **Bearer token.** Wrong or missing gives `401`.
     2. **`ingest.enabled`** in the manifest. `404` if the connector never opted

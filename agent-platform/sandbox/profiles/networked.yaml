@@ -1,0 +1,14 @@
+# For tools that genuinely need the network (package installs, test suites that call APIs).
+# Docker's bridge network does NOT filter egress: put an egress proxy or firewall in front
+# if the allowlist in policies/network.yaml must also hold inside the sandbox.
+network: bridge
+workspace_mount: ro
+writable_paths: [artifacts]
+read_only_root: true
+no_new_privileges: true
+cap_drop: [ALL]
+user: "10001:10001"
+cpus: 2
+memory: 1g
+pids_limit: 256
+timeout_s: 300

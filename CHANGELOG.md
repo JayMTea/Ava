@@ -57,8 +57,8 @@ pre-release milestones from when Ava ran on one box and nothing was tagged.
   still the fallback.
 
   The protocol is **captured from a live gateway, not written from its docs**:
-  `qa/capture_gateway.py` learns each method's schema from the gateway's own
-  `INVALID_REQUEST` messages and writes `qa/fakes/gateway-schemas.json` (44
+  `tests/integration/capture_gateway.py` learns each method's schema from the gateway's own
+  `INVALID_REQUEST` messages and writes `tests/integration/fakes/gateway-schemas.json` (44
   method schemas plus the event, transcript, abort and approval shapes, each
   stamped with the build it came from, and an explicit list of what could not be
   captured). The test fake is held to that file, so a wrong param shape now
@@ -96,7 +96,7 @@ pre-release milestones from when Ava ran on one box and nothing was tagged.
   longer a dependency, which removes a 415 kB chunk and roughly halves the
   shipped JavaScript.
 
-  **Nothing that PRODUCED those numbers was removed.** `perf_log.py` still
+  **Nothing that PRODUCED those numbers was removed.** `app/backend/perf_log.py` still
   writes one record per generation, the hardware sampler and its `hw_1m` /
   `hw_1h` tiers still run, and the audit, allocator, KPI and device ledgers are
   untouched — they have consumers that were never the pages:
@@ -140,7 +140,7 @@ pre-release milestones from when Ava ran on one box and nothing was tagged.
   `ava-code-changes` egress policy, `POST /internal/code-change`, the
   `code_change` scope, `code_agent.py`, `coder.py`, `access_policy.py`,
   `code.approval` and its Setup → System governance panel, and
-  `ANTHROPIC_API_KEY` with every `CODE_*` knob. `tests/test_security.py`
+  `ANTHROPIC_API_KEY` with every `CODE_*` knob. `tests/unit/test_security.py`
   gained `SelfEditingIsRemovedTests`, which asserts each layer separately, in
   the same shape as the existing `PolicyMutationTests`.
 
@@ -159,7 +159,7 @@ pre-release milestones from when Ava ran on one box and nothing was tagged.
 - **Two ungoverned source writers went too.** `learning_mgmt.py` rewrote
   `ava_learning_digest.py` and `ava_learning_weekly.py` — executable Python —
   with no diff, no commit and no policy check, and `config_mgmt.update_config`
-  could write `agent/persona.txt.tmpl`, the agent's own system prompt, which
+  could write `agent-platform/agents/ava/persona.md.tmpl`, the agent's own system prompt, which
   the code-change policy of the day specifically placed behind owner approval.
   `config_mgmt` is read-only now (`.env` only), `POST /internal/config` and
   `update_config.mjs` are gone, and `read_config`'s component enum is `["env"]`.
@@ -169,7 +169,7 @@ pre-release milestones from when Ava ran on one box and nothing was tagged.
   `arch_watch` did the same on a timer, authored "Ava (auto-sync)", onto
   whatever branch the tree was on. The write half is gone and `arch.paused`
   went with it. Drift is still detected and alerted — reconcile it yourself
-  with `python agent/docs/arch.py sync`. `ava-architecture`'s SKILL.md was
+  with `python docs/architecture/arch.py sync`. `ava-architecture`'s SKILL.md was
   rewritten to match.
 
 - **BREAKING: Ava ships no default model.** `router_app` used to synthesize a
@@ -204,7 +204,7 @@ pre-release milestones from when Ava ran on one box and nothing was tagged.
   prefix namespaces every session key Ava creates, so two installs pointed at
   one shared gateway with the same prefix would read each other's sessions.
   `voice.threshold`, `inference.ctx_base`, `cost.currency`, `alloc.ledger_dir`
-  and `skills.categories` are now documented in `config.example.yaml` too, with
+  and `skills.categories` are now documented in `config/ava.example.yaml` too, with
   a guard that fails when a key the code honours is missing from it.
 
 - **Each runtime describes itself.** Panels hardcoded "NemoClaw" in copy shown
@@ -215,7 +215,7 @@ pre-release milestones from when Ava ran on one box and nothing was tagged.
 - **Memory distillation moved to its own module and its own switch.** It lived
   inside `learning.py` and rode that scheduler, so the capability the README
   leads with was gated by a flag named after a different feature — and it would
-  have died silently with the removal above. It is now `ava_bridge/distill.py`,
+  have died silently with the removal above. It is now `agent-platform/integrations/ava/ava_agent/distill.py`,
   gated on `features.memory`, with cadence `memory.distill_interval_hours`
   (default 24h, env `AVA_MEMORY_DISTILL_INTERVAL_H`) and its own single-flight
   claim. The `memory_distill` audit event, the `distill_last_ts` cursor and the
@@ -226,7 +226,7 @@ pre-release milestones from when Ava ran on one box and nothing was tagged.
   never quietly become "your chats went to a third party". If your router
   cannot answer, the cycle stores nothing and retries next time.
 
-- `config.example.yaml` gained the `memory:` block it never had —
+- `config/ava.example.yaml` gained the `memory:` block it never had —
   `distill_interval_hours`, `recall_k` and `recall_max_chars` were all read by
   the code and documented nowhere.
 
@@ -240,7 +240,7 @@ pre-release milestones from when Ava ran on one box and nothing was tagged.
   the app's whole UI — with no reload button on a home-screen app to get out
   of it. Three changes, each explained where it lives: the cookie now lives
   twelve hours and slides forward on use, while the URL token keeps its five
-  minutes (`ava_bridge/apps_origin.py`, "two lifetimes"); the shell re-mints
+  minutes (`app/backend/apps_origin.py`, "two lifetimes"); the shell re-mints
   when the page comes back from the background past either lifetime, keeps the
   cookie alive with a heartbeat while the page is awake, and tells a slow link
   apart from a dead app (`AppFrame.tsx`, `GET /apps/<id>/.ava/keepalive`); and a
@@ -322,7 +322,7 @@ pre-release milestones from when Ava ran on one box and nothing was tagged.
   Brain reported `Couldn't load the model store. /api/hub/models/store -> 404`
   — a raw path and a status code, on the newest panel, which reads as "the
   model store is broken" and sends the owner looking for a fault that is not
-  there. It is version skew: `pages.py` re-reads `frontend/dist` on every
+  there. It is version skew: `pages.py` re-reads `app/frontend/dist` on every
   request so a rebuild needs no restart, so a `git pull` (or `npm run build`)
   on a running install hands the browser a NEW page talking to the Python
   process that is still serving the routes it booted with.
@@ -341,9 +341,9 @@ pre-release milestones from when Ava ran on one box and nothing was tagged.
     `ModelStorePanel` both said "the model store" while asking different
     routes, so the failure could not be attributed to either; the labels now
     track the panel titles ("the models on disk" / "the model store").
-  - `tests/test_frontend_api_paths.py` covers the half that IS knowable at
+  - `tests/unit/test_frontend_api_paths.py` covers the half that IS knowable at
     commit time: every `/api/…` literal in the tracked frontend sources must
-    match a real route on `phone_bridge.app`, so the repo can no longer ship a
+    match a real route on `app.server.app`, so the repo can no longer ship a
     bundle that calls a route the repo does not have.
 
 Connecting an app, and getting it into Ava's sandbox — a hardening pass over
@@ -354,7 +354,7 @@ no live sandbox, which is why they shipped.
 - **Connecting an app no longer redeploys the whole kit.** Deploying one
   connector ran a full provision — five MCP server pushes, six skill installs,
   seven policy applies, a persona write and a gateway nudge — to ship the two
-  generated files that app actually needs. `agent/install.sh` takes
+  generated files that app actually needs. `agent-platform/integrations/ava/sandbox/install.sh` takes
   `--connector <id>`, which narrows the policy apply to that app's generated
   file and the byte push to the one server connector tools live in; the Hub's
   Deploy button asks for exactly that. The payload stays whole on purpose: the
@@ -439,7 +439,7 @@ no live sandbox, which is why they shipped.
   landed in the *bridge* container while the agent container's installer read
   its own copy of `/app`, so a user-created connector could never reach the
   sandbox at all. `ava agent adopt-state --write` moves an existing install's
-  files; `tests/test_path_roots.py` now covers `agent/`.
+  files; `tests/unit/test_path_roots.py` now covers `agent/`.
 - **The bridge and `install.sh` could disagree about which sandbox.**
   install.sh reads its identity from the environment alone, and both callers
   shelled it with none — so `agent.sandbox: my-ava` in `ava.yaml` provisioned
@@ -551,7 +551,7 @@ no live sandbox, which is why they shipped.
   memory**, and the last of those says plainly that the memory is not available
   to Ava. Foreign rows stay visible on purpose: they are the answer to "where
   did my memory go", which is what the panel is for.
-  - New closed `relation` vocabulary on each row (`ava_bridge/hardware.py`
+  - New closed `relation` vocabulary on each row (`app/backend/hardware.py`
     `_RELATIONS`), mirrored into the SPA and guarded by the same cross-language
     check that already covers `state`. Derived from `role_key` — never a second
     guess at which row is the brain.
@@ -578,7 +578,7 @@ no live sandbox, which is why they shipped.
   turn links to Setup → Agent → Brain. Previously masked because
   `load_backends()` could never return empty.
 - **`/api/health` advertised a model that did not exist.** With no brain
-  resolved it fell back to `voice_ava.AVA_MODEL`, so a public, pre-auth endpoint
+  resolved it fell back to `app.voice.AVA_MODEL`, so a public, pre-auth endpoint
   named a specific model on a box that had none. It now answers `""`.
 - **`ava doctor` printed no brain row unless the agent sandbox had one.** It
   read the sandbox directly instead of `models.effective_brain()` — the last
@@ -593,7 +593,7 @@ no live sandbox, which is why they shipped.
   Either opens the connect form in a dialog, so the first app an owner connects
   no longer starts with finding Setup → Connectors.
   - It is the *same* form, not a second one: `NewConnectorForm` moved out of
-    `ConnectorsPanel.tsx` into `frontend/src/components/hub/ConnectApp.tsx`,
+    `ConnectorsPanel.tsx` into `app/frontend/src/components/hub/ConnectApp.tsx`,
     which exports the fields (`ConnectAppFields`), Setup's panel mount and the
     dialog. The fields report facts (`ConnectResult`) and each mount writes its
     own copy — "Preview / Deploy below" is true under Setup's connector list and
@@ -643,9 +643,9 @@ no live sandbox, which is why they shipped.
   only `curl` and `ffmpeg` — so the primary documented install described itself as
   bare metal. It now uses the existing `auth.in_container()`.
 - **`docs/RELEASING.md` sent you to a red CI run.** Its version-bump step called
-  syncing `frontend/package.json` "cosmetic only" and never mentioned
+  syncing `app/frontend/package.json` "cosmetic only" and never mentioned
   `demo/package.json` or `CITATION.cff`, all three of which
-  `tests/test_version_ssot.py` hard-asserts against `VERSION`.
+  `tests/unit/test_version_ssot.py` hard-asserts against `VERSION`.
 
 ### Changed
 
@@ -708,7 +708,7 @@ no live sandbox, which is why they shipped.
   answers the narrower question the app proxy actually asks - only
   `auth.token_env` or `ui.api.token_env`, the credentials a manifest states are
   the app's own. The SSO contract in `docs/CONNECTOR_SDK.md` §3 is unchanged.
-  `tests/test_connector_egress_boundary.py`.
+  `tests/unit/test_connector_egress_boundary.py`.
 - **Connector egress no longer follows redirects.** Every outbound request made
   on a connector's behalf - both bridge app proxies, the agent's action proxy, the
   `ava-tools/1` discover facade, and the MCP client on both HTTP transports - used
@@ -732,12 +732,12 @@ no live sandbox, which is why they shipped.
   pattern with an unspellable tier now fails **closed** to `destructive`, and both
   `dynamic_access` values and static `access:` values are reported as
   `severity: error`. Previously only the block's *type* was checked, never its
-  values. `tests/test_consent_tier_integrity.py`.
+  values. `tests/unit/test_consent_tier_integrity.py`.
 - **`confirm: [action_names]` is no longer silently dropped.** `_BLOCK_TYPES`
   declared `confirm` as `bool`, so `_validate` quarantined the list form before
   `_author_confirm` - which has always implemented it - could see it. An author
   who wrote `confirm: [publish_app]` got no confirmation prompt. It survived
-  because `tests/test_approvals.py` exercises the list form through a mocked
+  because `tests/unit/test_approvals.py` exercises the list form through a mocked
   `connectors.load`, so the validator never ran on that path; the new coverage
   goes through the real loader.
 - **Connector credentials are created 0600, not chmod'ed to it.**
@@ -751,14 +751,14 @@ no live sandbox, which is why they shipped.
   HTTPS-only service (now 443 for a public host, 80 kept for a private one). The
   blanket RFC1918 `allowed_ips` was attached to *every* host including public
   ones, pre-authorising that name to resolve into private space - which is the
-  SSRF case `agent/policies/ava-knowledge.yaml` says the list exists to control;
+  SSRF case `agent-platform/integrations/ava/policies/egress/ava-knowledge.yaml` says the list exists to control;
   it is now emitted only for a host that is already private. And the endpoint
   carried **no `rules`**, meaning every method on every path, while
   `policy_inventory._scan` harvests wildcards only *from* rules - so the broadest
   grant a manifest could express was invisible to
-  `ava_security_check.check_policy_wildcards`. A bare entry now states its own
+  `app.backend.security_check.check_policy_wildcards`. A bare entry now states its own
   breadth as `* /**`, and new `egress.host_rules` narrows it.
-  `tests/test_connector_policy_honesty.py`.
+  `tests/unit/test_connector_policy_honesty.py`.
 - **Service health no longer counts a 401 or a 404 as "up".** `dashboard._probe`
   returned `status_code < 500`, so an auth-gated probe URL, a deleted app, an
   over-quota 402 and a GET against a POST-only endpoint all painted a green pill
@@ -819,8 +819,8 @@ no live sandbox, which is why they shipped.
   the owner to make a second name resolve to the box, so defaulting it on would break
   every existing install's app tiles. `/api/apps` now returns an `apps_origin`
   block carrying that warning so Setup can surface it.
-  `ava_bridge/apps_origin.py`, `tests/test_apps_origin.py`.
-- **`agent/mcp_server_connectors/` - the capability group that was minted and
+  `app/backend/apps_origin.py`, `tests/unit/test_apps_origin.py`.
+- **`agent-platform/integrations/ava/mcp/servers/mcp_server_connectors/` - the capability group that was minted and
   unused.** `install.sh` handed out a `connectors` token and `group_may()` enforced
   a `connectors` scope, but no server existed behind it, so the generated per-app
   tools and the device-event tool lived in `mcp_server_content` and ran on the
@@ -830,9 +830,9 @@ no live sandbox, which is why they shipped.
   that the injection-bearing group's blast radius is bounded was not true of
   connectors. The fix gives the group its own server rather than narrowing the
   table: `install.sh` discovers it with no change, `device_events.mjs` moves into it,
-  generated tools now land in `agent/mcp_server_connectors/apps/<cid>/`, and
+  generated tools now land in `agent-platform/integrations/ava/mcp/servers/mcp_server_connectors/apps/<cid>/`, and
   `content` keeps only what its remaining tools actually call. Narrowing the table
-  first would have 403'd live tools instead. `tests/test_mcp_server_scopes.py` now
+  first would have 403'd live tools instead. `tests/unit/test_mcp_server_scopes.py` now
   derives each server's required scopes from the `/internal/...` routes its tools
   reference and fails **both** ways - a missing scope and a surplus one, the
   direction that breaks nothing and therefore survives.
@@ -850,7 +850,7 @@ no live sandbox, which is why they shipped.
 
 ### Changed
 
-- **A fork inherits no personality.** `agent/persona.txt.tmpl` used to hardcode
+- **A fork inherits no personality.** `agent-platform/agents/ava/persona.md.tmpl` used to hardcode
   one person's taste in how an assistant should talk - "in the spirit of Siri",
   "write like a person texting a friend", mirror the owner's profanity, "give
   real, unfiltered opinions" - with no config key to change any of it. The
@@ -861,7 +861,7 @@ no live sandbox, which is why they shipped.
   (`chat` | `markdown`). New **Setup → Persona** panel offers four starting
   points as editable text; what is saved is the text, never a preset id, so
   changing a preset upstream can never retroactively alter an existing install.
-  `docs/PERSONA.md`, `tests/test_persona_neutral.py`.
+  `docs/PERSONA.md`, `tests/unit/test_persona_neutral.py`.
 - `persona.format` defaults to `chat` because Ava's chat surface renders replies
   as plain text - markdown headings and tables would appear literally. It is a
   renderer contract, not a preference, and lifting it is one setting away.
@@ -874,7 +874,7 @@ no live sandbox, which is why they shipped.
   an `async def`, so one voice turn froze every SSE stream, the dashboard and the
   login gate for its whole duration. `/api/talk-text` had the same shape. Both now
   hand each step to `run_in_threadpool`, the idiom already used 9× in the same
-  file. `tests/test_no_blocking_routes.py` reported green throughout because its
+  file. `tests/unit/test_no_blocking_routes.py` reported green throughout because its
   curated blocklist named only two document helpers - the voice and turn seams are
   now in it, so the next one fails at review.
 - **Chat's Code mode pointed users at a 404.** Flipping the composer toggle
@@ -886,7 +886,7 @@ no live sandbox, which is why they shipped.
 - **Every published screenshot and tour video re-captured.** The tracked media
   still rendered an unannounced sibling project's name and a maintainer-local
   checkpoint name into the app sidebar, an approval banner and a model chip.
-  `tests/test_no_owner_identity.py` scans text and cannot see a name baked into a
+  `tests/unit/test_no_owner_identity.py` scans text and cannot see a name baked into a
   PNG or MP4 - the gap its own docstring and `demo/README.md`'s accept checklist
   both call out - so a text-clean tree shipped 15 of 17 PNGs and all 6 videos
   carrying one. All re-shot from sanitized fixtures against the current build,
@@ -900,12 +900,12 @@ no live sandbox, which is why they shipped.
   `deploy/ava-data/secrets/*` into the image: `.dockerignore` patterns were
   root-anchored, so a bare `.env` entry missed everything below the top level,
   and `install.sh` always passes `--build`.
-- `agent/persona.txt.tmpl` and `agent/render_persona.py` are now in the
+- `agent-platform/agents/ava/persona.md.tmpl` and `agent-platform/integrations/ava/ava_agent/render_persona.py` are now in the
   self-editing approval tier. They were `auto`, so under `code.approval: policy`
   the agent could rewrite the operational mandates that constrain it and commit
   that itself.
-- Three tests asserted against the gitignored `agent/policies/generated/`, so
-  they failed on every fresh clone and in CI, which runs `pytest tests/` with no
+- Three tests asserted against the gitignored `agent-platform/integrations/ava/policies/egress/generated/`, so
+  they failed on every fresh clone and in CI, which runs `pytest tests/unit/` with no
   generation step. They now skip when the derived tree is absent.
 - README and `deploy/README.md` claimed web search over Tor works on the Docker
   path (no profile provisions SearXNG or Tor), that `ava verify` "proves every
@@ -936,9 +936,9 @@ common cause: the owner's own box was the only configuration anyone ran.
   a loopback bind *is* reachable. The job now boots through compose on the
   default bridge network and curls the published port from the runner, asserting
   both that compose reports healthy **and** that the external request succeeded.
-  `tests/test_ci_covers_deploy.py` fails any reintroduction of `--network host`.
+  `tests/unit/test_ci_covers_deploy.py` fails any reintroduction of `--network host`.
 - **`deploy/local-serve.sh` was untracked** while a tracked script `exec`'d it and
-  six tracked files referenced it. `tests/test_deploy_refs_tracked.py` now fails
+  six tracked files referenced it. `tests/unit/test_deploy_refs_tracked.py` now fails
   on any `deploy/*.sh` named in a tracked file but absent from `git ls-files`.
 - **Every profile pointed at the GPU backend.** The `ava` service hardcoded
   `AVA_BACKEND_URL: http://vllm:8002/v1` for all five profiles while `vllm` only
@@ -960,7 +960,7 @@ and `local-serve.sh` previously carried separate, already-diverging tables, and
 compose had no way to express `--reasoning-parser` at all. The `native_ctx`
 column is what stops `--max-model-len` from being set above what the checkpoint
 supports; it is left blank where the value is not certain, because a wrong entry
-silently caps context instead of failing. `tests/test_model_flags_ssot.py` fails
+silently caps context instead of failing. `tests/unit/test_model_flags_ssot.py` fails
 if parser vocabulary reappears anywhere but the table and the docs.
 
 ### Security - Four ways in, closed
@@ -995,7 +995,7 @@ if parser vocabulary reappears anywhere but the table and the docs.
   `false` evaluated true - and unconditional, so over plain HTTP the browser
   discarded the session cookie and the user bounced back to `/login` with no
   message, indistinguishable from a wrong password. That is the exact flow
-  `docs/MOBILE.md` markets, and `qa/env_recipe.py` pinned the variable to `"0"`,
+  `docs/MOBILE.md` markets, and `tests/integration/env_recipe.py` pinned the variable to `"0"`,
   so the suite structurally could not see it.
 - One shared `auth.client_ip()` honours `X-Forwarded-For` only from
   `server.trusted_proxies`. The login throttle keyed on `request.client.host`, so
@@ -1018,7 +1018,7 @@ prior file. `settings.get_float` was added because `config.py` called bare
 shipped template ships one - so `ava setup` marked the box configured before the
 owner had seen a single screen. It is now the completion flag alone, the wizard is
 re-entrant and pre-fills from current config, and `ava setup` writes a minimal
-`ava.yaml` instead of copying the annotated `config.example.yaml` template
+`ava.yaml` instead of copying the annotated `config/ava.example.yaml` template
 (which `safe_dump` stripped of every comment on first save).
 `POST /api/setup/save` validates before marking complete, rather than after.
 
@@ -1056,7 +1056,7 @@ one looking like it was still loading, forever, with the real message sitting
 unread in a variable nobody named. Every call site now either binds `error` and
 renders it, or hands the whole hook result to `<ResourceState>` /
 `<ResourceError>`, which cannot drop the error because there is no field to
-omit - both with a Try again button. `tests/test_hub_uniformity.py` fails a
+omit - both with a Try again button. `tests/unit/test_hub_uniformity.py` fails a
 regression; its one allow-listed exception is HubView's restart-banner fetch,
 whose failure is deliberately silent.
 
@@ -1072,18 +1072,18 @@ whose failure is deliberately silent.
 
 ### Added - `ava` is a real command
 
-`pyproject.toml` declares `[project.scripts] ava = "ava_cli:main"`, so
+`pyproject.toml` declares `[project.scripts] ava = "app.cli:main"`, so
 `pip install -e .` puts on PATH the command `README.md` has always told forkers to
 run. Editable-only and deliberately so: `settings.CODE_ROOT` keeps resolving to
-the checkout, which is what makes `config.example.yaml`, `frontend/dist`,
-`agent/install.sh` and `connectors/_template` resolve at all. The package list is
+the checkout, which is what makes `config/ava.example.yaml`, `app/frontend/dist`,
+`agent-platform/integrations/ava/sandbox/install.sh` and `connectors/_template` resolve at all. The package list is
 an explicit allowlist, never `find:` - the repo root holds `agent/`, `config/`,
 `connectors/` and `data/`, which must not become importable top-level packages.
-`tests/test_cli_entrypoint.py` checks the list from both ends: nothing declared
+`tests/unit/test_cli_entrypoint.py` checks the list from both ends: nothing declared
 that does not exist, and nothing imported by name that is not declared.
 
 ### Added - Model memory allocation (observe phase)
-- **`ava_bridge/alloc/`** - fit-checked memory management for boxes that run Ava
+- **`agent-platform/integrations/ava/ava_agent/alloc/`** - fit-checked memory management for boxes that run Ava
   plus a second model. A box with a language model and an image pipeline
   oversubscribes its memory, so at most one can be resident; this layer answers
   *"can this model be brought up right now"* before anything tries, and reports
@@ -1111,11 +1111,11 @@ that does not exist, and nothing imported by name that is not declared.
   unreadable memory means *unknown*, which means never gate. A driver whose tooling
   is absent (no container runtime, no service manager) degrades to observe-only.
   New engine support is one adapter file - built-ins plus `$AVA_HOME/alloc_drivers/`.
-- Decision recorded in `agent/docs/adr/0005-model-load-allocation.md`. This phase
+- Decision recorded in `docs/architecture/adr/0005-model-load-allocation.md`. This phase
   **observes only**; the lease broker that releases memory follows.
 
 ### Added - Allocation watchdog (nothing degrades silently)
-- **`ava_bridge/alloc/watch.py`** - polls every declared model on an interval and
+- **`agent-platform/integrations/ava/ava_agent/alloc/watch.py`** - polls every declared model on an interval and
   raises a persistent alert for anything wrong, so a degraded model surfaces on its
   own instead of only when someone runs `ava doctor`. Uses the same
   `alerts.push_external` + `ttl = INTERVAL * 1.5` idiom as the architecture
@@ -1139,7 +1139,7 @@ that does not exist, and nothing imported by name that is not declared.
   models are declared**, so an install that has not opted in pays nothing.
 
 ### Added - Allocation leases (advisory)
-- **`ava_bridge/alloc/policy.py`** - the planner, a **pure function**: given a
+- **`agent-platform/integrations/ava/ava_agent/alloc/policy.py`** - the planner, a **pure function**: given a
   request, the pool, and what each declared model holds, it returns an ordered plan.
   No I/O, no hardware, no clock, so the whole decision table is table-testable in
   milliseconds and a fork that disagrees with interactive-wins replaces one function.
@@ -1150,13 +1150,13 @@ that does not exist, and nothing imported by name that is not declared.
   **never preempted**. Everything else in the planner is an efficiency question; that
   one prevents corrupting work in flight. Lower-priority holders do yield, which is
   what declaring a priority is for.
-- **`ava_bridge/alloc/ledger.py`** - cross-process ownership as a lock directory.
+- **`agent-platform/integrations/ava/ava_agent/alloc/ledger.py`** - cross-process ownership as a lock directory.
   Every quantity is *derived* from something the kernel guarantees: the refcount is
   how many lease locks are still held, and a dead holder is one whose lock can be
   taken. So a caller that is killed mid-work cannot leak a count, and crash recovery
   needs no timeout heuristic. Uses `flock` (not `lockf`, which is per-process and
   would give false exclusivity between threads).
-- **`ava_bridge/alloc/broker.py`** - `alloc.lease("model", reason=...)`: a caller
+- **`agent-platform/integrations/ava/ava_agent/alloc/broker.py`** - `alloc.lease("model", reason=...)`: a caller
   states a *need* and never names a victim. Reentrant per thread, reference-counted,
   with a cooldown so a burst costs one reload rather than one per request.
 - **Advisory by default** (`alloc.lease.enforce: false`): the full decision is
@@ -1172,7 +1172,7 @@ that does not exist, and nothing imported by name that is not declared.
   overdue holds.
 
 ### Added - Allocation enforcement (safe to switch on)
-- **`ava_bridge/alloc/breaker.py`** - the safety limits that make enforcement
+- **`agent-platform/integrations/ava/ava_agent/alloc/breaker.py`** - the safety limits that make enforcement
   something you can turn on. Two independent mechanisms, and the first matters more:
   - **A start that provably cannot fit is not attempted.** Measured through the real
     code path: with the pool permanently short, **0 start attempts over ~56 simulated
@@ -1233,7 +1233,7 @@ that does not exist, and nothing imported by name that is not declared.
   accounting said **43.7 GiB**. Acting on the smaller number made the planner project
   16 GB from releasing a 48.7 GiB model - it would have refused work that fits and
   over-released chasing a target it had already passed.
-- **`ava_bridge/alloc/gpumem.py`** is now the residency oracle: per-process accelerator
+- **`agent-platform/integrations/ava/ava_agent/alloc/gpumem.py`** is now the residency oracle: per-process accelerator
   accounting, attributed to a container or unit through its process tree (an engine
   splits a launcher from the worker that owns the weights, so asking only about the pid
   a supervisor reports would miss nearly all of it). Both drivers prefer it and keep
@@ -1253,7 +1253,7 @@ that does not exist, and nothing imported by name that is not declared.
   failures - but the same leak could have opened a breaker against a real model or
   written a learned memory baseline from faked readings.
 - Fixed with the repo's path-seam pattern (patch the accessor, not the environment), and
-  guarded: `tests/test_alloc_isolation.py` fails any allocation test that exercises a
+  guarded: `tests/unit/test_alloc_isolation.py` fails any allocation test that exercises a
   state-writing module without redirecting the path it writes to. Verified against a
   deliberate violation.
 - `deploy/local-serve.sh` gains `AVA_SERVE_RESTART` (legacy alias `OMNI_RESTART`, still
@@ -1288,7 +1288,7 @@ that does not exist, and nothing imported by name that is not declared.
 ### Fixed - Static guards were scanning zero files
 - Every convention guard resolves its inputs with `git ls-files`, and the whole
   allocation layer was still untracked - so the ledger-isolation guard, and the guard
-  forbidding the wrong memory oracle *inside* `ava_bridge/alloc/`, were both passing
+  forbidding the wrong memory oracle *inside* `agent-platform/integrations/ava/ava_agent/alloc/`, were both passing
   vacuously over an empty file list. Registering the paths turned up three genuine
   problems immediately.
 - The decision log had its own leak: `_record()` writes under `logs/`, not the ledger
@@ -1343,7 +1343,7 @@ that does not exist, and nothing imported by name that is not declared.
 - Router unit description no longer names two retired models.
 
 ### Added - Data page (the owner's data console)
-- **Data view** (`ava_bridge/data_api.py`, `frontend/src/components/data/`): a
+- **Data view** (`app/backend/data_api.py`, `app/frontend/src/components/data/`): a
   built-in tab that inventories everything Ava stores under `$AVA_HOME` -
   Overview (per-store cards: path, format, size, counts, last write; secrets
   listed as counts only, never readable), Memory (the same governed browser as
@@ -1376,7 +1376,7 @@ that does not exist, and nothing imported by name that is not declared.
   environment variable of the same name still wins. Every connector auth read
   (`connectors._auth_headers` / `_discover_headers` / `app_api` / `${VAR}`
   expansion, and `mcp_client` HTTP/SSE headers) routes through the one resolver;
-  guarded by `tests/test_connector_secrets.py`.
+  guarded by `tests/unit/test_connector_secrets.py`.
 
 ### Added - Single sign-on for embedded apps (connect once, no re-login)
 - **Ava presents a connected app's saved token to its embedded UI**, so an app
@@ -1399,11 +1399,11 @@ that does not exist, and nothing imported by name that is not declared.
 ### Changed
 - **Chat deletion is audit-logged** - `DELETE /api/chats/{cid}` now writes a
   `chat_delete` event to the flight recorder, same as memory edits.
-- **`MemoryPanel` extracted** to `frontend/src/components/hub/MemoryPanel.tsx`,
+- **`MemoryPanel` extracted** to `app/frontend/src/components/hub/MemoryPanel.tsx`,
   shared by Setup → Memory and Data → Memory (one implementation).
 - `memory_store.counts()` now reports `pinned`.
 - **Setup UI redesigned onto one system** - all nine Setup tabs
-  (`frontend/src/components/hub/`) share one visual grammar: typed identity
+  (`app/frontend/src/components/hub/`) share one visual grammar: typed identity
   tiles, tone-dotted status boards, overflow-safe action rows with a shared "⋯"
   overflow menu, and structured term/description legends. Connectors' **Deploy**
   is now state-aware (hidden once a connector's tools + policy are up to date -
@@ -1418,7 +1418,7 @@ that does not exist, and nothing imported by name that is not declared.
   icon-tile classes and the scattered tone rules into one `.tile` + `--tone`
   system, and split the `HubView.tsx` monolith into `hub/panels/*.tsx` (one file
   per tab) behind a thin router (2883 → under 200 lines). Behaviour-preserving;
-  enforced going forward by `tests/test_hub_uniformity.py`.
+  enforced going forward by `tests/unit/test_hub_uniformity.py`.
 
 ### Fixed
 - **Icons sat off-centre in every tile / button / nav row** - the `<Icon>`
@@ -1430,13 +1430,13 @@ that does not exist, and nothing imported by name that is not declared.
 - `.hub-note` / `.hub-restart` never sized a leading icon SVG (unbounded glyph);
   also fixes the Setup page's own restart banner.
 - **Agent tab no longer crashes the whole Setup view** on a partial or errored
-  `/api/hub/agent/skills` response - the skills loader normalises the payload and
+  `/api/hub/skills` response - the skills loader normalises the payload and
   degrades to an empty list instead of throwing to the view error boundary.
 - **Setup → System** optional-feature labels no longer run together (title/sub
   now stack), and Setup save-confirmations read green instead of the error red.
 
 ### Added - Setup Hub, MCP, governance & observability
-- **Setup Hub** (`ava_bridge/hub_api.py`, `frontend/.../hub/`): a GUI onboarding &
+- **Setup Hub** (`app/backend/hub_api.py`, `app/frontend/.../hub/`): a GUI onboarding &
   control portal - Overview, Models (hardware detect, pull-with-progress, bench),
   Agent (status/provision), Connectors (detect-then-connect an app, preview the
   generated tools + egress policy, deploy), Voice (browser-mic enrollment + gate
@@ -1444,14 +1444,14 @@ that does not exist, and nothing imported by name that is not declared.
 - **Connect an app by detection** - one "where is your app?" field; Ava probes it
   (MCP over HTTP/stdio, or a discovery endpoint) and either finds the tools or
   asks for the REST actions. `POST /api/hub/connectors/probe`.
-- **Wrap any MCP server in an egress policy** (`ava_bridge/mcp_client.py`): real
+- **Wrap any MCP server in an egress policy** (`agent-platform/integrations/ava/ava_agent/mcp_client.py`): real
   MCP (JSON-RPC over Streamable HTTP or stdio) as a connector via an `mcp:`
   manifest block; the agent reaches only the two policed `__tools`/`__call`
   routes, allow-listed by the auto-generated policy.
 - **Container-isolated MCP servers** - `mcp.sandbox: docker` runs a stdio server
   in a throwaway container (`--read-only`, tmpfs, cpu/mem/pid caps,
   no-new-privileges, no host mounts; `network: none` optional).
-- **Human-in-the-loop approval gate** (`ava_bridge/approvals.py`) - mark an action
+- **Human-in-the-loop approval gate** (`agent-platform/integrations/ava/ava_agent/approvals.py`) - mark an action
   `confirm: true` (or connector-level) and the agent's call blocks until you
   approve/deny in the Hub; `GET/POST /api/hub/approvals`.
 - **Governed self-editing modes** - `code.approval: all | policy | none` (default
@@ -1459,7 +1459,7 @@ that does not exist, and nothing imported by name that is not declared.
 - **Real learning cycles** - local-first self-analysis (router → Anthropic
   fallback) parks improvement proposals for approval, on a schedule + a "Run now"
   button; replaced the previously-dormant stubs.
-- **Flight recorder** (`ava_bridge/audit.py`) - durable append-only audit ledger
+- **Flight recorder** (`app/backend/audit.py`) - durable append-only audit ledger
   (turns, self-edits, tool calls) at `$AVA_HOME/logs/audit.jsonl`, surfaced on the
   History tab; survives restarts.
 - **Cost & energy budgets** - `cost.budgets` (daily/monthly $ + daily kWh) with
@@ -1482,7 +1482,7 @@ that does not exist, and nothing imported by name that is not declared.
   the infra connectors, so forkers connect their own app from a clean slate.
 
 ### Added - Publish-readiness (fork-portability pass)
-- **Inference provider layer** (`ava_bridge/router_app.py`): the router is now an
+- **Inference provider layer** (`agent-platform/integrations/ava/ava_agent/router_app.py`): the router is now an
   importable app factory with per-backend `engine` (vLLM/Ollama/llama.cpp/cloud)
   and `tools` flags, minimal engine adapters (vLLM reasoning kwargs, stream-usage
   injection, tool-capability routing), and **embeds in the bridge** at startup
@@ -1497,8 +1497,8 @@ that does not exist, and nothing imported by name that is not declared.
   (loaded-model roles) - so app-specific chat/dashboard behavior is declared in a
   `connector.yaml`, not wired into core.
 - **CI** (`.github/workflows/ci.yml`): ruff, pytest, frontend dist-drift, CPU-only
-  smoke boot, gitleaks. New `ruff.toml`, `requirements-dev.txt`,
-  `requirements-voice.txt`.
+  smoke boot, gitleaks. New `ruff.toml`, `config/dependencies/dev.txt`,
+  `config/dependencies/voice.txt`.
 - **Security-surface tests** (42 → 108): router proxy/failover/auth, auth
   middleware + login throttle, SSRF guard (per-hop redirect revalidation),
   connector registry parsing.
@@ -1511,12 +1511,12 @@ that does not exist, and nothing imported by name that is not declared.
   connector manifest + overlay);
   owner-specific component/architecture docs moved to the gitignored `docs/dev/`;
   `CONTRIBUTING.md` rewritten for fork contributors; a voice-dep import guard so
-  a fresh install boots without `requirements-voice.txt`.
+  a fresh install boots without `config/dependencies/voice.txt`.
 
 ### Added - Governance & security documentation
 - `SECURITY.md` (trust boundaries, egress model, secret inventory, threat model),
   `CONTRIBUTING.md`, and an Architecture Decision Record set under
-  `agent/docs/adr/`.
+  `docs/architecture/adr/`.
 
 ## [2026-07-06] - Productization: pluggable apps, agent runtime & Omni switchover
 
@@ -1549,7 +1549,7 @@ minutes." Four coherent work streams:
   recommendation** from detected memory.
 
 ### Added - Pluggable agent runtime
-- **`ava_bridge/runtime/`**: an `AgentRuntime` interface with `NemoClawRuntime`
+- **`agent-platform/integrations/ava/ava_agent/adapters/`**: an `AgentRuntime` interface with `NemoClawRuntime`
   (default) and `DirectRuntime` (fallback); `agent.py` is now a thin facade.
   NemoClaw (NVIDIA, Apache-2.0 - OpenClaw-in-OpenShell) is the first-class runtime.
 - **`agent.required` gate** + `ava agent provision|status` + install.sh bootstrap +
@@ -1558,10 +1558,10 @@ minutes." Four coherent work streams:
 
 ### Changed
 - **Config is now driven by `ava.yaml`** for the running bridge (`config.py` layers
-  env → `ava.yaml` → defaults via `settings`); `serve.py` binds host/port from it.
+  env → `ava.yaml` → defaults via `settings`); `app/__main__.py` binds host/port from it.
 - **First-party apps fully migrated onto the generic connector proxy** - bespoke
   per-app routes removed; egress is auto-generated per connector
-  (`agent/policies/generated/<app>.yaml`). The drift-check now
+  (`agent-platform/integrations/ava/policies/egress/generated/<app>.yaml`). The drift-check now
   recognizes generated connector policies.
 - **De-personalized** for forks: `.env.example` sanitized (no personal paths),
   `config.PROJECTS` is dynamic (only apps whose checkout exists), report email is
@@ -1576,7 +1576,7 @@ minutes." Four coherent work streams:
 ### Security
 - **The local inference container bound to `127.0.0.1` only** (was `0.0.0.0`) - inference is no longer
   exposed on external interfaces; the sandbox reaches it via the host-side guard
-  proxy. `ava_security_check.py` passes.
+  proxy. `app/backend/security_check.py` passes.
 
 ## [2026-07-03] - Central model hub
 
@@ -1596,15 +1596,15 @@ minutes." Four coherent work streams:
 ## [2026-06-28] - Self-maintaining architecture pipeline
 
 ### Added
-- **SSOT pipeline:** `agent/docs/architecture.yaml` as the single source of truth;
-  `agent/docs/arch.py` generates the system & network diagrams and a
+- **SSOT pipeline:** `docs/architecture/architecture.yaml` as the single source of truth;
+  `docs/architecture/arch.py` generates the system & network diagrams and a
   services-and-ports table, and drift-checks the manifest against the running
   system.
 - Five `architecture` MCP tools (`get_architecture`, `describe_component`,
   `check_drift`, `sync_diagrams`, `update_architecture`) so Ava can read and update
   her own architecture, gated by the `ava-knowledge` policy.
 - Automation: `ava-arch-sync.path`/`.service` watcher + git pre-commit drift gate.
-- Comprehensive docs: `README.md`, `agent/docs/README.md` (deployment-specific
+- Comprehensive docs: `README.md`, `docs/architecture/README.md` (deployment-specific
   component notes live outside the public repo).
 
 ### Security
@@ -1613,8 +1613,8 @@ minutes." Four coherent work streams:
 ## [2026-06-26] - Voice and phone bridge
 
 ### Added
-- Voice loop (`voice_ava.py`): Whisper STT → local vLLM → Piper TTS, with an
+- Voice loop (`app/voice.py`): Whisper STT → local vLLM → Piper TTS, with an
   ECAPA-TDNN speaker gate (your-voice-only).
-- Phone voice/chat bridge (`phone_bridge.py`) served over Tailscale at `:8445`.
+- Phone voice/chat bridge (`app/server.py`) served over Tailscale at `:8445`.
 - Native MCP `get_weather` tool (Open-Meteo) under the narrow `ava-weather` policy.
 - Routed chat through the OpenClaw agent (`main`) instead of raw vLLM.

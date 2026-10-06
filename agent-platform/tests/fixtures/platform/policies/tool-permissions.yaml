@@ -1,0 +1,11 @@
+schema_version: 1
+default: deny
+grants:
+  - agents: ["*"]
+    tools: [skill.load, memory.recall, filesystem.read, filesystem.list]
+  - agents: [lead]
+    tools: [task.delegate, memory.remember, filesystem.write]
+denies:
+  - agents: ["*"]
+    tools: [shell.run]
+    reason: Arbitrary execution is off.

@@ -48,7 +48,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 # .env fills in what the environment has NOT already set — the same precedence
-# ava_bridge/settings.py uses (os.environ.setdefault). A plain `set -a; . .env`
+# app/backend/settings.py uses (os.environ.setdefault). A plain `set -a; . .env`
 # gives the FILE the last word, which silently defeats the override this script's
 # own header documents (`AVA_MODEL=… bash deploy/local-serve.sh`) the moment
 # someone pins AVA_MODEL in .env. Snapshot the real environment, source, restore.

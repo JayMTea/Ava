@@ -1,0 +1,26 @@
+# HARD ENFORCEMENT - which agent may call which tool. Checked in code before every call
+# (runtime/policy_engine.py); the model cannot override it.
+#
+# Semantics: denies win over grants; anything not granted is denied (default: deny is fixed).
+# Agent and tool entries accept globs ("*", "git.*", "mcp.github.*").
+# An agent's effective tools = its agent.yaml `tools` list AND a grant here.
+# `python scripts/check.py` fails if an agent lists a tool it is not granted.
+#
+# Add one grant per agent, listing exactly the tools that agent uses:
+#   - agents: [support-agent]
+#     tools: [crm.lookup, memory.remember]
+#     reason: Looks up customer records; curates project memory.
+schema_version: 1
+default: deny
+
+grants:
+  - agents: [ava]
+    tools: [skill.load, memory.recall, filesystem.read, filesystem.list]
+    reason: Ava answers from workspace knowledge and existing memory without changing files or stores.
+
+denies:
+  - agents: ["*"]
+    tools: [shell.run]
+    reason: >-
+      Arbitrary execution is off until a project opts in deliberately. To enable: grant it to one
+      agent here, set sandbox/permissions.yaml mode to docker, and keep it under approval.

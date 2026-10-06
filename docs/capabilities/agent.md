@@ -16,7 +16,7 @@ capability-scoped, and nothing it does writes to your source tree.
 
 ## Pluggable agent runtimes
 
-`ava_bridge/runtime/` defines one `AgentRuntime` interface (`available()`,
+`agent-platform/integrations/ava/ava_agent/adapters/` defines one `AgentRuntime` interface (`available()`,
 `run_turn()`, plus optional `exec` / `session_file` / `provision` / `status`,
 and the control-plane half — `rpc` / `subscribe` / `start_run` / `iter_run` /
 `observe`) and a registry keyed by the `agent.runtime` setting. Built-in
@@ -77,7 +77,7 @@ shows it as status rows.
 
 ??? note "How `remote` stays a mirror rather than a reimplementation"
 
-    The agent container runs `ava_bridge/agent_runtime_server.py`, a shim that
+    The agent container runs `agent-platform/integrations/ava/ava_agent/agent_runtime_server.py`, a shim that
     wraps the *same* `NemoClawRuntime`. Every route on that shim except
     `/healthz` is rejected with `401` unless it carries `X-Ava-Agent-Token`,
     compared with `hmac.compare_digest` against the shared secret both
@@ -131,7 +131,7 @@ appears, with no code change and no registration step.
 
 Two roots are scanned, both optional to extend:
 
-1. `agent/skills/<id>/SKILL.md`, the core kit. Five skills ship:
+1. `skills/<id>/SKILL.md`, the core kit. Five skills ship:
    `ava-architecture`, `ava-devices`, `ava-knowledge`, `ava-weather`,
    `ava-web`.
 2. `<overlay>/skills/<id>/SKILL.md`, a private overlay (`AVA_OVERLAY`, default
@@ -149,7 +149,7 @@ yet:
 | *provision to load* | the agent has never been provisioned, so deploy state is genuinely unknown rather than "missing" |
 
 Each card expands to the full `SKILL.md` body (lazy-loaded from
-`GET /api/hub/agent/skills/{id}`, so the list endpoint stays light) and carries
+`GET /api/hub/skills/{id}`, so the list endpoint stays light) and carries
 tool chips, with the owning app's identity accent when the skill names an `app`,
 since dynamically discovered tools have no connector prefix to give them away.
 
@@ -168,7 +168,7 @@ since dynamically discovered tools have no connector prefix to give them away.
 
 To **provision** is to install Ava's policies, tools and skills into the
 sandbox. **Setup → Agent → Runtime** verifies the CLI, verifies the
-sandbox, then runs `agent/install.sh`, each step rendered as a check or cross
+sandbox, then runs `agent-platform/integrations/ava/sandbox/install.sh`, each step rendered as a check or cross
 row with its reason. The same thing from a terminal is `ava agent provision`. It
 is idempotent; re-run it any time, and after `nemoclaw <name> rebuild`.
 
@@ -179,13 +179,13 @@ is idempotent; re-run it any time, and after `nemoclaw <name> rebuild`.
     so that stays a deliberate terminal step
     (`ava agent provision --install`).
 
-??? note "The seven steps `agent/install.sh` runs, in order"
+??? note "The seven steps `agent-platform/integrations/ava/sandbox/install.sh` runs, in order"
 
     1. **Bootstrap guard.** The CLI and the sandbox must already exist, or it
        stops with the exact next command instead of failing deep inside a
        policy-add.
-    2. **Apply every egress policy**, from `agent/policies/`,
-       `agent/policies/generated/` (what `ava connector policies --write`
+    2. **Apply every egress policy**, from `agent-platform/integrations/ava/policies/egress/`,
+       `$AVA_HOME/agent/policies/generated/` (what `ava connector policies --write`
        emits), and the overlay's equivalents. Deny-by-default per tool group.
     3. **Discover the guard proxy** from `$HTTPS_PROXY` *inside* the sandbox,
        falling back to OpenShell's default gateway address.
@@ -232,7 +232,7 @@ token** (the root token still passes). Forgetting to classify a new route fails
 closed, and a test tells its author which entry to add.
 
 **A grant table** says which group holds which capability
-(`ava_bridge/security.py`, `INTERNAL_SCOPE_GROUPS`):
+(`app/backend/security.py`, `INTERNAL_SCOPE_GROUPS`):
 
 | Group | May reach |
 |---|---|
@@ -255,7 +255,7 @@ closed, and a test tells its author which entry to add.
     The sharpest line used to be `code_change`: `content` not holding the scope
     that let the agent rewrite Ava's own source. That scope, its route and the
     tool behind it are gone entirely, which is a stronger answer than a table
-    entry. See `tests/test_security.py::SelfEditingIsRemovedTests`.
+    entry. See `tests/unit/test_security.py::SelfEditingIsRemovedTests`.
 
     `content` does not carry `connectors` either, and that omission is measured
     rather than assumed: the only routes the connector tools call are
@@ -270,7 +270,7 @@ closed, and a test tells its author which entry to add.
     that adds its own MCP server contributes a group and its route entries the
     same way core does.
 
-[![Trust zones from the internet down to the sandbox: an untrusted internet and LAN zone, a TLS and auth-gate perimeter, a loopback-only host holding the bridge, its 0600 secrets and Tor-only web egress, and a Docker sandbox with no ambient egress that reaches the bridge only over enumerated /internal routes with a scoped token](../../agent/docs/diagrams/security.svg)](../../agent/docs/diagrams/security.svg)
+[![Trust zones from the internet down to the sandbox: an untrusted internet and LAN zone, a TLS and auth-gate perimeter, a loopback-only host holding the bridge, its 0600 secrets and Tor-only web egress, and a Docker sandbox with no ambient egress that reaches the bridge only over enumerated /internal routes with a scoped token](../../docs/architecture/diagrams/security.svg)](../../docs/architecture/diagrams/security.svg)
 
 The same boundary governs apps: the sandbox never speaks to a connector's API or
 an MCP server directly. The bridge does that host-side, on its behalf, with an
@@ -365,7 +365,7 @@ correctable and deletable in **Setup → Agent → Memory**. See [Memory](../MEM
     Nothing in Ava writes to the repository now. The architecture watchdog
     reports drift instead of committing a fix for it, and `read_config` reads
     `.env` without being able to write it. Restoring any single layer would be a
-    partial re-arming, so `tests/test_security.py::SelfEditingIsRemovedTests`
+    partial re-arming, so `tests/unit/test_security.py::SelfEditingIsRemovedTests`
     pins all of them at once.
 
 ---

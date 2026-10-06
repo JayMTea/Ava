@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tool.schema.json",
+  "title": "Tool definition (one entry of tools/registry.yaml)",
+  "type": "object",
+  "required": ["id", "description", "implementation", "side_effects", "input_schema"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$", "description": "<family>.<action>"},
+    "description": {
+      "type": "string",
+      "minLength": 20,
+      "description": "Written for the model: what it does, when to use it, what it returns."
+    },
+    "implementation": {"type": "string", "pattern": "^[A-Za-z_][\\w.]*:[A-Za-z_]\\w*$", "description": "python.module:function"},
+    "side_effects": {"enum": ["none", "read_external", "local_write", "external_write", "destructive"]},
+    "input_schema": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {"type": {"const": "object"}},
+      "description": "JSON Schema for the arguments. Validated before every call."
+    },
+    "timeout_s": {"type": "number", "exclusiveMinimum": 0, "maximum": 3600},
+    "sandbox": {"enum": ["none", "required"]},
+    "max_output_chars": {"type": "integer", "minimum": 100}
+  }
+}

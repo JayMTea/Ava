@@ -28,13 +28,13 @@ control. It handles sensitive data (login credentials, chat history, and
 **biometric voiceprints**), so security is designed in, not bolted on. This
 document is the human-readable companion to two diagrams:
 
-- **Trust boundaries and control points**: [security diagram](agent/docs/diagrams/security.svg)
+- **Trust boundaries and control points**: [security diagram](docs/architecture/diagrams/security.svg)
 - **How the pieces fit together**: [architecture overview](docs/assets/architecture.svg)
 
 ??? note "How those diagrams stay true"
 
     The security diagram (and a per-tool egress/policy trace) is **generated**
-    from a deployment-local SSOT manifest (`agent/docs/architecture.yaml`,
+    from a deployment-local SSOT manifest (`docs/architecture/architecture.yaml`,
     gitignored; each install describes its own topology) and drift-checked 1:1,
     so it cannot silently fall out of date with reality. The architecture
     overview is a hand-authored, app-agnostic system map, not a generated
@@ -49,7 +49,7 @@ mode has no agent tools. See [Product boundaries](docs/PRODUCT_BOUNDARIES.md)
 and [External agent service](docs/RUNTIME_SERVICE.md).
 
 
-[![Trust zones from the internet down to the sandbox: an untrusted internet/LAN zone, a Tailscale TLS + auth-gate perimeter, a loopback-only host zone holding the bridge, the 0600 secrets and Tor-only web egress, and a Docker sandbox with no ambient egress that reaches the bridge only over enumerated /internal routes with a scoped token](agent/docs/diagrams/security.svg)](agent/docs/diagrams/security.svg)
+[![Trust zones from the internet down to the sandbox: an untrusted internet/LAN zone, a Tailscale TLS + auth-gate perimeter, a loopback-only host zone holding the bridge, the 0600 secrets and Tor-only web egress, and a Docker sandbox with no ambient egress that reaches the bridge only over enumerated /internal routes with a scoped token](docs/architecture/diagrams/security.svg)](docs/architecture/diagrams/security.svg)
 
 | Boundary | Trust | What enforces it |
 |----------|-------|------------------|
@@ -97,7 +97,7 @@ door, and Ava's auth gate controls who can *open* it.
 
 ## 2. Authentication and sessions (the perimeter)
 
-The bridge (`:8096`) is password-gated by middleware in `ava_bridge/auth.py`:
+The bridge (`:8096`) is password-gated by middleware in `app/backend/auth.py`:
 
 - Unauthenticated page requests get a `303` redirect to `/login` (or `/setup` on
   a fresh install); API/media/app requests get a `401` JSON response.
@@ -165,8 +165,8 @@ put, and what leaves only because you switched it on.
 
 The agent cannot reach the network freely. **Every MCP tool is bound to its own
 narrow egress policy**; anything not explicitly allowed is denied by default.
-See [`agent/policies/`](agent/policies/). A per-tool policy-trace diagram is
-generated locally by `agent/docs/arch.py` on installs with the SSOT manifest.
+See [`agent-platform/integrations/ava/policies/egress/`](agent-platform/integrations/ava/policies/egress/). A per-tool policy-trace diagram is
+generated locally by `docs/architecture/arch.py` on installs with the SSOT manifest.
 
 !!! note "MCP"
 
@@ -183,16 +183,16 @@ generated locally by `agent/docs/arch.py` on installs with the SSOT manifest.
 The property that matters: the `content` group holds the token for the MCP server
 that runs `web_fetch`, which is the surface prompt injection actually arrives on.
 It cannot reach `/internal/config`, `/internal/policies`, `/internal/logs` or
-`/internal/perf`. `tests/test_internal_scopes.py` and `qa/test_10_security.py`
+`/internal/perf`. `tests/unit/test_internal_scopes.py` and `tests/integration/test_10_security.py`
 both assert that directly. It also cannot reach `/internal/code-change`, because
 that route no longer exists: governed self-editing was removed in full, and
-`tests/test_security.py::SelfEditingIsRemovedTests` pins every layer of its
+`tests/unit/test_security.py::SelfEditingIsRemovedTests` pins every layer of its
 absence so it cannot return one piece at a time.
 
 ??? note "How the scoped callback tokens are enforced"
 
     Host callbacks additionally require a scoped `X-Ava-Internal-Token` bearer,
-    derived per capability group in `agent/install.sh`. Which group may call
+    derived per capability group in `agent-platform/integrations/ava/sandbox/install.sh`. Which group may call
     which `/internal/*` route is declared in `internal.ROUTE_SCOPES` +
     `security.INTERNAL_SCOPE_GROUPS`, and enforced **in the middleware**
     (`auth.auth_gate` → `internal.group_may`) rather than per handler - so a
@@ -226,7 +226,7 @@ from env first, else a generated file under `$AVA_HOME` (default the repo root;
 | `secrets/inference_key` | Cloud-provider API key, when a cloud backend is used |
 | `data/setup_claim` | One-time first-run claim token; deleted once setup completes |
 | `secrets/env/<NAME>` | Connector credentials, keyed by the env-var name the connector's manifest declares (saved from Setup → Connectors; never written to a manifest or `ava.yaml`) |
-| `secrets/openclaw_gateway_token` | Operator bearer for OpenClaw's gateway, used only when `agent.runtime: openclaw_gw`. **Never generated** — it must match a token the gateway will accept, and inventing one produces a guaranteed handshake failure reported as "the gateway rejected our token", which blames the wrong side. Written by `agent/install.sh` where the CLI lives, or pasted in at Setup → Agent |
+| `secrets/openclaw_gateway_token` | Operator bearer for OpenClaw's gateway, used only when `agent.runtime: openclaw_gw`. **Never generated** — it must match a token the gateway will accept, and inventing one produces a guaranteed handshake failure reported as "the gateway rejected our token", which blames the wrong side. Written by `agent-platform/integrations/ava/sandbox/install.sh` where the CLI lives, or pasted in at Setup → Agent |
 | `secrets/openclaw_client_id` | Stable per-installation id Ava presents as `instanceId` at handshake. Not a credential — it identifies, it does not authenticate — but it is listed because the gateway KEYS ITS DEVICE RECORDS ON IT: a value that changed per connect would mint a new paired device on every reconnect, so it is persisted rather than regenerated |
 | `secrets/openclaw_device_token` | Issued *by* the gateway at handshake and stored so a reconnect re-uses the pairing instead of consuming a new one |
 
@@ -288,13 +288,13 @@ session check and **no** audit actor unless it re-runs them itself.
 
 That was harmless while Ava had zero websocket routes. It stopped being harmless
 with `/ws/gateway` and the `/apps/<id>` socket proxy, so every websocket handler
-awaits `ava_bridge/ws_auth.py::guard` — which calls the same functions
+awaits `app/backend/ws_auth.py::guard` — which calls the same functions
 `auth_gate` calls, in the same order — **before** `accept()`, and refuses by
 closing without accepting so the handshake fails as a clean 403.
 
-`qa/test_01_auth_surface.py` enumerates routes by their HTTP methods, so
+`tests/integration/test_01_auth_surface.py` enumerates routes by their HTTP methods, so
 websocket routes are invisible to the generated auth sweep that covers
-everything else. `tests/test_websocket_auth.py` is what stands in its place, and
+everything else. `tests/unit/test_websocket_auth.py` is what stands in its place, and
 it fails both on a handler that never gates and on one that gates after
 accepting.
 
@@ -351,7 +351,7 @@ accepting.
 | Compromised / prompt-injected tool | Per-tool egress allow-list (deny by default); blast radius limited to that tool's single destination |
 | SSRF from a tool | Guard proxy rejects non-allow-listed IPs/hosts |
 | Secret leakage | `0600` files, `.gitignore`, never logged |
-| Secret exfiltration via an agent file tool | There is no agent file tool. Repo read/write went with self-editing; `tests/test_security.py::SelfEditingIsRemovedTests` keeps it gone |
+| Secret exfiltration via an agent file tool | There is no agent file tool. Repo read/write went with self-editing; `tests/unit/test_security.py::SelfEditingIsRemovedTests` keeps it gone |
 | Admin takeover on first run | One-time claim token; `/setup` accepts loopback or a matching token, nothing else |
 | Session theft / lost device | Password change re-keys the session HMAC, invalidating every issued cookie (a no-op when `AVA_SECRET` pins the key - rotate that instead) |
 | A pasted connector command reading the bridge's env | Unsandboxed stdio children get a minimal env (a fixed allow-list - `PATH`, `HOME`, `LANG`, `LC_ALL`, `TMPDIR`, `TERM`, `NODE_PATH`, `NVM_DIR`, `SYSTEMROOT` - plus the manifest's declared `env:`), never `os.environ`; probes default to a Docker sandbox and fail closed without it |
@@ -363,13 +363,13 @@ Run the smoke check after adding services, ports, MCP tools, policies, or proxy
 routes:
 
 ```bash
-./ava_security_check.py
+./app/backend/security_check.py
 ```
 
 It fails on wildcard `/internal/**` policies, wildcard `/**` egress,
 secret files with group/world permissions, and sensitive ports bound to wildcard
 interfaces. New host-local services should bind `127.0.0.1` and, if the sandbox
-must reach them, get a dedicated `*-gw.service` using `ava_bridge/gw_forward.py`.
+must reach them, get a dedicated `*-gw.service` using `agent-platform/integrations/ava/ava_agent/gw_forward.py`.
 
 **How to read its output.** It has three channels, which are three different
 claims:
@@ -394,7 +394,7 @@ Ava's ports always fails and cannot be declared away.
 
     - The port check reads the **live socket table**, so its result is a fact
       about the machine it ran on, not about the code. It cannot pass or fail in
-      CI meaningfully; `tests/test_port_exposure_classes.py` tests the *rules*
+      CI meaningfully; `tests/unit/test_port_exposure_classes.py` tests the *rules*
       against injected listener tables instead.
     - `SENSITIVE_PORTS` is an enumeration of Ava's own services. Only the
       wildcard-bind advisory covers everything else, so a service of yours on an
@@ -419,9 +419,9 @@ Please report security issues **privately**, not in public issues or PRs:
   agree on a fix and disclosure timeline before any public write-up.
 
 Internal rule (contributors): if Ava's tooling can reach a new network
-destination, that **must** be a new narrow policy in `agent/policies/` declared in
+destination, that **must** be a new narrow policy in `agent-platform/integrations/ava/policies/egress/` declared in
 the manifest, never a broad allow-rule. Significant security decisions are
-recorded as an ADR under [`agent/docs/adr/`](agent/docs/adr/).
+recorded as an ADR under [`docs/architecture/adr/`](docs/architecture/adr/).
 
 ## 9. Verifying a release
 

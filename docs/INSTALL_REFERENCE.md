@@ -348,7 +348,7 @@ This is what happens after them.
 Chat flows **bridge → router → your engine**. The OpenAI-compatible router
 starts **inside `ava up` automatically** (embedded, `127.0.0.1:8010`), so you
 never need a second service. An always-on standalone unit
-(`uvicorn ava_router:app --host 127.0.0.1 --port 8010`) is detected at startup
+(`uvicorn app.router:app --host 127.0.0.1 --port 8010`) is detected at startup
 and used instead. Declare your engine in `ava.yaml`:
 
 ```yaml
@@ -393,7 +393,7 @@ Apple Silicon automatically and gates model routing on the shared RAM pool (a
 
 ```bash
 python3 -m venv .venv && . .venv/bin/activate
-pip install -r requirements.txt              # no CUDA/vLLM wheels; clean on arm64
+pip install -r config/dependencies/runtime.txt              # no CUDA/vLLM wheels; clean on arm64
 
 # a native, OpenAI-compatible engine (any of these work; Ollama shown):
 brew install ollama && ollama serve &
@@ -412,7 +412,7 @@ Notes:
 
 - LM Studio and MLX also work - point the backend `base_url` at their
   OpenAI-compatible endpoint (see the Apple example in
-  [`config.example.yaml`](../config.example.yaml)).
+  [`config/ava.example.yaml`](../config/ava.example.yaml)).
 
 - GPU **memory** shows in the dashboard; util/temp/power read blank on Apple
   (no unprivileged API) - that is expected, not a fault.
@@ -422,7 +422,7 @@ Notes:
 ## 9. Configuration: `ava.yaml` and secrets
 
 Everything is driven by **`$AVA_HOME/ava.yaml`** (copied from
-[`config.example.yaml`](../config.example.yaml) by `ava setup`) plus environment
+[`config/ava.example.yaml`](../config/ava.example.yaml) by `ava setup`) plus environment
 overrides. **No source edits, ever.** Highlights:
 
 | Setting | What it does |
@@ -449,7 +449,7 @@ runtime brings with it:
 
 | Process | What it is | Default port | Set by |
 |---|---|---|---|
-| the bridge | `phone_bridge.py` under uvicorn — the whole app: UI, chat, voice, connectors | `127.0.0.1:8096` | `server.port` / `AVA_PORT` |
+| the bridge | `app/server.py` under uvicorn — the whole app: UI, chat, voice, connectors | `127.0.0.1:8096` | `server.port` / `AVA_PORT` |
 | the inference router | started **inside** the bridge, not a second service | `127.0.0.1:8010` | `inference.router.port` |
 | the OpenShell host gateway | NemoClaw's policy plane, started by `nemoclaw onboard` | `127.0.0.1:8080` | `nemoclaw onboard` |
 | the OpenClaw gateway | the agent's control plane, only with `agent.runtime: openclaw_gw` | from the sandbox registry | `nemoclaw onboard` |
@@ -576,7 +576,7 @@ into the system prompt, not merely displayed.
 
     A slot also cannot catch **frontend `dist` drift**. The image rebuilds the SPA
     from `src`, so the slot happily shows your change with a stale committed
-    bundle; only CI compares the two. Run `npm run build` in `frontend/` and commit
+    bundle; only CI compares the two. Run `npm run build` in `app/frontend/` and commit
     the result before pushing.
 
 Slots are named: `AVA_SLOT=perf ./slot.sh up -d` uses `.env.perf` and the project

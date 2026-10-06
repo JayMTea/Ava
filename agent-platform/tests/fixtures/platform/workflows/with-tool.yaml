@@ -1,0 +1,18 @@
+schema_version: 1
+name: with-tool
+description: A deterministic tool step (checked against the helper's grants), then an agent step.
+inputs:
+  path:
+    description: File to read.
+    default: knowledge/notes.md
+steps:
+  - id: read
+    tool: filesystem.read
+    as_agent: helper
+    arguments:
+      path: "{{ inputs.path }}"
+    continue_on_error: true
+  - id: summarize
+    agent: lead
+    input: "Summarize: {{ steps.read.output }}"
+output: "{{ steps.summarize.output }}"

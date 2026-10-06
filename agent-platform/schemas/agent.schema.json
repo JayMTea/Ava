@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agent.schema.json",
+  "title": "Agent definition (agents/<name>/agent.yaml)",
+  "type": "object",
+  "required": ["schema_version", "name", "description", "instructions", "model"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": 1},
+    "name": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,62}$", "description": "Must equal the directory name."},
+    "description": {
+      "type": "string",
+      "minLength": 20,
+      "maxLength": 1024,
+      "description": "What this agent is for and when to hand it work. Orchestrators read this to choose delegates."
+    },
+    "instructions": {"type": "string", "description": "Path to the agent's prompt, relative to its directory."},
+    "model": {
+      "type": "object",
+      "required": ["route"],
+      "additionalProperties": false,
+      "properties": {
+        "route": {"type": "string", "description": "A route in models/routing.yaml. Never a raw model id."},
+        "effort": {"enum": ["low", "medium", "high", "xhigh", "max"]},
+        "max_output_tokens": {"type": "integer", "minimum": 256}
+      }
+    },
+    "tools": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[a-z][a-z0-9_]*(\\.[A-Za-z0-9_*-]+)+$"},
+      "description": "Tool ids (globs allowed). Each must also be granted in policies/tool-permissions.yaml."
+    },
+    "skills": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+    "mcp_servers": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+    "delegates_to": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+    "memory": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "read": {"type": "array", "items": {"type": "string"}},
+        "write": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Can only tighten policies/safety.yaml limits, never loosen them.",
+      "properties": {
+        "max_turns": {"type": "integer", "minimum": 1},
+        "max_tool_calls": {"type": "integer", "minimum": 0}
+      }
+    },
+    "data_classification": {
+      "enum": ["public", "internal", "confidential", "restricted"],
+      "description": "Most sensitive data this agent handles. Models whose provider is not cleared for it are skipped."
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "artifact_type": {"enum": ["report", "code", "export"]},
+        "format": {"type": "string", "description": "Free-form note on the expected answer shape."}
+      }
+    }
+  }
+}

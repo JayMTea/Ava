@@ -1,0 +1,87 @@
+"""One deploy at a time on this machine — across processes, not just threads.
+
+`provision_job` makes the bridge single-slot: one run, observable, 409 on a
+concurrent start. That lock is a `threading.Lock`, so it holds for everything
+inside the bridge process and for nothing outside it — and two other things run
+the same `agent-platform/integrations/ava/sandbox/install.sh` against the same sandbox:
+
+  * `ava agent provision` from a terminal, which is a different process, and
+  * the agent-runtime shim, which is a different *container* sharing the socket.
+
+install.sh stages each MCP server through a FIXED path — `rm -rf "$DEST.new"`,
+extract into it, `node --check`, then swap it over `$DEST`. Fixed is the problem:
+two runs pushing the same server share `$DEST.new`, so one deletes and re-creates
+the directory the other is mid-extract into, and whichever swaps second promotes
+whatever the collision left behind. The syntax check does not save it — both runs
+check the same shared tree. The result is a server registered in openclaw.json
+whose code is some interleaving of two tarballs. The window is small and the
+trigger is ordinary: press Apply in the Hub, then run the CLI command the docs
+print.
+
+An advisory `flock` on a file under AVA_HOME is the right shape because AVA_HOME
+is precisely what the racing parties share — the bridge, the CLI and the agent
+container all mount it, which is what makes them able to collide in the first
+place. It is deliberately NOT a lock file whose existence means "held": a
+process killed mid-deploy would leave that behind forever, and the recovery
+instruction ("delete this file") is one an owner should never have to receive.
+`flock` is released by the kernel when the holder dies, however it dies.
+
+Best-effort by construction: on a platform with no `fcntl` (Windows outside
+WSL2), and on a filesystem where locking is unavailable, this yields the lock
+rather than refusing to deploy. Serialising is a safety improvement, and a
+runtime that cannot deploy at all is worse than the race it prevents.
+"""
+from __future__ import annotations
+
+import contextlib
+import os
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover — Windows without WSL2
+    fcntl = None  # type: ignore[assignment]
+
+
+def lock_path() -> str:
+    from app.backend import settings
+    return os.path.join(settings.agent_state_dir(), ".deploy.lock")
+
+
+@contextlib.contextmanager
+def held(blocking: bool = False):
+    """Yields True when this process owns the deploy, False when someone else
+    already does. Never raises: a lock we cannot take is reported, not thrown.
+    """
+    if fcntl is None:
+        yield True
+        return
+    path = lock_path()
+    fh = None
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        fh = open(path, "a+")
+        flags = fcntl.LOCK_EX if blocking else (fcntl.LOCK_EX | fcntl.LOCK_NB)
+        try:
+            fcntl.flock(fh.fileno(), flags)
+        except OSError:
+            yield False
+            return
+        # The file stays EMPTY. A pid line would have been nice for a human
+        # debugging a hang, and it is not worth a write path: `lsof`/`fuser`
+        # answers the same question, the refusal message already names the three
+        # things that could be holding it, and a truncate-and-rewrite here reads
+        # to the destructive-path guard exactly like the data-destroying writes
+        # it exists to catch. The flock is the whole mechanism.
+        try:
+            yield True
+        finally:
+            with contextlib.suppress(OSError):
+                fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+    except OSError:
+        # Could not even open the file (read-only mount, missing dir we cannot
+        # create). Deploying unserialised is still better than not deploying.
+        yield True
+    finally:
+        if fh is not None:
+            with contextlib.suppress(OSError):
+                fh.close()

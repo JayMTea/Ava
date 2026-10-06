@@ -1,24 +1,31 @@
 # Ava — working conventions
 
-Ava is a private, self-hosted AI assistant (FastAPI bridge `phone_bridge.py` +
-`ava_bridge/`, React SPA in `frontend/`, agent runtime + tools in `agent/`).
+@AGENTS.md
+
+Ava is a private, self-hosted AI assistant (FastAPI bridge `app/server.py` +
+`app/backend/`, React SPA in `app/frontend/`, runtime adapters in `agent-platform/integrations/ava/ava_agent/adapters/`,
+agent definitions in `agent-platform/agents/`, and MCP tools in
+`agent-platform/integrations/ava/mcp/servers/`). The platform uses the exact
+agent-platform-template skeleton; `agent-platform/agent.yaml` is its manifest
+and `agent-platform/AGENT.md` records its operating boundaries. See
+`docs/REPOSITORY_LAYOUT.md` for source locations.
 Every feature must stay fork-and-self-host packageable: no owner-specific path,
 port, address or app name in code — paths resolve under `AVA_HOME`, everything
-else comes from `ava.yaml` or a connector manifest. `tests/test_path_roots.py`
-and `tests/test_no_owner_identity.py` enforce it.
+else comes from `ava.yaml` or a connector manifest. `tests/unit/test_path_roots.py`
+and `tests/unit/test_no_owner_identity.py` enforce it.
 
 ## Capabilities: the feature registry (enforced by tests)
 
-Any user-facing optional capability lives in `ava_bridge/features.py`:
+Any user-facing optional capability lives in `app/backend/features.py`:
 
 - **One registry entry** gives it the Setup → System → Optional features
   checkbox, the setup-save whitelist, and guided-fix error codes.
 - **Gate its execution path** with `features.preflight(key, probe=...)` —
   never a hand-rolled `settings.get_bool("features.…")`.
-  `tests/test_feature_convention.py` fails any bypass, repo-wide.
+  `tests/unit/test_feature_convention.py` fails any bypass, repo-wide.
 - Preflight yields regular codes: `<key>_off` (switch off) / `<key>_down`
   (switch on, service unreachable). The chat UI derives fix-it links from the
-  code *pattern* (`frontend/src/lib/fixes.ts`) — new capabilities need zero
+  code *pattern* (`app/frontend/src/lib/fixes.ts`) — new capabilities need zero
   frontend changes.
 - Coded errors on `/internal/*` routes ship as **HTTP 200** bodies
   `{"error", "error_code"}`: the sandbox tool helper uses `curl --fail` and
@@ -29,12 +36,12 @@ Any user-facing optional capability lives in `ava_bridge/features.py`:
 ## Other conventions
 
 - **Backend returns facts; owner-facing copy lives in the frontend** (see
-  frontend/src/components/data/DataView.tsx header comment). Exception:
+  app/frontend/src/components/data/DataView.tsx header comment). Exception:
   registry labels/messages, which must be self-contained for agent tools.
 - **Connected-app identity accents:** any UI element that represents a
   connected app — nav entries, chat tool chips, artifact/preview cards, app
   view headers, future indicators — must carry the app's accent color via
-  `appAccent()` / `<AppDot>` from `frontend/src/lib/appColor.tsx` (manifest
+  `appAccent()` / `<AppDot>` from `app/frontend/src/lib/appColor.tsx` (manifest
   `ui.color` override, else a stable auto color from `--app-accent-*` tokens).
   Never style an app-owned indicator as if it were Ava's own.
 - **App icons follow the same rule:** render them via `appIcon()` from the same
@@ -45,19 +52,19 @@ Any user-facing optional capability lives in `ava_bridge/features.py`:
   icon and accent in Setup → Connectors → Appearance, which writes `ui.icon` /
   `ui.color` back to the manifest — the single source of truth.
 - Frontend changes only take effect via the built bundle: run
-  `cd frontend && npm run build` (includes tsc). Verify UI changes with the
-  whole-app suite: `qa/run.sh --backend` (pytest tiers, no browser) or
-  `qa/run.sh` for the Playwright tier against a real bridge subprocess. The
+  `cd app/frontend && npm run build` (includes tsc). Verify UI changes with the
+  whole-app suite: `tests/integration/run.sh --backend` (pytest tiers, no browser) or
+  `tests/integration/run.sh` for the Playwright tier against a real bridge subprocess. The
   fixture-contract test additionally needs an owner-local capture harness and
   skips cleanly without it.
 - **Setup (Hub) UI is one system.** Every Setup tab lives in its own
-  `frontend/src/components/hub/panels/*.tsx` and builds from the shared pieces,
+  `app/frontend/src/components/hub/panels/*.tsx` and builds from the shared pieces,
   not per-panel copies: the data/action hooks in `hub/hooks.ts`
   (`useResource`/`useAction` — never a hand-rolled load or a hardcoded
   `hub-msg err`), the view primitives in `hub/ui/` (`Tile`, `Legend`, `Badge`,
   `StatRow`, `HubMessage`), and one `.tone-*` → `--tone` colour system in
   `hub.css` (no per-panel icon-tile or tone-colour classes).
-  `tests/test_hub_uniformity.py` fails a regression.
+  `tests/unit/test_hub_uniformity.py` fails a regression.
 - **One address, one owner.** `App.tsx` owns hash segment 0 and nothing else.
   Setup's remaining segments — `#hub/<tab>` and, for the one tab with sections
   of its own, `#hub/agent/<sub>` — are resolved by the pure `hub/hubRoute.ts`
@@ -77,7 +84,7 @@ Any user-facing optional capability lives in `ava_bridge/features.py`:
   servers, which live in the NemoClaw sandbox → the **Apply** button in
   Setup → Agent → Runtime, driven by the
   `deployed | stale | undeployed | unknown` vocabulary from
-  `ava_bridge/provision.py`. A mutation calls `onRestart()` **only if the
+  `agent-platform/integrations/ava/ava_agent/provision.py`. A mutation calls `onRestart()` **only if the
   response actually set `restart_required`**; it calls
   `markProvisionDirty(scope)` when it changed something the sandbox holds.
   Never both, never the wrong one — a panel that demands a restart it does not
@@ -94,9 +101,9 @@ Any user-facing optional capability lives in `ava_bridge/features.py`:
   second subscriber either shows a number nobody refreshed or brings the timer
   back to keep it honest. `markProvisionDirty(scope)` is not a pending flag any
   UI renders — it only makes the next read bypass the bridge's 30s cache.
-  `tests/test_hub_uniformity.py::test_drift_is_computed_only_when_the_owner_asks`
+  `tests/unit/test_hub_uniformity.py::test_drift_is_computed_only_when_the_owner_asks`
   enforces both halves. The job poll is the exception and is not drift: it
   follows a run the owner started, for as long as that run lasts.
-- Python: `ruff check`, tests with `python -m pytest tests/ -q`.
-- Convention guards follow the `tests/test_diagram_sync.py` style: static
+- Python: `ruff check`, tests with `python -m pytest tests/unit/ -q`.
+- Convention guards follow the `tests/unit/test_diagram_sync.py` style: static
   scans over `git ls-files` that run anywhere, failing with instructions.

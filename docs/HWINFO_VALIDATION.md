@@ -1,15 +1,15 @@
 # Hardware abstraction layer: on-device validation
 
-`ava_bridge/hwinfo.py` is the single place the app reads hardware (memory, GPU),
-consumed by the model-fit router (`model_fit.py` → `ava_router.py /fit`) and the
+`app/backend/hwinfo.py` is the single place the app reads hardware (memory, GPU),
+consumed by the model-fit router (`model_fit.py` → `app/router.py /fit`) and the
 dashboard monitor (`hardware.py`). Its decision logic is unit-tested per platform
-by simulation in `tests/test_hwinfo.py`, but the **numbers** on non-Linux hardware
+by simulation in `tests/unit/test_hwinfo.py`, but the **numbers** on non-Linux hardware
 can only be trusted after running it on the real device. This is that checklist.
 
 ## Platform support matrix
 
 **Do not edit this table by hand.** It renders from `deploy/platforms.conf` via
-`python3 -m ava_bridge.platforms --sync`, and `tests/test_platform_matrix_ssot.py`
+`python3 -m app.backend.platforms --sync`, and `tests/unit/test_platform_matrix_ssot.py`
 fails if it drifts. It used to be maintained by hand alongside a second table in
 `deploy/README.md`, and the two had already come to disagree about Apple Silicon.
 
@@ -31,7 +31,7 @@ fails if it drifts. It used to be maintained by hand alongside a second table in
 <!-- platforms:end -->
 
 **Reading the Tier column.** `verified-on-device` means a human ran
-`tools/ondevice_check.py` on real hardware of that class and committed the report
+`scripts/ondevice_check.py` on real hardware of that class and committed the report
 named in Evidence. `ci-native` means a CI job exercises the real code on real
 hardware of that class. `ci-simulated` means the decision logic is tested against
 constructed or recorded sysfs bytes - **the parsing is tested, the numbers are
@@ -41,7 +41,7 @@ not**. `community-reported` is someone else's on-device report.
 Two honest consequences of that vocabulary, as of this writing: the AMD rows are
 `ci-simulated` against **constructed** fixtures, because the maintainer owns no
 AMD hardware and Strix Halo cannot be rented - see the warning at the top of
-`tests/test_hwinfo_amd.py`. And Apple Silicon stays `ci-simulated` until either
+`tests/unit/test_hwinfo_amd.py`. And Apple Silicon stays `ci-simulated` until either
 someone runs the on-device check or the repo goes public and a `macos-14` CI
 runner becomes available.
 
@@ -50,23 +50,23 @@ runner becomes available.
 One command does the validation and produces the artifact a tier has to cite:
 
 ```bash
-pip install -r requirements.txt      # psutil; nvidia-ml-py stays inactive off NVIDIA
-python3 tools/ondevice_check.py      # look at it
-python3 tools/ondevice_check.py --record   # write docs/evidence/<key>-<date>.json
+pip install -r config/dependencies/runtime.txt      # psutil; nvidia-ml-py stays inactive off NVIDIA
+python3 scripts/ondevice_check.py      # look at it
+python3 scripts/ondevice_check.py --record   # write docs/evidence/<key>-<date>.json
 ```
 
 It refuses to record when there are hard failures, or when the machine matches no
 row - evidence from a box that fails its own checks is worse than none. Then point
 that row's `evidence` at the file, raise its `tier`, and run
-`python3 -m ava_bridge.platforms --sync` so both docs tables follow.
+`python3 -m app.backend.platforms --sync` so both docs tables follow.
 
-`python3 tools/ondevice_check.py --json` is the same report on stdout, for pasting
+`python3 scripts/ondevice_check.py --json` is the same report on stdout, for pasting
 into an issue when you have hardware the maintainer does not.
 
 ### Apple Silicon specifics
 
 ```bash
-python3 -c "import json; from ava_bridge import hwinfo; print(json.dumps(hwinfo.snapshot(), indent=2))"
+python3 -c "import json; from app.backend import hwinfo; print(json.dumps(hwinfo.snapshot(), indent=2))"
 ```
 
 **Expect:**
@@ -83,7 +83,7 @@ python3 -c "import json; from ava_bridge import hwinfo; print(json.dumps(hwinfo.
 **Then confirm the fit router:**
 
 ```bash
-# with two Ollama models configured per config.example.yaml's Apple example:
+# with two Ollama models configured per config/ava.example.yaml's Apple example:
 curl -s -H "X-Ava-Router-Token: $AVA_ROUTER_TOKEN" localhost:8010/fit | python3 -m json.tool
 ```
 
@@ -106,5 +106,5 @@ provider in `hwinfo._apple_gpus()`, deliberately out of scope here.
 
 Write one provider in `hwinfo.py` (a `_xxx_gpus()` returning `list[GpuInfo]` and,
 if it has dedicated memory, a branch in `vram_mem()`), then add its class to
-`platform_id()` / `gpus()`. Nothing in `model_fit.py`, `ava_router.py`, or
+`platform_id()` / `gpus()`. Nothing in `model_fit.py`, `app/router.py`, or
 `hardware.py` changes; that is the point of the HAL.

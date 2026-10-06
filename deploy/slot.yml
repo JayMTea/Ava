@@ -33,7 +33,7 @@ services:
     #
     # Only the HOST side moves. The container keeps 8096, and so does AVA_PORT in
     # docker-compose.yml: the SPA fetches same-origin relative paths
-    # (frontend/src/lib/api.ts), so it follows whatever port you reach it on, and
+    # (app/frontend/src/lib/api.ts), so it follows whatever port you reach it on, and
     # the image healthcheck curls its own in-namespace loopback. Moving the
     # in-container port instead would break both, plus the agent's
     # http://ava:8096 and every generated MCP tool that defaults to it.
@@ -48,7 +48,7 @@ services:
       # than widened into the base file for every install.
       AVA_NAME: ${AVA_NAME:-}
       # 0 = this slot may OBSERVE the shared engine but never unload from it.
-      # alloc.infer_levers defaults true (ava_bridge/alloc/spec.py), which would
+      # alloc.infer_levers defaults true (agent-platform/integrations/ava/ava_agent/alloc/spec.py), which would
       # hand the slot a live unload lever aimed at an engine it does not own:
       # "Memory Ava can free" renders on every screen, and one click here would
       # evict the model out from under production chat.
@@ -73,7 +73,7 @@ networks:
   # diagnosis both already describe this exact failure.
   #
   # The name is "<project>_default" for the project name in docker-compose.yml.
-  # tests/test_slot_contract.py ties the two together, so renaming that project
+  # tests/unit/test_slot_contract.py ties the two together, so renaming that project
   # fails the build rather than silently detaching the slot from the engine.
   stable:
     external: true

@@ -1,0 +1,16 @@
+schema_version: 1
+name: ava-overview
+description: Read the curated Ava architecture and privacy boundaries through the policy-enforced tools.
+steps:
+  - id: architecture
+    tool: filesystem.read
+    as_agent: ava
+    arguments: {path: knowledge/architecture/ava.md}
+  - id: boundaries
+    tool: filesystem.read
+    as_agent: ava
+    arguments: {path: knowledge/policies/privacy.md}
+output: |
+  {{ steps.architecture.output }}
+
+  {{ steps.boundaries.output }}

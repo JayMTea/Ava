@@ -1,0 +1,9 @@
+# What may ENTER the platform from each MCP server (who may USE it is policies/' job).
+# A server's tools are imported only if they match `expose` and do not match `hide`.
+# Expose the smallest useful set: every exposed tool is attack surface and context cost.
+#
+#   docs:
+#     expose: [read_text_file, list_directory, search_files]
+#     hide: ["write_*", "edit_*", "move_*", "create_*"]
+schema_version: 1
+servers: {}

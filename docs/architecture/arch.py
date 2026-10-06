@@ -1,0 +1,888 @@
+#!/usr/bin/env python3
+"""Ava architecture pipeline — generate diagrams & docs from the SSOT manifest,
+and validate the manifest against the running system (drift detection).
+
+The manifest `docs/architecture/architecture.yaml` is the single source of truth. This
+script keeps the diagrams and docs 1:1 with it, and keeps IT 1:1 with the code.
+
+Subcommands
+  render   regenerate system.d2 / network.d2 (+ SVG via d2) from the manifest
+  tables   regenerate the README §7 services table (between ARCH markers)
+  sync     render + tables  (+ --commit to auto-commit the regenerated files)
+  check    drift-check the manifest vs systemd units, ports, MCP tools, policies
+  summary  print a JSON snapshot (meta, counts, services, capabilities, drift)
+  describe print JSON details for one component (service / tool / layer / policy)
+  update   replace the manifest from stdin or a file, sync, drift-gate, commit
+
+Most commands accept --json for machine-readable output (used by the bridge).
+Automated by a systemd path-watcher + a git pre-commit hook; also callable by
+Ava through her `architecture` MCP tools.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+
+import yaml
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(HERE))          # repo root
+
+# The d2 renderer is shared with runtime/model/, so it lives in the package.
+# Imported at module scope (unlike policy_inventory below, which is optional and
+# guarded) because rendering is not optional: without it this file cannot do its
+# job at all, and a lazy import would turn a missing checkout into a confusing
+# failure deep inside render() instead of an ImportError naming the module.
+sys.path.insert(0, ROOT)
+from app.backend import d2 as _d2  # noqa: E402
+OVERLAY = os.path.join(ROOT, "overlay", "agent")       # optional private overlay (gitignored)
+MANIFEST = os.path.join(HERE, "architecture.yaml")
+DIAGRAMS = os.path.join(HERE, "diagrams")
+ICONS_DIR = os.path.join(DIAGRAMS, "icons")
+ICONS_ENABLED = False   # icons removed project-wide; set True to re-enable Lucide icons
+# Hand-authored hero diagrams outside the manifest build (their .d2 IS the
+# source, with its own layout engine — see each file's header). Rendered by
+# render()/sync (plain d2, no sheet-fitting, appearance stays as authored)
+# and freshness-checked exactly like the generated ones, so they can't
+# silently go stale on the site.
+STATIC_D2: list[tuple[str, str, str]] = [
+    (os.path.join(ROOT, "docs", "assets", "agent-remote-app.backend.d2"),
+     os.path.join(ROOT, "docs", "assets", "agent-remote-runtime.svg"), "elk"),
+    (os.path.join(ROOT, "docs", "assets", "architecture.d2"),
+     os.path.join(ROOT, "docs", "assets", "architecture.svg"), "elk"),
+    # "What leaves your machine" — the owner-facing privacy picture. Hand-authored
+    # like the two above (no manifest, no deployment specifics), so it renders
+    # through render_static and is covered by tests/test_diagram_sync.py.
+]
+# The generated services table lives in the PRIVATE dev notes (deployment-specific,
+# gitignored). The public README.md is hand-authored and app-agnostic.
+README = os.path.join(ROOT, "DEV_NOTES.md")
+
+MARK_START = "<!-- ARCH:services:start -->"
+MARK_END = "<!-- ARCH:services:end -->"
+
+# Style tokens are loaded from the manifest's `diagram_style` section at render
+# time (see _style() / _palettes() / _accents()). The constants below are FALLBACK
+# defaults used only if the manifest predates the diagram_style block, keeping
+# backward compatibility while the SSOT is the single place to change values.
+_FALLBACK_PALETTES = {
+    "green":  dict(stroke="#2e7d32", fill="#e8f5e9", font="#1b5e20", nfill="#a5d6a7", nfont="#1b5e20"),
+    "indigo": dict(stroke="#5c6bc0", fill="#e8eaf6", font="#283593", nfill="#c5cae9", nfont="#1a237e"),
+    "purple": dict(stroke="#8e24aa", fill="#f3e5f5", font="#6a1b9a", nfill="#e1bee7", nfont="#4a148c"),
+    "teal":   dict(stroke="#00897b", fill="#e0f2f1", font="#00695c", nfill="#b2dfdb", nfont="#004d40"),
+    "orange": dict(stroke="#f57c00", fill="#fff3e0", font="#e65100", nfill="#ffe0b2", nfont="#bf360c"),
+    "slate":  dict(stroke="#455a64", fill="#eceff1", font="#263238", nfill="#cfd8dc", nfont="#263238"),
+}
+# layout: `elk`, not `tala`. TALA is proprietary and stamps a 110px "UNLICENSED
+# COPY" watermark across the output when no license is present — which is how three
+# tracked diagrams shipped watermarked for weeks (see tests/unit/test_no_owner_identity.py,
+# which now fails the build on it). ELK is bundled with d2 and free; it is what
+# docs/assets/architecture.svg already used. Set `diagram_style.d2.layout: tala` in
+# the manifest to opt back in if you hold a license.
+_FALLBACK_D2 = dict(theme=0, layout="elk", pad=24, stroke_width=2, node_stroke_width=1,
+                    stroke_dash_edge=3, stroke_dash_border=4, bold_containers=True,
+                    node_stroke="#cbd5e1", border_radius=8, font_size=14, sheet=None)
+_FALLBACK_ACCENTS = dict(red="#c62828", warn="#f9a825")
+
+GEN_HEADER = "# generated by docs/architecture/arch.py — DO NOT EDIT (edit architecture.yaml)\n"
+
+
+def _style(m: dict) -> dict:
+    """Return the d2 token block from the manifest (with fallback defaults)."""
+    return {**_FALLBACK_D2, **m.get("diagram_style", {}).get("d2", {})}
+
+
+def _palettes(m: dict) -> dict:
+    """Return palette map from the manifest (with fallback defaults)."""
+    raw = m.get("diagram_style", {}).get("palettes", {})
+    if not raw:
+        return _FALLBACK_PALETTES
+    return {k: dict(v) for k, v in raw.items()}
+
+
+def _accents(m: dict) -> dict:
+    """Return accent colours from the manifest (with fallback defaults)."""
+    return {**_FALLBACK_ACCENTS, **m.get("diagram_style", {}).get("accents", {})}
+
+# Canonical documentation header for the manifest. `yaml.safe_dump` strips
+# comments, so on every programmatic write (Ava's update / the sync pipeline) we
+# re-prepend this so the SSOT stays self-documenting.
+_BAR = "# " + "─" * 78
+MANIFEST_HEADER = "\n".join([
+    _BAR,
+    "#  Ava — Architecture Single Source of Truth (SSOT)",
+    _BAR,
+    "#  THIS FILE IS THE TRUTH. Everything else is generated from or validated against",
+    "#  it:",
+    "#    • docs/architecture/diagrams/system.d2   + .svg   (generated)",
+    "#    • docs/architecture/diagrams/network.d2  + .svg   (generated)",
+    "#    • docs/architecture/diagrams/policy.d2   + .svg   (generated — egress trace)",
+    "#    • docs/architecture/diagrams/security.d2 + .svg   (generated — trust boundaries)",
+    '#    • README.md  §7 "Services & ports" table  (generated, between ARCH markers)',
+    "#    • drift-check vs the running system        (validated: systemd units, ports,",
+    "#                                                MCP tool modules, egress policies)",
+    "#",
+    "#  Edit here, then:  python docs/architecture/arch.py sync     (regenerate everything)",
+    "#               or:  python docs/architecture/arch.py check    (validate vs reality)",
+    "#  A systemd path-watcher + a git pre-commit hook run these automatically, and",
+    "#  Ava can read/update this file herself through her `architecture` MCP tools.",
+    "#  Keep diagrams 1:1 with the code by keeping THIS file 1:1 with the code.",
+    _BAR,
+    "", "",
+])
+
+
+def _today() -> str:
+    import datetime
+    return datetime.date.today().isoformat()
+
+
+# ── manifest ─────────────────────────────────────────────────────────────────
+def load(path: str = MANIFEST) -> dict:
+    with open(path, encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+
+def write_manifest(m: dict, path: str = MANIFEST, bump_date: bool = True) -> None:
+    """Write the manifest back with its documentation header preserved.
+
+    `yaml.safe_dump` drops comments, so we re-prepend MANIFEST_HEADER. Optionally
+    refresh meta.updated to today so the SSOT always shows when it last changed.
+    """
+    if bump_date and isinstance(m.get("meta"), dict):
+        m["meta"]["updated"] = _today()
+    body = yaml.safe_dump(m, sort_keys=False, allow_unicode=True, width=4096)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(MANIFEST_HEADER + body)
+
+
+REQUIRED_KEYS = ("meta", "layers", "services", "capabilities", "policies")
+
+
+def validate_schema(m: dict) -> list[str]:
+    errs = []
+    if not isinstance(m, dict):
+        return ["manifest is not a mapping"]
+    for k in REQUIRED_KEYS:
+        if k not in m:
+            errs.append(f"missing required top-level key: {k}")
+    return errs
+
+
+# ── d2 helpers ───────────────────────────────────────────────────────────────
+def _lbl(s: str) -> str:
+    """Quote a d2 label; encode real newlines as the literal \\n d2 expects."""
+    return '"' + str(s).replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n") + '"'
+
+
+# Local Lucide icon set (docs/architecture/diagrams/icons/) — referenced by filename
+# stem. Kept local so the pipeline renders offline; resolved relative to the .d2.
+_CAP_ICON = {
+    "daily": "cloud-sun", "knowledge": "book-open",
+    "architecture": "network", "persona": "users",
+}
+
+
+def _icon(token: str | None) -> str | None:
+    """Resolve an icon token to a path relative to the .d2 (or None if absent).
+
+    Icons are disabled project-wide (cleaner, text-only diagrams). Flip
+    ICONS_ENABLED to re-enable the vendored Lucide icon set.
+    """
+    if not ICONS_ENABLED or not token:
+        return None
+    return f"icons/{token}.svg" if os.path.exists(os.path.join(ICONS_DIR, f"{token}.svg")) else None
+
+
+def _node(nid: str, label: str, fill: str, font: str, shape: str | None = None,
+          icon: str | None = None, st: dict | None = None) -> str:
+    # An icon and a dense multi-line label compete for the same card and the
+    # text overflows; drop the icon when the label is tall (3+ lines) so the
+    # tool list fills the card cleanly. Short nodes keep their icon.
+    if icon and label.count("\n") >= 2:
+        icon = None
+    attrs = []
+    if shape:
+        attrs.append(f"shape: {shape}")
+    if icon:
+        attrs.append(f"icon: {icon}")
+    attrs.append(f'style.fill: "{fill}"')
+    attrs.append(f'style.font-color: "{font}"')
+    if st:
+        if st.get("node_stroke"):
+            attrs.append(f'style.stroke: "{st["node_stroke"]}"')
+        if st.get("node_stroke_width") is not None:
+            attrs.append(f'style.stroke-width: {st["node_stroke_width"]}')
+        if st.get("border_radius") is not None:
+            attrs.append(f'style.border-radius: {st["border_radius"]}')
+        if st.get("font_size"):
+            attrs.append(f'style.font-size: {st["font_size"]}')
+    return f"  {nid}: {_lbl(label)} {{{'; '.join(attrs)}}}"
+
+
+def _cap_nodes(m: dict, pal: dict) -> list[str]:
+    """Auto-generate the MCP capability boxes (3a, 3b, …) from `capabilities`.
+
+    Each capability category becomes one box labelled `3<letter> · <category>`
+    with its tool names listed inside (wrapped 3 per line), so the diagram stays
+    1:1 with the actual tools as they're added/removed in the manifest.
+    """
+    st = _style(m)
+    rows = []
+    for i, c in enumerate(m.get("capabilities", [])):
+        letter = chr(ord("a") + i)
+        tools = c["tools"]
+        wrapped = "\n".join(" · ".join(tools[j:j + 3]) for j in range(0, len(tools), 3))
+        label = f"3{letter} · {c['category']}\n{wrapped}"
+        icon = _icon(c.get("icon") or _CAP_ICON.get(c["category"]))
+        rows.append(_node(f"cap_{c['category']}", label, pal["nfill"], pal["nfont"],
+                          icon=icon, st=st))
+    return rows
+
+
+def build_system_d2(m: dict) -> str:
+    layer_pal = {}     # layer id -> palette name (for edge colours)
+    PALETTES = _palettes(m)
+    st = _style(m)
+    bg = st.get("background", "#ffffff")
+    out = [GEN_HEADER, "direction: right\n",
+           "vars: {", "  d2-config: {", f"    layout-engine: {st['layout']}", "  }", "}\n",
+           "style: {", f'  fill: "{bg}"', "}\n"]
+    for layer in m["layers"]:
+        pal = PALETTES[layer["palette"]]
+        layer_pal[layer["id"]] = layer["palette"]
+        ic = _icon(layer.get("icon"))
+        if layer.get("standalone"):
+            shape = layer.get("shape", "rectangle")
+            out += [
+                f'{layer["id"]}: {_lbl(layer["title"])} {{',
+                *([f"  icon: {ic}"] if ic else []),
+                f"  shape: {shape}",
+                "  style: {",
+                f'    stroke: "{pal["stroke"]}"',
+                f'    stroke-width: {st["stroke_width"]}',
+                f'    stroke-dash: {st["stroke_dash_border"]}',
+                f'    fill: "{pal["fill"]}"',
+                f'    font-color: "{pal["font"]}"',
+                f'    font-size: {st["font_size"]}',
+                "    bold: true",
+                "  }",
+                "}\n",
+            ]
+        else:
+            out += [
+                f'{layer["id"]}: {_lbl(layer["title"])} {{',
+                *([f"  icon: {ic}"] if ic else []),
+                f'  style.stroke: "{pal["stroke"]}"',
+                f'  style.fill: "{pal["fill"]}"',
+                f'  style.font-color: "{pal["font"]}"',
+                f'  style.font-size: {st["font_size"]}',
+                "  style.bold: true",
+                "",
+            ]
+            if layer.get("source") == "capabilities":
+                out += _cap_nodes(m, pal)
+            else:
+                for n in layer.get("nodes", []):
+                    out.append(_node(n["id"], n["label"], pal["nfill"], pal["nfont"],
+                                     n.get("shape"), icon=_icon(n.get("icon")), st=st))
+            out += ["}\n"]
+    for e in m.get("system_edges", []):
+        pal = PALETTES[layer_pal.get(e["from"], "slate")]
+        attrs = [f'style.stroke: "{pal["stroke"]}"']
+        if e.get("dashed"):
+            attrs.append(f'style.stroke-dash: {st["stroke_dash_edge"]}')
+        lbl = f" {_lbl(e['label'])}" if e.get("label") else ""
+        out.append(f'{e["from"]} -> {e["to"]}:{lbl} {{{"; ".join(attrs)}}}')
+    return "\n".join(out) + "\n"
+
+
+def build_network_d2(m: dict) -> str:
+    PALETTES = _palettes(m)
+    st = _style(m)
+    RED = _accents(m)["red"]
+    zone_pal = {z["id"]: z["palette"] for z in m["zones"]}
+    zone_of = {n["id"]: n["zone"] for n in m["net_nodes"]}
+    bg = st.get("background", "#ffffff")
+    out = [GEN_HEADER, "direction: down\n",
+           "vars: {", "  d2-config: {", f"    layout-engine: {st['layout']}", "  }", "}\n",
+           "style: {", f'  fill: "{bg}"', "}\n"]
+    for z in m["zones"]:
+        pal = PALETTES[z["palette"]]
+        ic = _icon(z.get("icon"))
+        out += [
+            f'{z["id"]}: {_lbl(z["title"])} {{',
+            *([f"  icon: {ic}"] if ic else []),
+            f'  style.stroke: "{pal["stroke"]}"',
+            f'  style.fill: "{pal["fill"]}"',
+            f'  style.font-color: "{pal["font"]}"',
+            "  style.bold: true",
+        ]
+        for n in (x for x in m["net_nodes"] if x["zone"] == z["id"]):
+            out.append(_node(n["id"], n["label"], pal["nfill"], pal["nfont"],
+                             n.get("shape"), icon=_icon(n.get("icon")), st=st))
+        out += ["}\n"]
+    for e in m.get("net_edges", []):
+        fz, tz = zone_of[e["from"]], zone_of[e["to"]]
+        op = "--" if e.get("arrow") == "line" else "->"
+        stroke = RED if e.get("color") == "red" else PALETTES[zone_pal[fz]]["stroke"]
+        attrs = [f'style.stroke: "{stroke}"']
+        if e.get("dashed"):
+            attrs.append(f'style.stroke-dash: {st["stroke_dash_edge"]}')
+        lbl = f" {_lbl(e['label'])}" if e.get("label") else ""
+        out.append(f"{fz}.{e['from']} {op} {tz}.{e['to']}:{lbl} {{{'; '.join(attrs)}}}")
+    return "\n".join(out) + "\n"
+
+
+def build_policy_d2(m: dict) -> str:
+    """Least-privilege egress trace: agent → per-tool policy → allowed dest.
+
+    Generated 1:1 from the manifest `policies` (name / tools / egress). Shows
+    that each MCP tool may reach ONLY its declared host:port + method/path;
+    everything else is denied by default (the red deny node).
+    """
+    PAL = _palettes(m)
+    st = _style(m)
+    RED = _accents(m)["red"]
+    bg = st.get("background", "#ffffff")
+    teal, slate, purple = PAL["teal"], PAL["slate"], PAL["purple"]
+    out = [GEN_HEADER, "direction: right\n",
+           "vars: {", "  d2-config: {", f"    layout-engine: {st['layout']}", "  }", "}\n",
+           "style: {", f'  fill: "{bg}"', "}\n"]
+    _bot = _icon("bot")
+    out.append(
+        f'agent: {_lbl("Ava agent (sandboxed)")} {{ shape: hexagon; '
+        + (f'icon: {_bot}; ' if _bot else '')
+        + f'style.fill: "{purple["nfill"]}"; style.font-color: "{purple["nfont"]}"; '
+        + f'style.stroke: "{purple["stroke"]}"; style.bold: true }}\n')
+    for p in m.get("policies", []):
+        if not isinstance(p, dict):
+            continue
+        name = p["name"]
+        sid = "pol_" + name.replace("-", "_")
+        tools = p.get("tools", [])
+        egress = p.get("egress", [])
+        title = name + (f"  —  {p['purpose']}" if p.get("purpose") else "")
+        out += [
+            f'{sid}: {_lbl(title)} {{',
+            f'  style.stroke: "{teal["stroke"]}"',
+            f'  style.fill: "{teal["fill"]}"',
+            f'  style.font-color: "{teal["font"]}"',
+            "  style.bold: true",
+        ]
+        tlabel = "tools\n" + "\n".join(" · ".join(tools[j:j + 2]) for j in range(0, len(tools), 2))
+        out.append(_node("tools", tlabel, teal["nfill"], teal["nfont"], icon=_icon("wrench"), st=st))
+        for i, e in enumerate(egress):
+            dest = e.get("dest", "") if isinstance(e, dict) else str(e)
+            allow = e.get("allow", "") if isinstance(e, dict) else ""
+            internal = ("/internal" in allow) or ("X-Ava" in allow) or ("Token" in allow)
+            elabel = f"{dest}\n{allow}" if allow else dest
+            eicon = _icon("cloud" if "open-meteo" in dest else ("server" if internal else "globe"))
+            out.append(_node(f"e{i}", elabel, slate["nfill"], slate["nfont"], icon=eicon, st=st))
+            estroke = RED if internal else slate["stroke"]
+            dash = f'; style.stroke-dash: {st["stroke_dash_edge"]}' if internal else ""
+            out.append(f'  tools -> e{i}: {_lbl("allow")} {{style.stroke: "{estroke}"{dash}}}')
+        out += ["}\n"]
+        out.append(f'agent -> {sid}.tools: {_lbl(name)} {{style.stroke: "{teal["stroke"]}"}}')
+    _ban = _icon("ban")
+    out += [
+        f'deny: {_lbl("everything else → DENY (default)")} {{'
+        + (f'icon: {_ban}; ' if _ban else '')
+        + f'style.fill: "#fef2f2"; style.font-color: "{RED}"; style.stroke: "{RED}"; '
+        + f'style.stroke-dash: {st["stroke_dash_border"]}; style.bold: true }}',
+        f'agent -> deny: {{style.stroke: "{RED}"; style.stroke-dash: {st["stroke_dash_edge"]}}}',
+    ]
+    return "\n".join(out) + "\n"
+
+
+def build_security_d2(m: dict) -> str:
+    """Trust-boundary + control-point view, generated from the `security` block.
+
+    Boundaries are nested trust zones; controls are the enforced transitions
+    between them (red = token/secret-gated).
+    """
+    sec = m.get("security", {})
+    PAL = _palettes(m)
+    st = _style(m)
+    RED = _accents(m)["red"]
+    bg = st.get("background", "#ffffff")
+    bnd_pal = {b["id"]: b["palette"] for b in sec.get("boundaries", [])}
+    node_bnd = {n["id"]: b["id"] for b in sec.get("boundaries", []) for n in b.get("nodes", [])}
+    out = [GEN_HEADER, "direction: down\n",
+           "vars: {", "  d2-config: {", f"    layout-engine: {st['layout']}", "  }", "}\n",
+           "style: {", f'  fill: "{bg}"', "}\n"]
+    for b in sec.get("boundaries", []):
+        pal = PAL[b["palette"]]
+        ic = _icon(b.get("icon"))
+        out += [
+            f'{b["id"]}: {_lbl(b["title"])} {{',
+            *([f"  icon: {ic}"] if ic else []),
+            f'  style.stroke: "{pal["stroke"]}"',
+            f'  style.fill: "{pal["fill"]}"',
+            f'  style.font-color: "{pal["font"]}"',
+            "  style.bold: true",
+        ]
+        for n in b.get("nodes", []):
+            out.append(_node(n["id"], n["label"], pal["nfill"], pal["nfont"],
+                             n.get("shape"), icon=_icon(n.get("icon")), st=st))
+        out += ["}\n"]
+    for c in sec.get("controls", []):
+        fb, tb = node_bnd[c["from"]], node_bnd[c["to"]]
+        stroke = RED if c.get("color") == "red" else PAL[bnd_pal[fb]]["stroke"]
+        attrs = [f'style.stroke: "{stroke}"']
+        if c.get("dashed"):
+            attrs.append(f'style.stroke-dash: {st["stroke_dash_edge"]}')
+        lbl = f" {_lbl(c['label'])}" if c.get("label") else ""
+        out.append(f'{fb}.{c["from"]} -> {tb}.{c["to"]}:{lbl} {{{"; ".join(attrs)}}}')
+    return "\n".join(out) + "\n"
+
+
+# The d2 renderer lives in app/backend/d2.py — one implementation, because the
+# architecture MODEL (runtime/model/) renders sheets the same way and a second
+# copy of the d2sum stamp would be a second thing that can disagree about whether
+# a diagram is fresh. These aliases keep every call site in this file unchanged.
+_d2_bin = _d2.binary
+_d2sum = _d2.d2sum
+_svg_d2sum = _d2.svg_d2sum
+_stamp_d2sum = _d2.stamp
+_fit_to_sheet = _d2.fit_to_sheet
+
+
+def render_d2(d2_path: str, svg_path: str, m: dict | None = None) -> None:
+    """Render using the manifest's diagram_style tokens."""
+    _d2.render(d2_path, svg_path, _style(m) if m else _FALLBACK_D2)
+
+
+def render_static(d2_path: str, svg_path: str, layout: str) -> None:
+    """Plain d2 render for a hand-authored diagram (no manifest sheet-fit).
+
+    Sheet-fit is skipped because DEFAULT_STYLE carries `sheet: None`, which is
+    what the previous hand-rolled subprocess call did by simply never calling it.
+    """
+    _d2.render(d2_path, svg_path, {**_d2.DEFAULT_STYLE, "layout": layout})
+
+
+def render(m: dict) -> list[str]:
+    os.makedirs(DIAGRAMS, exist_ok=True)
+    written = []
+    for name, builder in (("system", build_system_d2), ("network", build_network_d2),
+                          ("policy", build_policy_d2), ("security", build_security_d2)):
+        d2_path = os.path.join(DIAGRAMS, f"{name}.d2")
+        svg_path = os.path.join(DIAGRAMS, f"{name}.svg")
+        with open(d2_path, "w", encoding="utf-8") as f:
+            f.write(builder(m))
+        render_d2(d2_path, svg_path, m)
+        written += [d2_path, svg_path]
+    for d2_path, svg_path, layout in STATIC_D2:
+        if os.path.exists(d2_path) and _svg_d2sum(svg_path) != _d2sum(d2_path):
+            render_static(d2_path, svg_path, layout)
+            written.append(svg_path)
+    return written
+
+
+# ── README services table ─────────────────────────────────────────────────────
+def build_services_table(m: dict) -> str:
+    rows = ["| Service | Command | Bind | Public (Tailscale) |",
+            "|---------|---------|------|--------------------|"]
+    for s in m["services"]:
+        svc = f'`{s["unit"]}`' if s.get("unit") else s["id"]
+        if s.get("external") and s["id"] == "vllm":
+            svc += " *(host)*"
+        bind = f'`{s["bind"]}`' if s.get("bind") and s["bind"] != "—" else "—"
+        cmd = s.get("command", "").replace("|", "\\|")
+        rows.append(f'| {svc} | {cmd} | {bind} | {s.get("public", "—")} |')
+    return "\n".join(rows)
+
+
+def write_tables(m: dict) -> str:
+    with open(README, encoding="utf-8") as f:
+        text = f.read()
+    if MARK_START not in text or MARK_END not in text:
+        raise RuntimeError(f"README is missing the {MARK_START} / {MARK_END} markers")
+    table = build_services_table(m)
+    new = re.sub(
+        re.escape(MARK_START) + r".*?" + re.escape(MARK_END),
+        f"{MARK_START}\n{table}\n{MARK_END}",
+        text, flags=re.DOTALL)
+    if new != text:
+        with open(README, "w", encoding="utf-8") as f:
+            f.write(new)
+    return README
+
+
+# ── drift detection ────────────────────────────────────────────────────────────
+def _run(cmd: list[str]) -> str:
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=15).stdout
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def actual_units() -> set[str]:
+    out = _run(["systemctl", "--user", "list-unit-files", "--no-legend"])
+    return {ln.split()[0] for ln in out.splitlines() if ln.strip()}
+
+
+def enabled_units() -> set[str]:
+    out = _run(["systemctl", "--user", "list-unit-files", "--state=enabled", "--no-legend"])
+    return {ln.split()[0] for ln in out.splitlines() if ln.strip()}
+
+
+def listening_ports() -> set[int]:
+    return {port for _host, port in listening_binds()}
+
+
+def _bind_class(host: str, port: int) -> str:
+    """Delegate to app.backend.security_check.bind_class; unknown if it is unavailable."""
+    try:
+        sys.path.insert(0, ROOT)
+        from app.backend.security_check import bind_class
+        return bind_class(host, port)
+    except ImportError:
+        return "unknown"
+
+
+def listening_binds() -> set[tuple[str, int]]:
+    """Every (address, port) listening, not just the port numbers.
+
+    `listening_ports()` threw the address away, so the manifest's `bind:` column
+    was a claim nothing could check: a service declared `bind: 127.0.0.1` and
+    actually listening on a tailnet address satisfied the drift check, because the
+    port was listening *somewhere*. Two services on this box had exactly that
+    shape and the generated services table in DEV_NOTES.md rendered the false
+    value for weeks.
+
+    Parses through `app.backend.security_check.parse_listeners` rather than a second
+    regex — one socket-table parser, tested in
+    `tests/unit/test_port_exposure_classes.py`, instead of two that can disagree about
+    IPv6 brackets.
+    """
+    out = _run(["ss", "-ltnH"])
+    try:
+        sys.path.insert(0, ROOT)
+        from app.backend.security_check import parse_listeners
+        return set(parse_listeners(out))
+    except ImportError:
+        # A checkout without the script: fall back to ports only, and say so by
+        # returning an unknown address rather than inventing one.
+        return {("?", int(m.group(1))) for m in re.finditer(r":(\d+)\s", out)}
+
+
+def actual_tools(include_overlay: bool = True) -> dict[str, str]:
+    """Map MCP tool `name` -> relative module path, by scanning every MCP server.
+
+    Discovers `mcp_server_*` category dirs under both the core `agent/` tree and
+    an optional gitignored `overlay/agent/` tree (private first-party apps), so
+    the manifest stays 1:1 with whatever this deployment actually runs.
+
+    The scan itself lives in `agent-platform/integrations/ava/ava_agent/mcp_tools.py` because the architecture
+    model needs the same one — a second regex over the same files would be a
+    second thing that can disagree about which tools exist. `include_overlay` is
+    for that caller: anything written to a TRACKED file must not see private
+    tools. Drift checking here keeps the default, because this deployment's
+    manifest should reflect this deployment.
+    """
+    from ava_agent import mcp_tools
+    return mcp_tools.name_to_module(include_overlay)
+
+
+def actual_policies() -> set[str]:
+    """Every policy name the sandbox would know, via the one enumerator.
+
+    This used to be the only one of three policy walkers that knew a generated
+    policy is named by its `preset.name` rather than its filename stem — a detail
+    that lived in a comment here while `policy_mgmt` and `ava_security_check`
+    globbed one level and missed `generated/` entirely. That knowledge now lives in
+    `ava_agent.policy_inventory` and all three read it, so the drift check runs
+    over the same set the security check does.
+    """
+    try:
+        from ava_agent import policy_inventory
+    except ImportError:
+        return set()   # a checkout without the bridge; drift is simply unknown
+    return policy_inventory.names()
+
+
+def check_drift(m: dict) -> dict:
+    errors, warnings = [], []
+
+    # 1. services ↔ systemd units (declared must exist; running extras warn)
+    units = actual_units()
+    declared_units = {s["unit"] for s in m["services"] if s.get("unit") and not s.get("external")}
+    for s in m["services"]:
+        u = s.get("unit")
+        if u and not s.get("external") and u not in units:
+            errors.append(f"service '{s['id']}' declares unit {u} but it is not installed")
+    prefix = re.compile(r"^(ava|persona|nemoclaw)[\w-]*\.(service|timer|path)$")
+    for u in enabled_units():
+        if prefix.match(u) and u != "ava-snapshot.service" and u not in declared_units:
+            warnings.append(f"enabled unit {u} is not in the manifest (add it to services)")
+
+    # 2. ports listening (warn only — a service may simply be stopped)
+    binds = listening_binds()
+    ports = {port for _h, port in binds}
+    for s in m["services"]:
+        p = s.get("port")
+        if not p or s.get("external"):
+            continue
+        if int(p) not in ports:
+            warnings.append(f"service '{s['id']}' port {p} is not currently listening")
+            continue
+        # The manifest's `bind:` column was previously unverifiable: this check
+        # only asked whether the port was listening SOMEWHERE, so a service
+        # declared `bind: 127.0.0.1` and actually reachable on a tailnet address
+        # passed, and the generated services table in DEV_NOTES.md published the
+        # declared value rather than the real one. A bind claim nobody can check
+        # is the defect class this whole manifest exists to prevent.
+        declared_bind = str(s.get("bind") or "").strip()
+        if not declared_bind:
+            continue
+        # `bind:` may name several addresses, the way a real --listen flag does
+        # (`127.0.0.1,<tailnet-addr>:8096`). Treating it as one string made the
+        # comparison always fail once a service legitimately bound two addresses.
+        host_part = declared_bind.rsplit(":", 1)[0] if ":" in declared_bind else declared_bind
+        want_hosts = {h.strip().strip("[]") for h in host_part.split(",") if h.strip()}
+        if "127.0.0.1" in want_hosts:
+            want_hosts.add("::1")     # the same decision, the other family
+        actual = sorted({h for h, port in binds if port == int(p) and h != "?"})
+        if not actual:
+            continue        # ports-only fallback; nothing to compare against
+        # The RFC1918 sandbox-gateway forwarder is expected on every service that
+        # the agent can reach (SECURITY.md §6: each gets a `*-gw.service`), so it
+        # is not drift. Classified by the same function the security check uses,
+        # rather than a second opinion about what 172.27.0.1 means.
+        extra = [h for h in actual
+                 if h not in want_hosts
+                 and _bind_class(h, int(p)) != "gateway"]
+        if extra:
+            errors.append(
+                f"service '{s['id']}' declares bind {declared_bind} but port {p} "
+                f"is also listening on {', '.join(extra)} — the manifest (and the "
+                "generated services table) states an exposure that is not the "
+                "real one. Update `bind:` to the truth, or narrow the service.")
+
+    # 3. MCP tools ↔ modules (must be exactly 1:1)
+    declared_tools = {t for c in m["capabilities"] for t in c["tools"]}
+    found = actual_tools()
+    for t in sorted(declared_tools - set(found)):
+        errors.append(f"capability tool '{t}' is declared but no mcp_server module exports it")
+    for t in sorted(set(found) - declared_tools):
+        errors.append(f"mcp_server module {found[t]} exports tool '{t}' not declared in the manifest")
+
+    # 4. egress policies ↔ files (must be 1:1)
+    declared_pol = {p["name"] if isinstance(p, dict) else p for p in m["policies"]}
+    found_pol = actual_policies()
+    for p in sorted(declared_pol - found_pol):
+        errors.append(f"policy '{p}' is declared but agent-platform/integrations/ava/policies/egress/{p}.yaml is missing")
+    for p in sorted(found_pol - declared_pol):
+        errors.append(f"agent-platform/integrations/ava/policies/egress/{p}.yaml exists but '{p}' is not declared in the manifest")
+
+    # 5. diagram freshness (generated d2 must match what's on disk)
+    for name, builder in (("system", build_system_d2), ("network", build_network_d2),
+                          ("policy", build_policy_d2), ("security", build_security_d2)):
+        path = os.path.join(DIAGRAMS, f"{name}.d2")
+        want = builder(m)
+        have = ""
+        if os.path.exists(path):
+            with open(path, encoding="utf-8") as f:
+                have = f.read()
+        if want != have:
+            errors.append(f"{name}.d2 is stale — run `arch.py sync` to regenerate the diagrams")
+
+    # 6. rendered SVGs must match their .d2 source (d2sum stamped at render
+    #    time) — covers the generated diagrams AND the hand-authored STATIC_D2.
+    pairs = [(os.path.join(DIAGRAMS, f"{n}.d2"), os.path.join(DIAGRAMS, f"{n}.svg"))
+             for n in ("system", "network", "policy", "security")]
+    pairs += [(d2p, svgp) for d2p, svgp, _ in STATIC_D2]
+    for d2p, svgp in pairs:
+        if not os.path.exists(d2p):
+            continue
+        rel = os.path.relpath(svgp, ROOT)
+        if not os.path.exists(svgp):
+            errors.append(f"{rel} missing — run `arch.py sync` to render it")
+        elif _svg_d2sum(svgp) != _d2sum(d2p):
+            errors.append(f"{rel} is stale vs its .d2 — run `arch.py sync` to re-render")
+
+    return {"ok": not errors, "errors": errors, "warnings": warnings,
+            "tools_found": len(found), "tools_declared": len(declared_tools)}
+
+
+# ── summary / describe (for the bridge & Ava) ─────────────────────────────────
+def summary(m: dict) -> dict:
+    drift = check_drift(m)
+    return {
+        "meta": m.get("meta", {}),
+        "counts": {
+            "layers": len(m.get("layers", [])),
+            "services": len(m.get("services", [])),
+            "capabilities": sum(len(c["tools"]) for c in m.get("capabilities", [])),
+            "policies": len(m.get("policies", [])),
+        },
+        "layers": [{"id": l["id"], "title": l["title"]} for l in m.get("layers", [])],
+        "services": [{"id": s["id"], "bind": s.get("bind"), "public": s.get("public"),
+                      "command": s.get("command")} for s in m.get("services", [])],
+        "capabilities": [{"category": c["category"], "tools": c["tools"]}
+                         for c in m.get("capabilities", [])],
+        "policies": [p["name"] if isinstance(p, dict) else p for p in m.get("policies", [])],
+        "drift": drift,
+        "diagrams": ["docs/architecture/diagrams/system.svg", "docs/architecture/diagrams/network.svg",
+                     "docs/architecture/diagrams/policy.svg", "docs/architecture/diagrams/security.svg"],
+    }
+
+
+def describe(m: dict, name: str) -> dict:
+    name = name.strip()
+    for s in m.get("services", []):
+        if s["id"] == name or s.get("unit") == name:
+            return {"kind": "service", **s}
+    for c in m.get("capabilities", []):
+        if c["category"] == name:
+            return {"kind": "capability_category", **c}
+        if name in c["tools"]:
+            mod = actual_tools().get(name)
+            return {"kind": "tool", "name": name, "category": c["category"], "module": mod}
+    for l in m.get("layers", []):
+        if l["id"] == name:
+            return {"kind": "layer", **l}
+    for p in m.get("policies", []):
+        pname = p["name"] if isinstance(p, dict) else p
+        if pname == name:
+            extra = {k: v for k, v in p.items() if k != "name"} if isinstance(p, dict) else {}
+            return {"kind": "policy", "name": pname,
+                    "file": f"agent-platform/integrations/ava/policies/egress/{pname}.yaml", **extra}
+    return {"error": f"no component named '{name}'"}
+
+
+# ── sync / update (with optional auto-commit) ─────────────────────────────────
+def _git(args: list[str]) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["git", "-C", ROOT,
+         "-c", "user.name=Ava (auto-sync)", "-c", "user.email=ava@localhost", *args],
+        capture_output=True, text=True)
+
+
+def sync(commit: bool = False, message: str | None = None) -> dict:
+    m = load()
+    written = render(m)
+    write_tables(m)
+    drift = check_drift(m)
+    result = {"ok": True, "regenerated": [os.path.relpath(p, ROOT) for p in written],
+              "drift": drift, "committed": False}
+    if commit:
+        paths = ["docs/architecture/architecture.yaml", "docs/architecture/diagrams", "README.md",
+                 *(os.path.relpath(svg, ROOT) for _, svg, _ in STATIC_D2)]
+        _git(["add", *paths])
+        st = _run(["git", "-C", ROOT, "status", "--porcelain", *paths])
+        if st.strip():
+            msg = message or "ava(arch): sync diagrams + tables from manifest"
+            cp = _git(["commit", "-m", msg])
+            result["committed"] = cp.returncode == 0
+            result["commit_output"] = (cp.stdout + cp.stderr).strip()[-400:]
+    return result
+
+
+def update(new_yaml: str, commit: bool = True, message: str | None = None) -> dict:
+    new = yaml.safe_load(new_yaml)
+    errs = validate_schema(new)
+    if errs:
+        return {"ok": False, "error": "invalid manifest: " + "; ".join(errs)}
+    backup = MANIFEST + ".bak"
+    shutil.copy(MANIFEST, backup)
+    write_manifest(new)
+    try:
+        m = load()
+        render(m)
+        write_tables(m)
+        drift = check_drift(m)
+    except Exception as e:  # noqa: BLE001
+        shutil.copy(backup, MANIFEST)
+        return {"ok": False, "error": f"sync failed, manifest reverted: {e}"}
+    if not drift["ok"]:
+        shutil.copy(backup, MANIFEST)
+        render(load())
+        write_tables(load())
+        return {"ok": False, "error": "drift-gate failed; manifest reverted",
+                "drift": drift}
+    os.remove(backup)
+    res = {"ok": True, "drift": drift, "committed": False}
+    if commit:
+        _git(["add", "docs/architecture/architecture.yaml", "docs/architecture/diagrams", "README.md"])
+        msg = message or "ava(arch): update architecture manifest + regenerate"
+        cp = _git(["commit", "-m", msg])
+        res["committed"] = cp.returncode == 0
+        res["commit_output"] = (cp.stdout + cp.stderr).strip()[-400:]
+    return res
+
+
+# ── CLI ────────────────────────────────────────────────────────────────────────
+def _print(obj, as_json: bool):
+    if as_json:
+        print(json.dumps(obj, ensure_ascii=False))
+    else:
+        print(json.dumps(obj, ensure_ascii=False, indent=2))
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description="Ava architecture pipeline")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("render")
+    sub.add_parser("tables")
+    p_sync = sub.add_parser("sync")
+    p_sync.add_argument("--commit", action="store_true")
+    p_sync.add_argument("--message")
+    p_check = sub.add_parser("check")
+    p_check.add_argument("--strict", action="store_true", help="exit 1 on errors")
+    p_check.add_argument("--json", action="store_true")
+    p_sum = sub.add_parser("summary")
+    p_sum.add_argument("--json", action="store_true")
+    p_desc = sub.add_parser("describe")
+    p_desc.add_argument("name")
+    p_desc.add_argument("--json", action="store_true")
+    p_upd = sub.add_parser("update")
+    p_upd.add_argument("--file", help="read new manifest from this file (else stdin)")
+    p_upd.add_argument("--no-commit", action="store_true")
+    p_upd.add_argument("--message")
+    args = ap.parse_args(argv)
+
+    # The manifest is deployment-specific and gitignored — a fresh fork doesn't
+    # have one, and that's fine: every subcommand is a no-op skip, not a crash.
+    if args.cmd != "update" and not os.path.isfile(MANIFEST):
+        print("arch.py: no docs/architecture/architecture.yaml on this checkout "
+              "(deployment-specific, not shipped) — nothing to do.")
+        return
+
+    if args.cmd == "render":
+        render(load())
+        print("rendered system.d2/.svg + network.d2/.svg")
+    elif args.cmd == "tables":
+        if not os.path.isfile(README):
+            print("arch.py tables: DEV_NOTES.md not present on this checkout — skipped.")
+            return
+        write_tables(load())
+        print("regenerated README services table")
+    elif args.cmd == "sync":
+        print(json.dumps(sync(commit=args.commit, message=args.message), ensure_ascii=False))
+    elif args.cmd == "check":
+        rep = check_drift(load())
+        _print(rep, args.json)
+        if args.strict and not rep["ok"]:
+            sys.exit(1)
+    elif args.cmd == "summary":
+        _print(summary(load()), args.json)
+    elif args.cmd == "describe":
+        _print(describe(load(), args.name), args.json)
+    elif args.cmd == "update":
+        data = open(args.file, encoding="utf-8").read() if args.file else sys.stdin.read()
+        res = update(data, commit=not args.no_commit, message=args.message)
+        print(json.dumps(res, ensure_ascii=False))
+        if not res.get("ok"):
+            sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

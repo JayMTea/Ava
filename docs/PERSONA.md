@@ -10,7 +10,7 @@ the model's own voice until you shape it.
 
 ## What actually ships
 
-The prompt Ava starts from (`agent/persona.txt.tmpl`) contains only
+The prompt Ava starts from (`agent-platform/agents/ava/persona.md.tmpl`) contains only
 **operational** directives - the things that make it *work*:
 
 - Call `get_weather` for anything about weather, rather than answering from
@@ -66,7 +66,7 @@ never reach back and alter how your assistant talks.
 !!! note "Why `format` defaults to `chat`"
 
     Not taste - a renderer fact. Ava's own chat surface displays assistant
-    replies as plain text (`frontend/src/components/chat/Message.tsx` renders a
+    replies as plain text (`app/frontend/src/components/chat/Message.tsx` renders a
     bare `{text}` in a `white-space: pre-wrap` bubble). Markdown headings and
     tables would appear literally, as `##` and pipe characters. If you drive Ava
     through the API, or from a client that renders markdown, set
@@ -75,8 +75,8 @@ never reach back and alter how your assistant talks.
 ## It takes effect on the next provision
 
 The system prompt is built **once**, when the agent runtime is **provisioned**
-(rebuilt and loaded into its sandbox: `agent/install.sh` runs
-`agent/render_persona.py` and hands the result to the runtime). Saving a new
+(rebuilt and loaded into its sandbox: `agent-platform/integrations/ava/sandbox/install.sh` runs
+`agent-platform/integrations/ava/ava_agent/render_persona.py` and hands the result to the runtime). Saving a new
 persona does not change a conversation already in flight, and reloading the page
 will not do it either. Re-provision from **Setup → Agent** afterwards.
 
@@ -89,7 +89,7 @@ will not do it either. Re-provision from **Setup → Agent** afterwards.
       template are not something the agent can quietly relax. It used to be
       gated by an approval tier; not having the write path is the stronger
       version of the same guarantee.
-    - `tests/test_persona_neutral.py` fails if the shipped template ever regains
+    - `tests/unit/test_persona_neutral.py` fails if the shipped template ever regains
       a stylistic opinion, and separately if it loses an operational one. If you
       are adding character, add it as a preset or as your own `persona.style` -
       not to the template every fork inherits.

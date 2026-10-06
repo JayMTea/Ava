@@ -124,7 +124,7 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: ${{ steps.context.outputs.path }}
-          file: deploy/agent.Dockerfile
+          file: agent-platform/integrations/ava/sandbox/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta_agent.outputs.tags }}

@@ -1,26 +1,5 @@
-# Packaging metadata + tooling config.
-#
-# This file previously carried a deliberate note saying the opposite — no
-# [build-system], no [project], because "Ava is run from a checkout, not
-# pip-installed, and adding packaging metadata would advertise a `pip install -e .`
-# workflow that nothing else in the repo supports."
-#
-# That reasoning was sound and its premise is what changed. README.md and
-# deploy/README.md have always told people to run `ava setup && ava doctor &&
-# ava up`, and with no console script `ava` was "command not found" for every
-# forker — only ./bin/ava (a relative launcher, used by CONTRIBUTING.md but not
-# by the user-facing docs) worked. So either the docs lose the `ava` command or
-# the repo grows one entry point. The install step is now IN those docs, which
-# is the support that was missing.
-#
-# EDITABLE INSTALL ONLY, and that is load-bearing. `pip install -e .` leaves
-# ava_bridge.settings.CODE_ROOT resolving to the clone, so config.example.yaml
-# (copied by `ava setup`), frontend/dist (served by the bridge), agent/install.sh
-# and connectors/_template all resolve exactly as they do today. A non-editable
-# wheel would need package-data plumbing for every one of those and is a separate
-# project.
-#
-# Ruff keeps its own ruff.toml, which takes precedence over any [tool.ruff] here.
+# EDITABLE INSTALL ONLY: source assets are resolved from the checkout.
+# Non-editable wheels require separate package-data support.
 
 [build-system]
 requires = ["setuptools>=83.0.0"]
@@ -43,59 +22,27 @@ requires-python = ">=3.12"
 dynamic = ["version", "dependencies"]
 
 [project.scripts]
-# ava_cli.main() already returns int, so no code change was needed for this.
-ava = "ava_cli:main"
+# app.cli.main() already returns int, so no code change was needed for this.
+ava = "app.cli:main"
 
 [tool.setuptools.dynamic]
 version = { file = "VERSION" }
-# Read from requirements.txt rather than restated here. Two dependency lists for
+# Read from config/dependencies/runtime.txt rather than restated here. Two dependency lists for
 # one project is the same failure mode as the two ruff pins CI used to carry.
-dependencies = { file = ["requirements.txt"] }
+dependencies = { file = ["config/dependencies/runtime.txt"] }
 
-# EXPLICIT, never `find:`. The repo root also holds agent/, config/, connectors/,
-# data/, docs/ and tools/ — auto-discovery would make those importable top-level
-# packages, shadowing names and sweeping the owner's runtime state into the
-# distribution. tests/test_cli_entrypoint.py fails any package added here that is
-# not a real Python package.
+# Explicit packages keep instance data out of the editable installation.
 [tool.setuptools]
 packages = [
-    "ava_bridge",
-    "ava_bridge.alloc",
-    "ava_bridge.alloc.drivers",
-    "ava_bridge.runtime",
+    "app", "app.backend", "ava_agent", "ava_agent.alloc", "ava_agent.alloc.drivers",
+    "ava_agent.adapters", "app.backend.hub", "app.backend.voice",
 ]
-# Top-level modules the bridge and CLI import by name at runtime, plus the
-# launcher scripts. An import-by-name that is NOT listed here resolves fine from
-# the clone (CWD is on sys.path) and raises ModuleNotFoundError everywhere else
-# — `ava verify` did exactly that, from this list's first draft, because
-# ava_cli.py imported a top-level module inside the command body. The editable
-# finder honours this list strictly; it does not fall back to the repo root.
-# tests/test_cli_entrypoint.py re-derives the imported set and fails on a gap.
-py-modules = [
-    "ava_cli",
-    "phone_bridge",
-    "serve",
-    "ava_router",
-    "kokoro_tts",
-    "perf_log",
-    "speaker",
-    "voice_ava",
-    # agent/docs/arch.py imports bind_class/parse_listeners from here so the
-    # manifest's `bind:` drift check and the security check share one socket-table
-    # parser. Without this entry the import succeeds from the repo root and fails
-    # for an installed `ava`, which would silently drop the check back to
-    # comparing port numbers only — the exact blindness it was added to fix.
-    "ava_security_check",
-]
+py-modules = []
+
+[tool.setuptools.package-dir]
+ava_agent = "agent-platform/integrations/ava/ava_agent"
 
 [tool.pytest.ini_options]
-# Put the repo root on sys.path so `pytest tests/` works the same as
-# `python -m pytest tests/`. Without it the bare command fails with
-# ModuleNotFoundError on `ava_bridge` — only the `python -m` form implicitly adds
-# the CWD — which meant the documented invocation worked, every IDE's built-in
-# test runner did not, and the difference looked like a broken checkout.
-pythonpath = ["."]
-testpaths = ["tests"]
-# `qa/` is a separate tier with its own runner (qa/run.sh) and heavier fixtures;
-# it is addressed explicitly rather than swept up by a bare `pytest`.
-norecursedirs = ["qa", "frontend", "overlay", "demo", ".venv", "agent/skills"]
+pythonpath = [".", "tests"]
+testpaths = ["tests/unit"]
+norecursedirs = ["integration", "app/frontend", "overlay", "demo", ".venv", "agent-platform"]

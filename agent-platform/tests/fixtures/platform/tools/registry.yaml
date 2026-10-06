@@ -1,0 +1,162 @@
+# Test fixture: subset of the tool registry. Only builtins, filesystem and (denied) shell,
+# so runtime tests never depend on optional tool families a project may delete.
+schema_version: 1
+tools:
+- id: skill.load
+  description: Load the full instructions of one of your available skills by name. Call this before doing work a
+    skill covers.
+  implementation: runtime.builtins:skill_load
+  side_effects: none
+  input_schema:
+    type: object
+    properties:
+      name:
+        type: string
+        description: Skill name from <available_skills>.
+    required:
+    - name
+    additionalProperties: false
+- id: memory.recall
+  description: Search long-term memory for facts relevant to a query. Returns the best matches with their namespace.
+  implementation: runtime.builtins:memory_recall
+  side_effects: none
+  input_schema:
+    type: object
+    properties:
+      query:
+        type: string
+        minLength: 2
+      namespaces:
+        type: array
+        items:
+          type: string
+        description: Defaults to every namespace you may read.
+      k:
+        type: integer
+        minimum: 1
+        maximum: 20
+    required:
+    - query
+    additionalProperties: false
+- id: memory.remember
+  description: Store one durable fact (a decision, preference or finding worth keeping across tasks). Keep it short
+    and self-contained. Never store secrets.
+  implementation: runtime.builtins:memory_remember
+  side_effects: local_write
+  input_schema:
+    type: object
+    properties:
+      namespace:
+        type: string
+      text:
+        type: string
+        minLength: 3
+        maxLength: 2000
+      tags:
+        type: array
+        items:
+          type: string
+        maxItems: 10
+    required:
+    - namespace
+    - text
+    additionalProperties: false
+- id: task.delegate
+  description: Hand a self-contained sub-task to one of your delegate agents and get its final answer back. The
+    delegate sees only the task text, so include all context it needs.
+  implementation: runtime.builtins:task_delegate
+  side_effects: none
+  timeout_s: 900
+  input_schema:
+    type: object
+    properties:
+      agent:
+        type: string
+        description: Name from <delegates>.
+      task:
+        type: string
+        minLength: 10
+        description: Complete
+        standalone instructions for the delegate.: null
+    required:
+    - agent
+    - task
+    additionalProperties: false
+- id: filesystem.read
+  description: Read a UTF-8 text file from the workspace. Paths are relative to the workspace root.
+  implementation: tools.filesystem:read
+  side_effects: none
+  input_schema:
+    type: object
+    properties:
+      path:
+        type: string
+      max_chars:
+        type: integer
+        minimum: 100
+        maximum: 100000
+    required:
+    - path
+    additionalProperties: false
+- id: filesystem.list
+  description: List files and directories in the workspace (directories end with /).
+  implementation: tools.filesystem:list_dir
+  side_effects: none
+  input_schema:
+    type: object
+    properties:
+      path:
+        type: string
+        default: .
+      recursive:
+        type: boolean
+        default: false
+      max_entries:
+        type: integer
+        minimum: 1
+        maximum: 1000
+    additionalProperties: false
+- id: filesystem.write
+  description: Write a UTF-8 text file. By policy, only paths under artifacts/ are writable. Files under artifacts/
+    are recorded as task artifacts.
+  implementation: tools.filesystem:write
+  side_effects: local_write
+  input_schema:
+    type: object
+    properties:
+      path:
+        type: string
+        description: e.g. artifacts/reports/summary.md
+      content:
+        type: string
+      overwrite:
+        type: boolean
+        default: false
+      description:
+        type: string
+        description: One line describing the artifact.
+    required:
+    - path
+    - content
+    additionalProperties: false
+- id: shell.run
+  description: Run a command (argv list, no shell) inside the sandbox. Returns exit code, stdout and stderr.
+  implementation: tools.shell:run
+  side_effects: destructive
+  sandbox: required
+  timeout_s: 120
+  input_schema:
+    type: object
+    properties:
+      command:
+        type: array
+        items:
+          type: string
+        minItems: 1
+      timeout_s:
+        type: integer
+        minimum: 1
+        maximum: 600
+    required:
+    - command
+    additionalProperties: false

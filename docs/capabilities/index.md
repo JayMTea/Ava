@@ -15,7 +15,7 @@ surfaces a single `connector.yaml` derives.
 
 ## The tabs that always ship
 
-Three built-in tabs (`BUILTIN_VIEWS` in `frontend/src/App.tsx`). They are on
+Three built-in tabs (`BUILTIN_VIEWS` in `app/frontend/src/App.tsx`). They are on
 every install, with no connector wired in and nothing to enable. A fourth,
 **Domains**, is built in but off by default (`features.domains`).
 
@@ -41,7 +41,7 @@ is bookmarkable and the browser's back button moves between them.
     `/api/data/*` routes.
 
     What produced their numbers is untouched, because it is not only theirs:
-    `perf_log.py` still writes one record per generation, the hardware sampler
+    `app/backend/perf_log.py` still writes one record per generation, the hardware sampler
     still runs, and the audit ledger still records every governed action. The
     agent's own `read_performance` tool still answers "how fast is Ava
     generating?" in chat, and `ava attest` still inventories every store.
@@ -130,7 +130,7 @@ for the manifest reference.
 ## Optional capabilities, and "off" means off
 
 Web search and voice are switches, not assumptions. They live in one backend
-registry (`ava_bridge/features.py`) that renders the **Setup → System →
+registry (`app/backend/features.py`) that renders the **Setup → System →
 Optional features** checkboxes directly, so what the panel shows is what the
 code gates on.
 
@@ -140,7 +140,7 @@ code gates on.
 | `features.memory` | on | Local recall and distillation using a configured local inference backend |
 | `features.data_artifacts` | on | Connected apps emitting supported artifact schemas |
 | `features.domains` | off | Operator-defined app groups and KPI sources |
-| `features.voice` | off | `requirements-voice.txt` installed (and a voiceprint, to gate who Ava listens to) |
+| `features.voice` | off | `config/dependencies/voice.txt` installed (and a voiceprint, to gate who Ava listens to) |
 | `features.remote_hardware` | off | node_exporter and a GPU exporter on the machine that runs your models, when that is not the box Ava is on; addresses in Setup → Hardware ([install reference](../INSTALL_REFERENCE.md#reading-the-hardware-of-another-machine)) |
 
 A capability you chose not to enable never surfaces as a mysterious outage.
@@ -151,7 +151,7 @@ A capability you chose not to enable never surfaces as a mysterious outage.
     distinguishable codes: `<key>_off` when you turned the switch off, and
     `<key>_down` when the switch is on but the backing service will not
     answer. The chat UI turns either code into a "here's where to fix it"
-    link, derived from the code pattern in `frontend/src/lib/fixes.ts`, so a
+    link, derived from the code pattern in `app/frontend/src/lib/fixes.ts`, so a
     new capability needs no frontend change.
 
 ## One data root

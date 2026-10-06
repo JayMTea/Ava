@@ -221,7 +221,7 @@ cmd_up() {
 #                                         and refuses every chat turn with what
 #                                         reads like a model error
 #
-# A check that could not run reports SKIP and never PASS — the rule qa/run.sh
+# A check that could not run reports SKIP and never PASS — the rule tests/integration/run.sh
 # states for its own tiers, for the same reason: a green line nobody earned is
 # worse than a missing one.
 _ok=0; _bad=0; _skip=0

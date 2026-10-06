@@ -1,0 +1,7 @@
+# Memory DEFINITION (committed). The data lives in state/memory/ (gitignored).
+# Backend: runtime/memory_manager.py. Swap the storage for a vector DB without changing the
+# permission and redaction rules - they sit above the storage layer.
+schema_version: 1
+backend: jsonl
+redact_before_write: true     # safety.yaml redaction runs before anything is persisted
+max_entry_chars: 2000         # one fact per entry; summarize before storing

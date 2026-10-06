@@ -10,7 +10,7 @@ security issues privately as described in [SECURITY.md](SECURITY.md).
 first-class platform families and only some are verified on real silicon; the rest are
 labelled `ci-simulated` in [deploy/platforms.conf](deploy/platforms.conf) precisely
 because nobody has run them. If you have an AMD Strix Halo, a discrete Radeon, an
-Apple Silicon Mac or a plain x86 box, `python3 tools/ondevice_check.py --record
+Apple Silicon Mac or a plain x86 box, `python3 scripts/ondevice_check.py --record
 --json` produces the fixture and report that promote a row from claimed to verified - 
 or a concrete defect list, which is just as useful.
 
@@ -19,8 +19,8 @@ or a concrete defect list, which is just as useful.
 ```bash
 git clone <your fork> && cd Ava
 python -m venv .venv && . .venv/bin/activate
-pip install -r requirements.txt -r requirements-dev.txt
-cd frontend && npm ci && npm run build && cd ..
+pip install -r config/dependencies/runtime.txt -r config/dependencies/dev.txt -e .
+cd app/frontend && npm ci && npm run build && cd ../..
 
 ./bin/ava setup      # dirs, secrets, admin password, ava.yaml
 ./bin/ava doctor     # hardware, config, inference route, services
@@ -41,37 +41,37 @@ You do not need a model at all to work on the SPA, the Setup hub, the docs, or
 anything in `tests/` - the suite is hermetic and needs neither a GPU nor a
 running bridge.
 
-Optional extras: `pip install -r requirements-voice.txt` enables STT + the
+Optional extras: `pip install -r config/dependencies/voice.txt` enables STT + the
 voice gate (the app runs voice-less without it), and
-`pip install -r requirements-docs.txt` builds the docs site (`docs-site/`).
+`pip install -r config/dependencies/docs.txt` builds the docs site (`docs/site/`).
 
 ### Previewing the docs site
 
 ```bash
-python docs-site/sync.py && mkdocs build --strict -f docs-site/mkdocs.yml
-python docs-site/preview.py          # -> http://127.0.0.1:8099/Ava/
+python docs/site/sync.py && mkdocs build --strict -f docs/site/mkdocs.yml
+python docs/site/preview.py          # -> http://127.0.0.1:8099/Ava/
 ```
 
-`preview.py` serves the built `docs-site/site/` - the exact artifact Pages
+`preview.py` serves the built `docs/site/site/` - the exact artifact Pages
 publishes - at the `/Ava/` prefix from `site_url`, and answers `Range:` requests
-the way Pages does. `mkdocs serve -f docs-site/mkdocs.yml` is fine for prose (it
+the way Pages does. `mkdocs serve -f docs/site/mkdocs.yml` is fine for prose (it
 live-reloads, and note it also mounts at `/Ava/`, not `/`), but it builds in
 memory, so a check against it is not a check against the artifact.
 
 ## 2. Tests & lint
 
 ```bash
-python -m pytest tests/     # pure-logic tests - no GPU or network needed
+python -m pytest tests/unit/     # pure-logic tests - no GPU or network needed
 ruff check .                # Python lint (config in ruff.toml)
 
-cd frontend
-npm run lint                # SPA lint (Biome - config in frontend/biome.json)
+cd app/frontend
+npm run lint                # SPA lint (Biome - config in app/frontend/biome.json)
 npm test                    # SPA unit tests (Vitest)
 npm run typecheck           # tsc, no emit
 ```
 
 CI runs **14 jobs** on every PR: `ruff`, a DCO sign-off check, the frontend
-checks (Biome lint + Vitest), `shellcheck`, the `tests/` tier, the `qa/` backend
+checks (Biome lint + Vitest), `shellcheck`, the `tests/` tier, the `tests/integration/` backend
 tier, **`qa-e2e` browser specs**, a frontend dist-drift check, a CPU-only smoke
 boot plus `ava verify`, three compose checks (config, install, smoke), a secrets
 scan, and a strict docs build.
@@ -80,14 +80,14 @@ Two of those bite people who did not know they existed:
 
 - **`qa-e2e`** drives the built SPA in headless Chromium, and it treats a *skip*
   as a failure - so it cannot be dodged by not having a browser. If you touch
-  `frontend/src/`, run it before pushing:
+  `app/frontend/src/`, run it before pushing:
   ```bash
-  cd qa/e2e && npm install && cd ../..
-  bash qa/run.sh --e2e
+  cd tests/integration/e2e && npm install && cd ../../..
+  bash tests/integration/run.sh --e2e
   ```
 - **`frontend-dist-drift`** rebuilds the bundle and byte-compares it with the one
-  you committed. Use the Node version in `frontend/.nvmrc` (`nvm use` in
-  `frontend/`); a different major produces a different bundle, and the diff will
+  you committed. Use the Node version in `app/frontend/.nvmrc` (`nvm use` in
+  `app/frontend/`); a different major produces a different bundle, and the diff will
   look like a change you did not make. `npm run build` refuses to run on the
   wrong major rather than letting you find out from CI.
 
@@ -97,10 +97,10 @@ ships its own parser, so it is independent of the TypeScript version.
 
 ## 3. Frontend changes
 
-`frontend/dist/` is **deliberately tracked** - the FastAPI bridge serves the
+`app/frontend/dist/` is **deliberately tracked** - the FastAPI bridge serves the
 prebuilt bundle so a fork needs no Node at runtime. If you touch
-`frontend/src/`, rebuild and commit the regenerated `dist/` in the same
-commit (`cd frontend && npm run build`). CI fails the PR if `dist/` drifts
+`app/frontend/src/`, rebuild and commit the regenerated `dist/` in the same
+commit (`cd app/frontend && npm run build`). CI fails the PR if `dist/` drifts
 from `src/`.
 
 If two branches both touch the SPA you will get a merge conflict in `dist/`,
@@ -108,9 +108,9 @@ because the bundle filename is content-hashed and `dist/sw.js` is one long line.
 **Never hand-merge it.** Take either side, rebuild, and commit the result:
 
 ```bash
-git checkout --ours frontend/dist   # either side works; it is regenerated
-cd frontend && npm run build && cd ..
-git add frontend/dist
+git checkout --ours app/frontend/dist   # either side works; it is regenerated
+cd app/frontend && npm run build && cd ..
+git add app/frontend/dist
 ```
 
 ### Working on the SPA without rebuilding every time
@@ -120,7 +120,7 @@ the API to a running bridge, so hot reload works against real data:
 
 ```bash
 ./bin/ava up                     # terminal 1: the bridge on :8096
-cd frontend && npm run dev       # terminal 2: the SPA with hot reload
+cd app/frontend && npm run dev       # terminal 2: the SPA with hot reload
 ```
 
 Point it at a bridge on another host or port with `AVA_BRIDGE`:
@@ -157,16 +157,16 @@ working conventions, and humans should read it too.
 
 | Rule | Guard |
 | --- | --- |
-| Every optional capability is one entry in `ava_bridge/features.py` and is gated with `features.preflight(...)`, never a hand-rolled `settings.get_bool("features.…")` | `tests/test_feature_convention.py` |
-| Anything representing a connected app carries its accent/icon via `appAccent()` / `appIcon()` | `tests/test_hub_uniformity.py` |
-| Setup panels build from `hub/hooks.ts` + `hub/ui/`, with one tone system | `tests/test_hub_uniformity.py` |
-| An `async def` route does no blocking work - hand it to `run_in_threadpool` | `tests/test_no_blocking_routes.py` |
-| A new route is added to the frozen route table in the same commit | `tests/test_route_table_stable.py` |
-| Nothing personal or machine-specific in tracked files, prose included | `tests/test_no_owner_identity.py` |
-| The shipped persona template stays operational-only - no personality | `tests/test_persona_neutral.py` |
+| Every optional capability is one entry in `app/backend/features.py` and is gated with `features.preflight(...)`, never a hand-rolled `settings.get_bool("features.…")` | `tests/unit/test_feature_convention.py` |
+| Anything representing a connected app carries its accent/icon via `appAccent()` / `appIcon()` | `tests/unit/test_hub_uniformity.py` |
+| Setup panels build from `hub/hooks.ts` + `hub/ui/`, with one tone system | `tests/unit/test_hub_uniformity.py` |
+| An `async def` route does no blocking work - hand it to `run_in_threadpool` | `tests/unit/test_no_blocking_routes.py` |
+| A new route is added to the frozen route table in the same commit | `tests/unit/test_route_table_stable.py` |
+| Nothing personal or machine-specific in tracked files, prose included | `tests/unit/test_no_owner_identity.py` |
+| The shipped persona template stays operational-only - no personality | `tests/unit/test_persona_neutral.py` |
 
 Significant or hard-to-reverse decisions get an **ADR** under
-[`agent/docs/adr/`](agent/docs/adr/) (copy `0000-template.md`).
+[`docs/architecture/adr/`](docs/architecture/adr/) (copy `0000-template.md`).
 
 Cutting a release (maintainers): see [docs/RELEASING.md](docs/RELEASING.md) -
 SemVer, signed tags, and the automated signed-image pipeline.
@@ -179,24 +179,24 @@ arbitrary.
 
 | Term | What it means here |
 | --- | --- |
-| **bridge** | The FastAPI app: `phone_bridge.py` + `ava_bridge/`. Serves the SPA, authenticates, and is the only thing a browser talks to. |
-| **router** | The OpenAI-compatible inference proxy in front of whichever engine you run (`ava_bridge/router_app.py`, hosted by `router_host.py`). Logs perf, does not decide anything. |
+| **bridge** | The FastAPI app: `app/server.py` + `app/backend/`. Serves the SPA, authenticates, and is the only thing a browser talks to. |
+| **router** | The OpenAI-compatible inference proxy in front of whichever engine you run (`agent-platform/integrations/ava/ava_agent/router_app.py`, hosted by `router_host.py`). Logs perf, does not decide anything. |
 | **engine** | The thing that actually runs the weights: vLLM, Ollama, llama.cpp, or a cloud endpoint. |
 | **backend** | One configured engine + model + URL, from `inference.backends` in `ava.yaml`. |
 | **brain** | The backend a chat turn thinks with. With the agent runtime active that is the sandbox model; the picker then steers only the fallback. |
-| **agent runtime** | The sandbox that gives Ava tools, skills and memory - NemoClaw by default, `direct` (tool-less) when absent. `ava_bridge/runtime/`. |
+| **agent runtime** | The sandbox that gives Ava tools, skills and memory - NemoClaw by default, `direct` (tool-less) when absent. `agent-platform/integrations/ava/ava_agent/adapters/`. |
 | **connector** | A manifest (`connectors/<id>/connector.yaml`) wiring an external app in: health, metrics, agent tools, generated egress policy. The extension model. |
 | **app** | A connector's user-facing identity - what appears under "Apps" in the sidebar. |
 | **action** | One callable operation a connector declares. Becomes an agent tool. |
 | **tool** | Anything the agent can call, whether from a connector action, an MCP server, or built in (`get_weather`, `read_document`). |
-| **skill** | A `SKILL.md` telling the model *how and when* to use tools. Instructions, not capability - `agent/skills/`. |
+| **skill** | A `SKILL.md` telling the model *how and when* to use tools. Instructions, not capability - `skills/`. |
 | **turn** | One request/response cycle with the agent, tracked in `state.turns` with a live chain-of-thought. |
-| **fit memory** | The memory pool a model is sized against - VRAM on a discrete GPU, system RAM on a unified box. `ava_bridge/hwinfo.fit_memory()`. |
+| **fit memory** | The memory pool a model is sized against - VRAM on a discrete GPU, system RAM on a unified box. `app.backend.hwinfo.fit_memory()`. |
 
 ## 6. Ground rules (keep Ava fork-portable)
 
 - **Config over hardcode** - no literal paths, ports, hostnames, or model ids
-  in code; everything resolves via `ava_bridge/settings.py` (env →
+  in code; everything resolves via `app/backend/settings.py` (env →
   `$AVA_HOME/ava.yaml` → default).
 - **Connectors, not `if myapp:`** - app integrations go through the connector
   manifest ([docs/CONNECTOR_SDK.md](docs/CONNECTOR_SDK.md)), never bespoke
@@ -210,21 +210,21 @@ arbitrary.
 ## 7. Architecture SSOT (maintainer automation - optional)
 
 Deployment topology lives in a **gitignored, deployment-specific** manifest
-(`agent/docs/architecture.yaml`) from which diagrams and drift checks are
-generated by `agent/docs/arch.py`. On a fresh clone that manifest doesn't
+(`docs/architecture/architecture.yaml`) from which diagrams and drift checks are
+generated by `docs/architecture/arch.py`. On a fresh clone that manifest doesn't
 exist and every `arch.py` subcommand except `update` is a clean no-op skip -
 and `update`, which rewrites the manifest, is maintainer-only. You don't need
-any of it to contribute. See [agent/docs/README.md](agent/docs/README.md).
+any of it to contribute. See [docs/architecture/README.md](docs/architecture/README.md).
 
 ## 8. Before you push
 
-- [ ] `python -m pytest tests/` and `ruff check .` pass
-- [ ] `bash qa/run.sh --backend` passes (the tier that exercises the real ASGI app)
-- [ ] `shellcheck -S warning deploy/*.sh bin/ava qa/run.sh run.sh run_bridge.sh` passes
-- [ ] Docs build: `python docs-site/sync.py && mkdocs build --strict -f docs-site/mkdocs.yml`
-- [ ] SPA touched? `cd frontend && npm run lint && npm test` pass
-- [ ] SPA touched? `bash qa/run.sh --e2e` passes (a skip is a failure in CI)
-- [ ] Frontend rebuilt + `dist/` committed if `src/` changed, on the Node in `frontend/.nvmrc`
+- [ ] `python -m pytest tests/unit/` and `ruff check .` pass
+- [ ] `bash tests/integration/run.sh --backend` passes (the tier that exercises the real ASGI app)
+- [ ] `shellcheck -S warning deploy/*.sh bin/ava tests/integration/run.sh bin/ava-voice bin/ava-bridge` passes
+- [ ] Docs build: `python docs/site/sync.py && mkdocs build --strict -f docs/site/mkdocs.yml`
+- [ ] SPA touched? `cd app/frontend && npm run lint && npm test` pass
+- [ ] SPA touched? `bash tests/integration/run.sh --e2e` passes (a skip is a failure in CI)
+- [ ] Frontend rebuilt + `dist/` committed if `src/` changed, on the Node in `app/frontend/.nvmrc`
 - [ ] No secrets or personal data in the diff (CI runs a secrets scan)
 - [ ] New network access expressed as a narrow policy/connector egress
 - [ ] `CHANGELOG.md` updated for user-facing changes
@@ -236,10 +236,10 @@ Keep instance state and custom integrations outside the public checkout, using
 an explicit `AVA_HOME`. Before publishing source, docs, or images, run:
 
 ```bash
-python -m pytest tests/test_no_owner_identity.py tests/test_no_private_apps_shipped.py tests/test_path_roots.py tests/test_launcher_instance.py -q
-python -m pytest tests/test_docs_assets.py tests/test_landing_page.py -q
-python docs-site/sync.py
-mkdocs build --strict -f docs-site/mkdocs.yml
+python -m pytest tests/unit/test_no_owner_identity.py tests/unit/test_no_private_apps_shipped.py tests/unit/test_path_roots.py tests/unit/test_launcher_instance.py -q
+python -m pytest tests/unit/test_docs_assets.py tests/unit/test_landing_page.py -q
+python docs/site/sync.py
+mkdocs build --strict -f docs/site/mkdocs.yml
 ```
 
 Private identifiers belong in `.git/info/private-names`, one regex per line,

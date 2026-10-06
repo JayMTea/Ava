@@ -14,10 +14,11 @@ jobs:
         with:
           python-version: "3.12"
       # Install from the pin file, not a second literal. Two pins for one tool
-      # (this said 0.15.14 while requirements-dev.txt said 0.15.20) is a
+      # (this said 0.15.14 while config/dependencies/dev.txt said 0.15.20) is a
       # guaranteed CI-green / local-red divergence.
-      - run: pip install -r requirements-dev.txt
+      - run: pip install -r config/dependencies/dev.txt
       - run: ruff check .
+      - run: ruff check --config ruff.toml agent-platform/integrations/ava/ava_agent
 
   dco:
     # CONTRIBUTING states the sign-off as an absolute requirement and nothing
@@ -63,14 +64,14 @@ jobs:
           python-version: '3.12'
       - uses: actions/setup-node@v7
         with:
-          node-version-file: frontend/.nvmrc
+          node-version-file: app/frontend/.nvmrc
       - name: Check publication gates
-        run: node --test tests/test_release_gate.cjs
+        run: node --test tests/unit/test_release_gate.cjs
       - name: Check the transitive runtime lock
         run: |
           python -m pip install uv==0.12.7
           uv export --frozen --no-dev --no-emit-project --no-header --output-file "$RUNNER_TEMP/runtime.lock"
-          tail -n +3 requirements-runtime.lock > "$RUNNER_TEMP/committed.lock"
+          tail -n +3 config/dependencies/runtime.lock > "$RUNNER_TEMP/committed.lock"
           diff -u "$RUNNER_TEMP/committed.lock" "$RUNNER_TEMP/runtime.lock"
 
   frontend-checks:
@@ -87,18 +88,18 @@ jobs:
     # typescript-eslint supports TS >=7.1.
     #
     # `biome lint` exits non-zero on errors only; the useExhaustiveDependencies
-    # and noArrayIndexKey findings are warnings on purpose — see frontend/biome.json.
+    # and noArrayIndexKey findings are warnings on purpose — see app/frontend/biome.json.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version-file: frontend/.nvmrc
-      - working-directory: frontend
+          node-version-file: app/frontend/.nvmrc
+      - working-directory: app/frontend
         run: npm ci
-      - working-directory: frontend
+      - working-directory: app/frontend
         run: npm run lint
-      - working-directory: frontend
+      - working-directory: app/frontend
         run: npm test
 
   shellcheck:
@@ -108,9 +109,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: sudo apt-get update && sudo apt-get install -y shellcheck
-      # agent/install.sh is the only path that writes into the NemoClaw sandbox,
-      # and a shell bug there is silent (see tests/test_install_scope_contract.py).
-      - run: shellcheck -S warning deploy/*.sh bin/ava qa/run.sh run.sh run_bridge.sh agent/install.sh
+      # agent-platform/integrations/ava/sandbox/install.sh is the only path that writes into the NemoClaw sandbox,
+      # and a shell bug there is silent (see tests/unit/test_install_scope_contract.py).
+      - run: shellcheck -S warning deploy/*.sh bin/ava tests/integration/run.sh bin/ava-voice bin/ava-bridge agent-platform/integrations/ava/sandbox/install.sh
 
   test:
     runs-on: ubuntu-latest
@@ -119,36 +120,49 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - run: pip install -r requirements.txt -r requirements-dev.txt
-      - run: python -m pytest tests/ -q
+      - run: pip install -r config/dependencies/runtime.txt -r config/dependencies/dev.txt -e .
+      - run: python -m pytest tests/unit/ -q
         env:
           AVA_PRIVATE_NAMES: ${{ secrets.AVA_PRIVATE_NAMES }}
 
+  agent-platform:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agent-platform
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev,openai]"
+      - run: python scripts/check.py
+
   frontend-dist-drift:
-    # The bridge serves the prebuilt bundle, so frontend/dist is tracked. Rebuild
+    # The bridge serves the prebuilt bundle, so app/frontend/dist is tracked. Rebuild
     # and fail if dist drifts from src — a PR that changes src must commit the
     # rebuilt dist.
     #
-    # The Node version comes from frontend/.nvmrc, not a literal here. This job
+    # The Node version comes from app/frontend/.nvmrc, not a literal here. This job
     # byte-compares a bundle, so the interpreter is part of the contract: it used
     # to pin "20" while package.json's engines allowed `^20.19.0 || >=22.12.0`,
     # so a contributor on 22 committed a dist this job could not reproduce and got
-    # a diff they did not make. frontend/scripts/ensure-deps.mjs enforces the same
+    # a diff they did not make. app/frontend/scripts/ensure-deps.mjs enforces the same
     # pin locally, before the build rather than after the push.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version-file: frontend/.nvmrc
-      - working-directory: frontend
+          node-version-file: app/frontend/.nvmrc
+      - working-directory: app/frontend
         run: npm ci
-      - working-directory: frontend
+      - working-directory: app/frontend
         run: npm run build
       - name: Assert dist is in sync with src
         run: |
-          if ! git diff --exit-code -- frontend/dist; then
-            echo "::error::frontend/dist is out of date — run 'npm run build' in frontend/ and commit the result."
+          if ! git diff --exit-code -- app/frontend/dist; then
+            echo "::error::app/frontend/dist is out of date — run 'npm run build' in app/frontend/ and commit the result."
             exit 1
           fi
 
@@ -161,14 +175,14 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - run: pip install -r requirements.txt
+      - run: pip install -r config/dependencies/runtime.txt -e .
       - name: Boot the bridge and probe health
         env:
           AVA_HOME: ${{ runner.temp }}/ava-home
           AVA_AGENT_ENABLED: "0"
         run: |
-          python ava_cli.py setup --password ci-smoke-pass
-          python serve.py &
+          python -m app.cli setup --password ci-smoke-pass
+          python -m app &
           SERVER_PID=$!
           for _attempt in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:8096/api/health >/dev/null 2>&1; then
@@ -186,10 +200,10 @@ jobs:
         env:
           AVA_HOME: ${{ runner.temp }}/ava-home
           AVA_AGENT_ENABLED: "0"
-        run: python ava_cli.py verify
+        run: python -m app.cli verify
 
   qa:
-    # The qa/ tier (~119 tests) is the only thing that imports phone_bridge.py and
+    # The tests/integration/ tier (~119 tests) is the only thing that imports app/server.py and
     # exercises the real ASGI app: auth posture on every route, API contracts,
     # degradation paths. It was documented in CLAUDE.md as how you verify a change
     # and then never run by CI, so nothing enforced it. It is hermetic — temp
@@ -200,17 +214,17 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - run: pip install -r requirements.txt -r requirements-dev.txt
-      - run: bash qa/run.sh --backend
+      - run: pip install -r config/dependencies/runtime.txt -r config/dependencies/dev.txt -e .
+      - run: bash tests/integration/run.sh --backend
 
   qa-e2e:
     # Tier 3: the four browser specs, against a REAL bridge subprocess. Same
-    # reason as the qa job above — it was advertised in qa/README.md and run
+    # reason as the tests/integration job above — it was advertised in tests/integration/README.md and run
     # nowhere, except worse: its runner lived in the local-only demo/ tree, so
-    # run_e2e.py skipped, returned 0, and run.sh printed "e2e: PASS" for a tier
+    # run_e2e.py skipped, returned 0, and bin/ava-voice printed "e2e: PASS" for a tier
     # that executed zero specs. In every clone. Forever.
     #
-    # It is a separate job from `qa` because it needs Node and a browser
+    # It is a separate job from `tests/integration` because it needs Node and a browser
     # download, and the backend tier should not wait on that.
     runs-on: ubuntu-latest
     steps:
@@ -221,13 +235,13 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
-      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: pip install -r config/dependencies/runtime.txt -r config/dependencies/dev.txt -e .
       # The specs drive the BUILT bundle, so it has to exist before they run.
       - run: npm ci && npm run build
-        working-directory: frontend
+        working-directory: app/frontend
       - run: npm install            # postinstall fetches chromium
-        working-directory: qa/e2e
-      # Called directly rather than through qa/run.sh, which maps 77 to 0 so a
+        working-directory: tests/integration/e2e
+      # Called directly rather than through tests/integration/run.sh, which maps 77 to 0 so a
       # developer's skip does not fail their local suite. Here a skip IS the
       # failure: it means the runner or the bundle went missing and this job
       # went green having tested nothing, which is the silent-green it exists
@@ -235,11 +249,11 @@ jobs:
       - name: Browser specs (a skip is a failure here)
         run: |
           set +e
-          python qa/e2e/run_e2e.py
+          python tests/integration/e2e/run_e2e.py
           rc=$?
           set -e
           if [ "$rc" = 77 ]; then
-            echo "::error::qa-e2e skipped instead of running — no runner, or frontend/dist missing"
+            echo "::error::qa-e2e skipped instead of running — no runner, or app/frontend/dist missing"
             exit 1
           fi
           exit "$rc"
@@ -286,7 +300,7 @@ jobs:
       - name: A profile must start the service its own backend URL names
         # The defect this job exists for: `--profile cpu` pointed the bridge at
         # http://vllm:8002/v1, and no vllm service exists in that profile.
-        run: python -m pytest tests/test_deploy_compose_contract.py tests/test_model_flags_ssot.py tests/test_dockerfile_bind.py -q
+        run: python -m pytest tests/unit/test_deploy_compose_contract.py tests/unit/test_model_flags_ssot.py tests/unit/test_dockerfile_bind.py -q
 
   install-smoke:
     # deploy/install.sh writes deploy/.env. It previously wrote nothing at all,
@@ -488,7 +502,7 @@ jobs:
 
   compose-smoke:
     # Docker is the install path README.md recommends first, and NOTHING built or
-    # booted it in CI — deploy/agent.Dockerfile had never been built by any
+    # booted it in CI — agent-platform/integrations/ava/sandbox/Dockerfile had never been built by any
     # automation at all. Every Docker-specific defect found in the July audit (the
     # internal-token path, perf logs written to the ephemeral layer, an unbuildable
     # agent image) was downstream of that single gap, and none of them can happen
@@ -503,7 +517,7 @@ jobs:
       - name: Build the agent-runtime image
         # Kept separate so a break here is legible: this image had never been
         # built by CI, so nothing caught a bad layer until someone ran it.
-        run: docker build -f deploy/agent.Dockerfile -t ava/agent-runtime:ci .
+        run: docker build -f agent-platform/integrations/ava/sandbox/Dockerfile -t ava/agent-runtime:ci .
 
       - name: Start the stub backend
         # OpenAI-shaped enough for the router to consider the backend real. This
@@ -726,9 +740,9 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - run: pip install -r requirements-docs.txt
-      - run: python docs-site/sync.py
-      - run: mkdocs build --strict -f docs-site/mkdocs.yml
+      - run: pip install -r config/dependencies/docs.txt
+      - run: python docs/site/sync.py
+      - run: mkdocs build --strict -f docs/site/mkdocs.yml
 
       - name: No list was swallowed into a paragraph
         # `--strict` catches broken LINKS. It says nothing about markdown that
@@ -751,7 +765,7 @@ jobs:
         run: |
           python3 - <<'PY'
           import html, pathlib, re, sys
-          root = pathlib.Path("docs-site/site")
+          root = pathlib.Path("docs/site/site")
           pages = sorted(root.rglob("index.html"))
           if not pages:
               print("::error::no built pages found — did mkdocs build actually run?")

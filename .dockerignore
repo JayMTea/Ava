@@ -18,7 +18,7 @@
 # so the .bak and .tmp forms need covering too, not just the live file.
 #
 # Do NOT widen `data`/`logs`/`media`/`models` to `**/`. They are root-anchored on
-# purpose: frontend/src/components/data/ is real tracked source, and `**/data`
+# purpose: app/frontend/src/components/data/ is real tracked source, and `**/data`
 # would drop DataView.tsx out of the web build stage.
 #
 # deploy/profiles/*.env and deploy/default-model.env stay IN: they are committed,
@@ -29,8 +29,8 @@
 **/__pycache__
 **/*.pyc
 node_modules
-frontend/node_modules
-frontend/dist
+app/frontend/node_modules
+app/frontend/dist
 
 # --- secrets and owner-local config, at ANY depth -----------------------------
 **/.env
@@ -51,7 +51,7 @@ frontend/dist
 
 # Instance extensions, branding, metadata and private authoring material.
 /overlay
-/frontend/src/overlay
+/app/frontend/src/overlay
 /branding
 /brand
 /alloc_drivers
@@ -67,15 +67,15 @@ frontend/dist
 /docs/dev
 /docs/private
 /demo
-/agent/docs/architecture.yaml*
-/agent/docs/model
-/agent/docs/model.py
-/agent/docs/explorer
-/agent/docs/diagrams/model
-/agent/docs/diagrams/system.*
-/agent/docs/diagrams/network.*
-/agent/docs/diagrams/policy.*
-/ava_bridge/model
+/knowledge/architecture/architecture.yaml*
+/knowledge/architecture/model
+/knowledge/architecture/model.py
+/knowledge/architecture/explorer
+/knowledge/architecture/diagrams/model
+/knowledge/architecture/diagrams/system.*
+/knowledge/architecture/diagrams/network.*
+/knowledge/architecture/diagrams/policy.*
+/runtime/model
 /docs/assets/model
 /docs/ARCHITECTURE_MODEL.md
 **/.pytest_cache
@@ -93,7 +93,7 @@ searxng
 **/*.log
 
 # --- connectors/: default-deny, allow-list the shipped built-ins --------------
-# ava_bridge/connectors.py sets BUILTIN_DIR = <repo root>/connectors, so anything
+# ava_agent.connectors sets BUILTIN_DIR = <repo root>/connectors, so anything
 # in this directory at build time loads as a first-party built-in — no install
 # step, no manifest edit, present for every user of the image.
 #
@@ -128,5 +128,48 @@ connectors/*
 # (settings.agent_state_dir()) rather than in the image at all. Excluding them
 # keeps the legacy code-root path empty in a fresh container, which is what makes
 # settings.migrate_agent_state() a no-op there instead of a resurrection.
+mcp/servers/mcp_server_connectors/apps/
+policies/egress/generated/
+
+# Retired paths may still contain private instance data.
+frontend/node_modules
+frontend/dist
+/frontend/src/overlay
+/agent/docs/architecture.yaml*
+/agent/docs/model
+/agent/docs/model.py
+/agent/docs/explorer
+/agent/docs/diagrams/model
+/agent/docs/diagrams/system.*
+/agent/docs/diagrams/network.*
+/agent/docs/diagrams/policy.*
+/ava_bridge/model
 agent/mcp_server_connectors/apps/
 agent/policies/generated/
+
+/state
+/artifacts
+
+# Consolidated private architecture and retired source/cache trees.
+/docs/architecture/architecture.yaml*
+/docs/architecture/model
+/docs/architecture/model.py
+/docs/architecture/explorer
+/docs/architecture/diagrams/model
+/docs/architecture/diagrams/system.*
+/docs/architecture/diagrams/network.*
+/docs/architecture/diagrams/policy.*
+/agent
+/ava_bridge
+/frontend
+/docs-site
+/qa
+/knowledge
+
+# Adopted platform state and generated integration material are never image inputs.
+/agent-platform/.venv
+/agent-platform/state
+/agent-platform/artifacts
+/agent-platform/integrations/ava/mcp/servers/mcp_server_connectors/apps
+/agent-platform/integrations/ava/mcp/servers/mcp_server_content/connectors
+/agent-platform/integrations/ava/policies/egress/generated

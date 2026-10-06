@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "skill.schema.json",
+  "title": "Skill frontmatter (skills/<name>/SKILL.md) - Agent Skills format, agentskills.io",
+  "type": "object",
+  "required": ["name", "description"],
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string",
+      "maxLength": 64,
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "description": "Lowercase, hyphenated, equal to the directory name."
+    },
+    "description": {
+      "type": "string",
+      "minLength": 20,
+      "maxLength": 1024,
+      "description": "What the skill does AND when to use it. This is all the model sees until it loads the skill."
+    },
+    "license": {"type": "string"},
+    "compatibility": {"type": "string", "maxLength": 500},
+    "allowed-tools": {"type": "string"},
+    "metadata": {"type": "object", "additionalProperties": {"type": "string"}}
+  }
+}

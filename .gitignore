@@ -1,5 +1,5 @@
 # ── Ava — version control ignore list ───────────────────────────────────────
-# Track: source (*.py, *.sh), the agent config kit (agent/), docs, configs.
+# Track: app source, the adopted agent-platform/, docs, and shared configs.
 # Ignore: the venv, large model weights, biometric/voice data, runtime state,
 # generated media, vendored binaries, and anything secret.
 
@@ -37,7 +37,7 @@ media/uploads/*
 !media/uploads/.gitkeep
 
 # Large model weights & the biometric voiceprint (re-downloadable / re-enrollable)
-models/
+/models/
 
 # Vendored Piper/espeak binaries (large, platform-specific).
 # bin/ava (the portable CLI wrapper) IS tracked.
@@ -76,11 +76,11 @@ domains.yaml*
 # published either.
 DEV_NOTES.md
 docs/dev/
-frontend/src/overlay/
+app/frontend/src/overlay/
 
 # Generated connector artifacts (derived from a connector.yaml by
 # `ava connector tools|policies` — regenerated at setup, not source).
-agent/mcp_server_connectors/apps/
+mcp/servers/mcp_server_connectors/apps/
 # The path generated connector tools used to live at, kept ignored on purpose.
 # Moving the rule to the line above without leaving this behind un-ignored a
 # directory that still held 24 generated files on every existing install, and the
@@ -88,8 +88,8 @@ agent/mcp_server_connectors/apps/
 # that .git/info/private-names exists to keep out of the tracked tree. An ignore
 # rule for a path that "should be empty now" costs nothing; assuming it is empty
 # cost a leak.
-agent/mcp_server_content/connectors/
-agent/policies/generated/
+mcp/servers/mcp_server_content/connectors/
+policies/egress/generated/
 
 # Architecture SSOT manifest + .d2 sources (deployment-specific).
 #
@@ -103,13 +103,13 @@ agent/policies/generated/
 # nor correct them. The public architecture picture is docs/assets/architecture.svg,
 # which is hand-authored, app-agnostic, and tracked with its .d2.
 # policy.svg stays local (it embeds install-specific filesystem paths).
-agent/docs/architecture.yaml
-agent/docs/diagrams/system.d2
-agent/docs/diagrams/network.d2
-agent/docs/diagrams/policy.d2
-agent/docs/diagrams/policy.svg
-agent/docs/diagrams/system.svg
-agent/docs/diagrams/network.svg
+docs/architecture/architecture.yaml
+docs/architecture/diagrams/system.d2
+docs/architecture/diagrams/network.d2
+docs/architecture/diagrams/policy.d2
+docs/architecture/diagrams/policy.svg
+docs/architecture/diagrams/system.svg
+docs/architecture/diagrams/network.svg
 
 # Architecture MODEL sheets rendered WITH the private overlay merged in
 # (`model.py render --private`). The spine-only renders in docs/assets/model/ are
@@ -117,19 +117,19 @@ agent/docs/diagrams/network.svg
 # generated per-app tools, so the whole directory is excluded rather than
 # individual files — a new sheet appears here whenever the model grows an area,
 # and a rule that has to be updated to stay correct is a rule that will not be.
-agent/docs/diagrams/model/
+docs/architecture/diagrams/model/
 
 # Personal-app overlay (backend MCP servers/skills/policies + facade)
 /overlay/
 
-# Brand masters (logo source art). Deliberately OUTSIDE frontend/public/:
-# Vite copies public/ verbatim into the TRACKED frontend/dist/, so 3.8 MB of
+# Brand masters (logo source art). Deliberately OUTSIDE app/frontend/public/:
+# Vite copies public/ verbatim into the TRACKED app/frontend/dist/, so 3.8 MB of
 # source art parked there would be swept into the repo, into the published
 # image, and into the service-worker precache on the next `npm run build` —
 # and the frontend-dist-drift CI job would fail on the way past.
 #
 # Unanchored on purpose, so it catches a `brand/` nested anywhere. That is also
-# why Ava's own SHIPPED default marks live in frontend/public/assets/marks/ and
+# why Ava's own SHIPPED default marks live in app/frontend/public/assets/marks/ and
 # not .../brand/ — this pattern would swallow them, and a file cannot be
 # re-included once a parent directory is excluded.
 brand/
@@ -142,8 +142,8 @@ brand/
 /branding/
 
 # Docs site — generated staging + build output
-docs-site/docs/
-docs-site/site/
+docs/site/docs/
+docs/site/site/
 
 # Personal instance connectors (this box's AVA_HOME = repo root). Entries for
 # specific PRIVATE apps live in .git/info/exclude (local-only) so their names
@@ -160,13 +160,14 @@ connectors/home-assistant/
 
 # Agent/editor runtime config — drives the local-only demo/ harness, so it
 # is meaningless (and broken) for anyone else.
-.claude/
+/.claude/*
+!/.claude/skills/
 
-# Installed by `cd qa/e2e && npm install` (qa/e2e/package.json pins playwright
+# Installed by `cd tests/integration/e2e && npm install` (tests/integration/e2e/package.json pins playwright
 # + tsx). On this box it may instead be a symlink into the local-only demo/
 # tree, which is the other reason never to commit it: that would bake an
 # absolute home path into the repo and break every clone.
-qa/e2e/node_modules
+tests/integration/e2e/node_modules
 
 # Allocation ledger: live cross-process state (lease locks, breaker counters, per-model
 # records). Runtime, not source — and committing it would ship one box's leases to every
@@ -174,7 +175,7 @@ qa/e2e/node_modules
 run/
 
 # arch.py writes architecture.yaml (already ignored above); its backups are noise.
-agent/docs/architecture.yaml.bak
+docs/architecture/architecture.yaml.bak
 
 # Drop-in allocation drivers ($AVA_HOME/alloc_drivers). Created by
 # settings.ensure_dirs(); a forker's own engine adapters live here and are
@@ -186,31 +187,31 @@ alloc_drivers/
 # owner's decision is that the assembly tree and everything rendered from it are
 # for them alone, so the model CONTENT and every VIEW of it stay out of git:
 #
-#   agent/docs/model/        the spine + the derived snapshot
+#   docs/architecture/model/        the spine + the derived snapshot
 #   docs/assets/model/       all 17 sheets, the A0 poster, the explorer
 #   docs/ARCHITECTURE_MODEL.md   the write-up
-#   agent/docs/adr/0006-*    the decision record
+#   docs/architecture/adr/0006-*    the decision record
 #
 # Consequence, stated so it is not rediscovered later: the "tracked SSOT, checked
 # on a fresh clone" property from ADR-0006 does NOT hold while these are ignored.
 # The guards still run here, on this machine, where the model exists.
-/agent/docs/model/
+/knowledge/architecture/model/
 /docs/assets/model/
 /docs/ARCHITECTURE_MODEL.md
-/agent/docs/adr/0006-hierarchical-architecture-model.md
+/knowledge/architecture/adr/0006-hierarchical-architecture-model.md
 #
 # The TOOLING that builds it is ignored too. It is app-agnostic and a fork would
 # arguably benefit, but its tests import the model and would fail on a checkout
 # that has none — and "publish the tool, not the picture" is a decision to make
 # deliberately rather than by leaving files lying around in a public repo.
-/ava_bridge/model/
-/agent/docs/model.py
-/agent/docs/explorer/
+/runtime/model/
+/knowledge/architecture/model.py
+/knowledge/architecture/explorer/
 /tests/test_model_schema.py
 /tests/test_model_overlay.py
 /tests/test_model_derived_stable.py
 /tests/test_model_sheets.py
-/agent/mcp_server_system/architecture/get_model.mjs
+/mcp/servers/mcp_server_system/architecture/get_model.mjs
 # The hook installer invokes model.py, so it goes with it.
 /tools/install-hooks.sh
 #
@@ -219,16 +220,61 @@ alloc_drivers/
 # written for whoever maintains Ava, not for the people installing it. docs/
 # PACKAGING_PLAN.md, docs/ARDUINO_SDK_PLAN.md and docs/WARM_AGENT_MODE.md were
 # public on GitHub from the root commit until 2026-08-03 — the docs SITE never
-# staged them (docs-site/sync.py is an allow-list), which is precisely why it
+# staged them (docs/site/sync.py is an allow-list), which is precisely why it
 # went unnoticed: curated site, uncurated repo.
 #
-# These globs stop the ones with an obvious name; tests/test_no_internal_plans.py
+# These globs stop the ones with an obvious name; tests/unit/test_no_internal_plans.py
 # catches the rest by SHAPE, since the next plan doc will be called something
 # else. Keep planning docs outside the tree entirely.
 /docs/*_PLAN.md
 /docs/private/
 
-# The provisioning mutex (ava_bridge/runtime/deploy_lock.py). Live cross-process
+# The provisioning mutex (ava_agent.adapters.deploy_lock). Live cross-process
 # state, created wherever `agent.state_dir` points — never source. Committing it
 # would ship one machine's lock into every clone.
 agent/.deploy.lock
+
+# Retired paths may still contain private instance data.
+frontend/src/overlay/
+agent/mcp_server_connectors/apps/
+agent/mcp_server_content/connectors/
+agent/policies/generated/
+
+# Retired output paths may still contain private instance data.
+/state/
+/artifacts/
+# Left behind by the source move; dependencies and caches remain private.
+/frontend/node_modules/
+/frontend/.vite/
+/frontend/*.tsbuildinfo
+agent/docs/architecture.yaml
+agent/docs/diagrams/system.d2
+agent/docs/diagrams/network.d2
+agent/docs/diagrams/policy.d2
+agent/docs/diagrams/policy.svg
+agent/docs/diagrams/system.svg
+agent/docs/diagrams/network.svg
+agent/docs/diagrams/model/
+agent/docs/architecture.yaml.bak
+/agent/docs/model/
+/agent/docs/adr/0006-hierarchical-architecture-model.md
+/ava_bridge/model/
+/agent/docs/model.py
+/agent/docs/explorer/
+/agent/mcp_server_system/architecture/get_model.mjs
+
+# Private architecture material at the consolidated documentation path.
+/docs/architecture/model/
+/docs/architecture/adr/0006-hierarchical-architecture-model.md
+/docs/architecture/model.py
+/docs/architecture/explorer/
+/tests/unit/test_model_schema.py
+/tests/unit/test_model_overlay.py
+/tests/unit/test_model_derived_stable.py
+/tests/unit/test_model_sheets.py
+
+# Ava's deployment source kit, now inside the adopted platform.
+/agent-platform/integrations/ava/mcp/servers/mcp_server_connectors/apps/
+/agent-platform/integrations/ava/mcp/servers/mcp_server_content/connectors/
+/agent-platform/integrations/ava/mcp/servers/mcp_server_system/architecture/get_model.mjs
+/agent-platform/integrations/ava/policies/egress/generated/

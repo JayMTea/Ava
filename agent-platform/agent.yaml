@@ -1,0 +1,23 @@
+# Platform manifest - the machine-readable root of the agent platform.
+# Validated by schemas/platform.schema.json. Run `python scripts/check.py` after any edit.
+#
+# Layout is convention, not configuration: agents/, skills/, workflows/, tools/registry.yaml,
+# models/, policies/, memory/ are always found at these paths relative to this file.
+schema_version: 1
+name: ava-agent-platform
+description: "Private agent platform for Ava, the self-hosted personal assistant, with local inference and governed tools."
+version: 0.1.0
+owners: []
+
+# Global operating instructions prepended to every agent's system prompt.
+instructions: AGENT.md
+
+# The agent that receives a task when the caller does not name one.
+default_agent: ava
+
+# Which template version this project was created from. .template/new_project.py fills
+# adopted_at; upgrades diff the template between this version and the latest tag.
+template:
+  source: github.com/JayMTea/agent-platform-template
+  version: 1.1.0
+  adopted_at: "2026-10-06"

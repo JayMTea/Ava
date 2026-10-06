@@ -4,12 +4,13 @@ target-version = "py312"
 line-length = 100
 
 extend-exclude = [
-    "frontend",
+    "agent-platform",  # independent package; its CI runs scripts/check.py
+    "app/frontend",
     "overlay",
     ".venv",
     "docs",
-    "agent/mcp_server_connectors/apps",
-    "agent/policies/generated",
+    "agent-platform/integrations/ava/mcp/servers/mcp_server_connectors/apps",
+    "agent-platform/integrations/ava/policies/egress/generated",
 ]
 
 [lint]
@@ -35,17 +36,15 @@ select = ["E4", "E7", "E9", "F", "BLE", "RUF100"]
 # risk: a swallowed exception there fails the assertion or prints a warning,
 # rather than turning into a silent None inside a request.
 "tests/*" = ["BLE001"]
-"qa/*" = ["F821", "BLE001"]          # CLIENT/ANON globals injected by fixtures
-"tools/*" = ["BLE001"]
-"agent/docs/arch.py" = ["E741"]          # single-char loop vars in the d2 renderer
-"ava_bridge/coder.py" = ["E402", "E741", "F841"]  # post-guard import + legacy locals
-"ava_bridge/config_mgmt.py" = ["E722"]   # legacy best-effort restore
-"ava_bridge/connectors.py" = ["E402"]    # `import re as _re` after the var table
-"ava_bridge/learning.py" = ["F841"]      # legacy staged local
-"ava_bridge/log_mgmt.py" = ["F841"]      # legacy staged local
-# The three legacy best-effort `except:` handlers moved out of phone_bridge.py
+"tests/integration/*" = ["F821", "BLE001"]          # CLIENT/ANON globals injected by fixtures
+"scripts/*" = ["BLE001"]
+"docs/architecture/arch.py" = ["E741"]          # single-char loop vars in the d2 renderer
+"app/backend/config_mgmt.py" = ["E722"]   # legacy best-effort restore
+"agent-platform/integrations/ava/ava_agent/connectors.py" = ["E402"]    # `import re as _re` after the var table
+"app/backend/log_mgmt.py" = ["F841"]      # legacy staged local
+# The three legacy best-effort `except:` handlers moved out of app/server.py
 # with the /internal router; the exemption follows the code rather than
 # outliving it. (Worth fixing properly: a bare except also swallows
 # KeyboardInterrupt/SystemExit inside a request handler.)
-"ava_bridge/internal.py" = ["E722"]      # legacy best-effort handlers
-"voice_ava.py" = ["E702"]                # terse teardown line
+"app/backend/internal.py" = ["E722"]      # legacy best-effort handlers
+"app/voice.py" = ["E702"]                # terse teardown line

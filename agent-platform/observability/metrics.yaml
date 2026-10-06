@@ -1,0 +1,15 @@
+# Metrics emitted by the runtime (state/sessions/<session>/metrics.jsonl).
+# Names follow OpenTelemetry GenAI conventions where one exists.
+schema_version: 1
+enabled: true
+emitted:
+  - name: gen_ai.client.token.usage
+    unit: "{token}"
+    attributes: [type, model]
+    description: Input and output tokens per model call.
+  - name: agent.tool.calls
+    unit: "{call}"
+    attributes: [tool, error]
+    description: Tool executions, including refused and failed ones.
+# Worth alerting on once you export: refusal rate, policy-denial rate, approval-denial
+# rate, tasks failing on limits (max_turns / max_tool_calls), p95 task duration, cost/task.
