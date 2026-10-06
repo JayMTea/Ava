@@ -39,7 +39,7 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Require successful CI for the selected commit
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           VERIFIED_SHA: ${{ env.DEPLOY_SHA }}
         with:
